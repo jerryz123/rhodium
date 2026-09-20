@@ -196,7 +196,7 @@ emit_jobs() {
 
 classify_path() {
   local path="$1"
-  # Workloads follow the complete SimpleSoC dependency closure independently
+  # Workloads follow the complete SingleCoreRV5StageSoC dependency closure independently
   # of host/CIRCT grouping. More specific suite paths must precede broad roots.
   case "$path" in
     *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tools/emacs/*) ;;
@@ -222,7 +222,7 @@ classify_path() {
     *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes)
       # Documentation and repository metadata cannot affect executable behavior.
       ;;
-    sram/*|vlsi/sim/*|vlsi/designs/mini-soc/sky130/*)
+    sram/*|vlsi/sim/*|vlsi/designs/mini-rv5stage-soc/sky130/*)
       simulation=true
       ;;
     tools/emacs/*|vlsi/*)

@@ -53,7 +53,7 @@ repeat constructor invariants in either concrete memory circuit.
 
 For memory-controller changes, run the RAM configuration and DPI ABI host tests,
 `chi-ram` simulation and its expected invalid-request assertion, the native DPI
-memory test, and MiniSoC/SimpleSoC smoke tests. These cover the SRAM and DPI
+memory test, and MiniRV5StageSoC/SingleCoreRV5StageSoC smoke tests. These cover the SRAM and DPI
 consumers without adding tests of incidental hierarchy or internal instance counts.
 
 RAM range checks use the protocol-neutral `transfer_in_range` helper from
@@ -88,4 +88,4 @@ these metadata declarations beside the production phase controls. The
 transfers and compares exact occurrence graphs, with reused IDs, credit
 returns while idle/busy, write readiness, response stalls, and pending reset in
 all four non-idle phases. Run it alongside the four device simulations, then
-retry SimpleSoC instrumentation for composed network coverage.
+retry SingleCoreRV5StageSoC instrumentation for composed network coverage.

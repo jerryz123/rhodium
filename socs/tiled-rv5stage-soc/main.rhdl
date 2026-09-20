@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes the author-facing bootable TiledSoC configuration and structural circuit.
+// Exposes the author-facing bootable TiledRV5StageSoC configuration and structural circuit.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,7 +15,7 @@ import:
   lib("devices/plic.rhdl").PlicIdentity
   lib("devices/uart16550.rhdl").Uart16550Identity
   "layout.rhm" open
-  "compile.rhdl".compile_tiled_soc
+  "compile.rhdl".compile_tiled_rv5stage_soc
   "distribution.rhdl" open
   "time.rhdl" open
   "tiles/main.rhdl" open
@@ -24,19 +24,19 @@ import:
   "../description.rhm".SoCClockConfig
   "../core-profiles.rhm" open
 
-def default_tiled_soc_layout = tile_grid:
+def default_tiled_rv5stage_soc_layout = tile_grid:
   row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
   row [rv5stage(4), transit]
   row [rv5stage(4), transit]
 
-def tiled_soc_clocks = SoCClockConfig(
+def tiled_rv5stage_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 1000000
 )
 
-def default_tiled_soc_config = TiledSoCConfig(
-  ~layout: default_tiled_soc_layout,
+def default_tiled_rv5stage_soc_config = TiledRV5StageSoCConfig(
+  ~layout: default_tiled_rv5stage_soc_layout,
   ~node_ids: TiledNodeIds(
     ~rv5stage_coherent_base: 0,
     ~rv5stage_uncached_base: 16,
@@ -59,13 +59,13 @@ def default_tiled_soc_config = TiledSoCConfig(
     ~sets: 16,
     ~ways: 4
   ),
-  ~core_profile: tiled_soc_core_profile,
-  ~clocks: tiled_soc_clocks,
+  ~core_profile: tiled_rv5stage_soc_core_profile,
+  ~clocks: tiled_rv5stage_soc_clocks,
   ~flit: CHIFlitParams(~request_address_width: DefaultRhodiumSoCRequestAddressWidth)
 )
 
-sync_circuit TiledSoC(config :: TiledSoCConfig = default_tiled_soc_config):
-  def implementation = compile_tiled_soc(config)
+sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_rv5stage_soc_config):
+  def implementation = compile_tiled_rv5stage_soc(config)
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
   interface host(SoCHostInterface(p), ~role: soc)
@@ -205,7 +205,7 @@ export:
   TiledNodeIds
   StripedMemory
   LLCGeometry
-  TiledSoCConfig
+  TiledRV5StageSoCConfig
   rv5stage_tile
   llc_tile
   memory_tile
@@ -217,8 +217,8 @@ export:
   transit_tile
   repeat_tiled_tile
   tile_grid
-  default_tiled_soc_layout
-  tiled_soc_core_profile
-  tiled_soc_clocks
-  default_tiled_soc_config
-  TiledSoC
+  default_tiled_rv5stage_soc_layout
+  tiled_rv5stage_soc_core_profile
+  tiled_rv5stage_soc_clocks
+  default_tiled_rv5stage_soc_config
+  TiledRV5StageSoC

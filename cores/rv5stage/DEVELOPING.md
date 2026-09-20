@@ -270,7 +270,7 @@ WB ancestry without adding a retirement checkpoint. CSR trap/return and retained
 exception redirects remain a separate unmodeled boundary.
 Run `event-offer-register` for retained ownership, replacement, stalls, and reset;
 use `rv5stage-core`, `rv5stage-zicbom`, `rv5stage-zawrs`, and the FP core fixtures
-for production retirement selection and completion policy, then the SimpleSoC
+for production retirement selection and completion policy, then the SingleCoreRV5StageSoC
 trace check for integration.
 
 `fetch/source.rhdl` maps restart, late redirect, replay, and S1 successor occurrences into
@@ -348,7 +348,7 @@ command-to-attempt contract before its Flow request mapper; unmodeled engine
 branches retain unknown ancestry through request arbitration in partial mode.
 
 After edits, run `rv5stage-core` for forwarding, stalls, replay, redirects, and
-deferred completion, then the SimpleSoC trace smoke. Its native Perfetto checks
+deferred completion, then the SingleCoreRV5StageSoC trace smoke. Its native Perfetto checks
 follow exact occurrence edges, compare named PC/instruction captures, and
 check one-cycle or elastic delays without requiring every fetched
 token to survive. The conversion/fanout compiler fixture covers both Valid
@@ -369,7 +369,7 @@ The line engines' [CompAck contract](chi/README.md#cache-line-refill) connects
 the line-completing RXDAT packet to its acknowledgement. Refill completion
 and backing-memory provenance remain separate.
 Enable stall companions without requiring activity on idle channels.
-After changing them, run the SimpleSoC trace smoke; its
+After changing them, run the SingleCoreRV5StageSoC trace smoke; its
 `check-cache-events.sql` checks schemas, real miss/refill traffic, endpoint IDs,
 and the lack of fabricated parent edges. Instruction RN-I has no SNP channel;
 only the data cache contributes snoop events. Use a cache-heavy benchmark to inspect
@@ -389,9 +389,9 @@ configuration, and validate it with the UDB version pinned by the ACT4 checkout:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/udb-test.rhm cores/rv5stage/tests/udb-test.rhm
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
 bundle exec --gemfile riscv/riscv-arch-test/framework/src/act/data/Gemfile \
-  udb validate cfg /tmp/rhodium-udb/simple-soc.yaml
+  udb validate cfg /tmp/rhodium-udb/single-core-rv5stage-soc.yaml
 ```
 
 UDB semantic validation is required before changing an extension version or
@@ -470,19 +470,19 @@ Before the progress cases, the same bench executes a self-modifying-code
 program: warm an instruction line, modify it through the core's dirty data
 cache, execute `FENCE.I`, and call the updated code.
 The [SoC qualification](../../sims/DEVELOPING.md#lrsc-system-qualification)
-adds real MiniSoC, SimpleSoC, and eight-hart TiledSoC memory paths through normal FESVR.
+adds real MiniRV5StageSoC, SingleCoreRV5StageSoC, and eight-hart TiledRV5StageSoC memory paths through normal FESVR.
 The expanded qualification passed on 2026-09-08 against `d78ce435` production
-RTL: 108/108 core cases, all three FENCE.I checks, 12/12 SimpleSoC placements,
-12/12 eight-hart TiledSoC placements, and 81/81 concrete memory-map checks.
-MiniSoC subsequently passed 12/12 placements on the same date through its
+RTL: 108/108 core cases, all three FENCE.I checks, 12/12 SingleCoreRV5StageSoC placements,
+12/12 eight-hart TiledRV5StageSoC placements, and 81/81 concrete memory-map checks.
+MiniRV5StageSoC subsequently passed 12/12 placements on the same date through its
 ordinary harness and forwarding HN-F/internal CHI RAM. Its compressed-disabled
 profile uses word-aligned page-boundary starts and page tables inside its
 64-KiB RAM; the six placements still cover LR.W/SC.W and LR.D/SC.D in both
-Bare and Sv39. The adapted shared payload also passed all 24 SimpleSoC/TiledSoC
+Bare and Sv39. The adapted shared payload also passed all 24 SingleCoreRV5StageSoC/TiledRV5StageSoC
 placements on their previously qualified simulators.
 Only qualification fixtures, payloads, build targets, and documentation
 changed; no further production RTL fix was required for this matrix.
-MiniSoC, SimpleSoC, and TiledSoC now enable the explicit `ziccrse` profile claim;
+MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC now enable the explicit `ziccrse` profile claim;
 generic profiles remain opt-out. Preserve the matrix as a regression
 gate when changing fetch, translation, reservations, or coherence arbitration.
 Do not enable another integration from cache-only results or treat this bounded

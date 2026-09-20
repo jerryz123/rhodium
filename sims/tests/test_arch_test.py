@@ -107,7 +107,7 @@ class ArchTestConfigTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
         configure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(configure)
-        config = configure.test_config("simple-soc", "gcc", "objdump", "/tmp/sail", "/tmp/udb.yaml")
+        config = configure.test_config("single-core-rv5stage-soc", "gcc", "objdump", "/tmp/sail", "/tmp/udb.yaml")
         self.assertIs(config["include_priv_tests"], True)
         self.assertEqual(config["udb_config"], str(Path("/tmp/udb.yaml").resolve()))
 
@@ -194,7 +194,7 @@ class ArchTestConfigTest(unittest.TestCase):
             with self.subTest(address=address, size=size), self.assertRaisesRegex(ValueError, message):
                 validate(config, udb["params"], address, size)
 
-    def test_simple_soc_timer_macros_match_aclint(self):
+    def test_single_core_rv5stage_soc_timer_macros_match_aclint(self):
         macros = RVMODEL_MACROS.read_text()
         for definition in (
             "#define RVMODEL_MTIMECMP_ADDRESS 0x02004000",
@@ -343,7 +343,7 @@ class ArchTestGenerationTest(unittest.TestCase):
             series = root / "series"
             series.write_text("# No downstream patches are needed by this fixture.\n")
             build_root = root / "build"
-            elf_dir = build_root / "work/simple-soc/simple-soc/elfs"
+            elf_dir = build_root / "work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs"
             elf_dir.mkdir(parents=True)
             (elf_dir / "old.elf").touch()
             (elf_dir / "old.elf.objdump").touch()
@@ -395,14 +395,14 @@ class ArchTestRunnerTest(unittest.TestCase):
     def test_make_runs_only_its_shard_and_preserves_upstream_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            elfs = root / 'work/simple-soc/simple-soc/elfs'
+            elfs = root / 'work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs'
             elfs.mkdir(parents=True)
             for index in range(8):
                 (elfs / f'{index}.elf').touch()
             binary = root / 'VTestDriver'
             binary.write_bytes(b'fake native artifact')
             artifact = RUNNER.parents[1] / 'program-test/artifact.py'
-            subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary), '--soc', 'simple'], check=True)
+            subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary), '--soc', 'single-core-rv5stage-soc'], check=True)
             (root / 'run_tests.py').write_text(
                 '# Emulates upstream ACT execution for the Make/shard/result contract.\n'
                 'import os, sys\nfrom pathlib import Path\n'

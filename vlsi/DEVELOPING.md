@@ -20,7 +20,7 @@ Keep the two prototypes distinct:
 
 - the OpenFrame path owns a small Rhodium leaf, wrapper compatibility, a
   compact LVS fixture, sparse hardening, and padframe cell swap;
-- the MiniSoC path owns Sky130 site choices, manifest assertions, macro-aware
+- the MiniRV5StageSoC path owns Sky130 site choices, manifest assertions, macro-aware
   RTL checks, Slang elaboration, and synthesis handoff.
 
 Neither path may imply physical signoff beyond the exact stage that ran.
@@ -31,11 +31,11 @@ Neither path may imply physical signoff beyond the exact stage that ran.
 |---|---|
 | Build graph, tool selection, staged targets, and artifact assertions | [`Makefile`](Makefile) |
 | Rhodium smoke leaf | [`src/rhodium-top.rhdl`](src/rhodium-top.rhdl) |
-| Smoke-leaf and MiniSoC emitters | [`tools/emit-top.rhm`](tools/emit-top.rhm), [`tools/emit-mini-soc.rhm`](tools/emit-mini-soc.rhm) |
+| Smoke-leaf and MiniRV5StageSoC emitters | [`tools/emit-top.rhm`](tools/emit-top.rhm), [`tools/emit-mini-rv5stage-soc.rhm`](tools/emit-mini-rv5stage-soc.rhm) |
 | OpenFrame boundary checker | [`tools/check-openframe-contract.py`](tools/check-openframe-contract.py) |
-| MiniSoC mapping assertions | [`tools/check-mini-soc-memory-map.py`](tools/check-mini-soc-memory-map.py) |
-| Native Yosys arithmetic-cone remapping and SAT proof after MiniSoC synthesis | [`openlane/mini_soc/post-synth.tcl`](openlane/mini_soc/post-synth.tcl) |
-| MiniSoC/Sky130 site policy | [`designs/mini-soc/sky130/sram-map.yaml`](designs/mini-soc/sky130/sram-map.yaml) |
+| MiniRV5StageSoC mapping assertions | [`tools/check-mini-rv5stage-soc-memory-map.py`](tools/check-mini-rv5stage-soc-memory-map.py) |
+| Native Yosys arithmetic-cone remapping and SAT proof after MiniRV5StageSoC synthesis | [`openlane/mini_rv5stage_soc/post-synth.tcl`](openlane/mini_rv5stage_soc/post-synth.tcl) |
+| MiniRV5StageSoC/Sky130 site policy | [`designs/mini-rv5stage-soc/sky130/sram-map.yaml`](designs/mini-rv5stage-soc/sky130/sram-map.yaml) |
 | OpenFrame wrapper and compact LVS RTL | [`verilog/rtl/`](verilog/rtl/) |
 | LibreLane profiles | [`openlane/`](openlane/) |
 | Generic selection, wrappers, and manifests | [`../sram/DEVELOPING.md`](../sram/DEVELOPING.md) |
@@ -82,11 +82,11 @@ change:
 |---|---|
 | Rhodium leaf, wrapper, or boundary checker | `make -C vlsi rtl-check` |
 | Generic SRAM mapper | `make -C sram test` |
-| MiniSoC policy or manifest assertions | `make -C vlsi mini-soc-memory-map` |
-| Macro wrapper and installed Verilog handoff | `make -C vlsi mini-soc-macro-rtl-check` |
-| Slang compatibility | `make -C vlsi mini-soc-slang-check` |
-| Synthesis configuration | `make -C vlsi mini-soc-synth` |
-| Targeted arithmetic post-mapping repair | `make -C vlsi mini-soc-post-synth` against a completed MiniSoC synthesis; also exercise the opt-in multiplier repair described in the README; check each SAT proof, unchanged outside RTLIL, structural checks, and 36-macro handoff |
+| MiniRV5StageSoC policy or manifest assertions | `make -C vlsi mini-rv5stage-soc-memory-map` |
+| Macro wrapper and installed Verilog handoff | `make -C vlsi mini-rv5stage-soc-macro-rtl-check` |
+| Slang compatibility | `make -C vlsi mini-rv5stage-soc-slang-check` |
+| Synthesis configuration | `make -C vlsi mini-rv5stage-soc-synth` |
+| Targeted arithmetic post-mapping repair | `make -C vlsi mini-rv5stage-soc-post-synth` against a completed MiniRV5StageSoC synthesis; also exercise the opt-in multiplier repair described in the README; check each SAT proof, unchanged outside RTLIL, structural checks, and 36-macro handoff |
 | Compact physical/LVS fixture | `make -C vlsi lvs-smoke` |
 | Sparse wrapper hardening | `make -C vlsi harden` |
 | Padframe integration | `make -C vlsi integrate` |

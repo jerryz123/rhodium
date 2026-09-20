@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks SimpleSoC outer-memory/cache transfers and scalar pipeline lineage with the native importer.
+# Checks SingleCoreRV5StageSoC outer-memory/cache transfers and scalar pipeline lineage with the native importer.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"
@@ -11,7 +11,7 @@ assert_query() {
   actual=$("$TRACE_PROCESSOR" query -f - "$trace_file" <<< "$(< "$script_dir/event-tracks.sql")
 $1")
   if [[ "$actual" != $'"ok"\n1' ]]; then
-    printf 'Unexpected SimpleSoC trace result: %s\n' "$actual" >&2
+    printf 'Unexpected SingleCoreRV5StageSoC trace result: %s\n' "$actual" >&2
     exit 1
   fi
 }
@@ -37,4 +37,4 @@ assert_query "$(< "$script_dir/check-cache-events.sql")"
 assert_query "SELECT count(DISTINCT t.name)>=2 AND sum(json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.kind')!='residency' OR s.depth!=0 OR (s.dur!=-1 AND (s.dur<10 OR s.dur%10!=0)))=0 AS ok FROM slice s JOIN rheg_tracks t ON t.id=s.track_id WHERE t.name IN ('icache/refill','dcache/refill','dcache/writeback','mmu/walk')"
 assert_query "$(< "$script_dir/check-home-events.sql")"
 assert_query "$(< "$script_dir/check-demand-events.sql")"
-echo 'SimpleSoC memory/cache events and scalar pipeline ancestry, PCs, and timing passed'
+echo 'SingleCoreRV5StageSoC memory/cache events and scalar pipeline ancestry, PCs, and timing passed'

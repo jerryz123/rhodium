@@ -8,29 +8,29 @@ import:
   "../cores/rv5stage/udb.rhm".rv5stage_udb_configuration
   "core-profiles.rhm" open
 
-def RiscvUdbConfigurationNames = ["simple-soc", "mini-soc", "tiled-soc"]
+def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
 
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
   match configuration_name
-  | "simple-soc":
+  | "single-core-rv5stage-soc":
       rv5stage_udb_configuration(
-        simple_soc_core_profile,
-        "rhodium-rv5stage-simple-rv64",
-        "RV5Stage configuration instantiated by Rhodium SimpleSoC",
+        single_core_rv5stage_soc_core_profile,
+        "rhodium-single-core-rv5stage-soc-rv64",
+        "RV5Stage configuration instantiated by Rhodium Single-Core RV5Stage SoC",
         DefaultRhodiumSoCRequestAddressWidth
       )
-  | "mini-soc":
+  | "mini-rv5stage-soc":
       rv5stage_udb_configuration(
-        mini_soc_core_profile,
-        "rhodium-rv5stage-mini-rv64",
-        "RV5Stage configuration instantiated by Rhodium MiniSoC",
+        mini_rv5stage_soc_core_profile,
+        "rhodium-mini-rv5stage-soc-rv64",
+        "RV5Stage configuration instantiated by Rhodium Mini RV5Stage SoC",
         DefaultRhodiumSoCRequestAddressWidth
       )
-  | "tiled-soc":
+  | "tiled-rv5stage-soc":
       rv5stage_udb_configuration(
-        tiled_soc_core_profile,
-        "rhodium-rv5stage-tiled-rv64",
-        "RV5Stage configuration instantiated by Rhodium TiledSoC",
+        tiled_rv5stage_soc_core_profile,
+        "rhodium-tiled-rv5stage-soc-rv64",
+        "RV5Stage configuration instantiated by Rhodium Tiled RV5Stage SoC",
         DefaultRhodiumSoCRequestAddressWidth
       )
   | ~else:

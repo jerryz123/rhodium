@@ -6,7 +6,7 @@ import:
   "../udb.rhm" open
   "../core-profiles.rhm" open
 
-for (profile in [simple_soc_core_profile, mini_soc_core_profile, tiled_soc_core_profile]):
+for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_profile, tiled_rv5stage_soc_core_profile]):
   check:
     profile.isa_profile.isa_extensions.contains("ziccif") ~is #true
     profile.isa_profile.isa_extensions.contains("ziccamoa") ~is #true
@@ -35,27 +35,27 @@ for (name in RiscvUdbConfigurationNames):
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zawrs\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("  ZAWRS_NTO_IS_NOP: false") ~is #true
 
-for (profile in [simple_soc_core_profile, tiled_soc_core_profile]):
+for (profile in [single_core_rv5stage_soc_core_profile, tiled_rv5stage_soc_core_profile]):
   check:
     profile.isa_profile.isa_extensions.contains("zcmop") ~is #true
 
-for (name in ["simple-soc", "tiled-soc"]):
+for (name in ["single-core-rv5stage-soc", "tiled-rv5stage-soc"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zcmop\", version: \"= 1.0.0\" }") ~is #true
 
 check:
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvl32b\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("simple-soc").to_yaml().contains("{ name: \"Zvl64b\", version: \"= 1.0.0\" }") ~is #true
-  riscv_udb_configuration("mini-soc").to_yaml().contains("{ name: \"Zvkt\",") ~is #false
-  riscv_udb_configuration("tiled-soc").to_yaml().contains("{ name: \"Zvkt\",") ~is #false
-  riscv_udb_configuration("mini-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
-  riscv_udb_configuration("tiled-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
-  RiscvUdbConfigurationNames ~is ["simple-soc", "mini-soc", "tiled-soc"]
-  riscv_udb_configuration("simple-soc").name ~is "rhodium-rv5stage-simple-rv64"
-  riscv_udb_configuration("mini-soc").name ~is "rhodium-rv5stage-mini-rv64"
-  riscv_udb_configuration("tiled-soc").name ~is "rhodium-rv5stage-tiled-rv64"
-  riscv_udb_configuration("unknown") ~throws "expected one of simple-soc, mini-soc, tiled-soc"
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvkt\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvl32b\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvl64b\", version: \"= 1.0.0\" }") ~is #true
+  riscv_udb_configuration("mini-rv5stage-soc").to_yaml().contains("{ name: \"Zvkt\",") ~is #false
+  riscv_udb_configuration("tiled-rv5stage-soc").to_yaml().contains("{ name: \"Zvkt\",") ~is #false
+  riscv_udb_configuration("mini-rv5stage-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
+  riscv_udb_configuration("tiled-rv5stage-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
+  RiscvUdbConfigurationNames ~is ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
+  riscv_udb_configuration("single-core-rv5stage-soc").name ~is "rhodium-single-core-rv5stage-soc-rv64"
+  riscv_udb_configuration("mini-rv5stage-soc").name ~is "rhodium-mini-rv5stage-soc-rv64"
+  riscv_udb_configuration("tiled-rv5stage-soc").name ~is "rhodium-tiled-rv5stage-soc-rv64"
+  riscv_udb_configuration("unknown") ~throws "expected one of single-core-rv5stage-soc, mini-rv5stage-soc, tiled-rv5stage-soc"

@@ -1,4 +1,4 @@
-<!-- Guides contributors through maintaining mapped MiniSoC simulation orchestration. -->
+<!-- Guides contributors through maintaining mapped MiniRV5StageSoC simulation orchestration. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing mapped VLSI simulation
@@ -11,17 +11,17 @@ orchestration boundary, supported configuration, build graph, and validation.
 
 This directory combines, but does not redefine:
 
-- the MiniSoC harness, TestDriver, FESVR, and target execution from
+- the MiniRV5StageSoC harness, TestDriver, FESVR, and target execution from
   [`../../sims/`](../../sims/DEVELOPING.md);
 - memory-site selection, mapping, wrappers, and manifests from
   [`../../sram/`](../../sram/DEVELOPING.md);
 - the Sky130 catalog and functional model from
   [`../../sram/sky130/`](../../sram/sky130/DEVELOPING.md); and
-- MiniSoC/Sky130 policy and manifest assertions from
+- MiniRV5StageSoC/Sky130 policy and manifest assertions from
   [`../`](../DEVELOPING.md).
 
 It owns only their harness-scoped orchestration and isolated artifacts. The
-supported matrix is deliberately one point: `SOC=mini`, `TECH=sky130`.
+supported matrix is deliberately one point: `SOC=mini-rv5stage-soc`, `TECH=sky130`.
 
 ## Implementation map
 
@@ -30,9 +30,9 @@ are:
 
 ```mermaid
 flowchart LR
-  Harness["MiniSoC harness"] --> MLIR["SoCHarness MLIR"]
+  Harness["MiniRV5StageSoC harness"] --> MLIR["SoCHarness MLIR"]
   MLIR --> Select["top and soc scope<br/>site selection"]
-  Policy["MiniSoC/Sky130 policy"] --> Select
+  Policy["MiniRV5StageSoC/Sky130 policy"] --> Select
   Select --> Map["wrappers and manifest"]
   Catalog["Sky130 catalog/model"] --> Map
   Select --> Lower["mixed inferred/mapped RTL"]
@@ -81,7 +81,7 @@ Validate the complete compiled execution path with:
 make -C vlsi/sim smoke
 ```
 
-Compare against `make -C sims smoke SOC=mini` when diagnosing whether a failure
+Compare against `make -C sims smoke SOC=mini-rv5stage-soc` when diagnosing whether a failure
 belongs to shared simulation or mapping. Mapping requires CIRCT, the SRAM pass,
 Python, and Verilator; execution additionally requires FESVR and the RISC-V
 cross compiler. Generated artifacts are not checked in.

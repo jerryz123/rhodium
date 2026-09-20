@@ -21,7 +21,7 @@
 #define RVMODEL_IO_INIT(_R1, _R2, _R3)
 #define RVMODEL_IO_WRITE_STR(_R1, _R2, _R3, _STR_PTR)
 
-// SimpleSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
+// SingleCoreRV5StageSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
 // Its architectural timebase advances every clock cycle.
 #define RVMODEL_INTERRUPT_LATENCY 1
 #define RVMODEL_MTIMECMP_ADDRESS 0x02004000
@@ -29,7 +29,7 @@
 #define RVMODEL_MAX_CYCLES_PER_TIMER_TICK 1
 #define RVMODEL_TIMER_INT_SOON_DELAY 5000
 
-// SimpleSoC has no PMP entries, so every tested privilege can directly access
+// SingleCoreRV5StageSoC has no PMP entries, so every tested privilege can directly access
 // its physical UART and PLIC windows without adding traps to the test stream.
 #define RHODIUM_UART_IER 0x10000001
 #define RHODIUM_PLIC_PRIORITY 0x0c000004

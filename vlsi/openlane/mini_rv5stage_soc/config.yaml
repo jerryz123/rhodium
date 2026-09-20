@@ -1,10 +1,10 @@
-# Synthesizes mapped MiniSoC RTL through Slang with Sky130 SRAM physical views.
+# Synthesizes mapped MiniRV5StageSoC RTL through Slang with Sky130 SRAM physical views.
 # SPDX-License-Identifier: Apache-2.0
 
-DESIGN_NAME: MiniSoC
+DESIGN_NAME: MiniRV5StageSoC
 VERILOG_FILES:
-  - dir::../../build/mini-soc/mini-soc.sv
-  - dir::../../build/mini-soc/memory-wrappers.sv
+  - dir::../../build/mini-rv5stage-soc/mini-rv5stage-soc.sv
+  - dir::../../build/mini-rv5stage-soc/memory-wrappers.sv
 
 # CIRCT emits legal SystemVerilog packed structs that the stock Yosys frontend
 # cannot parse. LibreLane's Slang plugin elaborates them directly into Yosys IR.

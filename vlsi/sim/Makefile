@@ -1,4 +1,4 @@
-# Builds and runs a MiniSoC simulator after site-specific SRAM macro mapping.
+# Builds and runs a MiniRV5StageSoC simulator after site-specific SRAM macro mapping.
 # SPDX-License-Identifier: Apache-2.0
 
 .DELETE_ON_ERROR:
@@ -7,15 +7,15 @@ REPO_DIR := $(abspath ../..)
 VLSI_DIR := $(abspath ..)
 SIMS_DIR := $(REPO_DIR)/sims
 SRAM_DIR := $(REPO_DIR)/sram
-SOC ?= mini
+SOC ?= mini-rv5stage-soc
 TECH ?= sky130
 BUILD_ROOT ?= $(VLSI_DIR)/build/sim
 BUILD_DIR := $(BUILD_ROOT)/$(SOC)/$(TECH)
-HARNESS_SOURCE := sims/mini-soc-harness.rhdl
+HARNESS_SOURCE := sims/mini-rv5stage-soc-harness.rhdl
 
-ifeq ($(SOC),mini)
+ifeq ($(SOC),mini-rv5stage-soc)
 else
-$(error mapped simulation currently supports SOC=mini, not SOC=$(SOC))
+$(error mapped simulation currently supports SOC=mini-rv5stage-soc, not SOC=$(SOC))
 endif
 ifeq ($(TECH),sky130)
 else
@@ -39,7 +39,7 @@ PYTHON ?= python3
 MEMORY_SITE_PLUGIN := $(SRAM_DIR)/build/circt/rhodium-memory-sites.so
 MEMORY_MAPPER := $(SRAM_DIR)/map-memories.py
 MEMORY_CATALOG := $(SRAM_DIR)/$(TECH)/macros.ini
-MEMORY_POLICY := $(VLSI_DIR)/designs/mini-soc/$(TECH)/sram-map.yaml
+MEMORY_POLICY := $(VLSI_DIR)/designs/mini-rv5stage-soc/$(TECH)/sram-map.yaml
 FUNCTIONAL_MODELS := $(wildcard $(SRAM_DIR)/$(TECH)/models/*.functional.sv)
 
 SOC_MLIR := $(BUILD_DIR)/soc-harness.mlir
@@ -48,7 +48,7 @@ MAPPING_INVENTORY := $(BUILD_DIR)/memory-sites.json
 MAPPING_SELECTION_STAMP := $(BUILD_DIR)/memory-sites.stamp
 MEMORY_WRAPPERS := $(BUILD_DIR)/memory-wrappers.sv
 MEMORY_MANIFEST := $(BUILD_DIR)/memory-manifest.json
-MEMORY_MANIFEST_CHECK := $(VLSI_DIR)/tools/check-mini-soc-memory-map.py
+MEMORY_MANIFEST_CHECK := $(VLSI_DIR)/tools/check-mini-rv5stage-soc-memory-map.py
 MAPPING_STAMP := $(BUILD_DIR)/memory-map.stamp
 SOC_VERILOG := $(BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(BUILD_DIR)/obj

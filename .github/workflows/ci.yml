@@ -195,7 +195,7 @@ jobs:
 
   simulation:
     name: SoC simulation harnesses
-    needs: [changes, compile-racket, simple-soc-build]
+    needs: [changes, compile-racket, single-core-rv5stage-soc-build]
     if: needs.changes.outputs.simulation == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -254,45 +254,45 @@ jobs:
         run: make -C sims arch-test-adapter-test
       - name: Test program suite adapters
         run: make -C sims program-test-adapter-test
-      - name: Download exact SimpleSoC simulator
+      - name: Download exact SingleCoreRV5StageSoC simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: simple-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/simple-soc
+          name: single-core-rv5stage-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-rv5stage-soc
       - name: Restore simulator executable permission
-        run: chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
+        run: chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
       - name: Build reusable SoC simulators
         run: |
-          make -C sims simulator SOC=tiled
+          make -C sims simulator SOC=tiled-rv5stage-soc
       - name: Execute both SoCs through standard FESVR flow
         run: |
-          make -C sims smoke SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
-          make -C sims smoke SOC=tiled
+          make -C sims smoke SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims smoke SOC=tiled-rv5stage-soc
       - name: Verify exact host MMIO on all three SoCs
         run: |
-          make -C sims host-mmio-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
-          make -C sims host-mmio-test SOC=mini
-          make -C sims host-mmio-test SOC=tiled
+          make -C sims host-mmio-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims host-mmio-test SOC=mini-rv5stage-soc
+          make -C sims host-mmio-test SOC=tiled-rv5stage-soc
       - name: Boot distinct ELF entries through each SoC boot register
         run: |
-          make -C sims boot-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
-          make -C sims boot-test SOC=mini
-          make -C sims boot-test SOC=tiled
+          make -C sims boot-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims boot-test SOC=mini-rv5stage-soc
+          make -C sims boot-test SOC=tiled-rv5stage-soc
       - name: Exchange binary UART traffic through each SoC PTY
         run: |
-          make -C sims uart-pty-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
-          make -C sims uart-pty-test SOC=mini
-          make -C sims uart-pty-test SOC=tiled
-      - name: Verify translated NTL cache policy through SimpleSoC FESVR
-        run: make -C sims zihintntl-test SOC=simple PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver"
-      - name: Execute mapped MiniSoC through standard FESVR flow
+          make -C sims uart-pty-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims uart-pty-test SOC=mini-rv5stage-soc
+          make -C sims uart-pty-test SOC=tiled-rv5stage-soc
+      - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
+        run: make -C sims zihintntl-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+      - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
         run: make -C vlsi/sim smoke
       - name: Prepare upstream ISA sources
         run: make -C sims program-test-setup
-      - name: Run MiniSoC and TiledSoC ISA smoke subsets
+      - name: Run MiniRV5StageSoC and TiledRV5StageSoC ISA smoke subsets
         run: |
           status=0
-          for soc in mini tiled; do
+          for soc in mini-rv5stage-soc tiled-rv5stage-soc; do
             make -C sims isa-smoke SOC="$soc" PROGRAM_JOBS=2 || status=1
           done
           exit "$status"
@@ -310,7 +310,7 @@ jobs:
           retention-days: 7
 
   tiled-memory:
-    name: TiledSoC memory backpressure
+    name: TiledRV5StageSoC memory backpressure
     needs: [changes, compile-racket]
     if: needs.changes.outputs.simulation == 'true'
     runs-on: ubuntu-24.04
@@ -360,8 +360,8 @@ jobs:
           path: ${{ runner.temp }}/tiled-memory.log
           retention-days: 7
 
-  simple-soc-build:
-    name: Build shared SimpleSoC simulator
+  single-core-rv5stage-soc-build:
+    name: Build shared SingleCoreRV5StageSoC simulator
     needs: [changes, compile-racket]
     if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.programs == 'true'
     runs-on: ubuntu-24.04
@@ -397,23 +397,23 @@ jobs:
       - name: Build and attest simulator
         run: |
           make setup-circt
-          make -C sims setup simulator program-target SOC=simple
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/simple/obj/VTestDriver --soc simple \
-            --target /tmp/rhodium-sims/simple/obj/program-target.json
-          ldd /tmp/rhodium-sims/simple/obj/VTestDriver
+          make -C sims setup simulator program-target SOC=single-core-rv5stage-soc
+          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver --soc single-core-rv5stage-soc \
+            --target /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
+          ldd /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: simple-soc-${{ github.sha }}
+          name: single-core-rv5stage-soc-${{ github.sha }}
           path: |
-            /tmp/rhodium-sims/simple/obj/VTestDriver
-            /tmp/rhodium-sims/simple/obj/VTestDriver.json
-            /tmp/rhodium-sims/simple/obj/program-target.json
+            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
+            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver.json
+            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
           if-no-files-found: error
           retention-days: 3
 
-  simple-soc-programs:
-    name: SimpleSoC (${{ matrix.suite }})
-    needs: [changes, compile-racket, simple-soc-build]
+  single-core-rv5stage-soc-programs:
+    name: SingleCoreRV5StageSoC (${{ matrix.suite }})
+    needs: [changes, compile-racket, single-core-rv5stage-soc-build]
     if: needs.changes.outputs.program_native == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
@@ -436,13 +436,13 @@ jobs:
       - uses: ./.github/actions/setup-riscv-toolchain
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: simple-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/simple-soc
+          name: single-core-rv5stage-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-rv5stage-soc
       - name: Verify downloaded simulator
         run: |
-          chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/simple-soc/VTestDriver" --soc simple
-          ldd "$RUNNER_TEMP/simple-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" --soc single-core-rv5stage-soc
+          ldd "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
       - name: Test adapter contracts
         run: make -C sims program-test-adapter-test arch-test-adapter-test
       - name: Cache program builds
@@ -456,14 +456,14 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/program-logs"
-          make -C sims "$SUITE-test" SOC=simple \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver" \
+          make -C sims "$SUITE-test" SOC=single-core-rv5stage-soc \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" \
             PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
       - name: Publish workload results and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: simple-soc-${{ matrix.suite }}-results-${{ github.sha }}
+          name: single-core-rv5stage-soc-${{ matrix.suite }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/manifest.json
@@ -473,8 +473,8 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  simple-soc-arch-build:
-    name: Generate SimpleSoC ACT ELFs once
+  single-core-rv5stage-soc-arch-build:
+    name: Generate SingleCoreRV5StageSoC ACT ELFs once
     needs: [changes, compile-racket]
     if: needs.changes.outputs.program_arch == 'true'
     runs-on: ubuntu-24.04
@@ -515,8 +515,8 @@ jobs:
       - name: Set up ACT and generate platform configuration
         id: act-config
         run: |
-          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=simple-soc
-          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/simple-soc/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=single-core-rv5stage-soc
+          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/single-core-rv5stage-soc/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache ACT reference products
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -528,15 +528,15 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/act"
-          make -C sims arch-test-elfs ACT_CONFIGURATION=simple-soc ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
-          test -n "$(find /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs -name '*.elf' -print -quit)"
-          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs .
+          make -C sims arch-test-elfs ACT_CONFIGURATION=single-core-rv5stage-soc ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
+          test -n "$(find /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs -name '*.elf' -print -quit)"
+          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs .
           cd "$RUNNER_TEMP/act"
           sha256sum elfs.tar.gz > elfs.sha256
       - name: Publish exact-commit ACT payloads
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: simple-soc-arch-elfs-${{ github.sha }}
+          name: single-core-rv5stage-soc-arch-elfs-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/elfs.tar.gz
             ${{ runner.temp }}/act/elfs.sha256
@@ -547,7 +547,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: simple-soc-arch-generation-${{ github.sha }}
+          name: single-core-rv5stage-soc-arch-generation-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/generation.log
             /tmp/rhodium-arch-test/configs
@@ -555,9 +555,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  simple-soc-arch:
-    name: SimpleSoC (arch ${{ matrix.shard }})
-    needs: [changes, simple-soc-build, simple-soc-arch-build]
+  single-core-rv5stage-soc-arch:
+    name: SingleCoreRV5StageSoC (arch ${{ matrix.shard }})
+    needs: [changes, single-core-rv5stage-soc-build, single-core-rv5stage-soc-arch-build]
     if: needs.changes.outputs.program_arch == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
@@ -571,20 +571,20 @@ jobs:
         run: git submodule update --init riscv/riscv-arch-test
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: simple-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/simple-soc
+          name: single-core-rv5stage-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-rv5stage-soc
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: simple-soc-arch-elfs-${{ github.sha }}
+          name: single-core-rv5stage-soc-arch-elfs-${{ github.sha }}
           path: ${{ runner.temp }}/act
       - name: Verify and unpack shared artifacts
         run: |
-          chmod +x "$RUNNER_TEMP/simple-soc/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/simple-soc/VTestDriver" --soc simple
-          ldd "$RUNNER_TEMP/simple-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" --soc single-core-rv5stage-soc
+          ldd "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
           (cd "$RUNNER_TEMP/act" && sha256sum --check elfs.sha256)
-          mkdir -p /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs
-          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/simple-soc/simple-soc/elfs
+          mkdir -p /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs
+          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs
       - name: Test ACT adapter and partition contracts
         run: make -C sims arch-test-adapter-test
       - name: Run the complete deterministic shard
@@ -592,20 +592,20 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          make -C sims arch-test-run ACT_CONFIGURATION=simple-soc ACT_PYTHON=python3 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-soc/VTestDriver" \
+          make -C sims arch-test-run ACT_CONFIGURATION=single-core-rv5stage-soc ACT_PYTHON=python3 \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" \
             ACT_JOBS=2 ACT_SHARDS=4 ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
       - name: Publish shard results and inventory
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: simple-soc-arch-${{ matrix.shard }}-results-${{ github.sha }}
+          name: single-core-rv5stage-soc-arch-${{ matrix.shard }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/run.log
-            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/inventory.json
-            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/results.json
-            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/junit.xml
-            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/summary.log
-            /tmp/rhodium-arch-test/work/simple-soc/simple-soc/shards/${{ matrix.shard }}/logs
+            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/inventory.json
+            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/results.json
+            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/junit.xml
+            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/summary.log
+            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/logs
           if-no-files-found: warn
           retention-days: 7

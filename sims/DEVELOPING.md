@@ -16,7 +16,7 @@ execution. Keep processor, device, CHI, NoC, and synthesizable-memory policy in
 their owning packages. Keep DPI and target-loader behavior out of SoCs.
 
 Import the CHI owners used by each simulator component directly. FESVR consumes
-wire, channel, service, and message contracts; the SimpleSoC harness explicitly
+wire, channel, service, and message contracts; the SingleCoreRV5StageSoC harness explicitly
 imports `chi/subordinate/memory-controller.rhdl` and `chi/subordinate/dpi-memory.rhdl`. Neither needs the
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
@@ -32,7 +32,7 @@ systems cannot reuse another system's generated RTL.
 |---|---|
 | Build graph, tools, variants, and artifacts | [`Makefile`](Makefile) |
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
-| System-specific parameterless tops | [`simple-soc-harness.rhdl`](simple-soc-harness.rhdl), [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
+| System-specific parameterless tops | [`single-core-rv5stage-soc-harness.rhdl`](single-core-rv5stage-soc-harness.rhdl), [`mini-rv5stage-soc-harness.rhdl`](mini-rv5stage-soc-harness.rhdl), [`tiled-rv5stage-soc-harness.rhdl`](tiled-rv5stage-soc-harness.rhdl) |
 | Direct-memory FESVR transport and CHI requester | [`fesvr/`](fesvr/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
@@ -93,7 +93,7 @@ reuses the ordinary MMIO regression, and checks
 exact occurrence parents through fragmented reads/writes, errors, stalls, and
 pending reset. Its service configuration lives in `tests/fesvr-mmio-fixture.rhdl`.
 
-The SimpleSoC harness owns transparent external-memory checkpoints. Keep them
+The SingleCoreRV5StageSoC harness owns transparent external-memory checkpoints. Keep them
 outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
 elaboration, and `materialize-event-harness.rkt` saves its matching descriptor
 and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
@@ -121,7 +121,7 @@ an absent model archive and an archive-only library update when changing this ru
 Run the real smoke with native importer validation:
 
 ```sh
-make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
+make -C sims trace-smoke TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace \
   TRACE_PROCESSOR=/path/to/native/trace_processor_shell
 ```
 
@@ -137,7 +137,7 @@ preamble before running an individual `check-*-events.sql` query too. Groups hav
 no event schema and are excluded from this view. Check visual parent chains and
 ordering against native `track`, not by assuming every event is a root child.
 It checks run timing once in the metadata table and site/capture context in
-track descriptions, with no redundant run metadata on occurrences. SimpleSoC
+track descriptions, with no redundant run metadata on occurrences. SingleCoreRV5StageSoC
 instruction and CHI transfer names cannot equal `stall`, so these checks use
 that slice name to separate stalls on shared tracks. Do not require exact graph
 identity reconstruction from the Perfetto visualization.
@@ -145,7 +145,7 @@ This optional test requires native Perfetto
 and does not require RSP activity: the smoke's reads return data on DAT.
 It is separate from ordinary simulation CI. `tests/check-event-driver.sh`
 checks missing trace path, failed output open, and a small-cycle timeout with
-an importable settled prefix. Also run untraced SimpleSoC smoke after changing
+an importable settled prefix. Also run untraced SingleCoreRV5StageSoC smoke after changing
 the common driver.
 
 `tests/check-core-events.sql` additionally requires Decode through WB,
@@ -295,7 +295,7 @@ current coverage limits.
 
 ### LR/SC system qualification
 
-`make -C sims lrsc-test SOC=simple`, `SOC=mini`, and `SOC=tiled` complement the
+`make -C sims lrsc-test SOC=single-core-rv5stage-soc`, `SOC=mini-rv5stage-soc`, and `SOC=tiled-rv5stage-soc` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
 `tests/programs/rv5stage_lrsc.S` runs six constrained-loop placements, covering
 LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
@@ -303,12 +303,12 @@ loop contains sixteen contiguous instructions including its retry branch.
 Setup, barriers, function returns, signatures, and HTIF exit are outside the
 constrained loop. The linker keeps code, shared counters, and page tables
 separate. Bare and supervisor Sv39 executables use the same identity-mapped
-RAM, with independent 4-KiB leaf mappings and preset A/D bits. MiniSoC places
+RAM, with independent 4-KiB leaf mappings and preset A/D bits. MiniRV5StageSoC places
 its page tables inside its 64-KiB RAM and uses word-aligned boundary starts;
 the compressed-enabled systems use halfword starts. The payload checks `misa.C`
 against the selected alignment, and the linker rejects out-of-RAM placement.
 
-SimpleSoC and MiniSoC use their ordinary harnesses. `tests/lrsc-tiled-harness.rhdl` changes
+SingleCoreRV5StageSoC and MiniRV5StageSoC use their ordinary harnesses. `tests/lrsc-tiled-rv5stage-soc-harness.rhdl` changes
 only the production ROM's secondary-hart filter to a NOP. Every hart still
 waits for the normal FESVR post-loading entry publication. Do not replace the
 cores, Home slices, routers, translation, cache geometry, or FESVR transport
@@ -362,7 +362,7 @@ ranges (using `p_memsz`, not file size) and executable entry before publishing
 a manifest, including on cache reuse. Physical ISA tests have no dynamic
 stack; adding C workloads requires an explicit stack/linker contract.
 
-The simulation CI job reuses its MiniSoC and TiledSoC executables for
+The simulation CI job reuses its MiniRV5StageSoC and TiledRV5StageSoC executables for
 `isa-smoke`, attempts both targets even if one fails, and uploads independent
 results. Changes to the adapter or upstream ISA sources must select that job.
 
@@ -418,18 +418,18 @@ make -C sims tiled-lowering-test
 Run the end-to-end execution path for each supported system with:
 
 ```sh
-make -C sims smoke SOC=simple
-make -C sims smoke SOC=mini
-make -C sims smoke SOC=tiled
-make -C sims host-mmio-test SOC=simple
-make -C sims host-mmio-test SOC=mini
-make -C sims host-mmio-test SOC=tiled
-make -C sims boot-test SOC=simple
-make -C sims boot-test SOC=mini
-make -C sims boot-test SOC=tiled
-make -C sims uart-pty-test SOC=simple
-make -C sims uart-pty-test SOC=mini
-make -C sims uart-pty-test SOC=tiled
+make -C sims smoke SOC=single-core-rv5stage-soc
+make -C sims smoke SOC=mini-rv5stage-soc
+make -C sims smoke SOC=tiled-rv5stage-soc
+make -C sims host-mmio-test SOC=single-core-rv5stage-soc
+make -C sims host-mmio-test SOC=mini-rv5stage-soc
+make -C sims host-mmio-test SOC=tiled-rv5stage-soc
+make -C sims boot-test SOC=single-core-rv5stage-soc
+make -C sims boot-test SOC=mini-rv5stage-soc
+make -C sims boot-test SOC=tiled-rv5stage-soc
+make -C sims uart-pty-test SOC=single-core-rv5stage-soc
+make -C sims uart-pty-test SOC=mini-rv5stage-soc
+make -C sims uart-pty-test SOC=tiled-rv5stage-soc
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
@@ -457,7 +457,7 @@ and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
-`make -C sims tiled-memory-test` builds a separate TiledSoC harness specialization
+`make -C sims tiled-memory-test` builds a separate TiledRV5StageSoC harness specialization
 with independent REQ, RSP, write-DAT, and read-DAT stalls. Its target payload
 dirty-evicts and refills a 64 KiB footprint across every LLC slice, checks the
 last architectural memory line, and exits through FESVR. Harness assertions
@@ -493,12 +493,12 @@ normal FESVR flow. Its final signature also lets FESVR read the dirty cache
 line coherently after the program exits:
 
 ```sh
-make -C sims zicboz-test SOC=simple
+make -C sims zicboz-test SOC=single-core-rv5stage-soc
 ```
 
 `zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through the
-checked-in SimpleSoC harness only. The payload's conflict bank is intentionally
-matched to SimpleSoC's 64-set, four-way L1D profile; changing that profile
+checked-in SingleCoreRV5StageSoC harness only. The payload's conflict bank is intentionally
+matched to SingleCoreRV5StageSoC's 64-set, four-way L1D profile; changing that profile
 requires revisiting this test rather than silently reusing it for another SoC.
 It calibrates warm and cold accesses on the running system, then compares minima
 over repeated trials to tolerate unrelated HTIF snoops. The second hinted read
@@ -512,5 +512,5 @@ otherwise pass. The payload selects S-mode Sv39 data
 translation through MPRV while executing in M-mode; test addresses are virtual
 aliases outside the physical RAM window, so bypassing translation cannot pass.
 It needs no supervisor runtime. Compressed and FP subcases are selected from
-`misa`. MiniSoC and TiledSoC may enable Zihintntl but are not covered by this
+`misa`. MiniRV5StageSoC and TiledRV5StageSoC may enable Zihintntl but are not covered by this
 geometry-specific end-to-end target.

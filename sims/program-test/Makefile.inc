@@ -1,4 +1,4 @@
-# Runs full SimpleSoC workload suites and capability-filtered ISA smoke on concrete SoCs.
+# Runs full SingleCoreRV5StageSoC workload suites and capability-filtered ISA smoke on concrete SoCs.
 # SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sims/program-test/coremark
@@ -54,12 +54,12 @@ program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 
 isa-elfs:
-	@test "$(SOC)" = simple || (echo 'Upstream program suites currently support SOC=simple only' >&2; exit 2)
+	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Upstream program suites currently support SOC=single-core-rv5stage-soc only' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)"
 
 benchmark-elfs: program-target
-	@test "$(SOC)" = simple || (echo 'Upstream program suites currently support SOC=simple only' >&2; exit 2)
+	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Upstream program suites currently support SOC=single-core-rv5stage-soc only' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
@@ -95,4 +95,4 @@ program-test:
 	$(MAKE) isa-test
 	$(MAKE) benchmark-test
 	$(MAKE) coremark-test
-	$(MAKE) arch-test ACT_CONFIGURATION=simple-soc
+	$(MAKE) arch-test ACT_CONFIGURATION=single-core-rv5stage-soc

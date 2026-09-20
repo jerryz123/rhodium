@@ -14,7 +14,7 @@ from unittest.mock import patch
 SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
-def program_target(soc='simple'):
+def program_target(soc='single-core-rv5stage-soc'):
     return dict(soc=soc, xlen=64, extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,
                 ram=[dict(base=0x80000000, size=0x10000)])
@@ -82,7 +82,7 @@ class ProgramBuildTest(unittest.TestCase):
         spec.loader.exec_module(self.builder)
 
     def test_smoke_selection_follows_capabilities_not_soc_name(self):
-        target = dict(soc='mini', xlen=64, extensions=['i', 'm', 'a', 'zba', 'zbb', 'zbs', 'zicond', 'zicboz'],
+        target = dict(soc='mini-rv5stage-soc', xlen=64, extensions=['i', 'm', 'a', 'zba', 'zbb', 'zbs', 'zicond', 'zicboz'],
                       march='rv64ima_zba_zbb_zbs_zicond_zicboz', mabi='lp64',
                       clock_frequency_hz=100000000, ram=[])
         groups, names = self.builder.smoke_selection(target)
@@ -191,7 +191,7 @@ class ProgramBuildTest(unittest.TestCase):
             source, output = root / 'source', root / 'output'
             (source / 'env/p').mkdir(parents=True)
             (source / 'env/p/link.ld').touch()
-            target = dict(soc='mini', xlen=64, extensions=['i'], march='rv64i', mabi='lp64',
+            target = dict(soc='mini-rv5stage-soc', xlen=64, extensions=['i'], march='rv64i', mabi='lp64',
                           clock_frequency_hz=100000000,
                           ram=[dict(base=0x80000000, size=0x10000)])
             target_path = root / 'target.json'
@@ -228,7 +228,7 @@ class ProgramBuildTest(unittest.TestCase):
                 self.assertEqual(len(builds), 1)
                 manifest = json.loads((output / 'manifest.json').read_text())
                 self.assertEqual(manifest['target'], target)
-                target['soc'] = 'tiled'
+                target['soc'] = 'tiled-rv5stage-soc'
                 target['ram'][0]['size'] = 0x8000
                 target_path.write_text(json.dumps(target))
                 with self.assertRaisesRegex(ValueError, 'exceeds target RAM'):
@@ -402,7 +402,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'simple']
+            options = ['--binary', str(binary), '--soc', 'single-core-rv5stage-soc']
             subprocess.run(command + ['record'] + options, check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             binary.write_bytes(b'changed binary')
@@ -413,11 +413,11 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             subprocess.run([sys.executable, str(SCRIPTS / 'artifact.py'), 'record',
-                            '--binary', str(binary), '--soc', 'simple'], check=True)
+                            '--binary', str(binary), '--soc', 'single-core-rv5stage-soc'], check=True)
             command = ['make', '-C', str(SCRIPTS.parent), 'simulator', f'PREBUILT_SIMULATOR={binary}',
                        f'PYTHON={sys.executable}', 'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false']
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
-            self.assertNotEqual(subprocess.run(command + ['SOC=tiled'], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command + ['SOC=tiled-rv5stage-soc'], capture_output=True).returncode, 0)
 
     def test_target_fingerprint_is_attested(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -427,7 +427,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             target = root / 'target.json'
             target.write_text(json.dumps(program_target()))
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'simple', '--target', str(target)]
+            options = ['--binary', str(binary), '--soc', 'single-core-rv5stage-soc', '--target', str(target)]
             subprocess.run(command + ['record'] + options, check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             changed = program_target()

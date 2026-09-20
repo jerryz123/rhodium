@@ -7,14 +7,14 @@ This directory contains two deliberately separate physical-design experiments:
 
 - a minimal Rhodium inverter carried through RTL checks, a focused LVS fixture,
   and sparse Double-Wide OpenFrame GDS integration; and
-- a MiniSoC/Sky130 memory-mapping and synthesis handoff that stops before
+- a MiniRV5StageSoC/Sky130 memory-mapping and synthesis handoff that stops before
   placement and routing.
 
 The first path proves that a real Rhodium-derived cell can cross the OpenFrame
 wrapper boundary. GPIO 0 drives the inverter and GPIO 1 drives its result; all
 other GPIOs remain input-only. The second path proves that a checked-in
-design/technology policy can select and preserve SRAM macros in mapped MiniSoC
-RTL and synthesized netlists. No target currently places that MiniSoC or
+design/technology policy can select and preserve SRAM macros in mapped MiniRV5StageSoC
+RTL and synthesized netlists. No target currently places that MiniRV5StageSoC or
 integrates it into the OpenFrame wrapper.
 
 Contributors changing a physical profile, handoff, or flow target should read
@@ -35,8 +35,8 @@ flowchart TD
   leafRtl --> lvsWrapper["Compact LVS wrapper"] --> lvsFlow["Tap-filled LibreLane and Netgen LVS"]
   lvsFlow --> lvsProof["Matching fixture report and fixture GDS"]
 
-  miniSoc["MiniSoC Rhodium design"] --> sitePass["CIRCT occurrence selection"]
-  sitePolicy["MiniSoC and Sky130 site policy"] --> sitePass
+  miniSoc["MiniRV5StageSoC Rhodium design"] --> sitePass["CIRCT occurrence selection"]
+  sitePolicy["MiniRV5StageSoC and Sky130 site policy"] --> sitePass
   sitePass --> mappedMlir["Mapped and inferred memory MLIR"]
   sitePass --> siteInventory["Memory-site inventory"]
   macroCatalog["Sky130 catalog and PDK collateral"] --> mapper["Generic SRAM mapper"]
@@ -58,8 +58,8 @@ flowchart TD
 | Rhodium smoke leaf and MLIR emission | [`src/rhodium-top.rhdl`](src/rhodium-top.rhdl) and [`tools/emit-top.rhm`](tools/emit-top.rhm) | Supplies the real one-bit combinational cell used by both physical smoke paths. |
 | User-wrapper implementation and physical profiles | This `vlsi/` directory | Preserves the harness ports and pin locations, selects which GPIOs reach the leaf, and configures sparse hardening and compact fixture LVS. |
 | Padframe, empty-wrapper boundary, fixed DEF template, tool flake, padframe GDS, and cell-swap script | Pinned `double_wide_openframe` submodule | The harness remains an external physical contract; it does not import Rhodium sources or generate the user design. |
-| Reusable occurrence selection, memory-contract checks, tiling, adapters, and manifest schema | [`sram/`](../sram/README.md) | Remains independent of MiniSoC and Sky130 site policy. |
-| MiniSoC/Sky130 selection and synthesis configuration | [`designs/mini-soc/sky130/sram-map.yaml`](designs/mini-soc/sky130/sram-map.yaml) and [`openlane/mini_soc/config.yaml`](openlane/mini_soc/config.yaml) | Chooses implementation per logical site and registers the selected macro's physical views. |
+| Reusable occurrence selection, memory-contract checks, tiling, adapters, and manifest schema | [`sram/`](../sram/README.md) | Remains independent of MiniRV5StageSoC and Sky130 site policy. |
+| MiniRV5StageSoC/Sky130 selection and synthesis configuration | [`designs/mini-rv5stage-soc/sky130/sram-map.yaml`](designs/mini-rv5stage-soc/sky130/sram-map.yaml) and [`openlane/mini_rv5stage_soc/config.yaml`](openlane/mini_rv5stage_soc/config.yaml) | Chooses implementation per logical site and registers the selected macro's physical views. |
 | Mapped functional simulation | [`sim/`](sim/README.md) | Reuses the normal SoC harness and FESVR stack with zero-delay SRAM models. |
 
 The submodule's module name, power and reset ports, 63-GPIO interface, 6754.63
@@ -87,7 +87,7 @@ make -C vlsi setup-circt
 make -C vlsi rtl-check CIRCT_OPT=/path/to/circt-opt
 ```
 
-The MiniSoC collateral-validating mapping target and every LibreLane physical
+The MiniRV5StageSoC collateral-validating mapping target and every LibreLane physical
 stage require the pinned PDK collateral. Enable it once:
 
 ```sh
@@ -121,7 +121,7 @@ This stage proves elaboration, RTL generation, boundary compatibility, and
 static RTL connectivity. It does not synthesize or physically implement the
 wrapper.
 
-## Stage 2: map and synthesize MiniSoC memories
+## Stage 2: map and synthesize MiniRV5StageSoC memories
 
 Generic mapper behavior is tested in its owning package:
 
@@ -132,13 +132,13 @@ make -C sram test
 Then exercise the design-specific policy in increasing order of cost:
 
 ```sh
-make -C vlsi mini-soc-memory-map
-make -C vlsi mini-soc-macro-rtl-check
-make -C vlsi mini-soc-slang-check
-make -C vlsi mini-soc-synth
+make -C vlsi mini-rv5stage-soc-memory-map
+make -C vlsi mini-rv5stage-soc-macro-rtl-check
+make -C vlsi mini-rv5stage-soc-slang-check
+make -C vlsi mini-rv5stage-soc-synth
 ```
 
-`mini-soc-memory-map` selects `MiniSoC`, flattens occurrence paths, applies the
+`mini-rv5stage-soc-memory-map` selects `MiniRV5StageSoC`, flattens occurrence paths, applies the
 checked-in policy, and validates the resulting manifest. It maps the shared
 4096 by 128-bit RAM and both 256 by 64-bit L1 data arrays to 36 installed 512
 by 32-bit Sky130 SRAM instances. The four shallow tag and coherence-state
@@ -146,37 +146,37 @@ arrays remain intentionally inferred. See the [SRAM mapping guide](../sram/READM
 for the generic policy, eligibility, tiling, and manifest contracts rather
 than treating this flow as their definition.
 
-The staged targets write these handoff artifacts under `build/mini-soc/`:
+The staged targets write these handoff artifacts under `build/mini-rv5stage-soc/`:
 
 | Artifact | Role |
 |---|---|
-| `mini-soc.mlir` | Direct Rhodium-to-CIRCT output before top selection and site mapping. |
-| `mini-soc-firmem.mlir` | Selected, flattened MLIR containing mapped externs and retained inferred memories. |
+| `mini-rv5stage-soc.mlir` | Direct Rhodium-to-CIRCT output before top selection and site mapping. |
+| `mini-rv5stage-soc-firmem.mlir` | Selected, flattened MLIR containing mapped externs and retained inferred memories. |
 | `memory-sites.json` | Complete occurrence inventory and policy decision record. |
 | `memory-wrappers.sv` | Generated exact-name macro banks, width slices, and adapters. |
 | `memory-manifest.json` | Validated physical handoff, including selected instances and collateral. |
-| `mini-soc.sv` | CIRCT RTL containing both mapped and inferred memory paths. |
+| `mini-rv5stage-soc.sv` | CIRCT RTL containing both mapped and inferred memory paths. |
 
-`mini-soc-macro-rtl-check` lints the mixed RTL, wrappers, and installed PDK
-macro Verilog model together with Verilator. `mini-soc-slang-check` runs only
+`mini-rv5stage-soc-macro-rtl-check` lints the mixed RTL, wrappers, and installed PDK
+macro Verilog model together with Verilator. `mini-rv5stage-soc-slang-check` runs only
 LibreLane's `Yosys.Synthesis` step in elaborate-only mode; it verifies that
 Slang accepts CIRCT's packed SystemVerilog, that its netlist contains all 36
 macro instances, and that no packed structs remain. Its netlist is
-`openlane/mini_soc/runs/RHODIUM_SLANG_CHECK/final/nl/MiniSoC.nl.v`.
-`mini-soc-synth` runs the same synthesis step without elaborate-only mode,
-then runs the native Yosys [post-synthesis recipe](openlane/mini_soc/post-synth.tcl).
+`openlane/mini_rv5stage_soc/runs/RHODIUM_SLANG_CHECK/final/nl/MiniRV5StageSoC.nl.v`.
+`mini-rv5stage-soc-synth` runs the same synthesis step without elaborate-only mode,
+then runs the native Yosys [post-synthesis recipe](openlane/mini_rv5stage_soc/post-synth.tcl).
 This locally balances and remaps the RV64 divider's 64-bit remainder-capture
 cone without changing RTL or the rest of the mapped design. The final,
-verified synthesis handoff is `build/mini-soc/synthesis/MiniSoC.nl.v` (with a
+verified synthesis handoff is `build/mini-rv5stage-soc/synthesis/MiniRV5StageSoC.nl.v` (with a
 companion JSON netlist). LibreLane's raw netlist and metrics remain unchanged
-under `openlane/mini_soc/runs/RHODIUM_SLANG_SYNTH/`; those metrics describe the
+under `openlane/mini_rv5stage_soc/runs/RHODIUM_SLANG_SYNTH/`; those metrics describe the
 pre-repair design, not the final handoff. Direct LibreLane invocations bypass
 this Make-owned post-synthesis step.
 
 To rerun just the post-synthesis step against an existing completed synthesis:
 
 ```sh
-make -C vlsi mini-soc-post-synth
+make -C vlsi mini-rv5stage-soc-post-synth
 ```
 
 An experimental multiplier operand-capture repair uses the same local balancing
@@ -185,8 +185,8 @@ improved the multiplier path but regressed overall worst setup slack through
 shared side outputs. Keep its handoff separate when comparing timing:
 
 ```sh
-make -C vlsi mini-soc-post-synth MINI_SOC_REPAIR_MULTIPLIER=1 \
-  MINI_SOC_POST_SYNTH_DIR="$PWD/vlsi/build/mini-soc/synthesis-multiplier"
+make -C vlsi mini-rv5stage-soc-post-synth MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER=1 \
+  MINI_RV5STAGE_SOC_POST_SYNTH_DIR="$PWD/vlsi/build/mini-rv5stage-soc/synthesis-multiplier"
 ```
 
 This does not change RTL or add pipeline stages. Compare full-design STA, not
@@ -195,14 +195,14 @@ only ABC's local delay estimate, before enabling it for a physical handoff.
 The recipe reuses the synthesis netlist, filtered Liberty libraries, clock
 target, and output load; `jq` reads LibreLane's JSON metadata. `YOSYS` overrides
 the executable (ABC is its companion binary). Native tools or the harness's
-Nix environment are supported. `MINI_SOC_SYNTH_STEP_DIR` and
-`MINI_SOC_POST_SYNTH_DIR` override the input and output directories.
+Nix environment are supported. `MINI_RV5STAGE_SOC_SYNTH_STEP_DIR` and
+`MINI_RV5STAGE_SOC_POST_SYNTH_DIR` override the input and output directories.
 
 Before writing the handoff, a native `miter`/`sat -verify` check proves every
 extracted boundary output equivalent, including shared side outputs. Outside
 RTLIL must match except for the global auto-name counter, and the reassembled
 design must pass `check -assert`. The proof and local mapping report are in
-`build/mini-soc/synthesis/yosys.log`. Selection is specific to the current RV64
+`build/mini-rv5stage-soc/synthesis/yosys.log`. Selection is specific to the current RV64
 register layout and Sky130 `dfxtp_2` registers; mismatched endpoints fail the
 build. This is a design-specific synthesis workaround, not a general timing
 optimizer or physical timing signoff.
@@ -218,7 +218,7 @@ Cycle-level behavior for the same policy is a separate consumer check:
 make -C vlsi/sim smoke
 ```
 
-That target scopes the MiniSoC-relative policy through `SoCHarness.soc` and
+That target scopes the MiniRV5StageSoC-relative policy through `SoCHarness.soc` and
 runs the existing smoke payload with the checked-in Sky130 functional SRAM
 model. It proves logical cycle behavior, not PDK timing or physical signoff;
 see the [mapped simulation guide](sim/README.md) for setup and custom binaries.

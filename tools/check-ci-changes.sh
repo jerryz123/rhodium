@@ -95,7 +95,7 @@ check_field sims/program-test/write-target.rhm simulation true
 check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
-for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/simple-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
+for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
   check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"}]}'
   check_field "$path" program_arch true
 done
@@ -222,24 +222,24 @@ check_field sims/TestDriver.v simulation true
 check_field sram/map-memories.py simulation true
 check_field sram/circt/MemorySitePass.cpp simulation true
 check_field vlsi/sim/Makefile simulation true
-check_field vlsi/designs/mini-soc/sky130/sram-map.yaml simulation true
-check_field sims/simple-soc-harness.rhdl simulation true
-check_field sims/mini-soc-harness.rhdl simulation true
-check_field sims/tiled-soc-harness.rhdl simulation true
+check_field vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml simulation true
+check_field sims/single-core-rv5stage-soc-harness.rhdl simulation true
+check_field sims/mini-rv5stage-soc-harness.rhdl simulation true
+check_field sims/tiled-rv5stage-soc-harness.rhdl simulation true
 check_field sims/emit-soc-harness.rhm simulation true
 check_field sims/tests/direct-memory-htif-test.rhm simulation true
-check_field socs/tests/simple-soc-test.rhm simulation true
-check_matrix_entry socs/tests/simple-soc-test.rhm host_matrix ci-host-socs-test
-check_field socs/tests/mini-soc-test.rhm simulation true
-check_matrix_entry socs/tests/mini-soc-test.rhm host_matrix ci-host-socs-test
-check_field socs/simple-soc.rhdl host true
-check_matrix_entry socs/simple-soc.rhdl host_matrix ci-host-socs-test
-check_field socs/simple-soc.rhdl circt true
-check_field socs/simple-soc.rhdl simulation true
-check_field socs/mini-soc.rhdl host true
-check_matrix_entry socs/mini-soc.rhdl host_matrix ci-host-socs-test
-check_field socs/mini-soc.rhdl circt true
-check_field socs/mini-soc.rhdl simulation true
+check_field socs/tests/single-core-rv5stage-soc-test.rhm simulation true
+check_matrix_entry socs/tests/single-core-rv5stage-soc-test.rhm host_matrix ci-host-socs-test
+check_field socs/tests/mini-rv5stage-soc-test.rhm simulation true
+check_matrix_entry socs/tests/mini-rv5stage-soc-test.rhm host_matrix ci-host-socs-test
+check_field socs/single-core-rv5stage-soc.rhdl host true
+check_matrix_entry socs/single-core-rv5stage-soc.rhdl host_matrix ci-host-socs-test
+check_field socs/single-core-rv5stage-soc.rhdl circt true
+check_field socs/single-core-rv5stage-soc.rhdl simulation true
+check_field socs/mini-rv5stage-soc.rhdl host true
+check_matrix_entry socs/mini-rv5stage-soc.rhdl host_matrix ci-host-socs-test
+check_field socs/mini-rv5stage-soc.rhdl circt true
+check_field socs/mini-rv5stage-soc.rhdl simulation true
 check_field unrecognized/new-tool.py host true
 check_field unrecognized/new-tool.py circt true
 check_field unrecognized/new-tool.py simulation true
@@ -261,7 +261,7 @@ while IFS= read -r path; do
       ;;
     vlsi/*)
       case "$path" in
-        vlsi/sim/*|vlsi/designs/mini-soc/sky130/*)
+        vlsi/sim/*|vlsi/designs/mini-rv5stage-soc/sky130/*)
           ;;
         *)
           continue

@@ -1,23 +1,23 @@
 #lang rhodium
-// Wraps bootable SimpleSoC with FESVR, simulation memory, and a serial-pin PTY UART model.
+// Wraps bootable SingleCoreRV5StageSoC with FESVR, simulation memory, and a serial-pin PTY UART model.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
-  lib("socs/simple-soc.rhdl") as simple
+  lib("socs/single-core-rv5stage-soc.rhdl") as single_core
   lib("devices/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
   lib("flow/event.rhdl") open
 
-sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_params,
+sync_circuit SoCHarness(params :: single_core.SingleCoreRV5StageSoCParams = single_core.single_core_rv5stage_soc_params,
                         uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   output exit: Bits(32)
 
   def fabric_params = params.fabric
   inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
-  inst soc(simple.SimpleSoC(params))
+  inst soc(single_core.SingleCoreRV5StageSoC(params))
   inst uart(UartDPI(0, uart_oversample_divisor))
   inst memory(CHIDPIMemory(CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0))
 
@@ -34,7 +34,7 @@ sync_circuit SoCHarness(params :: simple.SimpleSoCParams = simple.simple_soc_par
 
 def elaboration = elaborate_with_top(SoCHarness())
 def design = elaboration.design
-def trace_clock_frequency_hz = simple.simple_soc_params.clocks.clock_frequency_hz
+def trace_clock_frequency_hz = single_core.single_core_rv5stage_soc_params.clocks.clock_frequency_hz
 
 export:
   SoCHarness

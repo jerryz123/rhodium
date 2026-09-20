@@ -67,7 +67,7 @@ silent-eviction cleanup, stalled dispatch, delayed CompAck, partial dirty packet
 and response-error behavior. The maintenance bench establishes inclusive L1
 copies through actual read grants, not test-only injection behind the directory.
 Run `chi-maintenance-inclusive`, the I-cache coherence fixtures, and cache-level
-LR/SC progress after changing target selection. Rerun SimpleSoC vvadd with
+LR/SC progress after changing target selection. Rerun SingleCoreRV5StageSoC vvadd with
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.
 
@@ -81,7 +81,7 @@ Both requester output channels share this lifetime; Flow infers network transit.
 `chi/tests/home-trace-fixture.rhdl` supplies test-only boundary checkpoints.
 Run `event-home` for exact per-cycle graph comparison against public transfers,
 including hit/miss data, repeated IDs, backpressure, and pending reset, then
-the SimpleSoC trace smoke for the composed router/queue paths.
+the SingleCoreRV5StageSoC trace smoke for the composed router/queue paths.
 
 For maintenance changes, run the `chi-cache-maintenance`,
 `chi-maintenance-home`, and `chi-maintenance-inclusive` backend fixtures. The

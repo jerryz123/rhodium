@@ -364,7 +364,7 @@ fail rather than inventing lineage or silently wrapping identities.
 
 Pass `EventInstrumentationConfig(~partial: #true)` to `instrument_events` to
 observe a partially modeled design. Strict mode remains the API default;
-the SimpleSoC trace harness opts into partial mode. `infer_event_manifest`
+the SingleCoreRV5StageSoC trace harness opts into partial mode. `infer_event_manifest`
 also accepts `~partial: #true`.
 
 Partial inference stops at missing, opaque, or unmodeled contracts but retains

@@ -102,12 +102,12 @@ list, and resolved functional-model path into the generated manifest, uses its
 geometry to calculate mapped area, and emits wrappers that instantiate its
 exact `name`. The relevant consumer-owned inputs and checks are:
 
-- [`../../vlsi/designs/mini-soc/sky130/sram-map.yaml`](../../vlsi/designs/mini-soc/sky130/sram-map.yaml)
-  chooses the current MiniSoC memory sites; this catalog does not own that list.
-- [`../../vlsi/openlane/mini_soc/config.yaml`](../../vlsi/openlane/mini_soc/config.yaml)
+- [`../../vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml`](../../vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml)
+  chooses the current MiniRV5StageSoC memory sites; this catalog does not own that list.
+- [`../../vlsi/openlane/mini_rv5stage_soc/config.yaml`](../../vlsi/openlane/mini_rv5stage_soc/config.yaml)
   registers the PDK views with LibreLane. It is the physical consumer's
   configuration, not a second catalog definition.
-- The [MiniSoC VLSI flow](../../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
+- The [MiniRV5StageSoC VLSI flow](../../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
   validates installed collateral and the design-specific manifest, then hands
   mixed inferred/mapped RTL to lint and synthesis.
 - The [mapped-simulation flow](../../vlsi/sim/README.md) compiles the generated

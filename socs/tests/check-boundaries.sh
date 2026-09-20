@@ -5,14 +5,14 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture="$(mktemp -d /tmp/rhodium-soc-boundaries.XXXXXX)"
 trap 'rm -rf "$fixture"' EXIT
-mkdir -p "$fixture/socs/tests" "$fixture/socs/mini-soc" "$fixture/bin" "$fixture/fail-bin"
+mkdir -p "$fixture/socs/tests" "$fixture/socs/mini-rv5stage-soc" "$fixture/bin" "$fixture/fail-bin"
 cp "$repo_dir/socs/check-boundaries.sh" "$fixture/socs/check-boundaries.sh"
 # Deliberately provide only the audit's portable dependencies, never rg.
 for tool in bash dirname find grep; do
   ln -s "$(command -v "$tool")" "$fixture/bin/$tool"
 done
-printf '  "mini-soc/local.rhm"\n' > "$fixture/socs/mini-soc.rhdl"
-printf '  "../mini-soc.rhdl"\n' > "$fixture/socs/tests/integration.rhm"
+printf '  "mini-rv5stage-soc/local.rhm"\n' > "$fixture/socs/mini-rv5stage-soc.rhdl"
+printf '  "../mini-rv5stage-soc.rhdl"\n' > "$fixture/socs/tests/integration.rhm"
 printf '  "shared.rhm"\n' > "$fixture/socs/shared.rhm"
 audit() {
   PATH="$fixture/bin" bash "$fixture/socs/check-boundaries.sh"
@@ -27,12 +27,12 @@ expect_failure() {
   grep -q "$expected" "$fixture/output"
 }
 audit
-printf '  "simple-soc.rhdl"\n' > "$fixture/socs/shared.rhm"
-expect_failure 'must not import simple-soc' audit
-printf '  "../tiled-soc/main.rhdl"\n' > "$fixture/socs/mini-soc/local.rhm"
+printf '  "single-core-rv5stage-soc.rhdl"\n' > "$fixture/socs/shared.rhm"
+expect_failure 'must not import single-core-rv5stage-soc' audit
+printf '  "../tiled-rv5stage-soc/main.rhdl"\n' > "$fixture/socs/mini-rv5stage-soc/local.rhm"
 printf '  "shared.rhm"\n' > "$fixture/socs/shared.rhm"
-expect_failure 'must not import tiled-soc' audit
-printf '  "../shared.rhm"\n' > "$fixture/socs/mini-soc/local.rhm"
+expect_failure 'must not import tiled-rv5stage-soc' audit
+printf '  "../shared.rhm"\n' > "$fixture/socs/mini-rv5stage-soc/local.rhm"
 audit
 for tool in find grep; do
   printf '#!/usr/bin/env bash\necho "injected %s failure" >&2\nexit 2\n' "$tool" > "$fixture/fail-bin/$tool"

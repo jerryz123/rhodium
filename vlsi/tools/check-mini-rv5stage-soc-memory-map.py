@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Verifies the exact RV64 MiniSoC SRAM mapping shared by synthesis and simulation.
+# Verifies the exact RV64 MiniRV5StageSoC SRAM mapping shared by synthesis and simulation.
 # SPDX-License-Identifier: Apache-2.0
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ EXPECTED_TOTALS = {
 
 
 def fail(message: str) -> None:
-    print(f"MiniSoC memory-map check failed: {message}", file=sys.stderr)
+    print(f"MiniRV5StageSoC memory-map check failed: {message}", file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -153,7 +153,7 @@ def main() -> None:
     expected_selection = {
         "default": "infer",
         "top": arguments.top,
-        "policy_top": "MiniSoC",
+        "policy_top": "MiniRV5StageSoC",
         "scope_prefix": arguments.scope_prefix,
     }
     for name, value in expected_selection.items():
@@ -205,7 +205,7 @@ def main() -> None:
             fail(f"expected totals {name}={value}, got {totals.get(name)}")
 
     print(
-        "validated RV64 MiniSoC mapping: "
+        "validated RV64 MiniRV5StageSoC mapping: "
         "3 of 6 sites use 36 Sky130 SRAM macros; each 2 KiB L1 uses half-depth"
     )
 

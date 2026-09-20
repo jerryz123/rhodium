@@ -1,4 +1,4 @@
-/* Separates NTL timing code, Sv39 root, SimpleSoC's conflict bank, signature, and HTIF in the checked-in test RAM layout. */
+/* Separates NTL timing code, Sv39 root, SingleCoreRV5StageSoC's conflict bank, signature, and HTIF in the checked-in test RAM layout. */
 /* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)

@@ -28,14 +28,14 @@ Subordinate traffic and incoming snoop/data contributions are not separately
 represented in this graph yet.
 
 Current integration limit: the standalone instrumented Home regression passes,
-but complete SimpleSoC D-cache return ancestry has not been validated.
+but complete SingleCoreRV5StageSoC D-cache return ancestry has not been validated.
 [Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
-has a dedicated queued-crossbar regression. The SimpleSoC emitter enables
+has a dedicated queued-crossbar regression. The SingleCoreRV5StageSoC emitter enables
 [partial tracing](../../rhodium/event/README.md), so missing contracts such as
 the uncached engine's ownership become explicit ancestry gaps instead of
 blocking all instrumentation. IO-MSHR and uncached ownership remain unannotated.
 Checkpoints can supply parents to downstream annotations without a leaf
-declaration. SimpleSoC partial instrumentation, CIRCT IR verification, and
+declaration. SingleCoreRV5StageSoC partial instrumentation, CIRCT IR verification, and
 SystemVerilog lowering pass.
 Full NoC graph coverage still requires runtime integration validation;
 partial tracing does not change the Home's functional request/response behavior.

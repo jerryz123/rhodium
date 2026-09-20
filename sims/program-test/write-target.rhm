@@ -4,9 +4,9 @@
 
 import:
   rhombus/cmdline open
-  "../../socs/simple-soc.rhdl" as simple
-  "../../socs/mini-soc.rhdl" as mini
-  "../../socs/tiled-soc/main.rhdl" as tiled
+  "../../socs/single-core-rv5stage-soc.rhdl" as single_core
+  "../../socs/mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../../socs/tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
   "../../socs/description.rhm".RiscvSoCDescription
 
@@ -15,10 +15,10 @@ unless arguments.length() == 2
 | error(~who: #'write_program_target, "expected a SoC name and output file")
 def name = arguments[0]
 def description :: RiscvSoCDescription = match name
-| "simple": simple.simple_soc_params.description
-| "mini": mini.mini_soc_params.description
-| "tiled": tiled.default_tiled_soc_config.description
-| ~else: error(~who: #'write_program_target, "expected simple, mini, or tiled")
+| "single-core-rv5stage-soc": single_core.single_core_rv5stage_soc_params.description
+| "mini-rv5stage-soc": mini_rv5stage.mini_rv5stage_soc_params.description
+| "tiled-rv5stage-soc": tiled_rv5stage.default_tiled_rv5stage_soc_config.description
+| ~else: error(~who: #'write_program_target, "expected single-core-rv5stage-soc, mini-rv5stage-soc, or tiled-rv5stage-soc")
 def compiler_target = gnu_isa_target(
   description.core_profile.xlen,
   description.core_profile.isa_profile.isa_extensions

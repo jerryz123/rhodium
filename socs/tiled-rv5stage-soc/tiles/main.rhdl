@@ -1,5 +1,5 @@
 #lang rhodium
-// Re-exports the concrete compute, LLC, device, and transit TiledSoC tiles.
+// Re-exports the concrete compute, LLC, device, and transit TiledRV5StageSoC tiles.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

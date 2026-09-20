@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks one-step TiledSoC compilation into boot, placement, routing, device, and tile parameters.
+// Checks one-step TiledRV5StageSoC compilation into boot, placement, routing, device, and tile parameters.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,28 +9,28 @@ import:
   "../../chi/noc/noc-authoring.rhm".CHISNConnection
   "../../cores/rv5stage/profile.rhm" as profile
   "../../riscv/isa/xlen.rhm".XLen
-  "../tiled-soc/main.rhdl" as tiled
-  "../tiled-soc/compile.rhdl" as compiler
+  "../tiled-rv5stage-soc/main.rhdl" as tiled
+  "../tiled-rv5stage-soc/compile.rhdl" as compiler
 
-def compiled = compiler.compile_tiled_soc(tiled.default_tiled_soc_config)
-def description = tiled.default_tiled_soc_config.description
+def compiled = compiler.compile_tiled_rv5stage_soc(tiled.default_tiled_rv5stage_soc_config)
+def description = tiled.default_tiled_rv5stage_soc_config.description
 
 check:
-  tiled.tiled_soc_core_profile.extensions.zicbop ~is #true
-  tiled.default_tiled_soc_config.clocks.timebase_period_cycles ~is 100
+  tiled.tiled_rv5stage_soc_core_profile.extensions.zicbop ~is #true
+  tiled.default_tiled_rv5stage_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
   compiled.rv5stages.length() ~is 8
-  description.model ~is "Rhodium TiledSoC"
-  description.compatible ~is ["rhodium,tiled-soc"]
+  description.model ~is "Rhodium Tiled RV5Stage SoC"
+  description.compatible ~is ["rhodium,tiled-rv5stage-soc"]
   description.harts ~is [0, 1, 2, 3, 4, 5, 6, 7]
-  description.core_profile === tiled.default_tiled_soc_config.core_profile ~is #true
-  description.clocks === tiled.default_tiled_soc_config.clocks ~is #true
+  description.core_profile === tiled.default_tiled_rv5stage_soc_config.core_profile ~is #true
+  description.clocks === tiled.default_tiled_rv5stage_soc_config.clocks ~is #true
   description.memory_regions[0].base ~is 0x80000000
   description.memory_regions[0].size_bytes ~is 0x40000000
   description.boot.rom.address_set ~is compiled.platform.bootrom.rom_params.service.address_sets[0]
   description.boot.rom.size_bytes ~is 0x2000
   compiled.platform.bootrom.rom_config(description).image.bytes.drop(
-    tiled.default_tiled_soc_config.boot.device_tree_offset
+    tiled.default_tiled_rv5stage_soc_config.boot.device_tree_offset
   ) ~is (
     description.to_device_tree().to_dtb().to_list()
   )
@@ -67,7 +67,7 @@ check:
   compiled.llcs.map(fun (llc): llc.home_params.subordinate_endpoint.node_id) ~is [48, 48, 48, 48]
   compiled.llcs.length() ~is 4
   compiled.rv5stages[0].tile_params.rv5stage === compiled.rv5stage_config ~is #true
-  compiled.rv5stages[0].tile_params.core_profile === tiled.default_tiled_soc_config.core_profile ~is #true
+  compiled.rv5stages[0].tile_params.core_profile === tiled.default_tiled_rv5stage_soc_config.core_profile ~is #true
   compiled.rv5stages[0].tile_params.hart_count ~is 8
   compiled.llcs[0].tile_params.home === compiled.llc_config ~is #true
   compiled.llc_config.home === compiled.hnf_config ~is #true
@@ -105,13 +105,13 @@ check:
   // full architectural range without compacting away slice-selection bits.
   compiled.llcs.map(fun (llc): llc.address_set.contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
   compiled.llcs.map(fun (llc): compiled.memory.service.address_sets[0].contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
-  tiled.TiledSoCConfig(
-    ~layout: tiled.default_tiled_soc_config.layout,
-    ~node_ids: tiled.default_tiled_soc_config.node_ids,
-    ~memory: tiled.default_tiled_soc_config.memory,
-    ~llc: tiled.default_tiled_soc_config.llc,
+  tiled.TiledRV5StageSoCConfig(
+    ~layout: tiled.default_tiled_rv5stage_soc_config.layout,
+    ~node_ids: tiled.default_tiled_rv5stage_soc_config.node_ids,
+    ~memory: tiled.default_tiled_rv5stage_soc_config.memory,
+    ~llc: tiled.default_tiled_rv5stage_soc_config.llc,
     ~core_profile: profile.RV5StageConfig(~xlen: XLen.X32),
-    ~clocks: tiled.default_tiled_soc_config.clocks
+    ~clocks: tiled.default_tiled_rv5stage_soc_config.clocks
   ) ~throws "RV64"
 
 check:

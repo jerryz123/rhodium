@@ -1,0 +1,27 @@
+#lang rhodium
+// Wraps bootable MiniRV5StageSoC with FESVR and a serial-pin PTY UART model.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("socs/mini-rv5stage-soc.rhdl") as mini_rv5stage
+  lib("devices/uart-dpi.rhdl").UartDPI
+  "fesvr/direct-memory-htif.rhdl".FesvrRequester
+
+sync_circuit SoCHarness(uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
+  output exit: Bits(32)
+
+  inst requester(FesvrRequester(XLen.X64, mini_rv5stage.mini_rv5stage_soc_flit, mini_rv5stage.mini_rv5stage_soc_host_node, mini_rv5stage.mini_rv5stage_soc_home_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.rv5stage_config.physical_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.host_services, mini_rv5stage.mini_rv5stage_soc_fabric_params.boot.boot_address_register))
+  inst soc(mini_rv5stage.MiniRV5StageSoC())
+  inst uart(UartDPI(0, uart_oversample_divisor))
+
+  requester.port <=> soc.host.memory
+  uart.uart_tx <== soc.uart.tx
+  soc.uart.rx <== uart.uart_rx
+  exit <== requester.exit
+
+def design = elaborate(SoCHarness())
+
+export:
+  SoCHarness
+  design

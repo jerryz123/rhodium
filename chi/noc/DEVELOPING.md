@@ -49,5 +49,5 @@ fixed-router callers without introducing circuit parameters, ports, or hierarchy
 Generic physical-link binding remains in `noc/rtl`, outside this CHI queue policy.
 The SN fixture exercises fixed attachments in both directions under stalls;
 the family fixture fills, stalls, and drains an asymmetric three-router path
-with complete-packet ordering checks. Validate MiniSoC and SimpleSoC for fixed
-RN-F/HN attachments and TiledSoC for coherent family attachments.
+with complete-packet ordering checks. Validate MiniRV5StageSoC and SingleCoreRV5StageSoC for fixed
+RN-F/HN attachments and TiledRV5StageSoC for coherent family attachments.

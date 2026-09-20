@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration.
+// Defines the author-facing TiledRV5StageSoC layout, NodeIDs, boot policy, and immutable configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -32,7 +32,7 @@ export:
   TiledNodeIds
   StripedMemory
   LLCGeometry
-  TiledSoCConfig
+  TiledRV5StageSoCConfig
   rv5stage_tile
   llc_tile
   memory_tile
@@ -204,14 +204,14 @@ class LLCGeometry(sets :: PosInt,
             "LLC set count must be a power of two of at least two")
     super(sets, ways)
 
-class TiledSoCConfig(layout :: TileGrid,
-                     node_ids :: TiledNodeIds,
-                     memory :: StripedMemory,
-                     llc :: LLCGeometry,
-                     core_profile :: RV5StageConfig,
-                     clocks :: SoCClockConfig,
-                     flit :: CHIFlitParams,
-                     boot :: SoCBootConfig):
+class TiledRV5StageSoCConfig(layout :: TileGrid,
+                             node_ids :: TiledNodeIds,
+                             memory :: StripedMemory,
+                             llc :: LLCGeometry,
+                             core_profile :: RV5StageConfig,
+                             clocks :: SoCClockConfig,
+                             flit :: CHIFlitParams,
+                             boot :: SoCBootConfig):
   implements StableCircuitParam
 
   property hart_count: layout.rv5stages.length()
@@ -234,8 +234,8 @@ class TiledSoCConfig(layout :: TileGrid,
   property platform: platform_for(device_home)
   property description:
     RiscvSoCDescription(
-      ~model: "Rhodium TiledSoC",
-      ~compatible: ["rhodium,tiled-soc"],
+      ~model: "Rhodium Tiled RV5Stage SoC",
+      ~compatible: ["rhodium,tiled-rv5stage-soc"],
       ~harts: for List (index in 0..hart_count): index,
       ~core_profile: core_profile,
       ~clocks: clocks,
@@ -255,17 +255,17 @@ class TiledSoCConfig(layout :: TileGrid,
                ~flit: flit :: CHIFlitParams = CHIFlitParams(),
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):
     unless memory.stripe_bytes >= 64
-    | error(~who: #'TiledSoCConfig,
+    | error(~who: #'TiledRV5StageSoCConfig,
             "striped-memory stripes must contain a complete LLC line")
     unless tiled_power_of_two(layout.llcs.length())
-    | error(~who: #'TiledSoCConfig,
+    | error(~who: #'TiledRV5StageSoCConfig,
             "LLC count must be a power of two for striped memory")
     unless memory.size_bytes >= memory.stripe_bytes * layout.llcs.length()
-    | error(~who: #'TiledSoCConfig, "memory must contain at least one stripe per LLC")
+    | error(~who: #'TiledRV5StageSoCConfig, "memory must contain at least one stripe per LLC")
     unless llc.capacity_bytes <= memory.size_bytes / layout.llcs.length()
-    | error(~who: #'TiledSoCConfig, "each LLC must fit within its share of memory")
+    | error(~who: #'TiledRV5StageSoCConfig, "each LLC must fit within its share of memory")
     unless core_profile.xlen.width == 64
-    | error(~who: #'TiledSoCConfig, "TiledSoC requires an RV64 core profile")
+    | error(~who: #'TiledRV5StageSoCConfig, "TiledRV5StageSoC requires an RV64 core profile")
     AddressSet(memory.base, memory.size_bytes - 1)
     super(layout, node_ids, memory, llc, core_profile, clocks, flit, boot)
 

@@ -87,10 +87,10 @@ flowchart TD
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
     Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
-    Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
-    Compile --> SimpleBuild["Build SimpleSoC once<br/>exact-commit executable artifact"]
+    Compile --> TiledMemory["TiledRV5StageSoC memory stress<br/>independent build and execution budget"]
+    Compile --> SimpleBuild["Build SingleCoreRV5StageSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
-    SimpleBuild --> Programs["SimpleSoC software matrix<br/>ISA tests, benchmarks, and CoreMark"]
+    SimpleBuild --> Programs["SingleCoreRV5StageSoC software matrix<br/>ISA tests, benchmarks, and CoreMark"]
     Compile --> ActBuild["Generate all ACT ELFs once"]
     SimpleBuild --> ActRun["ACT execution<br/>four disjoint shards"]
     ActBuild --> ActRun
@@ -109,13 +109,13 @@ budgets. The aggregate `cores-vector` selector combines its two vector leaf
 groups, while `cores` still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
 
-The stalled-memory TiledSoC specialization runs in its own job under the same
+The stalled-memory TiledRV5StageSoC specialization runs in its own job under the same
 simulation change selection. Its separate build and bounded execution cannot
 consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
 The software matrix independently selects ISA tests, benchmarks, CoreMark, and ACT. Shared
-SimpleSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all
+SingleCoreRV5StageSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all
 four; suite-only adapter/source changes select the owning lane. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
@@ -131,7 +131,7 @@ in the [simulation guide](../../sims/README.md#architectural-certification-tests
 Recognized documentation and inert repository metadata select no functional
 test jobs. The optional Emacs integration and most of `vlsi/` have no
 functional CI lane; Rhodium sources there still receive source hygiene, while
-`vlsi/sim/` and the mapped MiniSoC flow select simulation. Unrecognized paths
+`vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized paths
 fail closed by selecting every job, and the classifier audit rejects tracked
 executable source that selects no job.
 

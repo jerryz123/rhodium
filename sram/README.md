@@ -51,7 +51,7 @@ flowchart LR
 | Top selection, flattened occurrence discovery, site-policy lookup, extern retargeting, and inventory emission | [`circt/MemorySitePass.cpp`](circt/MemorySitePass.cpp) |
 | Eligibility checks on lowered `FIRRTLMem`, catalog matching, tiling, wrapper generation, and manifest assembly | [`map-memories.py`](map-memories.py) |
 | Macro interface, dimensions, physical size, power pins, functional model, and PDK-relative collateral paths | A technology catalog and guide, such as [Sky130 SRAM support](sky130/README.md) |
-| Which logical sites use which technology macro, PDK installation, design-specific assertions, and physical implementation | The consuming design/technology flow, such as the [MiniSoC VLSI flow](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories) |
+| Which logical sites use which technology macro, PDK installation, design-specific assertions, and physical implementation | The consuming design/technology flow, such as the [MiniRV5StageSoC VLSI flow](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories) |
 
 The mapper's supported input shape is narrower than Rhodium's logical memory
 contract. A mappable `FIRRTLMem` currently has exactly one shared read/write
@@ -110,8 +110,8 @@ technology catalog.
 By default, `rhodium-map-memory-sites` uses the policy's logical `top` as the
 actual elaborated top. `top=<module>` overrides it. `scope-prefix=<path>` limits
 discovery to that flattened prefix and strips the prefix before policy lookup.
-For example, the same `MiniSoC`-relative policy can apply directly to
-`top=MiniSoC` or within `top=SoCHarness scope-prefix=soc`. Wrapper names derive
+For example, the same `MiniRV5StageSoC`-relative policy can apply directly to
+`top=MiniRV5StageSoC` or within `top=SoCHarness scope-prefix=soc`. Wrapper names derive
 from the policy-relative path, so both contexts receive the same wrapper
 identity.
 
@@ -127,7 +127,7 @@ python3 sram/map-memories.py selected.mlir \
 
 Add `--pdk-root /path/to/pdk` when the mapper should verify that every selected
 macro's catalogued Verilog, LEF, GDS, Liberty, and SPICE path exists. The
-checked-in [MiniSoC policy](../vlsi/designs/mini-soc/sky130/sram-map.yaml) and
+checked-in [MiniRV5StageSoC policy](../vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml) and
 its Makefile-owned pipelines are concrete examples; use them instead of
 copying their site or macro lists here.
 
@@ -180,8 +180,8 @@ Contributor plugin, mapper, wrapper, and schema validation is documented in
 
 Consumer-specific validation belongs with each consumer:
 
-- [`make -C vlsi mini-soc-memory-map`](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
-  verifies the direct-top MiniSoC manifest and installed PDK collateral.
+- [`make -C vlsi mini-rv5stage-soc-memory-map`](../vlsi/README.md#stage-2-map-and-synthesize-minisoc-memories)
+  verifies the direct-top MiniRV5StageSoC manifest and installed PDK collateral.
 - [`make -C vlsi/sim mapping`](../vlsi/sim/README.md)
   verifies the same logical policy when scoped through `SoCHarness` and uses
   checked-in functional models rather than signoff views.

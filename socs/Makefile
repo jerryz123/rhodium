@@ -21,9 +21,9 @@ config-test:
 	  socs/tests/boot-test.rhm \
 	  socs/tests/description-test.rhm \
 	  socs/tests/single-core-system-params-test.rhm \
-	  socs/tests/simple-soc-test.rhm \
-	  socs/tests/mini-soc-test.rhm \
+	  socs/tests/single-core-rv5stage-soc-test.rhm \
+	  socs/tests/mini-rv5stage-soc-test.rhm \
 	  socs/tests/main-memory-test.rhm \
-	  socs/tests/tiled-soc-layout-test.rhm \
-	  socs/tests/tiled-soc-compile-test.rhm; \
+	  socs/tests/tiled-rv5stage-soc-layout-test.rhm \
+	  socs/tests/tiled-rv5stage-soc-compile-test.rhm; \
 	env PLTCOMPILEDROOTS="$$soc_compiled_root" bash socs/tests/run-device-tree.sh

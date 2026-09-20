@@ -15,7 +15,7 @@ It does not depend on `flow` or compiler implementation modules; the
 [compiler event pass](../rhodium/event/README.md) generates its descriptor and DPI calls.
 
 For a ready-to-run pipeline trace, start with the
-[SimpleSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto).
+[SingleCoreRV5StageSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto).
 For a custom simulator, bind the [manifest](#validated-trace-snapshots) and
 [timing](#optional-trace-timing), then choose [streaming or replay](#streaming-to-perfetto).
 The [Perfetto display contract](#perfetto-display-and-queries) explains tracks,
@@ -217,7 +217,7 @@ rheg::graph().bind_timing(rheg::TraceTiming{100000000, 0});
 before any callback including reset. There is no assumed frequency default.
 SoC integration should supply `SoCClockConfig.clock_frequency_hz`, not
 `timebase_frequency_hz`; standalone integrations supply their own frequency.
-The [SimpleSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto)
+The [SingleCoreRV5StageSoC simulator](../sims/README.md#export-simplesoc-events-to-perfetto)
 supplies this timing in its opt-in trace build; other integrations bind it explicitly.
 
 `Snapshot::timing()` returns a const optional timing value. Untimed snapshots

@@ -1,0 +1,44 @@
+#lang rhombus
+// Checks MiniRV5StageSoC's on-chip memory, BootROM, and address-map policy.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../socs/mini-rv5stage-soc.rhdl" as soc
+
+def description = soc.mini_rv5stage_soc_params.description
+
+check:
+  soc.mini_rv5stage_soc_core_profile.extensions.zicbop ~is #true
+  soc.mini_rv5stage_soc_ram_params.name ~is "mini-memory"
+  soc.mini_rv5stage_soc_memory_bytes ~is 0x10000
+  soc.mini_rv5stage_soc_ram_config.size_bytes ~is soc.mini_rv5stage_soc_memory_bytes
+  soc.mini_rv5stage_soc_ram_params.base_address ~is soc.mini_rv5stage_soc_memory_base
+  soc.mini_rv5stage_soc_l1_cache_config.sets ~is 32
+  soc.mini_rv5stage_soc_l1_cache_config.ways ~is 1
+  soc.mini_rv5stage_soc_l1_cache_config.capacity_bytes ~is 0x800
+  description.model ~is "Rhodium Mini RV5Stage SoC"
+  description.compatible ~is ["rhodium,mini-rv5stage-soc"]
+  description.harts ~is [0]
+  description.core_profile === soc.mini_rv5stage_soc_core_profile ~is #true
+  description.clocks === soc.mini_rv5stage_soc_clocks ~is #true
+  description.memory_regions[0].address_set ~is soc.mini_rv5stage_soc_ram_params.service.address_sets[0]
+  description.boot.rom.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.bootrom.rom_params.service.address_sets[0]
+  description.boot.rom.size_bytes ~is 0x2000
+  soc.mini_rv5stage_soc_fabric_params.platform.bootrom.rom_config(description).image.bytes.drop(
+    soc.mini_rv5stage_soc_fabric_params.boot.device_tree_offset
+  ) ~is (
+    description.to_device_tree().to_dtb().to_list()
+  )
+  description.aclint.region.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.aclint.service.address_sets[0]
+  description.plic.region.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.plic.service.address_sets[0]
+  description.plic.contexts.length() ~is 2
+  description.uart.region.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.uart.service.address_sets[0]
+  description.uart.interrupt.controller.address_set ~is description.plic.region.address_set
+  description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
+  soc.mini_rv5stage_soc_home_map.entry(soc.mini_rv5stage_soc_memory_base).home === soc.mini_rv5stage_soc_fabric_params.home ~is #true
+  soc.mini_rv5stage_soc_home_map.entry(soc.mini_rv5stage_soc_memory_base + soc.mini_rv5stage_soc_memory_bytes) ~is #false
+  soc.mini_rv5stage_soc_home_map.entry(0x1000).home === soc.mini_rv5stage_soc_fabric_params.device_home ~is #true
+  soc.mini_rv5stage_soc_fabric_params.platform.subordinate_map.entry(0x1000).target_node_id ~is 14
+  description.boot.address_register.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.boot_address.service.address_sets[0]
+  soc.mini_rv5stage_soc_home_map.entry(0x00010000).home === soc.mini_rv5stage_soc_fabric_params.device_home ~is #true
+  soc.mini_rv5stage_soc_home_map.entry(0x0c000000).home === soc.mini_rv5stage_soc_fabric_params.device_home ~is #true

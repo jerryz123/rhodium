@@ -1,15 +1,15 @@
-# Balances MiniSoC's Sky130 RV64 arithmetic capture cones and proves each replacement before handoff.
+# Balances MiniRV5StageSoC's Sky130 RV64 arithmetic capture cones and proves each replacement before handoff.
 # SPDX-License-Identifier: Apache-2.0
 
-set step [file normalize $::env(MINI_SOC_SYNTH_STEP_DIR)]
-set out [file normalize $::env(MINI_SOC_POST_SYNTH_DIR)]
+set step [file normalize $::env(MINI_RV5STAGE_SOC_SYNTH_STEP_DIR)]
+set out [file normalize $::env(MINI_RV5STAGE_SOC_POST_SYNTH_DIR)]
 if {$out eq $step || [string first "$out/" "$step/"] == 0} {
     error "output must not contain the original synthesis step"
 }
 set config "$step/config.json"
 set extra "$step/extra.json"
-if {[exec jq -er .DESIGN_NAME $config] ne "MiniSoC"} {
-    error "expected MiniSoC synthesis input"
+if {[exec jq -er .DESIGN_NAME $config] ne "MiniRV5StageSoC"} {
+    error "expected MiniRV5StageSoC synthesis input"
 }
 set model [exec jq -er {[.blackbox_models[] | select(contains("sky130_fd_sc_hd__") and endswith(".lib"))] | if length == 1 then .[0] else error("expected one Sky130 HD Liberty model") end} $extra]
 set libs [split [exec jq -er {.libs_synth | if length > 0 then .[] else error("missing synthesis libraries") end} $extra] "\n"]
@@ -26,21 +26,21 @@ close $sdc
 
 yosys read_liberty -ignore_miss_func -ignore_miss_dir -ignore_miss_data_latch -ignore_buses "\"$model\""
 yosys design -stash models
-yosys read_json "\"$step/MiniSoC.nl.v.json\""
-yosys select -module MiniSoC
+yosys read_json "\"$step/MiniRV5StageSoC.nl.v.json\""
+yosys select -module MiniRV5StageSoC
 yosys select -assert-count 128 w:rv5stage2Fcore2Fdivider2Fdivider2Fresponse_bits*
 set repairs {
     divider_repair {rv5stage2Fcore2Fdivider2Fdivider2Fresponse_bits} 2000
 }
 # Opt in only: shared side-output remapping can regress other timing paths.
-if {$::env(MINI_SOC_REPAIR_MULTIPLIER) ni {0 1}} {
-    error "MINI_SOC_REPAIR_MULTIPLIER must be 0 or 1"
+if {$::env(MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER) ni {0 1}} {
+    error "MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER must be 0 or 1"
 }
-if {$::env(MINI_SOC_REPAIR_MULTIPLIER)} {
+if {$::env(MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER)} {
     lappend repairs multiplier_repair {rv5stage2Fcore2Fmultiplier2Fmultiplier2Fmultiplicand rv5stage2Fcore2Fmultiplier2Fmultiplier2Fmultiplier} 4000
 }
 foreach {repair registers limit} $repairs {
-    yosys select -module MiniSoC
+    yosys select -module MiniRV5StageSoC
     set endpoints {}
     foreach register $registers {
         for {set bit 0} {$bit < 64} {incr bit} {
@@ -83,10 +83,10 @@ foreach {repair registers limit} $repairs {
     yosys sat -verify -prove trigger 0 -timeout 30
 
     yosys design -load mapped
-    yosys flatten MiniSoC/$repair
-    yosys select -assert-none MiniSoC/t:$repair
+    yosys flatten MiniRV5StageSoC/$repair
+    yosys select -assert-none MiniRV5StageSoC/t:$repair
     yosys delete $repair
 }
 yosys check -assert
-yosys write_verilog -noattr -noexpr -nohex -nodec "\"$out/MiniSoC.nl.v\""
-yosys write_json "\"$out/MiniSoC.nl.v.json\""
+yosys write_verilog -noattr -noexpr -nohex -nodec "\"$out/MiniRV5StageSoC.nl.v\""
+yosys write_json "\"$out/MiniRV5StageSoC.nl.v.json\""

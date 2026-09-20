@@ -29,7 +29,7 @@ trap cleanup EXIT
 env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
   "$repo_dir/tools/run-racket.sh" "$repo_dir/socs/tests/write-device-trees.rhm" "$fixture_dir"
 
-for name in simple mini tiled; do
+for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
   dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
   fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1
@@ -62,7 +62,7 @@ for name in simple mini tiled; do
   # Resolve CPU phandles rather than assuming their numeric allocation.
   contexts=()
   hart_count=1
-  [[ "$name" != tiled ]] || hart_count=8
+  [[ "$name" != tiled-rv5stage-soc ]] || hart_count=8
   for ((hart=0; hart<hart_count; hart++)); do
     for extension in zic64b za64rs ziccif ziccamoa ziccrse; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
@@ -76,32 +76,32 @@ for name in simple mini tiled; do
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" "$plic_path" interrupts-extended)" == "${contexts[*]}" ]]
 done
 
-for name in simple tiled; do
+for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zcmop "*) ;;
     *) echo "$name DTB does not advertise Zcmop" >&2; exit 1 ;;
   esac
 done
 
-case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zvfh "*) ;;
-  *) echo "simple DTB does not advertise Zvfh" >&2; exit 1 ;;
+  *) echo "single-core-rv5stage-soc DTB does not advertise Zvfh" >&2; exit 1 ;;
 esac
-case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zvkt "*) ;;
-  *) echo "simple DTB does not advertise Zvkt" >&2; exit 1 ;;
+  *) echo "single-core-rv5stage-soc DTB does not advertise Zvkt" >&2; exit 1 ;;
 esac
 for extension in zvkb zvl32b zvl64b zvl128b; do
-  case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+  case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" $extension "*) ;;
-    *) echo "simple DTB does not advertise $extension" >&2; exit 1 ;;
+    *) echo "single-core-rv5stage-soc DTB does not advertise $extension" >&2; exit 1 ;;
   esac
 done
-case " $(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
   *" zfh "*) ;;
-  *) echo "simple DTB does not advertise Zfh" >&2; exit 1 ;;
+  *) echo "single-core-rv5stage-soc DTB does not advertise Zfh" >&2; exit 1 ;;
 esac
-for name in mini tiled; do
+for name in mini-rv5stage-soc tiled-rv5stage-soc; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zvfh "*) echo "$name DTB unexpectedly advertises Zvfh" >&2; exit 1 ;;
     *) ;;
@@ -112,22 +112,22 @@ for name in mini tiled; do
   esac
 done
 
-[[ "$(fdtget "$fixture_dir/simple.dtb" / model)" == "Rhodium SimpleSoC" ]]
-[[ "$(fdtget "$fixture_dir/mini.dtb" / model)" == "Rhodium MiniSoC" ]]
-[[ "$(fdtget "$fixture_dir/tiled.dtb" / model)" == "Rhodium TiledSoC" ]]
-[[ "$(fdtget -t x "$fixture_dir/simple.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
-[[ "$(fdtget -t x "$fixture_dir/mini.dtb" /memory@80000000 reg)" == "0 80000000 0 10000" ]]
-[[ "$(fdtget -t x "$fixture_dir/tiled.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
-[[ "$(fdtget "$fixture_dir/simple.dtb" /cpus timebase-frequency)" == "100000000" ]]
-[[ "$(fdtget "$fixture_dir/tiled.dtb" /cpus timebase-frequency)" == "1000000" ]]
-[[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]
-[[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 mmu-type)" == "riscv,sv39" ]]
+[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" / model)" == "Rhodium Single-Core RV5Stage SoC" ]]
+[[ "$(fdtget "$fixture_dir/mini-rv5stage-soc.dtb" / model)" == "Rhodium Mini RV5Stage SoC" ]]
+[[ "$(fdtget "$fixture_dir/tiled-rv5stage-soc.dtb" / model)" == "Rhodium Tiled RV5Stage SoC" ]]
+[[ "$(fdtget -t x "$fixture_dir/single-core-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
+[[ "$(fdtget -t x "$fixture_dir/mini-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 10000" ]]
+[[ "$(fdtget -t x "$fixture_dir/tiled-rv5stage-soc.dtb" /memory@80000000 reg)" == "0 80000000 0 40000000" ]]
+[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus timebase-frequency)" == "100000000" ]]
+[[ "$(fdtget "$fixture_dir/tiled-rv5stage-soc.dtb" /cpus timebase-frequency)" == "1000000" ]]
+[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-base)" == "rv64i" ]]
+[[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 mmu-type)" == "riscv,sv39" ]]
 for cache in i d; do
-  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
-  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
-  [[ "$(fdtget "$fixture_dir/simple.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
+  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
+  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
+  [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
 done
-[[ "$(fdtget -t x "$fixture_dir/simple.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7" ]]
-[[ "$(fdtget -t x "$fixture_dir/tiled.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
-[[ "$(fdtget -l "$fixture_dir/tiled.dtb" / | grep -c '^memory@')" == "1" ]]
-grep -Fq 'Rhodium TiledSoC' "$fixture_dir/tiled.dump"
+[[ "$(fdtget -t x "$fixture_dir/single-core-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7" ]]
+[[ "$(fdtget -t x "$fixture_dir/tiled-rv5stage-soc.dtb" /soc/clint@2000000 interrupts-extended)" == "1 3 1 7 2 3 2 7 3 3 3 7 4 3 4 7 5 3 5 7 6 3 6 7 7 3 7 7 8 3 8 7" ]]
+[[ "$(fdtget -l "$fixture_dir/tiled-rv5stage-soc.dtb" / | grep -c '^memory@')" == "1" ]]
+grep -Fq 'Rhodium Tiled RV5Stage SoC' "$fixture_dir/tiled-rv5stage-soc.dump"

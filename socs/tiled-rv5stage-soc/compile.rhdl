@@ -1,5 +1,5 @@
 #lang rhodium
-// Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
+// Privately compiles one TiledRV5StageSoC configuration into boot, placement, fabric, and tile parameters.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -139,32 +139,32 @@ class UartTileInstance(placement :: TiledUartPlacement,
 class TransitTileInstance(placement :: TiledTransitPlacement,
                           tile_params :: TransitTileParams)
 
-class TiledSoCImplementation(config :: TiledSoCConfig,
-                             mesh :: RectangularMesh,
-                             connections :: NonemptyList.of(CHIConnection),
-                             compilations :: CHIChannelCompilations,
-                             families :: TiledChannelFamilyPlans,
-                             physical_plan :: RouterFamilyPhysicalPlan,
-                             distribution :: TiledDistributionPlan,
-                             node_ids :: NonemptyList.of(Nat),
-                             flit :: CHIFlitParams,
-                             home_map :: CHIHomeMap,
-                             rv5stage_config :: RV5StageCHIConfig,
-                             address_layout :: StripedAddressLayout,
-                             hnf_config :: CHIHNFConfig,
-                             llc_config :: CHIInclusiveHNFConfig,
-                             platform :: SoCPlatformParams,
-                             router_configs :: CHIRouterFamilyConfigs,
-                             rv5stages :: NonemptyList.of(RV5StageTileInstance),
-                             llcs :: NonemptyList.of(LLCTileInstance),
-                             memory :: MemoryTileInstance,
-                             host :: HostTileInstance,
-                             device_home :: DeviceHomeTileInstance,
-                             bootrom :: BootROMInstance,
-                             aclint :: AclintTileInstance,
-                             plic :: PlicTileInstance,
-                             uart :: UartTileInstance,
-                             transits :: List.of(TransitTileInstance)):
+class TiledRV5StageSoCImplementation(config :: TiledRV5StageSoCConfig,
+                                     mesh :: RectangularMesh,
+                                     connections :: NonemptyList.of(CHIConnection),
+                                     compilations :: CHIChannelCompilations,
+                                     families :: TiledChannelFamilyPlans,
+                                     physical_plan :: RouterFamilyPhysicalPlan,
+                                     distribution :: TiledDistributionPlan,
+                                     node_ids :: NonemptyList.of(Nat),
+                                     flit :: CHIFlitParams,
+                                     home_map :: CHIHomeMap,
+                                     rv5stage_config :: RV5StageCHIConfig,
+                                     address_layout :: StripedAddressLayout,
+                                     hnf_config :: CHIHNFConfig,
+                                     llc_config :: CHIInclusiveHNFConfig,
+                                     platform :: SoCPlatformParams,
+                                     router_configs :: CHIRouterFamilyConfigs,
+                                     rv5stages :: NonemptyList.of(RV5StageTileInstance),
+                                     llcs :: NonemptyList.of(LLCTileInstance),
+                                     memory :: MemoryTileInstance,
+                                     host :: HostTileInstance,
+                                     device_home :: DeviceHomeTileInstance,
+                                     bootrom :: BootROMInstance,
+                                     aclint :: AclintTileInstance,
+                                     plic :: PlicTileInstance,
+                                     uart :: UartTileInstance,
+                                     transits :: List.of(TransitTileInstance)):
   implements StableCircuitParam
 
   property host_services:
@@ -181,17 +181,17 @@ fun require_tiled_node_id_width(node_ids :: NonemptyList.of(Nat),
                                 flit :: CHIFlitParams):
   for (node_id in node_ids):
     unless bits.length(node_id) <= flit.node_id_width
-    | error(~who: #'compile_tiled_soc, "TiledSoC NodeID does not fit the CHI flit")
+    | error(~who: #'compile_tiled_rv5stage_soc, "TiledRV5StageSoC NodeID does not fit the CHI flit")
 
 fun require_unique_tiled_node_ids(node_ids :: NonemptyList.of(Nat)):
   for (node_id in node_ids):
     if node_ids.filter(
       ~keep: fun (candidate): candidate == node_id
     ).length() > 1
-    | error(~who: #'compile_tiled_soc, "TiledSoC NodeIDs must be unique")
+    | error(~who: #'compile_tiled_rv5stage_soc, "TiledRV5StageSoC NodeIDs must be unique")
     | #void
 
-fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
+fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5StageSoCImplementation:
   def flit = config.flit
   def layout = config.layout
   def ids = config.node_ids
@@ -407,7 +407,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   )
   unless for any (placement in llc_placements):
     address_layout.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
-  | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
+  | error(~who: #'compile_tiled_rv5stage_soc, "BootROM payload address must lie in normal memory")
 
   def rv5stage_chi_params:
     for List (placement in rv5stage_placements):
@@ -603,7 +603,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
     for List (placement in transit_placements):
       TransitTileInstance(placement, transit_tile_params)
 
-  TiledSoCImplementation(
+  TiledRV5StageSoCImplementation(
     config,
     mesh,
     connections,
@@ -654,5 +654,5 @@ export:
   PlicTileInstance
   UartTileInstance
   TransitTileInstance
-  TiledSoCImplementation
-  compile_tiled_soc
+  TiledRV5StageSoCImplementation
+  compile_tiled_rv5stage_soc

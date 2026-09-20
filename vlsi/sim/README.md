@@ -3,8 +3,8 @@
 
 # Mapped VLSI simulation
 
-This directory runs the MiniSoC `SoCHarness` after applying the same
-MiniSoC/Sky130 SRAM-site policy used by the physical flow. It is a consumer of
+This directory runs the MiniRV5StageSoC `SoCHarness` after applying the same
+MiniRV5StageSoC/Sky130 SRAM-site policy used by the physical flow. It is a consumer of
 the reusable [simulation stack](../../sims/README.md) and
 [SRAM mapper](../../sram/README.md), not a second implementation of either.
 Use `sims/` when all memories should remain technology-independent and inferred.
@@ -17,8 +17,8 @@ read [`DEVELOPING.md`](DEVELOPING.md).
 ```mermaid
 flowchart LR
   subgraph CheckedIn["Checked-in inputs"]
-    Harness["sims/mini-soc-harness.rhdl<br/>SoCHarness and FESVR requester"]
-    Policy["vlsi/designs/mini-soc/sky130/sram-map.yaml<br/>site decisions"]
+    Harness["sims/mini-rv5stage-soc-harness.rhdl<br/>SoCHarness and FESVR requester"]
+    Policy["vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml<br/>site decisions"]
     Catalog["sram/sky130/macros.ini<br/>macro catalog"]
     Model["sram/sky130/models/*.functional.sv<br/>cycle model"]
     Driver["sims/TestDriver.v and FESVR bridge"]
@@ -48,11 +48,11 @@ The neighboring packages own the contracts behind this orchestration:
 | `SoCHarness`, `TestDriver.v`, FESVR transport, Verilator binding, and target execution | [`sims/`](../../sims/README.md) |
 | Memory-site discovery, compatibility checks, tiling, wrappers, and manifest schemas | [`sram/`](../../sram/README.md) |
 | Sky130 catalog and zero-delay functional model | [`sram/sky130/`](../../sram/sky130/README.md) |
-| MiniSoC/Sky130 site choices and design-specific manifest assertions | [`vlsi/`](../README.md#stage-2-map-and-synthesize-minisoc-memories) |
+| MiniRV5StageSoC/Sky130 site choices and design-specific manifest assertions | [`vlsi/`](../README.md#stage-2-map-and-synthesize-minisoc-memories) |
 | Combining those inputs into a mapped simulator and keeping its artifacts isolated | This directory |
 
-The Makefile elaborates the normal MiniSoC harness, then scopes the
-MiniSoC-relative policy through its `soc` instance. Policy-selected memory
+The Makefile elaborates the normal MiniRV5StageSoC harness, then scopes the
+MiniRV5StageSoC-relative policy through its `soc` instance. Policy-selected memory
 occurrences become generated SRAM-wrapper instances; all other occurrences
 remain inferred and are lowered into simulator RTL by CIRCT. Verilator compiles
 that mixed RTL with the checked-in Sky130 functional model. The model verifies
@@ -86,13 +86,13 @@ building Verilator:
 make -C vlsi/sim mapping
 ```
 
-This target also runs the MiniSoC manifest checker with `top=SoCHarness` and
+This target also runs the MiniRV5StageSoC manifest checker with `top=SoCHarness` and
 `scope-prefix=soc`; success means the harness-scoped result still satisfies the
 design-owned policy assertions. Inspect the two complementary reports with:
 
 ```sh
-python3 -m json.tool vlsi/build/sim/mini/sky130/memory-sites.json
-python3 -m json.tool vlsi/build/sim/mini/sky130/memory-manifest.json
+python3 -m json.tool vlsi/build/sim/mini-rv5stage-soc/sky130/memory-sites.json
+python3 -m json.tool vlsi/build/sim/mini-rv5stage-soc/sky130/memory-manifest.json
 ```
 
 The inventory records every discovered occurrence and its policy decision. The
@@ -131,9 +131,9 @@ As in `sims/`, `HTIF_ARGS` precedes the binary and `TARGET_ARGS` follows it.
 See the [simulator guide](../../sims/README.md#run-a-target) for the host
 transport and execution contract.
 
-`SOC=mini` and `TECH=sky130` are the only supported configuration; other values
+`SOC=mini-rv5stage-soc` and `TECH=sky130` are the only supported configuration; other values
 fail immediately. Override `BUILD_ROOT` to isolate an experiment. By default,
-all generated files stay under `vlsi/build/sim/mini/sky130/`:
+all generated files stay under `vlsi/build/sim/mini-rv5stage-soc/sky130/`:
 
 | Stage | Generated artifacts |
 | --- | --- |
@@ -146,10 +146,10 @@ build products, not checked-in inputs.
 
 ## Debug a failure
 
-First compare the technology-independent MiniSoC smoke with this mapped one:
+First compare the technology-independent MiniRV5StageSoC smoke with this mapped one:
 
 ```sh
-make -C sims smoke SOC=mini
+make -C sims smoke SOC=mini-rv5stage-soc
 make -C vlsi/sim smoke
 ```
 

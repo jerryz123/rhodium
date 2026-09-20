@@ -207,7 +207,7 @@ stores, invalidating snoops, and reset. Run `rv5stage-load-hit` at the real
 core/MMU/router/cache boundary for hits during delayed load/store misses,
 deferred-result use, and fence ordering. Include `rv5stage-dcache-rv32` and
 `rv5stage-lrsc-progress` for width and coherence regression coverage, then rerun
-SimpleSoC vvadd with the same ELF and host polling before claiming a speedup.
+SingleCoreRV5StageSoC vvadd with the same ELF and host polling before claiming a speedup.
 
 For internal flow changes, the RV64 cache bench also checks same-cycle demand
 priority over a hint, hint drops during miss service, and retained younger

@@ -43,7 +43,7 @@ SoCs, the generic pass, or the generic adapter renderer.
 | Synthetic mapping fixtures | [`tests/fixtures/`](tests/fixtures/) |
 | Mapper, selection, wrapper, and Verilator coverage | [`tests/test_mapper.py`](tests/test_mapper.py) |
 | Sky130 catalog and model | [`sky130/DEVELOPING.md`](sky130/DEVELOPING.md) |
-| MiniSoC site policy and physical consumption | [`../vlsi/DEVELOPING.md`](../vlsi/DEVELOPING.md) |
+| MiniRV5StageSoC site policy and physical consumption | [`../vlsi/DEVELOPING.md`](../vlsi/DEVELOPING.md) |
 
 ## Change occurrence selection or schemas
 
@@ -95,7 +95,7 @@ unknown-site rejection, scoped wrapper stability, and unsupported ports.
 Use the consuming guides for design-specific validation:
 
 ```sh
-make -C vlsi mini-soc-memory-map
+make -C vlsi mini-rv5stage-soc-memory-map
 make -C vlsi/sim mapping
 ```
 

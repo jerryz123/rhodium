@@ -11,14 +11,14 @@ sources="$(find socs -type d -name tests -prune -o -type f \
   \( -name '*.rhdl' -o -name '*.rhm' \) -print)"
 while IFS= read -r source; do
   [[ -n "$source" ]] || continue
-  for variant in mini simple tiled; do
+  for composition in mini-rv5stage-soc single-core-rv5stage-soc tiled-rv5stage-soc; do
     case "$source" in
-      "socs/$variant-soc.rhdl"|"socs/$variant-soc-config.rhdl"|"socs/$variant-soc-plan.rhm"|"socs/$variant-soc/"*)
+      "socs/$composition.rhdl"|"socs/$composition-config.rhdl"|"socs/$composition-plan.rhm"|"socs/$composition/"*)
         continue
         ;;
     esac
-    if matches="$(grep -nE "^[[:space:]]+.*\"([^\"]*/)?$variant-soc((-config|-plan)?\\.(rhdl|rhm)|/[^\"]+\\.(rhdl|rhm))\"" "$source")"; then
-      echo "$source: shared components and peer SoCs must not import $variant-soc modules" >&2
+    if matches="$(grep -nE "^[[:space:]]+.*\"([^\"]*/)?$composition((-config|-plan)?\\.(rhdl|rhm)|/[^\"]+\\.(rhdl|rhm))\"" "$source")"; then
+      echo "$source: shared components and peer SoCs must not import $composition modules" >&2
       echo "$matches" >&2
       exit 1
     else

@@ -56,10 +56,10 @@ With the pinned PDK installed, validate collateral and the current direct-top
 consumer manifest:
 
 ```sh
-make -C vlsi mini-soc-memory-map
+make -C vlsi mini-rv5stage-soc-memory-map
 ```
 
-After changing functional-model behavior, run the mapped MiniSoC smoke:
+After changing functional-model behavior, run the mapped MiniRV5StageSoC smoke:
 
 ```sh
 make -C vlsi/sim smoke

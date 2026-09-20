@@ -1,9 +1,0 @@
-#lang rhombus
-// Emits CIRCT MLIR for the repository MiniSoC used by the SRAM mapping prototype.
-// SPDX-License-Identifier: Apache-2.0
-
-import:
-  "../../rhodium/backend/circt.rhm" open
-  "../../socs/mini-soc.rhdl" as soc
-
-print(emit_circt(soc.design))

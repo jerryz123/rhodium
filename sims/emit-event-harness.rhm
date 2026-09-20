@@ -1,9 +1,9 @@
 #lang rhombus
-// Instruments the SimpleSoC harness and exports its matching descriptor and clock configuration.
+// Instruments the SingleCoreRV5StageSoC harness and exports its matching descriptor and clock configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "simple-soc-harness.rhdl" as harness
+  "single-core-rv5stage-soc-harness.rhdl" as harness
   "../rhodium/backend/circt.rhm".emit_circt
   "../rhodium/event/main.rhm" open
 

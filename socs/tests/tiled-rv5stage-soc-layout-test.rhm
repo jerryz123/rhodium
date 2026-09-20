@@ -1,9 +1,9 @@
 #lang rhombus
-// Checks the public TiledSoC tile-grid language, coordinates, and validation.
+// Checks the public TiledRV5StageSoC tile-grid language, coordinates, and validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../tiled-soc/layout.rhm" open
+  "../tiled-rv5stage-soc/layout.rhm" open
 
 def layout = tile_grid:
   row [llc(4), memory]

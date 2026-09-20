@@ -4,9 +4,9 @@
 
 import:
   rhombus/cmdline open
-  "../simple-soc.rhdl" as simple
-  "../mini-soc.rhdl" as mini
-  "../tiled-soc/main.rhdl" as tiled
+  "../single-core-rv5stage-soc.rhdl" as single_core
+  "../mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage
 
 def arguments = current_command_line()
 unless arguments.length() == 1
@@ -14,9 +14,9 @@ unless arguments.length() == 1
 
 def output_directory = arguments[0]
 def trees = [
-  ["simple", simple.simple_soc_params.description.to_device_tree()],
-  ["mini", mini.mini_soc_params.description.to_device_tree()],
-  ["tiled", tiled.default_tiled_soc_config.description.to_device_tree()]
+  ["single-core-rv5stage-soc", single_core.single_core_rv5stage_soc_params.description.to_device_tree()],
+  ["mini-rv5stage-soc", mini_rv5stage.mini_rv5stage_soc_params.description.to_device_tree()],
+  ["tiled-rv5stage-soc", tiled_rv5stage.default_tiled_rv5stage_soc_config.description.to_device_tree()]
 ]
 
 for (entry in trees):

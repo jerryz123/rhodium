@@ -3,7 +3,7 @@
 .option norvc
 
 .macro prime_conflict_set
-  // The checked-in SimpleSoC data cache is 64-set, four-way. The resident
+  // The checked-in SingleCoreRV5StageSoC data cache is 64-set, four-way. The resident
   // plus three same-set lines fill it without allocating the stream line.
   ld t0, 0(s0)
   li t2, 0x1000
@@ -142,7 +142,7 @@ trial:
   addi s10, s10, -1
   bnez s10, hint_loop
 
-  // SimpleSoC also routes a hinted FP load through the same translated LSU.
+  // SingleCoreRV5StageSoC also routes a hinted FP load through the same translated LSU.
   csrr t0, misa
   andi t0, t0, 8
   beqz t0, finish

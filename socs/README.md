@@ -35,23 +35,23 @@ cacheable coherent RAM.
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |
 | --- | ---: | --- | --- | --- | --- |
-| `SimpleSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDCV plus B, Zfh, Zvfh, Zvkb, Zvbb, Zicond, Zicbop, and Zvl32b/64b/128b; full C composition | Primary single-core coherent system and external-memory integration |
-| `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
-| `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
+| `SingleCoreRV5StageSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDCV plus B, Zfh, Zvfh, Zvkb, Zvbb, Zicond, Zicbop, and Zvl32b/64b/128b; full C composition | Primary single-core coherent system and external-memory integration |
+| `MiniRV5StageSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
+| `TiledRV5StageSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
 All three systems expose the same [`SoCHostInterface`](host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
 Each author-facing SoC parameter object owns one
 `RV5StageConfig`, and the same profile specializes the instantiated core and its
-architectural description. `SimpleSoC` defaults to RV64D, V 1.0 with VLEN 128,
+architectural description. `SingleCoreRV5StageSoC` defaults to RV64D, V 1.0 with VLEN 128,
 and the full C composition; its device tree and UDB configuration advertise
 `V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`,
 `Zvkb`, `Zvbb`, `Zvkt`, the cumulative `Zvl32b`/`Zvl64b`/`Zvl128b` closure, and
-`misa.V` from that same profile. `MiniSoC` defaults to
+`misa.V` from that same profile. `MiniRV5StageSoC` defaults to
 integer-only RV64 with 2 KiB direct-mapped L1s, and
-`TiledSoC` to integer-only RV64 with the C composition. SimpleSoC and TiledSoC
-also enable Zcmop; MiniSoC keeps compressed instructions disabled. All three select Sv39;
-Zicbop and Zicboz are enabled in each default profile. SimpleSoC also enables
+`TiledRV5StageSoC` to integer-only RV64 with the C composition. SingleCoreRV5StageSoC and TiledRV5StageSoC
+also enable Zcmop; MiniRV5StageSoC keeps compressed instructions disabled. All three select Sv39;
+Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC also enables
 scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RV5StageConfig` through the owning SoC parameter
 object to change those selections.
 Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
@@ -74,9 +74,9 @@ LLC ownership stripes remain distinct from architectural memory regions.
 Construction rejects inconsistent frequency ratios, non-contiguous or
 overlapping architectural regions, duplicate harts and compatible strings,
 reset vectors outside the BootROM, and payload addresses outside memory.
-`SimpleSoCParams`, `MiniSoCParams`, and `TiledSoCConfig` each expose a
+`SingleCoreRV5StageSoCParams`, `MiniRV5StageSoCParams`, and `TiledRV5StageSoCConfig` each expose a
 `.description` projection. The projection reuses the CHI subordinate service
-address sets; TiledSoC describes its single external memory channel as one
+address sets; TiledRV5StageSoC describes its single external memory channel as one
 contiguous architectural region, independently of LLC ownership stripes.
 
 Calling `.description.to_device_tree()` produces a deterministic generic
@@ -112,10 +112,10 @@ command.
 Generate one entry from the repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
 ```
 
-The current keys are `simple-soc`, `mini-soc`, and `tiled-soc`. Output defaults
+The current keys are `single-core-rv5stage-soc`, `mini-rv5stage-soc`, and `tiled-rv5stage-soc`. Output defaults
 to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
 Generated configurations are build artifacts and must not be committed.
 
@@ -171,14 +171,14 @@ context followed by a supervisor-external context. The UART occupies
 also drives the PLIC source. The platform
 owns the explicit ACLINT tick policy through `SoCClockConfig`; the same clock
 and timebase frequencies drive the hardware divider and appear in the
-architectural description. The default `SimpleSoC` and `MiniSoC` use a 1:1
-ratio, while default TiledSoC divides 100 MHz to 1 MHz. Supervisor software and
+architectural description. The default `SingleCoreRV5StageSoC` and `MiniRV5StageSoC` use a 1:1
+ratio, while default TiledRV5StageSoC divides 100 MHz to 1 MHz. Supervisor software and
 timer interrupt lines remain low; PLIC context outputs drive both external
 interrupt lines.
 
-## SimpleSoC
+## SingleCoreRV5StageSoC
 
-[`simple-soc.rhdl`](simple-soc.rhdl) composes the primary single-core coherent
+[`single-core-rv5stage-soc.rhdl`](single-core-rv5stage-soc.rhdl) composes the primary single-core coherent
 system:
 
 ```mermaid
@@ -231,7 +231,7 @@ RISC-V read, write, execute, cacheability, and atomic attributes with its CHI
 Home; the SoC derives the `CHIHomeMap` from those entries. Requests outside the
 table therefore trap in RV5Stage instead of entering CHI without a Home.
 
-`SimpleSoCParams` couples the shared `SingleCoreSystemParams` contract to the inclusive LLC
+`SingleCoreRV5StageSoCParams` couples the shared `SingleCoreSystemParams` contract to the inclusive LLC
 geometry. Its default core profile selects separate 16 KiB, four-way
 set-associative instruction and data caches, each with 64 sets and 64-byte
 lines. The default also selects a 64-set, four-way blocking LLC and exports
@@ -239,35 +239,35 @@ line-capable `CHISNChannels` for SN-F NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
 binding; an external subordinate owns memory contents and response timing.
 
-## MiniSoC
+## MiniRV5StageSoC
 
-[`mini-soc.rhdl`](mini-soc.rhdl) independently composes the small,
+[`mini-rv5stage-soc.rhdl`](mini-rv5stage-soc.rhdl) independently composes the small,
 self-contained system used for compact RTL and physical-design experiments. It
 uses a 64 KiB range, replaces the inclusive LLC with the forwarding `CHIHNF`,
 and terminates the native memory boundary directly in an on-chip, line-capable
 `CHIRam`. Its RV64 instruction and data caches are each explicitly 32-set,
-one-way direct-mapped caches with 2 KiB of line storage; SimpleSoC's larger
+one-way direct-mapped caches with 2 KiB of line storage; SingleCoreRV5StageSoC's larger
 L1 defaults are described [above](#simplesoc).
 
-`MiniSoCParams` owns its `CHIRamParams`; `SimpleSoCParams` instead consumes an
+`MiniRV5StageSoCParams` owns its `CHIRamParams`; `SingleCoreRV5StageSoCParams` instead consumes an
 external `CHISubordinateServiceParams` through its shared system parameters.
-The SimpleSoC simulation harness selects the DPI memory implementation.
+The SingleCoreRV5StageSoC simulation harness selects the DPI memory implementation.
 Neither top level imports or instantiates another SoC. They share
 [`populate_single_core`](single-core-system.rhdl), which instantiates components
 directly in its caller without an intermediate `fabric/` or `system/` module.
-TiledSoC keeps its independent tile and mesh composition. See the
+TiledRV5StageSoC keeps its independent tile and mesh composition. See the
 [development guide](DEVELOPING.md#architecture-and-ownership) for shared source ownership.
 
-## TiledSoC
+## TiledRV5StageSoC
 
-TiledSoC exposes one author configuration and privately derives its network and
+TiledRV5StageSoC exposes one author configuration and privately derives its network and
 hardware parameters during elaboration:
 
 ```mermaid
 flowchart LR
-  Config["TiledSoCConfig<br/>layout, NodeIDs, memory, LLC, and timebase intent"]
+  Config["TiledRV5StageSoCConfig<br/>layout, NodeIDs, memory, LLC, and timebase intent"]
   Compile["private compiler<br/>placements, routes, and component parameters"]
-  RTL["TiledSoC(config)<br/>structural RTL composition"]
+  RTL["TiledRV5StageSoC(config)<br/>structural RTL composition"]
 
   Config --> Compile --> RTL
 ```
@@ -283,22 +283,22 @@ def layout = tile_grid:
   row [rv5stage(4), transit]
 ```
 
-`TiledSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
+`TiledRV5StageSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
 `StripedMemory`, `LLCGeometry`, an `RV5StageConfig`, `SoCClockConfig`, the boot
 configuration, and the CHI flit parameters. The public
-`TiledSoC(config)` circuit accepts this author value directly. Its private
+`TiledRV5StageSoC(config)` circuit accepts this author value directly. Its private
 compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI
 relationships, routes, the shared physical-link manifest, and all component
-parameters in one pass. There is no public intermediate TiledSoC plan or
+parameters in one pass. There is no public intermediate TiledRV5StageSoC plan or
 second compiled configuration for authors to manage. The default
-`default_tiled_soc_config` defines the repository's 5x4 system; other
+`default_tiled_rv5stage_soc_config` defines the repository's 5x4 system; other
 rectangular layouts use the same entrypoint when they satisfy the tile-count
 invariants. Exactly one `memory` tile owns the external memory channel.
 `StripedMemory(~base: ..., ~size_bytes: ..., ~stripe_bytes: ...)` specifies
 total architectural capacity independently of the number of LLC slices;
 striping selects the owning LLC, not separate physical memory banks.
 
-The package lives under [`tiled-soc/`](tiled-soc/): `main.rhdl` is the public
+The package lives under [`tiled-rv5stage-soc/`](tiled-rv5stage-soc/): `main.rhdl` is the public
 entrypoint, `layout.rhm` owns the immutable configuration and macro-phase
 tile-grid language, `compile.rhdl` owns private derivation, `time.rhdl` owns
 the rotating platform-time stream, and `tiles/` owns the concrete tile
@@ -334,13 +334,13 @@ Each tile owns one `CHIRouter`, containing independent REQ/RSP/SNP/DAT
 uses one shared RTL specialization, every LLC tile uses another, and the
 service row adds one `DeviceHomeTile`, one `AclintTile`, one `PlicTile`, one `UartTile`, and
 one `HostTile` specialization. Their implementations and parameter contracts
-live under [`tiled-soc/tiles/`](tiled-soc/tiles/). The parent drives one constant
+live under [`tiled-rv5stage-soc/tiles/`](tiled-rv5stage-soc/tiles/). The parent drives one constant
 identity bundle per occurrence containing its router site, hart ID, endpoint
 NodeIDs and striped service base; tiles contain no system-wide
 identity table or runtime routing-mode selector. A `RV5StageTile` attaches one
 RV5Stage's instruction RN-I, data RN-F, and uncached RN-I ports. A
 `LLCTile` attaches both sides of one blocking `CHIInclusiveHNF`. The `MemoryTile`
-exports `TiledSoC.memory`, a single `CHISNChannels` port in the `icn` role.
+exports `TiledRV5StageSoC.memory`, a single `CHISNChannels` port in the `icn` role.
 Its external SN-F must support one-byte through 64-byte `ReadNoSnp`,
 `WriteNoSnpFull`, and `WriteNoSnpPtl` transfers, with DBID-associated write data
 and responses routed to the originating Home. Arbitration and return routing
@@ -376,11 +376,11 @@ SoC.
 
 Every tile exposes the family's uniform maximum of four incoming and four
 outgoing physical links, each bundling the independent REQ/RSP/SNP/DAT
-transports. `TiledSoC` alone applies the compiled
+transports. `TiledRV5StageSoC` alone applies the compiled
 `RouterFamilyLinkConnection` manifest and explicitly closes unused edge and
 corner slots. There is no whole-network CHI router wrapper under `noc/rtl`;
 the separate platform distribution network is owned and composed by
-`tiled-soc/` from the generic NoC planning, routing, router, and `VcLink`
+`tiled-rv5stage-soc/` from the generic NoC planning, routing, router, and `VcLink`
 pieces.
 
 ## Focused validation

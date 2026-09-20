@@ -134,7 +134,7 @@ selectors and modes are documented in
 [`circt/README.md`](circt/README.md#choose-the-smallest-useful-run).
 
 Executable FESVR transport, DPI binding, reusable SoC simulators, and mapped
-MiniSoC smoke tests are a separate external-toolchain boundary owned by the
+MiniRV5StageSoC smoke tests are a separate external-toolchain boundary owned by the
 [simulation guide](../../sims/README.md), not by the backend fixture runner.
 
 ### Optional formal checks

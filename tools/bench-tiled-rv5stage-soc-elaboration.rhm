@@ -1,0 +1,20 @@
+#lang rhombus
+// Benchmarks repeated elaboration of the existing TiledRV5StageSoC design.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  "../rhodium/frontend/kernel.rhm" as embedded
+  "../socs/tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage_soc
+  lib("racket/base.rkt") as rkt
+
+def arguments = current_command_line()
+unless arguments.length() == 0
+| error(~who: #'bench_tiled_rv5stage_soc_elaboration,
+        "this benchmark takes no arguments")
+
+for (repetition in 0..6):
+  def start = rkt.#{current-inexact-milliseconds}()
+  def design = embedded.run_elaboration(fun (): tiled_rv5stage_soc.TiledRV5StageSoC())
+  def after_elaboration = rkt.#{current-inexact-milliseconds}()
+  println("tiled-rv5stage-soc repetition=" ++ to_string(repetition) ++ " elaboration_ms=" ++ to_string(after_elaboration - start) ++ " modules=" ++ to_string(design.modules.length()))

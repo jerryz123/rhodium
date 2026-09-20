@@ -140,7 +140,7 @@ def main():
         exclusions = {'rv64ui-p-ma_data': 'Requires successful misaligned data accesses.',
                       '*-v-*': 'Virtual execution environment is outside this initial ISA adapter.',
                       'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
-                      'other instruction groups': 'Require extensions outside the SimpleSoC instruction profile.'}
+                      'other instruction groups': 'Require extensions outside the SingleCoreRV5StageSoC instruction profile.'}
         if target:
             exclusions['other instruction groups'] = 'Outside the fixed capability-filtered ISA smoke subset.'
     else:

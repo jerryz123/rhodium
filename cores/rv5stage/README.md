@@ -109,7 +109,7 @@ The concrete SoC profiles enable CMOs and are unaffected.
 
 `RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true)` advertises **Ziccif
 1.0.0** and **Ziccamoa 1.0.0** in device trees and UDB. Both default to false
-for custom integrations; MiniSoC, SimpleSoC, and TiledSoC enable both.
+for custom integrations; MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC enable both.
 These are integration guarantees, not decoder switches, and do not change `misa`.
 
 Ziccif requires every cacheable coherent main-memory region to support instruction
@@ -132,8 +132,8 @@ responsible for the external Home/memory coherence contract. See the
 `RV5StageExtensions(~ziccrse: #true)` advertises **Ziccrse 1.0.0** through the
 profile's ISA extension list, device tree, and UDB configuration. It adds no
 instructions, CSRs, or `misa` bit and does not change the datapath. The switch
-defaults to false for custom integrations; the qualified MiniSoC, SimpleSoC,
-and TiledSoC profiles enable it.
+defaults to false for custom integrations; the qualified MiniRV5StageSoC, SingleCoreRV5StageSoC,
+and TiledRV5StageSoC profiles enable it.
 
 All cacheable coherent main-memory regions provide **RsrvEventual**: the
 architectural eventual-success guarantee for constrained LR/SC loops. This
@@ -203,7 +203,7 @@ the [RISC-V Vector Cryptography specification](https://docs.riscv.org/reference/
 
 `RV5StageExtensions(~zihintntl: #true)` enables the four NTL hints and their
 aliases when compressed instructions are selected. The generic extension option
-defaults off; SimpleSoC, MiniSoC, and TiledSoC explicitly enable it. NTL retires
+defaults off; SingleCoreRV5StageSoC, MiniRV5StageSoC, and TiledRV5StageSoC explicitly enable it. NTL retires
 without draining or serializing the pipeline. Ordered WB retains its locality
 selector for exactly the next
 instruction: retirement consumes it even for a non-memory instruction, and
@@ -225,7 +225,7 @@ resident-line preservation, and outer-cache limits.
 The core carries metadata-only checkpoints named `core/s2.decode`,
 `core/s3.execute`, `core/s4.memory`, and `core/s5.wb`. Ordinary elaboration does not add
 counters or DPI calls; the optional event compiler instruments a separate design.
-The [SimpleSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
+The [SingleCoreRV5StageSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
@@ -862,7 +862,7 @@ Generate the configuration for one checked-in SoC composition from the
 repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
 ```
 
 The [SoC UDB configuration catalog](../../socs/README.md#risc-v-udb-configuration-catalog)
@@ -905,7 +905,7 @@ Both L1 caches are non-aliasing virtually indexed, physically tagged (VIPT).
 must fit within a 4 KiB page, even for Bare profiles. Thus 64 sets is the maximum;
 more ways increase total capacity without adding virtual index bits. Physical
 tags retain every address bit above the set index, including page-offset bits
-not consumed by smaller geometries. MiniSoC's 32-set, one-way caches remain 2 KiB.
+not consumed by smaller geometries. MiniRV5StageSoC's 32-set, one-way caches remain 2 KiB.
 
 RV64 supports Bare and Sv39 translation; RV32 remains Bare. Early virtual
 lookups reach the SRAMs independently of translation and physical-region checks.
@@ -1045,7 +1045,7 @@ and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
 ## Pause hint
 
 `RV5StageExtensions(~zihintpause: #true)` selects Zihintpause 2.0. The generic
-default is disabled; SimpleSoC, MiniSoC, and TiledSoC enable it in their profiles.
+default is disabled; SingleCoreRV5StageSoC, MiniRV5StageSoC, and TiledRV5StageSoC enable it in their profiles.
 ISA descriptions and UDB claims follow that selection; `misa` is unchanged.
 
 PAUSE retires once at WB and starts a 16-cycle issue/fetch cooldown. It does not
@@ -1059,8 +1059,8 @@ When disabled, its encoding retains the existing ordinary FENCE behavior.
 
 `RV5StageExtensions(~zawrs: #true)` enables Zawrs through the core profile,
 including decoder selection, ISA descriptions, and the UDB extension claim.
-The generic extension default remains disabled; SimpleSoC, MiniSoC, and
-TiledSoC explicitly enable it. Zawrs adds no single-letter `misa` bit.
+The generic extension default remains disabled; SingleCoreRV5StageSoC, MiniRV5StageSoC, and
+TiledRV5StageSoC explicitly enable it. Zawrs adds no single-letter `misa` bit.
 
 WRS serializes behind older authorized work and is accepted only at WB. A
 pending instruction retains its retirement context outside the feed-forward
