@@ -8,6 +8,21 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
+The allocation boundary remains single-macro: no younger vector instruction
+can read or overwrite the bank until the current macro and accepted results
+drain. The completion scoreboard is a bounded operation-owner table, not a
+multi-instruction renamer. Keep slot reservation, local acceptance, result
+arrival, and ordered release distinct.
+
+The shared [`memory-arbiter.rhdl`](../memory-arbiter.rhdl) has separate Valid
+lookup and Decoupled transaction arbiters. A losing lookup gets an explicit
+Replay result in the response cycle. The winner's identity accompanies its
+retained store candidate through the commit cycle; later arbitration must not
+select that owner. Tagged delayed responses route independently of current
+requests. `rv5stage-memory-arbiter` checks this cycle-visible contract; use
+`rv5stage-vector-memory` for integrated MMU/cache rejection, accepted-tail
+ownership, simultaneous hit/response completion, and precise restart.
+
 `riscv/isa/v.rhm` owns initial instruction formats and encodings, and
 `riscv/rtl/vector.rhdl` materializes stateless vtype/AVL rules. Core decode owns
 the vector control column; `decode/core-ctrl.rhdl` alone adds scalar source and
@@ -22,18 +37,27 @@ pipeline bundle definitions; scalar bundles must not contain packed vector data.
 `unroller.rhdl` owns descriptor retention, synchronous-read credits, issue
 position, and ordered authorization progress. `execute.rhdl` is combinational:
 it adapts the beat to the shared SIMD unit and packs its result, not a separate
-pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) owns their composition,
-the register bank, and private EX/MEM/WB storage. An atomic fork couples scalar
-bookkeeping admission to private operand capture without splitting handshakes.
+pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) composes the execution
+engine, memory attempt pipeline, macro ownership, and retirement outcome.
+[`pipeline.rhdl`](pipeline.rhdl) owns the unroller/VRF/SIMD composition and shared
+service operands. An atomic fork couples local attempt admission to operand
+capture; both paths have three fixed stages and meet at local acceptance.
+[`memory.rhdl`](memory.rhdl) owns address/lookup, result classification, and
+transaction acceptance. Its replay flushes younger attempts and operand results,
+then restores the unroller checkpoint. It never replays an accepted transaction.
+[`scoreboard.rhdl`](scoreboard.rhdl) separates reserved slots from accepted
+owners: replay releases only the former. [`load-response.rhdl`](load-response.rhdl)
+keeps immediate hits and delayed responses independent, so both can complete
+on one edge before the shared ordered VRF write port drains them.
 
 Configuration follows ordinary serializing system instructions through
-`core.rhdl`. Integer issue tokens use its existing EX/MEM/WB boundaries while
-packed data follows the vector module's parallel three-cycle path. The core
-passes WB outcomes back as nonstallable feedback, never packed register writes.
-The vector pipeline asserts result alignment and returns a last-completion pulse.
-Only the last authorized beat updates scalar retirement/PC/NTL macro state;
-vector CSR completion waits for VRF drain. Cancellation flushes speculative private validity, and the core
-must exempt a vector's own last-beat prediction repair from owner cancellation.
+`core.rhdl`. Vector micro-ops do not traverse scalar EX/MEM/WB. The private
+pipeline supplies its own nonstallable feedback and asserts result alignment.
+Only the final local acceptance updates scalar retirement/PC/NTL macro state;
+the macro outcome crosses one register before scalar retirement selection, so
+LSU fault/admission cannot feed back into scalar request formation. Local retry
+feedback remains same-cycle. Vector CSR completion waits for VRF drain. An allocated macro is older than
+subsequent scalar redirects and must not be canceled by them.
 The original vector macro crosses the scalar pipeline as a side-effect-free
 launch token. Resolve its scalar, base, and stride operands through the ordinary
 EX bypass selectors and capture the decoded macro in one vector-only retained
@@ -61,7 +85,7 @@ explicit in decode and never merge extension instructions into base V.
 shared FP request. It imports the named FP contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
-FP, captures rounding at WB macro launch, and queues operands only at WB.
+FP, captures rounding at WB macro launch, and queues operands at local acceptance.
 Fused operations reuse the third general VRF read for old `vd`; comparisons
 retain a mask-destination bit beside their completion slot and write the shared
 `v0` shadow through the sole ordered VRF write port. Vector-scalar FP checks the
@@ -97,9 +121,9 @@ boundaries change.
 `muldiv.rhdl` adapts singleton integer operands and width/result selectors to
 the tagged integer service contracts. Its multiply tag separately retains
 ordinary low/high/widened selection and `vsmul` rounding mode. Widening result
-placement comes from the WB-owned result beat rather than changing source SEW
+placement comes from the accepted result beat rather than changing source SEW
 in that tag. For multiply-accumulate, the third general VRF read captures old
-`vd`; the WB-owned completion entry retains the selected addend and add/subtract
+`vd`; the accepted completion entry retains the selected addend and add/subtract
 policy rather than widening the shared multiplier tag. The completion slot
 also retains fractional-multiply saturation until ordered drain can update
 `vxsat`.
@@ -123,7 +147,7 @@ the unroller and FP fixtures cover the shared beat/completion layout.
 Memory beats use their resolved data EEW and singleton element positions. Keep their
 slot identifier in the `RV5StageMemoryWriteback.Vector` variant, and propagate
 the complete union opaquely through the LSU.
-The unroller owns full speculative and WB-authorized memory element bases.
+The unroller owns full attempted and locally accepted memory element bases.
 Capture the base and element step once, warm the base through `vstart` with one
 addition per skipped element or segment, advance on final-field issue and
 authorization, and restore the authorized base on retry. Do not reintroduce an
@@ -154,16 +178,16 @@ reporting remains element-granular because architectural `vstart` counts whole
 segments.
 The private pipeline retains destination mask/shift and element range; the
 profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
-VRF drain. Reserve on issue, authorize only at WB, and clear only unauthorized
-slots on retry/cancel. Retry flushes younger scalar EX/MEM tokens without
+VRF drain. Reserve on issue, accept at the local outcome, and clear only unaccepted
+slots on retry/cancel. Retry flushes younger vector attempt/result stages without
 redirecting fetch to the macro PC. Faults update `vstart` and keep accepted
 response ownership alive through precise-trap draining.
 Fault-only-first loads additionally require at most one unresolved issued
 access. Element-zero faults use ordinary fault feedback; later-element faults
 use truncation feedback, discard speculative younger beats, update `vl` from
 the vector pipeline's private element position, and retire without entering a
-trap handler. Keep the scalar stage payload to the one-bit truncation policy;
-do not expose the element cursor outside the vector pipeline.
+trap handler. Keep the element cursor and truncation policy inside the vector
+pipeline; scalar retirement receives only its final outcome.
 Whole-register transfers remain a distinct memory mode, not a segment or an
 ordinary unit-stride special case. Derive EVL from NREG, VLEN, and encoded EEW;
 do not consult `vl` or decoded `vtype` geometry. Keep the global encoded-EEW
@@ -286,8 +310,8 @@ Upward overlap rejection belongs in decode.
 The unroller fixtures compare slide writes against an architectural snapshot
 across all supported SEW/LMUL geometries, offsets, masks, partial chunks,
 in-place downward execution, stalls, initial/midstream replay, and cancellation.
-They require consecutive WB beats on dense slide streams. Reduction fixtures
-also exercise slides through the production vector pipeline, with public LSU
+They require consecutive accepted beats on dense slide streams. Reduction fixtures
+also exercise slides through the production execution engine, with local
 initialization/readback and partial cancellation followed by restart. The core
 muldiv fixture covers scalar producers, nonzero vstart, branch squash, source
 reads beyond VL, and reserved overlap. Run the RV32/RV64 control fixtures for
@@ -340,7 +364,7 @@ oracle. The unroller fixtures cover every SEW/LMUL geometry, sparse/dense/empty
 masks, full and partial final chunks, stalls, retry, cancellation, and retained
 checkpoints. The production reduction fixtures initialize and read back the
 vector bank through public LSU traffic and exercise the `v0` shadow through
-predication, while the full-core muldiv fixture checks decode, WB-authorized
+predication, while the full-core muldiv fixture checks decode, locally accepted
 writes, tail preservation, squash, and illegal vstart.
 Run the RV32/RV64 control fixtures whenever compression legality changes.
 
@@ -348,7 +372,7 @@ Run the RV32/RV64 control fixtures whenever compression legality changes.
 2x/4x/8x extension, widening halves, and destination packing. Global element
 position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
-outputs are not architectural group/overlap permission or WB authorization.
+outputs are not architectural group/overlap permission or local acceptance.
 
 Widening schedules destination-width beats in `unroller.rhdl`. Narrow-source
 lower/upper pairs reread one 64-bit source row. Wide-source forms instead derive

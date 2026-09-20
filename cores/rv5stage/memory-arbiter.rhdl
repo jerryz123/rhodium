@@ -1,0 +1,56 @@
+#lang rhodium
+// Shares LSU ports while retaining fixed-cycle lookup/store ownership and routing tagged responses.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "dcache/protocol.rhdl" open
+  "../load-store.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
+  interface scalar(RV5StageDataAccess(xlen, slots), ~role: responder)
+  interface vector(RV5StageDataAccess(xlen, slots), ~role: responder)
+  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface scalar_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  interface vector_pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
+  inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
+  Array(scalar.request, vector.request) <=> requests.ingress
+  requests.egress |> memory.request
+  def selected_vector = requests.chosen === bits(1, 1)
+  scalar.request_fault <== memory.request_fault & !selected_vector
+  scalar.request_access_fault <== memory.request_access_fault & !selected_vector
+  vector.request_fault <== memory.request_fault & selected_vector
+  vector.request_access_fault <== memory.request_access_fault & selected_vector
+  def Array(scalar_responses, vector_responses) = memory.response |> fork_valid(2)
+  scalar_responses |> filter_valid(response => !response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)) |> scalar.response
+  vector_responses |> filter_valid(response => response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)) |> vector.response
+  scalar.drained <== memory.drained
+  vector.drained <== memory.drained
+  scalar.reservation_valid <== memory.reservation_valid
+  vector.reservation_valid <== memory.reservation_valid
+
+  // A losing Valid lookup receives an explicit replay in its response cycle.
+  // Ownership travels for two cycles, through the retained store candidate.
+  inst lookups(ValidArbiter(RV5StagePipelineReq(xlen), 2))
+  Array(scalar_pipeline.request, vector_pipeline.request) <=> lookups.ingress
+  lookups.egress |> pipeline.request
+  def lookup_vector = lookups.chosen === bits(1, 1)
+  def scalar_result = scalar_pipeline.request |> map_valid(_request => !lookup_vector) |> valid_pipe(1)
+  def vector_result = vector_pipeline.request |> map_valid(_request => lookup_vector) |> valid_pipe(1)
+  def store_owner = lookups.egress |> map_valid(_request => lookup_vector) |> valid_pipe(2)
+  def replay = RV5StagePipelineResult(xlen):
+    outcome: RV5StagePipelineOutcome.Replay
+    reason: RV5StagePipelineReason.ArrayPort
+    data: bits(0, xlen.width)
+  def selected_result = mux(pipeline.response.valid, pipeline.response.bits, replay.updated(~outcome: RV5StagePipelineOutcome.Slow))
+  scalar_result |> map_valid(selected => mux(selected, selected_result, replay)) |> scalar_pipeline.response
+  vector_result |> map_valid(selected => mux(selected, selected_result, replay)) |> vector_pipeline.response
+  pipeline.commit <== store_owner.valid & mux(store_owner.bits, vector_pipeline.commit, scalar_pipeline.commit)
+  scalar_pipeline.commit_ready <== store_owner.valid & !store_owner.bits & pipeline.commit_ready
+  vector_pipeline.commit_ready <== store_owner.valid & store_owner.bits & pipeline.commit_ready
+
+export:
+  RV5StageMemoryArbiter

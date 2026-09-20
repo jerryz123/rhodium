@@ -163,11 +163,19 @@ and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/decode.rhdl`, pure ISA descriptors, RISC-V adapters, the shared SIMD ALU,
 and the named vector mask-scan controls. `vector/mask.rhdl` imports public
 `std/bits.rhdl` for bit reversal and first-set counting; it has no decode dependency.
-The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for atomic issue
-fanout, private Valid pipeline storage, and WB-authorized write/retirement flows;
-it additionally imports the named integer register-write contract for WB-aligned
-scalar results, vector mask-scan result controls, named FP bundles, pure FP profiles, and public
-HardFloat rounding types. `vector/fp.rhdl` imports those FP bundles and decode
+The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocation,
+compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
+`vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand/result storage,
+and accepted shared-service queues; it additionally imports named integer
+register-write and FP contracts, vector mask-scan controls, pure FP profiles,
+and public HardFloat rounding types. `vector/scoreboard.rhdl` and
+`vector/load-response.rhdl` import Flow for ownership and completion events.
+`vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
+named D-cache protocols and memory operations, and RISC-V trap/pointer-masking
+adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU
+arbitration and tagged response routing, plus public `std/bits.rhdl` for
+completion geometry. No memory adapter imports a cache implementation.
+`vector/fp.rhdl` imports those FP bundles and decode
 controls plus RISC-V FP boxing helpers and HardFloat types to adapt packed
 elements, without adding a reverse dependency from FP to vector. Scalar
 pipeline bundles do not import the vector package or carry its packed data.

@@ -229,7 +229,7 @@ fixture_in_group() {
     cores-vector-configurations:rv5stage-vector-reduction-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-muldiv-one-slot|cores-vector-configurations:rv5stage-vector-fp-one-slot|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-memory-sixteen-slots|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
       return 0
       ;;
-    cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
     cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
@@ -807,6 +807,7 @@ direct_fixture_specs=(
   'rv5stage-instruction-buffer|rv5stage_instruction_buffer_tb'
   'rv5stage-fetch-prediction|rv5stage_fetch_prediction_tb'
   'rv5stage-fetch-throughput|rv5stage_fetch_throughput_tb'
+  'rv5stage-memory-arbiter|rv5stage_memory_arbiter_tb'
   'rv5stage-load-hit|rv5stage_load_hit_tb'
   'rv5stage-branch-prediction|rv5stage_branch_prediction_tb'
   'shift-queue|shift_queue_tb'

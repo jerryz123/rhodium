@@ -54,7 +54,7 @@ module rv5stage_vector_memory_tb;
   logic [63:0] expected[512];
   int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
-  int overlapping_hits = 0, scalar_overlap = 0;
+  int overlapping_hits = 0, scalar_overlap = 0, redirected_tail = 0;
   int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
@@ -195,6 +195,7 @@ module rv5stage_vector_memory_tb;
         assert (load_address != 64'h4ff0 && load_address != 64'h4ff8)
           else $fatal(1, "fault restart repeated an authorized prefix element");
       if (load_issue && load_address == 64'h1300 && vector_load_pending) scalar_overlap <= scalar_overlap + 1;
+      if (instruction_out.flush && vector_load_pending) redirected_tail <= redirected_tail + 1;
       if (device_elements != 0 && load_issue && load_address == 64'h1308)
         assert (device_elements == 4 && !uncached_pending) else $fatal(1, "scalar load passed undrained vector stores");
       if (transaction_fire && transaction.access == 2 && transaction.address == 64'h2700)
@@ -249,7 +250,7 @@ module rv5stage_vector_memory_tb;
           if (signatures == fault_reset_signature || signatures == whole_fault_reset_signature || signatures == mask_fault_reset_signature) resumed <= 0;
           if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3 || signatures == mask_fault_signature + 3) resumed <= 1;
           if (signatures + 1 == expected_count) begin
-            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && rejections > 8 && device_elements == 4)
+            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap);
             $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills);
@@ -488,11 +489,14 @@ module rv5stage_vector_memory_tb;
     configure(0,3,0); li(8,'h10000); emit(mask_vmem(0,0,8)); emit(mask_vmem(1,0,8)); emit(csr(8,7,0,2)); signature(7,0);
     // A scalar load may pass an older vector load's delayed completion, but
     // the following scalar store must wait for that vector load to drain.
+    // A younger taken branch must preserve the accepted vector response owner.
     configure(3,0,1); li(8,'ha000); li(9,'h1300); li(10,'h2700);
     emit(vmem(0,3,8,8));
+    emit(32'h0080006f); emit(addi(7,0,-1));
     emit({12'b0,5'd9,3'b011,5'd7,7'h03});
     emit({7'b0,5'd7,5'd10,3'b011,5'b0,7'h23});
-    signature(7,1);
+    emit(vint(16,11,8,0,2));
+    emit({7'b0,5'd11,5'd7,3'b000,5'd7,7'h33}); signature(7,64'h32);
     // Exactly-once vector stores through the uncached/device LSU path.
     configure(3,1,4); li(8,'h1300); emit(vmem(0,3,8,8)); li(9,'h9000); emit(vmem(1,3,8,9));
     emit({12'd8,5'd8,3'b011,5'd7,7'h03}); signature(7,2);

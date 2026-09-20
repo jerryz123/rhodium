@@ -1,0 +1,41 @@
+#lang rhodium
+// Tracks speculative vector reservations separately from accepted operations that survive replay.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorScoreboard(slots :: Pow2Int):
+  def Tag = Bits(index_width(slots))
+  interface reserve(Valid(Tag), ~role: consumer)
+  interface accept(Valid(Tag), ~role: consumer)
+  interface release(Valid(Tag), ~role: consumer)
+  interface replay(Pulse(), ~role: consumer)
+  output allocated: Vec(slots, Bool)
+  output accepted: Vec(slots, Bool)
+  reg reservations(~init: bits(0, slots).as_vec(Bool))
+  reg owners(~init: bits(0, slots).as_vec(Bool))
+  allocated <== reservations
+  accepted <== owners
+  when (reserve.valid):
+    assert(!reservations[reserve.bits], "vector_slot_reserved_once")
+  when (accept.valid):
+    assert(reservations[accept.bits] & !owners[accept.bits], "vector_accept_has_reservation")
+  when (release.valid):
+    assert(owners[release.bits], "vector_release_has_accepted_owner")
+  for (slot in 0..slots):
+    def tag = bits(slot, index_width(slots))
+    when (release.valid & (release.bits === tag)):
+      reservations[slot] <== Bool(#false)
+      owners[slot] <== Bool(#false)
+    elsewhen (accept.valid & (accept.bits === tag)):
+      owners[slot] <== Bool(#true)
+    elsewhen (replay.valid):
+      reservations[slot] <== owners[slot]
+    elsewhen (reserve.valid & (reserve.bits === tag)):
+      reservations[slot] <== Bool(#true)
+      owners[slot] <== Bool(#false)
+
+export:
+  RV5StageVectorScoreboard

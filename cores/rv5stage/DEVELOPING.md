@@ -34,7 +34,8 @@ each other; share external transaction machinery through the CHI package.
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
-| [`vector.rhdl`](vector.rhdl) | Parallel vector pipeline, internal unroller/SIMD/VRF, tagged memory completion, and scalar WB authorization boundary |
+| [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
+| [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in RV64 Zve/V WB-launched unroller, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl), [`interrupt.rhdl`](interrupt.rhdl) | Privileged state, traps, counters, and interrupts |

@@ -69,10 +69,6 @@ bundle RV5StageOperand(xlen :: XLen):
 
 bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
-  vector_valid: Bool
-  vector_last: Bool
-  vector_truncate_on_fault: Bool
-  vector_tag: Bits(index_width(vector_completion_slots))
   pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -121,9 +117,6 @@ bundle RV5StageException(xlen :: XLen):
 
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
-  vector_valid: Bool
-  vector_last: Bool
-  vector_truncate_on_fault: Bool
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
@@ -153,9 +146,6 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
 
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
-  vector_valid: Bool
-  vector_last: Bool
-  vector_truncate_on_fault: Bool
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   raw_instruction: Bits(32)

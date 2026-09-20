@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines vector snapshots, packed beats, memory issue metadata, and WB feedback.
+// Defines vector snapshots, packed beats, local memory attempts, and acceptance feedback.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -37,7 +37,7 @@ bundle RV5StageVectorCompressState(vlen :: VectorLength):
   count: Bits(4)
   destination: Bits(index_width(vlen + 1))
 
-// Scalar stages retain only their original context and macro retirement marker.
+// Local attempt stages retain macro context and memory metadata, not SIMD operands.
 bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
   context: Context
   last: Bool

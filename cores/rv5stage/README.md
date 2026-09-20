@@ -23,17 +23,17 @@ shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One macro travels through the scalar pipeline
 as a side-effect-free launch token, then WB starts a separate
 [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
-SIMD datapath, and vector bank. Scalar EX/MEM/WB carries retirement bookkeeping
-and singleton LSU operands, and authorizes the parallel pipeline's writes at WB.
-RV64 vector memory shares scalar lookup and WB dispatch across unit-stride,
+SIMD datapath, and vector bank. The allocated macro unrolls autonomously through
+local feed-forward execution and memory stages; scalar stages do not carry its
+micro-ops. RV64 vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
 strided, indexed, segmented, and fault-only-first forms, with tagged
 completion slots, precise element restart, and fault-only-first VL truncation. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
-FP32/FP64 vector add, subtract, and multiply, with WB-authorized operands and
+FP32/FP64 vector add, subtract, and multiply, with locally accepted operands and
 ordered VRF/flag completion. RV64 vectors also share the iterative integer
 multiplier/divider for SEW8/16/32/64 `.vv` and `.vx` operations, with independent
-arbitration and WB-authorized completion ownership. `VectorProfile` selects
+arbitration and reserved completion ownership. `VectorProfile` selects
 one of the five standard Zve profiles or complete V 1.0, advertises its implied
 Zve closure and cumulative `Zvl<N>b` minimum lengths, and constrains ELEN and FP
 legality accordingly. Only `VectorProfile.V` advertises `V` and sets `misa.V`.
@@ -432,8 +432,14 @@ flowchart LR
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
 
-    WB -->|"launch vector macro"| VECTOR["Vector unroller<br/>SIMD + VRF"]
-    VECTOR -->|"generated beat"| ID
+    WB -->|"allocate vector macro"| VECTOR["Vector engine<br/>unroller + SIMD + VRF<br/>memory + completion scoreboard"]
+    VECTOR -->|"local memory lookup"| HIT
+    VECTOR -->|"accepted memory transaction"| LSU
+    LSU -->|"tagged vector response"| VECTOR
+    VECTOR -->|"shared execution"| FP
+    VECTOR -->|"shared execution"| MUL
+    VECTOR -->|"shared execution"| DIV
+    VECTOR -->|"macro outcome"| WB
 
     WB -->|"ordinary result"| GPR["Integer register file"]
     COMPLETE --> GPR
