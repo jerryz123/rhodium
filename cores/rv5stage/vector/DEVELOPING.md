@@ -11,9 +11,14 @@ recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 There is one replayable issue owner: `unroller.rhdl` retains the descriptor
 until its final beat receives non-replayable acceptance. Its packed-memory
 schedule consumes that same retained descriptor; it is not another unroller.
-Two bounded macro contexts allow accepted work to outlive issue ownership.
-Persistent completion slots retain route and macro identity across descriptor
-replacement. Keep allocation, final acceptance, result arrival, and drain distinct.
+`vector.rhdl` owns one front descriptor queue so Decode admission and page-range
+certification can overlap the active owner. Do not use pending descriptor state
+to gate the older owner's issue stream, and release a page window only from the
+issue completion of the descriptor that acquired it. Two bounded execution
+contexts allow accepted work to outlive issue ownership. Persistent completion
+slots retain route and macro identity across descriptor replacement. Keep front
+admission, execution allocation, final acceptance, result arrival, and drain
+distinct.
 
 Every ordinary beat, including immediate integer results, reserves a slot in
 one persistent ring. Packed beats share its allocation/acceptance/drain frontier;

@@ -138,14 +138,19 @@ retirement state at certification, or successful final acceptance on the conserv
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
-One unroller retains each instruction until every beat has received
-non-replayable acceptance. It then accepts the next instruction while older
-results may still be outstanding. Two bounded macro contexts retain drain and
-architectural-state ownership. A dependent consumer waits for each needed
-64-bit VRF row, rather than the entire older instruction; overlapping destination
-groups conservatively interlock. All operands must be captured at acceptance.
-The unroller never alternates between instructions or delegates replay to an
-accepted service queue. Packed and ordinary memory share this ownership rule.
+A one-entry descriptor queue snapshots the next vector macro and starts any
+page-range certification while the current unroller is still active. The queued
+descriptor enters execution only after the singleton unroller, one of the two
+bounded macro contexts, and its register dependencies are available. Pending
+certification never gates beats from the older active macro. The unroller still
+retains each instruction until every beat has received non-replayable acceptance,
+then accepts the queued instruction while older results may remain outstanding.
+The two execution contexts retain drain and architectural-state ownership. A
+dependent consumer waits for each needed 64-bit VRF row, rather than the entire
+older instruction; overlapping destination groups conservatively interlock. All
+operands must be captured at acceptance. The unroller never alternates between
+instructions or delegates replay to an accepted service queue. Packed and
+ordinary memory share this ownership rule.
 
 `RV5StageConfig(~vector_completion_slots: n)` configures the memory completion
 window independently of VLEN; `n` must be a positive power of two and defaults
@@ -164,9 +169,11 @@ from result completion, and accepted side effects must never be retried.
 [`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
 MEM/WB without executing scalar side effects; EX forwarding resolves its scalar
-base and stride before WB launches the unroller. Younger instructions wait in
-Decode from launch admission until certification or conservative final acceptance, while older scalar
-instructions can finish or squash the launch normally.
+base and stride before WB enqueues the descriptor. The next instruction waits in
+Decode through descriptor admission and certification or conservative final
+acceptance; independent scalar work can then continue while that descriptor
+waits for the current unroller. Older scalar instructions can finish or squash
+the launch normally.
 Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. A two-slot credit

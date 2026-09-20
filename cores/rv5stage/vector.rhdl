@@ -56,47 +56,46 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
 
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~trace_launch: #false))
   inst access(RV5StageVectorMemory(xlen, slots))
+  // Pending descriptor policy is independent of the older execution owner's
+  // LSU policy, so prechecking the next macro cannot perturb active issue.
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
+  reg execution_certified(~init: Bool(#false))
+  reg pending_pointer_masking(PointerMaskControl())
+  reg pending_rounding(RoundingMode)
+  reg pending_needs_precheck(~init: Bool(#false))
+  reg active_precheck(~init: Bool(#false))
   reg checking(~init: Bool(#false))
   reg certified(~init: Bool(#false))
   reg waiting_retirement(~init: Bool(#false))
-  reg memory_macro(~init: Bool(#false))
-  reg fp_macro(~init: Bool(#false))
-  reg macro_pc(Bits(xlen.width))
-  reg pending_launch(~init: Bool(#false))
-  reg captured_rounding(RoundingMode)
   def footprint = vector_footprint(xlen, vlen, request.bits, pointer_masking)
   def needs_check = request.bits.control.memory & !footprint.empty & footprint.eligible
   def immediate_certificate = !request.bits.control.memory ||| footprint.empty
-  available <== execution.available & !waiting_retirement & !pending_launch
-  def admitted = request |> gate_flow(available) |> trace_event("vector/launch", ~fields: descriptor):
+  def can_admit = !waiting_retirement
+  def admitted = request |> gate_flow(can_admit) |> trace_event("vector/launch", ~fields: descriptor):
     pc: descriptor.pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): descriptor.instruction
     vl(~format: "unsigned"): descriptor.state.vl
     vstart(~format: "unsigned"): descriptor.state.vstart
     sew(~format: "unsigned"): descriptor.state.vtype[3..6]
     lmul: descriptor.state.vtype[0..3]
-  def Array(execution_request, launch_request) = admitted |> atomic_fork(2)
+  def Array(pending_input, launch_request) = admitted |> atomic_fork(2)
+  def queued_descriptor = pending_input |> queue(1)
+  available <== can_admit & !queued_descriptor.valid
   def launch = launch_request |> to_valid()
   (
-    execution_request |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
+    queued_descriptor |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
       descriptor: descriptor
-  ) |> pipe(1) |> gate_flow(!checking) |> execution.request
-  execution.packed_memory <== certified & memory_macro
-  when (request.fire()):
-    pending_launch <== Bool(#true)
-    captured_rounding <== rounding_mode
-  elsewhen (execution.request.fire()):
-    pending_launch <== Bool(#false)
+  ) |> gate_flow(!checking) |> execution.request
+  execution.packed_memory <== certified & queued_descriptor.bits.control.memory
   def Array(check_launch, compute_launch) = launch |> fork_valid(2)
   check_launch |> filter_valid(_descriptor => needs_check) |> map_valid(_descriptor => footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))) |> to_decoupled() |> queue(1) |> precheck.request
   // Every accepted LSU transaction already owns its physical address. The
   // single page window belongs to replayable issue, not delayed responses.
-  precheck.release.valid <== execution.issue_done.valid
+  precheck.release.valid <== execution.issue_done.valid & active_precheck
   def early_compute = compute_launch |> filter_valid(_descriptor => immediate_certificate) |> map_valid(descriptor => descriptor.pc)
-  def early_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => macro_pc)
+  def early_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
   def early_outcome = Array(early_compute, early_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen)):
     pc: pc
     disposition: RV5StageVectorDisposition.Authorized
@@ -104,7 +103,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
-  def Array(compute, memory_issue) = execution.issue |> gate_flow(!checking) |> demux_flow(2, operation => operation.memory.as_bits())
+  def Array(compute, memory_issue) = execution.issue |> demux_flow(2, operation => operation.memory.as_bits())
   memory_issue |> access.issue
   def compute_wb = compute |> to_valid() |> valid_pipe(3)
   def compute_accept = compute_wb |> map_valid(operation => RV5StageVectorCommit(xlen)):
@@ -121,23 +120,30 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def compute_outcome = compute_retirement |> filter_valid(_event => compute_wb.bits.last)
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
-  def final_outcome = Array(compute_outcome, access.outcome) |> valid_arbiter() |> filter_valid(_event => !certified)
+  def final_outcome = Array(compute_outcome, access.outcome) |> valid_arbiter() |> filter_valid(_event => !execution_certified)
   Array(early_outcome, final_outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
   when (request.fire()):
-    store <== request.bits.control.store & request.bits.control.memory
-    captured_pointer_masking <== pointer_masking
+    pending_pointer_masking <== pointer_masking
+    pending_rounding <== rounding_mode
+    pending_needs_precheck <== needs_check
     checking <== needs_check
     certified <== immediate_certificate
     waiting_retirement <== Bool(#true)
-    memory_macro <== request.bits.control.memory
-    fp_macro <== request.bits.control.floating_point
-    macro_pc <== request.bits.pc
   elsewhen (precheck.response.fire()):
     checking <== Bool(#false)
     certified <== precheck.response.bits
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
-  when (certified & access.feedback.valid):
+  when (execution.request.fire()):
+    store <== queued_descriptor.bits.control.store & queued_descriptor.bits.control.memory
+    captured_pointer_masking <== pending_pointer_masking
+    execution_certified <== certified
+    active_precheck <== pending_needs_precheck
+  elsewhen (precheck.release.valid):
+    active_precheck <== Bool(#false)
+  when (precheck.response.fire()):
+    assert(queued_descriptor.valid, "vector_precheck_has_pending_descriptor")
+  when (execution_certified & access.feedback.valid):
     assert(access.feedback.bits.disposition.is_one_of(RV5StageVectorDisposition.Authorized, RV5StageVectorDisposition.Retry), "certified_vector_cannot_fault")
   access.pipeline <=> pipeline
   access.memory <=> memory
@@ -145,7 +151,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   access.pointer_masking <== captured_pointer_masking
   // Only local rejection rewinds the allocated macro; younger scalar redirects do not cancel it.
   execution.cancel.valid <== Bool(#false)
-  execution.rounding_mode <== captured_rounding
+  execution.rounding_mode <== pending_rounding
   execution.memory_drained <== memory.drained
   execution.fp_request |> fp_request
   fp_result |> execution.fp_result
@@ -161,13 +167,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
   execution.floating_result |> floating_result
-  active <== execution.active ||| waiting_retirement ||| pending_launch
+  active <== execution.active ||| waiting_retirement ||| queued_descriptor.valid
   unrolling <== execution.unrolling
   pending <== execution.pending
-  stores_pending <== execution.stores_pending ||| (pending_launch & memory_macro & store)
+  stores_pending <== execution.stores_pending ||| (queued_descriptor.valid & queued_descriptor.bits.control.memory & queued_descriptor.bits.control.store)
   certification_pending <== waiting_retirement
-  loads_pending <== execution.loads_pending ||| (pending_launch & memory_macro & !store)
-  fp_pending <== execution.fp_pending ||| (pending_launch & fp_macro)
+  loads_pending <== execution.loads_pending ||| (queued_descriptor.valid & queued_descriptor.bits.control.memory & !queued_descriptor.bits.control.store)
+  fp_pending <== execution.fp_pending ||| (queued_descriptor.valid & queued_descriptor.bits.control.floating_point)
 
 export:
   RV5StageVectorPipeline
