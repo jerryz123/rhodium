@@ -109,6 +109,12 @@ invalidate translations or cancel accepted page-table response ownership.
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.
 
+The walker binds `mmu/walk` to its original non-Idle state, request acceptance
+qualified by cancellation priority, and active completion/cancel release.
+One retained contract covers its PTE requests and completion; no new functional
+owner state or inferred address matching is needed. Keep ordinary instruction
+recovery distinct from `walker.cancel` when extending this instrumentation.
+
 ## Focused validation
 
 Run the MMU-owned host check from the repository root:
@@ -116,7 +122,13 @@ Run the MMU-owned host check from the repository root:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/mmu-test.rhm
 FIXTURE=rv5stage-mmu-replay bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv5stage-walk-trace bash tools/testing/circt/run.sh --simulate-only
 ```
+
+The instrumented walker fixture checks exact residency nodes, end cycles, and
+PTE/completion edges from public transfers, with repeated addresses, three-level
+walks, page/access faults, stalled completion, cancellation in three phases,
+cancelled admission, and reset while occupied.
 
 The wrapper creates a fresh compiled root when one is not supplied. Keep this
 test limited to public translation contracts; do not add internal operation or

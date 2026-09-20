@@ -79,6 +79,12 @@ the existing `map_flow` request constructor. Do not summarize the whole engine
 or replace Flow wiring to accommodate tracing. Existing address, opcode, and
 context registers remain functional state, not trace bookkeeping.
 
+The command checkpoint binds residency to that same `data` scope. Writeback
+uses the same command/completion/controller-active boundary, with retained
+outputs for request attempts, copyback packets, and completion. Keep the
+checkpoint upstream of the retained contract so every attempt inherits its
+resident occurrence, rather than bypassing it to the original command parent.
+
 A separate `compack` scope captures `response_data` on the accepted packet that
 completes the received-packet set, stays active while `acknowledgements.valid`,
 and releases on acknowledgement acceptance. The instruction engine captures
@@ -117,7 +123,9 @@ tools/run-racket-tests.sh \
 
 Use the `rv5stage-uncached`, `rv5stage-icache`, and `rv5stage-dcache` CIRCT
 fixtures for cycle-visible traffic, retry, refill, writeback, and snoop
-behavior. `rv5stage-compack` checks exact last-packet event ownership in both
+behavior. `rv5stage-copyback` also checks residency start/end cycles against
+public commands and completions at all DAT widths. `rv5stage-compack` checks
+exact refill residency boundaries and last-packet event ownership in both
 line engines through stalls, reordered packets, ROM reads, and pending reset.
 Include the composed RV5Stage or SoC owner when configuration or
 external endpoint integration changes. Run `make check-boundaries` after

@@ -45,7 +45,9 @@ sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt,
   reg response_state(Bits(3))
   reg packet_index(~init: bits(0, packet_width))
   reg data_sent(~init: Bool(#false))
-  command.ready <== !control.active
+  def returning = command |> trace_event("dcache/writeback", ~residency: "data", ~fields: request):
+    address: request.line_address
+  returning.ready <== !control.active
   def command_fire = command.fire()
   def command_home = config.home_map.lookup(rv5stage_chi_address(command.bits.line_address, p))
   when command_fire:
@@ -90,6 +92,8 @@ sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt,
   control.start <== command_fire
   control.finish <== completion.fire()
   control.external_progress <== data.fire()
+  describe_interface_retained_storage(command_fire, completion.fire(), control.active)
+  describe_interface_contract(returning, Array(control.attempt, data, completion), "copyback-outputs", ~trace_model: interface_trace_retained(~outputs: 3))
   when command_fire:
     packet_index <== bits(0, packet_width)
     data_sent <== Bool(#false)

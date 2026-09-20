@@ -1,7 +1,12 @@
 #lang rhombus
-// Emits the packet-width and snoop-handoff copyback fixture.
+// Instruments copyback residency across packet widths, retries, and snoop handoff.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../../rhodium/backend/circt.rhm" open
-  "../../../../cores/rv5stage/tests/copyback-fixture.rhdl" as fixture
-print(emit_circt(fixture.design))
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../rhodium/event/main.rhm" open
+  "../../../../cores/rv5stage/tests/copyback-fixture.rhdl".RV5StageCopyBackFixture
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageCopyBackFixture()), EventInstrumentationConfig(~partial: #true))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

@@ -4,6 +4,22 @@
 import:
   lib("flow/main.rhdl") open
 
+sync_circuit Residency(kind :: String):
+  interface command(Decoupled(Bits(8)), ~role: consumer)
+  input release: Bool
+  reg occupied(~init: Bool(#false))
+  def resident = command |> trace_event("owner", ~residency: (if kind == "empty" | "" | "owner"), ~stalls: kind == "stall")
+  resident.ready <== !occupied ||| release
+  when (resident.fire()):
+    occupied <== Bool(#true)
+  elsewhen release:
+    occupied <== Bool(#false)
+  unless kind == "missing"
+  | describe_interface_retained_storage(resident.fire(), release & occupied, occupied, ~name: "owner")
+
+fun residency(kind :: String = "valid"): elaborate_with_top(Residency(kind))
+export residency
+
 sync_circuit RetainedCell(intrinsic :: Boolean):
   interface command(Decoupled(Bits(8)), ~role: consumer)
   interface attempt(Decoupled(Bits(8)), ~role: producer)
@@ -31,9 +47,11 @@ sync_circuit RetainedRegion(mode :: String):
   interface command(Decoupled(Bits(8)), ~role: consumer)
   interface attempt(Decoupled(Bits(8)), ~role: producer)
   input(emit, finish_owner): Bool
+  output active: Bool
   inst storage(RetainedCell(#false))
   storage.emit <== emit
   storage.finish_owner <== finish_owner
+  active <== storage.active
   command |> storage.command
   describe_interface_retained_storage(command.fire(), finish_owner & storage.active, storage.active)
   def mapped :: Endpoint = storage.attempt |> map_flow(value => value + bits(1, 8))
@@ -51,7 +69,7 @@ sync_circuit RetainedRegion(mode :: String):
     output.ready <== Bool(#true)
   | #void
 
-sync_circuit EventRetained(intrinsic :: Boolean = #true, region :: String = "region"):
+sync_circuit EventRetained(intrinsic :: Boolean = #true, region :: String = "region", residency :: Boolean = #false):
   interface source(Decoupled(Bits(8)), ~role: consumer)
   interface unrelated(Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
@@ -63,7 +81,10 @@ sync_circuit EventRetained(intrinsic :: Boolean = #true, region :: String = "reg
   if (!intrinsic) && region == ""
   | describe_interface_transform(InterfaceHandle(owner.command, owner.attempt), "attempts", {}, owner, ~trace_model: interface_trace_retained(owner))
   | #void
-  source |> trace_event("accepted", ~payload: #true) |> owner.command
+  source |> trace_event("accepted", ~payload: #true, ~residency: if residency | "owner" | #false) |> owner.command
+  if residency
+  | describe_interface_retained_storage(source.fire(), finish_owner & owner.active, owner.active, ~name: "owner")
+  | #void
   Array(owner.attempt, unrelated) |> arbiter() |> trace_event("attempt", ~payload: #true) |> sink
 
 sync_circuit InvalidRetained(kind :: String):
@@ -86,7 +107,7 @@ sync_circuit InvalidRetained(kind :: String):
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
       describe_interface_retained_storage(Bool(#false), Bool(#false), Bool(#false))
 
-fun retained(intrinsic :: Boolean = #true, ~region: region :: String = "region"): elaborate_with_top(EventRetained(intrinsic, region))
+fun retained(intrinsic :: Boolean = #true, ~region: region :: String = "region", ~residency: residency :: Boolean = #false): elaborate_with_top(EventRetained(intrinsic, region, residency))
 fun invalid(kind :: String): elaborate_with_top(InvalidRetained(kind))
 
 // One retained owner may feed different declared outputs, not duplicate observers of one output.

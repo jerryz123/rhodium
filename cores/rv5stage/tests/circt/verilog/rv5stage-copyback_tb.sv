@@ -13,8 +13,20 @@ module rv5stage_copyback_tb;
   CopyBackObservation [2:0] observed;
   RV5StageCopyBackFixture dut(.*);
   always #5 clock = ~clock;
+  import "DPI-C" function void copyback_bind();
+  import "DPI-C" function void copyback_sample(int unsigned reset, int unsigned starts, int unsigned finishes, int unsigned requests, int unsigned packets);
+  import "DPI-C" function void copyback_check();
+  import "DPI-C" function void copyback_finish();
+  always @(posedge clock) begin
+    copyback_sample(int'(reset),
+        int'({enabled[2] && command_valid && observed[2].command_ready, enabled[1] && command_valid && observed[1].command_ready, enabled[0] && command_valid && observed[0].command_ready}),
+        int'({completion_ready && observed[2].done, completion_ready && observed[1].done, completion_ready && observed[0].done}),
+        int'({request_ready && observed[2].request_valid, request_ready && observed[1].request_valid, request_ready && observed[0].request_valid}),
+        int'({data_ready && observed[2].data_valid, data_ready && observed[1].data_valid, data_ready && observed[0].data_valid}));
+    #1; copyback_check();
+  end
   task automatic tick;
-    @(posedge clock); #1;
+    @(posedge clock); #2;
   endtask
   task automatic response(input int lane, input logic [4:0] opcode, input logic [3:0] credit = 0);
     response_opcode = opcode; response_pcrd = credit; response_valid = 1; #1;
@@ -22,6 +34,7 @@ module rv5stage_copyback_tb;
     tick(); response_valid = 0;
   endtask
   initial begin
+    copyback_bind();
     for (int b = 0; b < 64; b++) line[b*8+:8] = 8'(b + 1);
     tick(); reset = 0;
     for (int lane = 0; lane < 3; lane++) begin
@@ -86,6 +99,7 @@ module rv5stage_copyback_tb;
         assert(observed[lane].command_ready && !observed[lane].done) else $fatal(1, "copyback did not retire");
       end
     end
+    copyback_finish();
     $display("RV5Stage line copyback at 128/256/512 bits passed");
     $finish;
   end

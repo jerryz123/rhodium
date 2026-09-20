@@ -8,6 +8,8 @@
 namespace {
 struct Attempt { rheg::Ref ref; std::uint64_t address; };
 std::optional<Attempt> s1, s2, owner;
+std::optional<rheg::Ref> resident;
+std::uint64_t residencies=0;
 std::uint64_t cycle=0, requests=0, attempts=0, total_attempts=0, retries=0, canceled=0, retained_flushes=0;
 unsigned flags=0, beats=0;
 std::uint64_t address=0, tx_address=0;
@@ -29,7 +31,7 @@ extern "C" void fetch_trace_check(unsigned done) {
   graph.validate();
   if(flags & Reset) {
     canceled+=bool(owner);
-    s1.reset(); s2.reset(); owner.reset(); acknowledged=false; beats=0;
+    s1.reset(); s2.reset(); owner.reset(); resident.reset(); residencies=0; acknowledged=false; beats=0;
     cycle=requests=attempts=0;
     return;
   }
@@ -48,7 +50,17 @@ extern "C" void fetch_trace_check(unsigned done) {
     if(!s2) fail("S2 outcome without an admitted lookup");
     // The first miss while idle owns the acquisition. Younger replay outcomes
     // cannot replace it, even when they name the same line or PC.
-    if((flags & Replay) && !owner) owner=s2;
+    if((flags & Replay) && !owner) {
+      owner=s2;
+      resident=rheg::Ref{fetch_sites::refill,residencies++};
+      if(!graph.nodes.count(*resident) || graph.nodes.at(*resident).cycle!=cycle) fail("missing refill admission");
+      unsigned parents=0;
+      for(const auto& edge:graph.edges) if(equal(edge.second,*resident)) {
+        ++parents;
+        if(!equal(edge.first,owner->ref)) fail("refill belongs to wrong fetch occurrence");
+      }
+      if(parents!=1 || graph.nodes.at(*resident).ancestry_unknown) fail("incomplete refill ancestry");
+    }
   }
   rheg::Ref tx{fetch_sites::txreq,attempts};
   if(bool(graph.nodes.count(tx))!=bool(flags & Tx)) fail("TXREQ differs from public handshake");
@@ -57,7 +69,7 @@ extern "C" void fetch_trace_check(unsigned done) {
     unsigned parents=0;
     for(const auto& edge:graph.edges) if(equal(edge.second,tx)) {
       ++parents;
-      if(!equal(edge.first,owner->ref)) fail("TXREQ belongs to wrong fetch occurrence");
+      if(!resident || !equal(edge.first,*resident)) fail("TXREQ belongs to wrong refill occurrence");
     }
     if(parents!=1 || graph.nodes.at(tx).ancestry_unknown) fail("missing or incomplete TXREQ ancestry");
     if(graph.nodes.at(tx).cycle!=cycle || cycle<=graph.nodes.at(owner->ref).cycle+2) fail("TXREQ timestamp");

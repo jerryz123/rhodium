@@ -73,6 +73,20 @@ line and consistent state. Once granted, same-line snoops wait until every
 packet transfers. Command context and data remain retained through completion
 backpressure.
 
+## Event residency
+
+When event instrumentation is enabled, `icache/refill`, `dcache/refill`, and
+`dcache/writeback` span command acceptance through completion acceptance by
+the cache. Each retry reuses the same resident occurrence; these intervals
+include protocol-credit waits, packet collection or transmission, acknowledgement
+where required, and held completion/cache-installation time. They are transaction
+lifetimes, not measurements of only CHI wire latency.
+
+Captures retain the line address and, for D-cache refill, the requested opcode.
+CHI channel events remain individual transfers, with outgoing requests inheriting
+the resident owner through Flow. The separate RXDAT-to-CompAck dependency is
+unchanged. There is no I-cache writeback: instruction snapshots are not dirty.
+
 ## Snoop handling
 
 The data RN-F also advertises `CleanShared`, `CleanInvalid`, and `MakeInvalid`.

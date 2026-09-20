@@ -37,6 +37,21 @@ Graph populated() {
 }
 }
 int main() {
+  for (bool end_first : {false, true}) {
+    auto manifest = descriptor(); manifest.residency_sites = {0};
+    Graph resident; resident.bind_manifest(manifest); resident.bind_timing({100000000});
+    resident.begin_stream();
+    if (end_first) resident.record_end({0,0},4);
+    resident.record_node({0,0},1,0);
+    if (!end_first) resident.record_end({0,0},4);
+    const auto settled = resident.finish_cycle(4);
+    require(settled.ends.at({0,0}) == 4);
+    require(settled.nodes.at({0,0}).end_cycle == 4);
+    require(settled.json().find("\"ends\":[") != std::string::npos);
+    rejects([&] { resident.record_end({0,0},5); }, "duplicate residency");
+    resident.end_stream(); resident.reset(true);
+    require(resident.nodes.empty());
+  }
   for (bool before : {false, true}) {
     Graph partial; partial.bind_manifest(descriptor()); partial.bind_timing({100000000});
     partial.begin_stream();

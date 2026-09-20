@@ -137,6 +137,11 @@ not accept this option because `Valid` has no readiness signal. See
 [stall observations](../rhodium/event/README.md#stall-observations) for ancestry
 and capture semantics.
 
+`trace_event(label, ~residency: "owner")` instead associates the checkpoint
+with a local named retained-storage lifetime. See
+[residency](../rhodium/event/README.md#retained-owner-residency) for admission,
+release, and descendant identity; this option cannot be combined with stalls.
+
 An opaque state machine can connect two annotated routes with
 `trace_edge(parent, child, ~scope: "request")`. This records a causal edge for
 the event compiler without adding a functional wire or changing the Flow

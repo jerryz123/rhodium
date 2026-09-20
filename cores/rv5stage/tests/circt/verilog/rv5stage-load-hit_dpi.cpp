@@ -114,7 +114,12 @@ extern "C" void demand_check(unsigned done) {
       if(field(resolved,"refill_address")!=miss_addresses[refills]) fail("refill address");
       // ReadUnique for the output-line and delayed store misses; ReadClean for loads.
       if(field(resolved,"refill_opcode")!=((refills==3 || refills==5) ? 0x07 : 0x02)) fail("refill opcode");
-      launching.push_back(resolved);
+      const rheg::Ref resident{demand_sites::refill,refills};
+      if(!graph.nodes.count(resident) || !equal(parent_of(resident),resolved) || graph.nodes.at(resident).cycle!=cycle)
+        fail("refill residency lost S4 admission");
+      if(field(resident,"address")!=field(resolved,"refill_address") || field(resident,"opcode")!=field(resolved,"refill_opcode"))
+        fail("refill residency capture");
+      launching.push_back(resident);
       ++refills;
     }
     ++resolutions;
@@ -122,11 +127,11 @@ extern "C" void demand_check(unsigned done) {
   const rheg::Ref attempt{demand_sites::txreq,attempts};
   if(bool(graph.nodes.count(attempt))!=tx_accepted) fail("TXREQ differs from public handshake");
   if(tx_accepted) {
-    if(launching.empty() || !equal(parent_of(attempt),launching.front())) fail("TXREQ lost retained S4 parent");
+    if(launching.empty() || !equal(parent_of(attempt),launching.front())) fail("TXREQ lost refill residency parent");
     auto origin=launching.front();
     if(graph.nodes.at(attempt).cycle!=cycle || cycle<=graph.nodes.at(origin).cycle) fail("TXREQ timestamp");
-    if(field(attempt,"address")!=field(origin,"refill_address") ||
-       field(attempt,"opcode")!=field(origin,"refill_opcode")) fail("TXREQ command capture");
+    if(field(attempt,"address")!=field(origin,"address") ||
+       field(attempt,"opcode")!=field(origin,"opcode")) fail("TXREQ command capture");
     if(!field(attempt,"allow_retry")) { ++retries; launching.pop_front(); }
     ++attempts;
   }
@@ -135,7 +140,9 @@ extern "C" void demand_check(unsigned done) {
        !rejected || !hits || !replays || !launching.empty() || attempts!=12 || retries!=6) fail("missing drain, miss, hit, rejection, or retry coverage");
     std::printf("D-cache S1/S2 core alignment and S2 -> S3 -> S4 lineage passed (%llu responses, %llu admissions, %llu rejected attempts)\n",
                 (unsigned long long)responses,(unsigned long long)admissions,(unsigned long long)rejected);
-    std::printf("S4 -> CHI TXREQ retained lineage passed (12 attempts, 6 retries)\n");
+    for(std::uint64_t sequence=0; sequence<refills; ++sequence)
+      if(!graph.nodes.at({demand_sites::refill,sequence}).end_cycle) fail("refill did not release");
+    std::printf("S4 -> refill residency -> CHI TXREQ lineage passed (12 attempts, 6 retries)\n");
   }
   ++cycle;
 }

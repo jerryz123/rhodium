@@ -49,11 +49,16 @@ SELECT
     (EXTRACT_ARG(parent_args,'debug.address')!=EXTRACT_ARG(child_args,'debug.address') OR
      EXTRACT_ARG(parent_args,'debug.prefetch')!=EXTRACT_ARG(child_args,'debug.prefetch'))) AND
   (SELECT count(*)>0 FROM events WHERE name='dcache/s4.resolve' AND EXTRACT_ARG(arg_set_id,'debug.refill_accepted')=1) AND
-  (SELECT count(*)>0 FROM edges WHERE src='dcache/s4.resolve' AND dst='dcache/chi.txreq') AND
-  (SELECT count(*)=0 FROM edges WHERE dst='dcache/chi.txreq' AND
-    (src!='dcache/s4.resolve' OR delay<10 OR EXTRACT_ARG(parent_args,'debug.refill_accepted')!=1 OR
+  (SELECT count(*)>0 FROM edges WHERE src='dcache/s4.resolve' AND dst='dcache/refill') AND
+  (SELECT count(*)=0 FROM edges WHERE src='dcache/s4.resolve' AND dst='dcache/refill' AND
+    (delay!=0 OR EXTRACT_ARG(parent_args,'debug.refill_accepted')!=1 OR
      EXTRACT_ARG(parent_args,'debug.refill_opcode')!=EXTRACT_ARG(child_args,'debug.opcode') OR
      ltrim(substr(EXTRACT_ARG(parent_args,'debug.refill_address'),3),'0')!=ltrim(substr(EXTRACT_ARG(child_args,'debug.address'),3),'0'))) AND
+  (SELECT count(*)=0 FROM edges WHERE dst='dcache/chi.txreq' AND
+    (src NOT IN ('dcache/refill','dcache/writeback') OR delay<10 OR
+     (src='dcache/refill' AND EXTRACT_ARG(parent_args,'debug.opcode')!=EXTRACT_ARG(child_args,'debug.opcode')) OR
+     (src='dcache/writeback' AND EXTRACT_ARG(child_args,'debug.opcode')!=27) OR
+     ltrim(substr(EXTRACT_ARG(parent_args,'debug.address'),3),'0')!=ltrim(substr(EXTRACT_ARG(child_args,'debug.address'),3),'0'))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/chi.txreq' AND
     ((SELECT count(*) FROM edges WHERE child=e.id)>1 OR
      ((SELECT count(*) FROM edges WHERE child=e.id)=0 AND
@@ -61,5 +66,7 @@ SELECT
      ((SELECT count(*) FROM edges WHERE child=e.id)=1 AND
       COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false'))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/s4.resolve' AND EXTRACT_ARG(arg_set_id,'debug.refill_accepted')=1 AND
-    NOT EXISTS (SELECT 1 FROM edges WHERE parent=e.id AND dst='dcache/chi.txreq')) AND
-  (SELECT count(*)=0 FROM edges WHERE dst IN ('mmu/pte.request','dcache/prefetch')) AS ok
+    NOT EXISTS (SELECT 1 FROM edges r JOIN edges tx ON tx.parent=r.child
+                WHERE r.parent=e.id AND r.dst='dcache/refill' AND tx.dst='dcache/chi.txreq')) AND
+  (SELECT count(*)=0 FROM edges WHERE dst='dcache/prefetch' OR
+    (dst='mmu/pte.request' AND (src!='mmu/walk' OR delay<10))) AS ok

@@ -58,6 +58,21 @@ JSON when false for legacy compatibility. The exporter validates its boolean
 JSON type, displays it only when true, and treats changes as stall-run boundaries.
 Missing-contract details are static track context, not duplicated per occurrence.
 
+## Residency updates
+
+Keep releases separate from node creation: `Node::end_cycle` is optional, and
+`CycleBatch::ends` carries updates to previously streamed identities. Validate
+release type, ordering, identity, and watermark without rescanning old nodes.
+Captures/parents remain immutable. Parse and cross-check the manifest's residency
+indices just as capture schemas; preserve optional ends in snapshot JSON.
+The encoder merges starts and ends in chronological order, ending old owners
+before same-cycle replacement, while retaining its same-cycle topological start
+ordering. Stage the active-owner map with the batch and reject overlap before
+output. Never infer release from child activity, absence, or finalization.
+Open residency slices intentionally stay incomplete at export end. Test live/
+replay/gzip parity, alternate modes, old-owner descendants, malformed releases,
+and native durations/flow attachment.
+
 ## Perfetto encoding
 
 `PerfettoWriter` accepts typed settled batches. `read_event_trace` parses saved

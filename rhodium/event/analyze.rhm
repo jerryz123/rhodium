@@ -186,7 +186,8 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  if annotation.payload | annotation.payload.type.describe() | #false,
                                  if annotation.payload | annotation.payload.type.packed_width() | #false,
                                  annotation.location.describe(),
-                                 captures)
+                                 captures,
+                                 if annotation.residency_storage() | "residency" | "transfer")
             sites := sites ++ [site]
             when annotation.parents
             | selected_parents[site.id] := annotation.parents.map(fun (index): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(index))

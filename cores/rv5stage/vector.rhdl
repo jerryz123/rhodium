@@ -54,7 +54,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~trace_launch: #false))
+  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa))
   inst access(RV5StageVectorMemory(xlen, slots))
   // Pending descriptor policy is independent of the older execution owner's
   // LSU policy, so prechecking the next macro cannot perturb active issue.
@@ -72,13 +72,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def needs_check = request.bits.control.memory & !footprint.empty & footprint.eligible
   def immediate_certificate = !request.bits.control.memory ||| footprint.empty
   def can_admit = !waiting_retirement
-  def admitted = request |> gate_flow(can_admit) |> trace_event("vector/launch", ~fields: descriptor):
-    pc: descriptor.pc
-    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): descriptor.instruction
-    vl(~format: "unsigned"): descriptor.state.vl
-    vstart(~format: "unsigned"): descriptor.state.vstart
-    sew(~format: "unsigned"): descriptor.state.vtype[3..6]
-    lmul: descriptor.state.vtype[0..3]
+  def admitted = request |> gate_flow(can_admit)
   def Array(pending_input, launch_request) = admitted |> atomic_fork(2)
   def queued_descriptor = pending_input |> queue(1)
   available <== can_admit & !queued_descriptor.valid

@@ -7,7 +7,7 @@ import:
   "../csr.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
   lib("rhodium/std/bits.rhdl") open
-  lib("rhodium/std/ready-valid.rhdl") open
+  lib("flow/main.rhdl") open
 
 hardware_enum RV5StagePageWalkState:
   Idle
@@ -28,7 +28,12 @@ sync_circuit RV5StagePageTableWalker():
   reg global_mapping(~init: Bool(#false))
   reg result(RV5StageTranslationResult())
 
-  request.ready <== state === RV5StagePageWalkState.Idle
+  // Cancellation wins over an offered admission in the functional state machine.
+  def walking = request |> trace_event("mmu/walk", ~when: !cancel, ~residency: "walk", ~fields: translation):
+    virtual_address: translation.virtual_address
+    access(~format: "enum"): translation.access
+    privilege(~format: "enum"): translation.privilege
+  walking.ready <== state === RV5StagePageWalkState.Idle
   def request_fire = request.fire()
   def vpn_index = operation.virtual_address.sv39_vpn(level)
   memory.request.valid <== state === RV5StagePageWalkState.Request
@@ -49,6 +54,9 @@ sync_circuit RV5StagePageTableWalker():
   completion.valid <== state === RV5StagePageWalkState.Complete
   completion.bits <== result
   def completion_fire = completion.fire()
+  def occupied = state =/= RV5StagePageWalkState.Idle
+  describe_interface_retained_storage(request_fire & !cancel, occupied & (completion_fire ||| cancel), occupied, ~name: "walk")
+  describe_interface_contract(walking, Array(memory.request, completion), "walk-outputs", ~trace_model: interface_trace_retained(~name: "walk", ~outputs: 2))
 
   when cancel:
     state <== RV5StagePageWalkState.Idle

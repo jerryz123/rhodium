@@ -28,6 +28,7 @@ The collector requires C++17 and the standard library. Link
 Its [header](runtime/rheg.h) defines the fixed ABI and `graph()` API:
 
 - `rheg_node` records a site, sequence, cycle, and payload width.
+- `rheg_end` closes that identity at a release cycle for a `residency` site.
 - `rheg_payload` supplies zero-padded 32-bit words, least-significant
   word first, so arbitrary fixed-width packed payloads use the same ABI.
 - `rheg_edge` records an exact parent/child reference pair.
@@ -94,6 +95,29 @@ not saved snapshots; never merge reset epochs by site/sequence alone.
 
 The occurrence-only `graph().json()` is also available. Snapshots copy the
 current epoch and require additional memory proportional to the retained graph.
+
+## Residency occurrences
+
+A manifest's `residency` site represents one retained owner's lifetime, with
+the same identity, captures, and graph edges as other occurrences. The typed
+descriptor lists these indices in `Manifest::residency_sites`. `rheg_end` /
+`Graph::record_end` attaches an optional `end_cycle` to the existing node; it
+must be later than admission. The snapshot records it as a decimal string.
+An absent end means ownership is still open, not a zero-duration event.
+
+Streaming batches carry release updates separately in `CycleBatch::ends`
+(JSON `ends` entries have `site`, `sequence`, and decimal-string `cycle`). An
+end may refer to an already streamed node, but must itself be newer than the
+watermark. Payload and ancestry remain immutable. Ends and node callbacks are
+order-independent within an unsettled batch. Duplicate, orphan, mistimed, and
+non-residency ends are rejected.
+
+Perfetto emits a half-open `[capture_cycle, release_cycle)` slice. Identity and
+outgoing arrows remain usable after release. Explicit track groups may combine
+residency sites of alternate modes, but cannot mix residency and transfer sites;
+overlapping owners on one track are rejected. End-of-export does not invent a
+release: unfinished slices retain Perfetto's incomplete duration (`-1`). As
+before, each streaming writer covers one reset epoch and must finish before reset.
 
 ## Named captures
 
@@ -287,7 +311,8 @@ Distinct annotation sites stay on separate tracks by default, even when their
 labels match. For mutually exclusive modes of one logical facility, supply
 `PerfettoTrackGroups` as the fifth `PerfettoWriter` argument or fourth
 `write_perfetto` argument (after compression). Each group contains a display
-`label` and at least two exact transfer-site IDs. Stall companions automatically
+`label` and at least two exact event-site IDs of the same kind (transfer or
+residency). Stall companions automatically
 follow their transfer site. This changes only presentation, not graph identity,
 captures, or parent edges.
 

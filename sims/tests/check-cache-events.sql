@@ -84,12 +84,22 @@ SELECT
    WHERE c.channel NOT IN ('icache/chi.txreq','dcache/chi.txreq') AND
      NOT ((c.channel IN ('icache/chi.rxrsp','icache/chi.rxdat','dcache/chi.rxrsp','dcache/chi.rxdat') AND
        t.name=substr(c.channel,1,11)||'txreq') OR
+       (c.channel='dcache/chi.txdat' AND t.name='dcache/writeback') OR
        (c.channel IN ('icache/chi.txrsp','dcache/chi.txrsp') AND c.name='CompAck' AND
         t.name=substr(c.channel,1,11)||'rxdat'))) AND
-  -- This demand-only workload must connect every instruction miss to its S0 occurrence.
+  -- This demand-only workload connects S0 through refill residency to every attempt.
   (SELECT count(*)=0 FROM events c WHERE c.channel='icache/chi.txreq' AND c.kind='transfer'
     AND ((SELECT count(*) FROM flow f WHERE f.slice_in=c.id)!=1 OR
       COALESCE(EXTRACT_ARG(c.arg_set_id,'debug.ancestry_unknown'),'false')!='false')) AND
   (SELECT count(*)=0 FROM flow f JOIN events c ON c.id=f.slice_in
    JOIN slice p ON p.id=f.slice_out JOIN rheg_tracks t ON t.id=p.track_id
-   WHERE c.channel='icache/chi.txreq' AND (t.name!='frontend/s0.request' OR c.ts-p.ts<30)) AS ok
+   WHERE c.channel='icache/chi.txreq' AND (t.name!='icache/refill' OR c.ts-p.ts<10)) AND
+  (SELECT count(*)=0 FROM events c WHERE c.channel='icache/chi.txreq' AND c.kind='transfer'
+    AND (SELECT count(*) FROM flow attempt
+      JOIN slice resident ON resident.id=attempt.slice_out
+      JOIN rheg_tracks rt ON rt.id=resident.track_id
+      JOIN flow admission ON admission.slice_in=resident.id
+      JOIN slice source ON source.id=admission.slice_out
+      JOIN rheg_tracks st ON st.id=source.track_id
+      WHERE attempt.slice_in=c.id AND rt.name='icache/refill' AND st.name='frontend/s0.request'
+        AND c.ts-source.ts>=30)!=1) AS ok

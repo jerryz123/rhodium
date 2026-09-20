@@ -2,7 +2,9 @@
 -- SPDX-License-Identifier: Apache-2.0
 WITH tracks AS MATERIALIZED (
   SELECT t.id, t.name, EXTRACT_ARG(t.source_arg_set_id,'description') AS schema
-  FROM rheg_tracks t WHERE t.name GLOB 'core/*' OR t.name GLOB '[id]cache/*' OR t.name GLOB 'frontend/*'
+  FROM rheg_tracks t
+  WHERE (t.name GLOB 'core/*' OR t.name GLOB '[id]cache/*' OR t.name GLOB 'frontend/*')
+    AND json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.kind')='transfer'
 ), sites AS MATERIALIZED (
   SELECT t.id AS track_id, t.schema FROM tracks t
   UNION ALL

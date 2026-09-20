@@ -8,7 +8,7 @@ import:
   "../../../../rhodium/event/main.rhm" open
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageFetchThroughput()), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace fetch_sites {\n" ++ String.join(
-  for List (label in ["frontend/s0.request", "icache/chi.txreq"], name in ["request", "txreq"]):
+  for List (label in ["frontend/s0.request", "icache/chi.txreq", "icache/refill"], name in ["request", "txreq", "refill"]):
     def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
     unless indices.length() == 1 | error("expected one fetch trace site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(indices[0]) ++ ";\n",

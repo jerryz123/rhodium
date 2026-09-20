@@ -596,8 +596,16 @@ class InterfaceEventGroup(module_def :: Module,
                           ready :: False || Value = #false,
                           fields :: List.of(InterfaceEventField) = [],
                           stalls :: Boolean = #false,
-                          mutable parents :: False || List.of(Nat) = #false):
+                          mutable parents :: False || List.of(Nat) = #false,
+                          residency :: False || String = #false):
   implements ModuleMetadataPayload
+  // Resolve after elaboration so the storage declaration may follow its input.
+  method residency_storage():
+    if residency
+    | def storage = module_def.metadata_for(interface_retained_storage_namespace).find(fun (item): item.name == residency)
+      unless storage | error(~who: #'trace_event, "residency requires named retained storage: " ++ residency)
+      storage
+    | #false
 class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
                                destination :: InterfaceEndpoint):
@@ -2169,6 +2177,7 @@ fun describe_interface_event(handle :: Handle,
                              label :: String,
                              ~parents: parents :: False || List.of(InterfaceEndpoint) = #false,
                              ~stalls: stalls :: Boolean = #false,
+                             ~residency: residency :: False || String = #false,
                              ~payload: payload :: False || HardwareEntity = #false,
                              ~fields: fields :: List.of(InterfaceEventField) = [],
                              ~valid: valid :: False || HardwareEntity = #false,
@@ -2176,6 +2185,8 @@ fun describe_interface_event(handle :: Handle,
                              ~location: location :: Location = Location()) :: Handle:
   unless label != ""
   | error(~who: #'describe_interface_event, "event label must not be empty")
+  when residency && (residency == "" || stalls)
+  | error(~who: #'describe_interface_event, "residency requires a nonempty storage name and cannot observe stalls")
   unless handle.left is_a InterfaceEndpoint && handle.right is_a InterfaceEndpoint
   | error(~who: #'describe_interface_event,
           "an event annotation requires one input and one output endpoint")
@@ -2250,7 +2261,8 @@ fun describe_interface_event(handle :: Handle,
                                   transfer_value(ready),
                                   if payload | [InterfaceEventField("raw", payload_value, "hex")] | fields,
                                   stalls,
-                                  selected_parents)
+                                  selected_parents,
+                                  residency)
   module_def.add_metadata(interface_event_group_namespace, event)
   describe_interface_transform(
     handle,

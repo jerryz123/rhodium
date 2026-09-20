@@ -9,6 +9,8 @@
 
 namespace rheg {
 void validate_capture_schema(const Manifest& manifest) {
+  for (auto site : manifest.residency_sites)
+    if (site >= manifest.payload_widths.size()) throw std::runtime_error("unknown residency site");
   if (manifest.fields.empty()) return; // Legacy snapshots remain readable.
   if (manifest.fields.size() != manifest.payload_widths.size())
     throw std::runtime_error("capture schema site count mismatch");
@@ -151,7 +153,7 @@ Snapshot Graph::begin_stream() {
 }
 void Graph::end_stream() {
   if (!streaming_) throw std::runtime_error("no active event stream");
-  if (!pending_nodes_.empty() || !pending_edges_.empty())
+  if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty())
     throw std::runtime_error("finish event cycle before ending stream");
   streaming_ = false;
   finished_cycle_.reset();
@@ -160,7 +162,7 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   if (!streaming_) throw std::runtime_error("no active event stream");
   if (finished_cycle_ && cycle <= *finished_cycle_)
     throw std::runtime_error("event stream cycle must increase");
-  CycleBatch batch{cycle, {}, pending_edges_};
+  CycleBatch batch{cycle, {}, pending_edges_, pending_ends_};
   for (const auto& ref : pending_nodes_) {
     const auto& node = nodes.at(ref);
     if (!node.present) throw std::runtime_error("incomplete event node or payload");
@@ -173,8 +175,15 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
       throw std::runtime_error("event edge child already streamed");
   // Validate only new entries, resolving older parents against retained nodes.
   validate_entries(batch.nodes, batch.edges, nodes, manifest_.get());
+  for (const auto& [ref, end] : batch.ends) {
+    if (!nodes.count(ref) || !nodes.at(ref).present || end <= nodes.at(ref).cycle ||
+        end > cycle || (finished_cycle_ && end <= *finished_cycle_) ||
+        (manifest_ && !manifest_->residency_sites.count(ref.site)))
+      throw std::runtime_error("invalid residency end");
+  }
   pending_nodes_.clear();
   pending_edges_.clear();
+  pending_ends_.clear();
   finished_cycle_ = cycle;
   return batch;
 }
@@ -209,6 +218,8 @@ static void validate_entries(const std::map<Ref, Node>& nodes,
       if (node.present && node.width != manifest_->payload_widths[entry.first.site])
         throw std::runtime_error("event payload width differs from manifest at site " + std::to_string(entry.first.site));
     }
+    if (node.end_cycle && (*node.end_cycle <= node.cycle || (manifest_ && !manifest_->residency_sites.count(entry.first.site))))
+      throw std::runtime_error("invalid residency end");
     if (!node.present || node.words.size() != (std::uint64_t(node.width) + 31) / 32)
       throw std::runtime_error("incomplete event node or payload");
     for (std::uint32_t i = 0; i < node.words.size(); ++i)
@@ -265,6 +276,7 @@ static std::string occurrences_json(const std::map<Ref, Node>& nodes,
     }
     out << "]";
     if (entry.second.ancestry_unknown) out << ",\"ancestry_unknown\":true";
+    if (entry.second.end_cycle) out << ",\"end_cycle\":\"" << *entry.second.end_cycle << "\"";
     out << "}";
   }
   out << "],\"edges\":[";
@@ -285,8 +297,24 @@ std::string Graph::json() const {
 std::string CycleBatch::json() const {
   auto occurrences = occurrences_json(nodes, edges);
   occurrences.pop_back(); // One complete JSON object per line for pipe consumers.
+  std::string endings;
+  for (const auto& [ref, end] : ends) {
+    if (!endings.empty()) endings += ',';
+    endings += "{\"site\":" + std::to_string(ref.site) + ",\"sequence\":\"" + std::to_string(ref.sequence) +
+               "\",\"cycle\":\"" + std::to_string(end) + "\"}";
+  }
   return "{\"format\":\"rhodium-event-cycle\",\"version\":1,\"cycle\":\"" +
-         std::to_string(cycle) + "\",\"occurrences\":" + occurrences + "}\n";
+         std::to_string(cycle) + "\",\"occurrences\":" + occurrences +
+         (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + "}\n";
+}
+void Graph::record_end(Ref ref, std::uint64_t cycle) {
+  if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
+    throw std::runtime_error("residency end cycle already streamed");
+  auto& node = nodes[ref];
+  if (node.end_cycle) throw std::runtime_error("duplicate residency end");
+  node.end_cycle = cycle;
+  started_ = epoch_active_ = true;
+  if (streaming_) pending_ends_.emplace(ref, cycle);
 }
 void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
   if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
@@ -354,6 +382,9 @@ extern "C" void rheg_node(std::uint32_t site, std::uint64_t sequence,
 }
 extern "C" void rheg_unknown(std::uint32_t site, std::uint64_t sequence) {
   rheg::graph().record_unknown({site, sequence});
+}
+extern "C" void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle) {
+  rheg::graph().record_end({site, sequence}, cycle);
 }
 extern "C" void rheg_payload(std::uint32_t site, std::uint64_t sequence,
                                        std::uint32_t index, std::uint32_t word) {

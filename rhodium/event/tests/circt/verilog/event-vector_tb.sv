@@ -19,7 +19,7 @@ module event_vector_tb;
   import "DPI-C" function void vector_trace_bind();
   import "DPI-C" function int unsigned vector_trace_response();
   import "DPI-C" function void vector_trace_sample(input int unsigned rst, launch, insn, length,
-    issue, tag, mem, enable, commit, status, delayed, response, response_tag, cancel);
+    issue, tag, mem, enable, commit, status, delayed, response, response_tag, cancel, last);
   import "DPI-C" function void vector_trace_check();
   import "DPI-C" function void vector_trace_finish();
   bit sampled_launch, sampled_commit;
@@ -29,7 +29,7 @@ module event_vector_tb;
     sampled_commit=committed;
     vector_trace_sample(32'(reset),32'(sampled_launch),instruction,32'(vl),32'(issued),
       32'(issue_tag),32'(memory),32'(enabled),32'(committed),32'(disposition),32'(slow),
-      32'(response_valid),32'(response_tag),32'(cancel));
+      32'(response_valid),32'(response_tag),32'(cancel),32'(last));
     #1; vector_trace_check();
     @(negedge clock);
   endtask

@@ -31,7 +31,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: False || String = #false, ~trace_launch: trace_launch :: Boolean = #true):
+sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: False || String = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def FpRequest = RV5StageFpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = RV5StageFpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
@@ -128,19 +128,17 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def waw = vec(for List (row in 0..vector_depth(vlen)): busy_rows[row] & destination_registers[row div vector_chunks(vlen)].into(Bool)).as_bits().or_reduce()
   available <== !unroller.active & !macro_valid[next_owner.as_bits()]
   def admitted = request |> gate_flow(available & !waw)
-  def launches:
-    if trace_launch
-    | admitted |> trace_event("vector/launch", ~fields: operation):
-        pc: operation.descriptor.pc
-        instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): operation.descriptor.instruction
-        vl(~format: "unsigned"): operation.descriptor.state.vl
-        vstart(~format: "unsigned"): operation.descriptor.state.vstart
-        sew(~format: "unsigned"): operation.descriptor.state.vtype[3..6]
-        lmul: operation.descriptor.state.vtype[0..3]
-    | admitted
-  // The sole descriptor owner also supplies the selected packed schedule.
-  // Both paths retain the same launch occurrence through replayable offers.
-  def Array(element_request, packed_request) = launches |> atomic_fork(2)
+  def sequencing = admitted |> trace_event("vector/sequencer", ~residency: "sequencer", ~fields: operation):
+    pc: operation.descriptor.pc
+    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): operation.descriptor.instruction
+    vl(~format: "unsigned"): operation.descriptor.state.vl
+    vstart(~format: "unsigned"): operation.descriptor.state.vstart
+    sew(~format: "unsigned"): operation.descriptor.state.vtype[3..6]
+    lmul: operation.descriptor.state.vtype[0..3]
+    packed(~format: "bool"): packed_memory
+  describe_interface_retained_storage(admitted.fire(), unroller.active & issue_done.valid, unroller.active, ~name: "sequencer")
+  // The shared descriptor owner supplies both schedules and their lineage.
+  def Array(element_request, packed_request) = sequencing |> atomic_fork(2)
   element_request |> unroller.request
   packed_request |> filter_flow(_operation => packed_memory) |> to_valid() |> packed.launch
   unroller.packed_memory <== packed_owner

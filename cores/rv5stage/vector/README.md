@@ -71,16 +71,21 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 
 ### Event tracing
 
-The optional event compiler observes three milestones, not numbered pipeline
-stages: `vector/launch` accepts a macro from scalar WB, `vector/issue` accepts
-one execution attempt, and `vector/complete` records an authorized beat's
-ordered result drain. One launch parents all
+The optional event compiler observes sequencing and beat milestones, not numbered
+pipeline stages: `vector/sequencer` spans the shared descriptor owner's lifetime
+after precheck, `vector/issue` accepts one execution attempt, and
+`vector/complete` records an authorized beat's ordered result drain.
+One sequencer residency parents all
 its issue occurrences; every completion inherits its exact issue occurrence.
 Retries create fresh issue occurrences, while rejected and flushed attempts
 have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
 
-Launch captures PC, instruction, VL, VSTART, and encoded SEW/LMUL. Issue captures
+Residency captures PC, instruction, VL, VSTART, encoded SEW/LMUL, and packed mode
+once at admission. Retry does not split its lifetime. Both modes end sequencing on
+final authorization or cancellation/fault/truncation; accepted results may finish
+later. The shared owner emits one residency track for both modes.
+Issue captures
 the macro-local operation index, exclusive element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
 captures destination and VRF-write enable. Backpressure observations share the
@@ -88,7 +93,7 @@ issue track. The trace carries ownership through existing storage; it does not
 infer register-data dependencies or add per-service events. Memory attempts
 continue through their existing Flow path toward the cache checkpoints, retaining
 partial-mode diagnostics at unmodeled boundaries.
-The core supplies its selected ISA for launch disassembly through `~trace_isa`;
+The core supplies its selected ISA for residency disassembly through `~trace_isa`;
 standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction set.
 
 ### Execution ownership

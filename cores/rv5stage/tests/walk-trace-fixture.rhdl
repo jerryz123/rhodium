@@ -1,0 +1,54 @@
+#lang rhodium
+// Exposes public walker transfers for exact residency, cancellation, and PTE ancestry checks.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../mmu/walker.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../csr.rhdl".PrivilegeMode
+  lib("riscv/rtl/sv39.rhdl").Sv39Access
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageWalkTrace():
+  input command_valid: Bool
+  input address: Bits(64)
+  output command_ready: Bool
+  input cancel: Bool
+  input memory_ready: Bool
+  input memory_fault: Bool
+  input response_valid: Bool
+  input pte: Bits(64)
+  output memory_valid: Bool
+  output memory_address: Bits(64)
+  input completion_ready: Bool
+  output completed: Bool
+  output fault: Bool
+  output access_fault: Bool
+  inst walker(RV5StagePageTableWalker())
+  walker.cancel <== cancel
+  def translation = RV5StageTranslationRequest():
+    virtual_address: address
+    root_ppn: bits(1, 44)
+    access: Sv39Access.Load
+    privilege: PrivilegeMode.Supervisor
+    sum: Bool(#false)
+    mxr: Bool(#false)
+  def submitted = inject_flow(Decoupled(RV5StageTranslationRequest()), ~valid: command_valid, ~bits: translation, ~ready: command_ready) |> trace_event("translation", ~when: !cancel, ~fields: request):
+    address: request.virtual_address
+  submitted |> walker.request
+  def requested = walker.memory.request |> trace_event("pte", ~fields: location):
+    address: location
+  requested.ready <== memory_ready
+  memory_valid <== requested.valid
+  memory_address <== requested.bits
+  walker.memory.request_access_fault <== memory_fault
+  walker.memory.response.valid <== response_valid
+  walker.memory.response.bits <== pte
+  def result = walker.completion |> trace_event("completed", ~when: !cancel, ~fields: completion):
+    fault: completion.fault
+    access_fault: completion.access_fault
+  result.ready <== completion_ready
+  completed <== result.valid
+  fault <== result.bits.fault
+  access_fault <== result.bits.access_fault
+
+export RV5StageWalkTrace

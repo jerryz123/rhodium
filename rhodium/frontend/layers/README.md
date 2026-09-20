@@ -1422,6 +1422,12 @@ the same module-local namespace. This remains metadata on a transparent
 checkpoint; [event instrumentation](../../event/README.md#stall-observations)
 owns its runtime meaning.
 
+`~residency: "owner"` names a local retained-storage declaration, resolved after
+elaboration. It cannot be combined with `~stalls`. The
+[event residency contract](../../event/README.md#retained-owner-residency)
+defines the capture/release checks and duration instrumentation; the interface
+layer only records the association.
+
 `describe_interface_event` records a checkpoint, not a lineage cut. The consumer
 infers available parents from its inputs. See the
 [event contract](../../event/README.md#annotate-events) for naturally parentless

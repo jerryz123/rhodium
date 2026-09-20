@@ -87,6 +87,7 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     unless (site.payload_width || 0) < 2 ** 32
     | error(~who: #'event_manifest_to_cpp, "runtime payload width must fit 32 bits")
   def widths = manifest.sites.map(fun (site): to_string(site.payload_width || 0))
+  def residencies = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].kind == "residency").map(to_string)
   fun cpp_field(field :: EventField):
     // Names are raw literals too: quotes, backslashes and Unicode are not C++ escapes.
     def name_tag = tag ++ "f"
@@ -108,5 +109,5 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     "#pragma once\n#include \"rheg.h\"\n",
     "namespace rheg_generated {\ninline rheg::Manifest manifest() {\n  return {R\"",
     tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
-    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}};\n}\n}\n"
+    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}, {" ++ String.join(residencies, ",") ++ "}};\n}\n}\n"
   ], "")

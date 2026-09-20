@@ -237,7 +237,7 @@ fun instrument_events(logical :: DesignElaboration,
   for (occurrence in occurrences):
     def local_view = view.module(occurrence.original.name)
     def annotations = local_view.blocks.filter(~keep: fun (candidate): candidate.event_annotation != #false)
-    def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path && site.kind == "transfer")
+    def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path && site.kind != "stall")
     unless annotations.length() == visible.length()
     | error(~who: #'instrument_events, "event annotations are hidden behind a transform implementation: " ++ String.join(occurrence.path, "/"))
   def design = Design([], logical.design.next_id)
@@ -248,6 +248,7 @@ fun instrument_events(logical :: DesignElaboration,
     | error(~who: #'instrument_events, "reserved event DPI import: " ++ original.name)
     imports[original.id] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
   def node_dpi = builder.dpi_import("rheg_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
+  def end_dpi = if manifest.sites.find(fun (site): site.kind == "residency") | builder.dpi_import("rheg_end", ["site", "sequence", "cycle"], [Bits(32), Bits(64), Bits(64)]) | #false
   def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
   def edge_dpi = builder.dpi_import("rheg_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
   def reset_dpi = builder.dpi_import("rheg_reset", ["active"], [Bits(1)])
@@ -378,6 +379,21 @@ fun instrument_events(logical :: DesignElaboration,
       unless width is_a Nat
       | error(~who: #'instrument_events, "event payload requires a canonical packed width: " ++ site.id)
       builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)
+      when site.kind == "residency"
+      | def storage = annotation.residency_storage()
+        fun control(value :: Value): builder.cast(module_def, copied.values[value.id], Bits(1))
+        def capture = control(storage.capture)
+        def release = control(storage.release)
+        def occupied = control(storage.active)
+        def resident = builder.register(module_def, ref_name("__event_resident_", site), Bits(64), clock, reset, zero)
+        def live = builder.register(module_def, ref_name("__event_residency_live_", site), Bits(1), clock, reset, builder.constant(module_def, Bits(1), 0))
+        builder.drive(live.next, builder.bit_or(module_def, capture, builder.bit_and(module_def, live.current, builder.bit_not(module_def, release))))
+        builder.assert(module_def, builder.eq(module_def, live.current, occupied), clock, reset, yes, ref_name("__event_residency_active_", site))
+        builder.drive(resident.next, builder.mux_lookup(module_def, fire, resident.current, [[1, sequence]]))
+        builder.assert(module_def, builder.eq(module_def, fire, builder.bit_and(module_def, active, capture)), clock, reset, yes, ref_name("__event_residency_capture_", site))
+        builder.assert(module_def, builder.bit_or(module_def, builder.bit_not(module_def, occupied), release), clock, reset, fire, ref_name("__event_residency_no_overwrite_", site))
+        builder.assert(module_def, occupied, clock, reset, release, ref_name("__event_residency_release_", site))
+        builder.dpi_call(module_def, end_dpi, [id, resident.current, cycle], clock, builder.bit_and(module_def, active, release))
       when annotation.payload
       | def packed = builder.cast(module_def, copied.values[annotation.payload.id], Bits(width))
         for (index in 0..((width + 31) div 32)):

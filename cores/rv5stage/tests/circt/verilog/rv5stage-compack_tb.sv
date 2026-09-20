@@ -17,7 +17,8 @@ module rv5stage_compack_tb;
   import "DPI-C" function void compack_bind();
   import "DPI-C" function void compack_sample(int unsigned reset, int unsigned command, int unsigned instruction_rom,
       int unsigned dfire, int unsigned dpacket, int unsigned ifire, int unsigned ipacket,
-      int unsigned dack, int unsigned ddbid, int unsigned iack, int unsigned idbid, int unsigned stalled);
+      int unsigned dack, int unsigned ddbid, int unsigned iack, int unsigned idbid, int unsigned stalled,
+      int unsigned dfinish, int unsigned ifinish);
   import "DPI-C" function void compack_check();
   import "DPI-C" function void compack_finish();
   always @(posedge clock) begin
@@ -26,7 +27,8 @@ module rv5stage_compack_tb;
         int'(idata_in.valid && idata_out.ready), int'(idata_in.bits.data_id),
         int'(dack_out.valid && dack_in.ready), int'(dack_out.bits.txn_id),
         int'(iack_out.valid && iack_in.ready), int'(iack_out.bits.txn_id),
-        int'((dack_out.valid && !dack_in.ready) || (iack_out.valid && !iack_in.ready)));
+        int'((dack_out.valid && !dack_in.ready) || (iack_out.valid && !iack_in.ready)),
+        int'(d_complete && completion_ready), int'(i_complete && completion_ready));
     #1; compack_check();
   end
   task automatic tick;

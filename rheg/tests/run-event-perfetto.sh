@@ -46,6 +46,10 @@ assert_query() {
     exit 1
   fi
 }
+assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=2 AND min(dur)=40 AND max(dur)=40 AND max(depth)=0 AND count(DISTINCT track_id)=1 AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name='sequencer'"
+assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=3 AND sum(b.ts>=a.ts+a.dur)=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
+assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
+assert_query "$stream_test_dir/build/residency.pftrace.incomplete" "SELECT count(*)=1 AND min(dur)=-1 AS ok FROM slice"
 for suffix in '' .gz; do
   file="$stream_test_dir/build/shared-tracks.pftrace$suffix"
   assert_query "$file" "SELECT count(*)=6 AND sum(name='issue')=2 AND sum(name='complete')=2 AND sum(name='launch')=2 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NOT NULL"

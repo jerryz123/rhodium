@@ -37,7 +37,10 @@ extern "C" void retained_sample(unsigned reset, unsigned capture, unsigned relea
     }
   }
   if(capture && release && owner) ++replacements;
-  if(release) { owner.reset(); deliveries=0; }
+  if(release) {
+    if(owner) expected.record_end(*owner,cycle);
+    owner.reset(); deliveries=0;
+  }
   if(capture) { owner=node(0,source_bits); deliveries=0; }
 }
 extern "C" void retained_check() {

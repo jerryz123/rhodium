@@ -27,6 +27,7 @@ struct Node {
   std::uint32_t width = 0;
   std::map<std::uint32_t, std::uint32_t> words;
   bool ancestry_unknown = false;
+  std::optional<std::uint64_t> end_cycle = {};
 };
 // Bit offsets index the compact selected capture, not the functional RTL bundle.
 struct Field {
@@ -59,6 +60,7 @@ struct Manifest {
   std::set<std::pair<std::uint32_t, std::uint32_t>> dependencies; // parent, child
   // Empty outer table denotes a legacy manifest without named captures.
   std::vector<std::vector<Field>> fields = {};
+  std::set<std::uint32_t> residency_sites = {};
 };
 void validate_capture_schema(const Manifest& manifest);
 class Snapshot;
@@ -71,6 +73,7 @@ struct CycleBatch {
   std::uint64_t cycle;
   std::map<Ref, Node> nodes;
   std::set<std::pair<Ref, Ref>> edges;
+  std::map<Ref, std::uint64_t> ends = {};
   std::string json() const;
 };
 struct Graph {
@@ -89,6 +92,7 @@ struct Graph {
   void record_node(Ref ref, std::uint64_t cycle, std::uint32_t width);
   void record_payload(Ref ref, std::uint32_t index, std::uint32_t word);
   void record_unknown(Ref ref);
+  void record_end(Ref ref, std::uint64_t cycle);
   void record_edge(Ref parent, Ref child);
   FieldValue field(Ref ref, const std::string& name) const;
   void reset(bool active);
@@ -102,6 +106,7 @@ private:
   std::optional<std::uint64_t> finished_cycle_;
   std::set<Ref> pending_nodes_;
   std::set<std::pair<Ref, Ref>> pending_edges_;
+  std::map<Ref, std::uint64_t> pending_ends_;
 };
 // Owns a validated copy: later callbacks and reset cannot change this view.
 class Snapshot {
@@ -125,6 +130,7 @@ Graph& graph();
 extern "C" {
 void rheg_reset(std::uint8_t active);
 void rheg_unknown(std::uint32_t site, std::uint64_t sequence);
+void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle);
 void rheg_node(std::uint32_t site, std::uint64_t sequence,
                         std::uint64_t cycle, std::uint32_t width);
 void rheg_payload(std::uint32_t site, std::uint64_t sequence,

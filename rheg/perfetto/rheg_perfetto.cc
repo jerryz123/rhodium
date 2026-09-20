@@ -103,7 +103,8 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
                            site.value("kind", std::string("transfer")), site.value("observation_of", std::string()), {}, {}});
     display_path(result.sites.back(), site.contains("label"));
     const auto& display = result.sites.back();
-    require(display.kind == "transfer" || display.kind == "stall", "unsupported event kind");
+    require(display.kind == "transfer" || display.kind == "stall" || display.kind == "residency", "unsupported event kind");
+    if (display.kind == "residency") result.manifest.residency_sites.insert(result.sites.size() - 1);
     require((display.kind == "stall") == !display.observation_of.empty(), "stall requires observation_of; transfer must not observe another site");
     const auto& width = site.at("payload_width");
     result.manifest.payload_widths.push_back(width == Json(false) ? 0 : number(width, UINT32_MAX));
@@ -151,7 +152,9 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     for (const auto& id : group.sites) {
       const auto site = ids.find(id);
       require(site != ids.end(), "unknown track group site");
-      require(result.sites[site->second].kind == "transfer", "track group must name transfer sites, not stalls");
+      require(result.sites[site->second].kind != "stall", "track group must name event sites, not stalls");
+      require(members.empty() || result.sites[*members.begin()].kind == result.sites[site->second].kind,
+              "track group cannot mix residency and transfer sites");
       require(members.insert(site->second).second && !grouped.count(site->second), "duplicate track group site");
     }
     // Canonical UUID and descriptor ordering do not depend on option ordering.
@@ -375,6 +378,7 @@ struct PerfettoWriter::Impl {
   std::optional<std::uint64_t> watermark;
   bool failed = false;
   bool finished = false;
+  std::map<std::uint32_t, Ref> residencies;
   std::unique_ptr<GzipEncoder> gzip;
 
   Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression,
@@ -383,7 +387,8 @@ struct PerfettoWriter::Impl {
     require(timing.clock_frequency_hz != 0, "positive clock frequency required");
     require(description.manifest.payload_widths == manifest.payload_widths &&
             description.manifest.dependencies == manifest.dependencies &&
-            description.manifest.fields == manifest.fields, "manifest descriptor differs from JSON");
+            description.manifest.fields == manifest.fields &&
+            description.manifest.residency_sites == manifest.residency_sites, "manifest descriptor differs from JSON");
     for (const auto& fields : manifest.fields)
       for (const auto& field : fields)
         if (field.encoding == "riscv") instructions.prepare(field.isa);
@@ -493,6 +498,8 @@ struct PerfettoWriter::Impl {
       PendingInterns interns(strings);
       std::string stream;
       close_stalls(stream, interns, stalls, [](const StallRun&) { return true; });
+      // Do not invent a hardware release at end of simulation. A residency
+      // without an end remains an incomplete Perfetto slice (duration -1).
       flush(stream);
       interns.commit();
       if (gzip) gzip->finish(output);
@@ -549,6 +556,8 @@ struct PerfettoWriter::Impl {
               "multiple occurrences on a shared track in one cycle");
       require(node.cycle <= batch.cycle && (!watermark || node.cycle > *watermark), "node outside unfinished cycle interval");
       require(node.present && node.width == description.manifest.payload_widths[ref.site], "incomplete node or payload width mismatch");
+      require(!node.end_cycle || (batch.ends.count(ref) && batch.ends.at(ref) == *node.end_cycle),
+              "node end must have a matching residency update");
       require(node.words.size() == (std::uint64_t(node.width) + 31) / 32, "incomplete payload");
       for (std::size_t i = 0; i < node.words.size(); ++i) require(node.words.count(i), "missing payload word");
       require(!(node.width % 32) || !(node.words.rbegin()->second >> (node.width % 32)), "nonzero payload padding");
@@ -572,23 +581,39 @@ struct PerfettoWriter::Impl {
       for (auto child : children[ref]) if (!--indegree[child]) ready.emplace(batch.nodes.at(child).cycle, child);
     }
     require(order.size() == batch.nodes.size(), "cyclic same-cycle dependencies");
+    struct Action { Ref ref; std::uint64_t cycle; bool end; };
+    std::vector<Action> actions;
+    for (auto ref : order) actions.push_back({ref, batch.nodes.at(ref).cycle, false});
+    for (const auto& [ref, end] : batch.ends) {
+      require(ref.site < description.sites.size() && description.manifest.residency_sites.count(ref.site), "end requires residency site");
+      require(batch.nodes.count(ref) || known.count(ref), "residency end has no begin");
+      const auto begin = batch.nodes.count(ref) ? batch.nodes.at(ref).cycle : known.at(ref).second;
+      require(end > begin && end <= batch.cycle && (!watermark || end > *watermark), "invalid residency end cycle");
+      timestamp(end);
+      actions.push_back({ref, end, true});
+    }
+    std::stable_sort(actions.begin(), actions.end(), [](const Action& a, const Action& b) {
+      if (a.cycle != b.cycle) return a.cycle < b.cycle;
+      return a.end && !b.end;
+    });
     std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> additions;
     PendingInterns interns(strings);
     std::string stream;
     auto next_stalls = stalls; // Commit interval state only after successful I/O.
+    auto next_residencies = residencies;
     std::optional<std::uint64_t> group_cycle;
-    for (auto ref : order) {
-      const auto& node = batch.nodes.at(ref);
-      if (!group_cycle || *group_cycle != node.cycle) {
-        group_cycle = node.cycle;
+    for (const auto& action : actions) {
+      const auto ref = action.ref;
+      if (!group_cycle || *group_cycle != action.cycle) {
+        group_cycle = action.cycle;
         // Decide continuations for the whole cycle before emitting any begins.
         // This preserves packet/intern order across live and snapshot batches.
         close_stalls(stream, interns, next_stalls, [&](const StallRun& run) {
           if (run.last.sequence == UINT64_MAX) return true;
           const auto next = batch.nodes.find({run.last.site, run.last.sequence + 1});
           return next == batch.nodes.end() ||
-                 next->second.cycle != node.cycle ||
-                 static_cast<__uint128_t>(run.node.cycle) + 1 != node.cycle ||
+                 next->second.cycle != action.cycle ||
+                 static_cast<__uint128_t>(run.node.cycle) + 1 != action.cycle ||
                  next->second.words != run.node.words ||
                  next->second.ancestry_unknown != run.node.ancestry_unknown ||
                  !std::equal(parents[next->first].begin(), parents[next->first].end(),
@@ -597,10 +622,22 @@ struct PerfettoWriter::Impl {
                              });
         });
       }
+      const auto track = description.track_sites[ref.site];
+      if (action.end) {
+        const auto resident = next_residencies.find(track);
+        require(resident != next_residencies.end() && resident->second.site == ref.site && resident->second.sequence == ref.sequence,
+                "residency end does not match active owner");
+        std::string fields;
+        integer(fields, 9, 2);
+        event(stream, interns, ref, action.cycle, fields);
+        next_residencies.erase(resident);
+        continue;
+      }
+      const auto& node = batch.nodes.at(ref);
+      require(!next_residencies.count(track), "overlapping residency owners on track");
       require(known.size() < UINT64_MAX - additions.size(), "flow identity exhaustion");
       const auto id = known.size() + additions.size() + 1;
       additions.emplace(ref, std::make_pair(id, node.cycle));
-      const auto track = description.track_sites[ref.site];
       const bool stall = description.sites[ref.site].kind == "stall";
       if (stall && next_stalls.count(track)) {
         auto& run = next_stalls.at(track);
@@ -657,6 +694,7 @@ struct PerfettoWriter::Impl {
       }
       if (can_parent[ref.site]) flow(stream, interns, ref, node.cycle, 's', id);
       if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref]});
+      else if (description.sites[ref.site].kind == "residency") next_residencies.emplace(track, ref);
       else {
         fields.clear(); integer(fields, 9, 2);
         event(stream, interns, ref, static_cast<__uint128_t>(node.cycle) + 1, fields);
@@ -666,6 +704,7 @@ struct PerfettoWriter::Impl {
     flush(stream);
     interns.commit();
     stalls.swap(next_stalls);
+    residencies.swap(next_residencies);
     known.merge(additions); // Transfer already allocated nodes after successful I/O.
     watermark = batch.cycle;
   }
@@ -709,6 +748,7 @@ Snapshot read_event_trace(std::istream& input) {
   for (const auto& node : occurrences.at("nodes")) {
     Ref ref{static_cast<std::uint32_t>(number(node.at("site"), UINT32_MAX)), number(node.at("sequence"))};
     graph.record_node(ref, number(node.at("cycle")), number(node.at("width"), UINT32_MAX));
+    if (node.contains("end_cycle")) graph.record_end(ref, number(node.at("end_cycle")));
     if (node.contains("ancestry_unknown")) {
       require(node.at("ancestry_unknown").is_boolean(), "ancestry_unknown must be boolean");
       if (node.at("ancestry_unknown").get<bool>()) graph.record_unknown(ref);
@@ -725,6 +765,10 @@ void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoComp
   require(snapshot.timing().has_value(), "Perfetto export requires timing");
   CycleBatch batch{0, snapshot.nodes(), snapshot.edges()};
   for (const auto& entry : batch.nodes) batch.cycle = std::max(batch.cycle, entry.second.cycle);
+  for (const auto& [ref, node] : batch.nodes) if (node.end_cycle) {
+    batch.ends.emplace(ref, *node.end_cycle);
+    batch.cycle = std::max(batch.cycle, *node.end_cycle);
+  }
   PerfettoWriter writer(output, snapshot.manifest(), *snapshot.timing(), compression, track_groups);
   writer.write(batch);
   writer.finish();

@@ -9,6 +9,7 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/coherence.rhdl").CHICacheState
+  lib("flow/main.rhdl") open
 
 bundle CopyBackObservation():
   command_ready: Bool
@@ -55,11 +56,13 @@ sync_circuit RV5StageCopyBackFixture():
       line_address: bits(0x80001240, 64)
       line: line.as_vec(Bits(64))
       context: bits(0xa5, 8)
-    engine.requests.ready <== request_ready
+    def requests = engine.requests |> trace_event("request/" ++ to_string(index))
+    requests.ready <== request_ready
     engine.responses.valid <== enabled[index] & response_valid
     def response :: CHIRspFlit(p) = literal(CHIRspFlit(p), 0)
     engine.responses.bits <== response.updated(~opcode: response_opcode, ~txn_id: bits(1, 12), ~src_id: bits(1, 7), ~tgt_id: bits(3, 7), ~dbid_or_group_id: bits(0x55, 12), ~pcrd_type: response_pcrd)
-    engine.data.ready <== data_ready
+    def packets = engine.data |> trace_event("data/" ++ to_string(index))
+    packets.ready <== data_ready
     engine.completion.ready <== completion_ready
     observed[index] <== CopyBackObservation():
       command_ready: engine.command.ready
@@ -83,4 +86,4 @@ sync_circuit RV5StageCopyBackFixture():
       cookie: engine.completion.bits.context
 
 def design = elaborate(RV5StageCopyBackFixture())
-export: design
+export: design RV5StageCopyBackFixture

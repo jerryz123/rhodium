@@ -14,7 +14,7 @@
 
 namespace {
 using rheg::Ref;
-struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled; };
+struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled, last; };
 struct Owner { Attempt attempt; bool done; std::uint64_t due; };
 std::array<std::optional<Attempt>,3> pipe;
 std::deque<Owner> owners;
@@ -28,6 +28,8 @@ struct Expected { Ref ref; std::optional<Ref> parent; };
 std::vector<Expected> expected;
 unsigned expected_index=0;
 bool have_issue=false;
+bool resident=false;
+std::map<Ref,std::uint64_t> releases;
 [[noreturn]] void fail(const char* message) {
   std::fprintf(stderr,"vector trace cycle %llu: %s\n",(unsigned long long)cycle,message);
   std::abort();
@@ -61,16 +63,18 @@ extern "C" unsigned vector_trace_response() {
 extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned instruction,
     unsigned vl, unsigned issue, unsigned tag, unsigned memory, unsigned enabled,
     unsigned commit, unsigned disposition, unsigned slow, unsigned response,
-    unsigned response_tag, unsigned cancel) {
+    unsigned response_tag, unsigned cancel, unsigned last) {
   resetting=reset; expected.clear(); have_issue=false;
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
     pipe={}; owners.clear(); macro.reset();
+    releases.clear(); resident=false;
     cycle=launches=issues=completions=stalls=0; next_index=authorized_index=0;
     return;
   }
   if(launch) {
-    macro=Ref{vector_sites::launch,launches++};
+    macro=Ref{vector_sites::sequencer,launches++};
+    resident=true;
     expect(macro->site,macro->sequence,{});
     destination=(instruction>>7)&31; length=vl; macro_instruction=instruction;
     writes=(instruction&0x7f)!=0x27 && ((instruction>>25)&1) && vl!=0;
@@ -93,6 +97,9 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     owners.pop_front(); ++late_count; ++complete_count;
   }
   if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
+  if(resident && (cancel || (commit && (disposition==2 || disposition==3 || (disposition==0 && pipe[2]->last))))) {
+    releases.emplace(*macro,cycle); resident=false;
+  }
   if(commit) {
     if(!pipe[2]) fail("feedback without issue");
     if(disposition==0) {
@@ -106,7 +113,7 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   std::optional<Attempt> incoming;
   if(issue) {
     if(!macro) fail("issue without launch");
-    incoming=Attempt{{vector_sites::issue,issues++},tag,next_index++,bool(memory),bool(enabled)};
+    incoming=Attempt{{vector_sites::issue,issues++},tag,next_index++,bool(memory),bool(enabled),bool(last)};
     expect(vector_sites::issue,incoming->ref.sequence,*macro);
     expected_index=incoming->index; have_issue=true; ++issued_count;
   }
@@ -117,6 +124,10 @@ extern "C" void vector_trace_check() {
   auto& graph=rheg::graph();
   graph.validate();
   if(resetting) { if(!graph.nodes.empty()) fail("reset retained graph"); return; }
+  for(const auto& [ref,node]:graph.nodes) if(ref.site==vector_sites::sequencer) {
+    if(node.end_cycle.has_value()!=bool(releases.count(ref))) fail("residency open/released mismatch");
+    if(node.end_cycle && *node.end_cycle!=releases.at(ref)) fail("wrong residency release cycle");
+  }
   unsigned actual=0;
   for(const auto& pair:graph.nodes) if(pair.second.cycle==cycle) {
     const auto ref=pair.first;
@@ -130,7 +141,7 @@ extern "C" void vector_trace_check() {
     auto it=graph.nodes.find(event.ref);
     if(it==graph.nodes.end() || it->second.cycle!=cycle) fail("missing or mistimed occurrence");
     if(event.parent) check_parent(event.ref,*event.parent);
-    if(event.ref.site==vector_sites::launch) {
+    if(event.ref.site==vector_sites::sequencer) {
       if(graph.field(event.ref,"pc").unsigned_value()!=0x100) fail("launch PC");
       if(graph.field(event.ref,"instruction").unsigned_value()!=macro_instruction ||
           graph.field(event.ref,"vl").unsigned_value()!=length) fail("launch snapshot");

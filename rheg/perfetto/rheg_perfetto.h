@@ -10,7 +10,7 @@
 
 namespace rheg {
 enum class PerfettoCompression { None, Gzip };
-// Presentation only: exact transfer-site IDs share one exclusive logical track.
+// Presentation only: exact transfer or residency IDs share one exclusive track.
 // Stall companions follow their transfer automatically. Unlisted sites stay separate.
 struct PerfettoTrackGroup {
   std::string label;

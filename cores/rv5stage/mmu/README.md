@@ -373,6 +373,18 @@ Deliberate limits are:
 - a walk serializes ordinary data traffic for its full lifetime; and
 - best-effort prefetch probes do not fill a TLB or initiate a background walk.
 
+## Event residency
+
+`mmu/walk` spans an accepted translation through accepted completion or walker
+cancellation, including PTE requests/responses and held completion. It captures
+the virtual address, access kind, and privilege. Its retained Flow contract
+parents the existing `mmu/pte.request` events. An ordinary frontend redirect
+does not end a walk that continues to warm the ITLB; architectural invalidation
+does. A request discarded on the cancellation edge does not start a residency.
+This interval measures walker ownership, not the lifetime of a saved fault or
+of a TLB entry. Upstream gaps remain explicitly partial where the MMU's
+request-selection logic has no Flow contract.
+
 ## Implementation map
 
 Source ownership moved to

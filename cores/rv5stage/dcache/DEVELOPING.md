@@ -81,9 +81,10 @@ Direct refill acceptance and command fields are captured on S4, before
 arbitration with post-eviction work, not on a separate numbered stage.
 S1/MEM and S2/WB observations belong to the core, where fast responses and
 instruction identity are retained. The refill engine declares retained ownership
-from command acceptance through completion; its request attempts carry S4
-ancestry through the final arbiter. Post-eviction commands, writeback requests,
-and maintenance requests report unknown ancestry until those owners are modeled.
+from command acceptance through completion; its resident checkpoint carries S4
+ancestry through the final arbiter and parents each request attempt. Writeback
+residency similarly parents copyback requests/data and post-eviction refill
+commands. Its incoming gather ancestry, and maintenance ancestry, remain unknown.
 Do not infer gather-FSM ancestry from an address or transaction ID. See the
 parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
 

@@ -76,13 +76,15 @@ The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-ar
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
 `event-vector` and `event-vector-one-slot` instrument the production vector
-execution engine. Their public-transfer oracle tracks launch/issue occurrences,
+execution engine. Their public-transfer oracle tracks sequencer/issue occurrences,
 fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
-stalls, and pending reset protect all three vector milestones.
+stalls, and pending reset protect vector milestones. The feedback oracle checks
+the exact residency end on final authorization, fault, truncation, or cancellation;
+retry keeps its existing owner and accepted results may outlive it.
 `rv5stage-vector-config` additionally instruments its existing real-core
-program and checks each launch against that cycle's scalar WB occurrence,
+program and checks each sequencer admission against its FIFO-ordered scalar WB occurrence,
 while retaining its architectural signatures and exact VRF-write scoreboard.
 `event-window` additionally checks retained multi-entry contributions through
 downstream elastic storage against a public fill/release model. `event-frontend`
@@ -137,10 +139,11 @@ and uncertified fanout, and checks module-occurrence identities and metadata-onl
 The negative bench forces a child observation without its qualified upstream
 checkpoint and requires the runtime missing-parent assertion.
 Every refill receives RetryAck and PCrdGrant before retransmission, with request
-backpressure; both attempts must retain the same S4 occurrence.
+backpressure; both attempts must retain the same refill residency, whose parent
+is the original S4 occurrence.
 `rv5stage-fetch-throughput` similarly links RHEG for the real frontend/MMU/L1I
 path. A public admission/S1-kill/S2-outcome model identifies the exact S0 parent
-of each TXREQ, including delayed retries, request backpressure, redirect while
+of refill residency and its TXREQ descendants, including delayed retries, request backpressure, redirect while
 the refill remains owned, and pending reset. Retain its cold/warm instruction
 throughput and payload checks alongside the lineage scoreboard.
 `rv5stage-fetch-source` independently models the original cursor, continuation,
@@ -169,6 +172,12 @@ public-transfer packet-set model checks exact RXDAT-to-CompAck parents with
 reordered/gapped packets, repeated IDs and payloads, request/acknowledgement/
 completion stalls, reset during collection and pending acknowledgement, and
 noncoherent instruction ROM reads interleaved with coherent requests.
+It also compares exact refill start/end cycles against command/completion transfers.
+`rv5stage-copyback` retains its packet and coherence checks while validating
+15 residency intervals across all three DAT widths and retries.
+`rv5stage-walk-trace` checks the production walker's exact residency graph,
+PTE/completion parents, held completion, faults, cancellation, and pending reset
+using only public handshakes.
 `event-crossbar` links RHEG and checks direct/configured grant-controlled
 crossbars with flow-through input queues. Its independent FIFO/transfer model
 checks exact parent occurrence IDs for equal payloads, all routes, simultaneous

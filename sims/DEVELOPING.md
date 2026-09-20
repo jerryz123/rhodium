@@ -129,6 +129,8 @@ make -C sims trace-smoke TRACE_FILE=/tmp/simple-soc.pftrace \
 same-cycle edge families, paired payload/sequence equality, exact configured
 timestamps, one-cycle transfers, continuous stall ranges, readable track labels,
 and importer errors.
+Refill, writeback, and walk residencies are checked separately from transfer/stall
+tracks; a settled trace prefix may retain an unfinished open residency.
 It loads `tests/event-tracks.sql` first: the `rheg_tracks` view exposes full
 annotation labels (or explicit shared-track labels) as `name` and local display names as `leaf_name`. Load that
 preamble before running an individual `check-*-events.sql` query too. Groups have
@@ -174,9 +176,10 @@ same-cycle WB sibling with matching instruction captures. They check
 admitted S2 ancestry into S3, one-cycle S3-to-S4 advancement, and S4 refill
 acceptance fields. Keep effective S1/S2 addresses separate from physical S3/S4
 addresses; translation need not preserve their numeric value. Direct S4 refill
-acceptance must reach TXREQ with matching opcode/line address; retries may
-produce multiple children. Unmodeled traffic may have no S4 parent and must
-report unknown ancestry.
+acceptance must reach refill residency on the same cycle, then TXREQ with matching
+opcode/line address; retries may produce multiple children of one residency.
+Writeback residency separately parents its requests, data, and post-eviction
+refill. Its incoming gather ancestry remains explicitly unknown.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`
 requires real Decode backpressure, matching capture layouts, the exact
 Boolean hazard fields, and admitted S2 parents for Decode stalls.
@@ -192,7 +195,8 @@ exact named capture layouts, actual I/D request and refill-data activity, node
 identity, decoded opcode slice names against per-channel enum metadata, successful
 response status, byte-addressed snoops, and certified event
 lineage at transaction boundaries. The demand-only smoke requires every I-cache
-TXREQ to have one S0 request parent and at least three cycles of delay; the
+TXREQ to have one refill parent with one S0 predecessor and at least three cycles
+of total delay; the
 integrated fetch fixture checks exact ownership independently of the exporter.
 `check-home-events.sql` checks both caches' request-to-return edges and requires
 unknown markers where an opaque branch lacks a parent. It also requires one

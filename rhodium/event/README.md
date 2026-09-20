@@ -115,6 +115,27 @@ This changes only
 the trace graph and instrumentation, never functional wiring or pipeline timing.
 Retained-state `trace_edge` and selected parents cannot both own one child's ancestry.
 
+### Retained-owner residency
+
+`trace_event("vector/sequencer", ~residency: "macro", ...)` creates one
+occurrence when the annotated flow transfers, then closes that same occurrence
+when the local named retained-storage scope releases. Declare the scope using
+`describe_interface_retained_storage(capture, release, active, ~name: "macro")`;
+the declaration may follow the checkpoint. The checkpoint must fire exactly on
+capture. Instrumentation checks active ownership, release, and replacement.
+Residency does not alter functional wiring or replace the scope's Flow contract.
+Descendants still inherit the checkpoint identity through ordinary Flow/storage.
+
+The manifest kind is `residency`. Captures and incoming edges are sampled once
+at admission; `rheg_end(site, sequence, cycle)` ends the existing occurrence,
+not a second graph node. Its half-open interval is `[capture_cycle, release_cycle)`.
+Same-edge release/replacement closes the old owner before opening the new one.
+Retries keep the identity until the owner actually releases; cancellation belongs
+in the scope's release predicate. Reset suppresses callbacks and clears the epoch,
+as for other events; streaming reset retains the existing end-stream requirement.
+An unfinished residency stays visibly open in Perfetto, rather than acquiring an
+invented release at export finalization. Residency cannot use `~stalls`.
+
 ### Stall observations
 
 Enable per-cycle backpressure observations on a ready-valid checkpoint:

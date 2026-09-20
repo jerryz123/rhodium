@@ -583,7 +583,58 @@ void shared_tracks(const std::string& path) {
   }
 }
 }
+void residency(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Residency","sites":[{"id":"regular","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"packed","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"issue","label":"vector/issue","payload_width":0}],"dependencies":[{"parent":"regular","child":"issue"},{"parent":"packed","child":"issue"}]})",
+      {0,0,0}, {{0,2},{1,2}}, {}, {0,1}};
+  PerfettoTrackGroups groups{{"vector/sequencer", {"regular","packed"}}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
+  graph.begin_stream();
+  std::ostringstream live;
+  PerfettoWriter writer(live, descriptor, {100000000}, PerfettoCompression::None, groups);
+  graph.record_node({0,0},0,0); writer.write(graph.finish_cycle(0));
+  const auto open = graph.snapshot();
+  graph.record_edge({0,0},{2,0}); graph.record_node({2,0},1,0);
+  writer.write(graph.finish_cycle(1));
+  const auto before = live.str();
+  rejects([&] { writer.write(batch(2,{1,0})); }, "overlapping residency");
+  check(live.str() == before);
+  // Old owner releases at the same boundary at which the other mode captures.
+  graph.record_node({1,0},4,0); graph.record_end({0,0},4);
+  writer.write(graph.finish_cycle(4));
+  check(!open.nodes().at({0,0}).end_cycle);
+  // Descendants can arrive after their sequencer has released ownership.
+  graph.record_node({2,1},5,0); graph.record_edge({0,0},{2,1});
+  writer.write(graph.finish_cycle(5));
+  graph.record_node({2,2},6,0); graph.record_edge({1,0},{2,2});
+  writer.write(graph.finish_cycle(6));
+  graph.record_end({1,0},8); writer.write(graph.finish_cycle(8));
+  graph.end_stream(); writer.finish();
+  std::istringstream input(graph.snapshot().json());
+  const auto parsed = read_event_trace(input);
+  std::ostringstream replay, compressed;
+  write_perfetto(replay, parsed, PerfettoCompression::None, groups);
+  write_perfetto(compressed, parsed, PerfettoCompression::Gzip, groups);
+  check(live.str() == replay.str());
+  check(live.str() == inflate_trace(compressed.str()));
+  std::ofstream output(path, std::ios::binary); output << live.str(); output.close(); check(bool(output));
+  rejects([&] { graph.record_end({0,0},9); }, "duplicate residency end");
+  for (const auto& ref : {Ref{2,0}, Ref{0,9}}) {
+    Graph invalid; invalid.bind_manifest(descriptor); invalid.record_end(ref,1);
+    rejects([&] { invalid.validate(); }, "");
+  }
+  Graph invalid; invalid.bind_manifest(descriptor); invalid.record_end({0,0},2);
+  invalid.record_node({0,0},3,0);
+  rejects([&] { invalid.validate(); }, "invalid residency end");
+  std::ostringstream stopped;
+  PerfettoWriter stop(stopped,descriptor,{100000000});
+  stop.write(batch(0,{0,0})); stop.write({3,{},{}}); stop.finish();
+  std::ostringstream open_replay;
+  write_perfetto(open_replay,open);
+  check(stopped.str()==open_replay.str());
+  std::ofstream truncated(path + ".incomplete", std::ios::binary); truncated << stopped.str();
+}
 int main(int argc, char** argv) {
+  residency(std::string(argv[1])+"/residency.pftrace");
   check(argc == 2);
   shared_tracks(std::string(argv[1])+"/shared-tracks.pftrace");
   {

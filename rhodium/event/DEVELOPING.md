@@ -296,6 +296,18 @@ string values to preserve full-width encodings. Preserve table order and explici
 label selection through analysis and JSON/C++ generation. This is display metadata:
 it adds neither payload bits nor lineage state and requires no CIRCT support.
 
+## Residency lowering
+
+Resolve a checkpoint's optional named residency against its completed local
+retained-storage metadata. Its manifest kind changes, but its lineage remains a
+normal cut point. Lower capture/release to a passive owner-sequence register and
+live bit, asserting capture equality, active-state agreement, no overwrite, and
+no idle release. Emit the normal node/captures/parents once at admission and an
+identity-qualified `rheg_end` on release. Simultaneous replacement emits the old
+sequence before next-state capture. Reset clears both shadow registers and the
+normal occurrence epoch; never use a reset-suppressed end callback to order host
+reset. RHEG's existing streaming epoch boundary remains explicit.
+
 ## Stall observation lowering
 
 Expand companion sites after transfer-site analysis so transfer IDs and

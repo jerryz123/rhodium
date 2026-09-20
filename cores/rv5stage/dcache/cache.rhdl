@@ -429,7 +429,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   s4_refill_accepted <== direct_refill_commands.fire()
   s4_refill_opcode <== direct_refill_commands.bits.opcode
   s4_refill_address <== direct_refill_commands.bits.line_address
-  // Gather/writeback ownership is not yet modeled; never borrow a live S4 token.
+  // Gather ancestry is not yet modeled; writeback supplies its own resident owner.
   Array(direct_refill_commands, post_eviction_refills) |> arbiter() |> refill.command
   def writeback_complete = writeback.completion.fire()
 

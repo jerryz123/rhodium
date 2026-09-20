@@ -22,6 +22,14 @@ import:
   "event-stall-fixture.rhdl" as stall_fixture
   "event-retained-fixture.rhdl" as retained_fixture
 
+def resident = instrument_events(retained_fixture.residency())
+check:
+  resident.manifest.sites[0].kind ~is "residency"
+  emit_circt(resident.instrumented.design).contains("rheg_end") ~is #true
+  infer_event_manifest(retained_fixture.residency("missing")) ~throws "requires named retained storage"
+  retained_fixture.residency("empty") ~throws "nonempty storage name"
+  retained_fixture.residency("stall") ~throws "cannot observe stalls"
+
 for (intrinsic in [#true, #false]):
   def logical = retained_fixture.retained(intrinsic, ~region: "")
   def original = emit_circt(logical.design)

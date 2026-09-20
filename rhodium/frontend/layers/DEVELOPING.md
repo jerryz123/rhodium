@@ -150,6 +150,11 @@ index when late binding. Reject repeated binding, finished modules, and hardware
 conditionals. Consumers read the finalized selection after elaboration; parent
 binding does not create operations, connections, or storage.
 
+`InterfaceEventGroup.residency` optionally names local retained storage. Resolve
+it only after circuit construction through `residency_storage`, allowing the
+input checkpoint to precede the storage declaration. The event compiler owns
+duration instrumentation; frontend metadata neither drives state nor emits DPI.
+
 Interface trace contracts use one `InterfaceTransformGroup` representation for
 inline adapters and named local endpoint relations. Declarations normalize
 endpoint polarity with metadata-only connections; never emit functional

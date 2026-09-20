@@ -253,7 +253,7 @@ fixture_in_group() {
     cores-vector-configurations:rv5stage-vector-packed-one-slot|cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:event-vector-one-slot|cores-vector-configurations:rv5stage-vector-reduction-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-muldiv-one-slot|cores-vector-configurations:rv5stage-vector-fp-one-slot|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-memory-sixteen-slots|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
       return 0
       ;;
-    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
     cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
@@ -500,6 +500,10 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
+  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace ]]; then
+    dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
+  fi
+
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
     testbench="$(owned_fixture_file "verilog/${fixture}_tb.sv")"
     if [[ -f "$test_tmp_dir/${fixture}_manifest.h" ]]; then
@@ -724,6 +728,7 @@ direct_fixture_specs=(
   'event-home|event_home_tb'
   'event-subordinate|event_subordinate_tb'
   'rv5stage-compack|rv5stage_compack_tb'
+  'rv5stage-walk-trace|rv5stage_walk_trace_tb'
   'rv5stage-fetch-source|rv5stage_fetch_source_tb'
   'event-offer-register|event_offer_register_tb'
   'event-parents|event_parents_tb'

@@ -58,8 +58,12 @@ The real MMU/cache vector-memory fixture remains the integration boundary.
 
 ## Event ownership
 
-The parent `vector.rhdl` traces WB allocation before certificate waiting;
-`pipeline.rhdl` supplies the same launch checkpoint when used standalone.
+`pipeline.rhdl` traces actual admission after certificate waiting with one
+`vector/sequencer` residency before the schedule fork. Its local storage scope
+uses the existing unroller occupancy and issue-done release for both modes;
+accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
+emits no launch checkpoint. The original scalar WB identity follows the existing
+admission queue into the shared checkpoint, then each schedule's retained Flow.
 Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.
 Both paths use the stable `vector/issue` and `vector/complete` labels, with a
 `packed` field distinguishing their beat geometry. Packed events additionally
@@ -607,7 +611,7 @@ warm-hit throughput, hits completing ahead of a delayed miss, a scalar hit
 during certified vector unrolling, scalar-load overlap with a vector-load tail,
 and both asymmetric scalar/store barriers. The configuration bench checks
 scalar WB before the last packed vector beat, younger precise exceptions,
-and exact traced WB-to-launch ownership. Use `rv5stage-mmu-replay` for pinned
+and exact traced WB-to-sequencer ownership. Use `rv5stage-mmu-replay` for pinned
 split-page/superpage translations, permission failure, and DTLB replacement.
 Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.
