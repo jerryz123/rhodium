@@ -685,6 +685,11 @@ power-of-two count of at least two, ways are positive, and the complete cache
 must fit the projected dense local range. It requires 64-byte subordinate
 `ReadNoSnp` and `WriteNoSnpFull` support.
 
+Replacement selects the lowest-index invalid way, then uses padded tree
+pseudo-LRU from [`rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl). Successful
+fills and ordinary resident read or write hits update recency. Failed fills,
+maintenance operations, and copyback traffic leave replacement state unchanged.
+
 Both Homes grant full-line copyback with `CompDBIDResp`, reserve the complete
 receive buffer, and accept all `CopyBackWriteData` packets before retirement.
 Copyback never initiates ownership-acquisition snoops. Dirty copyback updates

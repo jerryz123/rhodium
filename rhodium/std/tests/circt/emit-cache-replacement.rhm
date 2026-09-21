@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../../rhodium/backend/circt.rhm".emit_circt
-  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../backend/circt.rhm".emit_circt
+  "../../../frontend/kernel.rhm" as embedded
   "../cache-replacement-fixture.rhdl".CacheReplacementFixture
 
 print(emit_circt(embedded.run_elaboration(fun (): CacheReplacementFixture())))

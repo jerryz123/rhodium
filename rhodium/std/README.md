@@ -16,7 +16,7 @@ the facade modules only when a circuit composes several members of that family.
 
 | Need | Start with | What it owns |
 |---|---|---|
-| Delays and balanced combinational trees | [`shift-register.rhdl`](shift-register.rhdl), [`reduction.rhdl`](reduction.rhdl) | Generic reusable generators |
+| Delays, reductions, and cache replacement | [`shift-register.rhdl`](shift-register.rhdl), [`reduction.rhdl`](reduction.rhdl), [`plru.rhdl`](plru.rhdl) | Generic reusable generators and policy |
 | Safe stable-level clock crossing | [`cdc.rhdl`](cdc.rhdl) | `SyncLevel` and its CDC evidence |
 | Typed sparse decode | [`decode.rhdl`](decode.rhdl) | Patterns, pattern sets, decode tables, and generators |
 | Ready-valid protocol declarations | [`ready-valid.rhdl`](ready-valid.rhdl) | `Pulse`, `Valid`, `Decoupled`, `Irrevocable`, and transfer detection |
@@ -32,6 +32,20 @@ examples live under [`../../examples/std/`](../../examples/std/), while source
 files remain authoritative for complete exported-name lists.
 
 ## Foundational utilities
+
+### Tree pseudo-LRU replacement
+
+[`plru.rhdl`](plru.rhdl) exports a nominal `PLRUState(ways)` plus combinational
+initialization, touch, and replacement functions for any positive associativity.
+`plru_replacement_way` selects the lowest-index invalid way before consulting
+the tree. Non-power-of-two associativities use a padded power-of-two tree whose
+padded leaves are never selected. Direct-mapped users retain one inert state bit
+because Rhodium hardware widths are positive.
+
+`plru_touch` returns updated state that makes the selected way most recently
+used; the way must be less than `ways`. Callers own state storage, reset, and the
+policy for which accesses count as touches. This keeps the reusable policy
+independent of cache protocols, pipelines, fill success, and maintenance rules.
 
 ### Shift registers
 

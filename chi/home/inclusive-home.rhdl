@@ -4,6 +4,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/plru.rhdl") open
   lib("rhodium/std/read-write.rhdl").ReadWriteRequest
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
@@ -172,8 +173,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg resident_lines(~init: vec(
     for List (_set in 0..sets): vec(for List (_way in 0..ways): bits(0, resident_count))
   ))
-  reg replacement_ways(~init: vec(
-    for List (_set in 0..sets): bits(0, way_width)
+  reg replacement_state(~init: vec(
+    for List (_set in 0..sets): plru_initial_state(ways)
   ))
   inst tags(SyncRam1RW(sets, Bits(line_address_width), ways))
   inst lines(SyncRam1RW(sets, Bits(512), ways))
@@ -302,10 +303,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       lookup_valids[way] & (tags.port.response.bits[way] === request_line_address)
   )
   def lookup_selection = priority_encoder_oh(lookup_matches)
-  def invalid_ways = vec(for List (way in 0..ways): !lookup_valids[way])
-  def invalid_selection = priority_encoder_oh(invalid_ways)
-  def replacement_way = replacement_ways[request_set]
-  def allocation_way = mux(invalid_selection.valid, invalid_selection.index, replacement_way)
+  def allocation_way = plru_replacement_way(ways, lookup_valids, replacement_state[request_set])
   def lookup_way = mux(lookup_selection.valid, lookup_selection.index, allocation_way)
   def victim_valid = lookup_valids[allocation_way]
   def lookup_victim_address = concat(tags.port.response.bits[allocation_way], bits(0, offset_width))
@@ -423,11 +421,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def after_snoops = phase === CHIInclusiveHNFPhase.AfterSnoops
   def merge_requester_data = phase === CHIInclusiveHNFPhase.MergeRequesterData
   def finish_copyback = phase === CHIInclusiveHNFPhase.FinishCopyBack
-  def next_replacement_way = mux(
-    selected_way === bits(ways - 1, way_width),
-    bits(0, way_width),
-    selected_way + bits(1, way_width)
-  )
   def selected_way_mask = vec(
     for List (way in 0..ways): selected_way === bits(way, way_width)
   ).into(Mask(ways))
@@ -590,7 +583,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         selected_set,
         dirty_lines[selected_set].updated(selected_way, Bool(#false))
       )
-      replacement_ways <== replacement_ways.updated(selected_set, next_replacement_way)
       remaining_response_data_ids <== request_response_data_ids
       phase <== mux(request_write,
                     CHIInclusiveHNFPhase.MergeRequesterData,
@@ -598,7 +590,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     otherwise:
       valid_lines <== valid_lines
       dirty_lines <== dirty_lines
-      replacement_ways <== replacement_ways
       remaining_response_data_ids <== remaining_response_data_ids
       phase <== CHIInclusiveHNFPhase.ReceiveFillData
   elsewhen merge_requester_data:
@@ -619,6 +610,19 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                   CHIInclusiveHNFPhase.SendCachedData)
   elsewhen (requester_control_fire & awaiting_comp_ack):
     phase <== CHIInclusiveHNFPhase.Idle
+
+  // Replacement metadata is independent of transaction-state transitions.
+  // Lookup and final-fill phases are mutually exclusive in the blocking Home.
+  when (lookup_phase & lookup_selection.valid & !maintenance & !copyback):
+    replacement_state <== replacement_state.updated(
+      request_set,
+      plru_touch(ways, replacement_state[request_set], lookup_selection.index)
+    )
+  elsewhen (fill_data_fire & final_fill_data & fill_successful):
+    replacement_state <== replacement_state.updated(
+      selected_set,
+      plru_touch(ways, replacement_state[selected_set], selected_way)
+    )
 
   // One retained requester owns every response beat, including across misses,
   // snoops and writeback. The contract carries lineage without emitting checkpoints.

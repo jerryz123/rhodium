@@ -4,13 +4,13 @@
 
 import:
   "../../cache-prefetch.rhdl" open
-  "../../cache-replacement.rhdl" open
   "protocol.rhdl" open
   "../cache.rhdl" open
   "../chi/foundation.rhdl" open
   "../chi/line-read.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/plru.rhdl") open
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
   lib("flow/main.rhdl") open

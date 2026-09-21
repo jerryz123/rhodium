@@ -53,6 +53,10 @@ dirty packets, and keep a failed victim invalidation from replacing its entry.
 Successful line installation starts with an empty directory. Never attach the
 old victim's bits to the new tag. Coordinated reset clears LLC and requester
 state; independent requester state surviving a Home reset is not supported.
+The LLC stores one `PLRUState(ways)` per set. Only successful fills and ordinary
+resident read or write lookups touch it; failed fills, maintenance, and
+copyback leave recency unchanged. Invalid-first selection remains owned by the
+shared standard-library policy.
 
 Copyback bypasses snoop-target loading and ordinary allocation. Its saved
 response state is consistent across every expected DAT packet; install dirty

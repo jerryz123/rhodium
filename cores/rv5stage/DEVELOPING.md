@@ -31,7 +31,7 @@ each other; share external transaction machinery through the CHI package.
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
-| [`../cache-replacement.rhdl`](../cache-replacement.rhdl) | Reusable invalid-first padded tree-PLRU selection and state update |
+| [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
 | [`fetch/DEVELOPING.md`](fetch/DEVELOPING.md) | Fetch protocols, frontend sequencing, instruction assembly, BTB, and RAS |
 | [`decode/DEVELOPING.md`](decode/DEVELOPING.md) | Structured integer and FP control generation |
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |

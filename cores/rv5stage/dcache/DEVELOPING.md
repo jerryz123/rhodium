@@ -30,7 +30,7 @@ importing the instruction-cache package.
 | Parameterized committed-store capacity, physical-byte/probe comparisons, FIFO order, and bounded age | [`store-buffer.rhdl`](store-buffer.rhdl) |
 | Shared pipeline decisions, SRAM scheduling, prefetch admission, reservation, replacement, gather, refill installation, and transaction arbitration | [`cache.rhdl`](cache.rhdl) |
 | Shared cache geometry | [`../cache.rhdl`](../cache.rhdl) |
-| Reusable invalid-first tree-PLRU policy | [`../../cache-replacement.rhdl`](../../cache-replacement.rhdl) |
+| Reusable invalid-first tree-PLRU policy | [`../../../rhodium/std/plru.rhdl`](../../../rhodium/std/plru.rhdl) |
 | Retry-aware complete-line refill | [`../chi/refill.rhdl`](../chi/refill.rhdl) |
 | Ownership acquisition and partial writes | [`../chi/write-unique.rhdl`](../chi/write-unique.rhdl) |
 | Dirty-victim drain | [`../chi/writeback.rhdl`](../chi/writeback.rhdl) |

@@ -112,8 +112,11 @@ is owned by the matching backend fixtures:
 tools/run-racket-tests.sh cores/tests/branch-resolver-test.rhm
 FIXTURES='rv32i-alu rv64i-alu load-store iterative-multiplier pipelined-multiplier iterative-divider' \
   bash tools/testing/circt/run.sh --simulate-only
-FIXTURE=cache-replacement bash tools/testing/circt/run.sh --simulate-only
 ```
+
+The protocol-neutral tree-PLRU policy and its `cache-replacement` fixture are
+owned by [`../rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl); core cache
+changes should run that fixture together with their integration fixtures.
 
 Pass several paths to one invocation when a contract spans components. The
 wrapper supplies the persistent worktree-specific root when none is selected.

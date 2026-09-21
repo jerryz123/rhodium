@@ -74,6 +74,7 @@ flowchart TD
 | Decode descriptions | [`decode/pattern.rhdl`](decode/pattern.rhdl), [`decode/table.rhdl`](decode/table.rhdl) | Immutable typed patterns, set algebra, cases, and table validation |
 | Decode emission | [`decode/generator.rhdl`](decode/generator.rhdl), [`decode/pattern-value.rhdl`](decode/pattern-value.rhdl) | `rtl.decode` construction and the explicit materialization of output don't-cares |
 | Generic utilities and storage | Top-level focused modules and [`cdc/`](cdc/) | Host utilities or reusable circuits that do not require the flow facade |
+| Tree pseudo-LRU policy | [`plru.rhdl`](plru.rhdl) | Invalid-first selection and padded-tree state transitions; callers own storage and touch policy |
 
 The core IR and backend own primitive meaning and lowering. For example,
 `DecodeGen` constructs the public `rtl.decode` operation, but the operation's
@@ -146,7 +147,7 @@ Prefer a focused test and its fixture. Representative ownership is:
 - `std-ready-valid-test.rhm`, `std-credited-test.rhm`, and
   `std-flit-test.rhm` for transport contracts;
 - the focused `std-bits`, `std-cdc`, `std-counter`, `std-interconnect`,
-  `std-reduction`, `std-scoreboard`, `std-shift-register`, and `std-sync-ram`
+  `std-reduction`, `cache-replacement`, `std-scoreboard`, `std-shift-register`, and `std-sync-ram`
   tests for their owning modules.
 
 Keep host checks distinct from backend evidence. Exact IR is appropriate when

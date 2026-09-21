@@ -563,6 +563,15 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     repeat (3) tick();
     for (int packet = 0; packet < 4; packet++)
       accept_cached_packet(packet[1:0], expected_line[packet]);
+    // Keep LINE0 as the PLRU victim while preserving its dirty resident owner.
+    for (int packet = 0; packet < 4; packet++)
+      expected_line[packet] = 128'h30 + 128'(packet);
+    send_request(LINE2, READ_NO_SNP);
+    repeat (3) tick();
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(packet[1:0], expected_line[packet]);
+    for (int packet = 0; packet < 4; packet++)
+      expected_line[packet] = 128'h80 + 128'(packet);
     send_request(LINE3, READ_NO_SNP);
     tick();
     dirty_snoop(DATA_ID, 8'ha0);
@@ -606,6 +615,16 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     accept_cached_packet(2'd1, 128'h41);
     accept_cached_packet(2'd2, 128'h42);
     accept_cached_packet(2'd3, 128'h43);
+
+    // A resident hit updates tree-PLRU state: after filling LINE0 then LINE2,
+    // touching LINE0 makes LINE2 the victim for LINE3.
+    reset = 1; tick(); reset = 0;
+    send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h50);
+    send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h70);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
+    send_request(LINE0, READ_NO_SNP); finish_cached();
+    send_request(LINE3, READ_NO_SNP); repeat (3) tick(); fill_and_return(LINE3, 8'h40);
+    send_request(LINE2, READ_NO_SNP); repeat (3) tick(); fill_and_return(LINE2, 8'h70);
 
     // ReadOnce must preserve an early-beat error and must not cache a failed fill.
     reset = 1; tick(); reset = 0;

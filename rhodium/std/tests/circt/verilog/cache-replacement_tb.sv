@@ -1,8 +1,12 @@
-// Verifies tree-PLRU ordering, invalid-way priority, and padded-leaf exclusion.
+// Verifies direct, tree-PLRU, invalid-way priority, and padded-leaf behavior.
 // SPDX-License-Identifier: Apache-2.0
 module cache_replacement_tb;
   logic clock = 0;
   logic reset = 1;
+  logic [0:0] valid_one;
+  logic touch_one_valid;
+  logic [0:0] victim_one;
+  logic [0:0] state_one;
   logic [3:0] valid_four;
   logic touch_four_valid;
   logic [1:0] touch_four_way;
@@ -43,6 +47,8 @@ module cache_replacement_tb;
   endtask
 
   initial begin
+    valid_one = 1'b1;
+    touch_one_valid = 0;
     valid_four = 4'b1111;
     touch_four_valid = 0;
     touch_four_way = 0;
@@ -51,6 +57,17 @@ module cache_replacement_tb;
     touch_three_way = 0;
     repeat (2) tick();
     reset = 0;
+
+    assert (victim_one == 0 && state_one == 0)
+      else $fatal(1, "direct-mapped PLRU state was not inert");
+    touch_one_valid = 1;
+    tick();
+    touch_one_valid = 0;
+    assert (victim_one == 0 && state_one == 0)
+      else $fatal(1, "direct-mapped PLRU touch changed the only victim");
+    valid_one = 1'b0;
+    #1;
+    assert (victim_one == 0) else $fatal(1, "direct-mapped invalid way was not selected");
 
     assert (victim_four == 0 && victim_three == 0)
       else $fatal(1, "reset PLRU victim was not way zero");
