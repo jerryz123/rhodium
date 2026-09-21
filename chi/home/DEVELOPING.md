@@ -51,7 +51,10 @@ still owns transaction completion when requested. Only complete successful
 snoop responses or complete copyback may remove a responder. Track retained/error state across all
 dirty packets, and keep a failed victim invalidation from replacing its entry.
 Successful line installation starts with an empty directory. Never attach the
-old victim's bits to the new tag. Coordinated reset clears LLC and requester
+old victim's bits to the new tag. `ReadOnce` `MemAttr.Allocate` controls only
+miss installation: hits retain normal directory snooping, while nonallocating
+misses bypass victim selection and leave tags, data, directory, dirty state,
+and replacement state unchanged. Coordinated reset clears LLC and requester
 state; independent requester state surviving a Home reset is not supported.
 The LLC stores one `PLRUState(ways)` per set. Only successful fills and ordinary
 resident read or write lookups touch it; failed fills, maintenance, and

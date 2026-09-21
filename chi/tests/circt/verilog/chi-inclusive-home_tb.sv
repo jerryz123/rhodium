@@ -36,6 +36,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   typedef struct packed { requester_out_t requester; subordinate_out_t subordinate; } hnf_out_t;
 
   localparam logic [6:0] READ_NO_SNP = 7'h04;
+  localparam logic [6:0] READ_ONCE = 7'h03;
   localparam logic [6:0] WRITE_NO_SNP_FULL = 7'h1d;
   localparam logic [6:0] WRITE_NO_SNP_PTL = 7'h1c;
   localparam logic [6:0] WRITE_UNIQUE_PTL = 7'h18;
@@ -141,7 +142,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                               input logic [6:0] opcode,
                               input logic [5:0] request_size = 6'd6,
                               input logic [6:0] source = HTIF_ID,
-                              input bit exp_comp_ack = 0);
+                              input bit exp_comp_ack = 0,
+                              input bit allocate = 0);
     begin
       requester_requests_in.bits = '0;
       requester_requests_in.bits.src_id = source;
@@ -153,6 +155,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       requester_requests_in.bits.return_txn_id_or_stash_lpid = 12'h654;
       requester_requests_in.bits.trace_tag = 1;
       requester_requests_in.bits.exp_comp_ack = exp_comp_ack;
+      requester_requests_in.bits.mem_attr.allocate = allocate;
       requester_requests_in.bits.qos = 4'ha;
       requester_requests_in.valid = 1'b1;
       #1;
@@ -469,6 +472,47 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     tick();
     reset = 1'b0;
 
+    // Allocating ReadOnce misses install and subsequently hit.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    tick();
+    fill_and_return(LINE0, 8'h08);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h08 + 128'(packet);
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    finish_cached();
+
+    // Fill the other way and establish an RN-F resident in the first line.
+    send_request(LINE2, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    tick();
+    fill_and_return(LINE2, 8'h18);
+    send_request(LINE0, 7'h02, 6'd6, DATA_ID);
+    finish_cached();
+
+    // A nonallocating hit still observes the tracked RN-F copy.
+    send_request(LINE0, READ_ONCE);
+    clean_snoop(DATA_ID, 5'h03, 3'd1);
+    finish_cached();
+
+    // A nonallocating miss bypasses the full set without snooping or replacing
+    // its selected victim, then returns the fetched line directly.
+    send_request(LINE3, READ_ONCE);
+    tick();
+    #1;
+    assert (!port_out.requester.snoops.valid && port_out.subordinate.req.valid)
+      else $fatal(1, "nonallocating ReadOnce miss attempted replacement");
+    fill_and_return(LINE3, 8'h28);
+    send_request(LINE0, READ_ONCE);
+    clean_snoop(DATA_ID, 5'h03, 3'd1);
+    finish_cached();
+
+    // The bypassed line was not installed, so another access misses again.
+    send_request(LINE3, READ_ONCE);
+    tick();
+    fill_and_return(LINE3, 8'h38);
+
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+
     send_request(LINE0, READ_NO_SNP);
     tick();
     fill_and_return(LINE0, 8'h10);
@@ -628,20 +672,20 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     // ReadOnce must preserve an early-beat error and must not cache a failed fill.
     reset = 1; tick(); reset = 0;
-    send_request(LINE0, 7'h03);
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
     tick();
     accept_memory_request(LINE0, READ_NO_SNP);
     for (int packet = 0; packet < 4; packet++)
       return_fill_packet(2'(packet), 8'(packet), packet == 0 ? 2'b10 : 2'b00);
     for (int packet = 0; packet < 4; packet++)
       accept_cached_packet(2'(packet), 128'(packet), 2'b10);
-    send_request(LINE0, 7'h03);
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
     tick();
     fill_and_return(LINE0, 8'h50);
 
     // Snapshot readers do not acquire residency. Repeated polls stay in LLC.
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
-    repeat (4) begin send_request(LINE0, 7'h03); finish_cached(); end
+    repeat (4) begin send_request(LINE0, READ_ONCE); finish_cached(); end
 
     // A coherent partial write is not a cached-copy grant to its sender.
     send_request(LINE0, WRITE_UNIQUE_PTL, 6'd4, DATA_ID);

@@ -667,8 +667,10 @@ The requester receives a snapshot with Invalid response state and no dirty
 responsibility; it is not added as a coherent sharer. Dirty intervention transfers
 responsibility to Home (or backing memory in the noncaching Home). A clean owner
 can retain its copy. RN-I requesters never become snoop targets. Snapshot reads
-may allocate in the inclusive LLC, whose replacement policy is independent of
-software-synchronized instruction-cache residency.
+that set `MemAttr.Allocate` install an inclusive-LLC miss; nonallocating misses
+return backing data without evicting or installing a line. Either form uses an
+LLC hit and snoops tracked RN-F residents when required. An LLC miss needs no
+requested-line snoop because inclusion proves that no private copy exists.
 
 `CHIHNF` broadcasts `SnpCleanShared` before `ReadClean` and
 `SnpUnique` before `ReadUnique` and `SnpCleanInvalid` before `WriteUniquePtl`, excluding the

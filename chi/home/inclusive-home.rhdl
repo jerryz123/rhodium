@@ -296,6 +296,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def request_set = request_cache_address[offset_width..(offset_width + set_width)]
   def request_line_address = request.address[offset_width..p.request_address_width]
   def request_write = chi_hnf_subordinate_opcode(request.opcode).is_initial_write()
+  def request_installs_miss = (request.opcode =/= CHIReqOpcode.ReadOnce) ||| request.mem_attr.allocate
   def incoming_request_set = incoming_cache_address[offset_width..(offset_width + set_width)]
   def lookup_valids = valid_lines[request_set]
   def lookup_matches = vec(
@@ -416,7 +417,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
           lookup_selection.valid & ((request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| request.excl_snoop_me_cah),
           mux(lookup_selection.valid,
               chi_request_snoops_caches(request.opcode) & (request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
-              Bool(#true)))
+              request_installs_miss))
   )
   def after_snoops = phase === CHIInclusiveHNFPhase.AfterSnoops
   def merge_requester_data = phase === CHIInclusiveHNFPhase.MergeRequesterData
@@ -429,7 +430,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def final_fill_line = selected_line.updated(fill_line_packet, subordinate.dat.response.bits.data)
   def write_line_after_snoops = after_snoops & ((!snoop_victim & (!maintenance ||| (maintenance_hit & !maintenance_discard))) ||| (snoop_victim & (completion_error =/= CHIRespErr.OK)))
   def fill_successful = (completion_error === CHIRespErr.OK) & (subordinate.dat.response.bits.resp_err === CHIRespErr.OK)
-  def write_filled_line = fill_data_fire & final_fill_data & fill_successful
+  def write_filled_line = fill_data_fire & final_fill_data & fill_successful & request_installs_miss
   def write_merged_line = merge_requester_data ||| (finish_copyback & copyback_dirty)
   def victim_write_successful = (completion_error === CHIRespErr.OK) & (subordinate.rsp.bits.resp_err === CHIRespErr.OK)
   def write_line = write_line_after_snoops ||| write_filled_line ||| write_merged_line
@@ -482,12 +483,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     selected_way <== lookup_way
     line_buffer <== lines.port.response.bits[lookup_way].as_vec(Bits(p.data_width))
     victim_address <== lookup_victim_address
-    snoop_victim <== !lookup_selection.valid & !maintenance
+    snoop_victim <== !lookup_selection.valid & !maintenance & request_installs_miss
     maintenance_hit <== lookup_selection.valid
     maintenance_dirty <== lookup_selection.valid & dirty_lines[request_set][lookup_way]
     when copyback:
       assert(!copyback_dirty ||| lookup_selection.valid, "chi_inclusive_hnf_dirty_copyback_has_entry")
-    phase <== mux(copyback, CHIInclusiveHNFPhase.FinishCopyBack, mux(lookup_selection.valid ||| maintenance ||| victim_valid, CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.SendFillRequest))
+    phase <== mux(copyback, CHIInclusiveHNFPhase.FinishCopyBack, mux(lookup_selection.valid ||| maintenance ||| (victim_valid & request_installs_miss), CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.SendFillRequest))
   elsewhen finish_copyback:
     // Clean/invalid late copybacks cannot overwrite a newer LLC version.
     when copyback_dirty:
@@ -575,14 +576,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     line_buffer <== final_fill_line
     received_fill_data_ids <== next_fill_data_ids
     when final_fill_data:
-      valid_lines <== valid_lines.updated(
-        selected_set,
-        valid_lines[selected_set].updated(selected_way, fill_successful)
-      )
-      dirty_lines <== dirty_lines.updated(
-        selected_set,
-        dirty_lines[selected_set].updated(selected_way, Bool(#false))
-      )
+      when request_installs_miss:
+        valid_lines <== valid_lines.updated(
+          selected_set,
+          valid_lines[selected_set].updated(selected_way, fill_successful)
+        )
+        dirty_lines <== dirty_lines.updated(
+          selected_set,
+          dirty_lines[selected_set].updated(selected_way, Bool(#false))
+        )
       remaining_response_data_ids <== request_response_data_ids
       phase <== mux(request_write,
                     CHIInclusiveHNFPhase.MergeRequesterData,
@@ -618,7 +620,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       request_set,
       plru_touch(ways, replacement_state[request_set], lookup_selection.index)
     )
-  elsewhen (fill_data_fire & final_fill_data & fill_successful):
+  elsewhen (fill_data_fire & final_fill_data & fill_successful & request_installs_miss):
     replacement_state <== replacement_state.updated(
       selected_set,
       plru_touch(ways, replacement_state[selected_set], selected_way)
