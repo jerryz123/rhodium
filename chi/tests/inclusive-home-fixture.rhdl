@@ -31,7 +31,8 @@ def inclusive_home_config = CHIInclusiveHNFConfig(
   inclusive_home_base_config,
   inclusive_home_addressing,
   ~sets: 2,
-  ~ways: 2
+  ~ways: 2,
+  ~comp_ack_entries: 2
 )
 def inclusive_home_elaboration = elaborate_with_top(CHIInclusiveHNF(inclusive_home_config))
 def inclusive_home_design = inclusive_home_elaboration.design

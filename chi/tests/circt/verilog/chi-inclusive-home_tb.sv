@@ -41,6 +41,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   localparam logic [6:0] WRITE_NO_SNP_PTL = 7'h1c;
   localparam logic [6:0] WRITE_UNIQUE_PTL = 7'h18;
   localparam logic [4:0] SNP_RESP = 5'h01;
+  localparam logic [4:0] COMP_ACK = 5'h02;
   localparam logic [4:0] COMP = 5'h04;
   localparam logic [4:0] DBID_RESP = 5'h06;
   localparam logic [4:0] SNP_CLEAN_INVALID = 5'h09;
@@ -77,6 +78,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   hnf_in_t port_in;
   hnf_out_t port_out;
   logic [127:0] expected_line [4];
+  logic [11:0] response_dbid;
+  logic [11:0] first_comp_ack_dbid;
+  logic [11:0] second_comp_ack_dbid;
   CHIReqFlit active_request;
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
@@ -221,6 +225,12 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       expected_packet.src_id = HOME_ID;
       expected_packet.tgt_id = active_request.return_nid_or_stash_nid_or_data_target;
       expected_packet.txn_id = active_request.return_txn_id_or_stash_lpid;
+      if (active_request.exp_comp_ack) begin
+        if (packet_id == 0)
+          response_dbid = port_out.requester.response_data.bits.dbid_or_mecid[11:0];
+        expected_packet.dbid_or_mecid = {4'b0, packet_id == 0 ?
+          port_out.requester.response_data.bits.dbid_or_mecid[11:0] : response_dbid};
+      end
       if (error == 0 && (active_request.opcode == 7'h02 || active_request.opcode == 7'h07)) expected_packet.resp = active_request.opcode == 7'h07 ? 3'd2 : 3'd1;
       response_data_ready_in.ready = 1'b1;
       #1;
@@ -232,6 +242,23 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
         else $fatal(1, "inclusive Home returned incorrect cached data");
       tick();
       response_data_ready_in = '0;
+    end
+  endtask
+
+  task automatic send_comp_ack(input logic [6:0] source,
+                               input logic [11:0] dbid);
+    begin
+      requester_responses_in = '0;
+      requester_responses_in.bits.opcode = COMP_ACK;
+      requester_responses_in.bits.txn_id = dbid;
+      requester_responses_in.bits.src_id = source;
+      requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.valid = 1'b1;
+      #1;
+      assert(port_out.requester.requester_responses.ready)
+        else $fatal(1, "inclusive Home did not accept table-owned CompAck");
+      tick();
+      requester_responses_in = '0;
     end
   endtask
 
@@ -755,18 +782,49 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     finish_cached();
     send_request(LINE0, 7'h03); finish_cached();
 
-    // The complete grant is recorded before a delayed CompAck releases Home.
+    // Final DAT releases the datapath while distinct Home DBIDs retain two
+    // delayed acknowledgements. Only another acknowledgement-bearing request
+    // is blocked when the small table is full.
     send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID, 1);
     finish_cached();
+    first_comp_ack_dbid = response_dbid;
     repeat (5) begin
-      assert(!port_out.requester.requests.ready) else $fatal(1, "Home released grant before CompAck");
+      assert(port_out.requester.requests.ready)
+        else $fatal(1, "CompAck retained the inclusive Home datapath");
       tick();
     end
-    requester_responses_in = '0; requester_responses_in.valid = 1;
-    requester_responses_in.bits.opcode = 5'h02;
-    requester_responses_in.bits.src_id = INSTRUCTION_ID;
-    requester_responses_in.bits.tgt_id = HOME_ID;
-    tick(); requester_responses_in = '0;
+    send_request(LINE0, 7'h03, 6'd6, HTIF_ID, 1);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
+    finish_cached();
+    second_comp_ack_dbid = response_dbid;
+    assert(first_comp_ack_dbid != second_comp_ack_dbid)
+      else $fatal(1, "inclusive Home reused a live CompAck DBID");
+
+    requester_requests_in.bits = '0;
+    requester_requests_in.bits.src_id = HTIF_ID;
+    requester_requests_in.bits.tgt_id = HOME_ID;
+    requester_requests_in.bits.opcode = READ_ONCE;
+    requester_requests_in.bits.address = LINE0;
+    requester_requests_in.bits.size_or_num_req = 6'd6;
+    requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = HTIF_ID;
+    requester_requests_in.bits.return_txn_id_or_stash_lpid = 12'h654;
+    requester_requests_in.bits.exp_comp_ack = 1'b1;
+    requester_requests_in.valid = 1'b1;
+    #1;
+    assert(!port_out.requester.requests.ready)
+      else $fatal(1, "inclusive Home overcommitted its CompAck table");
+    requester_requests_in = '0;
+
+    send_request(LINE0, READ_ONCE);
+    while (!port_out.requester.snoops.valid) tick();
+    send_comp_ack(HTIF_ID, second_comp_ack_dbid);
+    assert(port_out.requester.snoops.valid)
+      else $fatal(1, "late CompAck disturbed the active LLC transaction");
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
+    finish_cached();
+    assert(port_out.requester.requests.ready)
+      else $fatal(1, "late CompAck did not release only its table entry");
+    send_comp_ack(INSTRUCTION_ID, first_comp_ack_dbid);
     send_request(LINE0, 7'h03);
     clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1); finish_cached();
 

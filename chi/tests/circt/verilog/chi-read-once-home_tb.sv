@@ -223,8 +223,8 @@ module chi_read_once_home_tb;
                                   input int delay_cycles = 0);
     begin
       repeat (delay_cycles) begin
-        assert(!port_out.requester.requests.ready)
-          else $fatal(1, "inclusive Home retired a read before CompAck");
+        assert(port_out.requester.requests.ready)
+          else $fatal(1, "CompAck retained the inclusive Home datapath");
         tick();
       end
       requester_responses_in.bits = '0;
@@ -239,7 +239,8 @@ module chi_read_once_home_tb;
         else $fatal(1, "inclusive Home did not accept CompAck");
       tick();
       requester_responses_in = '0;
-      while (!port_out.requester.requests.ready) tick();
+      assert(port_out.requester.requests.ready)
+        else $fatal(1, "CompAck disturbed the released inclusive Home datapath");
     end
   endtask
 
@@ -337,7 +338,7 @@ module chi_read_once_home_tb;
     tick();
 
     // An allocating miss tolerates backing and requester backpressure, fills
-    // the LLC, and keeps the transaction live until the delayed CompAck.
+    // the LLC, and leaves only its DBID-table entry live until delayed CompAck.
     fill_read(LINE0, 8'h10, 1'b1, 0, 3, 3);
 
     // Give the RN-F a clean shared copy, then prove SnpOnce retains that copy

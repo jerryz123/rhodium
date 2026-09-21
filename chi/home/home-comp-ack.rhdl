@@ -1,0 +1,78 @@
+#lang rhodium
+// Tracks Home-assigned read-completion DBIDs independently of the Home datapath.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/scoreboard.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+
+sync_circuit CHIHomeCompAckTable(p :: CHIFlitParams,
+                                 entries :: Int.in(1 ..= 4096)):
+  def Slot = Bits(index_width(entries))
+
+  input home_node_id: Bits(p.node_id_width)
+  interface reserve(Valid(Bits(p.node_id_width)), ~role: consumer)
+  interface publish(Valid(Slot), ~role: consumer)
+  interface acknowledgement(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  output available: Bool
+  output allocation_slot: Slot
+
+  inst occupancy(Scoreboard(entries))
+  inst published(Scoreboard(entries))
+  def occupied = occupancy.busy.into(Vec(entries, Bool))
+  def free_entries = vec(for List (index in 0..entries): !occupied[index])
+  def next_slot = priority_encoder(free_entries)
+  reg requester_ids(~init: vec(
+    for List (_index in 0..entries): bits(0, p.node_id_width)
+  ))
+
+  available <== free_entries.or_reduce()
+  allocation_slot <== next_slot
+  occupancy.set.valid <== reserve.valid
+  occupancy.set.bits <== next_slot
+  published.set.valid <== publish.valid
+  published.set.bits <== publish.bits
+
+  when (reserve.valid):
+    assert(free_entries.or_reduce(), "chi_home_comp_ack_table_available")
+    requester_ids <== requester_ids.updated(next_slot, reserve.bits)
+  when (publish.valid):
+    assert(scoreboard_busy(entries, occupancy.busy, publish.bits),
+           "chi_home_comp_ack_table_publish_reserved")
+
+  def response = acknowledgement.bits
+  def response_slot = response.txn_id[0..index_width(entries)]
+  def response_slot_in_range:
+    if entries == (1 << index_width(entries))
+    | Bool(#true)
+    | response.txn_id < bits(entries, 12)
+  def response_published = scoreboard_busy(entries, published.busy, response_slot)
+  def expected_requester = requester_ids.lookup(
+    response_slot,
+    ~default: bits(0, p.node_id_width)
+  )
+  acknowledgement.ready <== Bool(#true)
+  def acknowledgement_fire = acknowledgement.fire()
+
+  when (acknowledgement.valid):
+    assert(response.opcode === CHIRspOpcode.CompAck,
+           "chi_home_comp_ack_table_opcode")
+    assert(response.tgt_id === home_node_id,
+           "chi_home_comp_ack_table_target")
+    assert(response_slot_in_range,
+           "chi_home_comp_ack_table_slot_in_range")
+    assert(response_published,
+           "chi_home_comp_ack_table_slot_published")
+    assert(response.src_id === expected_requester,
+           "chi_home_comp_ack_table_source")
+
+  occupancy.clear.valid <== acknowledgement_fire
+  occupancy.clear.bits <== response_slot
+  published.clear.valid <== acknowledgement_fire
+  published.clear.bits <== response_slot
+
+export:
+  CHIHomeCompAckTable

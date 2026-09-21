@@ -46,8 +46,13 @@ stalled dispatch stability, and reset before and after a dispatch.
 RN-F order. Keep the absence invariant separate from LLC dirty state and from
 `chi_request_allocates_coherent`, whose opcode family includes non-allocating
 `WriteUniquePtl`. A successful final read-data transfer publishes a possible
-cached copy before the serialized Home can accept another request; CompAck
-still owns transaction completion when requested. Only complete successful
+cached copy before the serialized LLC datapath can accept another request.
+Reads with `ExpCompAck` reserve a `CHIHomeCompAckTable` slot at admission and
+carry its DBID on every response DAT beat. Final DAT publishes the slot and
+releases the datapath; the later `CompAck` validates source, target, and DBID
+against only that table entry. Table capacity may backpressure another
+acknowledgement-bearing request, but must not block a request that does not need
+`CompAck`. Only complete successful
 snoop responses or complete copyback may remove a responder. Track retained/error state across all
 dirty packets, and keep a failed victim invalidation from replacing its entry.
 Successful line installation starts with an empty directory. Never attach the
@@ -87,8 +92,9 @@ Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
 requester REQ to requester RSP/DAT with the named `request` retained scope.
 Keep visible checkpoints in callers, not the Home. Capture on accepted requester
 REQ; keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
-final data without CompAck, or accepted CompAck. Do not release on the first
-data beat, DBID response, subordinate response, or delayed acknowledgement.
+or final data. Do not release on the first data beat, DBID response, subordinate
+response, or delayed acknowledgement; `CompAck` has no requester output and is
+owned by the separate DBID table after final DAT.
 Both requester output channels share this lifetime; Flow infers network transit.
 `chi/tests/home-trace-fixture.rhdl` supplies test-only boundary checkpoints.
 Run `event-home` for exact per-cycle graph comparison against public transfers,

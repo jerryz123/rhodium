@@ -12,6 +12,10 @@ Import the defining modules directly, or use the package-wide
 Contributor ownership and validation are described in
 [DEVELOPING.md](DEVELOPING.md).
 
+`CHIInclusiveHNFConfig` defaults to four outstanding completion-
+acknowledgement entries. Set `~comp_ack_entries` to size this bounded DBID table
+for the expected acknowledgement latency and requester concurrency.
+
 ## Inclusive Home event tracing
 
 The optional event compiler carries incoming request ancestry to requester
@@ -20,7 +24,11 @@ The Home emits no checkpoints of its own: caller annotations connect across it
 without adding intermediate Home tracks.
 The same request remains the parent across LLC misses, snoops, and writebacks;
 transaction IDs may be reused without confusing occurrences. Request ownership
-ends at actual transaction completion, including CompAck when required, or reset.
+ends at its final response or DAT transfer, or reset. For reads that require
+`CompAck`, `CHIInclusiveHNF` assigns a DBID from its configured acknowledgement
+table and releases the LLC datapath after final DAT. A later `CompAck` retires
+only that table entry, so unrelated lookup, snoop, refill, and response work can
+continue while acknowledgements are outstanding.
 Ordinary elaboration adds no event instrumentation or functional buffering.
 
 These edges describe request ownership, not backing-memory data provenance.
