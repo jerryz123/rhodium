@@ -1,0 +1,199 @@
+#lang rhodium
+// Implements one complete retryable RN-I ReadOnce transaction with retained context.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+  lib("chi/protocol/messages.rhdl").chi_response
+  lib("chi/transactions/retryable-transaction.rhdl") open
+
+def CHIReadOnceResponses = response_profile("chi_read_once"):
+  retryable
+
+bundle CHIReadOnceCommand(p :: CHIFlitParams, Context :: DataType):
+  address: Bits(p.request_address_width)
+  home_id: Bits(p.node_id_width)
+  pas: CHIPAS
+  allocate: Bool
+  qos: Bits(4)
+  context: Context
+
+bundle CHIReadOnceResult(p :: CHIFlitParams, Context :: DataType):
+  address: Bits(p.request_address_width)
+  context: Context
+  line: Bits(512)
+  error: CHIRespErr
+  poisoned: Bool
+
+fun chi_read_once_request(p :: CHIFlitParams,
+                          Context :: DataType,
+                          node_id :: Bits(p.node_id_width),
+                          txn_id :: Bits(12),
+                          command :: CHIReadOnceCommand(p, Context),
+                          attempt :: CHIRequestAttempt()) :~ CHIReqFlit(p):
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  def attributes = CHIMemAttr():
+    allocate: command.allocate
+    cacheable: Bool(#true)
+    device: Bool(#false)
+    early_write_acknowledge: Bool(#false)
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~exp_comp_ack: Bool(#true),
+    ~snp_attr_or_do_dwt: Bool(#true),
+    ~mem_attr: attributes,
+    ~pcrd_type: attempt.pcrd_type,
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: attempt.allow_retry,
+    ~pas: command.pas,
+    ~address: command.address,
+    ~size_or_num_req: CHITransferSize.Bytes64.as_bits().zext(6),
+    ~opcode: CHIReqOpcode.ReadOnce,
+    ~return_txn_id_or_stash_lpid: txn_id,
+    ~return_nid_or_stash_nid_or_data_target: node_id,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: command.home_id,
+    ~qos: command.qos
+  )
+
+sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
+  def packet_count = 64 / p.data_bytes
+  def packet_index_width = index_width(packet_count)
+
+  input node_id: Bits(p.node_id_width)
+  input txn_id: Bits(12)
+  interface command(Decoupled(CHIReadOnceCommand(p, Context)), ~role: consumer)
+  interface completion(Irrevocable(CHIReadOnceResult(p, Context)), ~role: producer)
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+
+  inst control(CHIRetryableTransactionControl(p, CHIReadOnceResponses))
+  reg saved_command(CHIReadOnceCommand(p, Context))
+  reg saved_node_id(Bits(p.node_id_width))
+  reg saved_txn_id(Bits(12))
+  reg received_packets(~init: bits(0, packet_count).as_vec(Bool))
+  reg line(~init: bits(0, 512))
+  reg dbid(~init: bits(0, 12))
+  reg response_error(~init: CHIRespErr.OK)
+  reg poisoned(~init: Bool(#false))
+  reg acknowledgement_sent(~init: Bool(#false))
+
+  command.ready <== !control.active
+  def command_fire = command.fire()
+  control.start <== command_fire
+  control.attempt
+    |> map_flow(attempt => chi_read_once_request(
+      p,
+      Context,
+      saved_node_id,
+      saved_txn_id,
+      saved_command,
+      attempt
+    ))
+    |> requests
+
+  responses |> control.response
+  def response_event = control.event
+  def incoming_response = response_event.bits.flit
+  when (response_event.valid):
+    assert(incoming_response.src_id === saved_command.home_id,
+           "chi_read_once_response_source")
+    assert(incoming_response.tgt_id === saved_node_id,
+           "chi_read_once_response_target")
+    when (response_event.bits.retry_ack):
+      assert(incoming_response.txn_id === saved_txn_id,
+             "chi_read_once_retry_txn")
+
+  def all_data_received = received_packets.and_reduce()
+  def incoming_data = response_data.bits
+  def packet_index = chi_transfer_beat(incoming_data.data_id, p)[0..packet_index_width]
+  def packet_was_received = received_packets[packet_index]
+  def next_received_packets = received_packets.updated(packet_index, Bool(#true))
+  def next_line = line.as_vec(Bits(p.data_width)).updated(packet_index, incoming_data.data)
+  def incoming_poison = if p.poison_width > 0 | incoming_data.poison.or_reduce() | Bool(#false)
+  response_data.ready <== control.active & control.attempt_outstanding & !all_data_received
+  def data_fire = response_data.fire()
+  when data_fire:
+    assert(incoming_data.opcode === CHIDatOpcode.CompData,
+           "chi_read_once_data_opcode")
+    assert(incoming_data.txn_id === saved_txn_id,
+           "chi_read_once_data_txn")
+    assert(incoming_data.src_id === saved_command.home_id,
+           "chi_read_once_data_source")
+    assert(incoming_data.tgt_id === saved_node_id,
+           "chi_read_once_data_target")
+    assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === saved_command.home_id,
+           "chi_read_once_data_home")
+    assert(chi_data_id_valid(incoming_data.data_id, p),
+           "chi_read_once_data_id")
+    assert(!packet_was_received,
+           "chi_read_once_data_id_unique")
+    assert(incoming_data.num_dat === bits(0, 2),
+           "chi_read_once_num_dat_zero")
+    assert(!incoming_data.replicate,
+           "chi_read_once_not_replicated")
+    assert(incoming_data.resp === bits(0, 3),
+           "chi_read_once_no_ownership")
+  when (data_fire & received_packets.or_reduce()):
+    assert(incoming_data.dbid_or_mecid[0..12] === dbid,
+           "chi_read_once_dbid_consistent")
+
+  acknowledgements.valid <== control.active & all_data_received & !acknowledgement_sent
+  acknowledgements.bits <== chi_response(
+    p,
+    saved_node_id,
+    saved_command.home_id,
+    dbid,
+    CHIRspOpcode.CompAck,
+    ~dbid: bits(0, 12),
+    ~resp: bits(0, 3),
+    ~error: CHIRespErr.OK,
+    ~qos: saved_command.qos
+  )
+  def acknowledgement_fire = acknowledgements.fire()
+
+  completion.valid <== control.active & all_data_received & acknowledgement_sent
+  completion.bits <== CHIReadOnceResult(p, Context):
+    address: saved_command.address
+    context: saved_command.context
+    line: line
+    error: response_error
+    poisoned: poisoned
+  def completion_fire = completion.fire()
+  control.finish <== completion_fire
+  control.external_progress <== data_fire
+
+  when command_fire:
+    assert(command.bits.address.is_aligned(64),
+           "chi_read_once_address_aligned")
+    saved_command <== command.bits
+    saved_node_id <== node_id
+    saved_txn_id <== txn_id
+    received_packets <== bits(0, packet_count).as_vec(Bool)
+    line <== bits(0, 512)
+    dbid <== bits(0, 12)
+    response_error <== CHIRespErr.OK
+    poisoned <== Bool(#false)
+    acknowledgement_sent <== Bool(#false)
+  elsewhen data_fire:
+    received_packets <== next_received_packets
+    line <== next_line.as_bits()
+    dbid <== mux(received_packets.or_reduce(), dbid, incoming_data.dbid_or_mecid[0..12])
+    response_error <== mux(response_error === CHIRespErr.OK, incoming_data.resp_err, response_error)
+    poisoned <== poisoned ||| incoming_poison
+  elsewhen acknowledgement_fire:
+    acknowledgement_sent <== Bool(#true)
+
+export:
+  CHIReadOnceResponses
+  CHIReadOnceCommand
+  CHIReadOnceResult
+  chi_read_once_request
+  CHIReadOnce

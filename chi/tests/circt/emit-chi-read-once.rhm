@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits the reusable complete-line CHI ReadOnce requester.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../../../rhodium/core/types.rhm".Bits
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../chi/transactions/read-once.rhdl" open
+  "../../../chi/protocol/params.rhdl".CHIFlitParams
+
+def design = embedded.run_elaboration(
+  fun (): CHIReadOnce(CHIFlitParams(~poison: #true), Bits(8))
+)
+print(emit_circt(design))

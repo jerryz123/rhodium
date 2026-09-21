@@ -9,6 +9,12 @@ The parent owns package-wide boundaries; this guide owns component extension and
 
 These modules contain both checking and execution mechanisms; they are not all monitors. Preserve each transaction lifetime and keep endpoint-specific policy with its caller.
 
+`read-once.rhdl` owns one complete RN-I snapshot-read lifetime: retry
+association, packet receipt, DBID consistency, `CompAck`, and retained
+completion. It deliberately receives physical Home, node, and transaction
+identity from its caller; address maps, ID allocation, and cache-fill policy
+remain outside the engine.
+
 Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
 benches in [`../tests/circt/`](../tests/circt/).
 For source moves, update direct consumers, package documentation, and build/CI

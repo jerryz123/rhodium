@@ -417,6 +417,14 @@ retry-only profile has a one-bit zero effect vector. The existing
 `chi_response_effects` and `chi_response_milestone` functions remain compatible
 entry points delegating to these methods.
 
+[`transactions/read-once.rhdl`](transactions/read-once.rhdl) composes that
+control into a complete one-outstanding RN-I `ReadOnce` requester. It accepts
+an aligned physical 64-byte line command with caller-owned node, transaction,
+Home, PAS, QoS, allocation, and context information; reassembles legal DAT
+packets; accumulates poison and the first non-OK response error; sends
+`CompAck`; and retains the completed line until accepted. It owns no address
+map, endpoint ID allocator, or Home allocation policy.
+
 ### NoC compilation and transport
 
 [`noc/noc-authoring.rhm`](noc/noc-authoring.rhm) describes RN, HN-side, and SN sites as
