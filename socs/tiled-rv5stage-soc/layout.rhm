@@ -194,15 +194,17 @@ fun tiled_power_of_two(value :: PosInt) :: Boolean:
   value == 1 || (value mod 2 == 0 && tiled_power_of_two(value / 2))
 
 class LLCGeometry(sets :: PosInt,
-                  ways :: PosInt):
+                  ways :: PosInt,
+                  transaction_slots :: Int.in(1 ..= 64)):
   property capacity_bytes :: PosInt: sets * ways * 64
 
   constructor (~sets: sets :: PosInt,
-               ~ways: ways :: PosInt):
+               ~ways: ways :: PosInt,
+               ~transaction_slots: transaction_slots :: Int.in(1 ..= 64) = 2):
     unless sets >= 2 && tiled_power_of_two(sets)
     | error(~who: #'LLCGeometry,
             "LLC set count must be a power of two of at least two")
-    super(sets, ways)
+    super(sets, ways, transaction_slots)
 
 class TiledRV5StageSoCConfig(layout :: TileGrid,
                              node_ids :: TiledNodeIds,

@@ -81,6 +81,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   logic [11:0] response_dbid;
   logic [11:0] first_comp_ack_dbid;
   logic [11:0] second_comp_ack_dbid;
+  logic [11:0] first_memory_txn;
+  logic [11:0] second_memory_txn;
   CHIReqFlit active_request;
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
@@ -147,7 +149,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                               input logic [5:0] request_size = 6'd6,
                               input logic [6:0] source = HTIF_ID,
                               input bit exp_comp_ack = 0,
-                              input bit allocate = 0);
+                              input bit allocate = 0,
+                              input logic [11:0] request_txn = 12'h000,
+                              input logic [11:0] return_txn = 12'h654);
     begin
       requester_requests_in.bits = '0;
       requester_requests_in.bits.src_id = source;
@@ -155,8 +159,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       requester_requests_in.bits.opcode = opcode;
       requester_requests_in.bits.address = address;
       requester_requests_in.bits.size_or_num_req = request_size;
+      requester_requests_in.bits.txn_id = request_txn;
       requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = source;
-      requester_requests_in.bits.return_txn_id_or_stash_lpid = 12'h654;
+      requester_requests_in.bits.return_txn_id_or_stash_lpid = return_txn;
       requester_requests_in.bits.trace_tag = 1;
       requester_requests_in.bits.exp_comp_ack = exp_comp_ack;
       requester_requests_in.bits.mem_attr.allocate = allocate;
@@ -173,13 +178,31 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   task automatic accept_memory_request(input logic [43:0] address,
                                        input logic [6:0] opcode);
     begin
-      subordinate_requests_ready_in.ready = 1'b1;
+      while (!port_out.subordinate.req.valid) tick();
       #1;
       assert (port_out.subordinate.req.valid &&
               port_out.subordinate.req.bits.address == address &&
               port_out.subordinate.req.bits.size_or_num_req == 6'd6 &&
               port_out.subordinate.req.bits.opcode == opcode)
         else $fatal(1, "inclusive Home issued an incorrect memory request");
+      subordinate_requests_ready_in.ready = 1'b1;
+      tick();
+      subordinate_requests_ready_in = '0;
+    end
+  endtask
+
+  task automatic accept_memory_request_slot(input logic [43:0] address,
+                                            output logic [11:0] transaction);
+    begin
+      while (!port_out.subordinate.req.valid) tick();
+      #1;
+      assert (port_out.subordinate.req.bits.address == address &&
+              port_out.subordinate.req.bits.opcode == READ_NO_SNP &&
+              port_out.subordinate.req.bits.txn_id ==
+                port_out.subordinate.req.bits.return_txn_id_or_stash_lpid)
+        else $fatal(1, "inclusive Home issued an incorrectly identified memory read");
+      transaction = port_out.subordinate.req.bits.txn_id;
+      subordinate_requests_ready_in.ready = 1'b1;
       tick();
       subordinate_requests_ready_in = '0;
     end
@@ -187,13 +210,15 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
   task automatic return_fill_packet(input logic [1:0] packet_id,
                                     input logic [7:0] payload,
-                                    input logic [1:0] error = 0);
+                                    input logic [1:0] error = 0,
+                                    input logic [11:0] transaction = 0);
     begin
       subordinate_data_in.bits = '0;
       subordinate_data_in.bits.opcode = COMP_DATA;
       subordinate_data_in.bits.resp_err = error;
       subordinate_data_in.bits.src_id = MEMORY_ID;
       subordinate_data_in.bits.tgt_id = HOME_ID;
+      subordinate_data_in.bits.txn_id = transaction;
       subordinate_data_in.bits.data_id = packet_id;
       subordinate_data_in.bits.byte_enable = 16'hffff;
       subordinate_data_in.bits.data = {120'h0, payload};
@@ -203,6 +228,24 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
         else $fatal(1, "inclusive Home did not accept fill data");
       tick();
       subordinate_data_in = '0;
+    end
+  endtask
+
+  task automatic accept_routed_packet(input logic [11:0] transaction,
+                                      input logic [1:0] packet_id,
+                                      input logic [7:0] payload);
+    begin
+      while (!port_out.requester.response_data.valid) tick();
+      #1;
+      assert (port_out.requester.response_data.bits.opcode == COMP_DATA &&
+              port_out.requester.response_data.bits.txn_id == transaction &&
+              port_out.requester.response_data.bits.tgt_id == HTIF_ID &&
+              port_out.requester.response_data.bits.data_id == packet_id &&
+              port_out.requester.response_data.bits.data == {120'h0, payload})
+        else $fatal(1, "inclusive Home routed a completed line to the wrong requester transaction");
+      response_data_ready_in.ready = 1'b1;
+      tick();
+      response_data_ready_in = '0;
     end
   endtask
 
@@ -499,6 +542,62 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     tick();
     reset = 1'b0;
 
+`ifndef CHI_HOME_TRACE
+    // Distinct sets occupy independent transaction slots, while a request for
+    // the first set remains serialized until its owner releases the set.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h010, 12'h110);
+    requester_requests_in.bits = '0;
+    requester_requests_in.bits.src_id = HTIF_ID;
+    requester_requests_in.bits.tgt_id = HOME_ID;
+    requester_requests_in.bits.opcode = READ_ONCE;
+    requester_requests_in.bits.address = LINE2;
+    requester_requests_in.bits.size_or_num_req = 6'd6;
+    requester_requests_in.bits.return_nid_or_stash_nid_or_data_target = HTIF_ID;
+    requester_requests_in.valid = 1'b1;
+    #1;
+    assert (!port_out.requester.requests.ready)
+      else $fatal(1, "inclusive Home admitted a conflicting set transaction");
+    requester_requests_in = '0;
+    send_request(LINE1, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h020, 12'h220);
+    accept_memory_request_slot(LINE0, first_memory_txn);
+    accept_memory_request_slot(LINE1, second_memory_txn);
+    assert (first_memory_txn != second_memory_txn)
+      else $fatal(1, "inclusive Home reused a live transaction slot");
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'h20 + 8'(packet), 0, second_memory_txn);
+    while (!port_out.requester.response_data.valid) tick();
+    tick();
+    subordinate_data_in.bits = '0;
+    subordinate_data_in.bits.opcode = COMP_DATA;
+    subordinate_data_in.bits.src_id = MEMORY_ID;
+    subordinate_data_in.bits.tgt_id = HOME_ID;
+    subordinate_data_in.bits.txn_id = first_memory_txn;
+    subordinate_data_in.bits.data_id = 0;
+    subordinate_data_in.bits.byte_enable = 16'hffff;
+    subordinate_data_in.bits.data = 128'h10;
+    subordinate_data_in.valid = 1'b1;
+    repeat (3) begin
+      #1;
+      assert (!port_out.subordinate.dat.response.ready &&
+              port_out.requester.response_data.valid &&
+              port_out.requester.response_data.bits.txn_id == 12'h220 &&
+              port_out.requester.response_data.bits.data_id == 0 &&
+              port_out.requester.response_data.bits.data == 128'h20)
+        else $fatal(1, "inclusive Home changed a stalled shared-output owner");
+      tick();
+    end
+    subordinate_data_in = '0;
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h220, 2'(packet), 8'h20 + 8'(packet));
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'h10 + 8'(packet), 0, first_memory_txn);
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h110, 2'(packet), 8'h10 + 8'(packet));
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+`endif
+
     // Allocating ReadOnce misses install and subsequently hit.
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
     tick();
@@ -522,7 +621,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     // A nonallocating miss bypasses the full set without snooping or replacing
     // its selected victim, then returns the fetched line directly.
     send_request(LINE3, READ_ONCE);
-    tick();
+    while (!port_out.subordinate.req.valid && !port_out.requester.snoops.valid) tick();
     #1;
     assert (!port_out.requester.snoops.valid && port_out.subordinate.req.valid)
       else $fatal(1, "nonallocating ReadOnce miss attempted replacement");
@@ -546,7 +645,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
     // An LLC hit with no tracked RN-F resident skips the snoop phases.
     send_request(LINE0, READ_NO_SNP);
-    tick();
+    while (!port_out.requester.response_data.valid &&
+           !port_out.requester.snoops.valid && !port_out.subordinate.req.valid) tick();
     assert (port_out.requester.response_data.valid &&
             !port_out.requester.snoops.valid &&
             !port_out.subordinate.req.valid)
@@ -698,7 +798,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
     send_request(LINE0, READ_NO_SNP); finish_cached();
     send_request(LINE3, READ_NO_SNP);
-    tick();
+    while (!port_out.subordinate.req.valid && !port_out.requester.snoops.valid) tick();
     assert (port_out.subordinate.req.valid && !port_out.requester.snoops.valid)
       else $fatal(1, "inclusive Home did not fast-path a zero-snoop clean victim");
     fill_and_return(LINE3, 8'h40);

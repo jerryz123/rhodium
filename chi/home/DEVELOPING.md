@@ -29,10 +29,11 @@ for callers while making new shared consumers import the owning module.
 Keep LLC lookup, replacement, dirty-data ownership, and retirement in their
 respective engines rather than adding modes to one shared state machine.
 
-Both Homes instantiate `CHIHomeSnoopTargets` from its owning module. This small
-child circuit shares the Home's clock/reset and replaces only the pending-mask
-and expected-responder registers; it adds no snoop-payload buffer or pipeline
-stage. Each Home computes its target mask, constructs the snoop, and gates
+The noncaching Home instantiates `CHIHomeSnoopTargets` from its owning module.
+The inclusive Home keeps the equivalent pending mask and expected responder in
+each transaction slot, then arbitrates one outgoing snoop at a time. Neither
+form adds a snoop-payload buffer or pipeline stage. Each Home computes its
+target mask, constructs the snoop, and gates
 `target.ready` with its own issue phase and SNP sink readiness. That handshake
 must coincide with the outgoing snoop handshake. In particular, a pending
 target must not advance while the Home is processing the previous responder's
@@ -45,8 +46,16 @@ stalled dispatch stability, and reset before and after a dispatch.
 `CHIInclusiveHNF` owns `resident_lines`, indexed by LLC set/way and configured
 RN-F order. Keep the absence invariant separate from LLC dirty state and from
 `chi_request_allocates_coherent`, whose opcode family includes non-allocating
-`WriteUniquePtl`. A successful final read-data transfer publishes a possible
-cached copy before the serialized LLC datapath can accept another request.
+`WriteUniquePtl`. Its bounded transaction slots retain the request, selected
+set/way, line data, snoop state, fill/writeback masks, errors, and subordinate
+DBID. The slot index is the Home TxnID/DBID on subordinate and snoop traffic.
+One shared SRAM lookup port accepts at most one lookup per cycle. Different
+sets may overlap, but an admitted transaction owns its set until retirement;
+same-set requests remain backpressured so directory and replacement updates
+cannot conflict. A selected shared RSP, DAT, SNP, or subordinate REQ/DAT output
+retains scheduler ownership while stalled; do not let another slot or incoming
+channel change its payload before handshake. A successful final read-data transfer publishes a possible
+cached copy before releasing its transaction slot.
 Reads with `ExpCompAck` reserve a `CHIHomeCompAckTable` slot at admission and
 carry its DBID on every response DAT beat. Final DAT publishes the slot and
 releases the datapath; the later `CompAck` validates source, target, and DBID
@@ -88,7 +97,7 @@ LR/SC progress after changing target selection. Rerun SingleCoreRV5StageSoC vvad
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.
 
-Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
+One-slot inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
 requester REQ to requester RSP/DAT with the named `request` retained scope.
 Keep visible checkpoints in callers, not the Home. Capture on accepted requester
 REQ; keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
@@ -97,6 +106,9 @@ response, or delayed acknowledgement; `CompAck` has no requester output and is
 owned by the separate DBID table after final DAT.
 Both requester output channels share this lifetime; Flow infers network transit.
 `chi/tests/home-trace-fixture.rhdl` supplies test-only boundary checkpoints.
+The retained-event model does not yet express dynamically selected owners, so
+this fixture deliberately constructs a one-slot Home while the behavioral Home
+fixture uses two slots.
 Run `event-home` for exact per-cycle graph comparison against public transfers,
 including hit/miss data, repeated IDs, backpressure, and pending reset, then
 the SingleCoreRV5StageSoC trace smoke for the composed router/queue paths.

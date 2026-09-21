@@ -517,7 +517,7 @@ flowchart LR
 | --- | --- | --- |
 | [`CHIHNI`](home/home.rhdl) | Non-coherent RN-I or RN-F Home traffic reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
 | [`CHIHNF`](home/coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
-| [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with a blocking inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one active transaction |
+| [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with an inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one to 64 bounded transaction slots |
 | [`CHIRam`](subordinate/ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |
 | [`CHIDPIMemory`](subordinate/dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a bounded sparse C++ byte store and fixed 512-bit data ABI |
 
@@ -667,9 +667,11 @@ responses.
 
 ### Initial coherent Home engines
 
-Both Home implementations require at least one RN-F and accept one transaction
-at a time; `CHIHNFParams` correspondingly requires a Home capacity of exactly
-one. RN-I requesters may use `ReadOnce`, `ReadNoSnp`, `WriteNoSnpFull`, and
+Both Home implementations require at least one RN-F. The noncaching `CHIHNF`
+accepts one transaction at a time. `CHIInclusiveHNF` accepts one through 64,
+selected by `CHIHNFConfig.transaction_slots`; `CHIHNFParams` requires the
+advertised Home capacity to match that value. RN-I requesters may use
+`ReadOnce`, `ReadNoSnp`, `WriteNoSnpFull`, and
 `WriteNoSnpPtl`; RN-F requesters may use `ReadOnce`, `ReadClean`, `ReadUnique`, and
 `WriteUniquePtl` and `WriteBackFull`. Both requester kinds may additionally advertise
 `CleanShared`, `CleanInvalid`, and `MakeInvalid` for aligned 64-byte blocks.
@@ -692,12 +694,21 @@ subordinate as serialized one-packet writes before the original transaction
 continues. Reads become `ReadNoSnp`; their upstream state is SharedClean for
 `ReadClean` and Unique for `ReadUnique`, and the Home waits for CompAck.
 
-`CHIInclusiveHNF` adds blocking set-associative storage, serves hits without a
+`CHIInclusiveHNF` adds set-associative storage, serves hits without a
 subordinate request, snoops tracked residents before replacing a victim, absorbs
 dirty snoop data, and writes back dirty victims before refill. Sets are a
 power-of-two count of at least two, ways are positive, and the complete cache
 must fit the projected dense local range. It requires 64-byte subordinate
 `ReadNoSnp` and `WriteNoSnpFull` support.
+
+Each inclusive-Home transaction slot retains its request, Home TxnID/DBID,
+selected set and way, line buffer, snoop targets and responses, fill/writeback
+DataID masks, error, and response phase. A shared lookup port accepts at most
+one lookup per cycle, and shared REQ/RSP/DAT/SNP outputs advance one selected
+slot per cycle. Distinct sets may overlap. A transaction conservatively owns
+its set until retirement, so same-set requests serialize and cannot race
+directory, data, or replacement updates. Subordinate responses, subordinate
+data, and requester snoop responses select their owner using the Home slot ID.
 
 Replacement selects the lowest-index invalid way, then uses padded tree
 pseudo-LRU from [`rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl). Successful
@@ -726,9 +737,9 @@ rules. Thus coherent reads of an LLC-only line need no L1 snoops. Replacement
 cannot reuse the entry until tracked copies have been invalidated and dirty
 data obligations completed; failed snoop invalidation grants no new copy.
 
-The noncaching Home remains broadcast-based. Both Homes still accept only one
-transaction at a time. General ordering, broader retry use, parallel Home
-operation, exact silent-eviction notifications, and broader coherent request
+The noncaching Home remains broadcast-based and single-transaction. General
+ordering, broader retry use, same-set parallelism, multiple shared lookup/data
+ports, exact silent-eviction notifications, and broader coherent request
 families remain outside the contract.
 
 ### Cache maintenance

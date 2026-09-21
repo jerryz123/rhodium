@@ -23,7 +23,7 @@ import:
   "core-profiles.rhm" open
 
 def single_core_rv5stage_soc_flit = CHIFlitParams(~request_address_width: DefaultRhodiumSoCRequestAddressWidth)
-def single_core_rv5stage_soc_home = CHIHomeParams("simple-home", 5, CHINodeKind.HNF, ~max_outstanding: 1)
+def single_core_rv5stage_soc_home = CHIHomeParams("simple-home", 5, CHINodeKind.HNF, ~max_outstanding: 2)
 def single_core_rv5stage_soc_device_home = CHIHomeParams("simple-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1)
 def single_core_rv5stage_soc_memory_base = 0x80000000
 def single_core_rv5stage_soc_memory_bytes = 0x40000000

@@ -117,9 +117,10 @@ fun chi_hnf_response(p :: CHIFlitParams,
                      home_node_id :: Bits(p.node_id_width),
                      request :: CHIReqFlit(p),
                      opcode :: CHIRspOpcode,
+                     ~dbid: dbid :: Bits(12) = bits(0, 12),
                      ~error: error :: CHIRespErr = CHIRespErr.OK) :~ CHIRspFlit(p):
   chi_response(p, home_node_id, request.src_id, request.txn_id, opcode,
-               ~dbid: bits(0, 12), ~resp: bits(0, 3), ~error: error, ~qos: request.qos)
+               ~dbid: dbid, ~resp: bits(0, 3), ~error: error, ~qos: request.qos)
 
 fun chi_home_downstream_request(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
@@ -142,7 +143,7 @@ fun chi_home_downstream_request(p :: CHIFlitParams,
     ~size_or_num_req: size,
     ~multi_req: Bool(#false),
     ~opcode: opcode,
-    ~return_txn_id_or_stash_lpid: bits(0, 12),
+    ~return_txn_id_or_stash_lpid: txn_id,
     ~stash_nid_valid_endian_deep_prefetch_tgt_hint: Bool(#false),
     ~return_nid_or_stash_nid_or_data_target: home_node_id,
     ~txn_id: txn_id,

@@ -388,7 +388,7 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
       CHIHomeParams("tiled-home-" ++ to_string(placement.index),
                     placement.home_node_id,
                     CHINodeKind.HNF,
-                    ~max_outstanding: 1)
+                    ~max_outstanding: config.llc.transaction_slots)
   def device_home = config.device_home
   def platform = config.platform_for(device_home)
 
@@ -443,7 +443,8 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     flit,
     requester_ports,
     address_layout.global_mask,
-    memory_service.requests
+    memory_service.requests,
+    ~transaction_slots: config.llc.transaction_slots
   )
   def hnf_params:
     for List (home in homes, placement in llc_placements):

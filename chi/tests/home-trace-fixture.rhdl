@@ -7,7 +7,7 @@ import:
   "inclusive-home-fixture.rhdl" as fixture
 
 sync_circuit EventHome():
-  def config = fixture.inclusive_home_config
+  def config = fixture.inclusive_home_serial_config
   def p = config.home.flit
   input identity: CHIHNFIdentity(p)
   interface port(CHIHNChannels(p), ~role: home)

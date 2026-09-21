@@ -15,11 +15,17 @@ Contributor ownership and validation are described in
 `CHIInclusiveHNFConfig` defaults to four outstanding completion-
 acknowledgement entries. Set `~comp_ack_entries` to size this bounded DBID table
 for the expected acknowledgement latency and requester concurrency.
+`CHIHNFConfig(~transaction_slots: ...)` separately selects one through 64 live
+coherent transactions. `CHIInclusiveHNF` uses those slots as Home TxnIDs/DBIDs,
+permits distinct sets to overlap, and serializes requests that address an owned
+set. The parameter defaults to one for compatibility; the complete single-core
+and tiled SoCs select two.
 
 ## Inclusive Home event tracing
 
-The optional event compiler carries incoming request ancestry to requester
-response and data transfers using the blocking transaction's retained ownership.
+For a one-slot configuration, the optional event compiler carries incoming
+request ancestry to requester response and data transfers using the retained
+transaction ownership.
 The Home emits no checkpoints of its own: caller annotations connect across it
 without adding intermediate Home tracks.
 The same request remains the parent across LLC misses, snoops, and writebacks;
@@ -30,6 +36,8 @@ table and releases the LLC datapath after final DAT. A later `CompAck` retires
 only that table entry, so unrelated lookup, snoop, refill, and response work can
 continue while acknowledgements are outstanding.
 Ordinary elaboration adds no event instrumentation or functional buffering.
+Multi-slot retained-event ancestry is not yet represented by the event model;
+the focused instrumented Home fixture therefore uses the one-slot configuration.
 
 These edges describe request ownership, not backing-memory data provenance.
 Subordinate traffic and incoming snoop/data contributions are not separately

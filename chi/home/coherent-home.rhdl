@@ -34,6 +34,9 @@ hardware_enum CHIHNFPhase(~width: 4):
   AwaitSnoopWriteCompletion = 15
 
 sync_circuit CHIHNF(config :: CHIHNFConfig):
+  unless config.transaction_slots == 1
+  | error(~who: #'CHIHNF,
+          "the noncaching HN-F supports exactly one transaction slot")
   def checked = config
   def p = checked.flit
 

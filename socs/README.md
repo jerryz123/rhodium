@@ -222,7 +222,7 @@ an all-node cross product.
 
 RV5Stage exposes ready-valid `CHIRNChannels` bundles directly at its hierarchy
 boundary, so the SoC connects both cache endpoints to the NoC without internal
-credited links. The blocking inclusive HN-F caches subordinate lines, snoops
+credited links. The multi-slot inclusive HN-F caches subordinate lines, snoops
 coherent requesters before replacement, and writes dirty snoop data back to the
 subordinate. The external SN-F must accept native 64-byte reads and writes, so
 this direct path needs no fragmenter.
@@ -238,7 +238,8 @@ table therefore trap in RV5Stage instead of entering CHI without a Home.
 `SingleCoreRV5StageSoCParams` couples the shared `SingleCoreSystemParams` contract to the inclusive LLC
 geometry. Its default core profile selects separate 16 KiB, four-way
 set-associative instruction and data caches, each with 64 sets and 64-byte
-lines. The default also selects a 64-set, four-way blocking LLC and exports
+lines. The default also selects a 64-set, four-way LLC with two coherent
+transaction slots and exports
 line-capable `CHISNChannels` for SN-F NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
 binding; an external subordinate owns memory contents and response timing.
@@ -345,7 +346,8 @@ identity bundle per occurrence containing its router site, hart ID, endpoint
 NodeIDs and striped service base; tiles contain no system-wide
 identity table or runtime routing-mode selector. A `RV5StageTile` attaches one
 RV5Stage's instruction RN-I, data RN-F, and uncached RN-I ports. A
-`LLCTile` attaches both sides of one blocking `CHIInclusiveHNF`. The `MemoryTile`
+`LLCTile` attaches both sides of one `CHIInclusiveHNF`. `LLCGeometry` selects
+one through 64 transaction slots per slice and defaults to two. The `MemoryTile`
 exports `TiledRV5StageSoC.memory`, a single `CHISNChannels` port in the `icn` role.
 Its external SN-F must support one-byte through 64-byte `ReadNoSnp`,
 `WriteNoSnpFull`, and `WriteNoSnpPtl` transfers, with DBID-associated write data

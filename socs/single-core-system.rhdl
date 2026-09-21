@@ -93,7 +93,8 @@ class SingleCoreSystemParams(flit :: CHIFlitParams,
       flit,
       [soc_host_home_port(host_node, ~coherent: #true), rv5stage_params.instruction_home_port(~coherent: #true), data_port],
       memory_bytes - 1,
-      memory_requests
+      memory_requests,
+      ~transaction_slots: home.max_outstanding
     )
   property home_params:
     CHIHNFParams(home,

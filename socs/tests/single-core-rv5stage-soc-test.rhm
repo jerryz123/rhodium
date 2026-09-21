@@ -63,6 +63,8 @@ check:
   soc.single_core_rv5stage_soc_memory_node.node_id ~is 9
   soc.single_core_rv5stage_soc_params.llc_config.sets ~is 64
   soc.single_core_rv5stage_soc_params.llc_config.ways ~is 4
+  soc.single_core_rv5stage_soc_params.llc_config.transaction_slots ~is 2
+  soc.single_core_rv5stage_soc_home.max_outstanding ~is 2
   soc.single_core_rv5stage_soc_params.llc_config.capacity_bytes ~is 16384
   description.model ~is "Rhodium Single-Core RV5Stage SoC"
   description.compatible ~is ["rhodium,single-core-rv5stage-soc"]
@@ -85,6 +87,7 @@ check:
   description.uart.interrupt.source_id ~is description.plic.sources[0].source_id
   compact_soc_params.llc_config.sets ~is 16
   compact_soc_params.llc_config.ways ~is 2
+  compact_soc_params.llc_config.transaction_slots ~is 2
   compact_soc_params.llc_config.capacity_bytes ~is 2048
   soc.single_core_rv5stage_soc_memory_service.endpoint === soc.single_core_rv5stage_soc_memory_port ~is #true
   soc.single_core_rv5stage_soc_memory_service.supports(CHIReqOpcode.ReadNoSnp, 16) ~is #true

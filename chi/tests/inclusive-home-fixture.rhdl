@@ -12,23 +12,34 @@ def inclusive_home_addressing = StripedAddressLayout(
   64,
   4
 )
-def inclusive_home_base_config = CHIHNFConfig(
-  base.coherent_home_config.flit,
-  for List (endpoint in base.coherent_home_config.requester_endpoints):
-    CHIICNPortParams(endpoint.name, endpoint.node_id, endpoint.kind,
-                     ~emits: endpoint.emits,
-                     ~supports: CHIChannelCapabilities(
-                       ~req: endpoint.supports.req ++ (if endpoint.kind == CHINodeKind.RNI | [CHIReqOpcode.WriteNoSnpPtl] | (if endpoint.supports.req.contains(CHIReqOpcode.ReadUnique) | [] | [CHIReqOpcode.ReadUnique])),
-                       ~rsp: endpoint.supports.rsp,
-                       ~snp: endpoint.supports.snp,
-                       ~dat: endpoint.supports.dat ++ (if endpoint.kind == CHINodeKind.RNI | [] | (if endpoint.supports.dat.contains(CHIDatOpcode.SnpRespData) | [CHIDatOpcode.SnpRespDataPtl] | [CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl]))
-                     ),
-                     ~max_outstanding: endpoint.max_outstanding),
-  inclusive_home_addressing.global_mask,
-  base.coherent_home_config.service_requests
-)
+fun inclusive_home_base_config_with_slots(transaction_slots :: Int.in(1 ..= 64)):
+  CHIHNFConfig(
+    base.coherent_home_config.flit,
+    for List (endpoint in base.coherent_home_config.requester_endpoints):
+      CHIICNPortParams(endpoint.name, endpoint.node_id, endpoint.kind,
+                       ~emits: endpoint.emits,
+                       ~supports: CHIChannelCapabilities(
+                         ~req: endpoint.supports.req ++ (if endpoint.kind == CHINodeKind.RNI | [CHIReqOpcode.WriteNoSnpPtl] | (if endpoint.supports.req.contains(CHIReqOpcode.ReadUnique) | [] | [CHIReqOpcode.ReadUnique])),
+                         ~rsp: endpoint.supports.rsp,
+                         ~snp: endpoint.supports.snp,
+                         ~dat: endpoint.supports.dat ++ (if endpoint.kind == CHINodeKind.RNI | [] | (if endpoint.supports.dat.contains(CHIDatOpcode.SnpRespData) | [CHIDatOpcode.SnpRespDataPtl] | [CHIDatOpcode.SnpRespData, CHIDatOpcode.SnpRespDataPtl]))
+                       ),
+                       ~max_outstanding: endpoint.max_outstanding),
+    inclusive_home_addressing.global_mask,
+    base.coherent_home_config.service_requests,
+    ~transaction_slots: transaction_slots
+  )
+def inclusive_home_base_config = inclusive_home_base_config_with_slots(2)
+def inclusive_home_serial_base_config = inclusive_home_base_config_with_slots(1)
 def inclusive_home_config = CHIInclusiveHNFConfig(
   inclusive_home_base_config,
+  inclusive_home_addressing,
+  ~sets: 2,
+  ~ways: 2,
+  ~comp_ack_entries: 2
+)
+def inclusive_home_serial_config = CHIInclusiveHNFConfig(
+  inclusive_home_serial_base_config,
   inclusive_home_addressing,
   ~sets: 2,
   ~ways: 2,
@@ -41,5 +52,7 @@ export:
   inclusive_home_addressing
   inclusive_home_base_config
   inclusive_home_config
+  inclusive_home_serial_base_config
+  inclusive_home_serial_config
   inclusive_home_design
   inclusive_home_elaboration

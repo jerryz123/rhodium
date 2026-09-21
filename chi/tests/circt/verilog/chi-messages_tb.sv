@@ -131,7 +131,7 @@ module chi_messages_tb;
     expected_req.size_or_num_req = other_request.size_or_num_req; \
     expected_req.multi_req = 0; \
     expected_req.opcode = other_request.opcode; \
-    expected_req.return_txn_id_or_stash_lpid = 0; \
+    expected_req.return_txn_id_or_stash_lpid = other_request.txn_id; \
     expected_req.stash_nid_valid_endian_deep_prefetch_tgt_hint = 0; \
     expected_req.return_nid_or_stash_nid_or_data_target = node_id; \
     expected_req.txn_id = other_request.txn_id; \

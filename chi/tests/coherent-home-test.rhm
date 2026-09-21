@@ -26,7 +26,12 @@ check:
                       ~max_outstanding: 2),
     fixture.coherent_home_config,
     fixture.memory_service
-  ) ~throws "exactly one outstanding transaction"
+  ) ~throws "advertised capacity must match"
+  chi.CHIHNFConfig(fixture.coherent_home_flit,
+                   fixture.coherent_home_config.requester_endpoints,
+                   fixture.coherent_home_config.service_mask,
+                   fixture.coherent_home_config.service_requests,
+                   ~transaction_slots: 64).transaction_slots ~is 64
 
   chi.CHIHNFConfig(fixture.coherent_home_flit,
                    [fixture.htif_endpoint],
