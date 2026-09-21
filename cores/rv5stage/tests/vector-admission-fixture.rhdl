@@ -1,0 +1,90 @@
+#lang rhodium
+// Exposes production descriptor admission, certification, and status with a one-cycle hit responder.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../vector.rhdl" open
+  "../vector/bundles.rhdl" open
+  "../memory.rhdl" open
+  "../decode/core-ctrl.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/vector-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorAdmission():
+  def xlen = XLen.X64
+  input instruction: Bits(32)
+  input(vl, vtype, scalar): Bits(64)
+  input request_valid: Bool
+  interface precheck(RV5StageVectorPrecheck(), ~role: requester)
+  interface accesses(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
+  output(request_ready, active, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
+  output outcome_pc: Bits(64)
+  inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
+  inst vector(RV5StageVectorPipeline(xlen, 128))
+  decode.instruction <== instruction
+  vector.request.valid <== request_valid
+  vector.request.bits <== RV5StageVectorDescriptor(xlen):
+    pc: scalar
+    instruction: instruction
+    state:
+      RiscvVectorState(xlen):
+        vl: vl
+        vtype: vtype
+        vstart: bits(0, 64)
+        vxrm: bits(0, 2)
+        vxsat: Bool(#false)
+    control: decode.control.vector
+    scalar: scalar
+    floating_scalar: bits(0, 64)
+    stride: bits(8, 64)
+    masked: !instruction[25].into(Bool)
+    rounding_mode: RoundingMode.NearEven
+    pointer_masking:
+      PointerMaskControl():
+        mode: PointerMaskMode.Disabled
+        virtual_address: Bool(#false)
+  vector.precheck |> precheck
+  def Array(observed, hit_request) = vector.pipeline.request |> fork_valid(2)
+  observed |> accesses
+  (
+    hit_request |> map_valid(request => RV5StagePipelineResult(xlen)):
+      outcome: mux(request.access === RV5StageMemoryOperation.Store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
+      reason: RV5StagePipelineReason.None
+      data: request.address
+  ) |> valid_pipe(1) |> vector.pipeline.response
+  vector.pipeline.commit_ready <== Bool(#true)
+  vector.memory.request.ready <== Bool(#true)
+  vector.memory.request_fault <== Bool(#false)
+  vector.memory.request_access_fault <== Bool(#false)
+  vector.memory.response.valid <== Bool(#false)
+  vector.memory.response.bits <== dont_care(vector.memory.response.bits.type)
+  vector.memory.drained <== Bool(#true)
+  vector.memory.reservation_valid <== Bool(#false)
+  vector.fp_request.ready <== Bool(#false)
+  vector.fp_result.valid <== Bool(#false)
+  vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)
+  vector.multiply_request.ready <== Bool(#false)
+  vector.multiply_result.valid <== Bool(#false)
+  vector.multiply_result.bits <== dont_care(vector.multiply_result.bits.type)
+  vector.divide_request.ready <== Bool(#false)
+  vector.divide_result.valid <== Bool(#false)
+  vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
+  request_ready <== vector.request.ready
+  active <== vector.active
+  certification_pending <== vector.certification_pending
+  loads_pending <== vector.loads_pending
+  stores_pending <== vector.stores_pending
+  fp_pending <== vector.fp_pending
+  retired <== vector.execution_done.valid
+  outcome_valid <== vector.outcome.valid
+  outcome_pc <== vector.outcome.bits.pc
+  fp_offered <== vector.fp_request.valid
+
+export RV5StageVectorAdmission

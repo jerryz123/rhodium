@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the production vector admission boundary for queue and certificate ownership tests.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../vector-admission-fixture.rhdl" open
+  lib("rhodium/frontend/kernel.rhm") as embedded
+  lib("rhodium/backend/circt.rhm").emit_circt
+print(emit_circt(embedded.run_elaboration(fun (): RV5StageVectorAdmission())))

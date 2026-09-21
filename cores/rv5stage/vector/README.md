@@ -117,7 +117,7 @@ a separate transaction arbiter; returned union tags retain response ownership.
 final conservative acceptance, a precise fault, or fault-only-first truncation
 to scalar retirement one cycle after the local decision. Non-memory macros
 retire through their ordinary scalar WB launch token and do not wait for result
-drain. Empty memory bodies certify at allocation. Contiguous unit-stride memory
+drain. Empty memory bodies certify at dispatch. Contiguous unit-stride memory
 macros can certify after a page-level precheck of at most two 4 KiB pages. The
 MMU retains their translations until final non-replayable acceptance, independently
 of DTLB replacement; a covering superpage needs only one translation lookup.
@@ -151,11 +151,17 @@ reports completed execution. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate registered-sequencer lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
-A one-entry descriptor handoff snapshots the next vector macro and starts any
-page-range certification while the sequencer is active. This is not an
-instruction-selection queue: there is one in-order sequencer and no alternate
-ready instruction. Pending certification never gates beats from the older active
-macro. Ordinary compute can accept its queued successor on the same edge that
+A two-entry descriptor FIFO snapshots waiting vector macros in addition to the
+single active sequencer instruction. WB may enqueue one descriptor per cycle;
+a full FIFO can replace its departing head on that same edge. Only the head
+can start page-range certification or enter the sequencer, and a blocked head
+does not replay through scalar fetch. WB still replays if admission or a required
+scalar-result reservation cannot succeed. There is no out-of-order instruction
+selection. Pending status includes both waiting entries, so scalar ordering and
+FP/CSR observers cannot overlook a queued instruction. An uncertified memory
+macro blocks younger admission until its retirement outcome; accepting a
+younger descriptor cannot overwrite the head's certificate. Pending certification
+never gates beats from the older active macro. Ordinary compute can accept its queued successor on the same edge that
 its final read plan transfers. Every read plan comes from the registered current
 instruction: the replacement's first read occurs in the following cycle, never
 from an incoming or speculative descriptor. Operand fetch retains each plan's
@@ -191,7 +197,7 @@ base and stride into a per-occurrence context carried beside the launch token;
 WB combines it with the then-current architectural vector state. Register
 numbers are decoded from the instruction rather than copied into that context.
 Vector launch tokens may follow each other through the scalar stages. WB admits
-each into the single descriptor handoff or precisely replays it when full,
+each into the two-entry descriptor FIFO or precisely replays it when full,
 without making WB elastic. Older scalar instructions can finish or squash the
 launch normally.
 [`RV5StageVectorOperandFetch`](operand-fetch.rhdl) owns three synchronous

@@ -16,17 +16,26 @@ buffering. The sequencer advances only on a Decoupled read-plan transfer. An
 ordinary compute tail transfer releases the descriptor and may simultaneously
 accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
-successor, or second instruction slot. The flow-through result queue permits
+successor, or second instruction slot inside the sequencer. The flow-through result queue permits
 consecutive issue while credits cover all nonbackpressurable responses.
 Memory, reduction, scan, and compression retain their descriptor through final
 feedback. Stateful and packed schedules wait for older operand preparation to
 drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
-accepted descriptor; it is not another sequencer. `vector.rhdl` owns one front
-descriptor handoff so WB admission and page-range certification can overlap the
-active owner. The scalar pipeline does not reserve this slot in Decode: WB
+accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
+descriptor FIFO so WB admission and head-only page-range certification can overlap
+the active owner. The FIFO is registered, with same-cycle full replacement and
+no empty bypass. The scalar pipeline does not reserve its space in Decode: WB
 either transfers the descriptor and its scalar-result reservation atomically,
 or precisely replays the instruction with no vector-side effect. It is not a
-bank of instruction queues. Do not use pending
+bank of per-service instruction queues. Check-started, check-complete, and
+certificate state belong to the FIFO head and reset on dispatch, never on tail
+enqueue. Compute heads dispatch without a preparation cycle. Memory heads wait
+for their one precheck response when eligible; false selects elementwise fallback.
+Empty memory retires at dispatch without acquiring a page window. The existing
+uncertified-memory retirement barrier starts at enqueue, including for a tail
+entry. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
+work; transfer to execution must not create a cycle without pending ownership.
+Do not use pending
 descriptor state to gate the older owner's issue stream, and release a page
 window only from the issue completion of the descriptor that acquired it. The
 completion-slot-sized owner ring lets accepted work outlive sequencing
@@ -70,6 +79,10 @@ The `rv5stage-vector-packed`, `rv5stage-vector-packed-one-slot`, and
 check byte-accurate loads/stores, every legal head offset, masks, segments,
 whole/mask transfers, replay, reordered returns, and sustained common-path issue.
 The real MMU/cache vector-memory fixture remains the integration boundary.
+`rv5stage-vector-admission` drives the production parent pipeline to check two
+waiting entries, consecutive admission, full replacement, head-only precheck
+under backpressure, both certificate results, empty bodies, tail pending flags,
+captured instruction operands, and reset with queued work.
 
 ## Event ownership
 
@@ -204,10 +217,11 @@ launch token plus a per-occurrence vector context. Resolve its scalar base and
 stride operands through the ordinary EX bypass selectors and carry that resolved
 context through EX/MEM and MEM/WB; do not restore a singleton side register.
 Register numbers remain canonical instruction fields and are decoded from the
-retained instruction instead of being copied into the context. One vector launch
-in EX/MEM/WB blocks another Decode launch, reserving the single front handoff
-without making WB elastic or adding an instruction queue. Once WB hands the
-descriptor to the vector path, sequencing ownership remains distinct from
+retained instruction instead of being copied into the context. Descriptor
+capacity does not stall Decode: WB atomically enqueues and reserves scalar
+destinations or replays without side effects. Pre-admission dependency and
+certification hazards still account for older EX/MEM/WB launch tokens. Once WB
+hands the descriptor to the vector path, sequencing ownership remains distinct from
 accepted completion ownership.
 Younger scalar exceptions are retained until all active macro contexts drain,
 not merely the currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission

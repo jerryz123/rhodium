@@ -247,7 +247,7 @@ fixture_in_group() {
     cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
-    cores-vector-functional:rv5stage-vector-overlap|cores-vector-functional:rv5stage-vector-packed|cores-vector-functional:event-vector|cores-vector-functional:rv5stage-vector|cores-vector-functional:rv5stage-vector-control|cores-vector-functional:rv5stage-vector-config|cores-vector-functional:rv5stage-vector-fp|cores-vector-functional:rv5stage-vector-muldiv|cores-vector-functional:rv5stage-vector-reduction|cores-vector-functional:rv5stage-vector-memory|cores-vector-functional:rv5stage-vector-unroller|cores-vector-functional:rv5stage-zvkt)
+    cores-vector-functional:rv5stage-vector-admission|cores-vector-functional:rv5stage-vector-overlap|cores-vector-functional:rv5stage-vector-packed|cores-vector-functional:event-vector|cores-vector-functional:rv5stage-vector|cores-vector-functional:rv5stage-vector-control|cores-vector-functional:rv5stage-vector-config|cores-vector-functional:rv5stage-vector-fp|cores-vector-functional:rv5stage-vector-muldiv|cores-vector-functional:rv5stage-vector-reduction|cores-vector-functional:rv5stage-vector-memory|cores-vector-functional:rv5stage-vector-unroller|cores-vector-functional:rv5stage-zvkt)
       return 0
       ;;
     cores-vector-configurations:rv5stage-vector-packed-one-slot|cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:event-vector-one-slot|cores-vector-configurations:rv5stage-vector-reduction-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-muldiv-one-slot|cores-vector-configurations:rv5stage-vector-fp-one-slot|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-memory-sixteen-slots|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
@@ -816,6 +816,7 @@ direct_fixture_specs=(
   'rv5stage-vector-memory|rv5stage_vector_memory_tb'
   'rv5stage-vector-packed|rv5stage_vector_packed_tb'
   'rv5stage-vector-overlap|rv5stage_vector_overlap_tb'
+  'rv5stage-vector-admission|rv5stage_vector_admission_tb'
   'rv5stage-vector-packed-one-slot|rv5stage_vector_packed_tb'
   'rv5stage-vector-packed-rv32|rv5stage_vector_packed_tb'
   'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb'
