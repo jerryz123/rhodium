@@ -313,9 +313,10 @@ reset. RHEG's existing streaming epoch boundary remains explicit.
 Expand companion sites after transfer-site analysis so transfer IDs and
 `event_by_output` cut points remain unchanged. Certified linear trace projections
 and source/pipeline plans containing transparent replication supply stall
-dependencies. Replication preserves present references without selecting a
-blocked offer; selection, routing, broadcast, and join still need separate
-pending-offer contracts. Mark observation latency unknown. Do not use a missing
+dependencies. Selections additionally require an explicit pending-offer
+certification on every selector in the plan; transfer-only selections remain
+conservative. Routing, broadcast, and join still need separate pending-offer
+contracts. Mark observation latency unknown. Do not use a missing
 linear compatibility projection to discard an otherwise supported forked path.
 
 Lower each transfer checkpoint's incoming shadow state once, then reuse those

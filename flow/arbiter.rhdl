@@ -24,7 +24,7 @@ circuit ValidArbiter(T :: DataType, n :: PosInt):
   )
   chosen <== grant.index
   describe_interface_selection(for List (index in 0..n): grant[index])
-  describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection())
+  describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection(~pending: #true))
 
 // Lower indices have higher priority. The output uses Decoupled because a new
 // higher-priority arrival may change the selected payload while stalled.
@@ -46,7 +46,7 @@ circuit Arbiter(T :: DataType, n :: PosInt):
   )
   chosen <== grant.index
   describe_interface_selection(for List (index in 0..n): grant[index])
-  describe_interface_contract(ingress, egress, "data", ~kind: "arbiter", ~trace_model: interface_trace_selection())
+  describe_interface_contract(ingress, egress, "data", ~kind: "arbiter", ~trace_model: interface_trace_selection(~pending: #true))
 
 // Lower indices have higher priority among payloadless token offers.
 circuit CtrlArbiter(n :: PosInt):

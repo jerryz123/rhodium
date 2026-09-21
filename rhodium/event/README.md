@@ -379,8 +379,10 @@ unknown. Affected occurrences carry `ancestry_unknown: true` in RHEG and Perfett
 fully known selections do not. This describes immediate
 nearest-parent completeness, not transitive graph completeness: the next
 checkpoint supplies its own definite occurrence identity to downstream events.
-Linear stall observations share their transfer's carried status; unsupported
-nonlinear stall ancestry remains outside the offer-tracing contract.
+Linear stall observations share their transfer's carried status. Selections
+explicitly certified for pending offers also preserve their selected ancestry
+through stalls and downstream buffering; uncertified nonlinear ancestry remains
+outside the offer-tracing contract.
 
 Partial mode does not relax malformed-contract, clock/reset, unsafe fanout,
 same-cycle-cycle, or unbounded-capacity checks. It does not

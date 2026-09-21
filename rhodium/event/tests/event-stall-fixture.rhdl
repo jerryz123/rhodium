@@ -47,12 +47,28 @@ sync_circuit EventStall():
   gold_elastic.egress |> gold_sinks[1]
   gold_queued.egress |> gold_sinks[2]
 
-sync_circuit EventStallSelection():
+// The default contract certifies transfers only; the opt-in also certifies
+// the current offer. Hardware is identical for both metadata promises.
+circuit EventStallSelector(pending :: Boolean):
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def left = ingress[0].valid
+  egress.valid <== left ||| ingress[1].valid
+  egress.bits <== mux(left, ingress[0].bits, ingress[1].bits)
+  ingress[0].ready <== egress.ready
+  ingress[1].ready <== egress.ready & !left
+  describe_interface_selection([left, !left & ingress[1].valid])
+  describe_interface_contract(ingress, egress, "selection", ~trace_model: interface_trace_selection(~pending: pending))
+
+sync_circuit EventStallSelection(pending :: Boolean = #true):
   interface sources[2](Decoupled(Bits(8)), ~role: consumer)
   interface sink(Decoupled(Bits(8)), ~role: producer)
   def left = sources[0] |> trace_event("left") |> pipe(1)
   def right = sources[1] |> trace_event("right") |> pipe(1)
-  Array(left, right) |> arbiter() |> trace_event("selected", ~stalls: #true) |> sink
+  inst selector(EventStallSelector(pending))
+  left |> selector.ingress[0]
+  right |> selector.ingress[1]
+  selector.egress |> trace_event("selected", ~stalls: #true) |> sink
 
 sync_circuit EventStallIrrevocable():
   interface source(Irrevocable(Bits(8)), ~role: consumer)
@@ -71,10 +87,12 @@ sync_circuit EventStallInvalid(kind :: String):
 
 def stalled = elaborate_with_top(EventStall())
 def selected = elaborate_with_top(EventStallSelection())
+def transfer_selected = elaborate_with_top(EventStallSelection(#false))
 def stable = elaborate_with_top(EventStallIrrevocable())
 fun invalid(kind :: String): elaborate_with_top(EventStallInvalid(kind))
 export:
   stalled
   selected
+  transfer_selected
   stable
   invalid

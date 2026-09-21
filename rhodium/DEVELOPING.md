@@ -162,8 +162,8 @@ policy without importing a concrete processor.
 
 The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for
 mask expansion/merging, `std/ready-valid.rhdl` for authorized CSR events, and
-`flow/main.rhdl` for synchronous Valid read transactions, unroller read-context
-storage, and credited issue buffering. Its pure geometry
+`flow/main.rhdl` for backpressured read plans, synchronous Valid read
+transactions, operand-fetch context storage, and credited issue buffering. Its pure geometry
 dependency is `riscv/isa/vector.rhm`; that module imports Rhombus metadata only
 and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
 `std/bits.rhdl`; `cores/rv5stage/decode/vector-ctrl.rhdl` imports public
@@ -177,6 +177,12 @@ and accepted shared-service queues; it additionally imports named integer
 register-write and FP contracts, vector mask-scan controls, pure FP profiles,
 and public HardFloat rounding types. `vector/scoreboard.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
+`vector/unroller.rhdl` imports vector bundles, named decode/FP controls,
+the shared SIMD contracts, pure ISA geometry and instruction fields, the RISC-V
+vector RTL adapter, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
+imports vector packing, the RISC-V FP unboxing adapter, and HardFloat formats;
+the sequencer does not depend on operand fetch. Their shared read-plan types
+live in `vector/bundles.rhdl`.
 `vector/packed-memory.rhdl` imports the vector bundles and VRF contracts,
 footprint arithmetic, vector decode/ISA geometry, public bit helpers,
 and Flow. `vector/pipeline.rhdl` composes it with the existing execution engine

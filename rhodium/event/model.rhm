@@ -85,7 +85,7 @@ class EventTraceLink(vertex :: String, mutable target :: maybe(EventTracePlan) =
   reconstructor ~none
 class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
-class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan)):
+class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan), pending :: Boolean = #false):
   implements EventTracePlan
   method controls(): grants
 class EventTraceRouting(input :: EventTracePlan, instance_path :: List.of(String),

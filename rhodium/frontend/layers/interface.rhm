@@ -479,7 +479,7 @@ class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
 class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value))
+class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value), pending :: Boolean = #false)
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
 class InterfaceTraceAtomicFork(output_count :: PosInt)
@@ -524,6 +524,8 @@ class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
     if dynamic is_a InterfaceTraceSelection | dynamic.grants | #false
   method selection_instance():
     if dynamic is_a InterfaceTraceSelection | dynamic.instance | #false
+  method selection_pending():
+    dynamic is_a InterfaceTraceSelection && dynamic.pending
   method routing_predicates():
     if dynamic is_a InterfaceTraceRouting | dynamic.predicates | #false
   method atomic_fork_outputs():
@@ -1913,7 +1915,7 @@ fun describe_interface_selection(grants :: NonemptyList.of(HardwareEntity), ~nam
     value
   module_def.add_metadata(interface_selection_namespace, InterfaceSelection(module_def, grant_values, name))
 
-fun interface_trace_selection(instance :: maybe(Instance) = #false, ~name: name :: String = "data"):
+fun interface_trace_selection(instance :: maybe(Instance) = #false, ~name: name :: String = "data", ~pending: pending :: Boolean = #false):
   unless !instance || instance.operation.module_def === kernel.active_module()
   | error(~who: #'interface_trace_selection, "selection trace implementation must be a local instance")
   def owner = instance?.module_def || kernel.active_module()
@@ -1922,7 +1924,7 @@ fun interface_trace_selection(instance :: maybe(Instance) = #false, ~name: name 
   | error(~who: #'interface_trace_selection, "selection trace implementation requires declared grants")
   def grants = declarations[0].grants
   InterfaceTraceModel(for List (index in 0..grants.length()): InterfaceTraceRoute(index, 0),
-                      InterfaceTraceSelection(instance, grants))
+                      InterfaceTraceSelection(instance, grants, pending))
 
 // Certifies exclusive inline routing: no output selected means input blocked,
 // and each predicate is the original functional output-selection signal.

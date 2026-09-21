@@ -6,6 +6,7 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
   "../vector/csr.rhdl" open
+  "../vector/operand-fetch.rhdl" open
   "../vector/unroller.rhdl" open
   "../vector/register-file.rhdl" open
   "../vector/execute.rhdl" open
@@ -34,6 +35,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   unroller.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
   unroller.packed_memory <== Bool(#false)
   unroller.packed_done.valid <== Bool(#false)
+  inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, Bits(xlen.width)))
   inst bank(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
   execute.alignment.valid <== Bool(#false)
@@ -69,23 +71,26 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  unroller.reads <=> bank.reads
-  bank.results <=> unroller.results
-  unroller.mask_read <=> bank.mask_read
-  bank.mask_result <=> unroller.mask_result
+  unroller.read_request |> operand_fetch.request
+  operand_fetch.flush <== unroller.read_flush
+  operand_fetch.begin_macro <== unroller.request.fire()
+  operand_fetch.reads <=> bank.reads
+  bank.results <=> operand_fetch.results
+  operand_fetch.mask_read |> bank.mask_read
+  bank.mask_result |> operand_fetch.mask_result
   unroller.cancel.valid <== cancel
-  unroller.issue.ready <== issue_ready
-  execute.beat <== unroller.issue.bits.beat
+  operand_fetch.issue.ready <== issue_ready
+  execute.beat <== operand_fetch.issue.bits.beat
   execute.scan_carry <== bits(0, 64)
-  pipeline.ingress.valid <== unroller.issue.fire()
+  pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retained_control = unroller.retained.descriptor.control
   def serialized = (retained_control.integer ||| retained_control.fp_service) & retained_control.reduction ||| (retained_control.integer & (retained_control.scan ||| retained_control.compress))
   def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel & serialized
   pipeline.flush <== cancel ||| retry
   def authorization = pipeline.egress.valid & !retry & !cancel
-  unroller.feedback.valid <== pipeline.egress.valid & !cancel & serialized
-  unroller.feedback.bits <== RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width)):
+  operand_fetch.feedback.valid <== pipeline.egress.valid & !cancel & serialized
+  operand_fetch.feedback.bits <== RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width)):
     context: bits(0x100, xlen.width)
     sequence: pipeline.egress.bits.sequence
     first: pipeline.egress.bits.first
@@ -95,12 +100,14 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
     fault_address: bits(0, xlen.width)
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state
+  unroller.feedback.valid <== operand_fetch.feedback.valid
+  unroller.feedback.bits <== operand_fetch.feedback.bits
   bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())
   bank.write.bits <== mux(initialize.valid, initialize.bits, pipeline.egress.bits.write)
   assert(!(initialize.valid & unroller.active), "vector_fixture_initialization_is_exclusive")
   request_ready <== unroller.request.ready
-  active <== unroller.active
-  issued <== unroller.issue.fire()
+  active <== unroller.active ||| operand_fetch.active
+  issued <== operand_fetch.issue.fire()
   committed <== authorization
   retried <== retry
   result <== pipeline.egress.bits

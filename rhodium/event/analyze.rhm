@@ -21,7 +21,7 @@ class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
                      latency_cycles :: maybe(Nat),
                      trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)))
-class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String))
+class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String), pending :: Boolean)
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
 class FlowReplication(replication_id :: String, input :: String, output_index :: Nat)
@@ -233,7 +233,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
             when trace_model.selection_grants()
             | def owner_path = instance_path ++ trace_model.owner_path()
               def inputs = input_ports.map(fun (port): terminal_id(instance_path, flow_block.id, port.id))
-              selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs)
+              selections[terminal_id(instance_path, flow_block.id, output_ports[0].id)] := FlowSelection(owner_path, trace_model.selection_grants(), inputs, trace_model.selection_pending())
             when trace_model.routing_predicates()
             | def routing_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
               def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
@@ -458,7 +458,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                   routing.routing_id, routing.predicates, routing.output_index)
             | selection:
                 EventTraceSelection(selection.instance_path, selection.grants,
-                                    selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex], wanted)))
+                                    selection.inputs.map(fun (input): trace_plan(input, visiting ++ [vertex], wanted)), selection.pending)
             | arcs.length() == 0 && vertex in roots:
                 EventTraceSource(#false, #false, wanted != #false)
             | arcs.length() == 1 && arcs[0].trace_stages:
@@ -511,10 +511,10 @@ fun infer_event_manifest(logical :: DesignElaboration,
         observation_of = site.id
       )
       sites := sites ++ [stall]
-      // Transparent replication preserves present references even when the
-      // linear compatibility projection is unavailable. It does not select offers.
+      // Reuse the transfer plan only when every selection certifies its offered
+      // payload's grants even while blocked. Transfer-only grants stay conservative.
       def nodes = if dynamic | event_trace_nodes(plans[site.id]) | []
-      def pending_safe = dynamic && (for all (node in nodes): node is_a EventTraceSource || node is_a EventTracePipeline || node is_a EventTraceReplication || node is_a EventTraceRequire)
+      def pending_safe = dynamic && (for all (node in nodes): node is_a EventTraceSource || node is_a EventTracePipeline || node is_a EventTraceReplication || node is_a EventTraceRequire || (node is_a EventTraceSelection && node.pending))
       def parents = dependencies.filter(~keep: fun (edge): edge.child == site.id && (edge.trace_stages != #false || pending_safe))
       for (edge in parents):
         dependencies := dependencies ++ [edge with (child = stall.id, latency_cycles = #false)]

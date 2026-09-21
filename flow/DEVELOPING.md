@@ -104,6 +104,10 @@ reset, simultaneous-transfer, or backpressure correctness.
 or retaining losing occurrences. Its configured adapter delegates to that
 intrinsic contract. The `rv5stage-fetch-source` fixture checks nested Valid
 selection through replay/restart replacement and held cursor feedback.
+Both fixed-priority payload arbiters also certify pending-offer selection:
+their grants select the displayed payload independently of downstream readiness.
+This preserves stalled ancestry after merges without promising stable Decoupled
+offers or changing hardware.
 
 `OfferRegister` owns its retained trace contract. Capture on every update;
 release the old owner on occupied replacement or accepted output, with capture

@@ -9,13 +9,15 @@ def traced = instrument_events(fixture.stalled)
 def manifest = traced.manifest
 def stalls = manifest.sites.filter(~keep: fun (site): site.kind == "stall")
 def selection = instrument_events(fixture.selected).manifest
+def transfer_selection = instrument_events(fixture.transfer_selected).manifest
 check:
   manifest.sites.length() ~is 12
   stalls.length() ~is 6
   manifest.dependencies.length() ~is 6
   event_manifest_to_json(manifest).contains("\"kind\":\"stall\"") ~is #true
   event_manifest_to_cpp(manifest).contains("observation_of") ~is #true
-  selection.dependencies.filter(~keep: fun (edge): selection.site(edge.child).kind == "stall").length() ~is 0
+  selection.dependencies.filter(~keep: fun (edge): selection.site(edge.child).kind == "stall").length() ~is 2
+  transfer_selection.dependencies.filter(~keep: fun (edge): transfer_selection.site(edge.child).kind == "stall").length() ~is 0
   instrument_events(fixture.stable).manifest.sites.length() ~is 2
   fixture.invalid("missing-ready") ~throws "stall tracing requires valid and ready"
   fixture.invalid("collision-before") ~throws "event label must be unique"

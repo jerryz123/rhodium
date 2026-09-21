@@ -8,15 +8,25 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
-There is one in-order sequencer: `unroller.rhdl` retains one descriptor and never
-alternates among instructions. Ordinary compute relinquishes that descriptor
-when its final beat issues and may accept its replacement on the same edge;
-completion slots retain the already issued work. Memory, reduction, scan, and
-compression remain serialized through final non-replayable feedback because
-they retain replay or cross-beat state. The packed-memory schedule consumes the
-same descriptor; it is not another sequencer. `vector.rhdl` owns one front
-descriptor handoff so Decode admission and page-range certification can overlap
-the active owner. It is not a bank of instruction queues. Do not use pending
+There is one in-order sequencer: `unroller.rhdl` retains exactly one accepted
+descriptor and never alternates among instructions. `operand-fetch.rhdl` is a
+separate downstream stage that owns synchronous VRF reads, response alignment,
+operand packing, dependent gather reads, compression carry, and credited result
+buffering. The sequencer advances only on a Decoupled read-plan transfer. An
+ordinary compute tail transfer releases the descriptor and may simultaneously
+accept its replacement; the replacement's first read comes from those registers
+in the following cycle. There is no incoming-descriptor read bypass, prepared
+successor, or second instruction slot. The flow-through result queue permits
+consecutive issue while credits cover all nonbackpressurable responses.
+Memory, reduction, scan, and compression retain their descriptor through final
+feedback. Stateful and packed schedules wait for older operand preparation to
+drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
+accepted descriptor; it is not another sequencer. `vector.rhdl` owns one front
+descriptor handoff so WB admission and page-range certification can overlap the
+active owner. The scalar pipeline does not reserve this slot in Decode: WB
+either transfers the descriptor and its scalar-result reservation atomically,
+or precisely replays the instruction with no vector-side effect. It is not a
+bank of instruction queues. Do not use pending
 descriptor state to gate the older owner's issue stream, and release a page
 window only from the issue completion of the descriptor that acquired it. The
 completion-slot-sized owner ring lets accepted work outlive sequencing
@@ -66,7 +76,9 @@ The real MMU/cache vector-memory fixture remains the integration boundary.
 `pipeline.rhdl` traces actual admission after certificate waiting with one
 `vector/sequencer` residency before the schedule fork. Its local storage scope
 uses the existing unroller occupancy and mode-specific sequencing release:
-tail issue for ordinary compute, final feedback for serialized operations.
+final read-plan transfer for ordinary compute, final feedback for serialized
+operations. A read transferred on the replacement edge still belongs to the old
+descriptor; the following cycle's read belongs to its replacement.
 Accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
 emits no launch checkpoint. The original scalar WB identity follows the existing
 admission queue into the shared checkpoint, then each schedule's retained Flow.
@@ -81,8 +93,10 @@ In `packed-memory.rhdl`, retained macro
 ownership reaches each offer, the fixed attempt pipe reaches acceptance, and
 the accepted FIFO contract reaches ordered beat release. A completion denotes
 transfer into the masked row carry/write path, not raw response arrival.
-`unroller.rhdl` declares the retained descriptor's request-to-generated-beat
-relation at the pending queue ingress; the queue preserves that lineage through
+`unroller.rhdl` declares the retained descriptor's request-to-read-plan
+relation. Operand fetch carries that lineage through its fixed read-context
+pipe, optional gather pipe, and credited result queue. Compression's optional
+suffix retains its generating read context. These paths preserve lineage through
 stalls and explicit flush. Capture on macro acceptance, preserve across retry,
 and release only on the actual occupied-to-idle conditions. Never use the PC or
 the replayable operation index as an occurrence identity.
@@ -113,9 +127,10 @@ retries, fault/truncation, no-write completions, stalled issue, ordered drain,
 slot reuse, and pending reset. The multi-slot case returns younger responses
 first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
 memory/FP/muldiv fixtures as functional regressions for the affected paths.
-`rv5stage-vector-overlap` independently delays FP and memory responses to check
-final-acceptance release, FP-to-store row chaining, route changes with old
-responses outstanding, final-beat replay, WAW admission, persistent slot wrap,
+`rv5stage-vector-overlap` checks consecutive issue for independent single-beat
+compute macros and independently delays FP and memory responses to check
+registered read-tail replacement, FP-to-store row chaining, route changes with
+old responses outstanding, final-beat replay, WAW admission, persistent slot wrap,
 and a canceled packed prefix whose partial-row carry still needs writeback.
 
 ## Implementation ownership
@@ -140,8 +155,16 @@ independent of that authorization path.
 `bundles.rhdl` owns flat packed-beat/result types, context-bearing macro
 requests, and lightweight issue tokens. Keep these independent of the parent
 pipeline bundle definitions; scalar bundles must not contain packed vector data.
-`unroller.rhdl` owns descriptor retention, synchronous-read credits, issue
-position, and ordered authorization progress. `execute.rhdl` is combinational:
+`unroller.rhdl` owns descriptor retention, read planning, the sequencing cursor,
+and ordered authorization progress. `bundles.rhdl` owns the read-plan boundary.
+`operand-fetch.rhdl` owns VRF ports, per-beat context alignment, packing, gather,
+compression/retry checkpoints, and response credits. Its downstream beat storage
+survives ordinary sequencer replacement; it never selects or retains a successor
+instruction. `pipeline.rhdl` attaches an owner to each ordinary read plan,
+allocates completion slots from that carried owner, and routes VRF returns by
+the sampled read-port owner, not the current descriptor. Sequencing release,
+final issue, and ordered drain are separate events.
+`execute.rhdl` is combinational:
 it adapts the beat to the shared SIMD unit and packs its result, not a separate
 pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) composes the execution
 engine, memory attempt pipeline, macro ownership, and retirement outcome.

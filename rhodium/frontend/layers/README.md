@@ -1354,6 +1354,13 @@ and incomplete route sets are rejected. Instrumentation checks that observed
 grants are mutually exclusive rather than treating an overlapping mask as
 priority-ordered selection.
 
+`interface_trace_selection(~pending: #true)` additionally certifies that the
+grants identify the currently offered payload even without an output transfer.
+This enables exact ancestry on stall observations, including after buffering.
+It does not promise stability: a Decoupled selector may choose a different
+offered input on the next cycle. The default remains transfer-only; do not opt
+in when grants become meaningful only on a handshake.
+
 An inline zero-storage router uses `interface_trace_routing(predicates)` with
 the actual local one-bit output-selection predicates in output order. The
 `InterfaceTraceRouting` contract promises at most one selected output, input

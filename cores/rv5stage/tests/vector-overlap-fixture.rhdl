@@ -20,12 +20,12 @@ sync_circuit RV5StageVectorOverlap():
   def slots = 8
   input instruction: Bits(32)
   input(vl, vtype, scalar, hit_data): Bits(64)
-  input(request_valid, packed_memory, retry, slow, cancel): Bool
+  input(request_valid, packed_memory, retry, slow, cancel, issue_ready): Bool
   interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
   interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
   interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
-  output(request_ready, active, issued, issue_finished, retired): Bool
+  output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
@@ -55,7 +55,7 @@ sync_circuit RV5StageVectorOverlap():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   vector.packed_memory <== packed_memory
-  vector.issue |> to_valid() |> tokens.ingress
+  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
   def Array(observed, feedback) = tokens.egress |> fork_valid(2)
   observed |> attempt
   tokens.flush <== cancel ||| (tokens.egress.valid & retry)
@@ -83,6 +83,7 @@ sync_circuit RV5StageVectorOverlap():
   active <== vector.active
   issued <== vector.issue.fire()
   issue_finished <== vector.issue_done.valid
+  sequencing_finished <== vector.sequencing_done.valid
   retired <== vector.retire.valid
 
 export RV5StageVectorOverlap

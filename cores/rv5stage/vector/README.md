@@ -83,7 +83,7 @@ Completion is distinct from scalar macro retirement.
 
 Residency captures PC, instruction, VL, VSTART, encoded SEW/LMUL, and packed mode
 once at admission. Retry does not split its lifetime. Ordinary compute ends
-sequencing when its tail beat issues; memory and stateful cross-beat operations
+sequencing when its final read plan transfers; memory and stateful cross-beat operations
 end on final authorization or cancellation/fault/truncation. Accepted results
 may finish later. The shared sequencer emits one residency track for both modes.
 Issue captures
@@ -103,9 +103,10 @@ standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction 
 
 ### Execution ownership
 
-[`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a vector bank
-with three general read ports and a dedicated `v0` mask shadow, packed SIMD
-execution, and private feed-forward operand/result registers.
+[`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a separate
+synchronous operand-fetch stage, a vector bank with three general read ports
+and a dedicated `v0` mask shadow, packed SIMD execution, and private
+feed-forward operand/result registers.
 Its `request` accepts a legal macro snapshot only at nonspeculative WB. The
 unroller drives either the local SIMD/shared-service path or its own memory
 attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
@@ -147,15 +148,21 @@ the same edge taking priority. The integrated core updates architectural vector
 retirement state from scalar WB for compute and from `retire: Pulse` for memory
 certification or successful conservative acceptance. `execution_done: Pulse`
 reports completed execution. `active` includes accepted memory completion
-ownership; `unrolling` reports the separate issue/authorization lifetime.
+ownership; `unrolling` reports the separate registered-sequencer lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
 A one-entry descriptor handoff snapshots the next vector macro and starts any
 page-range certification while the sequencer is active. This is not an
 instruction-selection queue: there is one in-order sequencer and no alternate
 ready instruction. Pending certification never gates beats from the older active
-macro. Ordinary compute accepts its queued successor on the same edge that its
-tail beat issues, while the completion-slot owner ring retains older issued work.
+macro. Ordinary compute can accept its queued successor on the same edge that
+its final read plan transfers. Every read plan comes from the registered current
+instruction: the replacement's first read occurs in the following cycle, never
+from an incoming or speculative descriptor. Operand fetch retains each plan's
+controls and owner through VRF latency and issue backpressure, independently of
+sequencer replacement. Independent single-beat instructions can therefore read
+and issue on consecutive cycles. The completion-slot owner ring retains older
+issued work.
 Memory, reduction, scan, and compression instead retain the descriptor through
 final feedback because they carry replay or cross-beat state. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
@@ -183,16 +190,18 @@ MEM/WB without executing scalar side effects. EX forwarding resolves its scalar
 base and stride into a per-occurrence context carried beside the launch token;
 WB combines it with the then-current architectural vector state. Register
 numbers are decoded from the instruction rather than copied into that context.
-One vector launch token at a time crosses the scalar stages, reserving the single
-descriptor handoff without making WB elastic. Older scalar instructions can
-finish or squash the launch normally.
-Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
+Vector launch tokens may follow each other through the scalar stages. WB admits
+each into the single descriptor handoff or precisely replays it when full,
+without making WB elastic. Older scalar instructions can finish or squash the
+launch normally.
+[`RV5StageVectorOperandFetch`](operand-fetch.rhdl) owns three synchronous
+general VRF reads supplying `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. A two-slot credit
 window reserves space before every read, covering read latency and buffered
 beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
-per cycle. A macro has setup/drain latency; this is not single-cycle vector
-instruction issue.
+per cycle. Setup and final drain still have latency, but independent single-beat
+macros can overlap those stages and issue on consecutive cycles.
 
 For unit-stride and strided element memory, the unroller captures the full
 base address and an element step. Unit-stride uses `1 << EEW`; strided forms
@@ -274,7 +283,7 @@ adder.
 
 The six `vzext.vf2/vf4/vf8` and `vsext.vf2/vf4/vf8` forms retain destination
 SEW/LMUL scheduling while reading `vs2` at EEW `SEW/2`, `SEW/4`, or `SEW/8`.
-The unroller selects the corresponding narrow source fragment and
+Operand fetch selects the corresponding narrow source fragment and
 [`SimdExtend`](../../simd-alu.rhdl) directly wires its elements into one 64-bit
 destination beat. Legality rejects unsupported source EEW, source EMUL below
 1/8, misaligned groups, masked `v0` conflicts, and destination overlap except
@@ -285,14 +294,15 @@ The vector pipeline's private execution stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its result
 registers retain packed data until matching local acceptance transfers ownership
 to the ordered completion backend. An exclusive end position advances even for
-masked-off elements. The final authorized beat releases the sole unroller, not
-the pending results. Architectural retirement follows the certification/outcome
+masked-off elements. Ordinary compute releases the unroller at its final read
+transfer; serialized operations release it at final authorization. Neither
+releases pending result ownership. Architectural retirement follows the certification/outcome
 contract above; interrupt entry waits for all macro contexts to drain.
 A zero-length body or `vstart >= vl` emits one empty
 completion beat, with no register write.
 
-At the low-level unroller boundary, issued and authorized positions are
-separate. Ordered local feedback
+For serialized operations at the low-level unroller boundary, issued and
+authorized positions are separate. Ordered local feedback
 identifies the oldest unauthorized beat and the macro PC. Retry flushes all
 pending reads/issue beats and restarts at the authorized frontier, preserving
 already committed writes and the initial partial-chunk enable floor. The

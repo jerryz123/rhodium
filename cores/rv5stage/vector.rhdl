@@ -70,7 +70,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def can_admit = !waiting_retirement
   def admitted = request |> gate_flow(can_admit)
   def Array(pending_input, launch_request) = admitted |> atomic_fork(2)
-  def queued_descriptor = pending_input |> queue(1)
+  def queued_descriptor = pending_input |> queue(1, ~pipe: #true)
   available <== can_admit & !queued_descriptor.valid
   def launch = launch_request |> to_valid()
   (

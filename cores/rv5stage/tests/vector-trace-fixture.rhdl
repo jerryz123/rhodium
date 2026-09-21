@@ -22,7 +22,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   input(request_valid, issue_ready, cancel, slow, response_valid): Bool
   input disposition: RV5StageVectorDisposition
   input response_tag: Bits(index_width(slots))
-  output(request_ready, active, issued, committed, issue_done, enabled, memory): Bool
+  output(request_ready, active, issued, committed, issue_done, enabled, memory, sequenced): Bool
   output issue_tag: Bits(index_width(slots))
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
@@ -82,6 +82,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
   request_ready <== vector.request.ready
   active <== vector.active
+  sequenced <== vector.sequencing_done.valid
   issued <== vector.issue.fire()
   committed <== vector.commit.valid
   issue_done <== vector.issue_done.valid

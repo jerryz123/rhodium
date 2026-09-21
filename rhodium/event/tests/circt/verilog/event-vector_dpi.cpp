@@ -16,11 +16,14 @@ namespace {
 using rheg::Ref;
 struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled; };
 struct Owner { Attempt attempt; bool done; std::uint64_t due; };
+struct IssueOwner { Ref ref; unsigned next_index=0, authorized_index=0; };
 std::array<std::optional<Attempt>,3> pipe;
 std::deque<Owner> owners;
+std::deque<IssueOwner> issue_owners;
 std::optional<Ref> macro;
+std::optional<Ref> offered_macro;
 std::uint64_t cycle=0, launches=0, issues=0, completions=0, stalls=0;
-unsigned next_index=0, authorized_index=0, destination=0, length=0, macro_instruction=0;
+unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
 unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0;
 bool resetting=true, writes=true;
@@ -63,18 +66,21 @@ extern "C" unsigned vector_trace_response() {
 extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned instruction,
     unsigned vl, unsigned issue, unsigned tag, unsigned memory, unsigned enabled,
     unsigned commit, unsigned disposition, unsigned slow, unsigned response,
-    unsigned response_tag, unsigned cancel, unsigned issue_done) {
+    unsigned response_tag, unsigned cancel, unsigned issue_done, unsigned sequenced) {
   resetting=reset; expected.clear(); have_issue=false;
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
-    pipe={}; owners.clear(); macro.reset();
+    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_macro.reset();
     releases.clear(); resident=false;
-    cycle=launches=issues=completions=stalls=0; next_index=authorized_index=0;
+    cycle=launches=issues=completions=stalls=0;
     return;
   }
-  const auto issuing_macro=resident ? macro : std::nullopt;
-  const auto issuing_index=next_index;
-  if(issue_done) {
+  const auto issuing_macro=issue_owners.empty() ? std::nullopt : std::optional<Ref>{issue_owners.front().ref};
+  const auto issuing_index=issue_owners.empty() ? 0 : issue_owners.front().next_index;
+  offered_macro=issuing_macro;
+  const bool serialized=resident && ((macro_instruction&0x7f)==0x07 || (macro_instruction&0x7f)==0x27);
+  if(serialized && bool(sequenced)!=bool(issue_done)) fail("serialized sequencing release changed");
+  if(sequenced) {
     if(!resident || !macro) fail("sequencing completion without a resident macro");
     if(!releases.emplace(*macro,cycle).second) fail("duplicate sequencing completion");
     macro.reset(); resident=false;
@@ -86,7 +92,7 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     expect(macro->site,macro->sequence,{});
     destination=(instruction>>7)&31; length=vl; macro_instruction=instruction;
     writes=(instruction&0x7f)!=0x27 && ((instruction>>25)&1) && vl!=0;
-    next_index=authorized_index=0;
+    issue_owners.push_back({*macro});
   }
   if(response) {
     bool found=false;
@@ -109,18 +115,25 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     if(disposition==0) {
       for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
       owners.push_back({*pipe[2],!pipe[2]->memory || !slow || !pipe[2]->enabled,cycle+10+(3-pipe[2]->tag)*3});
-      authorized_index=pipe[2]->index+1;
-    } else if(disposition==1) { ++retry_count; next_index=authorized_index; }
+      if(pipe[2]->memory && !issue_owners.empty()) issue_owners.front().authorized_index=pipe[2]->index+1;
+    } else if(disposition==1) {
+      if(issue_owners.empty()) fail("retry without issue owner");
+      ++retry_count; issue_owners.front().next_index=issue_owners.front().authorized_index;
+    }
     else if(disposition==2) ++fault_count;
     else ++truncate_count;
   }
   std::optional<Attempt> incoming;
   if(issue) {
-    if(!issuing_macro) fail("issue without resident sequencing");
+    if(!issuing_macro) fail("issue without retained owner");
     incoming=Attempt{{vector_sites::issue,issues++},tag,issuing_index,bool(memory),bool(enabled)};
-    if(!launch) next_index=issuing_index+1;
+    issue_owners.front().next_index=issuing_index+1;
     expect(vector_sites::issue,incoming->ref.sequence,*issuing_macro);
     expected_index=incoming->index; have_issue=true; ++issued_count;
+  }
+  if(issue_done) {
+    if(!issuing_macro) fail("issue completion without owner");
+    issue_owners.pop_front();
   }
   if(cancel || (commit && disposition!=0)) pipe={};
   else { pipe[2]=pipe[1]; pipe[1]=pipe[0]; pipe[0]=incoming; }
@@ -137,8 +150,8 @@ extern "C" void vector_trace_check() {
   for(const auto& pair:graph.nodes) if(pair.second.cycle==cycle) {
     const auto ref=pair.first;
     if(ref.site==vector_sites::stall) {
-      if(!macro) fail("stall without macro");
-      check_parent(ref,*macro); ++stall_count; ++stalls;
+      if(!offered_macro) fail("stall without issue owner");
+      check_parent(ref,*offered_macro); ++stall_count; ++stalls;
     } else ++actual;
   }
   if(actual!=expected.size()) fail("wrong number of transfer occurrences");

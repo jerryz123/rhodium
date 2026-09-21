@@ -1,19 +1,21 @@
-// Checks final-acceptance release, row chaining, cross-route ownership, WAW interlocks, and replay.
+// Checks registered read-tail replacement, consecutive issue, row chaining, ownership, and replay.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_overlap_tb;
   logic clock=0, reset=1;
   logic [31:0] instruction=0;
   logic [63:0] vl=2, vtype=24, scalar=0, hit_data=0;
-  logic request_valid=0, packed_memory=0, retry=0, slow=0, cancel=0;
+  logic request_valid=0, packed_memory=0, retry=0, slow=0, cancel=0, issue_ready=1;
   struct packed { logic valid; RV5StageVectorCompletion bits; } response_in;
   struct packed { logic ready; } fp_request_in;
   struct packed { logic valid; RV5StageFpExecutionRequest bits; } fp_request_out;
   struct packed { logic valid; RV5StageFpExecutionResult bits; } fp_result_in;
   struct packed { logic ready; } fp_result_out;
   struct packed { logic valid; RV5StageVectorToken bits; } attempt_out;
-  wire request_ready, active, issued, issue_finished, retired;
+  wire request_ready, active, issued, issue_finished, sequencing_finished, retired;
   RV5StageVectorOverlap dut(.*);
   int cycle=0, phase=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0;
+  int phase1_issue_count=0, phase1_last_issue=0;
+  int phase1_launches=0, phase1_sequences=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
   bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
@@ -35,9 +37,21 @@ module rv5stage_vector_overlap_tb;
     #1;
     launch_seen=request_valid && request_ready;
     if (!reset) begin
-      if (issue_finished && launch_seen) tail_handoff_seen=1;
+      if (phase==1 && sequencing_finished && launch_seen) tail_handoff_seen=1;
+      if (phase==1) begin
+        if (sequencing_finished) begin
+          assert(phase1_sequences<phase1_launches) else $fatal(1,"incoming descriptor bypassed registered sequencing");
+          phase1_sequences++;
+        end
+        if (launch_seen) phase1_launches++;
+      end
       if (issue_finished) done_count++;
       if (retired) retired_count++;
+      if (phase==1 && issued) begin
+        if (phase1_issue_count!=0) assert(cycle==phase1_last_issue+1) else $fatal(1,"independent single-beat vector instructions did not issue consecutively");
+        phase1_last_issue=cycle;
+        phase1_issue_count++;
+      end
       if (fp_request_out.valid && fp_request_in.ready) begin
         assert(fp_count<8) else $fatal(1,"too many FP requests");
         fp_tags[fp_count++]=int'(fp_request_out.bits.tag);
@@ -78,31 +92,44 @@ module rv5stage_vector_overlap_tb;
     response_in='0; fp_result_in='0; fp_request_in.ready=1;
     tick(); reset=0;
 
-    // A single-beat compute descriptor transfers sequencing ownership to the
-    // next compute descriptor in the same cycle that its tail issues.
+    // The current registered instruction transfers its last read plan while
+    // accepting a replacement. The replacement reads only in the next cycle.
     phase=1;
-    vl=1;
+    vl=1; issue_ready=0;
     launch(add_insn(8),64'h0,0);
-    instruction=add_insn(12); request_valid=1;
+    launch(add_insn(9),64'h10,0);
+    launch(add_insn(10),64'h20,0);
+    instruction=add_insn(11); scalar=64'h30; request_valid=1;
+    // Two credited responses fill the fetch buffer. The third descriptor's
+    // final read is blocked, so the offered fourth descriptor cannot replace it.
+    repeat(4) begin
+      tick();
+      assert(!launch_seen && !sequencing_finished && !issued) else $fatal(1,"stalled final read replaced the current instruction");
+    end
+    issue_ready=1;
     do tick(); while (!launch_seen);
     request_valid=0;
+    // Continue beyond the owner-ring depth: replacement must sustain issue,
+    // not merely empty a short burst already held in operand preparation.
+    for (int destination=12; destination<24; destination++)
+      launch(add_insn(destination),64'(destination-8)<<4,0);
     drain();
-    assert(tail_handoff_seen && done_count==2 && retired_count==2) else $fatal(1,"single-beat vector tail inserted a sequencing bubble");
+    assert(tail_handoff_seen && phase1_sequences==16 && phase1_issue_count==16 && done_count==16 && retired_count==16) else $fatal(1,"single-beat vector tail inserted a sequencing bubble");
     done_count=0; retired_count=0; vl=2;
     phase=2;
 
     launch(load_insn(8),64'h100,0); drain();
     launch(load_insn(10),64'h180,1); drain();
 
-    // The older FP descriptor releases only after its final local acceptance,
-    // while neither service result has returned. A dependent packed store is
-    // admitted immediately and chains on each completed 64-bit register row.
+    // Packed admission waits for the older FP operand stream to issue, while
+    // neither service result has returned. The dependent store then chains
+    // on each completed 64-bit register row.
     phase=3;
     launch(32'h02001057 | (32'd8<<20) | (32'd10<<15) | (32'd12<<7),64'h200,0);
     instruction=store_insn(12); scalar=64'h300; packed_memory=1; request_valid=1;
     do begin
       tick();
-      assert(!launch_seen || done_count==3) else $fatal(1,"unroller replaced a replayable FP instruction");
+      assert(!launch_seen || done_count==3) else $fatal(1,"packed admission overtook FP operand preparation");
     end while(!launch_seen);
     request_valid=0;
     assert(active) else $fatal(1,"FP tail lost ownership");
@@ -163,6 +190,30 @@ module rv5stage_vector_overlap_tb;
     vl=1; vtype=24; store_count=0;
     launch(store_insn(18),64'h400,0); drain();
     assert(store_count==1 && stores[0][39:0]==40'h0706050403 && retired_count==9) else $fatal(1,"canceled accepted carry was lost");
+    // Each returning read must keep its own SEW and immediate, even though
+    // the sequencer has already captured a differently configured successor.
+    phase=7; vl=2; vtype=24;
+    for(int rd=20;rd<=23;rd++) begin
+      launch(32'h5e003057 | (32'(rd)<<7),64'h40,0); drain();
+    end
+    vl=1;
+    for(int n=0;n<4;n++) begin
+      vtype=64'd24-(64'(n)<<3);
+      launch(32'h5e003057 | (32'(n+1)<<15) | (32'(20+n)<<7),64'd80+64'(n),0);
+    end
+    drain();
+    vtype=24; store_count=0;
+    for(int rd=20;rd<=23;rd++) begin
+      launch(store_insn(rd),64'h500,0); drain();
+    end
+    assert(store_count==4 && stores[0]==1 && stores[1]==2 && stores[2]==3 && stores[3]==4) else $fatal(1,"read response used a replacement descriptor's SEW/immediate");
+    // Cancellation must also release owners already sequenced into operand
+    // buffering, not just the one descriptor still resident in the unroller.
+    phase=8; issue_ready=0;
+    launch(add_insn(20),64'h60,0);
+    launch(add_insn(21),64'h70,0);
+    launch(add_insn(22),64'h80,0);
+    cancel=1; tick(); cancel=0; issue_ready=1; drain();
     $display("Vector overlap passed: tail handoff, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
     $finish;
   end

@@ -144,7 +144,23 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   last: Bool
   compress_state: RV5StageVectorCompressState(vlen)
 
+// A read plan carries its own descriptor and restart bounds across VRF latency.
+bundle RV5StageVectorReadContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  instruction: RV5StageVectorInstruction(xlen, Context)
+  minimum: Bits(index_width(vlen + 1))
+  beat: RV5StageVectorBeat(vlen)
+  slide_valid: Bits(16)
+
+bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  context: RV5StageVectorReadContext(xlen, vlen, Context)
+  enables: Bits(3)
+  addresses: Vec(3, Bits(index_width(vector_depth(vlen))))
+  mask_enable: Bool
+  mask_address: Bits(index_width(vector_chunks(vlen)))
+
 export:
+  RV5StageVectorReadContext
+  RV5StageVectorReadRequest
   RV5StageVectorAlignment
   vector_sequence_width
   RV5StageVectorDescriptor
