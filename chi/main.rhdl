@@ -13,6 +13,7 @@ import:
   lib("chi/transactions/coherent-transaction.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl") open
   lib("chi/transactions/read-once.rhdl") open
+  lib("chi/transactions/read-stream.rhdl") open
   lib("chi/transactions/cache-maintenance.rhdl") open
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/channels.rhdl") open
@@ -84,6 +85,9 @@ export:
   CHIReadOnceResult
   chi_read_once_request
   CHIReadOnce
+  CHIReadStreamCommand
+  CHIReadStreamLine
+  CHIReadStream
   CHICacheMaintenanceResponses
   CHICacheMaintenanceCommand
   CHICacheMaintenanceResult

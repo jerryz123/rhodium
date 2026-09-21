@@ -427,6 +427,18 @@ packets; accumulates poison and the first non-OK response error; sends
 `CompAck`; and retains the completed line until accepted. It owns no address
 map, endpoint ID allocator, or Home allocation policy.
 
+[`transactions/read-stream.rhdl`](transactions/read-stream.rhdl) implements a
+CHI RN-I streaming reader above `CHIReadOnce`. It instantiates one transaction
+engine per stream slot, assigns a contiguous caller-selected TxnID range,
+arbitrates requests and `CompAck` messages, routes RSP/DAT by TxnID, buffers
+out-of-order completions, and emits lines in address order. Each command carries
+the start address, byte count, stride, Home, PAS, allocation, and QoS policy.
+It can restart immediately, discards buffered old lines, and reserves TxnIDs for
+old in-flight transactions until their late completions arrive. An active stream
+with no line at a consumer-ready deadline pulses `underflow` and sets `starved`
+until the next command. Output lines retain the exact CHI response error and
+poison indication.
+
 ### NoC compilation and transport
 
 [`noc/noc-authoring.rhm`](noc/noc-authoring.rhm) describes RN, HN-side, and SN sites as

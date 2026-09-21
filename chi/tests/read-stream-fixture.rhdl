@@ -1,0 +1,14 @@
+#lang rhodium
+// Elaborates a three-slot CHI-backed line-read stream with 128-bit DAT flits.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/transactions/read-stream.rhdl").CHIReadStream
+
+def read_stream_flit = CHIFlitParams(~data_width: 128, ~poison: #true)
+def read_stream_design = elaborate(CHIReadStream(read_stream_flit, 3, 16))
+
+export:
+  read_stream_design
+  read_stream_flit

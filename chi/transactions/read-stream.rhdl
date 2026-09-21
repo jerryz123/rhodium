@@ -1,0 +1,224 @@
+#lang rhodium
+// Streams ordered 64-byte lines through concurrent CHI ReadOnce transactions.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+  lib("chi/transactions/read-once.rhdl") open
+
+bundle CHIReadStreamCommand(p :: CHIFlitParams):
+  start_address: Bits(p.request_address_width)
+  byte_count: Bits(p.request_address_width)
+  stride: Bits(p.request_address_width)
+  home_id: Bits(p.node_id_width)
+  pas: CHIPAS
+  allocate: Bool
+  qos: Bits(4)
+
+bundle CHIReadStreamLine(p :: CHIFlitParams):
+  address: Bits(p.request_address_width)
+  data: Bits(512)
+  valid_bytes: Bits(7)
+  last: Bool
+  error: CHIRespErr
+  poisoned: Bool
+
+// The slot array is both the outstanding ReadOnce window and the completion
+// reorder buffer. Restart discards buffered old lines, but keeps in-flight
+// TxnIDs reserved until their late completions arrive.
+sync_circuit CHIReadStream(p :: CHIFlitParams,
+                           slots :: PosInt,
+                           txn_base :: Nat):
+  unless txn_base + slots <= 4096
+  | error(~who: #'CHIReadStream,
+          "transaction-ID range must fit the 12-bit CHI field")
+
+  def ReadCommand = CHIReadOnceCommand(p, Bits(index_width(slots)))
+  def ReadResult = CHIReadOnceResult(p, Bits(index_width(slots)))
+  def empty_slots = vec(for List (_ in 0..slots): Bool(#false))
+
+  input node_id: Bits(p.node_id_width)
+  interface command(Decoupled(CHIReadStreamCommand(p)), ~role: consumer)
+  interface line(Irrevocable(CHIReadStreamLine(p)), ~role: producer)
+  interface chi(CHIRNIChannels(p), ~role: node)
+  output active: Bool
+  output done: Bool
+  output underflow: Bool
+  output starved: Bool
+
+  reg stream_active(~init: Bool(#false))
+  reg starvation_seen(~init: Bool(#false))
+  reg next_address(~init: bits(0, p.request_address_width))
+  reg remaining_bytes(~init: bits(0, p.request_address_width))
+  reg stride(~init: bits(64, p.request_address_width))
+  reg home_id(Bits(p.node_id_width))
+  reg pas(CHIPAS)
+  reg allocate(Bool)
+  reg qos(Bits(4))
+  reg issue_slot(~init: bits(0, index_width(slots)))
+  reg output_slot(~init: bits(0, index_width(slots)))
+  reg occupied(Vec(slots, Bool), ~init: empty_slots)
+  reg current(Vec(slots, Bool), ~init: empty_slots)
+  reg completed(Vec(slots, Bool), ~init: empty_slots)
+  reg addresses(Vec(slots, Bits(p.request_address_width)))
+  reg byte_counts(Vec(slots, Bits(7)))
+  reg final_lines(Vec(slots, Bool))
+  reg data(Vec(slots, Bits(512)))
+  reg errors(Vec(slots, CHIRespErr))
+  reg poison(Vec(slots, Bool))
+
+  fun following_slot(slot :: Bits(index_width(slots))):
+    mux(slot === bits(slots - 1, index_width(slots)),
+        bits(0, index_width(slots)),
+        slot + bits(1, index_width(slots)))
+
+  command.ready <== Bool(#true)
+  def command_fire = command.fire()
+  when command_fire:
+    assert(command.bits.start_address.is_aligned(64),
+           "chi_read_stream_start_aligned")
+    assert(command.bits.stride.is_aligned(64),
+           "chi_read_stream_stride_aligned")
+
+  inst command_demux(Demux(ReadCommand, slots))
+  inst request_arbiter(RRArbiter(CHIReqFlit(p), slots))
+  inst acknowledgement_arbiter(RRArbiter(CHIRspFlit(p), slots))
+  inst response_demux(Demux(CHIRspFlit(p), slots))
+  inst data_demux(Demux(CHIDatFlit(p), slots))
+  inst completion_arbiter(RRArbiter(ReadResult, slots))
+
+  def issue_available = stream_active & remaining_bytes.or_reduce() & !occupied[issue_slot]
+  def final_issue = remaining_bytes <= bits(64, p.request_address_width)
+  def issued_byte_count = mux(final_issue,
+                              remaining_bytes,
+                              bits(64, p.request_address_width))
+  command_demux.ingress.valid <== issue_available & !command.valid
+  command_demux.ingress.bits <== CHIReadOnceCommand(p, Bits(index_width(slots))):
+    address: next_address
+    home_id: home_id
+    pas: pas
+    allocate: allocate
+    qos: qos
+    context: issue_slot
+  command_demux.select <== issue_slot
+  def request_fire = command_demux.ingress.fire()
+
+  request_arbiter.egress |> chi.req
+  acknowledgement_arbiter.egress |> chi.rsp.requester
+  chi.rsp.response |> response_demux.ingress
+  chi.dat.response |> data_demux.ingress
+  chi.dat.request.valid <== Bool(#false)
+  chi.dat.request.bits <== literal(CHIDatFlit(p), 0)
+
+  def response_txn_id = chi.rsp.response.bits.txn_id
+  def response_in_range = (response_txn_id >= bits(txn_base, 12)) & (
+    response_txn_id < bits(txn_base + slots, 12)
+  )
+  def response_slot = (response_txn_id - bits(txn_base, 12))[0..index_width(slots)]
+  response_demux.select <== response_slot
+  when (chi.rsp.response.valid):
+    assert(response_in_range, "chi_read_stream_response_txn_in_range")
+
+  def data_txn_id = chi.dat.response.bits.txn_id
+  def data_in_range = (data_txn_id >= bits(txn_base, 12)) & (
+    data_txn_id < bits(txn_base + slots, 12)
+  )
+  def data_slot = (data_txn_id - bits(txn_base, 12))[0..index_width(slots)]
+  data_demux.select <== data_slot
+  when (chi.dat.response.valid):
+    assert(data_in_range, "chi_read_stream_data_txn_in_range")
+
+  completion_arbiter.egress.ready <== !command.valid
+  def completion_fire = completion_arbiter.egress.fire()
+  def completion = completion_arbiter.egress.bits
+
+  def output_available = stream_active & current[output_slot] & completed[output_slot]
+  line.valid <== output_available & !command.valid
+  line.bits <== CHIReadStreamLine(p):
+    address: addresses[output_slot]
+    data: data[output_slot]
+    valid_bytes: byte_counts[output_slot]
+    last: final_lines[output_slot]
+    error: errors[output_slot]
+    poisoned: poison[output_slot]
+  def line_fire = line.fire()
+
+  active <== stream_active
+  done <== line_fire & line.bits.last
+  underflow <== stream_active & line.ready & !line.valid & !command.valid
+  starved <== starvation_seen
+
+  when command_fire:
+    stream_active <== command.bits.byte_count.or_reduce()
+  elsewhen (line_fire & line.bits.last):
+    stream_active <== Bool(#false)
+  when command_fire:
+    next_address <== command.bits.start_address
+    remaining_bytes <== command.bits.byte_count
+    stride <== command.bits.stride
+    home_id <== command.bits.home_id
+    pas <== command.bits.pas
+    allocate <== command.bits.allocate
+    qos <== command.bits.qos
+  elsewhen request_fire:
+    next_address <== next_address + stride
+    remaining_bytes <== remaining_bytes - issued_byte_count
+  when command_fire:
+    starvation_seen <== Bool(#false)
+  elsewhen underflow:
+    starvation_seen <== Bool(#true)
+  when request_fire:
+    issue_slot <== following_slot(issue_slot)
+  when command_fire:
+    output_slot <== issue_slot
+  elsewhen line_fire:
+    output_slot <== following_slot(output_slot)
+
+  for (index in 0..slots):
+    def index_tag = bits(index, index_width(slots))
+    def issues_index = request_fire & (issue_slot === index_tag)
+    def completes_index = completion_fire & (completion.context === index_tag)
+    def outputs_index = line_fire & (output_slot === index_tag)
+    when command_fire:
+      occupied[index] <== occupied[index] & !completed[index]
+      current[index] <== Bool(#false)
+      completed[index] <== Bool(#false)
+    elsewhen outputs_index:
+      occupied[index] <== Bool(#false)
+      current[index] <== Bool(#false)
+      completed[index] <== Bool(#false)
+    elsewhen completes_index:
+      occupied[index] <== mux(current[index], occupied[index], Bool(#false))
+      completed[index] <== current[index]
+      when (current[index]):
+        data[index] <== completion.line
+        errors[index] <== completion.error
+        poison[index] <== completion.poisoned
+    elsewhen issues_index:
+      occupied[index] <== Bool(#true)
+      current[index] <== Bool(#true)
+      completed[index] <== Bool(#false)
+      addresses[index] <== next_address
+      byte_counts[index] <== issued_byte_count[0..7]
+      final_lines[index] <== final_issue
+
+  for (index in 0..slots):
+    inst reader(CHIReadOnce(p, Bits(index_width(slots))))
+    reader.node_id <== node_id
+    reader.txn_id <== bits(txn_base + index, 12)
+    command_demux.egress[index] |> reader.command
+    reader.requests |> request_arbiter.ingress[index]
+    reader.acknowledgements |> acknowledgement_arbiter.ingress[index]
+    response_demux.egress[index] |> reader.responses
+    data_demux.egress[index] |> reader.response_data
+    reader.completion |> completion_arbiter.ingress[index]
+
+export:
+  CHIReadStreamCommand
+  CHIReadStreamLine
+  CHIReadStream

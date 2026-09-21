@@ -15,6 +15,13 @@ completion. It deliberately receives physical Home, node, and transaction
 identity from its caller; address maps, ID allocation, and cache-fill policy
 remain outside the engine.
 
+`read-stream.rhdl` owns CHI streaming-read policy: line address sequencing, the
+combined outstanding/reorder slot lifetime, restart handling for late CHI
+completions, consumer-deadline underflow, fixed TxnID-to-engine mapping, channel
+arbitration, and RSP/DAT routing. It composes `CHIReadOnce` rather than exposing
+an intermediate memory protocol. Validate changes with the `chi-read-stream`
+fixture.
+
 Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
 benches in [`../tests/circt/`](../tests/circt/).
 For source moves, update direct consumers, package documentation, and build/CI
