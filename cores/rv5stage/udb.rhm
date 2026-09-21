@@ -139,15 +139,20 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
 
 fun rv5stage_udb_parameters(profile :: RV5StageConfig,
                             physical_address_width :: PosInt,
-                            pma_granularity_log2 :: PosInt) :: NonemptyList.of(UdbParameter):
+                            pma_granularity_log2 :: PosInt,
+                            ~pmlen: pmlen :: Nat = 0) :: NonemptyList.of(UdbParameter):
   when physical_address_width > 64
   | error(~who: #'rv5stage_udb_parameters, "physical address width must not exceed 64")
   when profile.xlen == XLen.X32 && physical_address_width > 32
   | error(~who: #'rv5stage_udb_parameters, "RV32 RV5Stage physical address width must not exceed 32")
   unless pma_granularity_log2 >= 2 && pma_granularity_log2 <= 66
   | error(~who: #'rv5stage_udb_parameters, "PMA granularity log2 must be between 2 and 66")
-  def xlen = profile.xlen.width
   def selected = profile.extensions
+  when selected.ssnpm && ![0, 7, 16].contains(pmlen)
+  | error(~who: #'rv5stage_udb_parameters, "Ssnpm PMLEN must be 0, 7, or 16")
+  when !selected.ssnpm && pmlen != 0
+  | error(~who: #'rv5stage_udb_parameters, "nonzero PMLEN requires Ssnpm")
+  def xlen = profile.xlen.width
   def mutable result = [
     natural_parameter("MXLEN", xlen),
     natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
@@ -229,6 +234,8 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   | result := result ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #false)]
   when selected.zicbom
   | result := result ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
+  when selected.ssnpm
+  | result := result ++ [natural_parameter("PMLEN", pmlen)]
   when selected.zawrs
   | result := result ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
   when floating_point_supports_f(selected.floating_point)
@@ -277,12 +284,13 @@ fun rv5stage_udb_configuration(profile :: RV5StageConfig,
                                name :: NonemptyString,
                                description :: NonemptyString,
                                physical_address_width :: PosInt,
-                               pma_granularity_log2 :: PosInt = 3):
+                               pma_granularity_log2 :: PosInt = 3,
+                               ~pmlen: pmlen :: Nat = 0):
   UdbConfiguration(
     name,
     description,
     rv5stage_udb_extensions(profile),
-    rv5stage_udb_parameters(profile, physical_address_width, pma_granularity_log2)
+    rv5stage_udb_parameters(profile, physical_address_width, pma_granularity_log2, ~pmlen)
   )
 
 export:

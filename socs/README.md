@@ -124,6 +124,8 @@ make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
 
 The current keys are `single-core-rv5stage-soc`, `mini-rv5stage-soc`, and `tiled-rv5stage-soc`. Output defaults
 to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
+The SingleCore configuration selects PMLEN 7 for its Ssnpm/Supm test
+environment; configurations without Ssnpm omit PMLEN.
 Generated configurations are build artifacts and must not be committed.
 
 ## Common host and platform contract

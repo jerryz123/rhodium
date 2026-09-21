@@ -175,22 +175,38 @@ class ArchTestConfigTest(unittest.TestCase):
 
     def test_pointer_masking_environment_projects_to_sail_hardware(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
-        udb = {"params": architecture_params(), "implemented_extensions": [
-            {"name": "Sm", "version": "= 1.12.0"},
-            {"name": "Ssnpm", "version": "= 1.0.0"},
-            {"name": "Supm", "version": "= 1.0.0"},
-        ]}
-        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
-        self.assertEqual(config["extensions"]["Ssnpm"], {
-            "supported": True, "supported_pmlen_7": True, "supported_pmlen_16": True,
-        })
+        for pmlen in (0, 7, 16):
+            params = architecture_params()
+            params["PMLEN"] = pmlen
+            udb = {"params": params, "implemented_extensions": [
+                {"name": "Sm", "version": "= 1.12.0"},
+                {"name": "Ssnpm", "version": "= 1.0.0"},
+                {"name": "Supm", "version": "= 1.0.0"},
+            ]}
+            config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+            self.assertEqual(config["extensions"]["Ssnpm"], {
+                "supported": True, "supported_pmlen_7": True, "supported_pmlen_16": True,
+            })
         for extensions, message in ((["Supm"], "requires Ssnpm"),
                                     (["Ssnpm", "Supm"], "needs a Sail mapping")):
-            invalid = {"params": architecture_params(), "implemented_extensions": [
+            params = architecture_params()
+            params["PMLEN"] = 7
+            invalid = {"params": params, "implemented_extensions": [
                 {"name": "Sm", "version": "= 1.12.0"},
             ] + [{"name": name, "version": "= 2.0.0" if len(extensions) == 2 else "= 1.0.0"}
                  for name in extensions]}
             with self.subTest(extensions=extensions), self.assertRaisesRegex(ValueError, message):
+                configure["sail_config"](sail_default(), invalid, 0x80000000, 0x40000000)
+        for extensions, pmlen, message in ((["Ssnpm"], None, "requires PMLEN"),
+                                           (["Ssnpm"], 8, "PMLEN to be 0, 7, or 16"),
+                                           ([], 7, "PMLEN requires Ssnpm")):
+            params = architecture_params()
+            if pmlen is not None:
+                params["PMLEN"] = pmlen
+            invalid = {"params": params, "implemented_extensions": [
+                {"name": "Sm", "version": "= 1.12.0"},
+            ] + [{"name": name, "version": "= 1.0.0"} for name in extensions]}
+            with self.subTest(extensions=extensions, pmlen=pmlen), self.assertRaisesRegex(ValueError, message):
                 configure["sail_config"](sail_default(), invalid, 0x80000000, 0x40000000)
 
     def test_access_fault_region_is_unmapped_sized_and_rendered(self):

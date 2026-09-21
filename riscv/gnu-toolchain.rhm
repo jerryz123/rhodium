@@ -13,7 +13,7 @@ def GnuVectorLengthExtensions = VectorLengthExtensionLengths.map(vector_length_e
 def GnuIgnoredExtensions = ["ssnpm", "supm"]
 def GnuMultiLetterExtensions = [
   "za64rs", "zba", "zbb", "zbs", "zca", "zcb", "zcd", "zcf", "zcmop",
-  "zic64b", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",
+  "zic64b", "zicbom", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",
   "zawrs", "zihintpause", "zihintntl", "zicntr", "zicond", "zicsr",
   "zifencei", "zihpm", "zimop", "zkt",
   "zfa", "zfh", "zfhmin", "zvbb", "zvfh", "zvfhmin", "zvkb", "zvkt", "zve32x", "zve32f", "zve64x", "zve64f",

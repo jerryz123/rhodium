@@ -861,7 +861,9 @@ including U/S/M privilege, direct-only `mtvec` and `stvec`, read-only `misa`,
 no PMP or HPM counters, trapping misaligned accesses, exact-address-and-width
 LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
-core's integration rather than `RV5StageConfig`.
+core's integration rather than `RV5StageConfig`. When Ssnpm is selected, the
+UDB environment's active PMLEN is likewise an explicit input; it must be 0, 7,
+or 16 and is omitted when Ssnpm is absent.
 
 The projection declares `S` and `Sm` 1.12, matching the environment-configuration
 CSRs and trap-return behavior. `mconfigptr` reads as zero (no configuration

@@ -30,7 +30,8 @@ def rv64_yaml = rv5stage_udb_configuration(
   rv64_double,
   "rhodium-rv5stage-rv64dc",
   "RV5Stage RV64D+C configuration",
-  44
+  44,
+  ~pmlen: 7
 ).to_yaml()
 
 def rv64_vector_half_yaml = rv5stage_udb_configuration(
@@ -82,9 +83,20 @@ for (xlen in [XLen.X32, XLen.X64]):
           yaml.contains("{ name: \"Ziccamoa\", version: \"= 1.0.0\" }") ~is atomic
           yaml.contains("{ name: \"Ziccrse\", version: \"= 1.0.0\" }") ~is eventual
 
+for (pmlen in [0, 7, 16]):
+  check:
+    rv5stage_udb_configuration(
+      rv64_double,
+      "pointer-mask-length",
+      "Selected pointer mask length",
+      44,
+      ~pmlen
+    ).to_yaml().contains("  PMLEN: " ++ to_string(pmlen)) ~is #true
+
 check:
   rv64_yaml.contains("{ name: \"Ssnpm\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("{ name: \"Supm\", version: \"= 1.0.0\" }") ~is #true
+  rv64_yaml.contains("  PMLEN: 7") ~is #true
   rv64_vector_half_yaml.contains("{ name: \"Zvfhmin\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_half_yaml.contains("{ name: \"Zfhmin\",") ~is #false
   rv64_vector_full_half_yaml.contains("{ name: \"Zfh\", version: \"= 1.0.0\" }") ~is #true
@@ -171,3 +183,17 @@ check:
     "Invalid RV32 address width",
     33
   ) ~throws "must not exceed 32"
+  rv5stage_udb_configuration(
+    RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)),
+    "invalid-pointer-mask-length",
+    "Invalid pointer mask length",
+    44,
+    ~pmlen: 8
+  ) ~throws "PMLEN must be 0, 7, or 16"
+  rv5stage_udb_configuration(
+    RV5StageConfig(~xlen: XLen.X64),
+    "unsupported-pointer-masking",
+    "Pointer masking without Ssnpm",
+    44,
+    ~pmlen: 7
+  ) ~throws "nonzero PMLEN requires Ssnpm"

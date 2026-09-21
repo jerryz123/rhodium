@@ -5,6 +5,12 @@
 import:
   "../udb.rhm" open
   "../core-profiles.rhm" open
+  "../../riscv/gnu-toolchain.rhm".gnu_isa_target
+
+def single_core_gnu_target = gnu_isa_target(
+  single_core_rv5stage_soc_core_profile.xlen,
+  single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions
+)
 
 for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_profile, tiled_rv5stage_soc_core_profile]):
   check:
@@ -53,6 +59,10 @@ for (name in ["mini-rv5stage-soc", "tiled-rv5stage-soc"]):
       riscv_udb_configuration(name).to_yaml().contains("{ name: \"" ++ extension ++ "\",") ~is #false
 
 check:
+  single_core_gnu_target.march.contains("zicbom") ~is #true
+  riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("  PMLEN: 7") ~is #true
+  riscv_udb_configuration("mini-rv5stage-soc").to_yaml().contains("  PMLEN:") ~is #false
+  riscv_udb_configuration("tiled-rv5stage-soc").to_yaml().contains("  PMLEN:") ~is #false
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvkb\", version: \"= 1.0.0\" }") ~is #true

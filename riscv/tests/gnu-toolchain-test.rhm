@@ -16,6 +16,7 @@ def rv64_vector_full_half = gnu_isa_target(XLen.X64, ["i", "m", "a", "f", "d", "
 def rv64_vector_bitmanip = gnu_isa_target(XLen.X64, ["i", "m", "a", "v", "zvbb"])
 def rv64_vector_crypto_bitmanip = gnu_isa_target(XLen.X64, ["i", "m", "a", "v", "zvkb"])
 def rv64_vector_timing = gnu_isa_target(XLen.X64, ["i", "m", "a", "v", "zvkt"])
+def rv64_cache_block_management = gnu_isa_target(XLen.X64, ["i", "zicbom"])
 def rv64_pointer_masking = gnu_isa_target(XLen.X64, ["i", "m", "a", "ssnpm", "supm"])
 
 check:
@@ -28,6 +29,7 @@ check:
   rv64_vector_bitmanip.march ~is "rv64imav_zvbb"
   rv64_vector_crypto_bitmanip.march ~is "rv64imav_zvkb"
   rv64_vector_timing.march ~is "rv64imav_zvkt"
+  rv64_cache_block_management.march ~is "rv64i_zicbom"
   rv64_pointer_masking.march ~is "rv64ima"
   gnu_isa_target(XLen.X64, ["m"]) ~throws "base I"
   gnu_isa_target(XLen.X64, ["i", "future_extension"]) ~throws "no GNU toolchain spelling"

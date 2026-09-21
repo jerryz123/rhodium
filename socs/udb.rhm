@@ -9,6 +9,7 @@ import:
   "core-profiles.rhm" open
 
 def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
+def SingleCoreRV5StageSoCUdbPmlen = 7
 
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
   match configuration_name
@@ -17,7 +18,8 @@ fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfigur
         single_core_rv5stage_soc_core_profile,
         "rhodium-single-core-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Single-Core RV5Stage SoC",
-        DefaultRhodiumSoCRequestAddressWidth
+        DefaultRhodiumSoCRequestAddressWidth,
+        ~pmlen: SingleCoreRV5StageSoCUdbPmlen
       )
   | "mini-rv5stage-soc":
       rv5stage_udb_configuration(

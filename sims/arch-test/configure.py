@@ -184,7 +184,7 @@ def project_vector(model_extensions, extensions, params):
     return selected | zvl
 
 
-def project_pointer_masking(model_extensions, extensions):
+def project_pointer_masking(model_extensions, extensions, params):
     """Project the Supm environment claim onto Sail's concrete Ssnpm model."""
     selected = extensions.keys() & POINTER_MASKING_VERSIONS.keys()
     for name in selected:
@@ -193,8 +193,13 @@ def project_pointer_masking(model_extensions, extensions):
     if "Supm" in selected and "Ssnpm" not in selected:
         raise ValueError("Supm with supervisor mode requires Ssnpm")
     if "Ssnpm" in selected:
+        pmlen = params.get("PMLEN")
+        if type(pmlen) is not int or pmlen not in (0, 7, 16):
+            raise ValueError("Ssnpm requires PMLEN to be 0, 7, or 16")
         snpm = model_extensions["Ssnpm"]
         snpm.update(supported=True, supported_pmlen_7=True, supported_pmlen_16=True)
+    elif "PMLEN" in params:
+        raise ValueError("PMLEN requires Ssnpm")
     return selected
 
 
@@ -212,7 +217,7 @@ def sail_config(default, udb, origin, size):
     if extensions.keys() & {"Stateen", "Smstateen", "Ssstateen"}:
         raise ValueError("state-enable configurations need an expanded Sail projection")
     vector_extensions = project_vector(model_extensions, extensions, params)
-    pointer_masking_extensions = project_pointer_masking(model_extensions, extensions)
+    pointer_masking_extensions = project_pointer_masking(model_extensions, extensions, params)
     unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
