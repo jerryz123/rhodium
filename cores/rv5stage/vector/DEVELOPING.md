@@ -74,8 +74,7 @@ drops younger read preparation and reservations, and retains accepted responses
 and the partial-row carry. The aligned transport envelope must remain inside
 the MMU certificate. A false certificate selects the original elementwise
 unroller; never treat a failed precheck as an architectural fault.
-The `rv5stage-vector-packed`, `rv5stage-vector-packed-one-slot`, and
-`rv5stage-vector-packed-rv32` fixtures
+The `rv5stage-vector-packed` and `rv5stage-vector-packed-rv32` fixtures
 check byte-accurate loads/stores, every legal head offset, masks, segments,
 whole/mask transfers, replay, reordered returns, and sustained common-path issue.
 The real MMU/cache vector-memory fixture remains the integration boundary.
@@ -135,7 +134,7 @@ fallback preserves absent responses and no join may add a wait. Observe its
 registered result as `vector/memory.result`, qualified for enabled memory beats.
 The shared cache owns `dcache/s1.access`; do not duplicate it in this adapter.
 
-Run `event-vector` and `event-vector-one-slot` for exact public-transfer lineage,
+Run `event-vector` for exact public-transfer lineage,
 retries, fault/truncation, no-write completions, stalled issue, ordered drain,
 slot reuse, and pending reset. The multi-slot case returns younger responses
 first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
@@ -273,8 +272,7 @@ those numeric units in the vector package.
 The core composes `RV5StageFpScalar` and vector requests around one execution
 service. Keep scalar FPR ownership separate from vector slot ownership, and
 merge simultaneous architectural flag pulses without arbitration loss.
-Use `rv5stage-vector-fp` and `rv5stage-vector-fp-one-slot` for vector-vector and
-vector-scalar add/multiply,
+Use `rv5stage-vector-fp` for vector-vector and vector-scalar add/multiply,
 divide/square-root latency, sign/minmax, fused-source topology, comparison-mask,
 FPR producer forwarding, NaN-box validation, same- and mixed-width conversions,
 widening arithmetic source topologies, RTZ/round-to-odd, rounding, flag,
@@ -298,7 +296,7 @@ The core owns separate round-robin scalar/vector arbiters for each unit. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 
-Run `rv5stage-vector-muldiv` and `rv5stage-vector-muldiv-one-slot` for all 39
+Run `rv5stage-vector-muldiv` for all 39
 encodings, supported source/result widths, every `vxrm` mode, fractional LMUL,
 fractional saturation, scalar contention, masks, restart, empty bodies,
 in-place and three-source writes, widening signedness, branch squash, and slot reuse. Retain `rv5stage-multiply`,
@@ -437,11 +435,10 @@ changing their common result payload. `rv5stage-vector-mask-512` reuses the
 transaction scoreboard with eight words per register to check SEW8 prefix
 count and element-index truncation beyond 255.
 
-Run `rv5stage-vector-reduction` and `rv5stage-vector-reduction-rv32` for
-production-pipeline tests of both scalar moves and ten integer reductions.
-They initialize/read storage through public LSU transactions (including a
-test-only RV32 initialization transport, not an RV32 memory-ISA claim), fold
-elements with an independent model, and cover SEW/LMUL, masks, aliases, tails,
+Run `rv5stage-vector-reduction` for production-pipeline tests of both scalar
+moves and ten integer reductions. It initializes and reads storage through
+public LSU transactions, folds elements with an independent model, and covers
+SEW/LMUL, masks, aliases, tails,
 empty bodies, issue stalls, initial/midstream retry, and partial cancellation.
 The full-core `rv5stage-vector-fp` program covers all six FP reductions,
 unary classification and seven-bit reciprocal/reciprocal-square-root estimates,
@@ -664,11 +661,10 @@ split-page/superpage translations, permission failure, and DTLB replacement.
 Keep ordinary
 scalar and RV32F/RV64D core regressions when shared LSU metadata changes.
 The control fixtures sweep EEW/SEW/EMUL and destination alignment independently.
-The `rv5stage-vector-memory-one-slot` and
-`rv5stage-vector-memory-sixteen-slots` specializations reuse that architectural
-scoreboard to cover zero-index head wrap and four-bit slot reuse. Only the
-single-slot run omits multi-slot throughput/overlap requirements; all variants
-retain signature, replay, ordering, mask, and precise-fault restart checks.
-The IO-MSHR fixture additionally returns slot fifteen through the physical
-router and shared RN-I engine under contention and cancellation; this guards
-against an adapter silently retaining the former three-bit slot width.
+The `rv5stage-vector-memory-one-slot` specialization reuses that architectural
+scoreboard to cover zero-index head wrap while omitting multi-slot
+throughput/overlap requirements. It retains signature, replay, ordering, mask,
+and precise-fault restart checks. The IO-MSHR fixture returns slot fifteen
+through the physical router and shared RN-I engine under contention and
+cancellation; this independently guards the four-bit slot path against an
+adapter silently retaining the former three-bit width.

@@ -1,11 +1,7 @@
 // Checks vector event occurrences against public issue, acceptance, and tagged-response transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
-#ifdef VECTOR_ONE_SLOT
-#include "event-vector-one-slot_manifest.h"
-#else
 #include "event-vector_manifest.h"
-#endif
 #include <array>
 #include <deque>
 #include <cstdio>
@@ -183,9 +179,7 @@ extern "C" void vector_trace_finish() {
   if(issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
       !late_count || !reset_pending || !no_write || !stall_count)
     fail("missing retry/fault/truncation/ordered-drain/reset/stall/no-write coverage");
-#ifndef VECTOR_ONE_SLOT
   if(!out_of_order) fail("missing out-of-order response coverage");
-#endif
   std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u stalls\n",
       issued_count,complete_count,late_count,out_of_order,retry_count,stall_count);
 }

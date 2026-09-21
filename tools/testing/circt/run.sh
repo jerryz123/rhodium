@@ -250,7 +250,7 @@ fixture_in_group() {
     cores-vector-functional:rv5stage-vector-admission|cores-vector-functional:rv5stage-vector-overlap|cores-vector-functional:rv5stage-vector-packed|cores-vector-functional:event-vector|cores-vector-functional:rv5stage-vector|cores-vector-functional:rv5stage-vector-control|cores-vector-functional:rv5stage-vector-config|cores-vector-functional:rv5stage-vector-fp|cores-vector-functional:rv5stage-vector-muldiv|cores-vector-functional:rv5stage-vector-reduction|cores-vector-functional:rv5stage-vector-memory|cores-vector-functional:rv5stage-vector-unroller|cores-vector-functional:rv5stage-zvkt)
       return 0
       ;;
-    cores-vector-configurations:rv5stage-vector-packed-one-slot|cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:event-vector-one-slot|cores-vector-configurations:rv5stage-vector-reduction-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-muldiv-one-slot|cores-vector-configurations:rv5stage-vector-fp-one-slot|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-memory-sixteen-slots|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
+    cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
       return 0
       ;;
     cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
@@ -496,7 +496,7 @@ verify_fixture() {
   fi
   if [[ "$fixture" == event-runtime || "$fixture" == event-pipeline || "$fixture" == event-window || "$fixture" == event-frontend || "$fixture" == event-elastic || "$fixture" == event-queue || "$fixture" == event-arbiter || "$fixture" == event-demux || "$fixture" == event-atomic-fork || "$fixture" == event-broadcast || "$fixture" == event-join || "$fixture" == event-stall || "$fixture" == event-offer || "$fixture" == event-retained || "$fixture" == event-crossbar || "$fixture" == rv5stage-load-hit ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
-  elif [[ "$fixture" == event-vector || "$fixture" == event-vector-one-slot || "$fixture" == rv5stage-vector-config || "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-compack ]]; then
+  elif [[ "$fixture" == event-vector || "$fixture" == rv5stage-vector-config || "$fixture" == event-home || "$fixture" == event-subordinate || "$fixture" == event-fesvr || "$fixture" == event-feedback || "$fixture" == event-branching || "$fixture" == event-partial || "$fixture" == event-offer-register || "$fixture" == event-parents || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-source || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-compack ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -803,24 +803,18 @@ direct_fixture_specs=(
   'simd-alu|simd_alu_tb'
   'rv5stage-vector|rv5stage_vector_tb'
   'event-vector|event_vector_tb'
-  'event-vector-one-slot|event_vector_tb'
   'rv5stage-vector-control|rv5stage_vector_control_tb'
   'rv5stage-vector-config|rv5stage_vector_config_tb'
   'rv5stage-vector-fp|rv5stage_vector_fp_tb'
   'rv5stage-vector-muldiv|rv5stage_vector_muldiv_tb'
   'rv5stage-vector-reduction|rv5stage_vector_reduction_tb'
-  'rv5stage-vector-reduction-rv32|rv5stage_vector_reduction_rv32_tb'
   'rv5stage-vector-mask-512|rv5stage_vector_mask_512_tb'
-  'rv5stage-vector-muldiv-one-slot|rv5stage_vector_muldiv_tb'
-  'rv5stage-vector-fp-one-slot|rv5stage_vector_fp_tb'
   'rv5stage-vector-memory|rv5stage_vector_memory_tb'
   'rv5stage-vector-packed|rv5stage_vector_packed_tb'
   'rv5stage-vector-overlap|rv5stage_vector_overlap_tb'
   'rv5stage-vector-admission|rv5stage_vector_admission_tb'
-  'rv5stage-vector-packed-one-slot|rv5stage_vector_packed_tb'
   'rv5stage-vector-packed-rv32|rv5stage_vector_packed_tb'
   'rv5stage-vector-memory-one-slot|rv5stage_vector_memory_tb'
-  'rv5stage-vector-memory-sixteen-slots|rv5stage_vector_memory_tb'
   'rv5stage-vector-unroller|rv5stage_vector_unroller_tb'
   'rv5stage-zvkt|rv5stage_zvkt_tb'
   'rv5stage-vector-unroller-rv32|rv5stage_vector_unroller_rv32_tb'

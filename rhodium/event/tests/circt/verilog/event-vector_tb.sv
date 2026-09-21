@@ -1,11 +1,7 @@
 // Drives equal-PC vector macros through stalls, retries, faults, and reordered memory responses.
 // SPDX-License-Identifier: Apache-2.0
 module event_vector_tb;
-`ifdef VECTOR_ONE_SLOT
-  localparam int TAG_BITS=1;
-`else
   localparam int TAG_BITS=2;
-`endif
   logic clock=0, reset=1;
   logic [31:0] instruction=0;
   logic [63:0] vl=0, vstart=0, vtype=24;

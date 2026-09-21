@@ -37,6 +37,14 @@ combines it with the component, scalar/frontend execution, memory, and cache
 groups. CI gives both vector leaves and the package-owned HardFloat runner
 independent jobs.
 
+Alternate vector fixtures cover parameter boundaries, not a cross-product of
+every subsystem with every supported value. Keep one behavioral owner for each
+distinct risk: RV32 packed transport, RV32 unroller geometry, a single
+completion slot, wide mask indexing, and gather indices above 255. The default
+functional fixtures own operation breadth. A second fixture should not rerun a
+complete operation scoreboard merely to repeat a shared completion-slot or
+XLEN value already covered at its owning boundary.
+
 ## Fixture and artifact ownership
 
 Example-backed entries name an example module, a concrete design export, an
@@ -75,8 +83,8 @@ assertion benches, such as the RHEG collector for missing selected parents.
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
-`event-vector` and `event-vector-one-slot` instrument the production vector
-execution engine. Their public-transfer oracle tracks sequencer/issue occurrences,
+`event-vector` instruments the production vector execution engine. Its
+public-transfer oracle tracks sequencer/issue occurrences,
 fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
