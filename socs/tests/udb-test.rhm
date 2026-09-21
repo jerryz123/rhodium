@@ -43,6 +43,15 @@ for (name in ["single-core-rv5stage-soc", "tiled-rv5stage-soc"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zcmop\", version: \"= 1.0.0\" }") ~is #true
 
+for (extension in ["Zcb", "Zfa", "Zicbom", "Ssnpm", "Supm"]):
+  check:
+    riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"" ++ extension ++ "\", version: \"= 1.0.0\" }") ~is #true
+
+for (name in ["mini-rv5stage-soc", "tiled-rv5stage-soc"]):
+  for (extension in ["Zcb", "Zfa", "Zicbom", "Ssnpm", "Supm"]):
+    check:
+      riscv_udb_configuration(name).to_yaml().contains("{ name: \"" ++ extension ++ "\",") ~is #false
+
 check:
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true

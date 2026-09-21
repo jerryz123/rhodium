@@ -91,6 +91,7 @@ VECTOR_PARAMETER_VALUES = {
     "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
     "VSSTATUS_VS_EXISTS": False,
 }
+POINTER_MASKING_VERSIONS = {"Ssnpm": "1.0.0", "Supm": "1.0.0"}
 
 
 def validate_reservation_bounds(reservation, extensions):
@@ -183,6 +184,20 @@ def project_vector(model_extensions, extensions, params):
     return selected | zvl
 
 
+def project_pointer_masking(model_extensions, extensions):
+    """Project the Supm environment claim onto Sail's concrete Ssnpm model."""
+    selected = extensions.keys() & POINTER_MASKING_VERSIONS.keys()
+    for name in selected:
+        if extensions[name] != POINTER_MASKING_VERSIONS[name]:
+            raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
+    if "Supm" in selected and "Ssnpm" not in selected:
+        raise ValueError("Supm with supervisor mode requires Ssnpm")
+    if "Ssnpm" in selected:
+        snpm = model_extensions["Ssnpm"]
+        snpm.update(supported=True, supported_pmlen_7=True, supported_pmlen_16=True)
+    return selected
+
+
 def sail_config(default, udb, origin, size):
     """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
@@ -197,7 +212,8 @@ def sail_config(default, udb, origin, size):
     if extensions.keys() & {"Stateen", "Smstateen", "Ssstateen"}:
         raise ValueError("state-enable configurations need an expanded Sail projection")
     vector_extensions = project_vector(model_extensions, extensions, params)
-    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys() - vector_extensions
+    pointer_masking_extensions = project_pointer_masking(model_extensions, extensions)
+    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
     for name, options in model_extensions.items():

@@ -26,6 +26,11 @@ for (cache in [description.core_profile.cache_geometry.instruction,
 check:
   soc.single_core_rv5stage_soc_core_profile.multiplier ~is RV5StageMultiplierKind.Pipelined
   soc.single_core_rv5stage_soc_core_profile.extensions.zicbop ~is #true
+  soc.single_core_rv5stage_soc_core_profile.extensions.zicbom ~is #true
+  soc.single_core_rv5stage_soc_core_profile.extensions.zfa ~is #true
+  soc.single_core_rv5stage_soc_core_profile.extensions.ssnpm ~is #true
+  soc.single_core_rv5stage_soc_core_profile.extensions.supm ~is #true
+  soc.single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions.contains("zcb") ~is #true
   soc.single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions.contains("zvfh") ~is #true
   soc.single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions.contains("zvbb") ~is #true
   soc.single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions.contains("zvkb") ~is #true

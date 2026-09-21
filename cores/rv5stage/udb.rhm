@@ -75,6 +75,10 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
   | result := result ++ [extension("Ziccamoa", "1.0.0")]
   when advertises("ziccrse")
   | result := result ++ [extension("Ziccrse", "1.0.0")]
+  when advertises("ssnpm")
+  | result := result ++ [extension("Ssnpm", "1.0.0")]
+  when advertises("supm")
+  | result := result ++ [extension("Supm", "1.0.0")]
   when advertises("zihintpause")
   | result := result ++ [extension("Zihintpause", "2.0.0")]
   when advertises("zihintntl")

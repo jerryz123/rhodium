@@ -65,7 +65,10 @@ check:
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)).isa_profile.isa_extensions.contains("zvkb") ~is #true
   RV5StageConfig(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvbb)) ~throws "enabled vector profile"
   RV5StageExtensions().ssnpm ~is #false
-  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).extensions.ssnpm ~is #true
+  RV5StageExtensions().supm ~is #false
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true)).isa_profile.isa_extensions.contains("ssnpm") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true, ~supm: #true)).isa_profile.isa_extensions.contains("supm") ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~supm: #true)) ~throws "requires Ssnpm"
   RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~ssnpm: #true)) ~throws "RV64"
   RV5StageExtensions().ziccrse ~is #false
   RV5StageExtensions().zihintntl ~is #false
@@ -133,3 +136,9 @@ check:
       ~compressed: [CompressedExtension.Zcb]
     )
   ) ~throws "requires Zca or C"
+  RV5StageConfig(
+    ~xlen: XLen.X64,
+    ~extensions: RV5StageExtensions(
+      ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb)
+    )
+  ).isa_profile.isa_extensions.contains("zcb") ~is #true

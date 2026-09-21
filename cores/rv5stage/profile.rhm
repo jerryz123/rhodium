@@ -53,6 +53,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          ziccamoa :: Boolean,
                          ziccrse :: Boolean,
                          ssnpm :: Boolean,
+                         supm :: Boolean,
                          zawrs :: Boolean,
                          zihintpause :: Boolean,
                          zihintntl :: Boolean,
@@ -69,14 +70,15 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~ziccamoa: ziccamoa :: Boolean = #false,
                ~ziccrse: ziccrse :: Boolean = #false,
                ~ssnpm: ssnpm :: Boolean = #false,
+               ~supm: supm :: Boolean = #false,
                ~zawrs: zawrs :: Boolean = #false,
                ~zihintpause: zihintpause :: Boolean = #false,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, zawrs, zihintpause, zihintntl, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, zawrs, zihintpause, zihintntl, compressed)
 
   reconstructor (floating_point, half_precision, zfa, zicbop, zicboz,
-                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, zawrs,
+                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, zawrs,
                  zihintpause, zihintntl, compressed):
     RV5StageExtensions(
       ~floating_point: floating_point,
@@ -89,6 +91,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
       ~ziccamoa: ziccamoa,
       ~ziccrse: ziccrse,
       ~ssnpm: ssnpm,
+      ~supm: supm,
       ~zawrs: zawrs,
       ~zihintpause: zihintpause,
       ~zihintntl: zihintntl,
@@ -110,12 +113,12 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
 
     def mutable multi_letter = []
     multi_letter := multi_letter ++ ["za64rs", "zba", "zbb", "zbs"]
+    when !compressed.contains(CompressedExtension.C) && compressed.contains(CompressedExtension.Zca)
+    | multi_letter := multi_letter ++ ["zca"]
+    when compressed.contains(CompressedExtension.Zcb)
+    | multi_letter := multi_letter ++ ["zcb"]
     unless compressed.contains(CompressedExtension.C)
     | block:
-        when compressed.contains(CompressedExtension.Zca)
-        | multi_letter := multi_letter ++ ["zca"]
-        when compressed.contains(CompressedExtension.Zcb)
-        | multi_letter := multi_letter ++ ["zcb"]
         when compressed.contains(CompressedExtension.Zcd)
         | multi_letter := multi_letter ++ ["zcd"]
         when compressed.contains(CompressedExtension.Zcf)
@@ -132,7 +135,8 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     | ~else: #void
     def cache_block = ["zic64b"] ++ (if zicbop | ["zicbop"] | []) ++ (if zicboz | ["zicboz"] | []) ++ (if zicbom | ["zicbom"] | [])
     def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ (if ziccrse | ["ziccrse"] | [])
-    single_letter ++ multi_letter ++ cache_block ++ main_memory ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
+    def pointer_masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
+    single_letter ++ multi_letter ++ cache_block ++ main_memory ++ pointer_masking ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):
@@ -219,6 +223,8 @@ class RV5StageConfig(xlen :: XLen,
     extensions.compressed_misa_c(xlen)
     when xlen == XLen.X32 && extensions.ssnpm
     | error(~who: #'RV5StageConfig, "Ssnpm requires RV64")
+    when extensions.supm && !extensions.ssnpm
+    | error(~who: #'RV5StageConfig, "Supm requires Ssnpm hardware")
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)

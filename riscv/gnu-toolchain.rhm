@@ -9,13 +9,15 @@ import:
 
 def GnuSingleLetterExtensions = ["i", "m", "a", "f", "d", "c", "b", "v"]
 def GnuVectorLengthExtensions = VectorLengthExtensionLengths.map(vector_length_extension_name)
+// These profile claims affect the execution environment, not generated instructions.
+def GnuIgnoredExtensions = ["ssnpm", "supm"]
 def GnuMultiLetterExtensions = [
   "za64rs", "zba", "zbb", "zbs", "zca", "zcb", "zcd", "zcf", "zcmop",
   "zic64b", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",
   "zawrs", "zihintpause", "zihintntl", "zicntr", "zicond", "zicsr",
   "zifencei", "zihpm", "zimop", "zkt",
   "zfa", "zfh", "zfhmin", "zvbb", "zvfh", "zvfhmin", "zvkb", "zvkt", "zve32x", "zve32f", "zve64x", "zve64f",
-  "zve64d", "ssnpm"
+  "zve64d"
 ] ++ GnuVectorLengthExtensions
 
 class GnuIsaTarget(march :: String, mabi :: String)
@@ -24,7 +26,7 @@ fun gnu_isa_target(xlen :: XLen, extensions :: List.of(String)) :: GnuIsaTarget:
   unless extensions.contains("i")
   | error(~who: #'gnu_isa_target, "GNU RISC-V targets require the base I extension")
   def unknown = extensions.filter(
-    ~keep: fun (extension): !GnuSingleLetterExtensions.contains(extension) && !GnuMultiLetterExtensions.contains(extension)
+    ~keep: fun (extension): !GnuSingleLetterExtensions.contains(extension) && !GnuMultiLetterExtensions.contains(extension) && !GnuIgnoredExtensions.contains(extension)
   )
   unless unknown.length() == 0
   | error(~who: #'gnu_isa_target,

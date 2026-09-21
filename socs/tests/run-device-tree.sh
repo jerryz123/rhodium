@@ -92,6 +92,20 @@ case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,is
   *" zfh "*) ;;
   *) echo "single-core-rv5stage-soc DTB does not advertise Zfh" >&2; exit 1 ;;
 esac
+for extension in zcb zfa zicbom ssnpm supm; do
+  case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+    *" $extension "*) ;;
+    *) echo "single-core-rv5stage-soc DTB does not advertise $extension" >&2; exit 1 ;;
+  esac
+done
+for name in mini-rv5stage-soc tiled-rv5stage-soc; do
+  for extension in zcb zfa zicbom ssnpm supm; do
+    case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+      *" $extension "*) echo "$name DTB unexpectedly advertises $extension" >&2; exit 1 ;;
+      *) ;;
+    esac
+  done
+done
 for name in mini-rv5stage-soc tiled-rv5stage-soc; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zvfh "*) echo "$name DTB unexpectedly advertises Zvfh" >&2; exit 1 ;;

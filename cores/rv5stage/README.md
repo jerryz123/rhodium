@@ -801,7 +801,7 @@ runs the same cross-field validation as direct construction.
 | Parameter | Meaning |
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
-| `profile.extensions` | Floating-point, half-precision, Zfa, Zicbop, Zicboz, and compressed-extension selection; Zicbop and Zicboz default to disabled |
+| `profile.extensions` | Floating-point, compressed, cache-block, memory-guarantee, hint, and pointer-masking selections; optional features default to disabled |
 | `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; the current RV64-only integration pairs FP-capable vector profiles with scalar D |
 | `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions, `Zvfh` enabling full vector half precision, and `Zvbb` enabling vector basic bit manipulation |
 | `profile.vector_length` | VLEN in bits; a power of two from 128 through 65536, independent of whether the vector profile is enabled |
@@ -826,7 +826,7 @@ refill contains four, two, or one DAT packet for a supplied 128-, 256-, or
 512-bit CHI data width, respectively; the default `CHIFlitParams()` width is 128
 bits.
 
-### Opt-in user pointer masking
+### User pointer masking
 
 `RV5StageExtensions(~ssnpm: #true)` enables the initial RV64 Ssnpm hardware.
 It defaults off and is rejected for RV32 profiles. `senvcfg.PMM[33:32]` resets
@@ -843,9 +843,12 @@ address. Translation, access permissions, alignment, and memory ordering remain
 unchanged; masking does not make all tagged addresses legal.
 
 A committed PMM change restarts younger work and clears queued prefetches without
-invalidating TLB entries or I-cache contents. This implementation is not yet
-enabled in SoC profiles or projected into ISA/UDB advertisement. In particular,
-it does not claim **Supm**, which also requires an execution-environment contract.
+invalidating TLB entries or I-cache contents. Selecting Ssnpm projects that
+hardware capability into the ISA and UDB descriptions. The separate
+`~supm: #true` selection requires Ssnpm and publishes the execution-environment
+contract that user software can select at least PMLEN 0 and 7. The default
+generic core leaves both selections disabled; `SingleCoreRV5StageSoC` enables
+both and also supports PMLEN 16.
 The reusable transformation is documented in the
 [RISC-V adapter](../../riscv/rtl/README.md#privilege-memory-and-translation-values).
 

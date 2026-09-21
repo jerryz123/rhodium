@@ -256,7 +256,10 @@ assert `translation_flush`: PMM changes neither PTEs nor translation tags.
 Accepted older memory operations drain before the CSR commits. Ordinary trap
 and return redirects continue to establish the next instruction's context.
 
-Keep the implementation opt-in and unadvertised until platform qualification.
+Keep the hardware and execution-environment selections distinct: `ssnpm` owns
+the core mechanism, while `supm` is legal only with `ssnpm` and publishes the
+qualified user-environment contract. The generic defaults remain disabled;
+`SingleCoreRV5StageSoC` is the qualified concrete profile that enables both.
 Run `pointer-masking-test.rhm`, `profile-test.rhm`, `riscv-pointer-masking`,
 `rv5stage-pointer-masking`, and `rv5stage-csr`; include `rv5stage-mmu-replay`
 when modifying the shared effective-data-privilege helper. The core fixture

@@ -35,7 +35,7 @@ cacheable coherent RAM.
 
 | System | Default processors | Normal-memory termination | Coherence structure | Default core specialization | Best fit |
 | --- | ---: | --- | --- | --- | --- |
-| `SingleCoreRV5StageSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDCV plus B, Zfh, Zvfh, Zvkb, Zvbb, Zicond, Zicbop, and Zvl32b/64b/128b; full C composition | Primary single-core coherent system and external-memory integration |
+| `SingleCoreRV5StageSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router | RV64IMAFDCV plus B, Zcb, Zfa, Zfh, Zicbom, Supm, Zvfh, Zvkb, Zvbb, Zicond, Zicbop, and Zvl32b/64b/128b; full C composition | Primary single-core coherent system and external-memory integration |
 | `MiniRV5StageSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router; 2 KiB direct-mapped L1I/L1D | Integer-only with Zicbop; compressed instructions disabled | Compact RTL and physical-design experiments |
 | `TiledRV5StageSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles | Integer-only with Zicbop and the C composition, which specializes to Zca | Configurable multicore, striped-memory, and mesh experiments |
 
@@ -46,15 +46,18 @@ Each author-facing SoC parameter object owns one
 architectural description. `SingleCoreRV5StageSoC` defaults to RV64D, V 1.0 with VLEN 128,
 and the full C composition; its device tree and UDB configuration advertise
 `V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`,
-`Zvkb`, `Zvbb`, `Zvkt`, the cumulative `Zvl32b`/`Zvl64b`/`Zvl128b` closure, and
-`misa.V` from that same profile. `MiniRV5StageSoC` defaults to
+`Zvkb`, `Zvbb`, `Zvkt`, the cumulative `Zvl32b`/`Zvl64b`/`Zvl128b` closure,
+`Zcb`, `Zfa`, `Zicbom`, `Ssnpm`, and the qualified `Supm` user-environment
+contract, plus `misa.V` from that same profile. `MiniRV5StageSoC` defaults to
 integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledRV5StageSoC` to integer-only RV64 with the C composition. SingleCoreRV5StageSoC and TiledRV5StageSoC
 also select the feed-forward pipelined integer multiplier, while MiniRV5StageSoC
 selects the compact iterative multiplier. They enable Zcmop; MiniRV5StageSoC
 keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC also enables
-scalar `Zfh`, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee `Zvkt`; Zfa remains disabled. Supply an alternate `RV5StageConfig` through the owning SoC parameter
+scalar `Zfa` and `Zfh`, Zcb, Zicbom, Ssnpm/Supm with selectable PMLEN 0, 7, and
+16, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee
+`Zvkt`. Supply an alternate `RV5StageConfig` through the owning SoC parameter
 object to change those selections.
 Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
 permits block zero, while ROM and peripheral regions reject it.

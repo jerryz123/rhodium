@@ -20,6 +20,8 @@ def rv64_double = RV5StageConfig(
     ~zawrs: #true,
     ~zihintpause: #true,
     ~zihintntl: #true,
+    ~ssnpm: #true,
+    ~supm: #true,
     ~compressed: CCompressedExtensions
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39
@@ -81,6 +83,8 @@ for (xlen in [XLen.X32, XLen.X64]):
           yaml.contains("{ name: \"Ziccrse\", version: \"= 1.0.0\" }") ~is eventual
 
 check:
+  rv64_yaml.contains("{ name: \"Ssnpm\", version: \"= 1.0.0\" }") ~is #true
+  rv64_yaml.contains("{ name: \"Supm\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_half_yaml.contains("{ name: \"Zvfhmin\", version: \"= 1.0.0\" }") ~is #true
   rv64_vector_half_yaml.contains("{ name: \"Zfhmin\",") ~is #false
   rv64_vector_full_half_yaml.contains("{ name: \"Zfh\", version: \"= 1.0.0\" }") ~is #true

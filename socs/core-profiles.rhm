@@ -16,11 +16,13 @@ def single_core_rv5stage_soc_core_profile = RV5StageConfig(
   ~extensions: RV5StageExtensions(
     ~floating_point: FloatingPointProfile.D,
     ~half_precision: HalfPrecisionProfile.Zfh,
+    ~zfa: #true,
     ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true,
-    ~zicbop: #true,
+    ~zicbop: #true, ~zicbom: #true,
     ~zicboz: #true,
+    ~ssnpm: #true, ~supm: #true,
     ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true,
-    ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcmop)
+    ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39,
   ~multiplier: RV5StageMultiplierKind.Pipelined,
