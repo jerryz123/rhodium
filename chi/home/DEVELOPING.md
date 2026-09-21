@@ -69,11 +69,16 @@ its single transaction until its full-line backing write completes. Once
 `CompDBIDResp` transfers, it cannot report a second requester completion to
 recover from a backing error; such failures are fatal in this profile.
 
-Use `chi-inclusive-home` for residency, shared/unique grants, snapshot reads,
-silent-eviction cleanup, stalled dispatch, delayed CompAck, partial dirty packets,
-and response-error behavior. The maintenance bench establishes inclusive L1
-copies through actual read grants, not test-only injection behind the directory.
-Run `chi-maintenance-inclusive`, the I-cache coherence fixtures, and cache-level
+Use `chi-read-once-home` for the focused `ReadOnce` allocation matrix: LLC-only
+hits, clean and dirty RN-F intervention, allocating fills, nonallocating bypass,
+backpressure, response errors, delayed `CompAck`, and streaming preservation of
+unrelated LLC lines. Pair it with `chi-read-once` for requester-side retry and
+Protocol Credit behavior and with `rv5stage-icache-coherence` for CPU-write and
+`FENCE.I` visibility through real L1 caches. Keep `chi-inclusive-home` as the
+broader residency, shared/unique grant, silent-eviction, partial-dirty-packet,
+and copyback regression. The maintenance bench establishes inclusive L1 copies
+through actual read grants, not test-only injection behind the directory. Run
+`chi-maintenance-inclusive`, the I-cache coherence fixtures, and cache-level
 LR/SC progress after changing target selection. Rerun SingleCoreRV5StageSoC vvadd with
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.

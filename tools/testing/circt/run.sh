@@ -100,7 +100,7 @@ integration_fixtures=(
   chi-response-profile
   rv32i-alu rv64i-alu-integrated simd-alu load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
-  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
+  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-read-once-home chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-branch-prediction rv5stage-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
@@ -784,6 +784,7 @@ direct_fixture_specs=(
   'chi-coherent|chi_coherent_tb'
   'chi-cache-maintenance|chi_cache_maintenance_tb'
   'chi-read-once|chi_read_once_tb'
+  'chi-read-once-home|chi_read_once_home_tb'
   'chi-maintenance-home|chi_maintenance_home_tb'
   'chi-maintenance-inclusive|chi_maintenance_inclusive_tb'
   'chi-coherent-home|chi_coherent_home_tb'
