@@ -11,3 +11,4 @@
 0009-gate-fault-first-access-fault-generation.patch
 0010-size-exceptions-sm-trap-signatures.patch
 0011-guard-mcountinhibit-initialization.patch
+0012-ignore-unconstrained-sc-results.patch

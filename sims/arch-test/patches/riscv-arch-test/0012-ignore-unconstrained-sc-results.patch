@@ -1,0 +1,111 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Date: Sun, 20 Sep 2026 23:30:00 -0700
+Subject: [PATCH] Isolate Sv LR/SC exception signatures
+
+The ExceptionsSvZalrsc tests exercise address translation, exception
+selection, and delegation for LR and SC. They execute SYSTEM instructions
+between each LR and SC, so the sequence is unconstrained and the SC result is
+permitted to indicate failure even when the address is valid.
+
+Keep the existing signature slots but write zero instead of the LR and SC
+destinations. A permitted failed SC also leaves memory unchanged, so later LR
+values otherwise inherit the same nonarchitectural assumption. The trap
+signature continues to check whether each operation raises the required load
+or store/AMO exception.
+
+---
+ .../sv32_exceptions_Zalrsc_Mmode.S             | 5 +++--
+ .../sv32_exceptions_Zalrsc_Smode.S             | 5 +++--
+ .../sv32_exceptions_Zalrsc_Umode.S             | 5 +++--
+ .../sv39_exceptions_Zalrsc_Mmode.S             | 5 +++--
+ .../sv39_exceptions_Zalrsc_Smode.S             | 5 +++--
+ .../sv39_exceptions_Zalrsc_Umode.S             | 5 +++--
+ 6 files changed, 18 insertions(+), 12 deletions(-)
+
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Mmode.S b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Mmode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Mmode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Mmode.S
+@@ -93,7 +93,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ .macro SET_REQ_MSTATUS_VAL
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Smode.S b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Smode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Smode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Smode.S
+@@ -92,7 +92,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ 
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Umode.S b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Umode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Umode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv32_exceptions_Zalrsc_Umode.S
+@@ -121,7 +121,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ 
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Mmode.S b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Mmode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Mmode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Mmode.S
+@@ -93,7 +93,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ .macro SET_REQ_MSTATUS_VAL
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Smode.S b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Smode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Smode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Smode.S
+@@ -92,7 +92,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ 
+diff --git a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Umode.S b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Umode.S
+--- a/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Umode.S
++++ b/tests/priv/ExceptionsSvZalrsc/sv39_exceptions_Zalrsc_Umode.S
+@@ -120,7 +120,8 @@ RVTEST_BEGIN
+ 
+   // Signature Update
+-  RVTEST_SIGUPD(x2, x5, x4, a3, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
+-  RVTEST_SIGUPD(x2, x5, x4, a4, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
++  // These signatures check exceptions, not results affected by unconstrained SC success.
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_lr, \TEST_CASE\()_lr_str)
++  RVTEST_SIGUPD(x2, x5, x4, x0, \TEST_CASE\()_sc, \TEST_CASE\()_sc_str)
+ .endm
+ 
+ 
+-- 
+2.51.0

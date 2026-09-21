@@ -40,6 +40,9 @@ upstream independently:
     trap region for the complete expanded exception sequence.
 11. `0011-guard-mcountinhibit-initialization.patch` skips common setup and
     generated CSR coverpoints when UDB reports that the optional CSR is absent.
+12. `0012-ignore-unconstrained-sc-results.patch` keeps the virtual-memory LR/SC
+    exception tests focused on translation and trap behavior instead of requiring
+    unconstrained SC operations to succeed.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to
