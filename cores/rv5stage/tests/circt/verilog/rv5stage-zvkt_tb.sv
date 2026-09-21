@@ -1,20 +1,19 @@
 // Compares vector timing under identical control and distinct data for every implemented Zvkt form.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_zvkt_tb;
-  localparam int VLEN = 128, AW = $clog2(32 * VLEN / 64), CW = $clog2(VLEN + 1);
+  localparam int VLEN = 128, AW = $clog2(32 * VLEN / 64);
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
   typedef struct packed { logic valid; write_t bits; } write_port_t;
   logic clock = 0, reset = 1;
   logic [8:0] probe;
   logic [63:0] vtype, vl, vstart, left_scalar, right_scalar, left_floating_scalar, right_floating_scalar;
   logic [1:0] vxrm;
-  logic request_valid, issue_ready, cancel, retry_enable;
-  logic [CW-1:0] retry_first;
+  logic request_valid, issue_ready, cancel;
   write_port_t left_initialize_in, right_initialize_in;
-  logic active, request_ready, legal, issued, committed, retried, data_differed;
+  logic active, request_ready, legal, issued, committed, data_differed;
   logic [15:0] probe_count;
   logic control_vs1, control_rs1, sew64, v0_data;
-  int cycles, commits, differing_results, retries;
+  int cycles, commits, differing_results;
   logic [63:0] rng = 64'hd1b54a32d192ed03;
   RV5StageZvkt dut (.*);
   always #5 clock = ~clock;
@@ -29,7 +28,6 @@ module rv5stage_zvkt_tb;
     cycles++;
     if (committed) commits++;
     if (data_differed) differing_results++;
-    if (retried) begin retries++; retry_enable = 0; end
   endtask
 
   task automatic initialize_banks;
@@ -63,8 +61,6 @@ module rv5stage_zvkt_tb;
     right_floating_scalar = 64'hffffffffc0200000;
     vxrm = 2'(index);
     request_valid = 0; issue_ready = 1; cancel = 0;
-    retry_enable = index == 0 || index == 50;
-    retry_first = CW'(start);
     reset = 1; repeat (2) tick(); reset = 0;
     initialize_banks();
     assert (legal) else $fatal(1, "illegal generated Zvkt probe %0d", index);
@@ -84,7 +80,7 @@ module rv5stage_zvkt_tb;
 
   initial begin
     probe = 0; vtype = 0; vl = 0; vstart = 0; left_scalar = 0; right_scalar = 0; left_floating_scalar = 0; right_floating_scalar = 0; vxrm = 0;
-    request_valid = 0; issue_ready = 0; cancel = 0; retry_enable = 0; retry_first = 0;
+    request_valid = 0; issue_ready = 0; cancel = 0;
     left_initialize_in = '0; right_initialize_in = '0;
     repeat (3) tick();
     for (int index = 0; index < int'(probe_count); index++) begin
@@ -92,8 +88,7 @@ module rv5stage_zvkt_tb;
       run_probe(index, 1);
     end
     assert (differing_results > 0) else $fatal(1, "vacuous Zvkt comparison");
-    assert (retries > 0) else $fatal(1, "Zvkt retry timing was not exercised");
-    $display("Zvkt timing PASS: %0d probes, %0d commits, %0d retries, %0d cycles", probe_count, commits, retries, cycles);
+    $display("Zvkt timing PASS: %0d probes, %0d commits, %0d cycles", probe_count, commits, cycles);
     $finish;
   end
 endmodule

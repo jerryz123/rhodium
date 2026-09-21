@@ -2,6 +2,13 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "support.h"
 
+static int board_errno;
+
+int *__errno(void)
+{
+    return &board_errno;
+}
+
 void initialise_board(void)
 {
 }

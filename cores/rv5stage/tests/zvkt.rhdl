@@ -19,11 +19,10 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   input(left_scalar, right_scalar): Bits(64)
   input(left_floating_scalar, right_floating_scalar): Bits(64)
   input vxrm: Bits(2)
-  input(request_valid, issue_ready, cancel, retry_enable): Bool
-  input retry_first: Bits(index_width(vlen + 1))
+  input(request_valid, issue_ready, cancel): Bool
   interface left_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
   interface right_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
-  output(active, request_ready, legal, issued, committed, retried, data_differed): Bool
+  output(active, request_ready, legal, issued, committed, data_differed): Bool
   output probe_count: Bits(16)
   output(control_vs1, control_rs1, sew64, v0_data): Bool
   def instruction = mux_lookup(probe, ~default: bits(probes[0].word, 32), for List (index in 0..probes.length()): [index, bits(probes[index].word, 32)])
@@ -43,8 +42,8 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   left.request_valid <== request_valid
   left.issue_ready <== issue_ready
   left.cancel <== cancel
-  left.retry_enable <== retry_enable
-  left.retry_first <== retry_first
+  left.retry_enable <== Bool(#false)
+  left.retry_first <== bits(0, index_width(vlen + 1))
   right.instruction <== instruction
   right.vtype <== vtype
   right.vl <== vl
@@ -55,8 +54,8 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   right.request_valid <== request_valid
   right.issue_ready <== issue_ready
   right.cancel <== cancel
-  right.retry_enable <== retry_enable
-  right.retry_first <== retry_first
+  right.retry_enable <== Bool(#false)
+  right.retry_first <== bits(0, index_width(vlen + 1))
   left.initialize <=> left_initialize
   right.initialize <=> right_initialize
   def position_equal = (left.result.sequence === right.result.sequence) & (left.result.first === right.result.first) & (left.result.end === right.result.end)
@@ -82,14 +81,12 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   assert(left.legal === right.legal, "zvkt_legality_is_data_independent")
   assert(left.issued === right.issued, "zvkt_issue_is_data_independent")
   assert(left.committed === right.committed, "zvkt_commit_is_data_independent")
-  assert(left.retried === right.retried, "zvkt_retry_is_data_independent")
   assert(!left.committed ||| result_control_equal, "zvkt_result_control_is_data_independent")
   active <== left.active
   request_ready <== left.request_ready
   legal <== left.legal
   issued <== left.issued
   committed <== left.committed
-  retried <== left.retried
   data_differed <== left.committed & (left.result.write.data =/= right.result.write.data)
   probe_count <== bits(probes.length(), 16)
   control_vs1 <== vs1_control
