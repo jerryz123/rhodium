@@ -75,6 +75,99 @@ class CoreMarkBuildTest(unittest.TestCase):
             self.assertEqual(output.read_text(), 'origin=0x80000000 length=0x20000\n')
 
 
+class EmbenchBuildTest(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('embench_build', SCRIPTS / 'build-embench.py')
+        self.builder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.builder)
+
+    def populate_source(self, root):
+        source = root / 'source'
+        (source / 'support').mkdir(parents=True)
+        for name in ('sconstruct.py', 'support/main.c', 'support/beebsc.c',
+                     'support/support.h', 'support/beebsc.h'):
+            path = source / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('upstream\n')
+        for benchmark in self.builder.BENCHMARKS:
+            path = source / 'src' / benchmark / (benchmark + '.c')
+            path.parent.mkdir(parents=True)
+            path.write_text('#define LOCAL_SCALE_FACTOR 2\nbenchmark\n')
+        return source
+
+    def test_inventory_is_complete_and_explicit(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = self.populate_source(Path(directory))
+            with patch.object(self.builder.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)):
+                sources = self.builder.verify_upstream(source)
+            self.assertEqual(tuple(sources), self.builder.BENCHMARKS)
+            (source / 'src' / self.builder.BENCHMARKS[0] / (self.builder.BENCHMARKS[0] + '.c')).unlink()
+            with self.assertRaisesRegex(ValueError, 'has no C sources'):
+                self.builder.benchmark_sources(source)
+            (source / 'src' / 'unexpected').mkdir()
+            with self.assertRaisesRegex(ValueError, 'inventory changed'):
+                self.builder.benchmark_sources(source)
+
+    def test_builds_every_workload_and_reuses_only_verified_cache(self):
+        builder = self.builder
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = self.populate_source(root)
+            port = root / 'port'
+            port.mkdir()
+            for name in ('boardsupport.c', 'boardsupport.h', 'htif.c', 'start.S', 'link.ld.in'):
+                text = 'origin=@RAM_ORIGIN@ length=@RAM_LENGTH@\n' if name == 'link.ld.in' else 'port\n'
+                (port / name).write_text(text)
+            output = root / 'output'
+            target_path = root / 'target.json'
+            target_path.write_text(json.dumps(program_target()))
+            builds = []
+
+            def check_output(command, **kwargs):
+                if command[0] == 'git':
+                    return 'upstream-head\n'
+                if '--version' in command:
+                    return 'test compiler 15\n'
+                raise AssertionError(command)
+
+            def run(command, **kwargs):
+                if command[0] != 'git':
+                    builds.append(command)
+                    Path(command[command.index('-o') + 1]).write_bytes(b'ELF')
+                return subprocess.CompletedProcess(command, 0)
+
+            argv = ['build-embench.py', '--source', str(source), '--port', str(port),
+                    '--output', str(output), '--compiler', sys.executable,
+                    '--target', str(target_path), '--scale', '1', '--local-scale', '1',
+                    '--warmup-heat', '0']
+            with patch.object(sys, 'argv', argv), \
+                    patch.object(builder.subprocess, 'check_output', side_effect=check_output), \
+                    patch.object(builder.subprocess, 'run', side_effect=run), \
+                    patch.object(builder, 'probe_compiler', return_value='normalized-arch'), \
+                    patch.object(builder, 'readelf_for', return_value='readelf'), \
+                    patch.object(builder, 'objdump_for', return_value='objdump'), \
+                    patch.object(builder, 'elf_architecture', return_value='normalized-arch'), \
+                    patch.object(builder, 'instruction_inventory', return_value=dict(instruction_count=1,
+                                                                                     compressed_instruction_count=0,
+                                                                                     unknown_instruction_count=0,
+                                                                                     mnemonics={'addi': 1})), \
+                    patch.object(builder, 'check_elf_memory', return_value=[]):
+                builder.main()
+                builder.main()
+                self.assertEqual(len(builds), len(builder.BENCHMARKS))
+                manifest = json.loads((output / 'manifest.json').read_text())
+                self.assertEqual([test['name'] for test in manifest['tests']], list(builder.BENCHMARKS))
+                self.assertEqual(manifest['mode'], 'functional')
+                self.assertFalse(manifest['scoring'])
+                self.assertEqual(manifest['local_scale'], 1)
+                self.assertEqual(set(manifest['upstream_local_scales'].values()), {2})
+                self.assertEqual(manifest['warmup_heat'], 0)
+                first = output / manifest['tests'][0]['elf']
+                first.write_bytes(b'corrupt')
+                builder.main()
+                self.assertEqual(len(builds), 2 * len(builder.BENCHMARKS))
+
+
 class ProgramBuildTest(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location('program_build', SCRIPTS / 'build.py')

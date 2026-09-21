@@ -23,6 +23,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `riscv/riscv-arch-test`
 - `riscv/riscv-isa-tests`
 - `sims/program-test/coremark`
+- `sims/program-test/embench-iot`
 - `vlsi/double_wide_openframe`
 
 CoreMark is used only from its pinned upstream checkout. Its license, result
@@ -30,6 +31,13 @@ reporting conditions, acceptable-use terms, and trademark notice remain in
 [`sims/program-test/coremark/LICENSE.md`](sims/program-test/coremark/LICENSE.md).
 Rhodium uses CoreMark as a short functional workload and does not report a
 benchmark score.
+
+Embench-IoT is used from its recorded upstream development-tree revision under
+GPL-3.0, with additional per-workload terms identified by upstream source
+headers; its license text remains in
+[`sims/program-test/embench-iot/COPYING`](sims/program-test/embench-iot/COPYING).
+Rhodium runs it as a bounded functional suite and does not report an Embench
+performance score.
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their

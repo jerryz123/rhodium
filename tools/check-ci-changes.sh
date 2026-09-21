@@ -91,12 +91,18 @@ check_field sims/program-test/build-coremark.py program_matrix '{"include":[{"su
 check_field sims/program-test/build-coremark.py simulation true
 check_field sims/program-test/coremark program_matrix '{"include":[{"suite":"coremark"}]}'
 check_field sims/program-test/coremark simulation true
+check_field sims/program-test/build-embench.py program_matrix '{"include":[{"suite":"embench"}]}'
+check_field sims/program-test/build-embench.py simulation true
+check_field sims/program-test/embench-iot program_matrix '{"include":[{"suite":"embench"}]}'
+check_field sims/program-test/embench-iot simulation true
+check_field sims/program-test/embench-iot-riscv-baremetal/start.S program_matrix '{"include":[{"suite":"embench"}]}'
+check_field sims/program-test/embench-iot-riscv-baremetal/start.S simulation true
 check_field sims/program-test/write-target.rhm simulation true
 check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
 for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/aclint.rhdl socs/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
-  check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"}]}'
+  check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"},{"suite":"embench"}]}'
   check_field "$path" program_arch true
 done
 check_field tools/write-riscv-udb-config.rhm program_arch true

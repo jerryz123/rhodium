@@ -1,7 +1,7 @@
 # Restores and verifies the shared bare-metal compiler and C libraries for software CI.
 # SPDX-License-Identifier: Apache-2.0
 name: Set up RISC-V software toolchain
-description: Install the pinned RV64 GCC/Newlib toolchain for ISA, benchmark, and ACT builds.
+description: Install the pinned RV64 GCC/Newlib toolchain for ISA, benchmark, CoreMark, Embench-IoT, and ACT builds.
 runs:
   using: composite
   steps:

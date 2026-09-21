@@ -3,6 +3,8 @@
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sims/program-test/coremark
 COREMARK_PORT_DIR ?= $(REPO_DIR)/sims/program-test/coremark-riscv-baremetal
+EMBENCH_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot
+EMBENCH_PORT_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot-riscv-baremetal
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
@@ -11,11 +13,15 @@ BENCHMARK_MAX_CYCLES ?= 100000000
 BENCHMARK_MODE ?= target
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
+EMBENCH_SCALE ?= 1
+EMBENCH_LOCAL_SCALE ?= 1
+EMBENCH_WARMUP_HEAT ?= 0
+EMBENCH_MAX_CYCLES ?= 100000000
 ISA_SMOKE_DIR := $(PROGRAM_BUILD_ROOT)/$(SOC)/isa-smoke
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
-.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup program-test-adapter-test program-target simulator-attestation
-.PHONY: isa-elfs benchmark-elfs coremark-elf isa-test benchmark-test coremark-test program-test
+.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup embench-setup program-test-adapter-test program-target simulator-attestation
+.PHONY: isa-elfs benchmark-elfs coremark-elf embench-elfs isa-test benchmark-test coremark-test embench-test program-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
 
@@ -48,7 +54,10 @@ isa-setup benchmark-setup:
 coremark-setup:
 	git -C $(REPO_DIR) submodule update --init sims/program-test/coremark
 
-program-test-setup: isa-setup coremark-setup
+embench-setup:
+	git -C $(REPO_DIR) submodule update --init sims/program-test/embench-iot
+
+program-test-setup: isa-setup coremark-setup embench-setup
 
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
@@ -69,6 +78,13 @@ coremark-elf: program-target
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
+
+embench-elfs: program-target
+	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Embench-IoT currently supports SOC=single-core-rv5stage-soc only' >&2; exit 2)
+	$(PYTHON) program-test/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
+	  --output "$(PROGRAM_BUILD_ROOT)/embench" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
+	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
 isa-test: isa-elfs simulator
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/isa/manifest.json" \
@@ -91,8 +107,15 @@ coremark-test: coremark-elf simulator-attestation
 	  --output "$(PROGRAM_BUILD_ROOT)/coremark/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
 
+embench-test: embench-elfs simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/embench/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(PROGRAM_BUILD_ROOT)/embench/results" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(EMBENCH_MAX_CYCLES)
+
 program-test:
 	$(MAKE) isa-test
 	$(MAKE) benchmark-test
 	$(MAKE) coremark-test
+	$(MAKE) embench-test
 	$(MAKE) arch-test ACT_CONFIGURATION=single-core-rv5stage-soc

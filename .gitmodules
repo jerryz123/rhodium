@@ -14,3 +14,6 @@
 [submodule "sims/program-test/coremark"]
 	path = sims/program-test/coremark
 	url = https://github.com/eembc/coremark.git
+[submodule "sims/program-test/embench-iot"]
+	path = sims/program-test/embench-iot
+	url = https://github.com/embench/embench-iot.git

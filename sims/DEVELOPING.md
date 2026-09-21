@@ -39,7 +39,7 @@ systems cannot reuse another system's generated RTL.
 | PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
-| Upstream ISA/benchmark/CoreMark builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
+| Upstream ISA/benchmark/CoreMark/Embench-IoT builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Add or change a harness
@@ -339,8 +339,12 @@ profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
 selection, mode choice, compiler probing, ELF-attribute checks, and
 content-addressed ELF directories. `build-coremark.py` separately compiles the
 pristine CoreMark submodule with the Rhodium-owned RV64 port under
-`program-test/coremark-riscv-baremetal/`; do not make the architecture-neutral
-benchmark a RISC-V package dependency. Update selections for architecture or
+`program-test/coremark-riscv-baremetal/`. `build-embench.py` likewise compiles
+the recorded upstream Embench-IoT development revision with the RV64 port under
+`program-test/embench-iot-riscv-baremetal/`, checks the complete source-directory
+inventory, materializes build-only copies whose local loop scale is explicit,
+and publishes one target-bound ELF per workload. Neither
+architecture-neutral benchmark is a RISC-V package dependency. Update selections for architecture or
 execution-environment compatibility, never to hide failures. Keep sources in
 each pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
@@ -366,13 +370,18 @@ The simulation CI job reuses its MiniRV5StageSoC and TiledRV5StageSoC executable
 `isa-smoke`, attempts both targets even if one fails, and uploads independent
 results. Changes to the adapter or upstream ISA sources must select that job.
 
-`program-test/run.py` owns ISA, benchmark, and CoreMark process-group deadlines,
+`program-test/run.py` owns ISA, benchmark, CoreMark, and Embench-IoT process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
 output contracts because its upstream `main` returns zero after reporting
 validation errors. The short CoreMark workload uses the standard performance
 seeds and requires their exact algorithm CRCs; the expected minimum-duration
-warning does not make this functional simulation workload fail. ACT retains
-upstream `run_tests.py`; `arch-test/report.py` checks its
+warning does not make this functional simulation workload fail. Embench-IoT
+instead returns `!verify_benchmark(result)` from its common `main`, so its
+ordinary HTIF completion status is authoritative. Its scale and warmup values
+are functional-regression controls, not a benchmark score. Keep performance
+scoring outside this lane unless the complete upstream timing, normalization,
+and disclosure procedure is implemented. ACT retains upstream `run_tests.py`;
+`arch-test/report.py` checks its
 summary against the full generated inventory. Never interpret an empty or partial
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.

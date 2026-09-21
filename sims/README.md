@@ -273,7 +273,7 @@ can access platform devices, including the boot-address register and UART.
 
 ## SingleCoreRV5StageSoC software suites
 
-Run the pinned upstream ISA tests, benchmarks, and CoreMark through the same FESVR-backed
+Run the upstream ISA tests, benchmarks, CoreMark, and Embench-IoT through the same FESVR-backed
 SingleCoreRV5StageSoC simulator used by architectural tests:
 
 ```sh
@@ -281,10 +281,11 @@ make -C sims program-test-setup
 make -C sims isa-test SOC=single-core-rv5stage-soc
 make -C sims benchmark-test SOC=single-core-rv5stage-soc
 make -C sims coremark-test SOC=single-core-rv5stage-soc
+make -C sims embench-test SOC=single-core-rv5stage-soc
 ```
 
 After also installing ACT dependencies below, `make -C sims program-test
-SOC=single-core-rv5stage-soc` runs all four suites. This aggregate stops if a suite fails;
+SOC=single-core-rv5stage-soc` runs all five suites. This aggregate stops if a suite fails;
 CI runs the suites independently so one failure does not suppress the others.
 
 The ISA adapter selects upstream physical-environment tests for RV64 I/M/A/F/D/C,
@@ -338,6 +339,18 @@ score. Override `COREMARK_ITERATIONS` to exercise a longer run. The port reads
 the concrete SoC target descriptor. The upstream benchmark sources remain
 unmodified in the submodule.
 
+`embench-test` builds all 19 workloads from the recorded upstream Embench-IoT
+development-tree revision for the concrete RV64 target. Each executable uses
+the upstream lifecycle and result-verification path, then returns that result
+through HTIF without adding an output stream. The default `EMBENCH_SCALE=1`
+and `EMBENCH_LOCAL_SCALE=1` run each kernel once, while
+`EMBENCH_WARMUP_HEAT=0` disables performance warmup. The adapter materializes
+build-only source copies with that local scale and records every upstream local
+scale in the manifest; the submodule remains unmodified. This is a bounded
+functional simulation suite, not a standards-conforming Embench performance
+score. Score publication additionally requires the unmodified upstream scale,
+warmup, timing, normalization, and reporting methodology.
+
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
 CI installs a checksum-pinned GCC/Newlib release via
 `bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
@@ -357,15 +370,16 @@ including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
-`PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks and CoreMark use 100
-million. These are safety budgets, including loading,
-not measured performance requirements. Override them when diagnosing timeouts.
+`PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
+Embench-IoT use 100 million. These are safety budgets, including loading,
+not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
+`COREMARK_MAX_CYCLES`, or `EMBENCH_MAX_CYCLES` when diagnosing timeouts.
 Benchmark CI checks correctness, never exact cycle counts.
 
-CI selects ISA tests, benchmarks, CoreMark smoke, and ACT on pull requests and
-pushes to `main`; manual dispatch selects all four. ACT generates its full ELF inventory once, then partitions it
+CI selects ISA tests, benchmarks, CoreMark smoke, Embench-IoT, and ACT on pull requests and
+pushes to `main`; manual dispatch selects all five. ACT generates its full ELF inventory once, then partitions it
 across four execution jobs. Every job consumes the same exact-commit SingleCoreRV5StageSoC
-executable. ISA/benchmark/CoreMark binaries and ACT reference products are cached by their
+executable. ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 
