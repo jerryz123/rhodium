@@ -406,8 +406,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   )
 
   def lookup_phase = phase === CHIInclusiveHNFPhase.Lookup
-  snoop_targets.load.valid <== lookup_phase & !copyback
-  snoop_targets.load.bits <== vec(
+  def lookup_snoop_victim = !lookup_selection.valid & !maintenance & request_installs_miss
+  def lookup_enters_snoop_path = lookup_selection.valid ||| maintenance ||| (victim_valid & request_installs_miss)
+  def lookup_snoop_targets = vec(
     for List (index in 0..resident_count):
       block:
         def endpoint = residents[index]
@@ -419,6 +420,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
               chi_request_snoops_caches(request.opcode) & (request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
               request_installs_miss))
   )
+  def lookup_has_snoop_targets = lookup_snoop_targets.or_reduce()
+  def zero_snoop_lookup = lookup_phase & !copyback & lookup_enters_snoop_path & !lookup_has_snoop_targets
+  def zero_snoop_clean_victim = zero_snoop_lookup & lookup_snoop_victim & !dirty_lines[request_set][lookup_way]
+  snoop_targets.load.valid <== lookup_phase & !copyback
+  snoop_targets.load.bits <== lookup_snoop_targets
   def after_snoops = phase === CHIInclusiveHNFPhase.AfterSnoops
   def merge_requester_data = phase === CHIInclusiveHNFPhase.MergeRequesterData
   def finish_copyback = phase === CHIInclusiveHNFPhase.FinishCopyBack
@@ -483,12 +489,40 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     selected_way <== lookup_way
     line_buffer <== lines.port.response.bits[lookup_way].as_vec(Bits(p.data_width))
     victim_address <== lookup_victim_address
-    snoop_victim <== !lookup_selection.valid & !maintenance & request_installs_miss
+    snoop_victim <== lookup_snoop_victim
     maintenance_hit <== lookup_selection.valid
     maintenance_dirty <== lookup_selection.valid & dirty_lines[request_set][lookup_way]
     when copyback:
       assert(!copyback_dirty ||| lookup_selection.valid, "chi_inclusive_hnf_dirty_copyback_has_entry")
-    phase <== mux(copyback, CHIInclusiveHNFPhase.FinishCopyBack, mux(lookup_selection.valid ||| maintenance ||| (victim_valid & request_installs_miss), CHIInclusiveHNFPhase.SendSnoop, CHIInclusiveHNFPhase.SendFillRequest))
+      phase <== CHIInclusiveHNFPhase.FinishCopyBack
+    elsewhen (!lookup_enters_snoop_path):
+      phase <== CHIInclusiveHNFPhase.SendFillRequest
+    elsewhen lookup_has_snoop_targets:
+      phase <== CHIInclusiveHNFPhase.SendSnoop
+    otherwise:
+      victim_data_beat <== bits(0, 2)
+      remaining_response_data_ids <== request_response_data_ids
+      when lookup_snoop_victim:
+        valid_lines <== mux(
+          dirty_lines[request_set][lookup_way],
+          valid_lines,
+          valid_lines.updated(
+            request_set,
+            valid_lines[request_set].updated(lookup_way, Bool(#false))
+          )
+        )
+      when maintenance:
+        phase <== mux(dirty_lines[request_set][lookup_way] & !maintenance_discard,
+                      CHIInclusiveHNFPhase.SendVictimWriteRequest,
+                      CHIInclusiveHNFPhase.FinishMaintenance)
+      elsewhen lookup_snoop_victim:
+        phase <== mux(dirty_lines[request_set][lookup_way],
+                      CHIInclusiveHNFPhase.SendVictimWriteRequest,
+                      CHIInclusiveHNFPhase.SendFillRequest)
+      otherwise:
+        phase <== mux(request_write,
+                      CHIInclusiveHNFPhase.MergeRequesterData,
+                      CHIInclusiveHNFPhase.SendCachedData)
   elsewhen finish_copyback:
     // Clean/invalid late copybacks cannot overwrite a newer LLC version.
     when copyback_dirty:
@@ -653,7 +687,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def directory_line_valid = valid_lines[selected_set][selected_way] & (!maintenance ||| maintenance_hit)
   def invalidate_entry = (after_snoops & snoop_victim & !selected_dirty & (completion_error === CHIRespErr.OK)) ||| (subordinate_response_fire & await_victim_completion & !maintenance & victim_write_successful) ||| ((phase === CHIInclusiveHNFPhase.FinishMaintenance) & maintenance_hit & (completion_error === CHIRespErr.OK) & (request.opcode =/= CHIReqOpcode.CleanShared))
   def grant_copy = cached_data_fire & final_response_data & (completion_error === CHIRespErr.OK) & request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
-  when (write_filled_line ||| invalidate_entry):
+  when zero_snoop_clean_victim:
+    resident_lines <== resident_lines.updated(request_set, resident_lines[request_set].updated(lookup_way, bits(0, resident_count)))
+  elsewhen (write_filled_line ||| invalidate_entry):
     resident_lines <== resident_lines.updated(selected_set, resident_lines[selected_set].updated(selected_way, bits(0, resident_count)))
   elsewhen (directory_line_valid & (absent_control ||| absent_data)):
     resident_lines <== resident_lines.updated(selected_set, resident_lines[selected_set].updated(selected_way, resident_lines[selected_set][selected_way] & !responder_mask))

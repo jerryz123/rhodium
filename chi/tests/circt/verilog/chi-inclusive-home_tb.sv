@@ -517,10 +517,13 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     tick();
     fill_and_return(LINE0, 8'h10);
 
+    // An LLC hit with no tracked RN-F resident skips the snoop phases.
     send_request(LINE0, READ_NO_SNP);
     tick();
-    tick();
-    tick();
+    assert (port_out.requester.response_data.valid &&
+            !port_out.requester.snoops.valid &&
+            !port_out.subordinate.req.valid)
+      else $fatal(1, "inclusive Home did not fast-path a zero-snoop hit");
     accept_cached_packet(2'd0, 128'h10);
     accept_cached_packet(2'd1, 128'h11);
     accept_cached_packet(2'd2, 128'h12);
@@ -667,7 +670,11 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h70);
     for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h50 + 128'(packet);
     send_request(LINE0, READ_NO_SNP); finish_cached();
-    send_request(LINE3, READ_NO_SNP); repeat (3) tick(); fill_and_return(LINE3, 8'h40);
+    send_request(LINE3, READ_NO_SNP);
+    tick();
+    assert (port_out.subordinate.req.valid && !port_out.requester.snoops.valid)
+      else $fatal(1, "inclusive Home did not fast-path a zero-snoop clean victim");
+    fill_and_return(LINE3, 8'h40);
     send_request(LINE2, READ_NO_SNP); repeat (3) tick(); fill_and_return(LINE2, 8'h70);
 
     // ReadOnce must preserve an early-beat error and must not cache a failed fill.
