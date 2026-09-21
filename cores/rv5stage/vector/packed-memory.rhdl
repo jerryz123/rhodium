@@ -10,6 +10,8 @@ import:
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/vector.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
@@ -23,11 +25,12 @@ hardware_enum RV5StagePackedPrepare:
   ReadDone
   Issue
 
-sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Context :: DataType, slots :: Pow2Int):
+sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Context :: DataType, slots :: Pow2Int, ~owner_count: owner_count :: Pow2Int = 2):
   def bytes = xlen.width / 8
   def Count = Bits(index_width(vlen + 1))
   def Address = Bits(index_width(vector_depth(vlen)))
   def Tag = Bits(index_width(slots))
+  def Owner = Bits(index_width(owner_count))
   bundle Cursor():
     address: Bits(64)
     element: Count
@@ -47,7 +50,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     mask: Bits(bytes)
     store: Bool
     segmented: Bool
-    owner: Bool
+    owner: Owner
   bundle PreparedStore():
     layout: Layout()
     data: Bits(64)
@@ -69,9 +72,10 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   interface released(Valid(Tag), ~role: producer)
   input slot: Tag
   input head: Tag
-  input(slot_available, drain_enable, alignment_available, owner): Bool
+  input(slot_available, drain_enable, alignment_available): Bool
+  input owner: Owner
   input accepted_slots: Vec(slots, Bool)
-  input closed_owners: Vec(2, Bool)
+  input closed_owners: Vec(owner_count, Bool)
   input blocked_rows: Vec(vector_depth(vlen), Bool)
   output(busy_rows, foreign_rows): Vec(vector_depth(vlen), Bool)
   output drain_blocked: Bool
@@ -96,8 +100,9 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   reg draining(~init: Bool(#false))
   reg carry_valid(~init: Bool(#false))
   reg carry(VectorRegisterWrite(vlen))
-  reg carry_owner(Bool)
+  reg carry_owner(Owner)
   def descriptor = instruction.descriptor
+  def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   def whole = descriptor.control.memory_mode === VectorMemoryMode.WholeRegister
   def mask_transfer = descriptor.control.memory_mode === VectorMemoryMode.Mask
   def eew = mux(mask_transfer, bits(0, 2), descriptor.control.memory_data_eew)
@@ -139,7 +144,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def mutable live_values = []
   for (lane in 0..bytes):
     def live = (bits(lane, 3) >= cursor.leading) & (element < limit)
-    def register = descriptor.vd + (field.zext(5) << group_shift)
+    def register = vd + (field.zext(5) << group_shift)
     def position = (element.zext(index_width(vlen + 1) + 3) << eew) + byte.zext(index_width(vlen + 1) + 3)
     row_values := row_values ++ [((register.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (position >> 3)[0..index_width(vector_depth(vlen))])]
     offset_values := offset_values ++ [position[0..3]]

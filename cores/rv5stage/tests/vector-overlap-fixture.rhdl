@@ -11,6 +11,8 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorOverlap():
@@ -46,10 +48,12 @@ sync_circuit RV5StageVectorOverlap():
         scalar: scalar
         floating_scalar: bits(0, 64)
         stride: bits(8, 64)
-        vd: instruction[7..12]
-        vs1: instruction[15..20]
-        vs2: instruction[20..25]
         masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
   vector.packed_memory <== packed_memory
   vector.issue |> to_valid() |> tokens.ingress
   def Array(observed, feedback) = tokens.egress |> fork_valid(2)
@@ -67,7 +71,6 @@ sync_circuit RV5StageVectorOverlap():
   ) |> vector.commit
   response |> vector.completion
   vector.memory_drained <== Bool(#true)
-  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
   vector.fp_request |> fp_request
   fp_result |> vector.fp_result
   vector.multiply_request.ready <== Bool(#false)

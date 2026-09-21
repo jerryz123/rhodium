@@ -15,7 +15,7 @@ import:
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
-fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots)), rounding :: RoundingMode) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
+fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots))) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
   def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def flen = floating_point_register_width(profile)
   fun precision(width :: SimdElementWidth) :~ RV5StageFloatPrecision:
@@ -59,7 +59,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
     third_precision: mux(beat.control.multiply_destination, left_precision, result_precision)
     integer_operand: beat.left[0..xlen.width]
     immediate_index: dont_care(Bits(5))
-    rounding_mode: mux_lookup(beat.control.fp_rounding, ~default: rounding, [[VectorFloatRounding.TowardZero, RoundingMode.MinMagnitude], [VectorFloatRounding.RoundToOdd, RoundingMode.Odd]])
+    rounding_mode: mux_lookup(beat.control.fp_rounding, ~default: beat.fp_rounding_mode, [[VectorFloatRounding.TowardZero, RoundingMode.MinMagnitude], [VectorFloatRounding.RoundToOdd, RoundingMode.Odd]])
 
 export:
   vector_fp_request

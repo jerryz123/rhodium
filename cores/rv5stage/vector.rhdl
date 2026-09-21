@@ -48,8 +48,6 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  input rounding_mode: RoundingMode
-  input pointer_masking: PointerMaskControl()
   output(active, unrolling, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
@@ -61,14 +59,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   reg store(~init: Bool(#false))
   reg captured_pointer_masking(PointerMaskControl())
   reg execution_certified(~init: Bool(#false))
-  reg pending_pointer_masking(PointerMaskControl())
-  reg pending_rounding(RoundingMode)
   reg pending_needs_precheck(~init: Bool(#false))
   reg active_precheck(~init: Bool(#false))
   reg checking(~init: Bool(#false))
   reg certified(~init: Bool(#false))
   reg waiting_retirement(~init: Bool(#false))
-  def footprint = vector_footprint(xlen, vlen, request.bits, pointer_masking)
+  def footprint = vector_footprint(xlen, vlen, request.bits, request.bits.pointer_masking)
   def needs_check = request.bits.control.memory & !footprint.empty & footprint.eligible
   def immediate_certificate = !request.bits.control.memory ||| footprint.empty
   def can_admit = !waiting_retirement
@@ -83,14 +79,14 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
       descriptor: descriptor
   ) |> gate_flow(!checking) |> execution.request
   execution.packed_memory <== certified & queued_descriptor.bits.control.memory
-  def Array(check_launch, compute_launch) = launch |> fork_valid(2)
+  def Array(check_launch, empty_memory_launch) = launch |> fork_valid(2)
   check_launch |> filter_valid(_descriptor => needs_check) |> map_valid(_descriptor => footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))) |> to_decoupled() |> queue(1) |> precheck.request
   // Every accepted LSU transaction already owns its physical address. The
   // single page window belongs to replayable issue, not delayed responses.
   precheck.release.valid <== execution.issue_done.valid & active_precheck
-  def early_compute = compute_launch |> filter_valid(_descriptor => immediate_certificate) |> map_valid(descriptor => descriptor.pc)
-  def early_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
-  def early_outcome = Array(early_compute, early_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen)):
+  def empty_memory = empty_memory_launch |> filter_valid(descriptor => descriptor.control.memory & immediate_certificate) |> map_valid(descriptor => descriptor.pc)
+  def checked_memory = precheck.response |> to_valid() |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
+  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen)):
     pc: pc
     disposition: RV5StageVectorDisposition.Authorized
     slow: Bool(#false)
@@ -107,22 +103,19 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
-  def Array(compute_feedback, compute_retirement) = compute_accept |> fork_valid(2)
-  Array(compute_feedback, access.feedback) |> valid_arbiter() |> execution.commit
+  Array(compute_accept, access.feedback) |> valid_arbiter() |> execution.commit
   assert(!(compute_accept.valid & access.feedback.valid), "vector_macro_has_one_execution_route")
   access.completion |> execution.completion
-  def compute_outcome = compute_retirement |> filter_valid(_event => compute_wb.bits.last)
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
-  def final_outcome = Array(compute_outcome, access.outcome) |> valid_arbiter() |> filter_valid(_event => !execution_certified)
+  def final_outcome = access.outcome |> filter_valid(_event => !execution_certified)
   Array(early_outcome, final_outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
   when (request.fire()):
-    pending_pointer_masking <== pointer_masking
-    pending_rounding <== rounding_mode
     pending_needs_precheck <== needs_check
     checking <== needs_check
     certified <== immediate_certificate
-    waiting_retirement <== Bool(#true)
+    when (request.bits.control.memory):
+      waiting_retirement <== Bool(#true)
   elsewhen (precheck.response.fire()):
     checking <== Bool(#false)
     certified <== precheck.response.bits
@@ -130,7 +123,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     waiting_retirement <== Bool(#false)
   when (execution.request.fire()):
     store <== queued_descriptor.bits.control.store & queued_descriptor.bits.control.memory
-    captured_pointer_masking <== pending_pointer_masking
+    captured_pointer_masking <== queued_descriptor.bits.pointer_masking
     execution_certified <== certified
     active_precheck <== pending_needs_precheck
   elsewhen (precheck.release.valid):
@@ -145,7 +138,6 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   access.pointer_masking <== captured_pointer_masking
   // Only local rejection rewinds the allocated macro; younger scalar redirects do not cancel it.
   execution.cancel.valid <== Bool(#false)
-  execution.rounding_mode <== pending_rounding
   execution.memory_drained <== memory.drained
   execution.fp_request |> fp_request
   fp_result |> execution.fp_result

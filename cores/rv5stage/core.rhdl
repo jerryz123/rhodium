@@ -308,7 +308,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def Array(wb_commit_path, wb_vector_launch_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(4)
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb.bits
   wire wb_commit_result: MemoryWriteback(xlen, vector_completion_slots)
-  def wb_commit = wb_commit_path |> filter_valid(operation => !operation.vector_launch & !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
+  def wb_commit = wb_commit_path |> filter_valid(operation => (!operation.vector_launch ||| !operation.vector_context.control.memory) & !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
   def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_redirect_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path) = wb_commit |> fork_valid(8)
   def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
@@ -664,9 +664,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   if vector_enabled
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa))
-      reg wb_vector_context(DecodeExecute(xlen, vector_completion_slots))
       reg wb_vector_retirement(MemoryWriteback(xlen, vector_completion_slots))
-      wb_fp.snapshot_read_address <== wb_vector_context.rs1
+      def wb_vector_context = wb_offer_bits.vector_context
+      def wb_vector_vd = instruction_field(riscv_fields.rd, wb_vector_context.instruction)
+      wb_fp.snapshot_read_address <== instruction_field(riscv_fields.rs1, wb_vector_context.instruction)
       inst id_vector_legality(RV5StageVectorLegality(xlen, vector_length, core_profile.vector, vector_extensions))
       id_vector_legality.instruction <== id_instruction
       id_vector_legality.control <== id_control.vector
@@ -680,36 +681,33 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_fp_pending <== wb_vector.fp_pending
       wb_vector.precheck |> vector_precheck
       wb_vector_stores_pending <== wb_vector.stores_pending
-      wb_vector_fp_write_pending <== wb_vector_active & wb_vector_context.vector_control.floating_scalar_destination
+      wb_vector_fp_write_pending <== wb_vector.fp_pending
       wb_vector.multiply_request |> wb_vector_multiply_request_link.left
       wb_vector_multiply_result_link.right |> wb_vector.multiply_result
       wb_vector.divide_request |> wb_vector_divide_request_link.left
       wb_vector_divide_result_link.right |> wb_vector.divide_result
-      wb_vector.rounding_mode <== wb_csrs.frm.into(RoundingMode)
       wb_vector.fp_request |> wb_vector_fp_request_link.left
       wb_vector_fp_result_link.right |> wb_vector.fp_result
       wb_vector.fp_update |> wb_vector_fp_update_link.left
       wb_vector.memory <=> memory_ports.vector
       wb_vector.pipeline <=> memory_ports.vector_pipeline
-      wb_vector.pointer_masking <== wb_vector_context.pointer_masking
       def wb_vector_launch = wb_vector_launch_path |> filter_valid(operation => operation.vector_launch & !operation.replay & !operation.exception_valid)
         |> map_valid(operation => RV5StageVectorDescriptor(xlen)):
              pc: operation.pc
              instruction: wb_vector_context.instruction
              state: wb_csrs.vector_state
-             control: wb_vector_context.vector_control
-             scalar: wb_vector_context.operand_rs1.value
+             control: wb_vector_context.control
+             scalar: wb_vector_context.scalar
              floating_scalar: wb_fp.snapshot_read_data
-             stride: wb_vector_context.operand_rs2.value
-             vd: wb_vector_context.rd
-             vs1: wb_vector_context.rs1
-             vs2: wb_vector_context.rs2
+             stride: wb_vector_context.stride
              masked: !wb_vector_context.instruction[25].into(Bool)
+             rounding_mode: wb_csrs.frm.into(RoundingMode)
+             pointer_masking: wb_vector_context.pointer_masking
       wb_vector_launch |> to_decoupled() |> wb_vector.request
-      wb_vector_launch |> filter_valid(descriptor => descriptor.control.integer & descriptor.control.scalar_destination & descriptor.vd.or_reduce()) |> map_valid(descriptor => descriptor.vd) |> wb_vector_reserve_link.left
-      wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination) |> map_valid(descriptor => descriptor.vd) |> to_decoupled() |> wb_fp.vector_reserve
+      wb_vector_launch |> filter_valid(descriptor => descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.or_reduce()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
+      wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination) |> map_valid(_descriptor => wb_vector_vd) |> to_decoupled() |> wb_fp.vector_reserve
       wb_vector.floating_result |> wb_fp.vector_write
-      when (wb_vector_launch.valid):
+      when (wb_vector_launch.valid & wb_vector_launch.bits.control.memory):
         wb_vector_retirement <== wb.bits
       (
         wb_vector.outcome |> map_valid(event => wb_vector_retirement.updated(
@@ -723,15 +721,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_truncate <== wb_vector.outcome.valid & (wb_vector.outcome.bits.disposition === RV5StageVectorDisposition.Truncate)
       wb_vector.fault_start |> wb_csrs.vector_fault_start
       wb_vector.truncate |> wb_csrs.vector_truncate
-      wb_vector.retire |> wb_csrs.vector_retire
+      wb_csrs.vector_retire.valid <== wb_vector.retire.valid ||| (wb_commit_valid & wb_commit_bits.vector_launch & !wb_commit_bits.exception_valid)
       wb_vector.saturate |> wb_csrs.vector_saturate
       wb_vector.scalar_result |> wb_vector_scalar_result_link.left
-      when (ex_transfer & ex_input.bits.vector_launch):
-        wb_vector_context <== ex_input.bits.updated(
-          ~vector_launch: Bool(#false),
-          ~operand_rs1: ex_input.bits.operand_rs1.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_vector_resolved_rs1),
-          ~operand_rs2: ex_input.bits.operand_rs2.updated(~stage_sel: RV5StageBypassStage.RegisterFile, ~value: ex_vector_resolved_rs2)
-        )
   | block:
       wb_vector_retirement_link.left.valid <== Bool(#false)
       wb_vector_retirement_link.left.bits <== dont_care(MemoryWriteback(xlen, vector_completion_slots))
@@ -940,11 +932,18 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     data: ex_data_request.data
 
   def ex_resume_pc = mux(ex_input.bits.vector_launch, ex_input.bits.sequential_pc, mux(ex_redirect_requested, ex_redirect_target, ex_input.bits.sequential_pc))
+  def ex_vector_context = RV5StageVectorLaunchContext(xlen):
+    pointer_masking: ex_input.bits.pointer_masking
+    instruction: ex_input.bits.instruction
+    control: ex_input.bits.vector_control
+    scalar: ex_vector_resolved_rs1
+    stride: ex_vector_resolved_rs2
   def ex_ras_action = rv5stage_ras_action(ex_input.bits.instruction)
   def ex_ras_mispredicted = ex_ras_action =/= ex_input.bits.predicted_ras_action
   def ex_redirect_valid = ((ex_resume_pc =/= ex_input.bits.predicted_next_pc) ||| ex_ras_mispredicted) & !ex_exception.valid
   def ex_payload = ExecuteMemory(xlen, vector_completion_slots):
     vector_launch: ex_input.bits.vector_launch
+    vector_context: ex_vector_context
     pc: ex_input.bits.pc
     resume_pc: ex_resume_pc
     redirect_valid: ex_redirect_valid
@@ -1020,6 +1019,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   mem_training_path |> filter_valid(operation => !operation.vector_launch) |> map_valid(operation => operation.branch_update) |> frontend_control.branch_update
   def mem_to_wb = mem_with_result |> to_valid() |> map_valid(operation => MemoryWriteback(xlen, vector_completion_slots)):
     vector_launch: operation.vector_launch
+    vector_context: operation.vector_context
     pc: operation.pc
     resume_pc: operation.resume_pc
     raw_instruction: operation.raw_instruction

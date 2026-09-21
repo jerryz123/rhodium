@@ -13,6 +13,8 @@ import:
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
@@ -48,12 +50,15 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
         scalar: scalar
         floating_scalar: bits(0, 64)
         stride: bits(0, xlen.width)
-        vd: instruction[7..12]
-        vs1: instruction[15..20]
-        vs2: instruction[20..25]
         masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
   vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
-  def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel
+  def serialized = (decode.control.vector.integer ||| decode.control.vector.fp_service) & decode.control.vector.reduction ||| (decode.control.vector.integer & (decode.control.vector.scan ||| decode.control.vector.compress))
+  def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel & serialized
   tokens.flush <== cancel ||| retry
   vector.cancel.valid <== cancel
   vector.commit.valid <== tokens.egress.valid & !cancel
@@ -67,7 +72,6 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   vector.completion.valid <== Bool(#false)
   vector.completion.bits <== dont_care(RV5StageVectorCompletion(xlen, 8))
   vector.memory_drained <== Bool(#true)
-  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
   vector.fp_request.ready <== Bool(#false)
   vector.fp_result.valid <== Bool(#false)
   vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)

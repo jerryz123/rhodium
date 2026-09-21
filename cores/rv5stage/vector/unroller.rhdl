@@ -10,6 +10,8 @@ import:
   "../../simd-alu.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/floating-point.rhdl".riscv_unbox
   lib("hardfloat/main.rhdl").FloatFormat
   "../../../riscv/rtl/vector.rhdl" open
@@ -38,6 +40,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   interface mask_read(Valid(Bits(index_width(vector_chunks(vlen)))), ~role: producer)
   interface mask_result(Valid(Bits(64)), ~role: consumer)
   interface issue(Decoupled(MicroOp), ~role: producer)
+  interface sequencing_done(Pulse(), ~role: producer)
   input blocked_rows: Vec(vector_depth(vlen), Bool)
   output active: Bool
 
@@ -69,6 +72,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   inst pending(ShiftQueue(MicroOp, 2, ~pipe: #true, ~flushable: #true))
   inst packing(RV5StageVectorOperands(vlen))
   def descriptor = instruction.descriptor
+  def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
+  def vs1 = instruction_field(riscv_fields.rs1, descriptor.instruction)
+  def vs2 = instruction_field(riscv_fields.rs2, descriptor.instruction)
   retained <== instruction
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
@@ -86,6 +92,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
   def compress = descriptor.control.integer & descriptor.control.compress
+  def serialized = descriptor.control.memory ||| reduction ||| scan ||| compress
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
   def fp_widening = descriptor.control.fp_service & descriptor.control.widening
@@ -144,12 +151,12 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def row_base_width = index_width(vector_depth(vlen))
   def memory_emul = geometry.lmul.into(SInt(3)).sext(5) + memory_data_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def memory_group_shift = mux(memory_emul < SInt(5)(0), bits(0, 3), memory_emul.into(Bits(5))[0..3])
-  def memory_register = descriptor.vd + (field.zext(5) << memory_group_shift)
+  def memory_register = vd + (field.zext(5) << memory_group_shift)
   def memory_field_offset = field.zext(64) << memory_data_eew
   def memory_effective_address = memory_element_address + memory_field_offset
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
-  def slide_distance = mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(xlen.width), descriptor.scalar))
+  def slide_distance = mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, vs1.zext(xlen.width), descriptor.scalar))
   def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   def slide_origin = cursor.zext(xlen.width + 2) + slide_delta
   def slide_chunk = slide_origin >> (bits(3, 2) - sew)
@@ -160,17 +167,17 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def slide_valid = vec(for List (byte in 0..16):
                           def element = slide_first + (bits(byte, xlen.width + 2) >> sew)
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
-  def slide_base = descriptor.vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
+  def slide_base = vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
   def slide_address = slide_base + slide_chunk[0..row_base_width]
   def index_sew = mux(indexed_memory, descriptor.control.memory_index_eew, mux(descriptor.control.gather_index16, bits(1, 2), sew))
   def index_chunk = cursor >> (bits(3, 2) - index_sew)
-  def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, descriptor.vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
+  def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
   def first_source_chunk = mux(extension, extension_source_chunk, mux(wide_vs2 ||| fp_narrowing, wide_source_chunk, source_chunk))
-  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, descriptor.vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
-  def second_address = mux(compress, (descriptor.vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, descriptor.vs2, descriptor.vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
-  def destination_address = (descriptor.vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
+  def second_address = mux(compress, (vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
+  def destination_address = (vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
   def addresses = Array(first_address, second_address, destination_address)
   // Older macros have captured every operand before this descriptor starts.
   // Only their pending writes can block us; this macro's own writes cannot.
@@ -204,8 +211,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     fp_source_width: (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
     fp_result_width: (sew + fp_widening.as_bits().zext(2)).into(SimdElementWidth)
     rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
+    fp_rounding_mode: descriptor.rounding_mode
     control: descriptor.control
-    destination: mux(segmented_memory, memory_register, descriptor.vd)
+    destination: mux(segmented_memory, memory_register, vd)
     compress_state:
       RV5StageVectorCompressState(vlen):
         data: bits(0, 64)
@@ -256,7 +264,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   packing.right <== mux(second_source, results[1].bits, bits(0, 64))
   packing.mask_word <== mask_result.bits
   packing.scalar <== mux(floating_scalar_operand, floating_scalar, if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.into(SInt(32)).sext(64).into(Bits(64)))
-  packing.immediate <== concat(descriptor.instruction[26], descriptor.vs1)
+  packing.immediate <== concat(descriptor.instruction[26], vs1)
   // Premerge bytes before the ALU's existing E64 rotate-right. Scalar insert
   // bytes keep their element-local position because the offset is SEW-aligned.
   def slide_source = vec(for List (byte in 0..8):
@@ -343,8 +351,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       fp_source_width: format
       fp_result_width: format
       rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
+      fp_rounding_mode: descriptor.rounding_mode
       control: descriptor.control
-      destination: descriptor.vd
+      destination: vd
       compress_state:
         RV5StageVectorCompressState(vlen):
           data: bits(0, 64)
@@ -368,13 +377,15 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     beat: mux(flush_offer, compression_flush_beat(flush_state), mux(gather_vector, gather_pipe.egress.bits.beat.updated(~left: mux(gather_pipe.egress.bits.in_range, results[0].bits, bits(0, 64))), mux(compress, compress_beat, operands)))
   def flush_enqueue = flush_offer & pending.ingress.ready
   def reserve_event = launch ||| flush_enqueue
+  def compute_tail_issue = issue.fire() & issue.bits.beat.last & !serialized
   active <== occupied
-  request.ready <== !occupied & !clear
+  request.ready <== (!occupied ||| compute_tail_issue) & !clear
   def accepted = request.fire()
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
-  // One admitted macro owns every generated beat, including fresh attempts
-  // after retry. The existing pending queue carries that owner to issue.
-  def release_macro = occupied & (cancel.valid ||| fault ||| truncate ||| packed_done.valid ||| (authorized_event & feedback.bits.last))
+  // Compute micro-ops become pipeline-owned when issued. Replayable memory
+  // retains the sequencer through final authorization.
+  sequencing_done.valid <== occupied & (compute_tail_issue ||| cancel.valid ||| fault ||| truncate ||| packed_done.valid ||| (authorized_event & feedback.bits.last))
+  def release_macro = sequencing_done.valid
   describe_interface_retained_storage(accepted, release_macro, occupied, ~name: "macro")
   describe_interface_contract(request, pending.ingress, "macro-beats", ~trace_model: interface_trace_retained(~name: "macro"))
   when (read_offer & !clear):
@@ -385,6 +396,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     assert(read_beat.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| read_beat.empty ||| packing.legal, "vector_packed_read_is_legal")
   when (feedback.valid & !cancel.valid):
+    assert(serialized, "vector_feedback_only_replays_serialized_sequence")
     assert(occupied, "vector_feedback_has_active_macro")
     assert(feedback.bits.context === descriptor.pc, "vector_feedback_matches_active_macro")
     assert(feedback.bits.sequence === authorized_sequence, "vector_feedback_is_oldest_unauthorized_operation")
@@ -504,8 +516,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
       authorized_compress_data <== feedback.bits.compress_state.data
       authorized_compress_count <== feedback.bits.compress_state.count
       authorized_compress_destination <== feedback.bits.compress_state.destination
-      when (feedback.bits.last):
-        occupied <== Bool(#false)
+    when (compute_tail_issue ||| (authorized_event & feedback.bits.last)):
+      occupied <== Bool(#false)
 
 export:
   RV5StageVectorUnroller

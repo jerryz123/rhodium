@@ -72,6 +72,15 @@ bundle RV5StageOperand(xlen :: XLen):
   stage_sel: RV5StageBypassStage
   value: Bits(xlen.width)
 
+// Carries the vector-only decode and resolved scalar operands with one scalar
+// pipeline occurrence instead of retaining a singleton side context.
+bundle RV5StageVectorLaunchContext(xlen :: XLen):
+  pointer_masking: PointerMaskControl()
+  instruction: Bits(32)
+  control: RV5StageVectorControl()
+  scalar: Bits(xlen.width)
+  stride: Bits(xlen.width)
+
 bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
   pointer_masking: PointerMaskControl()
@@ -122,6 +131,7 @@ bundle RV5StageException(xlen :: XLen):
 
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
+  vector_context: RV5StageVectorLaunchContext(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
@@ -151,6 +161,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
 
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
+  vector_context: RV5StageVectorLaunchContext(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   raw_instruction: Bits(32)
@@ -184,6 +195,7 @@ export:
   RV5StageDeferredCompletion
   RV5StageHazardReasons
   RV5StageOperand
+  RV5StageVectorLaunchContext
   DecodeExecute
   RV5StageException
   ExecuteMemory

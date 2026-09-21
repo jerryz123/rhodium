@@ -8,17 +8,21 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
-There is one replayable issue owner: `unroller.rhdl` retains the descriptor
-until its final beat receives non-replayable acceptance. Its packed-memory
-schedule consumes that same retained descriptor; it is not another unroller.
-`vector.rhdl` owns one front descriptor queue so Decode admission and page-range
-certification can overlap the active owner. Do not use pending descriptor state
-to gate the older owner's issue stream, and release a page window only from the
-issue completion of the descriptor that acquired it. Two bounded execution
-contexts allow accepted work to outlive issue ownership. Persistent completion
-slots retain route and macro identity across descriptor replacement. Keep front
-admission, execution allocation, final acceptance, result arrival, and drain
-distinct.
+There is one in-order sequencer: `unroller.rhdl` retains one descriptor and never
+alternates among instructions. Ordinary compute relinquishes that descriptor
+when its final beat issues and may accept its replacement on the same edge;
+completion slots retain the already issued work. Memory, reduction, scan, and
+compression remain serialized through final non-replayable feedback because
+they retain replay or cross-beat state. The packed-memory schedule consumes the
+same descriptor; it is not another sequencer. `vector.rhdl` owns one front
+descriptor handoff so Decode admission and page-range certification can overlap
+the active owner. It is not a bank of instruction queues. Do not use pending
+descriptor state to gate the older owner's issue stream, and release a page
+window only from the issue completion of the descriptor that acquired it. The
+completion-slot-sized owner ring lets accepted work outlive sequencing
+ownership. Persistent slots retain route and owner identity across descriptor
+replacement. Keep front admission, sequencing release, execution allocation,
+final acceptance, result arrival, and drain distinct.
 
 Every ordinary beat, including immediate integer results, reserves a slot in
 one persistent ring. Packed beats share its allocation/acceptance/drain frontier;
@@ -29,7 +33,8 @@ All accepted operands are captured, so older issued instructions have no unread
 VRF sources. Older pending writes block reads by 64-bit row; `dependencies.rhdl`
 conservatively interlocks overlapping architectural destination groups. Gather's
 dependent second read waits for older writes before starting its nonstallable
-read pair. There is no renaming or interleaved instruction unrolling.
+read pair. There is no renaming, out-of-order instruction selection, or
+interleaved instruction unrolling.
 
 Certified contiguous macros select `packed-memory.rhdl` after the page check,
 before execution allocation. Its byte/field cursor maps aligned XLEN requests
@@ -60,8 +65,9 @@ The real MMU/cache vector-memory fixture remains the integration boundary.
 
 `pipeline.rhdl` traces actual admission after certificate waiting with one
 `vector/sequencer` residency before the schedule fork. Its local storage scope
-uses the existing unroller occupancy and issue-done release for both modes;
-accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
+uses the existing unroller occupancy and mode-specific sequencing release:
+tail issue for ordinary compute, final feedback for serialized operations.
+Accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
 emits no launch checkpoint. The original scalar WB identity follows the existing
 admission queue into the shared checkpoint, then each schedule's retained Flow.
 Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.
@@ -160,8 +166,9 @@ on one edge before the shared ordered VRF write port drains them.
 Configuration follows ordinary serializing system instructions through
 `core.rhdl`. Vector micro-ops do not traverse scalar EX/MEM/WB. The private
 pipeline supplies its own nonstallable feedback and asserts result alignment.
-Certification updates scalar retirement/PC/NTL macro state once for an early
-retired macro; the conservative path still uses final local acceptance.
+Compute retires from its ordinary scalar WB launch token. Memory certification
+updates scalar retirement/PC/NTL macro state once for an early retired macro;
+the conservative memory path still uses final local acceptance.
 The macro outcome crosses one register before scalar retirement selection, so
 LSU fault/admission cannot feed back into scalar request formation. Local retry
 feedback remains same-cycle. Certified execution cannot later fault; assert that
@@ -170,14 +177,15 @@ VRF/shared-service/memory drain independently of architectural retirement.
 Vector CSR observers wait for this drain. An allocated macro is older than
 subsequent scalar redirects and must not be canceled by them.
 The original vector macro crosses the scalar pipeline as a side-effect-free
-launch token. Resolve its scalar, base, and stride operands through the ordinary
-EX bypass selectors and capture the decoded macro in one vector-only retained
-context at the accepted EX occurrence. The generic EX/MEM and MEM/WB payloads
-carry only the launch token; WB combines that token with the retained context
-before admitting the macro to the unroller. A launch in EX/MEM/WB blocks younger
-Decode, so the context cannot be replaced and WB request readiness is reserved
-without making WB elastic. Keep issue occupancy distinct from accepted memory
-completion ownership.
+launch token plus a per-occurrence vector context. Resolve its scalar base and
+stride operands through the ordinary EX bypass selectors and carry that resolved
+context through EX/MEM and MEM/WB; do not restore a singleton side register.
+Register numbers remain canonical instruction fields and are decoded from the
+retained instruction instead of being copied into the context. One vector launch
+in EX/MEM/WB blocks another Decode launch, reserving the single front handoff
+without making WB elastic or adding an instruction queue. Once WB hands the
+descriptor to the vector path, sequencing ownership remains distinct from
+accepted completion ownership.
 Younger scalar exceptions are retained until all active macro contexts drain,
 not merely the currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
@@ -203,7 +211,8 @@ explicit in decode and never merge extension instructions into base V.
 shared FP request. It imports the named FP contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
-FP, captures rounding at WB macro launch, and queues operands at local acceptance.
+FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;
+the engine queues operands at local acceptance.
 Fused operations reuse the third general VRF read for old `vd`; comparisons
 retain a mask-destination bit beside their completion slot and write the shared
 `v0` shadow through the sole ordered VRF write port. Vector-scalar FP checks the

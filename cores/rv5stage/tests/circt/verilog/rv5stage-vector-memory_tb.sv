@@ -53,6 +53,7 @@ module rv5stage_vector_memory_tb;
   logic [31:0] program_words[4096];
   byte unsigned memory[32768];
   logic [63:0] expected[512];
+  int expected_pc[512];
   int pc = 0, expected_count = 0, signatures = 0, cycles = 0;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0, redirected_tail = 0;
@@ -118,6 +119,7 @@ module rv5stage_vector_memory_tb;
   endtask
   task automatic signature(input int regno, input logic [63:0] value);
     int offset = expected_count * 8;
+    expected_pc[expected_count] = pc * 4;
     expected[expected_count++] = value;
     emit({7'(offset >> 5), 5'(regno), 5'd20, 3'b011, 5'(offset), 7'h23});
     emit(32'h0ff0000f);
@@ -263,7 +265,7 @@ module rv5stage_vector_memory_tb;
           end
         end
       end
-      assert (cycles < 80000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d hits=%0d", signatures,expected_count,hits);
+      assert (cycles < 80000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d expected_pc=%h fetch=%h hits=%0d unrolling=%0b certifying=%0b", signatures,expected_count,expected_pc[signatures],instruction_out.request.bits.address,hits,vector_unrolling,vector_certifying);
     end
   end
 

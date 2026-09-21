@@ -4,6 +4,7 @@
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("hardfloat/main.rhdl").RoundingMode
   "csr.rhdl" open
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl" open
@@ -11,6 +12,7 @@ import:
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
 
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
@@ -28,10 +30,9 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   scalar: Bits(xlen.width)
   floating_scalar: Bits(64)
   stride: Bits(xlen.width)
-  vd: Bits(5)
-  vs1: Bits(5)
-  vs2: Bits(5)
   masked: Bool
+  rounding_mode: RoundingMode
+  pointer_masking: PointerMaskControl()
 
 bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   context: Context
@@ -75,6 +76,7 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   fp_source_width: SimdElementWidth
   fp_result_width: SimdElementWidth
   rounding_mode: SimdRoundingMode
+  fp_rounding_mode: RoundingMode
   control: RV5StageVectorControl()
   destination: Bits(5)
   compress_state: RV5StageVectorCompressState(vlen)

@@ -13,10 +13,14 @@ module rv5stage_vector_overlap_tb;
   struct packed { logic valid; RV5StageVectorToken bits; } attempt_out;
   wire request_ready, active, issued, issue_finished, retired;
   RV5StageVectorOverlap dut(.*);
-  int cycle=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0;
+  int cycle=0, phase=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
-  bit launch_seen, retry_last=0, retried=0;
+  bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
+
+  function automatic logic [31:0] add_insn(input int vd);
+    return 32'h02000057 | (32'd2<<20) | (32'd4<<15) | (32'(vd)<<7);
+  endfunction
 
   function automatic logic [31:0] load_insn(input int rd);
     return 32'h02007007 | (32'(rd)<<7);
@@ -31,6 +35,7 @@ module rv5stage_vector_overlap_tb;
     #1;
     launch_seen=request_valid && request_ready;
     if (!reset) begin
+      if (issue_finished && launch_seen) tail_handoff_seen=1;
       if (issue_finished) done_count++;
       if (retired) retired_count++;
       if (fp_request_out.valid && fp_request_in.ready) begin
@@ -47,7 +52,7 @@ module rv5stage_vector_overlap_tb;
     end
     #3 clock=1; #1 clock=0; #4;
     cycle++;
-    assert(cycle<3000) else $fatal(1,"overlap test timed out");
+    assert(cycle<3000) else $fatal(1,"overlap test timed out: phase=%0d ready=%0b active=%0b issued=%0b done=%0b launches=%0b retirements=%0d",phase,request_ready,active,issued,issue_finished,launch_seen,retired_count);
   endtask
   task automatic launch(input logic [31:0] insn, input logic [63:0] base, input bit packed_mode);
     instruction=insn; scalar=base; packed_memory=packed_mode; request_valid=1;
@@ -72,12 +77,27 @@ module rv5stage_vector_overlap_tb;
   initial begin
     response_in='0; fp_result_in='0; fp_request_in.ready=1;
     tick(); reset=0;
+
+    // A single-beat compute descriptor transfers sequencing ownership to the
+    // next compute descriptor in the same cycle that its tail issues.
+    phase=1;
+    vl=1;
+    launch(add_insn(8),64'h0,0);
+    instruction=add_insn(12); request_valid=1;
+    do tick(); while (!launch_seen);
+    request_valid=0;
+    drain();
+    assert(tail_handoff_seen && done_count==2 && retired_count==2) else $fatal(1,"single-beat vector tail inserted a sequencing bubble");
+    done_count=0; retired_count=0; vl=2;
+    phase=2;
+
     launch(load_insn(8),64'h100,0); drain();
     launch(load_insn(10),64'h180,1); drain();
 
     // The older FP descriptor releases only after its final local acceptance,
     // while neither service result has returned. A dependent packed store is
     // admitted immediately and chains on each completed 64-bit register row.
+    phase=3;
     launch(32'h02001057 | (32'd8<<20) | (32'd10<<15) | (32'd12<<7),64'h200,0);
     instruction=store_insn(12); scalar=64'h300; packed_memory=1; request_valid=1;
     do begin
@@ -103,6 +123,7 @@ module rv5stage_vector_overlap_tb;
     // A packed load tail keeps its alignment/route metadata when the unroller
     // switches to an ordinary store. Return younger data first; VRF drain and
     // store operands must still be ordered and associated with the old owner.
+    phase=4;
     memory_count=0; store_count=0; slow=1;
     launch(load_insn(14),64'h100,1);
     while(memory_count<2) tick();
@@ -119,6 +140,7 @@ module rv5stage_vector_overlap_tb;
 
     // WAW cannot replace an older outstanding destination, even with a free
     // macro context. This also exercises allocator wrap without a per-launch reset.
+    phase=5;
     memory_count=0; slow=1;
     launch(load_insn(16),64'h100,0);
     while(memory_count<2) tick();
@@ -131,6 +153,7 @@ module rv5stage_vector_overlap_tb;
 
     // Cancellation preserves an accepted prefix even when it ends in a
     // partial VRF row rather than the descriptor's original final word.
+    phase=6;
     vl=16; vtype=0; memory_count=0; slow=1;
     launch(32'h02000007 | (32'd18<<7),64'h103,1);
     while(memory_count<1) tick();
@@ -140,7 +163,7 @@ module rv5stage_vector_overlap_tb;
     vl=1; vtype=24; store_count=0;
     launch(store_insn(18),64'h400,0); drain();
     assert(store_count==1 && stores[0][39:0]==40'h0706050403 && retired_count==9) else $fatal(1,"canceled accepted carry was lost");
-    $display("Vector overlap passed: final acceptance, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
+    $display("Vector overlap passed: tail handoff, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

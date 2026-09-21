@@ -32,6 +32,8 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false):
+  def tag_width = index_width(vector_completion_slots)
+  def Owner = Bits(tag_width)
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def FpRequest = RV5StageFpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = RV5StageFpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
@@ -46,8 +48,6 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
   interface divide_request(Decoupled(DivideRequest), ~role: producer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
-  input rounding_mode: RoundingMode
-  reg captured_rounding(RoundingMode)
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   interface issue(Decoupled(RV5StageVectorToken(Context, vector_completion_slots)), ~role: producer)
   interface cancel(Pulse(), ~role: consumer)
@@ -69,23 +69,33 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   output stores_pending: Bool
   output(loads_pending, fp_pending, available): Bool
 
-  // One issue owner, two bounded macro lifetimes. Accepted slots keep their
-  // owner after the descriptor is replaced; the ordered drain frees contexts.
-  reg macro_valid(~init: bits(0, 2).as_vec(Bool))
-  reg macro_load(Vec(2, Bool))
-  reg macro_store(Vec(2, Bool))
-  reg macro_fp(Vec(2, Bool))
-  reg macro_issued(~init: bits(0, 2).as_vec(Bool))
-  reg macro_fault(~init: bits(0, 2).as_vec(Bool))
-  reg next_owner(~init: Bool(#false))
-  reg current_owner(~init: Bool(#false))
-  reg drain_owner(~init: Bool(#false))
-  reg packed_owner(~init: Bool(#false))
+  // Sequencing ownership ends at the final issued beat. These lightweight
+  // contexts retain only completion and ordering state after that handoff.
+  reg macro_valid(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg macro_load(Vec(vector_completion_slots, Bool))
+  reg macro_store(Vec(vector_completion_slots, Bool))
+  reg macro_fp(Vec(vector_completion_slots, Bool))
+  reg macro_serial(Vec(vector_completion_slots, Bool))
+  reg macro_destinations(Vec(vector_completion_slots, Bits(32)))
+  reg macro_classified(Vec(vector_completion_slots, Bool))
+  reg macro_issued(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg macro_fault(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg next_owner(~init: bits(0, tag_width))
+  reg current_owner(~init: bits(0, tag_width))
+  reg drain_owner(~init: bits(0, tag_width))
+  reg current_packed(~init: Bool(#false))
   reg entry_packed(Vec(vector_completion_slots, Bool))
-  inst packed(RV5StageVectorPackedMemory(xlen, vlen, Context, vector_completion_slots))
+  reg entry_owner(Vec(vector_completion_slots, Owner))
+  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(vector_depth(vlen)))))
+  reg entry_writes(Vec(vector_completion_slots, Bool))
+  inst attempt_tags(ValidPipe(Bits(tag_width), 3, ~flushable: #true))
+  def wb_tag = attempt_tags.egress.bits
+  def feedback_packed = entry_packed[wb_tag]
+  def feedback_owner = entry_owner[wb_tag]
+  inst packed(RV5StageVectorPackedMemory(xlen, vlen, Context, vector_completion_slots, ~owner_count: vector_completion_slots))
   def Array(local_commit_input, packed_commit_input, acceptance_input) = commit |> fork_valid(3)
-  def local_commit = local_commit_input |> filter_valid(_event => !packed_owner)
-  packed_commit_input |> filter_valid(_event => packed_owner) |> packed.commit
+  def local_commit = local_commit_input |> filter_valid(_event => !feedback_packed)
+  packed_commit_input |> filter_valid(_event => feedback_packed) |> packed.commit
   def Array(local_completion_input, packed_completion_input) = completion |> fork_valid(2)
   def local_completion = local_completion_input |> filter_valid(event => !entry_packed[event.tag])
   packed_completion_input |> filter_valid(event => entry_packed[event.tag]) |> packed.completion
@@ -105,7 +115,6 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   reg completion_flags(Vec(vector_completion_slots, Bits(5)))
   reg completion_data(Vec(vector_completion_slots, Bits(64)))
   reg completion_saturated(~init: bits(0, vector_completion_slots).as_vec(Bool))
-  reg entry_owner(Vec(vector_completion_slots, Bool))
   reg head(~init: bits(0, index_width(vector_completion_slots)))
   reg tail(~init: bits(0, index_width(vector_completion_slots)))
   reg accepted_tail(~init: bits(0, index_width(vector_completion_slots)))
@@ -117,16 +126,16 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def fault = local_commit.valid & (local_commit.bits.disposition === RV5StageVectorDisposition.Fault)
   def truncating = local_commit.valid & (local_commit.bits.disposition === RV5StageVectorDisposition.Truncate)
   def successful = local_commit.valid & (local_commit.bits.disposition === RV5StageVectorDisposition.Authorized)
-  issue_done.valid <== packed.issue_done.valid ||| cancel.valid ||| fault ||| truncating ||| (successful & wb_pipe.egress.bits.last)
+  issue_done.valid <== unroller.sequencing_done.valid
   def clear = cancel.valid ||| retry ||| fault ||| truncating
-  def packed_retry = commit.valid & packed_owner & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
+  def packed_retry = commit.valid & feedback_packed & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
   def replay = clear ||| packed_retry
   scoreboard.replay.valid <== replay
   local_completion |> loads.response
-  wire busy_rows: Vec(vector_depth(vlen), Bool)
   def destination_registers = vector_destination_registers(xlen, vlen, request.bits.descriptor)
-  def waw = vec(for List (row in 0..vector_depth(vlen)): busy_rows[row] & destination_registers[row div vector_chunks(vlen)].into(Bool)).as_bits().or_reduce()
-  available <== !unroller.active & !macro_valid[next_owner.as_bits()]
+  def busy_registers = vec(for List (register in 0..32): vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_destinations[owner][register].into(Bool)).as_bits().or_reduce()).as_bits()
+  def waw = (busy_registers & destination_registers).or_reduce()
+  available <== unroller.request.ready & !macro_valid[next_owner]
   def admitted = request |> gate_flow(available & !waw)
   def sequencing = admitted |> trace_event("vector/sequencer", ~residency: "sequencer", ~fields: operation):
     pc: operation.descriptor.pc
@@ -136,49 +145,60 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     sew(~format: "unsigned"): operation.descriptor.state.vtype[3..6]
     lmul: operation.descriptor.state.vtype[0..3]
     packed(~format: "bool"): packed_memory
-  describe_interface_retained_storage(admitted.fire(), unroller.active & issue_done.valid, unroller.active, ~name: "sequencer")
+  describe_interface_retained_storage(admitted.fire(), unroller.sequencing_done.valid, unroller.active, ~name: "sequencer")
   // The shared descriptor owner supplies both schedules and their lineage.
   def Array(element_request, packed_request) = sequencing |> atomic_fork(2)
   element_request |> unroller.request
   packed_request |> filter_flow(_operation => packed_memory) |> to_valid() |> packed.launch
-  unroller.packed_memory <== packed_owner
+  unroller.packed_memory <== current_packed
   packed.issue_done |> unroller.packed_done
   packed.instruction <== unroller.retained
-  packed.occupied <== unroller.active & packed_owner
+  packed.occupied <== unroller.active & current_packed
   when (request.fire()):
-    packed_owner <== packed_memory
+    current_packed <== packed_memory
     current_owner <== next_owner
-    next_owner <== !next_owner
+    next_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | next_owner + bits(1, tag_width)
   def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): allocated[slot] & (entry_owner[slot] === drain_owner)).as_bits().or_reduce()
-  def macro_complete = macro_valid[drain_owner.as_bits()] & macro_issued[drain_owner.as_bits()] & !owner_has_slots & !packed.drain_blocked
-  for (owner in 0..2):
-    when (request.fire() & (next_owner === Bool(owner == 1))):
+  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed.drain_blocked
+  for (owner in 0..vector_completion_slots):
+    def owner_tag = bits(owner, tag_width)
+    when (request.fire() & (next_owner === owner_tag)):
       macro_valid[owner] <== Bool(#true)
       macro_issued[owner] <== Bool(#false)
       macro_fault[owner] <== Bool(#false)
+      macro_destinations[owner] <== destination_registers
       macro_load[owner] <== request.bits.descriptor.control.memory & !request.bits.descriptor.control.store
       macro_store[owner] <== request.bits.descriptor.control.memory & request.bits.descriptor.control.store
       macro_fp[owner] <== request.bits.descriptor.control.floating_point
-    elsewhen (macro_complete & (drain_owner === Bool(owner == 1))):
+      macro_serial[owner] <== request.bits.descriptor.control.reduction ||| request.bits.descriptor.control.scan ||| request.bits.descriptor.control.compress
+    elsewhen (macro_complete & (drain_owner === owner_tag)):
       macro_valid[owner] <== Bool(#false)
-    elsewhen (issue_done.valid & (current_owner === Bool(owner == 1))):
+    elsewhen (issue_done.valid & (current_owner === owner_tag)):
       macro_issued[owner] <== Bool(#true)
       macro_fault[owner] <== fault ||| cancel.valid
+    when (request.fire() & (next_owner === owner_tag)):
+      macro_classified[owner] <== packed_memory
+    elsewhen (wb_pipe.egress.valid & wb_pipe.egress.bits.last & (feedback_owner === owner_tag)):
+      macro_classified[owner] <== Bool(#true)
   when macro_complete:
-    drain_owner <== !drain_owner
+    drain_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_owner + bits(1, tag_width)
   def mutable busy :: Bits(vector_depth(vlen)) = packed.busy_rows.as_bits()
   def mutable foreign :: Bits(vector_depth(vlen)) = packed.foreign_rows.as_bits()
+  for (owner in 0..vector_completion_slots):
+    for (row in 0..vector_depth(vlen)):
+      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div vector_chunks(vlen)].into(Bool)
+      busy := busy ||| mux(pending_row, bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
+      foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
   for (slot in 0..vector_completion_slots):
-    def rows = mux(authorized_slots[slot] & !entry_packed[slot] & entries[slot].write.mask.or_reduce(), bits(1, vector_depth(vlen)) << entries[slot].write.address, bits(0, vector_depth(vlen)))
+    def rows = mux(allocated[slot] & !entry_packed[slot] & entry_writes[slot], bits(1, vector_depth(vlen)) << entry_write_address[slot], bits(0, vector_depth(vlen)))
     busy := busy ||| rows
     foreign := foreign ||| mux(entry_owner[slot] =/= current_owner, rows, bits(0, vector_depth(vlen)))
-  busy_rows <== busy.as_vec(Bool)
   def foreign_rows :: Vec(vector_depth(vlen), Bool) = foreign.as_vec(Bool)
   unroller.blocked_rows <== foreign_rows
   packed.blocked_rows <== foreign_rows
   packed.owner <== current_owner
   packed.closed_owners <== macro_issued
-  packed.cancel.valid <== cancel.valid & packed_owner
+  packed.cancel.valid <== cancel.valid & current_packed
   packed.slot <== tail
   packed.slot_available <== !allocated[tail]
   packed.accepted_slots <== vec(for List (slot in 0..vector_completion_slots): authorized_slots[slot] & entry_packed[slot])
@@ -190,26 +210,25 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     assert(!(unroller.reads[port].valid & packed.reads[port].valid), "vector_read_owners_exclusive")
     Array(unroller.reads[port], packed.reads[port]) |> valid_arbiter() |> registers.reads[port]
     def Array(element_result, packed_result) = registers.results[port] |> fork_valid(2)
-    element_result |> filter_valid(_value => !packed_owner) |> unroller.results[port]
-    packed_result |> filter_valid(_value => packed_owner) |> packed.results[port]
+    element_result |> filter_valid(_value => !current_packed) |> unroller.results[port]
+    packed_result |> filter_valid(_value => current_packed) |> packed.results[port]
   Array(unroller.mask_read, packed.mask_read) |> valid_arbiter() |> registers.mask_read
   def Array(element_mask, packed_mask) = registers.mask_result |> fork_valid(2)
-  element_mask |> filter_valid(_value => !packed_owner) |> unroller.mask_result
-  packed_mask |> filter_valid(_value => packed_owner) |> packed.mask_result
+  element_mask |> filter_valid(_value => !current_packed) |> unroller.mask_result
+  packed_mask |> filter_valid(_value => current_packed) |> packed.mask_result
   packed.alignment |> execute.alignment
   packed.aligned <== execute.aligned
   assert(!(packed.alignment.valid & ex_pipe.egress.valid), "vector_simd_owners_exclusive")
   active <== macro_valid.as_bits().or_reduce()
   unrolling <== unroller.active
   pending <== authorized_slots.as_bits().or_reduce()
-  def store_macro_pending = vec(for List (owner in 0..2): macro_valid[owner] & macro_store[owner]).as_bits().or_reduce()
+  def store_macro_pending = vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_store[owner]).as_bits().or_reduce()
   stores_pending <== store_barrier ||| store_macro_pending
-  loads_pending <== vec(for List (owner in 0..2): macro_valid[owner] & macro_load[owner]).as_bits().or_reduce()
-  fp_pending <== vec(for List (owner in 0..2): macro_valid[owner] & macro_fp[owner]).as_bits().or_reduce()
+  loads_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_load[owner]).as_bits().or_reduce()
+  fp_pending <== vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_fp[owner]).as_bits().or_reduce()
   ex_pipe.flush <== clear
   wb_pipe.flush <== clear
 
-  def tag_width = index_width(vector_completion_slots)
   // Local attempt admission and private operand capture are one atomic transfer.
   def fault_only_first = unroller.issue.bits.beat.control.memory & (unroller.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[tail] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
@@ -237,7 +256,6 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   Array(element_issue, packed.issue) |> rr_arbiter() |> issue
   // All routes use one persistent allocation order, including immediate ALU
   // results. No unbackpressurable write can collide with an older completion.
-  inst attempt_tags(ValidPipe(Bits(tag_width), 3, ~flushable: #true))
   attempt_tags.flush <== replay
   attempt_tags.ingress.valid <== issue.fire()
   attempt_tags.ingress.bits <== tail
@@ -254,15 +272,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
 
   inst fp_operands(ValidPipe(FpRequest, 2, ~flushable: #true))
   fp_operands.flush <== clear
-  ex_pipe.egress |> map_valid(operation => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, execute_tags.egress.bits, captured_rounding)) |> fp_operands.ingress
+  ex_pipe.egress |> map_valid(operation => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, execute_tags.egress.bits)) |> fp_operands.ingress
   // Empty authorization storage bypasses directly into the shared service;
   // occupied entries still retain every accepted, nonstallable request.
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
   fp_authorized.egress |> fp_request
   fp_result.ready <== Bool(#true)
-  when (request.fire()):
-    captured_rounding <== rounding_mode
-
   inst multiply_operands(ValidPipe(MultiplyRequest, 2, ~flushable: #true))
   inst divide_operands(ValidPipe(DivideRequest, 2, ~flushable: #true))
   multiply_operands.flush <== clear
@@ -298,7 +313,6 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   when (local_commit.valid):
     assert(wb_pipe.egress.valid, "vector_commit_has_aligned_result")
   def beat = wb_pipe.egress.bits
-  def wb_tag = attempt_tags.egress.bits
   // Keep the accumulator at the authorized frontier. A retry never folds an
   // element twice, and an overlapping destination is written only at the end.
   when (successful & beat.reduction & !beat.floating_point):
@@ -356,7 +370,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   truncate.valid <== truncating
   truncate.bits <== beat.first.zext(xlen.width)
   saturate.valid <== (successful & beat.saturated) ||| (drain & drained_saturated)
-  retire.valid <== macro_complete & !macro_fault[drain_owner.as_bits()]
+  retire.valid <== macro_complete & !macro_fault[drain_owner]
   when truncating:
     assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
   (
@@ -370,7 +384,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       fault_address: event.fault_address
       last: beat.last
       compress_state: beat.compress_state
-  ) |> unroller.feedback
+  ) |> filter_valid(_event => macro_load[feedback_owner] ||| macro_store[feedback_owner] ||| macro_serial[feedback_owner]) |> unroller.feedback
 
   def deferred_issue = element_issue.fire()
   scoreboard.reserve.valid <== issue.fire()
@@ -423,9 +437,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     def releasing = scoreboard.release.valid & (head === tag)
     when (issue.fire() & (tail === tag)):
       entry_owner[slot] <== current_owner
-      entry_packed[slot] <== packed_owner
+      entry_packed[slot] <== packed.issue.fire()
     when authorizing:
       entries[slot] <== beat
+    when (wb_pipe.egress.valid & (wb_tag === tag)):
+      entry_write_address[slot] <== beat.write.address
+      entry_writes[slot] <== beat.write.mask.or_reduce()
     when (fp_result.fire() & (fp_result.bits.tag === tag)):
       completion_flags[slot] <== mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5))
     elsewhen authorizing:

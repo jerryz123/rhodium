@@ -10,6 +10,8 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
@@ -45,10 +47,12 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
         scalar: bits(0, 64)
         floating_scalar: bits(0, 64)
         stride: bits(0, 64)
-        vd: instruction[7..12]
-        vs1: instruction[15..20]
-        vs2: instruction[20..25]
         masked: !instruction[25].into(Bool)
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
   vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
   def recovering = cancel ||| (tokens.egress.valid & (disposition =/= RV5StageVectorDisposition.Authorized))
   tokens.flush <== recovering
@@ -67,7 +71,6 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
     tag: response_tag
     data: bits(0, 64)
   vector.memory_drained <== Bool(#true)
-  vector.rounding_mode <== literal(vector.rounding_mode.type, 0)
   vector.fp_request.ready <== Bool(#false)
   vector.fp_result.valid <== Bool(#false)
   vector.fp_result.bits <== dont_care(vector.fp_result.bits.type)

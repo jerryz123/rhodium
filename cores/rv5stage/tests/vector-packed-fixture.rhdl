@@ -12,6 +12,8 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/pointer-masking.rhdl" open
+  lib("hardfloat/main.rhdl").RoundingMode
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
@@ -56,7 +58,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.accepted_slots <== slots_owner.accepted
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== Bool(#true)
-  engine.owner <== Bool(#false)
+  engine.owner <== bits(0, 1)
   engine.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
   inst registers(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
@@ -69,7 +71,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
     descriptor:
       RV5StageVectorDescriptor(xlen):
         pc: bits(0x100, xlen.width)
-        instruction: bits(0, 32)
+        instruction: bits(8, 32) << 7
         state:
           RiscvVectorState(xlen):
             vl: vl[0..xlen.width]
@@ -81,10 +83,12 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
         scalar: base[0..xlen.width]
         floating_scalar: bits(0, 64)
         stride: bits(0, xlen.width)
-        vd: bits(8, 5)
-        vs1: bits(0, 5)
-        vs2: bits(0, 5)
         masked: masked
+        rounding_mode: RoundingMode.NearEven
+        pointer_masking:
+          PointerMaskControl():
+            mode: PointerMaskMode.Disabled
+            virtual_address: Bool(#false)
   def Array(descriptor, packed_launch) = launches.right |> atomic_fork(2)
   descriptor |> unroller.request
   packed_launch |> to_valid() |> engine.launch

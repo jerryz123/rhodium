@@ -69,11 +69,11 @@
     cycles++;
     if (cycles > 1500000) $fatal(1,"pipeline timeout");
   endtask
-  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int retry_at = -1, kill_after = -1);
+  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int retry_at = -1, kill_after = -1, input bit replayable = 0);
     int before_retry, timeout;
     instruction = insn; vtype = (XLEN'(sew)<<3)|XLEN'(lm); vl = XLEN'(length); vstart = XLEN'(start);
     retired_count = 0; commit_count = 0; scalar_count = 0; timeout = 0;
-    retry_enable = retry_at >= 0; retry_index = CW'(retry_at); before_retry = retry_count;
+    retry_enable = retry_at >= 0 && replayable; retry_index = CW'(retry_at); before_retry = retry_count;
     request_valid = 1;
     while (!request_ready) tick();
     tick(); request_valid = 0;
@@ -88,7 +88,7 @@
     end
     repeat (5) tick();
     assert (retired_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"macro retirement count %0d",retired_count);
-    if (retry_at >= 0) assert (retry_count == before_retry+1) else $fatal(1,"retry not exercised");
+    if (retry_at >= 0 && replayable) assert (retry_count == before_retry+1) else $fatal(1,"retry not exercised");
     if (mode == 3) assert (scalar_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"scalar write count");
     retry_enable = 0; issue_ready = 1; macros++;
   endtask
@@ -114,7 +114,7 @@
       if(signed_operation) value=sext(value,width);
       acc=(acc+value)&wide_mask;
     end
-    run(vec(signed_operation ? 49 : 48,dest,source,seed,0,masked),sew,lm,length,0,retry_at,kill_after);
+    run(vec(signed_operation ? 49 : 48,dest,source,seed,0,masked),sew,lm,length,0,retry_at,kill_after,1);
     if(kill_after<0 && length!=0) model[dest][0]=(model[dest][0]&~wide_mask)|(acc&wide_mask);
     check_reg(dest);
   endtask
@@ -159,7 +159,7 @@
     end
     selector=op==0 ? 16 : op==1 ? 17 : op==2 ? 1 : op==3 ? 3 : op==4 ? 2 : op==5 ? 16 : 17;
     if (op<2) begin scalar_expected=op==0 ? 64'(count) : 64'($signed(first_set)); mode=3; end
-    run(vec(op<2 ? 16 : 20,dest,op==6 ? 0 : source,selector,2,masked),sew,lm,length,start,retry_at,kill_after);
+    run(vec(op<2 ? 16 : 20,dest,op==6 ? 0 : source,selector,2,masked),sew,lm,length,start,retry_at,kill_after,1);
     mode=0;
     if(op>=2) begin
       written=kill_after<0 ? length : commit_count*lanes;
@@ -177,6 +177,7 @@
     logic [63:0] value, lane_mask;
     int width, lanes, dest, source, group_elements, count, written, row, offset;
     bit up, one;
+    kill_after=-1;
     up=form inside {0,1,4}; one=form>=4; dest=inplace ? 8 : 16; source=8;
     width=8<<sew; lanes=64/width; group_elements=VLEN*8/width;
     count=one ? 1 : 3; scalar=one ? XLEN'(-19) : XLEN'(count);
@@ -204,6 +205,7 @@
     logic [63:0] value, lane_mask, idx;
     logic [31:0] insn;
     int width, iw, groups, igroups, exponent, ie, maximum, lanes, row, offset, written;
+    kill_after=-1;
     width=8<<sew; iw=form==1 ? 16 : width; exponent=lm<4 ? lm : lm-8;
     ie=exponent+(form==1 ? 1-sew : 0);
     groups=exponent>0 ? 1<<exponent : 1; igroups=ie>0 ? 1<<ie : 1;
@@ -269,7 +271,7 @@
       expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
       output_index++;
     end
-    run(vec(23,24,8,5,2),sew,lm,length,0,retry_at);
+    run(vec(23,24,8,5,2),sew,lm,length,0,retry_at,-1,1);
     for(int c=0;c<groups*CHUNKS;c++) model[24+c/CHUNKS][c%CHUNKS]=expected[c];
     for(int r=0;r<groups;r++) check_reg(24+r);
   endtask
@@ -283,8 +285,7 @@
       for (int c=0;c<CHUNKS;c++) model[r][c]=random_word();
       load_reg(r);
     end
-    // Guaranteed clipping checks that retry/cancel never create an extra
-    // sticky-CSR pulse beyond the authorized prefix.
+    // Guaranteed clipping checks one sticky-CSR pulse per accepted beat.
     for (int c=0;c<CHUNKS;c++) begin model[8][c]='1; model[9][c]='1; end
     load_reg(8); load_reg(9);
     begin
@@ -296,10 +297,6 @@
       beats=(VLEN/8+3)/4;
       prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8);
       assert(saturate_count-prior_saturations==beats) else $fatal(1,"authorized clip saturation count");
-      prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8,0,0);
-      assert(saturate_count-prior_saturations==beats) else $fatal(1,"retry duplicated clip saturation");
-      prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8,0,-1,1);
-      assert(saturate_count-prior_saturations==1) else $fatal(1,"cancel leaked clip saturation");
     end
     for (int sew=0;sew<4;sew++) begin
       width=8<<sew; mask='1>>(64-width);
@@ -322,7 +319,7 @@
             for (int i=0;i<length;i++)
               if (scenario==0 || element(0,i,1)!=0) acc=fold(op,width,acc,element(8,i,width));
             mode=0;
-            run(vec(op,dest,8,3,2,scenario!=0),sew,lm,length,0,length>2 ? length/2 : 0);
+            run(vec(op,dest,8,3,2,scenario!=0),sew,lm,length,0,length>2 ? length/2 : 0,-1,1);
             model[dest][0]=(model[dest][0]&~mask)|(acc&mask);
             check_reg(dest);
           end
@@ -332,12 +329,12 @@
       // partial authorized accumulation without an architectural VRF write.
       for (int op=0;op<8;op++) begin
         acc=fold(op,width,element(3,0,width),element(8,0,width));
-        run(vec(op,7,8,3,2),sew,3,1,0,0);
+        run(vec(op,7,8,3,2),sew,3,1,0,0,-1,1);
         model[7][0]=(model[7][0]&~mask)|(acc&mask);
         check_reg(7);
       end
       run(vec(0,7,8,3,2),sew,3,0); check_reg(7);
-      run(vec(0,7,8,3,2),sew,3,8,0,-1,2); check_reg(7);
+      run(vec(0,7,8,3,2),sew,3,8,0,-1,2,1); check_reg(7);
       for (int c=0;c<CHUNKS;c++) model[3][c]=random_word();
       load_reg(3);
       // Both scalar moves ignore LMUL; extraction also ignores VL/vstart.

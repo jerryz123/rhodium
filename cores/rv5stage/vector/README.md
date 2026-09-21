@@ -82,9 +82,10 @@ have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
 
 Residency captures PC, instruction, VL, VSTART, encoded SEW/LMUL, and packed mode
-once at admission. Retry does not split its lifetime. Both modes end sequencing on
-final authorization or cancellation/fault/truncation; accepted results may finish
-later. The shared owner emits one residency track for both modes.
+once at admission. Retry does not split its lifetime. Ordinary compute ends
+sequencing when its tail beat issues; memory and stateful cross-beat operations
+end on final authorization or cancellation/fault/truncation. Accepted results
+may finish later. The shared sequencer emits one residency track for both modes.
 Issue captures
 the macro-local operation index, exclusive element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
@@ -111,12 +112,13 @@ attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
 The memory path shares the scalar LSU through a fixed-cycle lookup arbiter and
 a separate transaction arbiter; returned union tags retain response ownership.
 
-`outcome: Valid(RV5StageVectorCommit(xlen))` reports nonfaulting certification,
-final acceptance on the conservative path, a precise fault, or fault-only-first
-truncation to scalar retirement one cycle after the local decision. Non-memory
-macros and empty memory bodies certify at allocation. Contiguous unit-stride
-memory macros can certify after a page-level precheck of at most two 4 KiB
-pages. The MMU retains their translations until final non-replayable acceptance, independently
+`outcome: Valid(RV5StageVectorCommit(xlen))` reports memory certification,
+final conservative acceptance, a precise fault, or fault-only-first truncation
+to scalar retirement one cycle after the local decision. Non-memory macros
+retire through their ordinary scalar WB launch token and do not wait for result
+drain. Empty memory bodies certify at allocation. Contiguous unit-stride memory
+macros can certify after a page-level precheck of at most two 4 KiB pages. The
+MMU retains their translations until final non-replayable acceptance, independently
 of DTLB replacement; a covering superpage needs only one translation lookup.
 Certification requires natural element alignment, no address wrap, and full-page
 ordinary cacheable read-idempotent PMA coverage with the required permissions.
@@ -141,25 +143,25 @@ A saturating or clipping beat reports saturation with its private result, but
 only successful local acceptance emits `saturate: Pulse`; retry and fault
 cannot set `vxsat`.
 The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
-the same edge taking priority. `retire: Pulse` updates architectural vector
-retirement state at certification, or successful final acceptance on the conservative path;
-`execution_done: Pulse` always reports completed execution. `active` includes accepted memory completion
+the same edge taking priority. The integrated core updates architectural vector
+retirement state from scalar WB for compute and from `retire: Pulse` for memory
+certification or successful conservative acceptance. `execution_done: Pulse`
+reports completed execution. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate issue/authorization lifetime.
 Integer results use fixed-cycle pairing; slow memory uses tagged completions.
 
-A one-entry descriptor queue snapshots the next vector macro and starts any
-page-range certification while the current unroller is still active. The queued
-descriptor enters execution only after the singleton unroller, one of the two
-bounded macro contexts, and its register dependencies are available. Pending
-certification never gates beats from the older active macro. The unroller still
-retains each instruction until every beat has received non-replayable acceptance,
-then accepts the queued instruction while older results may remain outstanding.
-The two execution contexts retain drain and architectural-state ownership. A
-dependent consumer waits for each needed 64-bit VRF row, rather than the entire
-older instruction; overlapping destination groups conservatively interlock. All
-operands must be captured at acceptance. The unroller never alternates between
-instructions or delegates replay to an accepted service queue. Packed and
-ordinary memory share this ownership rule.
+A one-entry descriptor handoff snapshots the next vector macro and starts any
+page-range certification while the sequencer is active. This is not an
+instruction-selection queue: there is one in-order sequencer and no alternate
+ready instruction. Pending certification never gates beats from the older active
+macro. Ordinary compute accepts its queued successor on the same edge that its
+tail beat issues, while the completion-slot owner ring retains older issued work.
+Memory, reduction, scan, and compression instead retain the descriptor through
+final feedback because they carry replay or cross-beat state. A dependent
+consumer waits for each needed 64-bit VRF row rather than the entire older
+instruction; overlapping destination groups conservatively interlock. All
+operands are captured before issue. The sequencer never alternates between
+instructions or delegates replay to a service instruction queue.
 
 `RV5StageConfig(~vector_completion_slots: n)` configures the memory completion
 window independently of VLEN; `n` must be a positive power of two and defaults
@@ -177,12 +179,13 @@ caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
 [`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
-MEM/WB without executing scalar side effects; EX forwarding resolves its scalar
-base and stride before WB enqueues the descriptor. The next instruction waits in
-Decode through descriptor admission and certification or conservative final
-acceptance; independent scalar work can then continue while that descriptor
-waits for the current unroller. Older scalar instructions can finish or squash
-the launch normally.
+MEM/WB without executing scalar side effects. EX forwarding resolves its scalar
+base and stride into a per-occurrence context carried beside the launch token;
+WB combines it with the then-current architectural vector state. Register
+numbers are decoded from the instruction rather than copied into that context.
+One vector launch token at a time crosses the scalar stages, reserving the single
+descriptor handoff without making WB elastic. Older scalar instructions can
+finish or squash the launch normally.
 Three synchronous general VRF reads supply `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
 shadow supplies predication concurrently. A two-slot credit

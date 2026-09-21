@@ -1,4 +1,4 @@
-// Models vector elements, extension, carry/borrow, fixed-point, retry, and cancellation independently.
+// Models vector elements, extension, carry/borrow, fixed-point, stateful replay, and cancellation independently.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN + 1), SW = CW + 3, AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
   typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
@@ -291,7 +291,7 @@
     while (active || checking) begin
       issue_ready = !random_stalls || (random_word() % 4 != 0);
       tick();
-      if (timeout++ > 4000) $fatal(1, "unroller failed to drain");
+      if (timeout++ > 4000) $fatal(1, "unroller failed to drain: op=%0d mode=%0d sew=%0d lmul=%0d vl=%0d start=%0d",op,mode,sew,lmul,count,start);
     end
     repeat (5) tick();
     macros++;
@@ -335,7 +335,7 @@
       run_macro(sew, 0, 1, 7, 0, 0, 24, 16, 8, 0);
     end
     // Extension reads a smaller-EEW/EMUL source while retaining destination
-    // SEW/LMUL scheduling. Cover every legal ratio, geometry, sign, and retry.
+    // SEW/LMUL scheduling. Cover every legal ratio, geometry, and sign.
     for (int ratio_index = 0; ratio_index < 3; ratio_index++) begin
       int power;
       power = ratio_index + 1;
@@ -382,7 +382,7 @@
     end
     // Narrow+narrow widening add/sub uses one destination-width beat per
     // source half. Exercise every legal SEW/LMUL, signedness, form, masks,
-    // tails, vstart, upper-half retry, and the permitted high-source overlap.
+    // tails, vstart, upper halves, and the permitted high-source overlap.
     for (int sew = 0; sew < 3; sew++) begin
       for (int lm = 0; lm < 3; lm++) begin
         int maximum, lanes, count;
@@ -433,7 +433,7 @@
           run_macro(sew, lm, count, 0, op, 3, 24, 31, 8, op[0]);
         end
       end
-      // Low-part in-place overlap remains safe across authorized-prefix retry.
+      // Low-part in-place overlap remains safe across partial destination rows.
       run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, 4 >> sew);
     end
     // Saturating add/sub uses the packed adder's lane carry/sign results;
@@ -652,7 +652,7 @@
         run_macro(sew,lm,0,0,23,2,24,5,8,0);
       end
     end
-    // Retry after an authorized in-place prefix and in its first partial row.
+    // Exercise in-place prefixes and first partial rows around stateful cases.
     for (int ones = 0; ones < 2; ones++) begin
       for (int row = 0; row < VLEN / 64; row++) begin
         initialize_in = '{1'b1, '{AW'(row), ones != 0 ? 64'hffffffffffffffff : 64'b0, 64'hffffffffffffffff}};
@@ -670,8 +670,8 @@
     run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, 64);
     run_macro(0, 3, VLEN - 1, 3, 23, 0, 8, 16, 8, 1, 1, 1, 8);
     run_macro(0, 3, VLEN, 0, 0, 0, 24, 16, 8, 0, 0, 0);
-    // Retry both the initial partial chunk and a later in-place chunk after
-    // its prefix committed; neither case may rewrite pre-vstart elements.
+    // Initial partial chunks and later in-place chunks must not rewrite
+    // pre-vstart elements.
     run_macro(0, 0, VLEN / 8, 3, 0, 4, 8, 3, 8, 0, 1, 1, 0);
     run_macro(0, 0, VLEN / 8, 3, 0, 4, 8, 3, 8, 0, 1, 1, 8);
     initialize_in = '{1'b1, '{AW'(0), 64'haaaaaaaaaaaaaaa5, 64'hffffffffffffffff}};
