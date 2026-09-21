@@ -262,6 +262,16 @@ classify_path() {
       simulation=true
       mark_all_programs
       ;;
+    tools/run-racket.sh|tools/racket-build-cache.sh|tools/invalidate-racket-build-cache.rkt)
+      mark_all_host
+      mark_all_circt
+      mark_all_examples
+      simulation=true
+      mark_all_programs
+      ;;
+    tools/testing/racket-build-cache-test.sh)
+      host_hygiene=true
+      ;;
     tools/write-rv5stage-core-diagram.rhm)
       mark_example_rv5stage
       ;;

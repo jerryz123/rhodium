@@ -101,7 +101,8 @@ RV32/RV64 integer and FP selections. Execution and wakeup tests belong to the
 [core wait-controller fixture](../DEVELOPING.md#focused-validation), not the
 catalog/decode checks.
 
-From the repository root, run both decode owners in one fresh-root wrapper:
+From the repository root, run both decode owners through the persistent-cache
+wrapper:
 
 ```sh
 tools/run-racket-tests.sh \

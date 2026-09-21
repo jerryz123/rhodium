@@ -124,7 +124,8 @@ Choose the smallest test file or files matching the contract changed:
 - Package imports or module movement: `make check-boundaries` in addition to
   the focused semantic test.
 
-Run Rhombus tests with the repository test runner and a fresh
-`PLTCOMPILEDROOTS`, as described by the owning [test guide](../../tools/testing/README.md).
+Run Rhombus tests with the repository test runner and its persistent
+worktree-specific `PLTCOMPILEDROOTS`, as described by the owning
+[test guide](../../tools/testing/README.md).
 Reserve frontend, backend, and full-suite validation for changes that actually
 cross those boundaries.

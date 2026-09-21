@@ -19,18 +19,19 @@ artifacts. This file contains the mandatory rules that apply to every change.
 
 - After changes, run the minimum focused set of tests that directly covers the
   modified behavior. Use a broader suite only when the change spans its scope.
-- Run every Racket or Rhombus test, elaboration, and fixture command with
-  `PLTCOMPILEDROOTS` set to a newly created temporary directory. Do not append
-  a trailing path-list separator: that restores source-adjacent `compiled/`
-  directories as fallback roots and can load stale bytecode. Reuse the same
-  temporary root within one focused validation batch so dependencies are not
-  repeatedly rebuilt.
-- Add `-y` when invoking `racket` directly so changed dependencies are rebuilt.
-  The only exception is `tools/run-racket.sh` after it verifies an immutable
-  bytecode artifact for the exact commit, Racket and Rhombus versions, platform,
-  and workspace path. Treat an `instantiate-linklet` mismatch or a reference to
-  a moved module as stale bytecode first, and reproduce it with a fresh compiled
-  root before diagnosing the source.
+- Run every Racket or Rhombus test, elaboration, and fixture command through
+  `tools/run-racket-tests.sh` or `tools/run-racket.sh`. They use one persistent,
+  worktree-specific compiled root, rebuild changed dependencies incrementally,
+  and clear checkout bytecode when the source-path inventory changes. An
+  explicitly supplied `PLTCOMPILEDROOTS` must name exactly one isolated
+  directory; a trailing path-list separator restores unsafe source-adjacent
+  `compiled/` fallbacks.
+- Add `-y` when invoking `racket` outside the repository wrapper. Treat an
+  `instantiate-linklet` mismatch or reference to a moved module as stale
+  bytecode first; run `make clean-racket-cache` and reproduce it before
+  diagnosing the source. Exact CI bytecode remains valid only after
+  `tools/racket-artifact.sh` verifies its commit, Racket and Rhombus versions,
+  platform, and workspace path.
 - Test supported behavior and invalid uses of supported features. Do not add
   tests whose purpose is to prove that a removed or unimplemented feature does
   not exist.

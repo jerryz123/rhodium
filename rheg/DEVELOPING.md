@@ -199,12 +199,11 @@ No symbol lookup or graph mutation belongs here.
 
 ## Focused validation
 
-Build/test commands run from the repository root. Use a fresh compiled root for
-the collector script's Racket JSON check, following
-[AGENTS.md](../AGENTS.md#verification):
+Build/test commands run from the repository root. The collector script's Racket
+JSON check uses the persistent worktree-specific cache through the repository
+wrapper, following [AGENTS.md](../AGENTS.md#verification):
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d /tmp/rheg-tests.XXXXXX)"
 bash rheg/tests/run-event-collector.sh
 TRACE_PROCESSOR=/path/to/native/trace_processor_shell bash rheg/tests/run-event-perfetto.sh
 ```

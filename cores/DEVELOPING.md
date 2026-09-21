@@ -116,7 +116,7 @@ FIXTURE=cache-replacement bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Pass several paths to one invocation when a contract spans components. The
-wrapper supplies a fresh compiled root when the caller has not selected one.
+wrapper supplies the persistent worktree-specific root when none is selected.
 After changing imports or package layout, run:
 
 ```sh

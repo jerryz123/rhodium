@@ -68,8 +68,8 @@ bash tools/testing/circt/run.sh --group protocols
 That group also includes CHI and device fixtures and is broader than this
 directory. Use the backend test
 [`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md) to select verification,
-simulation, or golden-reference modes. Repository test wrappers provide a
-fresh `PLTCOMPILEDROOTS`; direct Racket or Rhombus runs must do the same.
+simulation, or golden-reference modes. Repository test wrappers provide the
+persistent worktree-specific `PLTCOMPILEDROOTS`; direct runs should use them.
 
 For family-slot binding changes, select `noc-router-family` for generic routing
 and backpressure behavior, plus `chi-family-noc` and `chi-router-composition`

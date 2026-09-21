@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Runs Racket with source rebuilding unless an exact CI bytecode artifact is verified.
+# Runs Racket against an explicit root or the persistent incremental build cache.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -12,10 +12,13 @@ if [[ "${RHODIUM_PRECOMPILED:-}" == 1 ]]; then
   exec "$racket_command" "$@"
 fi
 
-if [[ -z "$compiled_root" ]]; then
-  compiled_root="$(mktemp -d /tmp/rhodium-racket-compiled.XXXXXX)"
-  trap 'rm -rf "$compiled_root"' EXIT
-  "$repo_dir/tools/racket-dependency-cache.sh" seed "$compiled_root" || true
+if [[ -n "$compiled_root" ]]; then
+  if [[ "$compiled_root" == *:* ]]; then
+    echo "Rhodium execution requires exactly one compiled root" >&2
+    exit 2
+  fi
+  exec env PLTCOMPILEDROOTS="$compiled_root" "$racket_command" -y "$@"
 fi
 
-env PLTCOMPILEDROOTS="$compiled_root" "$racket_command" -y "$@"
+exec "$repo_dir/tools/racket-build-cache.sh" run \
+  env PLT_COMPILED_FILE_CHECK=exists "$racket_command" -y "$@"

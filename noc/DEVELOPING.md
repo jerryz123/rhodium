@@ -77,8 +77,8 @@ language, standard definitions, analysis, proof regimes, plans, diagnostics,
 equivalence cases, and host-side RTL construction. It also runs the intentional
 invalid language cases.
 
-For one host file, use the repository wrapper so it receives a fresh compiled
-root, for example:
+For one host file, use the repository wrapper so it receives the persistent
+worktree-specific compiled root, for example:
 
 ```sh
 tools/run-racket-tests.sh noc/tests/plan/router-family-plan-test.rhm

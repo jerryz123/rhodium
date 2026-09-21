@@ -182,7 +182,7 @@ same retained controls for each route; instrumentation shares their shadow owner
 ## Validation
 
 Run the smallest directly affected test set from the repository root. The test
-wrapper supplies a fresh compiled root unless the caller already supplied one:
+wrapper supplies the persistent worktree-specific root unless one is supplied:
 
 ```sh
 tools/run-racket-tests.sh \

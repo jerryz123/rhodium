@@ -93,4 +93,4 @@ Test cache snapshots, refill, invalidation, and access-error behavior in the com
 [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) when a change crosses
 refill, snoop, MMU, Fetch, or complete-core integration, and use the backend test
 [`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
-modes. Repository wrappers provide a fresh compiled root.
+modes. Repository wrappers provide the persistent worktree-specific root.

@@ -569,10 +569,9 @@ including in-place operations, register boundaries, bit-granular forwarding,
 partial bodies, broadcasts, comparison/carry packing, widening, and reset. Do not
 replace this with internal register-shape assertions or elaboration-only tests.
 
-Run from the repository root with one fresh compiled root:
+Run from the repository root through the persistent worktree-specific cache:
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/vector-test.rhm
 FIXTURE=rv5stage-vector bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries

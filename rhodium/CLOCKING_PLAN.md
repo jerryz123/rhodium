@@ -596,8 +596,8 @@ The first enforceable release is complete when all of the following hold:
   flat examples.
 - Test standard-library crossing circuits semantically and structurally.
 - Run `make check-boundaries` after adding modules or changing imports.
-- Run each Racket or Rhombus command with one fresh `PLTCOMPILEDROOTS` directory
-  per focused validation batch and use `racket -y` for direct Racket commands.
+- Run each Racket or Rhombus command through the repository wrappers and their
+  persistent worktree-specific `PLTCOMPILEDROOTS`.
 - Run external CIRCT and Verilator checks when lowering, attributes, or
   generated crossing hardware changes.
 - Compare emitted constraints against the verified report so stale naming or

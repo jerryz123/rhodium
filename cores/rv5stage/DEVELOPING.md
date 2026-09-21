@@ -407,8 +407,7 @@ typed interface channels, with:
 
 ```sh
 mkdir -p /tmp/rv5stage-core-diagram
-env PLTCOMPILEDROOTS="$(mktemp -d)" \
-  racket -y -S "$PWD" tools/write-rv5stage-core-diagram.rhm \
+tools/run-racket.sh -S "$PWD" tools/write-rv5stage-core-diagram.rhm \
   /tmp/rv5stage-core-diagram
 ```
 
@@ -544,7 +543,6 @@ For Zkt, run the architecture/profile/advertisement checks and the RV32 and
 RV64 integer timing fixtures:
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/zkt-test.rhm cores/rv5stage/tests/rv5stage-zkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
 FIXTURES='rv5stage-zkt-rv32 rv5stage-zkt-rv64' bash tools/testing/circt/run.sh --simulate-only
 bash socs/tests/run-device-tree.sh
@@ -573,7 +571,6 @@ For Zvkt, run the pure scope, probe-coverage, profile/UDB, and differential
 vector timing checks:
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/zvkt-test.rhm riscv/tests/gnu-toolchain-test.rhm cores/rv5stage/tests/rv5stage-zvkt-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm socs/tests/udb-test.rhm
 FIXTURE=rv5stage-zvkt bash tools/testing/circt/run.sh --simulate-only
 bash socs/tests/run-device-tree.sh
@@ -633,7 +630,6 @@ same profile. The UDB database names the ratified extension version `1.0.0`.
 For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh riscv/tests/csr-test.rhm riscv/rtl/tests/riscv-csr-bank-test.rhm cores/rv5stage/tests/profile-test.rhm cores/rv5stage/tests/udb-test.rhm
 FIXTURES='rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-csr' \
   bash tools/testing/circt/run.sh --simulate-only
@@ -671,7 +667,6 @@ For Zicbom, use the composed decode test and the WB, MMU, physical-router,
 and self-snooped cache fixtures:
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d)"
 tools/run-racket-tests.sh cores/rv5stage/tests/zicbom-test.rhm cores/rv5stage/tests/rv5stage-test.rhm cores/rv5stage/tests/udb-test.rhm
 FIXTURES='rv5stage-zicbom rv5stage-csr rv5stage-mmu-replay rv5stage-memory-router rv5stage-dcache rv5stage-dcache-rv32' \
   bash tools/testing/circt/run.sh --simulate-only

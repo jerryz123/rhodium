@@ -64,7 +64,7 @@ host elaboration so disabled formats and units do not become runtime hardware.
 
 ## Focused validation
 
-From the repository root, run the host owners in one fresh compiled-root batch:
+From the repository root, run the host owners through the persistent cache:
 
 ```sh
 tools/run-racket-tests.sh \

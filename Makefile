@@ -8,7 +8,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: event-runtime-test
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
-.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
 
 RISCV_UDB_CONFIGURATION ?= single-core-rv5stage-soc
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
@@ -91,6 +91,12 @@ check-parameter-annotations:
 parameter-annotation-test:
 	tools/run-racket-tests.sh tools/check-parameter-annotations.rkt
 
+racket-cache-test:
+	bash tools/testing/racket-build-cache-test.sh
+
+clean-racket-cache:
+	tools/racket-build-cache.sh clean
+
 install-git-hooks:
 	git config core.hooksPath .githooks
 
@@ -98,15 +104,8 @@ support-annotation-test:
 	tools/run-racket-tests.sh $(SUPPORT_ANNOTATION_TESTS)
 
 devicetree-test:
-	@devicetree_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
-	owns_compiled_root=false; \
-	if [ -z "$$devicetree_compiled_root" ]; then \
-		devicetree_compiled_root="$$(mktemp -d /tmp/rhodium-devicetree-compiled.XXXXXX)"; \
-		owns_compiled_root=true; \
-	fi; \
-	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$devicetree_compiled_root"; fi' EXIT; \
-	env PLTCOMPILEDROOTS="$$devicetree_compiled_root" tools/run-racket-tests.sh $(DEVICETREE_TESTS); \
-	env PLTCOMPILEDROOTS="$$devicetree_compiled_root" bash devicetree/tests/run-dtc.sh
+	tools/run-racket-tests.sh $(DEVICETREE_TESTS)
+	bash devicetree/tests/run-dtc.sh
 
 frontend-test: check-boundaries
 	tools/run-racket-tests.sh $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS)
@@ -134,13 +133,11 @@ backend-test: check-boundaries
 	tools/run-racket-tests.sh $(BACKEND_TESTS)
 
 formal-test: check-boundaries
-	@formal_compiled_root="$$(mktemp -d)"; \
-	trap 'rm -rf "$$formal_compiled_root"' EXIT; \
-	if ! env PLTCOMPILEDROOTS="$$formal_compiled_root" PLTCOLLECTS=$(CURDIR): racket -y -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \
+	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \
 		echo 'formal-test requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2; \
 		exit 1; \
 	fi; \
-	env PLTCOMPILEDROOTS="$$formal_compiled_root" PLTCOLLECTS=$(CURDIR): raco test --direct $(FORMAL_TESTS)
+	tools/run-racket-tests.sh $(FORMAL_TESTS)
 
 formal-differential-test: check-boundaries
 	bash rhodium/formal/tests/run-differential.sh
@@ -178,16 +175,8 @@ chi-test: check-boundaries
 	bash chi/tests/run-negative.sh
 
 soc-test: check-boundaries
-	@set -e; \
-	soc_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
-	owns_compiled_root=false; \
-	if [ -z "$$soc_compiled_root" ]; then \
-	  soc_compiled_root="$$(mktemp -d /tmp/rhodium-soc-compiled.XXXXXX)"; \
-	  owns_compiled_root=true; \
-	fi; \
-	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$soc_compiled_root"; fi' EXIT; \
-	env PLTCOMPILEDROOTS="$$soc_compiled_root" tools/run-racket-tests.sh $(SOC_TESTS); \
-	env PLTCOMPILEDROOTS="$$soc_compiled_root" bash socs/tests/run-device-tree.sh
+	tools/run-racket-tests.sh $(SOC_TESTS)
+	bash socs/tests/run-device-tree.sh
 
 hardfloat-host-test: check-boundaries
 	tools/run-racket-tests.sh $(HARDFLOAT_TESTS)
@@ -206,15 +195,8 @@ rv5stage-host-test: check-boundaries
 riscv-udb-config:
 	@set -e; \
 	mkdir -p "$(dir $(RISCV_UDB_OUTPUT))"; \
-	udb_compiled_root="$${PLTCOMPILEDROOTS:-}"; \
-	owns_compiled_root=false; \
-	if [ -z "$$udb_compiled_root" ]; then \
-	  udb_compiled_root="$$(mktemp -d /tmp/rhodium-udb-compiled.XXXXXX)"; \
-	  owns_compiled_root=true; \
-	fi; \
-	trap 'if [ "$$owns_compiled_root" = true ]; then rm -rf "$$udb_compiled_root"; fi' EXIT; \
-	env PLTCOMPILEDROOTS="$$udb_compiled_root" PLTCOLLECTS="$(CURDIR)": \
-	  racket -y tools/write-riscv-udb-config.rhm "$(RISCV_UDB_CONFIGURATION)" "$(RISCV_UDB_OUTPUT)"
+	env PLTCOLLECTS="$(CURDIR)": tools/run-racket.sh -S "$(CURDIR)" \
+	  tools/write-riscv-udb-config.rhm "$(RISCV_UDB_CONFIGURATION)" "$(RISCV_UDB_OUTPUT)"
 
 rv5stage-test: rv5stage-host-test
 	FIXTURES='rv32i-alu rv64i-alu rv64i-alu-integrated load-store load-store-rv32-word bit-manip bit-manip-rv32 iterative-multiplier iterative-divider scoreboard riscv-compressed riscv-atomic rv5stage-fp-register-file rv5stage-fp-pipeline rv5stage-register-file rv5stage-csr rv5stage-zihpm-rv32 rv5stage-zihpm-rv64 rv5stage-btb rv5stage-fetch rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-branch-prediction rv5stage-core rv5stage-load-hit rv5stage-zcb rv5stage-mop rv5stage-core-rv32f rv5stage-core-rv64d rv5stage-data-fault rv5stage-mmu-replay rv5stage-interrupt rv5stage-pause rv5stage-instruction-memory-router rv5stage-memory-router rv5stage-uncached rv5stage-io-mshr rv5stage-io-boot rv5stage-multiply rv5stage-divide rv5stage-icache rv5stage-dcache rv5stage-dcache-rv32' bash tools/testing/circt/run.sh
@@ -286,7 +268,7 @@ ci-host-cores-test: rv5stage-host-test
 
 ci-host-socs-test: soc-test
 
-ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test
+ci-host-hygiene-test: check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
 
 host-test: host-checks examples
 
@@ -341,7 +323,7 @@ examples-cores:
 	tools/run-racket-tests.sh $(CORE_EXAMPLES)
 
 examples-formal: check-boundaries
-	@formal_compiled_root="$$(mktemp -d)"; trap 'rm -rf "$$formal_compiled_root"' EXIT; if ! env PLTCOMPILEDROOTS="$$formal_compiled_root" PLTCOLLECTS=$(CURDIR): racket -y -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''examples-formal "Rosette solver probe failed"))'; then echo 'examples-formal requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2; exit 1; fi; env PLTCOMPILEDROOTS="$$formal_compiled_root" PLTCOLLECTS=$(CURDIR): raco test --direct $(FORMAL_EXAMPLES)
+	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''examples-formal "Rosette solver probe failed"))'; then echo 'examples-formal requires Rosette 4.0 and its Z3 4.8.8 solver; see rhodium/formal/README.md' >&2; exit 1; fi; tools/run-racket-tests.sh $(FORMAL_EXAMPLES)
 
 examples-rv5stage:
 	bash tools/check-example-verilog.sh examples/rv5stage

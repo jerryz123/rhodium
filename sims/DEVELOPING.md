@@ -453,8 +453,9 @@ bench compares complete emitted requests and holds them through backpressure.
 
 The transport checks require the pinned FESVR library; DPI checks also require
 Verilator. Lowering requires the pinned CIRCT tool or an explicit `CIRCT_OPT`,
-and execution requires FESVR plus the RISC-V cross compiler. Rhombus checks use repository wrappers with fresh
-compiled roots. Technology-mapped simulation remains owned by
+and execution requires FESVR plus the RISC-V cross compiler. Rhombus checks use
+repository wrappers with persistent worktree-specific compiled roots.
+Technology-mapped simulation remains owned by
 [`../vlsi/sim/`](../vlsi/sim/README.md).
 
 `uart-pty-test` starts the ordinary simulator, discovers the production PTY path,

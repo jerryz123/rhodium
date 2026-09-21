@@ -28,8 +28,8 @@ Install Rosette into the active Racket installation:
 raco pkg install --auto rosette
 ```
 
-Run the focused formal suite. It first probes Rosette and its solver under an
-isolated compiled root, then runs the Rhodium formal tests:
+Run the focused formal suite. It first probes Rosette and its solver under the
+persistent isolated build cache, then runs the Rhodium formal tests:
 
 ```sh
 make formal-test

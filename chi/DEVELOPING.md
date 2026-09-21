@@ -40,7 +40,7 @@ Use the existing owners before introducing another aggregation layer.
 For import-only migrations, check that declarations and RTL bodies are unchanged
 apart from namespace qualification. Run affected host contracts, device/cache
 behavioral fixtures, and MiniRV5StageSoC/SingleCoreRV5StageSoC/TiledRV5StageSoC smoke tests for consumers that
-span those compositions, with fresh compiled roots. Inspect transitive imports
+span those compositions through the persistent compiled cache. Inspect transitive imports
 when claiming narrower loading; a selective name import still loads its module.
 
 ## Implementation map
@@ -118,7 +118,7 @@ make chi-test
 This target includes package-boundary checking, every
 `chi/tests/*-test.rhm` host test, and the negative cases under
 [`tests/invalid/`](tests/invalid/). Use `tools/run-racket-tests.sh` for one host
-file so it receives a fresh compiled root. Do not add a host test merely to
+file so it receives the managed worktree-specific root. Do not add a host test merely to
 inspect a component's elaborated shape.
 
 The backend protocol group covers CHI flit, link, monitor, transaction, Home,

@@ -79,10 +79,10 @@ backend-manifest coverage; that check does not invoke CIRCT or Verilator.
 ### Host and model checks
 
 For one Racket or Rhombus test, use the repository wrapper so the run receives
-the required isolated compiled root. The first successful local test batch for
-a Racket and package environment prepares an external-dependency bytecode
-cache; later invocations copy that cache into a new root before running the
-test. Set `RHODIUM_RACKET_CACHE_DIR` to relocate this disposable cache.
+the persistent compiled root owned by this worktree. The first successful local
+test batch for a Racket and package environment also prepares a shared
+external-dependency bytecode cache. Later invocations reuse project bytecode
+incrementally. Set `RHODIUM_RACKET_CACHE_DIR` to relocate the build cache.
 
 ```sh
 tools/run-racket-tests.sh rhodium/core/tests/verify-test.rhm
@@ -90,11 +90,15 @@ tools/run-racket-tests.sh rhodium/frontend/tests/interface-test.rhm
 tools/run-racket-tests.sh rhodium/backend/tests/circt-test.rhm
 ```
 
-The cache never contains bytecode built from the Rhodium checkout, so changing
-branches or worktrees cannot reuse stale project code. The direct Racket runner
-can consume the cache but does not publish it, preventing a trivial script from
-creating an under-populated entry. Supplying `PLTCOMPILEDROOTS` explicitly
-bypasses the local cache and uses that exact root.
+Each absolute checkout path receives a separate project root. The wrapper
+hashes source content and invalidates changed modules plus their transitive
+project dependents before Racket recompiles them. It clears the complete
+checkout bytecode subtree when the source-path inventory changes, so branch
+switches and module moves cannot retain orphaned project modules. The shared
+dependency cache strips the complete Rhodium checkout subtree. Supplying
+`PLTCOMPILEDROOTS` explicitly bypasses the managed cache and uses that exact
+root. Run `make clean-racket-cache` to discard the current worktree's project
+bytecode.
 
 Then move to the owning target from the tables above. Add
 `make check-boundaries` after moving modules or changing dependency direction.

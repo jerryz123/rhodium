@@ -96,6 +96,5 @@ make riscv-test
 
 This target checks the pure model, ISA catalogs, compressed host and hardware
 expansion, reusable RTL adapters, and package boundaries. Repository wrappers
-provide a fresh `PLTCOMPILEDROOTS` unless the caller supplies one. Direct
-Racket or Rhombus commands must use a newly created compiled root and `racket
--y` where Racket is invoked directly.
+provide the persistent worktree-specific `PLTCOMPILEDROOTS` unless the caller
+supplies one. Use the wrappers for direct Racket or Rhombus execution.

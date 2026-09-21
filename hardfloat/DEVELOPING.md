@@ -93,9 +93,9 @@ Run both slices with:
 make hardfloat-test
 ```
 
-Repository wrappers manage a fresh `PLTCOMPILEDROOTS` when invoked normally.
-Direct Racket or Rhombus commands must use a newly created compiled root and
-`racket -y` so stale bytecode cannot mask the current source.
+Repository wrappers manage the persistent worktree-specific
+`PLTCOMPILEDROOTS` when invoked normally. Use them for direct Racket or Rhombus
+execution so structural invalidation and incremental rebuilding remain active.
 
 The host slice checks format constraints, nominal packed layouts, and public
 specialization. The CIRCT and Verilator slice covers representative IEEE

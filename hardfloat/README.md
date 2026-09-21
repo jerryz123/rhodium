@@ -286,7 +286,7 @@ make hardfloat-test
 
 This target requires the CIRCT and Verilator tools used by the repository test
 harness. Host-only and backend-specific slices, their exact coverage, and the
-fresh-bytecode requirements are documented in
+incremental bytecode-cache requirements are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
 
 ## Follow-up work

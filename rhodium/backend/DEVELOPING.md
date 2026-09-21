@@ -77,6 +77,6 @@ smallest CIRCT or Verilator fixture when external behavior can change. Fixture,
 bench, DPI companion, and exact-reference changes follow
 [`tools/testing/circt/DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md).
 
-Run `make check-boundaries` after import or file-ownership changes. Every direct
-Racket or Rhombus invocation must use a fresh `PLTCOMPILEDROOTS`; repository
-wrappers supply one when the caller does not.
+Run `make check-boundaries` after import or file-ownership changes. Direct
+Racket or Rhombus invocations must use the repository wrappers, which supply the
+persistent worktree-specific `PLTCOMPILEDROOTS` when the caller does not.

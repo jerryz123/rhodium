@@ -143,8 +143,8 @@ confirm that the change belongs in the frontend. Then preserve these seams:
 
 ## Validation
 
-Run checks from the repository root. `tools/run-racket-tests.sh` creates a fresh
-`PLTCOMPILEDROOTS` when the caller has not supplied one.
+Run checks from the repository root. `tools/run-racket-tests.sh` selects the
+persistent worktree-specific `PLTCOMPILEDROOTS` when none is supplied.
 
 For a narrow change, run the directly affected positive tests and any matching
 negative cases. For example:

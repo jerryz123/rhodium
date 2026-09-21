@@ -210,8 +210,7 @@ extracts a logical flow diagram. Generate its JSON and Graphviz DOT files with:
 
 ```sh
 mkdir -p /tmp/noc-router-diagram
-env PLTCOMPILEDROOTS="$(mktemp -d)" \
-  racket -y -S "$PWD" tools/write-noc-router-diagram.rhm \
+tools/run-racket.sh -S "$PWD" tools/write-noc-router-diagram.rhm \
   /tmp/noc-router-diagram
 ```
 

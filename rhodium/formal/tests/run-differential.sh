@@ -4,14 +4,13 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
-compiled_root="$(mktemp -d /tmp/rhodium-formal-differential-compiled.XXXXXX)"
 model_file="$(mktemp /tmp/rhodium-formal-models.XXXXXX)"
-trap 'rm -rf "$compiled_root" "$model_file"' EXIT
+trap 'rm -f "$model_file"' EXIT
 
 cd "$repo_dir"
 
-if ! env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
-    racket -y -S "$repo_dir" rhodium/formal/tests/replay-models.rhm > "$model_file"; then
+if ! env PLTCOLLECTS="$repo_dir": "$repo_dir/tools/run-racket.sh" -S "$repo_dir" \
+    rhodium/formal/tests/replay-models.rhm > "$model_file"; then
   echo 'formal-differential-test requires Rosette 4.0 and Z3 4.8.8; see rhodium/formal/README.md' >&2
   exit 1
 fi
@@ -40,6 +39,5 @@ if [[ "$(wc -l < "$model_file" | tr -d ' ')" != "${#expected_keys[@]}" ]]; then
 fi
 
 env FORMAL_REPLAY_FILE="$model_file" \
-  PLTCOMPILEDROOTS="$compiled_root" \
   FIXTURE=formal-differential \
   bash tools/testing/circt/run.sh --simulate-only

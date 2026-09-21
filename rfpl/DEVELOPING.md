@@ -70,4 +70,4 @@ The first target runs RFPL boundaries, structural checks, invalid fixtures, and
 examples. The second runs the RFPL-owned CIRCT fixture and compares its
 example-owned normalized Verilog reference. It requires `circt-opt`; run
 `make setup-circt` or set `CIRCT_OPT` when needed. Repository wrappers provide
-a fresh `PLTCOMPILEDROOTS` unless the caller supplies one.
+the persistent worktree-specific `PLTCOMPILEDROOTS` unless one is supplied.

@@ -86,6 +86,6 @@ make riscv-test
 
 The aggregate package target covers the model and catalogs that define the
 adapter inputs, adapter behavior, compressed expansion, and dependency
-boundaries. Repository wrappers provide a fresh `PLTCOMPILEDROOTS` unless the
-caller supplies one; direct Racket or Rhombus runs must use a newly created
-compiled root and `racket -y` where applicable.
+boundaries. Repository wrappers provide the persistent worktree-specific
+`PLTCOMPILEDROOTS` unless the caller supplies one; use the wrappers for direct
+Racket or Rhombus execution.

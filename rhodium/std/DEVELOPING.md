@@ -184,8 +184,8 @@ size, and address-acceptance policies.
 
 ## Focused validation
 
-Run Racket and Rhombus through the repository wrapper, which creates the
-required isolated compiled root. For example:
+Run Racket and Rhombus through the repository wrapper, which manages the
+required persistent isolated compiled root. For example:
 
 ```sh
 tools/run-racket-tests.sh rhodium/std/tests/std-ready-valid-test.rhm

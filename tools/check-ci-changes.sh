@@ -213,6 +213,13 @@ check_field tools/run-racket-tests.sh host true
 check_field tools/run-racket-tests.sh circt false
 check_field tools/run-racket-tests.sh examples true
 check_field tools/run-racket-tests.sh simulation true
+check_field tools/run-racket.sh host true
+check_field tools/run-racket.sh circt true
+check_field tools/racket-build-cache.sh host true
+check_field tools/racket-build-cache.sh circt true
+check_field tools/invalidate-racket-build-cache.rkt host true
+check_field tools/invalidate-racket-build-cache.rkt circt true
+check_matrix_entry tools/testing/racket-build-cache-test.sh host_matrix ci-host-hygiene-test
 check_field tools/testing/run-negative.rkt host true
 check_field tools/testing/run-negative.rkt circt false
 check_field tools/testing/circt/load-example.rkt host false

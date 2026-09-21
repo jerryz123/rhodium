@@ -185,7 +185,7 @@ Use the parent [`DEVELOPING.md`](../DEVELOPING.md#focused-validation) for
 complete-core integration. Backend fixture names include `rv5stage-dcache` and
 `rv5stage-dcache-rv32`; use the backend test
 [`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) for CIRCT and Verilator
-modes. Repository wrappers provide a fresh compiled root.
+modes. Repository wrappers provide the persistent worktree-specific root.
 
 The RV64 cache bench covers cold and shared-hit LR ownership, a probe offered
 at CompAck, delayed SC under pending eviction traffic, protection expiry, repeated LR,

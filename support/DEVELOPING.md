@@ -56,8 +56,8 @@ make support-annotation-test
 make check-boundaries
 ```
 
-The test wrapper supplies a fresh `PLTCOMPILEDROOTS` when the caller has not
-provided one. The direct suite covers valid nonempty text, empty-string
+The test wrapper supplies the persistent worktree-specific `PLTCOMPILEDROOTS`
+when the caller has not provided one. The direct suite covers valid nonempty text, empty-string
 rejection, a valid ASCII identifier, and leading-digit and hyphenated
 identifier rejections. Run broader consumer tests only when the annotation's
 accepted values or a consumer boundary changes.

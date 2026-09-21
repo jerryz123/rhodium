@@ -82,7 +82,7 @@ make device-test
 
 The target runs package-boundary checks, every `devices/tests/*-test.rhm`, and
 [`run-uart-dpi-cpp.sh`](tests/run-uart-dpi-cpp.sh). The Rhombus test wrapper
-creates a fresh compiled root when the caller has not supplied one.
+selects the persistent worktree-specific compiled root when none is supplied.
 
 To lower and simulate only the device fixtures through CIRCT and
 Verilator, run:

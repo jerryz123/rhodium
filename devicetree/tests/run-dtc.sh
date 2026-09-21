@@ -12,22 +12,13 @@ for tool in dtc fdtdump fdtget; do
 done
 
 fixture_dir="$(mktemp -d /tmp/rhodium-devicetree.XXXXXX)"
-compiled_root="${PLTCOMPILEDROOTS:-}"
-owns_compiled_root=false
-if [[ -z "$compiled_root" ]]; then
-  compiled_root="$(mktemp -d /tmp/rhodium-devicetree-compiled.XXXXXX)"
-  owns_compiled_root=true
-fi
 cleanup() {
   rm -rf "$fixture_dir"
-  if [[ "$owns_compiled_root" == true ]]; then
-    rm -rf "$compiled_root"
-  fi
 }
 trap cleanup EXIT
 
-env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
-  racket -y "$repo_dir/devicetree/tests/write-fixture.rhm" "$fixture_dir"
+env PLTCOLLECTS="$repo_dir": "$repo_dir/tools/run-racket.sh" \
+  "$repo_dir/devicetree/tests/write-fixture.rhm" "$fixture_dir"
 
 dtc -I dtb -O dts -o "$fixture_dir/native-roundtrip.dts" "$fixture_dir/native.dtb"
 dtc -I dts -O dtb -o "$fixture_dir/from-dts.dtb" "$fixture_dir/native.dts"

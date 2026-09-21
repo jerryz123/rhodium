@@ -19,7 +19,7 @@ Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
 benches in [`../tests/circt/`](../tests/circt/).
 For source moves, update direct consumers, package documentation, and build/CI
 paths together. Run `make check-boundaries` and the affected host and behavioral
-checks with a fresh isolated compiled root. Directory boundaries do not add RTL
+checks through the persistent isolated build cache. Directory boundaries do not add RTL
 hierarchy or per-directory facade modules.
 
 ## Extension and focused validation

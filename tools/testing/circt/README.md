@@ -137,9 +137,9 @@ the guarded update workflow are documented in
   or a backend policy assertion before external lowering.
 - A materialization failure points to example exports, elaboration, public-IR
   verification, or a direct emitter. The runner invokes
-  [`../../tools/run-racket.sh`](../../../tools/run-racket.sh), which supplies a
-  fresh compiled root unless the caller deliberately provides one or verified
-  CI bytecode.
+  [`../../tools/run-racket.sh`](../../../tools/run-racket.sh), which supplies the
+  persistent worktree-specific compiled root unless the caller deliberately
+  provides one or verified CI bytecode.
 - A `circt-opt` failure means the emitted MLIR did not parse, verify, or survive
   the selected lowering passes. Confirm the reported CIRCT version before
   attributing a pass-pipeline difference to Rhodium.

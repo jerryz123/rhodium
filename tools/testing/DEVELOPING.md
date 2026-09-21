@@ -63,13 +63,17 @@ When it selects any downstream work, CI compiles the positive Racket entrypoint
 manifest once for reuse by the selected jobs. Pull requests and pushes classify
 the changed paths; manual dispatch selects every matrix shard.
 
-Local runner scripts preserve the same freshness boundary in a different way.
-Each invocation creates a new compiled root, seeds it from a cache keyed by the
-Racket version, installed package checksums, operating system, and architecture,
-and deletes it after the command. A successful test batch publishes the cache;
-the direct Racket runner only consumes it so a trivial script cannot create an
-under-populated entry. Publication removes the current repository subtree and
-therefore retains external dependency bytecode only. Callers that provide
+Local runner scripts preserve the same freshness boundary with a persistent,
+worktree-specific compiled root. The cache is keyed by the Racket version,
+installed package metadata and checksums, operating system, architecture, and
+absolute checkout path. The wrapper hashes repository sources and uses Racket's
+recorded dependency graph to remove changed modules and their transitive
+project dependents before incremental compilation. It also records the source
+path inventory and clears only the checkout's mirrored bytecode subtree when a
+source is added, removed, or moved, preventing orphaned modules from surviving
+structural changes. Successful test batches can seed a shared
+external-dependency cache; checkout bytecode is never published there. Cache
+access is serialized per worktree. Callers that provide
 `PLTCOMPILEDROOTS` retain full ownership of that root, and CI continues to use
 its separately verified exact-commit bytecode artifact.
 

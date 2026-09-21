@@ -75,6 +75,6 @@ Run the analysis batch through the repository wrapper:
 tools/run-racket-tests.sh rhodium/analysis/tests/*-test.rhm
 ```
 
-The wrapper creates a fresh compiled root when none is supplied. Run broader
+The wrapper selects the persistent worktree-specific root when none is supplied. Run broader
 frontend or backend checks only when their owned side of the integration
 changes.

@@ -142,7 +142,7 @@ moving a module or changing dependency direction.
 
 The [test runner guide](tools/testing/README.md) maps change areas to focused commands
 and explains when CIRCT, Verilator, formal, or aggregate checks are useful. The
-[test developer guide](tools/testing/DEVELOPING.md) owns test placement, isolated
+[test developer guide](tools/testing/DEVELOPING.md) owns test placement, managed
 compiled roots, CI classification, fixtures, and checked-in artifacts.
 
 Start with the smallest owning target. Add `make check-boundaries` for package

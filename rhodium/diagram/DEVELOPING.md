@@ -99,11 +99,9 @@ make diagram-test
 When metadata ownership or backend isolation changes, also run:
 
 ```sh
-diagram_compiled_root="$(mktemp -d)"
-trap 'rm -rf "$diagram_compiled_root"' EXIT
-PLTCOMPILEDROOTS="$diagram_compiled_root" \
-  tools/run-racket-tests.sh rhodium/backend/tests/diagram-metadata-test.rhm
+tools/run-racket-tests.sh rhodium/backend/tests/diagram-metadata-test.rhm
 ```
 
 The focused target covers extraction, model, JSON, DOT, and package boundaries.
-Use a fresh compiled root for every direct Racket or Rhombus validation batch.
+Use the repository wrappers so direct validation uses the persistent isolated
+worktree cache.

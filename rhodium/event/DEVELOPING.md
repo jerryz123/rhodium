@@ -329,11 +329,10 @@ functional signals. Preserve reset suppression and independent sequence epochs.
 
 ## Focused validation
 
-Use a fresh compiled root for each focused batch, following
-[AGENTS.md](../../AGENTS.md#verification):
+Use the persistent worktree-specific compiled root through the repository
+wrappers, following [AGENTS.md](../../AGENTS.md#verification):
 
 ```sh
-export PLTCOMPILEDROOTS="$(mktemp -d /tmp/rhodium-event-tests.XXXXXX)"
 make event-test
 make event-runtime-test
 ```

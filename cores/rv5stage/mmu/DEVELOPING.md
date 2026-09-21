@@ -135,7 +135,7 @@ PTE/completion edges from public transfers, with repeated addresses, three-level
 walks, page/access faults, stalled completion, cancellation in three phases,
 cancelled admission, and reset while occupied.
 
-The wrapper creates a fresh compiled root when one is not supplied. Keep this
+The wrapper selects the persistent worktree-specific root when none is supplied. Keep this
 test limited to public translation contracts; do not add internal operation or
 state snapshots. The Verilator fixture pulses one data request, checks the three
 expected PTE addresses, and requires a later retry to use the filled DTLB while
