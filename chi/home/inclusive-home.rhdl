@@ -8,6 +8,7 @@ import:
   lib("rhodium/std/read-write.rhdl").ReadWriteRequest
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
+  lib("flow/circular-priority.rhdl") open
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -151,6 +152,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     address[offset_width..p.request_address_width]
   fun slot_txn_id(slot :: Bits(slot_width)):
     slot.zext(12)
+  fun next_slot_priority(slot :: Bits(slot_width)):
+    mux(slot === bits(slots - 1, slot_width),
+        bits(0, slot_width),
+        slot + bits(1, slot_width))
 
   reg occupied(~init: empty_slots)
   reg phases(~init: vec(for List (_index in 0..slots): CHIInclusiveHNFPhase.Idle))
@@ -189,8 +194,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   inst tags(SyncRam1RW(sets, Bits(line_address_width), ways))
   inst lines(SyncRam1RW(sets, Bits(512), ways))
   reg lookup_owner(Bits(slot_width))
+  reg lookup_next_priority(~init: bits(0, slot_width))
   reg advance_locked(~init: Bool(#false))
   reg advance_owner(Bits(slot_width))
+  reg advance_next_priority(~init: bits(0, slot_width))
+  reg response_data_locked(~init: Bool(#false))
+  reg response_data_owner(Bits(slot_width))
+  reg response_data_next_priority(~init: bits(0, slot_width))
 
   inst comp_acks(CHIHomeCompAckTable(p, comp_ack_entries))
   comp_acks.home_node_id <== home_id
@@ -259,11 +269,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   fun autonomous_phase(value :: CHIInclusiveHNFPhase):
     value.is_one_of(CHIInclusiveHNFPhase.SendRequesterDBID,
-                    CHIInclusiveHNFPhase.IssueLookup,
                     CHIInclusiveHNFPhase.SendSnoop,
                     CHIInclusiveHNFPhase.AfterSnoops,
                     CHIInclusiveHNFPhase.SendFillRequest,
-                    CHIInclusiveHNFPhase.SendCachedData,
                     CHIInclusiveHNFPhase.MergeRequesterData,
                     CHIInclusiveHNFPhase.SendRequesterCompletion,
                     CHIInclusiveHNFPhase.SendVictimWriteRequest,
@@ -276,22 +284,47 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_issue_slots = vec(
     for List (index in 0..slots): occupied[index] & (phases[index] === CHIInclusiveHNFPhase.IssueLookup)
   )
+  def lookup_choice :: CircularPriorityChoice(slots, slot_width) = circular_priority_onehot(
+    lookup_issue_slots,
+    lookup_next_priority
+  )
+  def lookup_issue_slot = lookup_choice.index
+  def response_data_slots = vec(
+    for List (index in 0..slots): occupied[index] & (phases[index] === CHIInclusiveHNFPhase.SendCachedData)
+  )
+  def locked_response_data_slots = vec(
+    for List (index in 0..slots): response_data_slots[index] & (
+      response_data_owner === bits(index, slot_width)
+    )
+  )
+  def selectable_response_data_slots = mux(response_data_locked,
+                                           locked_response_data_slots,
+                                           response_data_slots)
+  def response_data_choice :: CircularPriorityChoice(slots, slot_width) = circular_priority_onehot(
+    selectable_response_data_slots,
+    response_data_next_priority
+  )
+  def response_data_available = response_data_choice.valid
+  def response_data_slot = response_data_choice.index
   def locked_advance_slots = vec(
     for List (index in 0..slots): autonomous_slots[index] & (advance_owner === bits(index, slot_width))
   )
   def advance_slots = mux(advance_locked,
                           locked_advance_slots,
-                          mux(lookup_response_valid, lookup_issue_slots, autonomous_slots))
-  def advance_available = advance_slots.or_reduce()
-  def advance_slot = priority_encoder(advance_slots)
+                          autonomous_slots)
+  def advance_choice :: CircularPriorityChoice(slots, slot_width) = circular_priority_onehot(
+    advance_slots,
+    advance_next_priority
+  )
+  def advance_available = advance_choice.valid
+  def advance_slot = advance_choice.index
   def work_from_input = !advance_locked & !lookup_response_valid & input_pending
-  def work_from_advance = !work_from_input & advance_available
+  def work_from_advance = (!lookup_response_valid ||| advance_locked) & !work_from_input & advance_available
   def work_valid = work_from_input ||| work_from_advance
   def work_slot = mux(work_from_input, input_slot, advance_slot)
 
   def phase = phases[work_slot]
   def request = requests[work_slot]
-  def comp_ack_slot = comp_ack_slots[work_slot]
   def selected_set = selected_sets[work_slot]
   def selected_way = selected_ways[work_slot]
   def selected_line = line_buffers[work_slot]
@@ -306,8 +339,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def copyback_dirty = copyback_state[2].into(Bool)
   def maintenance = chi_cache_maintenance(request.opcode)
   def maintenance_discard = request.opcode === CHIReqOpcode.MakeInvalid
-  def request_set = cache_set(request.address)
-  def request_line_address = line_address(request.address)
   def request_write = chi_hnf_subordinate_opcode(request.opcode).is_initial_write()
   def request_installs_miss = (request.opcode =/= CHIReqOpcode.ReadOnce) ||| request.mem_attr.allocate
   def selected_dirty = dirty_lines[selected_set][selected_way]
@@ -524,28 +555,33 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
            "chi_inclusive_hnf_fill_data_id_unique")
 
   def request_response_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
-  def remaining_ids = remaining_response_data_ids[work_slot]
-  def selected_response_data_id = priority_encoder(remaining_ids.as_vec(Bool))
-  def final_response_data = remaining_ids === one_hot(selected_response_data_id).as_bits()
+  def response_request = requests[response_data_slot]
+  def response_comp_ack_slot = comp_ack_slots[response_data_slot]
+  def response_selected_set = selected_sets[response_data_slot]
+  def response_selected_way = selected_ways[response_data_slot]
+  def response_selected_line = line_buffers[response_data_slot]
+  def response_completion_error = completion_errors[response_data_slot]
+  def response_remaining_ids = remaining_response_data_ids[response_data_slot]
+  def selected_response_data_id = priority_encoder(response_remaining_ids.as_vec(Bool))
+  def final_response_data = response_remaining_ids === one_hot(selected_response_data_id).as_bits()
   def response_line_packet = chi_transfer_beat(selected_response_data_id, p)[0..packet_index_width]
-  def sending_cached_data = work_from_advance & (phase === CHIInclusiveHNFPhase.SendCachedData)
-  requester.response_data.valid <== sending_cached_data
+  requester.response_data.valid <== response_data_available
   def cached_response = chi_inclusive_cached_data(
     p,
     home_id,
-    request,
-    requester_allocates[work_slot],
-    mux(request.exp_comp_ack, comp_ack_slot.zext(12), bits(0, 12)),
+    response_request,
+    requester_allocates[response_data_slot],
+    mux(response_request.exp_comp_ack, response_comp_ack_slot.zext(12), bits(0, 12)),
     selected_response_data_id,
-    selected_line[response_line_packet]
+    response_selected_line[response_line_packet]
   )
   requester.response_data.bits <== cached_response.updated(
-    ~resp_err: completion_error,
-    ~resp: mux(completion_error === CHIRespErr.OK, cached_response.resp, bits(0, 3))
+    ~resp_err: response_completion_error,
+    ~resp: mux(response_completion_error === CHIRespErr.OK, cached_response.resp, bits(0, 3))
   )
   def cached_data_fire = requester.response_data.fire()
-  comp_acks.publish.valid <== cached_data_fire & final_response_data & request.exp_comp_ack
-  comp_acks.publish.bits <== comp_ack_slot
+  comp_acks.publish.valid <== cached_data_fire & final_response_data & response_request.exp_comp_ack
+  comp_acks.publish.bits <== response_comp_ack_slot
 
   def requester_write_valids = requester_write_line_valids[work_slot].as_vec(Bool)
   def merged_line = vec(
@@ -586,35 +622,50 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def line_write_data = mux(write_filled_line,
                             final_fill_line,
                             mux(write_merged_line, merged_line, selected_line))
-  def issue_lookup = work_from_advance & (phase === CHIInclusiveHNFPhase.IssueLookup)
+  def issue_lookup = lookup_choice.valid & !write_line
+  def lookup_issue_request = requests[lookup_issue_slot]
+  def lookup_issue_set = cache_set(lookup_issue_request.address)
+  def lookup_issue_line_address = line_address(lookup_issue_request.address)
 
-  def shared_output_valid = requester.responses.valid ||| requester.response_data.valid ||| (
-    requester.snoops.valid
-  ) ||| subordinate.req.valid ||| subordinate.dat.request.valid
-  def shared_output_fire = requester.responses.fire() ||| requester.response_data.fire() ||| (
-    requester.snoops.fire()
-  ) ||| subordinate.req.fire() ||| subordinate.dat.request.fire()
+  def shared_output_valid = requester.responses.valid ||| requester.snoops.valid ||| (
+    subordinate.req.valid
+  ) ||| subordinate.dat.request.valid
+  def shared_output_fire = requester.responses.fire() ||| requester.snoops.fire() ||| (
+    subordinate.req.fire()
+  ) ||| subordinate.dat.request.fire()
   def advance_stalled = work_from_advance & shared_output_valid & !shared_output_fire
   when advance_stalled:
     advance_locked <== Bool(#true)
     advance_owner <== work_slot
   elsewhen (advance_locked & work_from_advance):
     advance_locked <== Bool(#false)
+  when (work_from_advance & (!shared_output_valid ||| shared_output_fire)):
+    advance_next_priority <== next_slot_priority(work_slot)
+
+  def response_data_stalled = requester.response_data.valid & !requester.response_data.ready
+  when response_data_stalled:
+    response_data_locked <== Bool(#true)
+    response_data_owner <== response_data_slot
+  elsewhen (response_data_locked & cached_data_fire):
+    response_data_locked <== Bool(#false)
+  when cached_data_fire:
+    response_data_next_priority <== next_slot_priority(response_data_slot)
 
   tags.port.request.valid <== issue_lookup ||| write_filled_line
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(line_address_width), ways):
-    address: mux(issue_lookup, request_set, selected_set)
+    address: mux(issue_lookup, lookup_issue_set, selected_set)
     write: write_filled_line
-    data: vec(for List (_way in 0..ways): request_line_address)
+    data: vec(for List (_way in 0..ways): lookup_issue_line_address)
     mask: mux(write_filled_line, selected_way_mask, Mask(ways)(0))
   lines.port.request.valid <== issue_lookup ||| write_line
   lines.port.request.bits <== ReadWriteRequest(set_width, Bits(512), ways):
-    address: mux(issue_lookup, request_set, selected_set)
+    address: mux(issue_lookup, lookup_issue_set, selected_set)
     write: write_line
     data: vec(for List (_way in 0..ways): line_write_data.as_bits())
     mask: mux(write_line, selected_way_mask, Mask(ways)(0))
   when issue_lookup:
-    lookup_owner <== work_slot
+    lookup_owner <== lookup_issue_slot
+    lookup_next_priority <== next_slot_priority(lookup_issue_slot)
 
   def lookup_request = requests[lookup_owner]
   def lookup_set = cache_set(lookup_request.address)
@@ -663,6 +714,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     def index_tag = bits(index, slot_width)
     def allocate_index = request_fire & (allocation_slot === index_tag)
     def lookup_index = lookup_response_valid & (lookup_owner === index_tag)
+    def lookup_issue_index = issue_lookup & (lookup_issue_slot === index_tag)
+    def response_data_index = cached_data_fire & (response_data_slot === index_tag)
     def work_index = work_valid & (work_slot === index_tag)
     def slot_incoming_write = chi_hnf_subordinate_opcode(incoming_request.opcode).is_initial_write()
 
@@ -715,10 +768,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
           phases[index] <== mux(lookup_request_write,
                                 CHIInclusiveHNFPhase.MergeRequesterData,
                                 CHIInclusiveHNFPhase.SendCachedData)
+    elsewhen response_data_index:
+      remaining_response_data_ids[index] <== response_remaining_ids & !one_hot(
+        selected_response_data_id
+      ).as_bits()
+      when final_response_data:
+        occupied[index] <== Bool(#false)
+        phases[index] <== CHIInclusiveHNFPhase.Idle
     elsewhen work_index:
-      when issue_lookup:
-        phases[index] <== CHIInclusiveHNFPhase.AwaitLookup
-      elsewhen (requester_output_response_fire & send_requester_dbid):
+      when (requester_output_response_fire & send_requester_dbid):
         phases[index] <== CHIInclusiveHNFPhase.ReceiveRequesterData
       elsewhen requester_write_data_fire:
         copyback_states[index] <== requester.request_data.bits.resp
@@ -813,11 +871,6 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       elsewhen (requester_output_response_fire & send_requester_completion):
         occupied[index] <== Bool(#false)
         phases[index] <== CHIInclusiveHNFPhase.Idle
-      elsewhen cached_data_fire:
-        remaining_response_data_ids[index] <== remaining_ids & !one_hot(selected_response_data_id).as_bits()
-        when final_response_data:
-          occupied[index] <== Bool(#false)
-          phases[index] <== CHIInclusiveHNFPhase.Idle
       elsewhen finish_copyback:
         occupied[index] <== Bool(#false)
         phases[index] <== CHIInclusiveHNFPhase.Idle
@@ -830,6 +883,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         completion_errors[index] <== requester.request_data.bits.resp_err
       elsewhen (requester_response_fire & (requester_response_flit.resp_err =/= CHIRespErr.OK)):
         completion_errors[index] <== requester_response_flit.resp_err
+
+    elsewhen lookup_issue_index:
+      phases[index] <== CHIInclusiveHNFPhase.AwaitLookup
 
   def invalidate_entry = (after_snoops & snoop_victim & !selected_dirty & (
     completion_error === CHIRespErr.OK
@@ -914,8 +970,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def responder_mask = vec(
     for List (endpoint in residents): expected_snoop_node === bits(endpoint.node_id, p.node_id_width)
   ).as_bits()
-  def requester_mask = vec(
+  def work_requester_mask = vec(
     for List (endpoint in residents): request.src_id === bits(endpoint.node_id, p.node_id_width)
+  ).as_bits()
+  def response_requester_mask = vec(
+    for List (endpoint in residents): response_request.src_id === bits(endpoint.node_id, p.node_id_width)
   ).as_bits()
   def absent_control = requester_response_fire & (
     requester_response_flit.resp_err === CHIRespErr.OK
@@ -927,44 +986,65 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     !maintenance ||| maintenance_hits[work_slot]
   )
   def grant_copy = cached_data_fire & final_response_data & (
-    completion_error === CHIRespErr.OK
-  ) & request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
-  when zero_snoop_clean_victim:
-    resident_lines <== resident_lines.updated(
+    response_completion_error === CHIRespErr.OK
+  ) & response_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
+  def clear_resident_entry = write_filled_line ||| invalidate_entry
+  def remove_responder = directory_line_valid & (absent_control ||| absent_data)
+  def release_copyback_resident = finish_copyback & maintenance_hits[work_slot]
+  def resident_work_update = zero_snoop_clean_victim ||| clear_resident_entry ||| remove_responder ||| (
+    release_copyback_resident
+  )
+  def resident_work_set = mux(zero_snoop_clean_victim, lookup_set, selected_set)
+  def resident_lines_after_work = mux(
+    zero_snoop_clean_victim,
+    resident_lines.updated(
       lookup_set,
       resident_lines[lookup_set].updated(lookup_way, bits(0, resident_count))
-    )
-  elsewhen (write_filled_line ||| invalidate_entry):
-    resident_lines <== resident_lines.updated(
-      selected_set,
-      resident_lines[selected_set].updated(selected_way, bits(0, resident_count))
-    )
-  elsewhen (directory_line_valid & (absent_control ||| absent_data)):
-    resident_lines <== resident_lines.updated(
-      selected_set,
-      resident_lines[selected_set].updated(
-        selected_way,
-        resident_lines[selected_set][selected_way] & !responder_mask
+    ),
+    mux(
+      clear_resident_entry,
+      resident_lines.updated(
+        selected_set,
+        resident_lines[selected_set].updated(selected_way, bits(0, resident_count))
+      ),
+      mux(
+        remove_responder,
+        resident_lines.updated(
+          selected_set,
+          resident_lines[selected_set].updated(
+            selected_way,
+            resident_lines[selected_set][selected_way] & !responder_mask
+          )
+        ),
+        mux(
+          release_copyback_resident,
+          resident_lines.updated(
+            selected_set,
+            resident_lines[selected_set].updated(
+              selected_way,
+              resident_lines[selected_set][selected_way] & !work_requester_mask
+            )
+          ),
+          resident_lines
+        )
       )
     )
-  elsewhen grant_copy:
-    assert(valid_lines[selected_set][selected_way],
+  )
+  def resident_lines_after_grant = resident_lines_after_work.updated(
+    response_selected_set,
+    resident_lines_after_work[response_selected_set].updated(
+      response_selected_way,
+      resident_lines_after_work[response_selected_set][response_selected_way] ||| response_requester_mask
+    )
+  )
+  when grant_copy:
+    assert(valid_lines[response_selected_set][response_selected_way],
            "chi_inclusive_hnf_grant_has_directory_entry")
-    resident_lines <== resident_lines.updated(
-      selected_set,
-      resident_lines[selected_set].updated(
-        selected_way,
-        resident_lines[selected_set][selected_way] ||| requester_mask
-      )
-    )
-  elsewhen (finish_copyback & maintenance_hits[work_slot]):
-    resident_lines <== resident_lines.updated(
-      selected_set,
-      resident_lines[selected_set].updated(
-        selected_way,
-        resident_lines[selected_set][selected_way] & !requester_mask
-      )
-    )
+  when (grant_copy & resident_work_update):
+    assert(response_selected_set =/= resident_work_set,
+           "chi_inclusive_hnf_parallel_directory_sets_distinct")
+  when (resident_work_update ||| grant_copy):
+    resident_lines <== mux(grant_copy, resident_lines_after_grant, resident_lines_after_work)
 
   def trace_contract:
     if slots == 1

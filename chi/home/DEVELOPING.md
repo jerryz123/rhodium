@@ -52,9 +52,14 @@ DBID. The slot index is the Home TxnID/DBID on subordinate and snoop traffic.
 One shared SRAM lookup port accepts at most one lookup per cycle. Different
 sets may overlap, but an admitted transaction owns its set until retirement;
 same-set requests remain backpressured so directory and replacement updates
-cannot conflict. A selected shared RSP, DAT, SNP, or subordinate REQ/DAT output
-retains scheduler ownership while stalled; do not let another slot or incoming
-channel change its payload before handshake. A successful final read-data transfer publishes a possible
+cannot conflict. Lookup, internal/control progress, and requester DAT use
+independent rotating slot selectors. A non-final subordinate fill beat may
+update its private slot buffer in the same cycle that another slot returns DAT,
+and a lookup may issue alongside a non-final fill. A final fill, merge, or
+intervention update reserves the single LLC array port instead. Requester DAT
+and each selected shared RSP, SNP, or subordinate REQ/DAT output retain their
+owner while stalled; do not let another slot or incoming channel change a
+payload before handshake. A successful final read-data transfer publishes a possible
 cached copy before releasing its transaction slot.
 Reads with `ExpCompAck` reserve a `CHIHomeCompAckTable` slot at admission and
 carry its DBID on every response DAT beat. Final DAT publishes the slot and

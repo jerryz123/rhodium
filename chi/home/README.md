@@ -18,8 +18,11 @@ for the expected acknowledgement latency and requester concurrency.
 `CHIHNFConfig(~transaction_slots: ...)` separately selects one through 64 live
 coherent transactions. `CHIInclusiveHNF` uses those slots as Home TxnIDs/DBIDs,
 permits distinct sets to overlap, and serializes requests that address an owned
-set. The parameter defaults to one for compatibility; the complete single-core
-and tiled SoCs select two.
+set. An LLC hit may return while a distinct-set miss waits for subordinate
+memory; non-final fill data can also enter the miss slot while the hit response
+is stalled. Final fill installation retains exclusive use of the shared LLC
+array port. The parameter defaults to one for compatibility; the complete
+single-core and tiled SoCs select two.
 
 ## Inclusive Home event tracing
 

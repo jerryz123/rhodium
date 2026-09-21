@@ -543,6 +543,59 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     reset = 1'b0;
 
 `ifndef CHI_HOME_TRACE
+    // A cached line in one set completes while a distinct-set miss remains
+    // parked on DRAM. A non-final fill beat may arrive while the hit DAT is
+    // stalled because it only updates the miss slot's private line buffer.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    tick();
+    fill_and_return(LINE0, 8'h50);
+    send_request(LINE1, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h030, 12'h330);
+    accept_memory_request_slot(LINE1, first_memory_txn);
+    requester_requests_in.bits = '0;
+    requester_requests_in.bits.src_id = HTIF_ID;
+    requester_requests_in.bits.tgt_id = HOME_ID;
+    requester_requests_in.bits.opcode = READ_ONCE;
+    requester_requests_in.bits.address = LINE1 + 44'h200;
+    requester_requests_in.bits.size_or_num_req = 6'd6;
+    requester_requests_in.valid = 1'b1;
+    #1;
+    assert (!port_out.requester.requests.ready)
+      else $fatal(1, "inclusive Home admitted a same-set request under miss");
+    requester_requests_in = '0;
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1, 12'h040, 12'h440);
+    while (!port_out.requester.response_data.valid) begin
+      assert (!port_out.requester.snoops.valid && !port_out.subordinate.req.valid)
+        else $fatal(1, "inclusive Home hit-under-miss generated extra traffic");
+      tick();
+    end
+    subordinate_data_in.bits = '0;
+    subordinate_data_in.bits.opcode = COMP_DATA;
+    subordinate_data_in.bits.src_id = MEMORY_ID;
+    subordinate_data_in.bits.tgt_id = HOME_ID;
+    subordinate_data_in.bits.txn_id = first_memory_txn;
+    subordinate_data_in.bits.data_id = 0;
+    subordinate_data_in.bits.byte_enable = 16'hffff;
+    subordinate_data_in.bits.data = 128'h60;
+    subordinate_data_in.valid = 1'b1;
+    #1;
+    assert (port_out.subordinate.dat.response.ready &&
+            port_out.requester.response_data.valid &&
+            port_out.requester.response_data.bits.txn_id == 12'h440 &&
+            port_out.requester.response_data.bits.data_id == 0 &&
+            port_out.requester.response_data.bits.data == 128'h50)
+      else $fatal(1, "inclusive Home did not overlap a hit with an unrelated fill");
+    tick();
+    subordinate_data_in = '0;
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(2'(packet), 128'h50 + 128'(packet));
+    for (int packet = 1; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'h60 + 8'(packet), 0, first_memory_txn);
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h330, 2'(packet), 8'h60 + 8'(packet));
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+
     // Distinct sets occupy independent transaction slots, while a request for
     // the first set remains serialized until its owner releases the set.
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h010, 12'h110);
@@ -576,23 +629,32 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     subordinate_data_in.bits.byte_enable = 16'hffff;
     subordinate_data_in.bits.data = 128'h10;
     subordinate_data_in.valid = 1'b1;
-    repeat (3) begin
+    #1;
+    assert (port_out.subordinate.dat.response.ready &&
+            port_out.requester.response_data.valid &&
+            port_out.requester.response_data.bits.txn_id == 12'h220 &&
+            port_out.requester.response_data.bits.data_id == 0 &&
+            port_out.requester.response_data.bits.data == 128'h20)
+      else $fatal(1, "inclusive Home did not accept an independent fill");
+    tick();
+    subordinate_data_in = '0;
+    repeat (2) begin
       #1;
-      assert (!port_out.subordinate.dat.response.ready &&
-              port_out.requester.response_data.valid &&
+      assert (port_out.requester.response_data.valid &&
               port_out.requester.response_data.bits.txn_id == 12'h220 &&
               port_out.requester.response_data.bits.data_id == 0 &&
               port_out.requester.response_data.bits.data == 128'h20)
         else $fatal(1, "inclusive Home changed a stalled shared-output owner");
       tick();
     end
-    subordinate_data_in = '0;
-    for (int packet = 0; packet < 4; packet++)
-      accept_routed_packet(12'h220, 2'(packet), 8'h20 + 8'(packet));
-    for (int packet = 0; packet < 4; packet++)
+    for (int packet = 1; packet < 4; packet++)
       return_fill_packet(2'(packet), 8'h10 + 8'(packet), 0, first_memory_txn);
-    for (int packet = 0; packet < 4; packet++)
+    // Once both transactions can return DAT, beat-level round-robin service
+    // prevents either live slot from monopolizing the requester channel.
+    for (int packet = 0; packet < 4; packet++) begin
+      accept_routed_packet(12'h220, 2'(packet), 8'h20 + 8'(packet));
       accept_routed_packet(12'h110, 2'(packet), 8'h10 + 8'(packet));
+    end
     reset = 1'b1;
     tick();
     reset = 1'b0;
