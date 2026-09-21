@@ -16,6 +16,13 @@ sync_circuit FlowStaticInformation():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   input shift_flush: Bool
 
+  def ready_valid_protocol :: FlowSource.to_ready_valid_protocol = Bits(8)
+  def valid_protocol :: FlowSource.to_valid_protocol = Bits(8)
+  def control_protocol :: FlowSource.to_control_protocol = DecoupledCtrl()
+  def ready_valid_member_count = ready_valid_protocol.members.length()
+  def valid_member_count = valid_protocol.members.length()
+  def control_member_count = control_protocol.members.length()
+
   def piped = ingress |> pipe(1)
   def piped_bits = piped.bits
   def observed = piped |> trace_event("piped", ~stalls: #true)

@@ -98,7 +98,7 @@ sync_circuit Reassembler(T :: DataType, chunk_width :: PosInt):
 fun frame_fixed_flits(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_ready_valid_protocol = source
     def input_type = flow_payload_type(source)
     def [T] = FixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "fixed_flit_input")
@@ -133,7 +133,7 @@ fun check_fixed_framing(first :: Bool,
 fun require_fixed_framing(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_ready_valid_protocol = source
     def input_type = flow_payload_type(source)
     def [T] = VariableFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "variable_flit_input")
@@ -158,7 +158,7 @@ fun require_fixed_framing(flits_per_packet :: PosInt)
 fun strip_fixed_framing(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_ready_valid_protocol = source
     def input_type = flow_payload_type(source)
     def [T] = FramedFixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "framed_fixed_flit_input")
@@ -180,7 +180,7 @@ fun strip_fixed_framing(flits_per_packet :: PosInt)
 fun forget_fixed_framing()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_ready_valid_protocol = source
     def input_type = flow_payload_type(source)
     def [T] = FramedFixedFlit.require_specialization(input_type)
     def input_link = interface_link(input_protocol, "framed_fixed_flit_input")

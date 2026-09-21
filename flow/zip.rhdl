@@ -46,12 +46,14 @@ expr.macro
                "zip_flow source must contain exactly two inputs")
        def zip_left_argument = zip_inputs[0]
        def zip_right_argument = zip_inputs[1]
+       def zip_left_protocol :: FlowSource.to_ready_valid_protocol = zip_left_argument
+       def zip_right_protocol :: FlowSource.to_ready_valid_protocol = zip_right_argument
        def zip_left_link = interface_link(
-         flow_protocol_type(zip_left_argument),
+         zip_left_protocol,
          "zip_left"
        )
        def zip_right_link = interface_link(
-         flow_protocol_type(zip_right_argument),
+         zip_right_protocol,
          "zip_right"
        )
        def zip_left_endpoint :: Endpoint = zip_left_link.right

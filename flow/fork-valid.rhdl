@@ -9,7 +9,7 @@ import:
 fun fork_valid(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):
-    def protocol = valid_flow_protocol_type(source)
+    def protocol :: FlowSource.to_valid_protocol = source
     def input_link = interface_link(protocol, "fork_valid_input")
     def output_links = for Array (index in 0..n):
       interface_link(protocol, "fork_valid_output_" ++ to_string(index))

@@ -32,9 +32,7 @@ expr.macro
 | 'filter_valid_impl($payload_infos,
                      $(payload :: Identifier)): $predicate':
     'fun (filter_valid_source :: FlowSource) :~ InterfaceTransformResult(filter_valid_source, Endpoint):
-       def filter_valid_protocol = valid_flow_protocol_type(
-         filter_valid_source
-       )
+       def filter_valid_protocol :: FlowSource.to_valid_protocol = filter_valid_source
        def filter_valid_input_link = interface_link(
          filter_valid_protocol,
          "filter_valid_input"

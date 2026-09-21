@@ -11,7 +11,8 @@ import:
 fun offer_decoupled()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_link = interface_link(valid_flow_protocol_type(source), "offer_decoupled_input")
+    def input_protocol :: FlowSource.to_valid_protocol = source
+    def input_link = interface_link(input_protocol, "offer_decoupled_input")
     def output_link = interface_link(Decoupled(valid_flow_payload_type(source)), "offer_decoupled_output")
     output_link.left.field("valid") <== input_link.right.field("valid")
     output_link.left.field("bits") <== input_link.right.field("bits")

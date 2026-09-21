@@ -107,9 +107,12 @@ expr.macro
          | flow_payload_type(packet_rr_source)
          | flow_payload_type(packet_rr_inputs[0])
        def packet_rr_protocols = for Array (packet_rr_index in 0..packet_rr_input_count):
-         if packet_rr_typed
-         | flow_protocol_type(packet_rr_source)
-         | flow_protocol_type(packet_rr_inputs[packet_rr_index])
+         def packet_rr_input_source:
+           if packet_rr_typed
+           | packet_rr_source
+           | packet_rr_inputs[packet_rr_index]
+         def packet_rr_protocol :: FlowSource.to_ready_valid_protocol = packet_rr_input_source
+         packet_rr_protocol
        def packet_rr_input_links = for Array (packet_rr_index in 0..packet_rr_input_count):
          interface_link(packet_rr_protocols[packet_rr_index],
                         "packet_rr_input")

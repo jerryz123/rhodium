@@ -122,6 +122,13 @@ implicit row priority, Boolean minimization, or a runtime-X interpretation of
 pattern don't-cares. A new output materialization policy belongs beside
 `pattern-value.rhdl`, not in the neutral pattern representation.
 
+Keep `PatternLike.to_pattern` and `PatternSetLike.to_pattern_set` as thin
+converter annotations over the canonical normalization functions in
+`decode/pattern.rhdl`. Stored class fields remain annotated as `Pattern` or
+`PatternSet`; apply converters to constructor or function arguments so field
+access retains target-side static information. Context-dependent wildcard and
+expected-type handling remains explicit in `normalize_pattern_component`.
+
 ## Test organization
 
 The standard library is covered at three levels:

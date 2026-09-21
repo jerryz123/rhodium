@@ -8,6 +8,8 @@ import:
 export:
   Pattern
   PatternSet
+  PatternLike
+  PatternSetLike
   pattern
   pattern_set
   partial_pattern
@@ -234,6 +236,15 @@ fun require_same_pattern_set_type(left :: PatternSet,
   | error(~who: #'PatternSet,
           role ++ " must have exactly the same hardware type and width")
 
+// Names the host values that can be normalized into one exact or partially
+// cared decode cube.
+annot.macro 'PatternLike':
+  'HardwareLiteral || Pattern'
+
+// Extends PatternLike with an already-normalized finite union of cubes.
+annot.macro 'PatternSetLike':
+  'HardwareLiteral || Pattern || PatternSet'
+
 // Infers a nonempty set's type from its first Pattern-like value. Empty sets
 // use the explicit PatternSet(type, []) constructor.
 fun pattern_set(first_pattern :: Pattern || HardwareLiteral || List.of(Pattern || HardwareLiteral), ...):
@@ -248,7 +259,7 @@ fun pattern_set(first_pattern :: Pattern || HardwareLiteral || List.of(Pattern |
   def terms = patterns.map(as_pattern)
   PatternSet(terms[0].type, terms)
 
-fun as_pattern_set(value :: HardwareLiteral || Pattern || PatternSet):
+fun as_pattern_set(value :: PatternSetLike):
   cond
   | value is_a PatternSet: value
   | value is_a Pattern: PatternSet(value.type, [value])
@@ -279,7 +290,7 @@ fun exact_pattern(value :: HardwareLiteral):
 
 // Normalizes the two public forms accepted by typed decode consumers. Existing
 // cubes retain partial care; exact literal shadows receive full care.
-fun as_pattern(value :~ HardwareLiteral || Pattern):
+fun as_pattern(value :~ PatternLike):
   cond
   | value is_a Pattern:
       value
@@ -288,6 +299,19 @@ fun as_pattern(value :~ HardwareLiteral || Pattern):
   | ~else:
       error(~who: #'as_pattern,
             "expected a HardwareLiteral or Pattern")
+
+namespace PatternLike:
+  // Converts accepted decode inputs at an API boundary while preserving
+  // Pattern's methods and static information on the bound result.
+  export annot.macro 'to_pattern':
+    'converting(fun (value :: PatternLike) :: Pattern:
+                  as_pattern(value))'
+
+namespace PatternSetLike:
+  // Converts one literal, cube, or cube set to the normalized set form.
+  export annot.macro 'to_pattern_set':
+    'converting(fun (value :: PatternSetLike) :: PatternSet:
+                  as_pattern_set(value))'
 
 fun wildcard_pattern(type :: DataType):
   def zero = literal(type, 0)

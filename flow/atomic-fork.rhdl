@@ -97,8 +97,9 @@ expr.macro
        | error(~who: #'selective_atomic_fork,
                "output count must be PosInt")
        def selective_fork_type = flow_payload_type(selective_fork_source)
+       def selective_fork_protocol :: FlowSource.to_ready_valid_protocol = selective_fork_source
        def selective_fork_input_link = interface_link(
-         flow_protocol_type(selective_fork_source),
+         selective_fork_protocol,
          "selective_fork_input"
        )
        def selective_fork_input :: Endpoint = selective_fork_input_link.right
@@ -155,7 +156,7 @@ immediate_callee.macro 'selective_atomic_fork $tail ...':
 fun ctrl_atomic_fork(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):
-    ctrl_flow_protocol_type(source)
+    source :: FlowSource.to_control_protocol
     inst ctrl_fork_stage(CtrlAtomicFork(n))
     finish_interface_transform(
       source,

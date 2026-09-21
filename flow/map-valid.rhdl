@@ -34,7 +34,7 @@ expr.macro
 | 'map_valid_impl($payload_infos,
                   $(payload :: Identifier)): $body':
     'fun (map_valid_source :: FlowSource) :~ InterfaceTransformResult(map_valid_source, Endpoint):
-       def map_valid_input_protocol = valid_flow_protocol_type(map_valid_source)
+       def map_valid_input_protocol :: FlowSource.to_valid_protocol = map_valid_source
        def map_valid_input_link = interface_link(
          map_valid_input_protocol,
          "map_valid_input"

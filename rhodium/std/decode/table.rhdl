@@ -18,10 +18,10 @@ export:
 fun exact_type_equal(left :: DataType, right :: DataType):
   left.type_equal(right) && right.type_equal(left)
 
-fun require_pattern(value :: Pattern, role :: String, who :: Symbol):
-  value
-
-class DecodeCase(input :: Pattern, output :: Pattern)
+class DecodeCase(input :: Pattern, output :: Pattern):
+  constructor (supplied_input :: PatternLike.to_pattern,
+               supplied_output :: PatternLike.to_pattern):
+    super(supplied_input, supplied_output)
 
 fun require_decode_cases(cases :: NonemptyList.of(DecodeCase),
                          role :: String,
@@ -41,7 +41,7 @@ fun lift_decode_inputs(cases :: NonemptyList.of(DecodeCase),
     #'lift_decode_inputs
   )
   for List (case in checked_cases):
-    DecodeCase(as_pattern(lift(case.input)), case.output)
+    DecodeCase(lift(case.input), case.output)
 
 // Gives explicit extension rows ownership of their input region by subtracting
 // their union from every fallback row. The result remains an unordered,
@@ -98,19 +98,19 @@ fun zip_decode_cases(left_cases :: NonemptyList.of(DecodeCase),
     )
     DecodeCase(
       left_case.input,
-      as_pattern(combine(left_case.output, right_case.output))
+      combine(left_case.output, right_case.output)
     )
 
 // The input domain is deliberately supplied by input_pattern, so this helper
 // cannot constrain it before applying that caller-owned normalization.
 fun build_decode_group(inputs :~ matching(_),
-                       output :: Pattern,
+                       output :: PatternLike.to_pattern,
                        input_pattern :: Function.of_arity(1)):
   def supplied:
     if inputs is_a List | inputs | [inputs]
   def mutable cases = []
   for (input in supplied):
-    def input_set = as_pattern_set(input_pattern(input))
+    def input_set :: PatternSetLike.to_pattern_set = input_pattern(input)
     for (term in input_set.terms):
       cases := cases ++ [DecodeCase(term, output)]
   cases
@@ -118,10 +118,10 @@ fun build_decode_group(inputs :~ matching(_),
 // Expands Pattern and PatternSet inputs into the single-cube rows consumed by
 // DecodeTable and the core rtl.decode operation.
 fun decode_cases(inputs :: HardwareLiteral || Pattern || PatternSet || List.of(HardwareLiteral || Pattern || PatternSet),
-                 output :: HardwareLiteral || Pattern):
+                 output :: PatternLike):
   def supplied:
     if inputs is_a List | inputs | [inputs]
-  build_decode_group(inputs, as_pattern(output), as_pattern_set)
+  build_decode_group(inputs, output, as_pattern_set)
 
 fun flatten_decode_groups(groups :: List):
   def mutable cases = []
@@ -180,10 +180,7 @@ class DecodeTable(cases :: NonemptyList.of(DecodeCase),
                   output_width :: PosInt,
                   packed_cases :: List):
   constructor (supplied_cases :: NonemptyList.of(DecodeCase),
-               ~default: supplied_default :: Pattern):
-    def default = require_pattern(supplied_default,
-                                  "decode default",
-                                  #'DecodeTable)
+               ~default: default :: PatternLike.to_pattern):
     def first = supplied_cases[0]
     def input_type = first.input.type
     def output_type = default.type

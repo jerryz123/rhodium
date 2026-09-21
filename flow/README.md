@@ -119,6 +119,13 @@ through Rhombus `|>`. This makes every stage an ordinary unary host function:
 ingress |> queue(4, ~pipe: #true) |> pipe(2) |> egress
 ```
 
+Authors of custom configured stages can normalize a `FlowSource` with
+`FlowSource.to_ready_valid_protocol`, `FlowSource.to_valid_protocol`, or
+`FlowSource.to_control_protocol`. These converter annotations run only during
+host elaboration and bind the corresponding `InterfaceType`. Keep the original
+source alongside the converted protocol: endpoint and handle identity is still
+needed when the stage finishes its topology transform.
+
 `trace_event(label)` inserts a transparent compiler-visible checkpoint on a
 `Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
 the same annotation for `Valid`. These helpers do not add state or runtime

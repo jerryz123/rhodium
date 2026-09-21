@@ -9,7 +9,7 @@ import:
 fun to_valid()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_ready_valid_protocol = source
     def input_link = interface_link(input_protocol, "to_valid_input")
     def input_endpoint = input_link.right
     def output_link = interface_link(

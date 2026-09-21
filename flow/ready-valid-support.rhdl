@@ -132,6 +132,23 @@ fun ctrl_flow_protocol_type(source_or_type :~ FlowSource):
           "control-flow chaining requires a DecoupledCtrl or IrrevocableCtrl endpoint or protocol")
   protocol
 
+namespace FlowSource:
+  // Canonicalizes ready-valid sources without replacing the original source
+  // that configured stages still need for topology composition.
+  export annot.macro 'to_ready_valid_protocol':
+    'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
+                  flow_protocol_type(source))'
+
+  // Canonicalizes non-backpressured Valid sources at host API boundaries.
+  export annot.macro 'to_valid_protocol':
+    'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
+                  valid_flow_protocol_type(source))'
+
+  // Validates and retains the nominal payloadless ready-valid protocol.
+  export annot.macro 'to_control_protocol':
+    'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
+                  ctrl_flow_protocol_type(source))'
+
 // Replaces a protocol's payload without weakening its behavioral contract.
 fun flow_protocol_with_payload(protocol :: InterfaceType,
                                payload_type :: DataType):

@@ -36,6 +36,10 @@ fun equivalent_over_bits(set :: PatternSet, predicate :: Function):
     set.matches(bits(candidate, 4)) == predicate(bits(candidate, 4))
 
 def singleton = as_pattern_set(fixture.bits_pattern)
+def converted_pattern :: PatternLike.to_pattern = bits(0b1010, 4)
+def retained_pattern :: PatternLike.to_pattern = fixture.bits_pattern
+def converted_set :: PatternSetLike.to_pattern_set = bits(0b1010, 4)
+def retained_set :: PatternSetLike.to_pattern_set = singleton
 def empty = PatternSet(Bits(4), [])
 def union = fixture.bits_pattern.union(crossing_pattern)
 def intersection = fixture.bits_pattern.intersection(crossing_pattern)
@@ -84,6 +88,9 @@ check:
   as_pattern(fixture.bits_pattern) === fixture.bits_pattern ~is #true
   as_pattern(bits(0b1010, 4)).value_bits ~is 0b1010
   as_pattern(bits(0b1010, 4)).care_bits ~is 0b1111
+  converted_pattern.value_bits ~is 0b1010
+  converted_pattern.care_bits ~is 0b1111
+  retained_pattern === fixture.bits_pattern ~is #true
 
   fixture.bits_pattern.overlaps(narrower_pattern) ~is #true
   fixture.bits_pattern.overlaps(disjoint_pattern) ~is #false
@@ -93,6 +100,8 @@ check:
   singleton.type.type_equal(Bits(4)) ~is #true
   signatures(singleton) ~is [[0b1000, 0b1100]]
   as_pattern_set(bits(0b1010, 4)).matches(bits(0b1010, 4)) ~is #true
+  converted_set.matches(bits(0b1010, 4)) ~is #true
+  retained_set === singleton ~is #true
   empty.is_empty() ~is #true
   empty.matches(bits(0, 4)) ~is #false
   signatures(empty.inverse()) ~is [[0, 0]]

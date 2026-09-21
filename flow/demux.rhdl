@@ -98,7 +98,7 @@ expr.macro
        unless demux_flow_count is_a PosInt
        | error(~who: #'demux_flow,
                "output count must be PosInt")
-       def demux_flow_protocol = flow_protocol_type(demux_flow_source)
+       def demux_flow_protocol :: FlowSource.to_ready_valid_protocol = demux_flow_source
        def demux_flow_output_protocol = if $stable | demux_flow_protocol | Decoupled(flow_payload_type(demux_flow_source))
        def demux_flow_input_link = interface_link(
          demux_flow_protocol,

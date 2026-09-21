@@ -158,6 +158,14 @@ Keep shared ready-valid classification in
 entry point for configured stages. Individual stage modules should specify
 only their connected result shape with `InterfaceTransformResult`.
 
+Use the `FlowSource.to_ready_valid_protocol`, `.to_valid_protocol`, and
+`.to_control_protocol` converter annotations for local protocol bindings.
+Converters must stay thin wrappers over the canonical helpers so diagnostics
+and nominal protocol checks have one owner. Never convert the configured stage
+parameter itself: retain the original endpoint, handle, or type seed for
+`finish_interface_transform`. Heterogeneous endpoint arrays remain explicit
+per-element normalization because their shape is contextual.
+
 Single-source operators with inline payload binders use
 `immediate_callee.macro` to receive the left operand's static information.
 Resolve only the `bits` member through `flow_payload_static_infos`, then bind

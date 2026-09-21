@@ -188,7 +188,7 @@ fun compile_chi_noc_family_ejection_config(
   def decoder = DecodeGen(
     for List (row in rows):
       DecodeCase(
-        as_pattern(bits(row.site_key, site_width)),
+        bits(row.site_key, site_width),
         (pattern(CHINoCFamilyEjectionDecision(first.p.node_id_width)):
            valid: Bool(#true)
            node_id: bits(row.config.site.node_id, first.p.node_id_width))
@@ -220,7 +220,7 @@ fun compile_chi_noc_injection_config(
       | error(~who: #'compile_chi_channel_adapter_plan,
               "CHI destination NodeID does not fit the flit")
       DecodeCase(
-        as_pattern(bits(route.destination.node_id, p.node_id_width)),
+        bits(route.destination.node_id, p.node_id_width),
         pattern(CHINoCRouteDecision(route_width)):
           valid: Bool(#true)
           route_key: bits(route.route_key, route_width)
@@ -618,7 +618,7 @@ fun chi_noc_transform(make_module :: Function.of_arity(0),
                       kind :: String,
                       properties :: Map):
   fun (source) :~ InterfaceTransformResult(source, Endpoint):
-    flow_protocol_type(source)
+    source :: FlowSource.to_ready_valid_protocol
     inst stage(make_module())
     finish_interface_transform(source, describe_interface_transform(InterfaceHandle(stage.ingress, stage.egress), kind, properties, stage))
 
@@ -627,7 +627,7 @@ fun chi_noc_family_transform(make_module :: Function.of_arity(0),
                              site_key :: Bits,
                              kind :: String):
   fun (source) :~ InterfaceTransformResult(source, Endpoint):
-    flow_protocol_type(source)
+    source :: FlowSource.to_ready_valid_protocol
     inst stage(make_module())
     stage.site_key <== site_key
     finish_interface_transform(source, describe_interface_transform(InterfaceHandle(stage.ingress, stage.egress), kind, {}, stage))

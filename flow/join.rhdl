@@ -83,7 +83,8 @@ fun selective_join():
       | error(~who: #'selective_join,
               "data flows must carry the same payload type")
     def selective_join_input_links = for Array (index in 0..selective_join_inputs.length()):
-      interface_link(flow_protocol_type(selective_join_inputs[index]), "selective_join_input")
+      def protocol :: FlowSource.to_ready_valid_protocol = selective_join_inputs[index]
+      interface_link(protocol, "selective_join_input")
     inst selective_join_stage(SelectiveJoin(selective_join_type, selective_join_count))
     selective_join_input_links[0].right |> selective_join_stage.selection
     for (index in 0..selective_join_count):

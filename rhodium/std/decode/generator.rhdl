@@ -28,8 +28,8 @@ fun elaborate_decode(table :: DecodeTable,
 class DecodeGen(table :: DecodeTable):
   implements Callable
   constructor (cases :: NonemptyList.of(DecodeCase),
-               ~default: supplied_default :: Pattern):
-    def table = DecodeTable(cases, ~default: supplied_default)
+               ~default: default :: PatternLike.to_pattern):
+    def table = DecodeTable(cases, ~default: default)
     super(table)
 
   // Method annotations cannot depend on receiver fields, so the callable

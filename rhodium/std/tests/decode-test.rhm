@@ -37,6 +37,9 @@ def in_b = Pattern(~value: bits(0b1010, 4), ~care: bits(0b1100, 4))
 def out = Pattern(~value: bits(0, 2), ~care: bits(3, 2))
 def crossing = Pattern(~value: bits(0b0010, 4), ~care: bits(0b0110, 4))
 def selected = Pattern(~value: bits(1, 2), ~care: bits(3, 2))
+def literal_case = DecodeCase(bits(0b1111, 4), bits(0b01, 2))
+def literal_table = DecodeTable([literal_case], ~default: bits(0, 2))
+def literal_decode = DecodeGen([literal_case], ~default: bits(0, 2))
 def set_cases = decode_cases(in_a.union(crossing), selected)
 def set_decode = DecodeGen(set_cases, ~default: out)
 
@@ -52,6 +55,10 @@ def set_operation = set_design.modules[0].operations.find(
 )
 
 check:
+  literal_case.input.care_bits ~is 0b1111
+  literal_case.output.value_bits ~is 0b01
+  literal_table.default.care_bits ~is 0b11
+  literal_decode.table.default.care_bits ~is 0b11
   set_cases.length() ~is 3
   set_decode.table.packed_cases.length() ~is 3
   set_operation.attribute("cases").length() ~is 3

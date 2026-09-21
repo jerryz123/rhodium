@@ -25,7 +25,7 @@ fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstruct
        index in 0..instructions.length()):
     for (encoding in instruction.encodings):
       for (term in compressed_instruction_patterns(instruction, encoding).terms):
-        cases := cases ++ [DecodeCase(term, as_pattern(bits(index, operation_width)))]
+        cases := cases ++ [DecodeCase(term, bits(index, operation_width))]
   cases
 
 fun constraint_zero_pattern(constraint :: ExpansionConstraint):
@@ -43,7 +43,7 @@ fun constraint_zero_pattern(constraint :: ExpansionConstraint):
 
 fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
                                     encoding :: InstructionEncoding):
-  def mutable accepted = as_pattern_set(encoding_pattern(encoding))
+  def mutable accepted :: PatternSetLike.to_pattern_set = encoding_pattern(encoding)
   for (constraint in instruction.constraints):
     accepted := accepted.subtract(constraint_zero_pattern(constraint))
   accepted

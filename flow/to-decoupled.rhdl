@@ -11,7 +11,7 @@ import:
 fun to_decoupled()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def input_protocol = valid_flow_protocol_type(source)
+    def input_protocol :: FlowSource.to_valid_protocol = source
     def input_link = interface_link(input_protocol, "to_decoupled_input")
     def input_endpoint = input_link.right
     def output_link = interface_link(

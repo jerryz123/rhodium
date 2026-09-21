@@ -12,7 +12,7 @@ import:
 fun gate_flow(enabled :: Bool)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def gate_flow_protocol = flow_protocol_type(source)
+    def gate_flow_protocol :: FlowSource.to_ready_valid_protocol = source
     def gate_flow_input_link = interface_link(
       gate_flow_protocol,
       "gate_input"

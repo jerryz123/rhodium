@@ -186,7 +186,7 @@ fun ctrl_queue(depth :: PosInt,
                ~flow: flow_enabled :: Boolean = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    ctrl_flow_protocol_type(source)
+    source :: FlowSource.to_control_protocol
     def CtrlQueueModule = CtrlQueue(depth,
                                     ~pipe: pipe_enabled,
                                     ~flow: flow_enabled)

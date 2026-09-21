@@ -18,7 +18,7 @@ fun trace_event_config(label :: String,
                        ~capture: capture :: maybe(Function) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def protocol = flow_protocol_type(source)
+    def protocol :: FlowSource.to_ready_valid_protocol = source
     def input_link = interface_link(protocol, "event_input")
     def output_link = interface_link(protocol, "event_output")
     def input_endpoint = input_link.right
@@ -50,7 +50,7 @@ fun trace_valid_event_config(label :: String,
                              ~capture: capture :: maybe(Function) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def protocol = valid_flow_protocol_type(source)
+    def protocol :: FlowSource.to_valid_protocol = source
     def input_link = interface_link(protocol, "valid_event_input")
     def output_link = interface_link(protocol, "valid_event_output")
     def input_endpoint = input_link.right

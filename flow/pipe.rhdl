@@ -189,7 +189,7 @@ fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: maybe(Bool) = #
 fun ctrl_pipe(stages :: PosInt)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    ctrl_flow_protocol_type(source)
+    source :: FlowSource.to_control_protocol
     inst ctrl_pipe_stage(CtrlPipe(stages))
     finish_interface_transform(
       source,

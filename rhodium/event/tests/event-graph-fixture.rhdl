@@ -67,7 +67,7 @@ sync_circuit EventHierarchy():
 fun opaque_flow()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
-    def protocol = flow_protocol_type(source)
+    def protocol :: FlowSource.to_ready_valid_protocol = source
     def input_link = interface_link(protocol, "opaque_input")
     def output_link = interface_link(protocol, "opaque_output")
     def input_endpoint = input_link.right

@@ -135,6 +135,13 @@ existing `Pattern` is retained, while a `HardwareLiteral` becomes a fully
 cared exact pattern. Domain adapters can therefore accept both forms without
 reimplementing packed care-mask construction.
 
+Prefer the converter annotations at typed API boundaries. A
+`PatternLike.to_pattern` parameter accepts either form and binds a `Pattern`;
+`PatternSetLike.to_pattern_set` additionally accepts an existing `PatternSet`
+and binds the normalized set form. The `as_pattern` and `as_pattern_set`
+functions remain available when an explicit expression-level conversion is
+clearer.
+
 The lower-level `Pattern(~value: ..., ~care: ...)` constructor remains useful
 for partially cared scalar fields and extension libraries. A care bit of one
 makes the corresponding value bit significant; zero makes it a don't-care.
@@ -182,7 +189,9 @@ to choose different interpretations.
 `DecodeCase`, `DecodeTable`, and `DecodeGen`. A table requires at least one
 case, one explicit default output pattern, exact common input types, and exact
 common output types. Input cubes may not overlap: the relation has no hidden
-row priority.
+row priority. `DecodeCase` inputs and outputs, plus `DecodeTable` and
+`DecodeGen` defaults, accept hardware literals directly and normalize them to
+fully cared patterns.
 
 ```rhombus
 import:

@@ -72,6 +72,10 @@ def remapped_stable_protocol = ready_valid_support.flow_protocol_with_payload(
   fixture.StableBuffered8(),
   Bits(16)
 )
+def converted_payload_protocol :: ready_valid_support.FlowSource.to_ready_valid_protocol = Bits(8)
+def converted_stable_protocol :: ready_valid_support.FlowSource.to_ready_valid_protocol = fixture.StableBuffered8()
+def converted_valid_protocol :: ready_valid_support.FlowSource.to_valid_protocol = fixture.BufferedValid8()
+def converted_control_protocol :: ready_valid_support.FlowSource.to_control_protocol = std.IrrevocableCtrl()
 
 check:
   pulse_type.name ~is "Pulse"
@@ -107,11 +111,16 @@ check:
   ready_valid_support.flow_protocol_type(fixture.Alternate8()).identity === decoupled_type.identity ~is #true
   ready_valid_support.flow_protocol_type(fixture.StableBuffered8()).identity === irrevocable_type.identity ~is #true
   ready_valid_support.valid_flow_protocol_type(fixture.BufferedValid8()).identity === valid_type.identity ~is #true
+  converted_payload_protocol.identity === decoupled_type.identity ~is #true
+  converted_stable_protocol.identity === irrevocable_type.identity ~is #true
+  converted_valid_protocol.identity === valid_type.identity ~is #true
+  converted_control_protocol.identity === irrevocable_ctrl_type.identity ~is #true
   remapped_stable_protocol.identity === std.Irrevocable(Bits(16)).identity ~is #true
   remapped_stable_protocol.members.find(
     fun (member): member.name == "bits"
   ).type.width ~is 16
   ready_valid_support.flow_protocol_type(impostor_decoupled) ~throws "requires a Decoupled or Irrevocable protocol"
+  (impostor_decoupled :: ready_valid_support.FlowSource.to_ready_valid_protocol) ~throws "requires a Decoupled or Irrevocable protocol"
   valid_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
   valid_adapter.outputs.map(fun (port): port.name) ~is ["egress_out"]
   pulse_adapter.inputs.map(fun (port): port.name) ~is ["ingress_in"]
