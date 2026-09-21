@@ -14,7 +14,7 @@
 
 namespace {
 using rheg::Ref;
-struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled, last; };
+struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled; };
 struct Owner { Attempt attempt; bool done; std::uint64_t due; };
 std::array<std::optional<Attempt>,3> pipe;
 std::deque<Owner> owners;
@@ -63,7 +63,7 @@ extern "C" unsigned vector_trace_response() {
 extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned instruction,
     unsigned vl, unsigned issue, unsigned tag, unsigned memory, unsigned enabled,
     unsigned commit, unsigned disposition, unsigned slow, unsigned response,
-    unsigned response_tag, unsigned cancel, unsigned last) {
+    unsigned response_tag, unsigned cancel, unsigned issue_done) {
   resetting=reset; expected.clear(); have_issue=false;
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
@@ -72,14 +72,21 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     cycle=launches=issues=completions=stalls=0; next_index=authorized_index=0;
     return;
   }
+  const auto issuing_macro=resident ? macro : std::nullopt;
+  const auto issuing_index=next_index;
+  if(issue_done) {
+    if(!resident || !macro) fail("sequencing completion without a resident macro");
+    if(!releases.emplace(*macro,cycle).second) fail("duplicate sequencing completion");
+    macro.reset(); resident=false;
+  }
   if(launch) {
+    if(resident) fail("macro replaced active sequencing");
     macro=Ref{vector_sites::sequencer,launches++};
     resident=true;
     expect(macro->site,macro->sequence,{});
     destination=(instruction>>7)&31; length=vl; macro_instruction=instruction;
     writes=(instruction&0x7f)!=0x27 && ((instruction>>25)&1) && vl!=0;
     next_index=authorized_index=0;
-    if(!owners.empty()) fail("macro replaced accepted work");
   }
   if(response) {
     bool found=false;
@@ -97,9 +104,6 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     owners.pop_front(); ++late_count; ++complete_count;
   }
   if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
-  if(resident && (cancel || (commit && (disposition==2 || disposition==3 || (disposition==0 && pipe[2]->last))))) {
-    releases.emplace(*macro,cycle); resident=false;
-  }
   if(commit) {
     if(!pipe[2]) fail("feedback without issue");
     if(disposition==0) {
@@ -112,9 +116,10 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   }
   std::optional<Attempt> incoming;
   if(issue) {
-    if(!macro) fail("issue without launch");
-    incoming=Attempt{{vector_sites::issue,issues++},tag,next_index++,bool(memory),bool(enabled),bool(last)};
-    expect(vector_sites::issue,incoming->ref.sequence,*macro);
+    if(!issuing_macro) fail("issue without resident sequencing");
+    incoming=Attempt{{vector_sites::issue,issues++},tag,issuing_index,bool(memory),bool(enabled)};
+    if(!launch) next_index=issuing_index+1;
+    expect(vector_sites::issue,incoming->ref.sequence,*issuing_macro);
     expected_index=incoming->index; have_issue=true; ++issued_count;
   }
   if(cancel || (commit && disposition!=0)) pipe={};

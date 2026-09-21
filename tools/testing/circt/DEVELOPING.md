@@ -81,8 +81,12 @@ fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
 stalls, and pending reset protect vector milestones. The feedback oracle checks
-the exact residency end on final authorization, fault, truncation, or cancellation;
-retry keeps its existing owner and accepted results may outlive it.
+the exact residency end against the public issue-completion pulse: ordinary
+compute sequencing ends after its final issue transfer, while replayable or
+serialized sequencing remains owned through final authorization, fault,
+truncation, or cancellation. Same-cycle replacement releases the old owner
+before capturing the new one. Retry keeps its existing owner, and accepted
+results may outlive sequencing ownership.
 `rv5stage-vector-config` additionally instruments its existing real-core
 program and checks each sequencer admission against its FIFO-ordered scalar WB occurrence,
 while retaining its architectural signatures and exact VRF-write scoreboard.
