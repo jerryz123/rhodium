@@ -626,6 +626,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def lookup_issue_request = requests[lookup_issue_slot]
   def lookup_issue_set = cache_set(lookup_issue_request.address)
   def lookup_issue_line_address = line_address(lookup_issue_request.address)
+  def fill_line_address = line_address(request.address)
 
   def shared_output_valid = requester.responses.valid ||| requester.snoops.valid ||| (
     subordinate.req.valid
@@ -655,7 +656,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   tags.port.request.bits <== ReadWriteRequest(set_width, Bits(line_address_width), ways):
     address: mux(issue_lookup, lookup_issue_set, selected_set)
     write: write_filled_line
-    data: vec(for List (_way in 0..ways): lookup_issue_line_address)
+    data: vec(for List (_way in 0..ways): fill_line_address)
     mask: mux(write_filled_line, selected_way_mask, Mask(ways)(0))
   lines.port.request.valid <== issue_lookup ||| write_line
   lines.port.request.bits <== ReadWriteRequest(set_width, Bits(512), ways):

@@ -233,13 +233,14 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
   task automatic accept_routed_packet(input logic [11:0] transaction,
                                       input logic [1:0] packet_id,
-                                      input logic [7:0] payload);
+                                      input logic [7:0] payload,
+                                      input logic [6:0] target = HTIF_ID);
     begin
       while (!port_out.requester.response_data.valid) tick();
       #1;
       assert (port_out.requester.response_data.bits.opcode == COMP_DATA &&
               port_out.requester.response_data.bits.txn_id == transaction &&
-              port_out.requester.response_data.bits.tgt_id == HTIF_ID &&
+              port_out.requester.response_data.bits.tgt_id == target &&
               port_out.requester.response_data.bits.data_id == packet_id &&
               port_out.requester.response_data.bits.data == {120'h0, payload})
         else $fatal(1, "inclusive Home routed a completed line to the wrong requester transaction");
@@ -592,6 +593,25 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       return_fill_packet(2'(packet), 8'h60 + 8'(packet), 0, first_memory_txn);
     for (int packet = 0; packet < 4; packet++)
       accept_routed_packet(12'h330, 2'(packet), 8'h60 + 8'(packet));
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+
+    // A fill owned by the second transaction slot must write its own tag,
+    // independent of the lookup selector's current or invalid choice.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1, 12'h050, 12'h150);
+    accept_memory_request_slot(LINE0, first_memory_txn);
+    send_request(LINE1, 7'h07, 6'd6, DATA_ID, 0, 0, 12'h060, 12'h160);
+    accept_memory_request_slot(LINE1, second_memory_txn);
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'h70 + 8'(packet), 0, second_memory_txn);
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h160, 2'(packet), 8'h70 + 8'(packet), DATA_ID);
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(2'(packet), 8'h60 + 8'(packet), 0, first_memory_txn);
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h150, 2'(packet), 8'h60 + 8'(packet));
+    copyback(LINE1, 3'b110);
     reset = 1'b1;
     tick();
     reset = 1'b0;
