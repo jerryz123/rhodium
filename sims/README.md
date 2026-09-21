@@ -346,10 +346,15 @@ through HTIF without adding an output stream. The default `EMBENCH_SCALE=1`
 and `EMBENCH_LOCAL_SCALE=1` run each kernel once, while
 `EMBENCH_WARMUP_HEAT=0` disables performance warmup. The adapter materializes
 build-only source copies with that local scale and records every upstream local
-scale in the manifest; the submodule remains unmodified. This is a bounded
-functional simulation suite, not a standards-conforming Embench performance
-score. Score publication additionally requires the unmodified upstream scale,
-warmup, timing, normalization, and reporting methodology.
+scale in the manifest; the submodule remains unmodified. The functional
+`xgboost` profile evaluates ten deterministic samples, one with each expected
+class. It includes one expected model miss and requires the pinned model's
+exact 9-correct result. This replaces the upstream scale-one verifier's vacuous
+zero threshold while keeping RTL simulation bounded. The manifest records the
+sample indices and expected count. This is a functional simulation suite, not
+a standards-conforming Embench performance score. Score publication
+additionally requires the unmodified upstream sample set, scale, warmup,
+timing, normalization, and reporting methodology.
 
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
 CI installs a checksum-pinned GCC/Newlib release via

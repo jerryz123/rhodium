@@ -92,7 +92,18 @@ class EmbenchBuildTest(unittest.TestCase):
         for benchmark in self.builder.BENCHMARKS:
             path = source / 'src' / benchmark / (benchmark + '.c')
             path.parent.mkdir(parents=True)
-            path.write_text('#define LOCAL_SCALE_FACTOR 2\nbenchmark\n')
+            path.write_text('benchmark\n' if benchmark == 'xgboost'
+                            else '#define LOCAL_SCALE_FACTOR 2\nbenchmark\n')
+        (source / 'src/xgboost/testbench.c').write_text('''
+#define LOCAL_SCALE_FACTOR 2
+// Run inference with all samples specified in xgboost.c
+        size_t correct = 0;
+for (volatile size_t i = 0; i < SAMPLES_IN_FILE; i++)
+uint8_t predicted = predict(X_test[i]);
+uint8_t label = Y_test[i];
+// r is the number of errors therefore if r = 0 then output a 1 for correct
+return r >= SAMPLES_IN_FILE * (LOCAL_SCALE_FACTOR, GLOBAL_SCALE_FACTOR / 12);
+''')
         return source
 
     def test_inventory_is_complete_and_explicit(self):
@@ -107,6 +118,27 @@ class EmbenchBuildTest(unittest.TestCase):
             (source / 'src' / 'unexpected').mkdir()
             with self.assertRaisesRegex(ValueError, 'inventory changed'):
                 self.builder.benchmark_sources(source)
+
+    def test_xgboost_profile_is_bounded_and_checks_exact_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            sources = self.builder.benchmark_sources(self.populate_source(root))
+            generated, scales = self.builder.materialize_sources(sources, root / 'generated', 1)
+            testbench = next(path for path in generated['xgboost'] if path.name == 'testbench.c')
+            text = testbench.read_text()
+            self.assertIn('functional_samples[] = {3, 2, 1, 18, 4, 8, 11, 0, 61, 7}', text)
+            self.assertIn('X_test[functional_samples[i]]', text)
+            self.assertIn('Y_test[functional_samples[i]]', text)
+            self.assertIn('r == 9 * LOCAL_SCALE_FACTOR * GLOBAL_SCALE_FACTOR', text)
+            self.assertNotIn('(LOCAL_SCALE_FACTOR, GLOBAL_SCALE_FACTOR / 12)', text)
+            self.assertEqual(scales['xgboost'], 2)
+
+            source_testbench = root / 'source/src/xgboost/testbench.c'
+            source_testbench.write_text(source_testbench.read_text().replace('SAMPLES_IN_FILE; i++',
+                                                                              'samples; i++'))
+            sources = self.builder.benchmark_sources(root / 'source')
+            with self.assertRaisesRegex(ValueError, 'functional-profile source marker'):
+                self.builder.materialize_sources(sources, root / 'changed', 1)
 
     def test_builds_every_workload_and_reuses_only_verified_cache(self):
         builder = self.builder
@@ -161,6 +193,9 @@ class EmbenchBuildTest(unittest.TestCase):
                 self.assertFalse(manifest['scoring'])
                 self.assertEqual(manifest['local_scale'], 1)
                 self.assertEqual(set(manifest['upstream_local_scales'].values()), {2})
+                self.assertEqual(manifest['functional_profiles'],
+                                 {'xgboost': {'sample_indices': [3, 2, 1, 18, 4, 8, 11, 0, 61, 7],
+                                              'expected_correct': 9}})
                 self.assertEqual(manifest['warmup_heat'], 0)
                 first = output / manifest['tests'][0]['elf']
                 first.write_bytes(b'corrupt')

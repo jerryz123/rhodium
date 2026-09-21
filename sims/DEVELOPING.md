@@ -343,7 +343,11 @@ pristine CoreMark submodule with the Rhodium-owned RV64 port under
 the recorded upstream Embench-IoT development revision with the RV64 port under
 `program-test/embench-iot-riscv-baremetal/`, checks the complete source-directory
 inventory, materializes build-only copies whose local loop scale is explicit,
-and publishes one target-bound ELF per workload. Neither
+and publishes one target-bound ELF per workload. Its xgboost functional profile
+must retain a bounded selection covering every class, a pinned exact-correct count,
+and strict source markers so an upstream source change fails generation instead
+of silently weakening the oracle. Record functional profiles in the manifest
+and keep full upstream datasets in performance-oriented flows. Neither
 architecture-neutral benchmark is a RISC-V package dependency. Update selections for architecture or
 execution-environment compatibility, never to hide failures. Keep sources in
 each pinned submodule untouched. Compiler/source/adapter changes must invalidate

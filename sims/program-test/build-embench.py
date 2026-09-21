@@ -19,6 +19,8 @@ BENCHMARKS = ('aha-mont64', 'crc32', 'depthconv', 'edn', 'huffbench', 'matmult-i
               'md5sum', 'nettle-aes', 'nettle-sha256', 'nsichneu', 'picojpeg',
               'qrduino', 'sglib-combined', 'slre', 'statemate', 'tarfind', 'ud',
               'wikisort', 'xgboost')
+FUNCTIONAL_PROFILES = dict(
+    xgboost=dict(sample_indices=(3, 2, 1, 18, 4, 8, 11, 0, 61, 7), expected_correct=9))
 SUPPORT_SOURCES = ('support/main.c', 'support/beebsc.c')
 COMMON_FLAGS = ('-O2', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding',
                 '-fno-common', '-fno-builtin', '-fno-pie', '-ffunction-sections',
@@ -60,6 +62,34 @@ def write_linker(template, destination, region):
     destination.write_text(text)
 
 
+def xgboost_functional_source(text):
+    profile = FUNCTIONAL_PROFILES['xgboost']
+    indices = ', '.join(str(index) for index in profile['sample_indices'])
+    replacements = (
+        ('// Run inference with all samples specified in xgboost.c',
+         '// Run Rhodium\'s bounded functional sample profile.'),
+        ('        size_t correct = 0;',
+         f'        static const size_t functional_samples[] = {{{indices}}};\n'
+         '        size_t correct = 0;'),
+        ('for (volatile size_t i = 0; i < SAMPLES_IN_FILE; i++)',
+         'for (volatile size_t i = 0; i < sizeof(functional_samples) / sizeof(functional_samples[0]); i++)'),
+        ('uint8_t predicted = predict(X_test[i]);',
+         'uint8_t predicted = predict(X_test[functional_samples[i]]);'),
+        ('uint8_t label = Y_test[i];',
+         'uint8_t label = Y_test[functional_samples[i]];'),
+        ('// r is the number of errors therefore if r = 0 then output a 1 for correct',
+         '// Require the pinned model\'s exact correct count for this functional profile.'),
+        ('return r >= SAMPLES_IN_FILE * (LOCAL_SCALE_FACTOR, GLOBAL_SCALE_FACTOR / 12);',
+         f'return r == {profile["expected_correct"]} * LOCAL_SCALE_FACTOR * GLOBAL_SCALE_FACTOR;'),
+    )
+    for original, replacement in replacements:
+        count = text.count(original)
+        if count != 1:
+            raise ValueError(f'xgboost: expected one functional-profile source marker, found {count}')
+        text = text.replace(original, replacement)
+    return text
+
+
 def materialize_sources(sources, destination, local_scale):
     generated = {}
     upstream_scales = {}
@@ -77,12 +107,16 @@ def materialize_sources(sources, destination, local_scale):
 
             text = re.sub(r'^#define LOCAL_SCALE_FACTOR\s+(\d+)\s*$', replace, text,
                           flags=re.MULTILINE)
+            if benchmark == 'xgboost' and path.name == 'testbench.c':
+                text = xgboost_functional_source(text)
             output = destination / benchmark / path.name
             output.parent.mkdir(parents=True, exist_ok=True)
             output.write_text(text)
             generated[benchmark].append(output)
         if replacements != 1:
             raise ValueError(f'{benchmark}: expected one upstream LOCAL_SCALE_FACTOR, found {replacements}')
+        if benchmark == 'xgboost' and not any(path.name == 'testbench.c' for path in paths):
+            raise ValueError('xgboost: expected upstream testbench.c')
     return generated, upstream_scales
 
 
@@ -181,6 +215,7 @@ def main():
     manifest = dict(suite='embench', revision=revision, compiler=version, cache_key=key,
                     mode='functional', scoring=False, scale=args.scale,
                     local_scale=args.local_scale, upstream_local_scales=upstream_scales,
+                    functional_profiles=FUNCTIONAL_PROFILES,
                     warmup_heat=args.warmup_heat, march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests)
