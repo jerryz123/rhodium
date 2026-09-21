@@ -341,6 +341,21 @@ class RiscvSoCDescription(model :: NonemptyString,
           plic,
           uart)
 
+  reconstructor (model, compatible, harts, core_profile, clocks,
+                 memory_regions, boot, aclint, plic, uart):
+    RiscvSoCDescription(
+      ~model: model,
+      ~compatible: compatible,
+      ~harts: harts,
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~memory_regions: memory_regions,
+      ~boot: boot,
+      ~aclint: aclint,
+      ~plic: plic,
+      ~uart: uart
+    )
+
   method to_device_tree():
     DeviceTree(
       DeviceTreeNode(

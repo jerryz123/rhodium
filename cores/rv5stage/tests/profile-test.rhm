@@ -13,24 +13,23 @@ def rv64_integer = RV5StageConfig(
   ~xlen: XLen.X64,
   ~mmu_mode: RV5StageMmuMode.Sv39
 )
-def rv64_double = RV5StageConfig(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(
-    ~floating_point: FloatingPointProfile.D,
-    ~compressed: CCompressedExtensions
-  ),
-  ~mmu_mode: RV5StageMmuMode.Sv39
+def rv64_double = rv64_integer with (
+  extensions = rv64_integer.extensions with (
+    floating_point = FloatingPointProfile.D,
+    compressed = CCompressedExtensions
+  )
 )
-def rv32_half = RV5StageConfig(
-  ~xlen: XLen.X32,
-  ~extensions: RV5StageExtensions(
+def rv32_half = rv64_integer with (
+  xlen = XLen.X32,
+  extensions = RV5StageExtensions(
     ~floating_point: FloatingPointProfile.F,
     ~half_precision: HalfPrecisionProfile.Zfhmin,
     ~zfa: #true,
     ~compressed: compressed_extensions(CompressedExtension.Zca,
                                        CompressedExtension.Zcb,
                                        CompressedExtension.Zcf)
-  )
+  ),
+  mmu_mode = RV5StageMmuMode.Bare
 )
 
 check:
@@ -119,10 +118,7 @@ check:
   RV5StageCacheConfig(64, 3).capacity_bytes ~is 12288
   RV5StageCacheConfig(128, 1) ~throws "VIPT"
   RV5StageCacheConfig(128, 4) ~throws "VIPT"
-  RV5StageConfig(
-    ~xlen: XLen.X32,
-    ~mmu_mode: RV5StageMmuMode.Sv39
-  ) ~throws "RV32"
+  rv64_integer with (xlen = XLen.X32) ~throws "RV32"
   RV5StageConfig(
     ~xlen: XLen.X64,
     ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F)

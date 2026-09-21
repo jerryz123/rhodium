@@ -88,13 +88,11 @@ fun with_router_terminals(spec :: TopologySpec):
   when spec.injections.length() > 0 || spec.ejections.length() > 0
   | error(~who: #'with_router_terminals,
           "topology already contains terminal attachments")
-  TopologySpec(
-    spec.nodes,
-    spec.links,
-    ~injections: spec.nodes.map(
+  spec with (
+    injections = spec.nodes.map(
       fun (node): InjectionTerminalSpec(InjectionRef(node.path), node)
     ),
-    ~ejections: spec.nodes.map(
+    ejections = spec.nodes.map(
       fun (node): EjectionTerminalSpec(EjectionRef(node.path), node)
     )
   )

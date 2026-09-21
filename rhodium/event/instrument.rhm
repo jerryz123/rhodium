@@ -24,9 +24,11 @@ class EventInstrumentedElaboration(original :: DesignElaboration,
                                    manifest :: EventManifest)
 class Occurrence(original :: Module, path :: List.of(String), ordinal :: Nat,
                  parent :: maybe(Nat), instance :: maybe(Operation),
-                 mutable children :: List = [])
+                 mutable children :: List = []):
+  reconstructor ~none
 class TraceControl(path :: List.of(String), value :: Value, index :: Nat,
-                   mutable consumers :: List = [])
+                   mutable consumers :: List = []):
+  reconstructor ~none
 class TraceExit(site :: String)
 
 def reference_type = RecordType([RecordField("valid", Bits(1)),

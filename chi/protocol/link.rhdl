@@ -188,6 +188,11 @@ class CHINodeParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
     validate_endpoint_capabilities(kind, emits, supports, "node", #'CHINodeParams)
     super(name, node_id, kind, emits, supports, max_outstanding)
 
+  reconstructor (name, node_id, kind, emits, supports, max_outstanding):
+    CHINodeParams(name, node_id, kind,
+                  ~emits: emits, ~supports: supports,
+                  ~max_outstanding: max_outstanding)
+
   method icn_peer() :: CHIICNPortParams:
     CHIICNPortParams(name ++ "-icn", node_id, kind,
                      ~emits: supports, ~supports: emits,

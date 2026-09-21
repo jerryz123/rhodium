@@ -269,6 +269,18 @@ class TiledRV5StageSoCConfig(layout :: TileGrid,
     AddressSet(memory.base, memory.size_bytes - 1)
     super(layout, node_ids, memory, llc, core_profile, clocks, flit, boot)
 
+  reconstructor (layout, node_ids, memory, llc, core_profile, clocks, flit, boot):
+    TiledRV5StageSoCConfig(
+      ~layout: layout,
+      ~node_ids: node_ids,
+      ~memory: memory,
+      ~llc: llc,
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~flit: flit,
+      ~boot: boot
+    )
+
 meta:
   fun tile_run(entry :: Syntax):
     match entry

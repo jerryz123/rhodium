@@ -24,7 +24,9 @@ def heterogeneous_map = chi.CHISubordinateMap(
   fixture.home_flit,
   [read_only_service, fixture.subordinate_service]
 )
-def partial_service = chi.CHISubordinateServiceParams(fixture.subordinate_endpoint, fixture.subordinate_service.address_sets, [fixture.subordinate_service.requests[0]])
+def partial_service = fixture.subordinate_service with (
+  requests = [fixture.subordinate_service.requests[0]]
+)
 def snf_endpoint = chi.CHIICNPortParams(
   "full-subordinate", 11, chi.CHINodeKind.SNF,
   ~emits: fixture.subordinate_endpoint.emits,

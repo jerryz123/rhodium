@@ -51,6 +51,9 @@ class CHISubordinateServiceParams(endpoint :: CHIICNPortParams,
               "service request opcode must be emitted by its ICN port")
     super(endpoint, address_sets, requests)
 
+  reconstructor (endpoint, address_sets, requests):
+    CHISubordinateServiceParams(endpoint, address_sets, requests)
+
   method supports(opcode :: CHIReqOpcode, bytes :: PosInt):
     for any (request in requests):
       request.opcode == opcode && request.sizes.contains(bytes)

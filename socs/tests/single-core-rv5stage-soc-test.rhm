@@ -12,10 +12,9 @@ import:
   "../../socs/single-core-rv5stage-soc.rhdl" as soc
 
 def snp_adapters :: CHIChannelAdapterPlan = soc.single_core_rv5stage_soc_adapter_plans.snp
-def compact_soc_params = soc.SingleCoreRV5StageSoCParams(
-  soc.single_core_rv5stage_soc_params.fabric,
-  ~llc_sets: 16,
-  ~llc_ways: 2
+def compact_soc_params = soc.single_core_rv5stage_soc_params with (
+  llc_sets = 16,
+  llc_ways = 2
 )
 def description = soc.single_core_rv5stage_soc_params.description
 for (cache in [description.core_profile.cache_geometry.instruction,

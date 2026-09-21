@@ -141,6 +141,8 @@ metadata, rather than copying every request field.
 `-icn` to the name, retains NodeID, node kind, and outstanding limit, and swaps
 emitted and supported capabilities. Use explicit `CHIICNPortParams` when the
 ICN contract is intentionally different from the node's exact peer.
+`CHINodeParams` and `CHISubordinateServiceParams` support immutable `with`
+updates; reconstruction reruns their role and capability validation.
 `CHIHNFParams(home, config, subordinate_service)` derives its
 `subordinate_endpoint` from that service and validates it against the Home
 configuration.

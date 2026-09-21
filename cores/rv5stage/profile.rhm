@@ -27,6 +27,9 @@ class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
             "VIPT requires sets * line bytes <= 4096 (at most 4 KiB per way)")
     super(sets, ways)
 
+  reconstructor (sets, ways):
+    RV5StageCacheConfig(sets, ways)
+
   property set_width :: PosInt: count_index_width(sets)
   property way_width :: PosInt: count_index_width(ways)
   property line_count :: PosInt: sets * ways
@@ -71,6 +74,26 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
     super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, zawrs, zihintpause, zihintntl, compressed)
+
+  reconstructor (floating_point, half_precision, zfa, zicbop, zicboz,
+                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, zawrs,
+                 zihintpause, zihintntl, compressed):
+    RV5StageExtensions(
+      ~floating_point: floating_point,
+      ~half_precision: half_precision,
+      ~zfa: zfa,
+      ~zicbop: zicbop,
+      ~zicboz: zicboz,
+      ~zicbom: zicbom,
+      ~ziccif: ziccif,
+      ~ziccamoa: ziccamoa,
+      ~ziccrse: ziccrse,
+      ~ssnpm: ssnpm,
+      ~zawrs: zawrs,
+      ~zihintpause: zihintpause,
+      ~zihintntl: zihintntl,
+      ~compressed: compressed
+    )
 
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
@@ -118,6 +141,9 @@ class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
   constructor (~instruction: instruction :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
                ~data: data :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1)):
     super(instruction, data)
+
+  reconstructor (instruction, data):
+    RV5StageCacheGeometry(~instruction: instruction, ~data: data)
 
 fun rv5stage_floating_point_profile_supported(xlen :: XLen,
                                               profile :: FloatingPointProfile,
@@ -197,6 +223,21 @@ class RV5StageConfig(xlen :: XLen,
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
     super(xlen, extensions, mmu_mode, cache_geometry, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
+
+  reconstructor (xlen, extensions, mmu_mode, cache_geometry, multiplier,
+                 vector, vector_extensions, vector_length,
+                 vector_completion_slots):
+    RV5StageConfig(
+      ~xlen: xlen,
+      ~extensions: extensions,
+      ~mmu_mode: mmu_mode,
+      ~cache_geometry: cache_geometry,
+      ~multiplier: multiplier,
+      ~vector: vector,
+      ~vector_extensions: vector_extensions,
+      ~vector_length: vector_length,
+      ~vector_completion_slots: vector_completion_slots
+    )
 
   property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)

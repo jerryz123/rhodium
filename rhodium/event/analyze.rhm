@@ -504,10 +504,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
   // They never enter event_by_output: a stall cannot cut or advance lineage.
   for (site in sites):
     when site.id in stalled_sites
-    | def stall = EventSite(site.id ++ "/stall", site.label ++ ".stall", site.module_name,
-                            site.instance_path, site.local_site, site.protocol, site.payload_type,
-                            site.payload_width, site.source_location, site.fields,
-                            "stall", site.id)
+    | def stall = site with (
+        id = site.id ++ "/stall",
+        label = site.label ++ ".stall",
+        kind = "stall",
+        observation_of = site.id
+      )
       sites := sites ++ [stall]
       // Transparent replication preserves present references even when the
       // linear compatibility projection is unavailable. It does not select offers.
@@ -515,9 +517,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
       def pending_safe = dynamic && (for all (node in nodes): node is_a EventTraceSource || node is_a EventTracePipeline || node is_a EventTraceReplication || node is_a EventTraceRequire)
       def parents = dependencies.filter(~keep: fun (edge): edge.child == site.id && (edge.trace_stages != #false || pending_safe))
       for (edge in parents):
-        dependencies := dependencies ++ [EventDependency(edge.parent, stall.id, edge.transform_path, #false, edge.trace_stages)]
+        dependencies := dependencies ++ [edge with (child = stall.id, latency_cycles = #false)]
       when dynamic
       | def unknown = partial && nodes.find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
         plans[stall.id] := (if parents.length() > 0 || (unknown && pending_safe) | plans[site.id] | (if unknown | EventTraceSource(#false, site.id) | EventTraceSource(#false)))
-      gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): EventTraceGap(stall.id, gap.boundary, gap.reason))
+      gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): gap with (site = stall.id))
   EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]), gaps, topology_dependencies, topology_trace_plans)

@@ -106,13 +106,8 @@ check:
   // full architectural range without compacting away slice-selection bits.
   compiled.llcs.map(fun (llc): llc.address_set.contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
   compiled.llcs.map(fun (llc): compiled.memory.service.address_sets[0].contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
-  tiled.TiledRV5StageSoCConfig(
-    ~layout: tiled.default_tiled_rv5stage_soc_config.layout,
-    ~node_ids: tiled.default_tiled_rv5stage_soc_config.node_ids,
-    ~memory: tiled.default_tiled_rv5stage_soc_config.memory,
-    ~llc: tiled.default_tiled_rv5stage_soc_config.llc,
-    ~core_profile: profile.RV5StageConfig(~xlen: XLen.X32),
-    ~clocks: tiled.default_tiled_rv5stage_soc_config.clocks
+  tiled.default_tiled_rv5stage_soc_config with (
+    core_profile = profile.RV5StageConfig(~xlen: XLen.X32)
   ) ~throws "RV64"
 
 check:

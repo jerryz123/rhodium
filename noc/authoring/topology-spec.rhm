@@ -143,6 +143,9 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
             fun (left, right): ejection_ref_less(left.ref, right.ref)
           ))
 
+  reconstructor (nodes, links, injections, ejections):
+    TopologySpec(nodes, links, ~injections: injections, ~ejections: ejections)
+
   method find_node(ref :: NodeRef):
     def found = nodes.find(fun (node): node_ref_equal(node, ref))
     unless found

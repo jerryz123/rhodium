@@ -794,7 +794,9 @@ model: XLEN, supported extensions, MMU mode, and independent instruction and
 data cache geometry. It validates supported combinations and projects a pure
 [`RiscvIsaProfile`](../../riscv/isa/profile.rhm) containing the normalized ISA
 extension list and `misa` value. The RV5Stage configuration remains the sole
-specialization input to `RV5Stage` and `RV5StageCore`.
+specialization input to `RV5Stage` and `RV5StageCore`. Derive immutable profile,
+extension, or cache variants with `profile with (field = value)`; reconstruction
+runs the same cross-field validation as direct construction.
 
 | Parameter | Meaning |
 |---|---|

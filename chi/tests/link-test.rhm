@@ -82,9 +82,7 @@ for (entry in [[rni, fixture.rni_link, fixture.rni_node],
   def interface = entry[0]
   def link = entry[1]
   def node = entry[2]
-  def wrong_node = chi.CHINodeParams(node.name, node.node_id + 1, node.kind,
-                                     ~emits: node.emits, ~supports: node.supports,
-                                     ~max_outstanding: node.max_outstanding)
+  def wrong_node = node with (node_id = node.node_id + 1)
   check:
     interface.connection_compatibility.predicate([link, node], [link, node.icn_peer()]) ~is #true
     interface.connection_compatibility.predicate([link, node], [link, wrong_node.icn_peer()]) ~is #false

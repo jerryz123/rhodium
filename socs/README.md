@@ -76,6 +76,8 @@ LLC ownership stripes remain distinct from architectural memory regions.
 Construction rejects inconsistent frequency ratios, non-contiguous or
 overlapping architectural regions, duplicate harts and compatible strings,
 reset vectors outside the BootROM, and payload addresses outside memory.
+Derive a description variant with `description with (field = value)`; the
+replacement is reconstructed through these same whole-description checks.
 `SingleCoreRV5StageSoCParams`, `MiniRV5StageSoCParams`, and `TiledRV5StageSoCConfig` each expose a
 `.description` projection. The projection reuses the CHI subordinate service
 address sets; TiledRV5StageSoC describes its single external memory channel as one
@@ -288,7 +290,9 @@ def layout = tile_grid:
 `TiledRV5StageSoCConfig` combines that immutable `TileGrid` with `TiledNodeIds`,
 `StripedMemory`, `LLCGeometry`, an `RV5StageConfig`, `SoCClockConfig`, the boot
 configuration, and the CHI flit parameters. The public
-`TiledRV5StageSoC(config)` circuit accepts this author value directly. Its private
+`TiledRV5StageSoC(config)` circuit accepts this author value directly. The
+author value can be varied immutably with `config with (field = value)`, which
+reruns all tile, memory, LLC, and core-profile validation. The private
 compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI
 relationships, routes, the shared physical-link manifest, and all component
 parameters in one pass. There is no public intermediate TiledRV5StageSoC plan or

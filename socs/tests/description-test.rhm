@@ -69,18 +69,7 @@ def dts = tree.to_dts()
 def dtb = tree.to_dtb()
 
 fun with_interrupts(controller, serial):
-  RiscvSoCDescription(
-    ~model: description.model,
-    ~compatible: description.compatible,
-    ~harts: description.harts,
-    ~core_profile: profile,
-    ~clocks: clocks,
-    ~memory_regions: [memory],
-    ~boot: boot,
-    ~aclint: aclint,
-    ~plic: controller,
-    ~uart: serial
-  )
+  description with (plic = controller, uart = serial)
 
 def relocated_plic = RiscvPlicDescription(
   SoCAddressRegion(AddressSet(0x04000000, 0x03ffffff)),

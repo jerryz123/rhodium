@@ -116,6 +116,8 @@ Groups are sorted by name during construction, then each group's VCs are
 assigned increasing local indices. Nodes and links are likewise sorted by
 their full paths before lowering. The same complete `TopologySpec` therefore
 always produces the same normalized IDs regardless of declaration order.
+Use `spec with (field = value)` to derive a symbolic topology variant; the
+replacement is normalized and validated exactly like direct construction.
 
 `lower_topology` returns a `LoweredTopology` containing the normalized
 `Topology` and bidirectional bindings for every node, link, and VC. Routing

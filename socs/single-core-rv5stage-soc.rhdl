@@ -83,6 +83,15 @@ class SingleCoreRV5StageSoCParams(fabric :: SingleCoreSystemParams,
     | error(~who: #'SingleCoreRV5StageSoCParams, "SingleCoreRV5StageSoC requires an RV64 core profile")
     super(fabric, core_profile, clocks, llc_sets, llc_ways)
 
+  reconstructor (fabric, core_profile, clocks, llc_sets, llc_ways):
+    SingleCoreRV5StageSoCParams(
+      fabric,
+      ~core_profile: core_profile,
+      ~clocks: clocks,
+      ~llc_sets: llc_sets,
+      ~llc_ways: llc_ways
+    )
+
 def single_core_rv5stage_soc_params = SingleCoreRV5StageSoCParams(
   SingleCoreSystemParams(
     single_core_rv5stage_soc_flit, single_core_rv5stage_soc_memory_base, single_core_rv5stage_soc_memory_bytes,
