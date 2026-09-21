@@ -158,6 +158,15 @@ Keep shared ready-valid classification in
 entry point for configured stages. Individual stage modules should specify
 only their connected result shape with `InterfaceTransformResult`.
 
+Single-source operators with inline payload binders use
+`immediate_callee.macro` to receive the left operand's static information.
+Resolve only the `bits` member through `flow_payload_static_infos`, then bind
+the body through `flow_payload_body`. Missing source information must select
+the ordinary binder path; runtime protocol normalization remains authoritative.
+Do not expose or inspect interface-layer static-information keys from Flow.
+Array-valued or heterogeneous sources need an explicit per-element contract
+before they can use this pattern safely.
+
 When adding or changing a configured stage, extend
 [`std-flow-static.rhdl`](../flow/tests/std-flow-static.rhdl) and its
 loader test so `use_static` covers direct endpoint fields, endpoint-array

@@ -99,13 +99,50 @@ sync_circuit FlowStaticInformation():
 
   inst captured_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1))
   def captured_nibble = captured_payload.egress.bits.low_nibble()
+  inst mapped_source(Pipe(CapturedPayload(), 1))
+  def mapped_payload = mapped_source.egress |> map_flow(payload => payload.low_nibble())
+  def mapped_nibble = mapped_payload.bits
+  inst filtered_source(Pipe(CapturedPayload(), 1))
+  def filtered_payload = filtered_source.egress |> filter_flow(
+    payload => payload.low_nibble() === bits(0, 4)
+  )
+  def filtered_word = filtered_payload.bits.word
+  inst routed_source(Pipe(CapturedPayload(), 1))
+  def routed_payload = routed_source.egress |> demux_flow(
+    2,
+    payload => payload.low_nibble()[0]
+  )
+  def routed_word = routed_payload[0].bits.word
+  inst mapped_valid_source(ValidPipe(CapturedPayload(), 1))
+  def mapped_valid_payload = mapped_valid_source.egress |> map_valid(
+    payload => payload.low_nibble()
+  )
+  def mapped_valid_nibble = mapped_valid_payload.bits
+  inst filtered_valid_source(ValidPipe(CapturedPayload(), 1))
+  def filtered_valid_payload = filtered_valid_source.egress |> filter_valid(
+    payload => payload.low_nibble() === bits(0, 4)
+  )
+  def filtered_valid_word = filtered_valid_payload.bits.word
+  inst selective_source(Pipe(CapturedPayload(), 1))
+  def selective_payload = selective_source.egress |> selective_atomic_fork(
+    4,
+    payload => payload.low_nibble().into(Mask(4))
+  )
+  def selective_word = selective_payload[0].bits.word
+  inst traced_source(Pipe(CapturedPayload(), 1))
+  def traced_payload = traced_source.egress |> trace_event(
+    "precise",
+    ~fields: payload
+  ):
+    nibble: payload.low_nibble()
+  def traced_word = traced_payload.bits.word
   inst flushed_payload(ValidPipeAlwaysCapture(CapturedPayload(), 1, ~flushable: #true))
   def flushed_nibble = flushed_payload.egress.bits.low_nibble()
   inst flushed_valid_payload(ValidPipe(CapturedPayload(), 2, ~flushable: #true))
   def flushed_valid_nibble = flushed_valid_payload.egress.bits.low_nibble()
   def named_capture = captured_payload.egress |> trace_valid_event("named", ~when: Bool(#true), ~fields: payload):
     word: payload.word
-    nibble: payload.word[0..4]
+    nibble: payload.low_nibble()
   def named_word = named_capture.bits.word
 
   interface demux_input(Decoupled(Bits(8)), ~role: consumer)

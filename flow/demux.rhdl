@@ -81,15 +81,18 @@ expr.macro
 | 'demux_flow($count,
               ~stable: #true,
               $(payload :: Identifier)): $selector':
-    'demux_flow_impl($count, #true, $payload): $selector'
+    'demux_flow_impl($count, #true, #false, $payload): $selector'
 | 'demux_flow($count,
               $(payload :: Identifier) => $selector ...)':
     'demux_flow($count, $payload): $selector ...'
 | 'demux_flow($count, $(payload :: Identifier)): $selector':
-    'demux_flow_impl($count, #false, $payload): $selector'
+    'demux_flow_impl($count, #false, #false, $payload): $selector'
 
 expr.macro
-| 'demux_flow_impl($count, $stable, $(payload :: Identifier)): $selector':
+| 'demux_flow_impl($count,
+                   $stable,
+                   $payload_infos,
+                   $(payload :: Identifier)): $selector':
     'fun (demux_flow_source :: FlowSource) :~ InterfaceTransformResult(demux_flow_source, InterfaceArrayFields):
        def demux_flow_count = $count
        unless demux_flow_count is_a PosInt
@@ -102,9 +105,11 @@ expr.macro
          "demux_input"
        )
        def demux_flow_input :: Endpoint = demux_flow_input_link.right
-       def $payload = demux_flow_input.bits
-       fun compute_demux_selector(): $selector
-       def demux_flow_selector = compute_demux_selector()
+       def demux_flow_selector = flow_payload_body(
+         $payload_infos,
+         $payload,
+         demux_flow_input.bits
+       ): $selector
        def demux_flow_output_links = Array.make(demux_flow_count)
        for (index in 0..demux_flow_count):
          demux_flow_output_links[index] := interface_link(
@@ -117,6 +122,51 @@ expr.macro
          demux_flow_selector
        )
        finish_interface_transform(demux_flow_source, demux_flow_handle)'
+
+// Direct pipelines retain the exact payload surface inside the selector.
+immediate_callee.macro 'demux_flow $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($count,
+      ~stable: #true,
+      $(payload :: Identifier) => $selector ...) $rest ...':
+      values(
+        'demux_flow_impl($count,
+                         #true,
+                         $(payload_infos),
+                         $payload): $selector ...',
+        '$rest ...'
+      )
+  | '($count,
+      ~stable: #true,
+      $(payload :: Identifier)): $selector':
+      values(
+        'demux_flow_impl($count,
+                         #true,
+                         $(payload_infos),
+                         $payload): $selector',
+        ''
+      )
+  | '($count,
+      $(payload :: Identifier) => $selector ...) $rest ...':
+      values(
+        'demux_flow_impl($count,
+                         #false,
+                         $(payload_infos),
+                         $payload): $selector ...',
+        '$rest ...'
+      )
+  | '($count, $(payload :: Identifier)): $selector':
+      values(
+        'demux_flow_impl($count,
+                         #false,
+                         $(payload_infos),
+                         $payload): $selector',
+        ''
+      )
+  | ~else:
+      syntax_meta.error("invalid demux_flow immediate pipeline form", '$tail ...')
 
 export:
   Demux

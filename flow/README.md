@@ -216,6 +216,20 @@ remain available under `use_static` without corrective `:: Endpoint`
 annotations. The contributor guide explains the
 [shared implementation of that propagation](DEVELOPING.md#static-information-and-topology-results).
 
+A direct pipeline also carries the left endpoint's exact payload surface into
+the inline binders of `map_flow`, `filter_flow`, `demux_flow`, `map_valid`,
+`filter_valid`, `selective_atomic_fork`, and named event captures. Under
+`use_static`, bundle- and enum-owned methods therefore remain available inside
+those bodies:
+
+```rhombus
+def decoded = requests |> map_flow(request => request.decode())
+```
+
+This source-dependent refinement applies when the operator is the immediate
+right side of `|>`. A separately configured reusable stage still expands
+without a particular source and retains its ordinary generic payload surface.
+
 Fan-in helpers take an ordinary host `Array`. `arbiter()`, `rr_arbiter()`, and
 `packet_rr_arbiter(...)` infer the input count from a connected array. A
 disconnected topology states its protocol once and its cardinality in the

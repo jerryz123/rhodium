@@ -28,6 +28,11 @@ expr.macro
 | 'filter_flow($(payload :: Identifier) => $predicate ...)':
     'filter_flow($payload): $predicate ...'
 | 'filter_flow($(payload :: Identifier)): $predicate':
+    'filter_flow_impl(#false, $payload): $predicate'
+
+expr.macro
+| 'filter_flow_impl($payload_infos,
+                    $(payload :: Identifier)): $predicate':
     'fun (filter_flow_source :: FlowSource) :~ InterfaceTransformResult(filter_flow_source, Endpoint):
        def filter_flow_protocol = flow_protocol_type(filter_flow_source)
        def filter_flow_input_link = interface_link(
@@ -35,9 +40,11 @@ expr.macro
          "filter_input"
        )
        def filter_flow_input :: Endpoint = filter_flow_input_link.right
-       def $payload = filter_flow_input.bits
-       fun compute_filter_predicate(): $predicate
-       def filter_flow_keep :: Bool = compute_filter_predicate()
+       def filter_flow_keep :: Bool = flow_payload_body(
+         $payload_infos,
+         $payload,
+         filter_flow_input.bits
+       ): $predicate
        def filter_flow_output_link = interface_link(
          Decoupled(flow_payload_type(filter_flow_source)),
          "filter_output"
@@ -48,6 +55,24 @@ expr.macro
          filter_flow_keep
        )
        finish_interface_transform(filter_flow_source, filter_flow_handle)'
+
+// Direct pipelines retain the precise payload surface inside the predicate.
+immediate_callee.macro 'filter_flow $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($(payload :: Identifier) => $predicate ...) $rest ...':
+      values(
+        'filter_flow_impl($(payload_infos), $payload): $predicate ...',
+        '$rest ...'
+      )
+  | '($(payload :: Identifier)): $predicate':
+      values(
+        'filter_flow_impl($(payload_infos), $payload): $predicate',
+        ''
+      )
+  | ~else:
+      syntax_meta.error("invalid filter_flow immediate pipeline form", '$tail ...')
 
 export:
   filter_flow

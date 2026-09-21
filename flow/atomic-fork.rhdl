@@ -84,6 +84,12 @@ expr.macro
     'selective_atomic_fork($count, $payload): $selection ...'
 | 'selective_atomic_fork($count,
                          $(payload :: Identifier)): $selection':
+    'selective_atomic_fork_impl($count, #false, $payload): $selection'
+
+expr.macro
+| 'selective_atomic_fork_impl($count,
+                              $payload_infos,
+                              $(payload :: Identifier)): $selection':
     'fun (selective_fork_source :: FlowSource)
        :~ InterfaceTransformResult(selective_fork_source, InterfaceArrayFields):
        def selective_fork_count = $count
@@ -99,9 +105,11 @@ expr.macro
        def selective_fork_output_links = for Array (index in 0..selective_fork_count):
          interface_link(Decoupled(selective_fork_type), "selective_fork_output")
        inst selective_fork_stage(SelectiveAtomicFork(selective_fork_type, selective_fork_count))
-       def $payload = selective_fork_input.bits
-       fun compute_selective_fork_selection(): $selection
-       def selective_fork_selection :: Mask(selective_fork_count) = compute_selective_fork_selection()
+       def selective_fork_selection :: Mask(selective_fork_count) = flow_payload_body(
+         $payload_infos,
+         $payload,
+         selective_fork_input.bits
+       ): $selection
        selective_fork_stage.selection <== selective_fork_selection
        selective_fork_input |> selective_fork_stage.ingress
        for (index in 0..selective_fork_count):
@@ -116,6 +124,32 @@ expr.macro
            ~trace_model: interface_trace_broadcast(selective_fork_count)
          )
        )'
+
+// Direct pipelines retain the exact payload surface inside the selection.
+immediate_callee.macro 'selective_atomic_fork $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($count,
+      $(payload :: Identifier) => $selection ...) $rest ...':
+      values(
+        'selective_atomic_fork_impl($count,
+                                    $(payload_infos),
+                                    $payload): $selection ...',
+        '$rest ...'
+      )
+  | '($count, $(payload :: Identifier)): $selection':
+      values(
+        'selective_atomic_fork_impl($count,
+                                    $(payload_infos),
+                                    $payload): $selection',
+        ''
+      )
+  | ~else:
+      syntax_meta.error(
+        "invalid selective_atomic_fork immediate pipeline form",
+        '$tail ...'
+      )
 
 // Configures the payloadless atomic fork for control-only token flows.
 fun ctrl_atomic_fork(n :: PosInt)

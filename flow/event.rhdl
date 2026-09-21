@@ -97,6 +97,10 @@ expr.macro
 | 'trace_valid_event': 'trace_valid_event_config'
 
 expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
+  'capture_fields_impl(#false, $payload): $field; ...'
+
+expr.macro 'capture_fields_impl($payload_infos,
+                                $(payload :: Identifier)): $field; ...':
   def [capture, ...] = for List (clause in [field, ...]):
     match clause
     | '$(name :: Identifier): $value':
@@ -107,8 +111,50 @@ expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
         'event_field($text, $value, $option, ...)'
     | ~else: error(~who: #'trace_event, "expected name: capture expression", clause)
   'fun (capture_type, capture_bits):
-     def $payload :: Hardware.of(capture_type) = capture_bits
-     [$capture, ...]'
+     def typed_capture_bits :: Hardware.of(capture_type) = capture_bits
+     flow_payload_body($payload_infos, $payload, typed_capture_bits):
+       [$capture, ...]'
+
+// A direct checkpoint pipeline can expose the exact source payload surface in
+// named capture expressions without changing the configured checkpoint API.
+immediate_callee.macro 'trace_event $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($label,
+      $option, ...,
+      ~fields: $(payload :: Identifier)): $field; ...':
+      values(
+        'trace_event_config($label,
+                            $option, ...,
+                            ~capture: capture_fields_impl($(payload_infos), $payload): $field; ...)',
+        ''
+      )
+  | '($arg, ...) $rest ...':
+      values('trace_event_config($arg, ...)', '$rest ...')
+  | ~else:
+      syntax_meta.error("invalid trace_event immediate pipeline form", '$tail ...')
+
+immediate_callee.macro 'trace_valid_event $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($label,
+      $option, ...,
+      ~fields: $(payload :: Identifier)): $field; ...':
+      values(
+        'trace_valid_event_config($label,
+                                  $option, ...,
+                                  ~capture: capture_fields_impl($(payload_infos), $payload): $field; ...)',
+        ''
+      )
+  | '($arg, ...) $rest ...':
+      values('trace_valid_event_config($arg, ...)', '$rest ...')
+  | ~else:
+      syntax_meta.error(
+        "invalid trace_valid_event immediate pipeline form",
+        '$tail ...'
+      )
 
 export:
   trace_event

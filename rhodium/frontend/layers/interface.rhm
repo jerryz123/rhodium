@@ -103,6 +103,8 @@ export:
   InterfaceTopologyResult
   InterfaceTransformResult
   interface_topology_key
+  meta:
+    interface_member_static_infos
   connected_interface_source
   finish_interface_transform
   interface_fields
@@ -1356,39 +1358,47 @@ fun interface_array_index(value :: Array, index :: Nat) :~ Endpoint:
   value[index]
 
 meta:
-  fun interface_member_static_expansion(left :: Syntax,
-                                        right :: Syntax,
-                                        infos :: Syntax):
+  // Extracts one interface member's authoring surface without exposing the
+  // private representation used to store interface-member static information.
+  fun interface_member_static_infos(infos :: Syntax,
+                                    right :: Syntax):
     def packed_members = statinfo_meta.find(
       infos,
       'interface_member_static_info_key'
     )
-    def mutable expansion = #false
+    def mutable member_infos = #false
     when packed_members
     | let '($member_entry, ...)' = packed_members
       for (entry in [member_entry, ...]):
         match entry
         | '($(member_name :: Identifier), $(packed_infos :: Term))':
             when right.to_source_string() == member_name.to_source_string()
-            | expansion := statinfo_meta.replace(
-                'interface_member($left, $(right.to_source_string()))',
-                statinfo_meta.unpack(packed_infos)
-              )
+            | member_infos := statinfo_meta.unpack(packed_infos)
         | ~else:
             syntax_meta.error("invalid interface member static information", entry)
     def packed_parent = statinfo_meta.find(
       infos,
       'interface_parent_static_info_key'
     )
-    if expansion
-    | expansion
+    if member_infos
+    | member_infos
     | if packed_parent
-      | interface_member_static_expansion(
-          left,
-          right,
-          statinfo_meta.unpack(packed_parent)
+      | interface_member_static_infos(
+          statinfo_meta.unpack(packed_parent),
+          right
         )
       | #false
+
+  fun interface_member_static_expansion(left :: Syntax,
+                                        right :: Syntax,
+                                        infos :: Syntax):
+    def member_infos = interface_member_static_infos(infos, right)
+    if member_infos
+    | statinfo_meta.replace(
+        'interface_member($left, $(right.to_source_string()))',
+        member_infos
+      )
+    | #false
 
 dot.macro 'interface_field_dot $left $dot $right':
   ~tail: '$tail ...'

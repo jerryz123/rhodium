@@ -35,7 +35,7 @@ expr.macro
             $(payload :: Identifier) => $body ...)':
     'map_flow(~stable: #true, $payload): $body ...'
 | 'map_flow(~stable: #true, $(payload :: Identifier)): $body':
-    'map_flow_impl(#true, $payload): $body'
+    'map_flow_impl(#true, #false, $payload): $body'
 | 'map_flow($(payload :: Identifier) => $body_head ...):
     $(body_tail :: Block)':
     'map_flow($payload):
@@ -43,10 +43,12 @@ expr.macro
 | 'map_flow($(payload :: Identifier) => $body ...)':
     'map_flow($payload): $body ...'
 | 'map_flow($(payload :: Identifier)): $body':
-    'map_flow_impl(#false, $payload): $body'
+    'map_flow_impl(#false, #false, $payload): $body'
 
 expr.macro
-| 'map_flow_impl($stable, $(payload :: Identifier)): $body':
+| 'map_flow_impl($stable,
+                 $payload_infos,
+                 $(payload :: Identifier)): $body':
     'fun (map_flow_source :: FlowSource) :~ InterfaceTransformResult(map_flow_source, Endpoint):
        def map_flow_input_protocol = flow_protocol_type(map_flow_source)
        def map_flow_input_type = flow_payload_type(map_flow_source)
@@ -55,9 +57,11 @@ expr.macro
          "map_input"
        )
        def map_flow_input :: Endpoint = map_flow_input_link.right
-       def $payload = map_flow_input.bits
-       fun compute_mapped_bits(): $body
-       def mapped_bits = compute_mapped_bits()
+       def mapped_bits = flow_payload_body(
+         $payload_infos,
+         $payload,
+         map_flow_input.bits
+       ): $body
        def map_flow_output_type = hardware_value_type(mapped_bits)
        def map_flow_output_protocol = if $stable | flow_protocol_with_payload(map_flow_input_protocol, map_flow_output_type) | Decoupled(map_flow_output_type)
        def map_flow_output_link = interface_link(
@@ -70,6 +74,51 @@ expr.macro
          mapped_bits
        )
        finish_interface_transform(map_flow_source, map_flow_handle)'
+
+// A direct pipeline supplies the source's exact static information before the
+// configured mapping function is expanded. Attach the `bits` member's surface
+// to the inline binder while preserving the ordinary reusable-stage form.
+immediate_callee.macro 'map_flow $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '(~stable: #true,
+      $(payload :: Identifier) => $body_head ...):
+      $(body_tail :: Block)':
+      values(
+        'map_flow_impl(#true, $(payload_infos), $payload):
+           $body_head ... $body_tail',
+        ''
+      )
+  | '(~stable: #true, $(payload :: Identifier) => $body ...) $rest ...':
+      values(
+        'map_flow_impl(#true, $(payload_infos), $payload): $body ...',
+        '$rest ...'
+      )
+  | '(~stable: #true, $(payload :: Identifier)): $body':
+      values(
+        'map_flow_impl(#true, $(payload_infos), $payload): $body',
+        ''
+      )
+  | '($(payload :: Identifier) => $body_head ...):
+      $(body_tail :: Block)':
+      values(
+        'map_flow_impl(#false, $(payload_infos), $payload):
+           $body_head ... $body_tail',
+        ''
+      )
+  | '($(payload :: Identifier) => $body ...) $rest ...':
+      values(
+        'map_flow_impl(#false, $(payload_infos), $payload): $body ...',
+        '$rest ...'
+      )
+  | '($(payload :: Identifier)): $body':
+      values(
+        'map_flow_impl(#false, $(payload_infos), $payload): $body',
+        ''
+      )
+  | ~else:
+      syntax_meta.error("invalid map_flow immediate pipeline form", '$tail ...')
 
 export:
   map_flow

@@ -26,6 +26,11 @@ expr.macro
 | 'filter_valid($(payload :: Identifier) => $predicate ...)':
     'filter_valid($payload): $predicate ...'
 | 'filter_valid($(payload :: Identifier)): $predicate':
+    'filter_valid_impl(#false, $payload): $predicate'
+
+expr.macro
+| 'filter_valid_impl($payload_infos,
+                     $(payload :: Identifier)): $predicate':
     'fun (filter_valid_source :: FlowSource) :~ InterfaceTransformResult(filter_valid_source, Endpoint):
        def filter_valid_protocol = valid_flow_protocol_type(
          filter_valid_source
@@ -35,9 +40,11 @@ expr.macro
          "filter_valid_input"
        )
        def filter_valid_input :: Endpoint = filter_valid_input_link.right
-       def $payload = filter_valid_input.bits
-       fun compute_filter_valid_predicate(): $predicate
-       def filter_valid_keep :: Bool = compute_filter_valid_predicate()
+       def filter_valid_keep :: Bool = flow_payload_body(
+         $payload_infos,
+         $payload,
+         filter_valid_input.bits
+       ): $predicate
        def filter_valid_output_link = interface_link(
          filter_valid_protocol,
          "filter_valid_output"
@@ -48,6 +55,24 @@ expr.macro
          filter_valid_keep
        )
        finish_interface_transform(filter_valid_source, filter_valid_handle)'
+
+// Direct Valid pipelines retain the exact payload surface in the predicate.
+immediate_callee.macro 'filter_valid $tail ...':
+  ~static_infos: source_infoss
+  def payload_infos = flow_payload_static_infos(source_infoss[0])
+  match '$tail ...'
+  | '($(payload :: Identifier) => $predicate ...) $rest ...':
+      values(
+        'filter_valid_impl($(payload_infos), $payload): $predicate ...',
+        '$rest ...'
+      )
+  | '($(payload :: Identifier)): $predicate':
+      values(
+        'filter_valid_impl($(payload_infos), $payload): $predicate',
+        ''
+      )
+  | ~else:
+      syntax_meta.error("invalid filter_valid immediate pipeline form", '$tail ...')
 
 export:
   filter_valid

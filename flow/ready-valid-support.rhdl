@@ -6,6 +6,29 @@ import:
   rhombus/meta open
   lib("rhodium/std/ready-valid.rhdl") open
 
+meta:
+  // Recovers the exact payload authoring surface supplied by a pipeline's
+  // left operand. Missing information is harmless; runtime protocol checks
+  // remain the authority for whether a value is a valid flow source.
+  fun flow_payload_static_infos(source_infos :: Syntax):
+    interface_member_static_infos(source_infos, 'bits')
+
+// Evaluates one inline payload body with an ordinary binder for reusable
+// configured stages or a source-informed binder for direct pipelines.
+expr.macro
+| 'flow_payload_body(#false,
+                     $(payload :: Identifier),
+                     $value): $body':
+    'block:
+       def $payload = $value
+       $body'
+| 'flow_payload_body($payload_infos,
+                     $(payload :: Identifier),
+                     $value): $body':
+    '((fun ($payload):
+         statinfo.macro '$payload': '$payload_infos'
+         $body)($value))'
+
 // A flow stage can be specialized by a payload type, a complete protocol, an
 // endpoint to connect immediately, or a handle to extend compositionally.
 annot.macro 'FlowSource':
@@ -126,6 +149,9 @@ fun flow_protocol_with_payload(protocol :: InterfaceType,
 export:
   FlowSource
   FlowSourceArgument
+  meta:
+    flow_payload_static_infos
+  flow_payload_body
   flow_protocol_type
   flow_payload_type
   valid_flow_protocol_type
