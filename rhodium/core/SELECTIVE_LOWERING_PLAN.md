@@ -652,3 +652,21 @@ This is parser/analysis validation without PMU permissions, not a live profiling
 or performance claim. The integrated simulator run remains pending; external
 specialization and ordinary-core Verilator coverage still need auditing, along
 with the direct-versus-expanded performance gate.
+
+## External specialization and ordinary-core Verilator migration
+
+The [dependent legacy comparison migration](https://github.com/tianrui-wei/rhodium/commit/875305c)
+restores the optional external generated-C specializer and ordinary-core
+Verilator comparison. Eight specialization modes pass their original four-engine
+512-cycle oracle, including invalid previews, state banks, failed publication,
+retry/reattachment, strict diagnostics, and malformed artifact rejection.
+The runner explicitly builds the compiler dependencies required by specialization.
+
+Hierarchy and pipeline fixtures each pass 10,000-cycle full-trace comparisons
+across eight native/reference/generated-C/parallel/Verilator modes, followed by
+five matching-digest repetitions at 10,000 cycles. These comparisons reuse the
+previously validated ordinary-core fixture batch. Their timing reports were
+produced under concurrent validation load and are not performance evidence.
+Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
+Fresh integrated and retained-construct Verilator runs remain active; the
+retained direct-versus-expanded performance gate remains open.
