@@ -1,0 +1,61 @@
+#lang rhodium
+// Defines the standalone architectural and CHI configuration for Spike adapter tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../profile.rhm" open
+  "../chi/foundation.rhdl" open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl") open
+  lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/pma.rhdl") open
+
+def test_spike_isa = RiscvIsaProfile(
+  XLen.X64,
+  ["i", "m", "a", "zicsr"],
+  [MisaExtension.I, MisaExtension.M, MisaExtension.A,
+   MisaExtension.S, MisaExtension.U]
+)
+def test_spike_cache = RiscvCacheDescription(64, 8, 4096)
+def test_spike_config = SpikeConfig(RiscvHartDescription(
+  test_spike_isa,
+  RiscvMmuType.Sv39,
+  test_spike_cache,
+  test_spike_cache
+))
+def test_spike_flit = CHIFlitParams()
+def test_spike_coherent_home = CHIHomeParams(
+  "test-spike-coherent-home", 1, CHINodeKind.HNF, ~max_outstanding: 2
+)
+def test_spike_uncached_home = CHIHomeParams(
+  "test-spike-uncached-home", 4, CHINodeKind.HNI, ~max_outstanding: 1
+)
+def test_spike_chi_config = RiscvHartCHIConfig(
+  test_spike_flit,
+  64,
+  [RiscvHartCHIRegion(
+     RiscvPhysicalMemoryRegion(
+       AddressSet(0, 0x7fff),
+       RiscvPhysicalMemoryAttributes(#true, #true, #true, #true,
+                                     #true, #false, #true)
+     ),
+     test_spike_coherent_home
+   ),
+   RiscvHartCHIRegion(
+     RiscvPhysicalMemoryRegion(
+       AddressSet(0x8000, 0x7fff),
+       RiscvPhysicalMemoryAttributes(#true, #true, #false, #false,
+                                     #false, #true, #false)
+     ),
+     test_spike_uncached_home
+   )]
+)
+
+export:
+  test_spike_config
+  test_spike_flit
+  test_spike_chi_config

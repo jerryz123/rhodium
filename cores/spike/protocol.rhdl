@@ -1,0 +1,135 @@
+#lang rhodium
+// Defines the implementation-neutral transaction ABI between Spike and its RTL adapters.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/protocol/coherence.rhdl") open
+
+bundle SpikeAddressRequest():
+  address: Bits(64)
+  size: Bits(3)
+  write: Bool
+  execute: Bool
+
+bundle SpikeAddressResponse():
+  cacheable: Bool
+  instruction_cacheable: Bool
+  device: Bool
+  access_fault: Bool
+
+interface SpikeAddressTransactions():
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Decoupled(SpikeAddressRequest())
+
+  responder -> requester:
+    response: Decoupled(SpikeAddressResponse())
+
+bundle SpikeInstructionRequest():
+  address: Bits(64)
+
+bundle SpikeInstructionResponse():
+  line: Bits(512)
+  access_fault: Bool
+
+interface SpikeInstructionTransactions():
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Decoupled(SpikeInstructionRequest())
+
+  responder -> requester:
+    response: Decoupled(SpikeInstructionResponse())
+
+bundle SpikeAcquireRequest():
+  address: Bits(64)
+  unique: Bool
+
+bundle SpikeAcquireResponse():
+  line: Bits(512)
+  state: CHIResponseState
+  pass_dirty: Bool
+  access_fault: Bool
+
+bundle SpikeReleaseRequest():
+  address: Bits(64)
+  line: Bits(512)
+  state: CHICacheState
+
+bundle SpikeReleaseResponse():
+  access_fault: Bool
+
+bundle SpikeSnoopRequest():
+  address: Bits(64)
+  share: Bool
+  invalidate: Bool
+  discard_dirty: Bool
+  return_to_source: Bool
+
+bundle SpikeSnoopResponse():
+  state: CHIResponseState
+  pass_dirty: Bool
+  has_data: Bool
+  line: Bits(512)
+
+interface SpikeDataTransactions():
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    acquire: Decoupled(SpikeAcquireRequest())
+    release: Decoupled(SpikeReleaseRequest())
+    snoop_response: Decoupled(SpikeSnoopResponse())
+
+  responder -> requester:
+    acquire_response: Decoupled(SpikeAcquireResponse())
+    release_response: Decoupled(SpikeReleaseResponse())
+    snoop: Decoupled(SpikeSnoopRequest())
+
+bundle SpikeUncachedRequest():
+  address: Bits(64)
+  write: Bool
+  size: Bits(3)
+  data: Bits(64)
+  mask: Bits(8)
+  device: Bool
+
+bundle SpikeUncachedResponse():
+  data: Bits(64)
+  access_fault: Bool
+
+interface SpikeUncachedTransactions():
+  role requester
+  role responder
+  provider requester
+
+  requester -> responder:
+    request: Decoupled(SpikeUncachedRequest())
+
+  responder -> requester:
+    response: Decoupled(SpikeUncachedResponse())
+
+export:
+  SpikeAddressRequest
+  SpikeAddressResponse
+  SpikeAddressTransactions
+  SpikeInstructionRequest
+  SpikeInstructionResponse
+  SpikeInstructionTransactions
+  SpikeAcquireRequest
+  SpikeAcquireResponse
+  SpikeReleaseRequest
+  SpikeReleaseResponse
+  SpikeSnoopRequest
+  SpikeSnoopResponse
+  SpikeDataTransactions
+  SpikeUncachedRequest
+  SpikeUncachedResponse
+  SpikeUncachedTransactions

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Installs the pinned FESVR library and headers used by the simulation harness.
+# Installs the pinned Spike and FESVR libraries and headers used by simulation models.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -20,11 +20,24 @@ identity="$("$python_command" "$patched_submodule_tool" identity \
   --repository "$repo_dir" --submodule riscv/riscv-isa-sim --series "$patch_dir/series")"
 install_dir="${FESVR_PREFIX:-$repo_dir/.tools/fesvr-$identity}"
 
-if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]]; then
-  echo "FESVR $identity is already installed at $install_dir"
+fix_shared_library_paths() {
+  if [[ "$(uname -s)" == Darwin ]]; then
+    for library in "$install_dir"/lib/*.so; do
+      [[ -f "$library" ]] || continue
+      install_name_tool -id "@rpath/$(basename "$library")" "$library"
+    done
+  fi
+}
+
+if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]] && [[ -f "$install_dir/lib/libriscv.so" ]]; then
+  fix_shared_library_paths
+  echo "Spike and FESVR $identity are already installed at $install_dir"
   exit 0
 fi
-if [[ -e "$install_dir" ]]; then
+upgrade_existing=false
+if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]]; then
+  upgrade_existing=true
+elif [[ -e "$install_dir" ]]; then
   echo "FESVR install path contains an incomplete or different build: $install_dir" >&2
   exit 1
 fi
@@ -51,13 +64,15 @@ mkdir -p "$build_dir" "$staged_install_dir/lib/pkgconfig"
 (
   cd "$build_dir"
   "$source_dir/configure" --prefix="$staged_install_dir" --with-boost=no
-  make -j"$build_jobs" libfesvr.a
-  make install-hdrs install-config-hdrs
-  install -m 644 libfesvr.a "$staged_install_dir/lib/libfesvr.a"
-  install -m 644 riscv-fesvr.pc "$staged_install_dir/lib/pkgconfig/riscv-fesvr.pc"
+  make -j"$build_jobs" install-hdrs install-config-hdrs install-libs install-pc
 )
 printf '%s\n' "$identity" > "$staged_install_dir/.complete"
 mkdir -p "$(dirname "$install_dir")"
-mv "$staged_install_dir" "$install_dir"
+if [[ "$upgrade_existing" == true ]]; then
+  cp -R "$staged_install_dir/." "$install_dir/"
+else
+  mv "$staged_install_dir" "$install_dir"
+fi
+fix_shared_library_paths
 
-echo "Installed FESVR $identity at $install_dir"
+echo "Installed Spike and FESVR $identity at $install_dir"

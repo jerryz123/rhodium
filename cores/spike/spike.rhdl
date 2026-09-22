@@ -1,0 +1,78 @@
+#lang rhodium
+// Composes the Spike DPI hart with private-cache transaction adapters and three CHI ports.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm" open
+  "dpi/spike-dpi.rhdl" open
+  "chi/instruction.rhdl" open
+  "chi/data.rhdl" open
+  "chi/uncached.rhdl" open
+  "../riscv/chi-hart.rhdl" open
+  lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("chi/protocol/channels.rhdl") open
+  lib("chi/protocol/flits.rhdl").CHIDatFlit
+
+sync_circuit SpikeCore(config :: SpikeConfig,
+                       ~reset_address: reset_address :: Nat,
+                       ~chi: chi_config :: RiscvHartCHIConfig):
+  def p = chi_config.flit
+  unless chi_config.cache_line_bytes == 64
+  | error(~who: #'SpikeCore, "SpikeCore requires 64-byte CHI cache lines")
+
+  input chi_identity: RiscvHartCHIIdentity(p)
+  input interrupts: RiscvInterrupts()
+  input hart_id: Bits(config.architecture.xlen.width)
+  input time_counter: Bits(64)
+  interface imem(CHIRNIChannels(p), ~role: node)
+  interface dmem(CHIRNChannels(p), ~role: node)
+  interface umem(CHIRNIChannels(p), ~role: node)
+
+  inst spike(SpikeDPI(config))
+  inst instruction(SpikeInstructionCHI(chi_config))
+  inst data(SpikeDataCHI(chi_config))
+  inst uncached(SpikeUncachedCHI(chi_config))
+
+  spike.hart_id <== if config.architecture.xlen.width == 64 | hart_id | hart_id.zext(64)
+  spike.reset_vector <== bits(reset_address, 64)
+  spike.time <== time_counter
+  spike.interrupts <== interrupts.machine_external.as_bits() ++ (
+    interrupts.supervisor_external.as_bits()
+  ) ++ interrupts.machine_timer.as_bits() ++ interrupts.supervisor_timer.as_bits() ++ (
+    interrupts.machine_software.as_bits()
+  ) ++ interrupts.supervisor_software.as_bits()
+
+  def address_request = spike.address.request.bits
+  def access_bytes = bits(1, 64) << address_request.size
+  def classified = chi_config.physical_map.lookup(
+    address_request.address,
+    address_request.address +& (access_bytes - bits(1, 64))
+  )
+  spike.address.request.ready <== spike.address.response.ready
+  spike.address.response.valid <== spike.address.request.valid
+  spike.address.response.bits.cacheable <== classified.cacheable
+  spike.address.response.bits.instruction_cacheable <== classified.instruction_cacheable
+  spike.address.response.bits.device <== classified.device
+  spike.address.response.bits.access_fault <== !classified.mapped ||| mux(
+    spike.address.request.bits.execute,
+    !classified.executable,
+    mux(spike.address.request.bits.write, !classified.writable, !classified.readable)
+  )
+
+  spike.instruction <=> instruction.transaction
+  spike.data <=> data.transaction
+  spike.uncached <=> uncached.transaction
+  instruction.node_id <== chi_identity.instruction_node_id
+  data.node_id <== chi_identity.data_node_id
+  uncached.node_id <== chi_identity.uncached_node_id
+  instruction.requests <=> imem.req
+  instruction.acknowledgements <=> imem.rsp.requester
+  imem.rsp.response <=> instruction.responses
+  imem.dat.response <=> instruction.response_data
+  imem.dat.request.valid <== Bool(#false)
+  imem.dat.request.bits <== literal(CHIDatFlit(p), 0)
+  data.chi <=> dmem
+  uncached.chi <=> umem
+
+export:
+  SpikeCore

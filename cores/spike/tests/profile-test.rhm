@@ -25,3 +25,9 @@ def config = SpikeConfig(architecture)
 
 check:
   config.hart_description === architecture ~is #true
+  config.isa_string ~is "rv64ima_zic64b"
+  config.privilege_string ~is "m"
+  config.instructions_per_cycle ~is 1
+  config.pmp_regions ~is 16
+  config.xlen_is_64 ~is #true
+  (config.isa_bytes bits.and 0xffffffff) ~is 0x34367672

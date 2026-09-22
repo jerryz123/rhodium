@@ -1,0 +1,109 @@
+#lang rhodium
+// Adapts CHI snoops to the Spike software cache and returns retained state or data.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "foundation.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
+  lib("chi/protocol/coherence.rhdl") open
+
+sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
+  def p = config.flit
+  def packet_count = 64 / p.data_bytes
+  def packet_index_width = index_width(packet_count)
+  input node_id: Bits(p.node_id_width)
+  interface software_request(Decoupled(SpikeSnoopRequest()), ~role: producer)
+  interface software_response(Decoupled(SpikeSnoopResponse()), ~role: consumer)
+  interface snoops(Decoupled(CHISnpFlit(p)), ~role: consumer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
+
+  reg active(~init: Bool(#false))
+  reg request(CHISnpFlit(p))
+  reg response_valid(~init: Bool(#false))
+  reg response(SpikeSnoopResponse())
+  reg packet_index(~init: bits(0, packet_index_width))
+  reg dvm_first_pending(~init: Bool(#false))
+
+  def ordinary = snoops.bits.opcode =/= CHISnpOpcode.SnpLCrdReturn
+  def incoming_dvm = snoops.bits.opcode === CHISnpOpcode.SnpDVMOp
+  def can_start = !active & (!dvm_first_pending ||| incoming_dvm)
+  snoops.ready <== !ordinary ||| (can_start & (incoming_dvm ||| software_request.ready))
+  def snoop_fire = snoops.fire() & ordinary
+  def lookup_start = snoop_fire & !incoming_dvm
+  def dvm_first_fire = snoop_fire & incoming_dvm & !dvm_first_pending
+  def dvm_second_fire = snoop_fire & incoming_dvm & dvm_first_pending
+  software_request.valid <== snoops.valid & ordinary & !incoming_dvm & can_start
+  software_request.bits <== SpikeSnoopRequest():
+    address: spike_chi_snoop_address(p, snoops.bits.address)
+    share: spike_snoop_shares_state(snoops.bits.opcode)
+    invalidate: spike_snoop_invalidates_state(snoops.bits.opcode)
+    discard_dirty: chi_snoop_discards_dirty(snoops.bits.opcode)
+    return_to_source: snoops.bits.ret_to_src
+
+  software_response.ready <== active & !response_valid
+  def software_response_fire = software_response.fire()
+  def clean_response = response_valid & !response.has_data
+  def coherent_response = CHICoherentResponse():
+    pass_dirty: response.pass_dirty
+    state: response.state
+  responses.valid <== clean_response
+  responses.bits <== spike_chi_response(
+    p, node_id, request.src_id, request.txn_id, CHIRspOpcode.SnpResp,
+    ~resp: coherent_response.as_bits()
+  )
+  def response_fire = responses.fire()
+
+  def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  def data_id = chi_transfer_data_id(packet_number, p)
+  def inactive_data :: CHIDatFlit(p) = literal(CHIDatFlit(p), 0)
+  data.valid <== response_valid & response.has_data
+  data.bits <== inactive_data.updated(
+    ~data: response.line.as_vec(Bits(p.data_width))[packet_index],
+    ~byte_enable: !bits(0, p.byte_enable_width),
+    ~trace_tag: request.trace_tag,
+    ~tag_op: CHITagOp.Invalid,
+    ~data_id: data_id,
+    ~ccid: data_id,
+    ~resp: coherent_response.as_bits(),
+    ~resp_err: CHIRespErr.OK,
+    ~opcode: CHIDatOpcode.SnpRespData,
+    ~home_nid_or_pbha_or_mismatched_mecid: request.src_id,
+    ~txn_id: request.txn_id,
+    ~src_id: node_id,
+    ~tgt_id: request.src_id,
+    ~qos: request.qos
+  )
+  def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
+  def final_data = data.fire() & final_packet
+
+  when (lookup_start ||| dvm_second_fire):
+    active <== Bool(#true)
+    request <== snoops.bits
+    response_valid <== dvm_second_fire
+    response <== SpikeSnoopResponse():
+      state: CHIResponseState.Invalid
+      pass_dirty: Bool(#false)
+      has_data: Bool(#false)
+      line: bits(0, 512)
+    packet_index <== bits(0, packet_index_width)
+  elsewhen software_response_fire:
+    response_valid <== Bool(#true)
+    response <== software_response.bits
+  elsewhen (data.fire() & !final_packet):
+    packet_index <== packet_index + bits(1, packet_index_width)
+  elsewhen (response_fire ||| final_data):
+    active <== Bool(#false)
+    response_valid <== Bool(#false)
+
+  when dvm_first_fire:
+    dvm_first_pending <== Bool(#true)
+  elsewhen dvm_second_fire:
+    dvm_first_pending <== Bool(#false)
+
+export:
+  SpikeSnoop

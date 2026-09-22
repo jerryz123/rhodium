@@ -1,0 +1,195 @@
+#lang rhodium
+// Defines Spike-specific CHI endpoint capabilities and flit construction helpers.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_line_data_id
+  lib("chi/protocol/coherence.rhdl") open
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl") open
+  lib("chi/protocol/messages.rhdl") open
+  "../../riscv/chi-hart.rhdl" open
+
+def SpikeAcquireResponses = response_profile("spike_acquire"):
+  retryable
+
+def SpikeReleaseResponses = response_profile("spike_release"):
+  retryable
+  milestone grant
+  response [CHIRspOpcode.CompDBIDResp]:
+    completes [grant]
+
+class SpikeCHIParams(hart :: RiscvHartCHIParams):
+  property config: hart.config
+  property flit: hart.flit
+  property home_map: hart.home_map
+  property instruction_node_id: hart.instruction_node_id
+  property data_node_id: hart.data_node_id
+  property uncached_node_id: hart.uncached_node_id
+
+  property instruction_node:
+    CHINodeParams(
+      "spike-l1i",
+      instruction_node_id,
+      CHINodeKind.RNI,
+      ~emits: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadOnce],
+        ~rsp: [CHIRspOpcode.CompAck]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~rsp: SpikeAcquireResponses.response_opcodes,
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~max_outstanding: 1
+    )
+
+  property data_node:
+    CHINodeParams(
+      "spike-l1d",
+      data_node_id,
+      CHINodeKind.RNF,
+      ~emits: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteBackFull],
+        ~rsp: [CHIRspOpcode.CompAck, CHIRspOpcode.SnpResp],
+        ~dat: [CHIDatOpcode.SnpRespData, CHIDatOpcode.CopyBackWriteData]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~rsp: chi_response_profile_opcodes([SpikeAcquireResponses, SpikeReleaseResponses]),
+        ~snp: chi_rnf_snoop_opcodes,
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~max_outstanding: 2
+    )
+
+  property uncached_node:
+    CHINodeParams(
+      "spike-uncached",
+      uncached_node_id,
+      CHINodeKind.RNI,
+      ~emits: CHIChannelCapabilities(
+        ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl],
+        ~dat: [CHIDatOpcode.NonCopyBackWriteData]
+      ),
+      ~supports: CHIChannelCapabilities(
+        ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
+        ~dat: [CHIDatOpcode.CompData]
+      ),
+      ~max_outstanding: 1
+    )
+
+  constructor (config :: RiscvHartCHIConfig,
+               instruction_node_id :: Nat,
+               data_node_id :: Nat,
+               ~uncached_node_id: uncached_node_id :: Nat = 0):
+    super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
+                             ~uncached_node_id: uncached_node_id))
+
+fun spike_chi_address(address :: Bits, p :: CHIFlitParams) :~ Bits(p.request_address_width):
+  def width = hardware_value_type(address).packed_width()
+  cond
+  | width < p.request_address_width: address.zext(p.request_address_width)
+  | width == p.request_address_width: address
+  | ~else: address[0..p.request_address_width]
+
+fun spike_chi_address_fits(address :: Bits, p :: CHIFlitParams) :~ Bool:
+  def width = hardware_value_type(address).packed_width()
+  if width <= p.request_address_width
+  | Bool(#true)
+  | !address[p.request_address_width..width].or_reduce()
+
+fun spike_chi_snoop_address(p :: CHIFlitParams,
+                            snoop_address :: Bits(p.snoop_address_width)) :~ Bits(64):
+  def raw_address = snoop_address ++ bits(0, 3)
+  if p.request_address_width < 64 | raw_address.zext(64) | raw_address[0..64]
+
+fun spike_chi_request(p :: CHIFlitParams,
+                      node_id :: Bits(p.node_id_width),
+                      home_id :: Bits(p.node_id_width),
+                      address :: Bits(64),
+                      size :: CHITransferSize,
+                      opcode :: CHIReqOpcode,
+                      txn_id :: Bits(12),
+                      expect_comp_ack :: Bool,
+                      allocate :: Bool,
+                      allow_retry :: Bool,
+                      protocol_credit_type :: Bits(4),
+                      ~cacheable: cacheable :: Bool = Bool(#true),
+                      ~device: device :: Bool = Bool(#false)) :~ CHIReqFlit(p):
+  def attributes = CHIMemAttr():
+    allocate: allocate
+    cacheable: cacheable
+    device: device
+    early_write_acknowledge: Bool(#false)
+  def inactive :: CHIReqFlit(p) = literal(CHIReqFlit(p), 0)
+  inactive.updated(
+    ~tag_op: CHITagOp.Invalid,
+    ~exp_comp_ack: expect_comp_ack,
+    ~snp_attr_or_do_dwt: Bool(#true),
+    ~mem_attr: attributes,
+    ~pcrd_type: protocol_credit_type,
+    ~order: CHIOrder.NoOrder,
+    ~allow_retry: allow_retry,
+    ~pas: CHIPAS.Secure,
+    ~address: spike_chi_address(address, p),
+    ~size_or_num_req: size.as_bits().zext(6),
+    ~opcode: opcode,
+    ~return_nid_or_stash_nid_or_data_target: node_id,
+    ~txn_id: txn_id,
+    ~src_id: node_id,
+    ~tgt_id: home_id
+  )
+
+fun spike_chi_response(p :: CHIFlitParams,
+                       node_id :: Bits(p.node_id_width),
+                       target_id :: Bits(p.node_id_width),
+                       txn_id :: Bits(12),
+                       opcode :: CHIRspOpcode,
+                       ~resp: response :: Bits(3) = bits(0, 3)) :~ CHIRspFlit(p):
+  chi_response(p, node_id, target_id, txn_id, opcode,
+               ~dbid: bits(0, 12), ~resp: response,
+               ~error: CHIRespErr.OK, ~qos: bits(0, 4))
+
+fun spike_snoop_shares_state(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpShared, CHISnpOpcode.SnpClean,
+                   CHISnpOpcode.SnpNotSharedDirty, CHISnpOpcode.SnpCleanShared)
+
+fun spike_snoop_invalidates_state(opcode :: CHISnpOpcode) :~ Bool:
+  opcode.is_one_of(CHISnpOpcode.SnpUniqueStash, CHISnpOpcode.SnpMakeInvalidStash,
+                   CHISnpOpcode.SnpUnique, CHISnpOpcode.SnpCleanInvalid,
+                   CHISnpOpcode.SnpMakeInvalid, CHISnpOpcode.SnpPreferUnique,
+                   CHISnpOpcode.SnpSharedFwd, CHISnpOpcode.SnpCleanFwd,
+                   CHISnpOpcode.SnpOnceFwd, CHISnpOpcode.SnpNotSharedDirtyFwd,
+                   CHISnpOpcode.SnpPreferUniqueFwd, CHISnpOpcode.SnpUniqueFwd)
+
+fun spike_chi_write_data(p :: CHIFlitParams,
+                         node_id :: Bits(p.node_id_width),
+                         home_id :: Bits(p.node_id_width),
+                         dbid :: Bits(12),
+                         address :: Bits(64),
+                         data :: Bits(p.data_width),
+                         byte_enable :: Bits(p.byte_enable_width)) :~ CHIDatFlit(p):
+  def chi_address = spike_chi_address(address, p)
+  chi_rn_write_data(p, node_id, home_id, dbid, data, byte_enable,
+                    ~data_id: chi_line_data_id(chi_address, p),
+                    ~ccid: chi_address[4..6], ~dbid_or_mecid: dbid.zext(16))
+
+export:
+  SpikeAcquireResponses
+  SpikeReleaseResponses
+  RiscvHartCHIRegion
+  RiscvHartCHIConfig
+  RiscvHartCHIParams
+  SpikeCHIParams
+  RiscvHartCHIIdentity
+  spike_chi_address
+  spike_chi_address_fits
+  spike_chi_snoop_address
+  spike_chi_request
+  spike_chi_response
+  spike_snoop_shares_state
+  spike_snoop_invalidates_state
+  spike_chi_write_data

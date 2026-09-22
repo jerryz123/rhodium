@@ -1,0 +1,15 @@
+#lang rhombus
+// Emits CIRCT MLIR for the standalone Spike core test configuration.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../spike.rhdl".SpikeCore
+  "params.rhdl" open
+
+def design = embedded.run_elaboration(
+  fun (): SpikeCore(test_spike_config, ~reset_address: 0x1000,
+                    ~chi: test_spike_chi_config)
+)
+print(emit_circt(design))

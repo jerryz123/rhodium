@@ -1,0 +1,43 @@
+#lang rhodium
+// Adapts Spike instruction-line requests to the reusable CHI ReadOnce engine.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "foundation.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/transactions/read-once.rhdl") open
+
+sync_circuit SpikeInstructionCHI(config :: RiscvHartCHIConfig):
+  def p = config.flit
+  input node_id: Bits(p.node_id_width)
+  interface transaction(SpikeInstructionTransactions(), ~role: responder)
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface acknowledgements(Decoupled(CHIRspFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface response_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
+
+  inst read(CHIReadOnce(p, Bits(1)))
+  read.node_id <== node_id
+  read.txn_id <== bits(0, 12)
+  (transaction.request |> map_flow(request => CHIReadOnceCommand(p, Bits(1))):
+    address: spike_chi_address(request.address.align_down(64), p)
+    home_id: config.home_map.lookup(spike_chi_address(request.address, p)).node_id
+    pas: CHIPAS.Secure
+    allocate: Bool(#true)
+    qos: bits(0, 4)
+    context: bits(0, 1)
+  ) |> read.command
+  (read.completion |> map_flow(result => SpikeInstructionResponse()):
+    line: result.line
+    access_fault: (result.error =/= CHIRespErr.OK) ||| result.poisoned
+  ) |> transaction.response
+  read.requests |> requests
+  read.acknowledgements |> acknowledgements
+  responses |> read.responses
+  response_data |> read.response_data
+
+export:
+  SpikeInstructionCHI

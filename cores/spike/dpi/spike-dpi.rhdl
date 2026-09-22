@@ -1,0 +1,215 @@
+#lang rhodium
+// Bridges one Spike hart to typed instruction, coherent-data, and uncached transactions.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../profile.rhm" open
+  "../protocol.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/coherence.rhdl") open
+
+dpi_import function rhodium_spike_tick(
+  reset: Bool,
+  hart_id: Bits(64),
+  reset_vector: Bits(64),
+  time: Bits(64),
+  interrupts: Bits(8),
+  xlen_is_64: Bool,
+  isa: Bits(SpikeIsaBytes * 8),
+  privilege: Bits(SpikeIsaBytes * 8),
+  instructions_per_cycle: Bits(16),
+  pmp_regions: Bits(8),
+  instruction_cache_sets: Bits(16),
+  instruction_cache_ways: Bits(16),
+  data_cache_sets: Bits(16),
+  data_cache_ways: Bits(16),
+  address_request_ready: Bool,
+  address_response_valid: Bool,
+  address_response_cacheable: Bool,
+  address_response_instruction_cacheable: Bool,
+  address_response_device: Bool,
+  address_response_fault: Bool,
+  instruction_request_ready: Bool,
+  instruction_response_valid: Bool,
+  instruction_response_line: Bits(512),
+  instruction_response_fault: Bool,
+  acquire_request_ready: Bool,
+  acquire_response_valid: Bool,
+  acquire_response_line: Bits(512),
+  acquire_response_state: Bits(8),
+  acquire_response_pass_dirty: Bool,
+  acquire_response_fault: Bool,
+  release_request_ready: Bool,
+  release_response_valid: Bool,
+  release_response_fault: Bool,
+  snoop_valid: Bool,
+  snoop_address: Bits(64),
+  snoop_share: Bool,
+  snoop_invalidate: Bool,
+  snoop_discard_dirty: Bool,
+  snoop_return_to_source: Bool,
+  snoop_response_ready: Bool,
+  uncached_request_ready: Bool,
+  uncached_response_valid: Bool,
+  uncached_response_data: Bits(64),
+  uncached_response_fault: Bool
+) -> (
+  out address_request_valid: Bool,
+  out address_request_address: Bits(64),
+  out address_request_size: Bits(8),
+  out address_request_write: Bool,
+  out address_request_execute: Bool,
+  out address_response_ready: Bool,
+  out instruction_request_valid: Bool,
+  out instruction_request_address: Bits(64),
+  out instruction_response_ready: Bool,
+  out acquire_request_valid: Bool,
+  out acquire_request_address: Bits(64),
+  out acquire_request_unique: Bool,
+  out acquire_response_ready: Bool,
+  out release_request_valid: Bool,
+  out release_request_address: Bits(64),
+  out release_request_line: Bits(512),
+  out release_request_state: Bits(8),
+  out release_response_ready: Bool,
+  out snoop_ready: Bool,
+  out snoop_response_valid: Bool,
+  out snoop_response_state: Bits(8),
+  out snoop_response_pass_dirty: Bool,
+  out snoop_response_has_data: Bool,
+  out snoop_response_line: Bits(512),
+  out uncached_request_valid: Bool,
+  out uncached_request_address: Bits(64),
+  out uncached_request_write: Bool,
+  out uncached_request_size: Bits(8),
+  out uncached_request_data: Bits(64),
+  out uncached_request_mask: Bits(8),
+  out uncached_request_device: Bool,
+  return uncached_response_ready: Bool
+)
+
+sync_circuit SpikeDPI(config :: SpikeConfig):
+  input hart_id: Bits(64)
+  input reset_vector: Bits(64)
+  input time: Bits(64)
+  input interrupts: Bits(6)
+  interface address(SpikeAddressTransactions(), ~role: requester)
+  interface instruction(SpikeInstructionTransactions(), ~role: requester)
+  interface data(SpikeDataTransactions(), ~role: requester)
+  interface uncached(SpikeUncachedTransactions(), ~role: requester)
+
+  dpi_reg (
+    address_request_valid,
+    address_request_address,
+    address_request_size,
+    address_request_write,
+    address_request_execute,
+    address_response_ready,
+    instruction_request_valid,
+    instruction_request_address,
+    instruction_response_ready,
+    acquire_request_valid,
+    acquire_request_address,
+    acquire_request_unique,
+    acquire_response_ready,
+    release_request_valid,
+    release_request_address,
+    release_request_line,
+    release_request_state,
+    release_response_ready,
+    snoop_ready,
+    snoop_response_valid,
+    snoop_response_state,
+    snoop_response_pass_dirty,
+    snoop_response_has_data,
+    snoop_response_line,
+    uncached_request_valid,
+    uncached_request_address,
+    uncached_request_write,
+    uncached_request_size,
+    uncached_request_data,
+    uncached_request_mask,
+    uncached_request_device,
+    uncached_response_ready
+  ) = rhodium_spike_tick(
+    reset_active().into(Bool),
+    hart_id,
+    reset_vector,
+    time,
+    interrupts.zext(8),
+    Bool(config.xlen_is_64),
+    bits(config.isa_bytes, SpikeIsaBytes * 8),
+    bits(config.privilege_bytes, SpikeIsaBytes * 8),
+    bits(config.instructions_per_cycle, 16),
+    bits(config.pmp_regions, 8),
+    bits(config.architecture.instruction_cache.sets, 16),
+    bits(config.architecture.instruction_cache.ways, 16),
+    bits(config.architecture.data_cache.sets, 16),
+    bits(config.architecture.data_cache.ways, 16),
+    address.request.ready,
+    address.response.valid,
+    address.response.bits.cacheable,
+    address.response.bits.instruction_cacheable,
+    address.response.bits.device,
+    address.response.bits.access_fault,
+    instruction.request.ready,
+    instruction.response.valid,
+    instruction.response.bits.line,
+    instruction.response.bits.access_fault,
+    data.acquire.ready,
+    data.acquire_response.valid,
+    data.acquire_response.bits.line,
+    data.acquire_response.bits.state.as_bits().zext(8),
+    data.acquire_response.bits.pass_dirty,
+    data.acquire_response.bits.access_fault,
+    data.release.ready,
+    data.release_response.valid,
+    data.release_response.bits.access_fault,
+    data.snoop.valid,
+    data.snoop.bits.address,
+    data.snoop.bits.share,
+    data.snoop.bits.invalidate,
+    data.snoop.bits.discard_dirty,
+    data.snoop.bits.return_to_source,
+    data.snoop_response.ready,
+    uncached.request.ready,
+    uncached.response.valid,
+    uncached.response.bits.data,
+    uncached.response.bits.access_fault
+  )
+
+  address.request.valid <== address_request_valid
+  address.request.bits.address <== address_request_address
+  address.request.bits.size <== address_request_size[0..3]
+  address.request.bits.write <== address_request_write
+  address.request.bits.execute <== address_request_execute
+  address.response.ready <== address_response_ready
+  instruction.request.valid <== instruction_request_valid
+  instruction.request.bits.address <== instruction_request_address
+  instruction.response.ready <== instruction_response_ready
+  data.acquire.valid <== acquire_request_valid
+  data.acquire.bits.address <== acquire_request_address
+  data.acquire.bits.unique <== acquire_request_unique
+  data.acquire_response.ready <== acquire_response_ready
+  data.release.valid <== release_request_valid
+  data.release.bits.address <== release_request_address
+  data.release.bits.line <== release_request_line
+  data.release.bits.state <== release_request_state[0..3].into(CHICacheState)
+  data.release_response.ready <== release_response_ready
+  data.snoop.ready <== snoop_ready
+  data.snoop_response.valid <== snoop_response_valid
+  data.snoop_response.bits.state <== snoop_response_state[0..2].into(CHIResponseState)
+  data.snoop_response.bits.pass_dirty <== snoop_response_pass_dirty
+  data.snoop_response.bits.has_data <== snoop_response_has_data
+  data.snoop_response.bits.line <== snoop_response_line
+  uncached.request.valid <== uncached_request_valid
+  uncached.request.bits.address <== uncached_request_address
+  uncached.request.bits.write <== uncached_request_write
+  uncached.request.bits.size <== uncached_request_size[0..3]
+  uncached.request.bits.data <== uncached_request_data
+  uncached.request.bits.mask <== uncached_request_mask
+  uncached.request.bits.device <== uncached_request_device
+  uncached.response.ready <== uncached_response_ready
+
+export:
+  SpikeDPI

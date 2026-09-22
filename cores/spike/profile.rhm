@@ -1,15 +1,83 @@
 #lang rhombus
-// Defines the implementation-owned configuration boundary for a future Spike-backed core.
+// Defines implementation-owned configuration and DPI constants for the Spike-backed core.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("riscv/isa/hart.rhm").RiscvHartDescription
+  lib("riscv/isa/profile.rhm").MisaExtension
+  lib("riscv/isa/xlen.rhm").XLen
 
-class SpikeConfig(architecture :: RiscvHartDescription):
+def SpikeIsaBytes :: PosInt = 64
+
+fun spike_isa_string(architecture :: RiscvHartDescription) :: String:
+  def extensions = architecture.isa_profile.isa_extensions
+  def single_letter = ["m", "a", "f", "d", "c", "b", "v"]
+  def compact = String.join(single_letter.filter(
+    ~keep: fun (extension): extensions.contains(extension)
+  ), "")
+  def named = extensions.filter(
+    ~keep: fun (extension): !(extension == "i" || single_letter.contains(extension))
+  )
+  architecture.isa_profile.isa_base ++ compact ++ (
+    if named.is_empty() | "" | "_" ++ String.join(named, "_")
+  )
+
+fun spike_privilege_string(architecture :: RiscvHartDescription) :: String:
+  def extensions = architecture.isa_profile.misa_extensions
+  "m" ++ (if extensions.contains(MisaExtension.S) | "s" | "") ++ (
+    if extensions.contains(MisaExtension.U) | "u" | ""
+  )
+
+fun pack_spike_string(value :: String) :: Nat:
+  def bytes = value.utf8_bytes().to_list()
+  when bytes.length() >= SpikeIsaBytes
+  | error(~who: #'pack_spike_string, "Spike configuration string is too long")
+  def mutable packed = 0
+  def mutable shift = 0
+  for (byte in bytes ++ [0]):
+    packed := packed + (byte bits.(<<) shift)
+    shift := shift + 8
+  packed
+
+class SpikeConfig(architecture :: RiscvHartDescription,
+                  instructions_per_cycle :: PosInt,
+                  pmp_regions :: Nat):
   implements StableCircuitParam
 
+  constructor (architecture :: RiscvHartDescription,
+               ~instructions_per_cycle: instructions_per_cycle :: PosInt = 1,
+               ~pmp_regions: pmp_regions :: Nat = 16):
+    unless architecture.instruction_cache.block_bytes == 64 && (
+      architecture.data_cache.block_bytes == 64
+    )
+    | error(~who: #'SpikeConfig,
+            "the initial Spike adapter requires 64-byte cache lines")
+    unless pmp_regions <= 64
+    | error(~who: #'SpikeConfig, "Spike supports at most 64 PMP regions")
+    unless instructions_per_cycle <= 0xffff
+    | error(~who: #'SpikeConfig,
+            "instructions per cycle must fit the 16-bit DPI configuration field")
+    unless for all (value in [
+      architecture.instruction_cache.sets,
+      architecture.instruction_cache.ways,
+      architecture.data_cache.sets,
+      architecture.data_cache.ways
+    ]): value <= 0xffff
+    | error(~who: #'SpikeConfig,
+            "cache set and way counts must fit the 16-bit DPI configuration fields")
+    super(architecture, instructions_per_cycle, pmp_regions)
+
   property hart_description :: RiscvHartDescription: architecture
+  property isa_string :: String: spike_isa_string(architecture)
+  property privilege_string :: String: spike_privilege_string(architecture)
+  property isa_bytes :: Nat: pack_spike_string(isa_string)
+  property privilege_bytes :: Nat: pack_spike_string(privilege_string)
+  property xlen_is_64 :: Boolean: architecture.xlen == XLen.X64
 
 export:
+  SpikeIsaBytes
+  spike_isa_string
+  spike_privilege_string
+  pack_spike_string
   SpikeConfig

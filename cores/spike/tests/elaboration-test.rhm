@@ -1,0 +1,58 @@
+#lang rhombus
+// Checks the standalone Spike core, typed DPI boundary, and three CHI ports elaborate.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "../spike.rhdl" open
+  "params.rhdl" open
+
+def design = embedded.run_elaboration(
+  fun (): SpikeCore(test_spike_config, ~reset_address: 0x1000,
+                    ~chi: test_spike_chi_config)
+)
+def core = design.modules.find(fun (module_def): module_def.name == "SpikeCore")
+def dpi = design.modules.find(fun (module_def): module_def.name == "SpikeDPI")
+def dpi_import = design.dpi_imports[0]
+def circt = emit_circt(design)
+
+check:
+  core.find_output("imem_out").type.field("req").type.field("bits").type.field("address").type.width ~is test_spike_flit.request_address_width
+  core.find_input("dmem_in").type.field("snoops").type.field("bits").type.field("address").type.width ~is test_spike_flit.snoop_address_width
+  core.find_output("umem_out").type.field("req").type.field("bits").type.field("address").type.width ~is test_spike_flit.request_address_width
+  dpi.find_output("address_out").type.field("request").type.field("bits").type.field("address").type.width ~is 64
+  design.dpi_imports.length() ~is 1
+  dpi_import.name ~is "rhodium_spike_tick"
+  dpi_import.input_names ~is [
+    "reset", "hart_id", "reset_vector", "time", "interrupts", "xlen_is_64",
+    "isa", "privilege", "instructions_per_cycle", "pmp_regions",
+    "instruction_cache_sets", "instruction_cache_ways", "data_cache_sets",
+    "data_cache_ways", "address_request_ready", "address_response_valid",
+    "address_response_cacheable", "address_response_instruction_cacheable",
+    "address_response_device", "address_response_fault", "instruction_request_ready",
+    "instruction_response_valid", "instruction_response_line", "instruction_response_fault",
+    "acquire_request_ready", "acquire_response_valid", "acquire_response_line",
+    "acquire_response_state", "acquire_response_pass_dirty", "acquire_response_fault",
+    "release_request_ready", "release_response_valid", "release_response_fault",
+    "snoop_valid", "snoop_address", "snoop_share", "snoop_invalidate",
+    "snoop_discard_dirty", "snoop_return_to_source", "snoop_response_ready",
+    "uncached_request_ready", "uncached_response_valid", "uncached_response_data",
+    "uncached_response_fault"
+  ]
+  dpi_import.results.map(fun (result): result.name) ~is [
+    "address_request_valid", "address_request_address", "address_request_size",
+    "address_request_write", "address_request_execute", "address_response_ready",
+    "instruction_request_valid", "instruction_request_address", "instruction_response_ready",
+    "acquire_request_valid", "acquire_request_address", "acquire_request_unique",
+    "acquire_response_ready", "release_request_valid", "release_request_address",
+    "release_request_line", "release_request_state", "release_response_ready",
+    "snoop_ready", "snoop_response_valid", "snoop_response_state",
+    "snoop_response_pass_dirty", "snoop_response_has_data", "snoop_response_line",
+    "uncached_request_valid", "uncached_request_address", "uncached_request_write",
+    "uncached_request_size", "uncached_request_data", "uncached_request_mask",
+    "uncached_request_device", "uncached_response_ready"
+  ]
+  circt.contains("sim.func.dpi @rhodium_spike_tick(") ~is #true
+  circt.contains("return uncached_response_ready : i1") ~is #true

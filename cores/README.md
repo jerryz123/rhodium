@@ -160,10 +160,12 @@ instruction families, pipeline and completion contracts, FP state and
 execution, memory hierarchy, CHI boundary, generator parameters, ports, tests,
 and deliberate limits.
 
-[`spike/profile.rhm`](spike/profile.rhm) establishes the implementation-owned
-configuration boundary for a future Spike-backed core. It currently projects
-the shared architectural hart description but does not yet provide execution
-or protocol RTL.
+[`spike/spike.rhdl`](spike/spike.rhdl) is the standalone simulator-backed named
+core. It projects the shared architectural hart description, runs Spike through
+a typed DPI transaction boundary, keeps PMA classification in RTL, and exposes
+independent instruction, coherent-data, and uncached CHI ports. It is not yet a
+SoC-selectable core. See [`spike/README.md`](spike/README.md) for the adapter and
+private-cache contracts.
 
 ## Preserve dependency direction
 

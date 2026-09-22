@@ -1,0 +1,61 @@
+#lang rhodium
+// Composes Spike coherent acquire, release, and snoop engines onto one CHI RN-F port.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "foundation.rhdl" open
+  "acquire.rhdl" open
+  "release.rhdl" open
+  "snoop.rhdl" open
+  lib("chi/protocol/channels.rhdl").CHIRNChannels
+
+sync_circuit SpikeDataCHI(config :: RiscvHartCHIConfig):
+  def p = config.flit
+  input node_id: Bits(p.node_id_width)
+  interface transaction(SpikeDataTransactions(), ~role: responder)
+  interface chi(CHIRNChannels(p), ~role: node)
+
+  inst acquire(SpikeAcquire(config))
+  inst release(SpikeRelease(config))
+  inst snoop(SpikeSnoop(config))
+  acquire.node_id <== node_id
+  release.node_id <== node_id
+  snoop.node_id <== node_id
+
+  acquire.command <=> transaction.acquire
+  transaction.acquire_response <=> acquire.completion
+  release.command <=> transaction.release
+  transaction.release_response <=> release.completion
+  transaction.snoop <=> snoop.software_request
+  snoop.software_response <=> transaction.snoop_response
+  snoop.snoops <=> chi.snoops
+
+  def release_request_selected = release.requests.valid
+  chi.requests.valid <== release_request_selected ||| acquire.requests.valid
+  chi.requests.bits <== mux(release_request_selected, release.requests.bits, acquire.requests.bits)
+  release.requests.ready <== chi.requests.ready
+  acquire.requests.ready <== chi.requests.ready & !release_request_selected
+
+  def release_response_selected = chi.responses.bits.txn_id === bits(1, 12)
+  release.responses.valid <== chi.responses.valid & release_response_selected
+  release.responses.bits <== chi.responses.bits
+  acquire.responses.valid <== chi.responses.valid & !release_response_selected
+  acquire.responses.bits <== chi.responses.bits
+  chi.responses.ready <== mux(release_response_selected, release.responses.ready, acquire.responses.ready)
+  acquire.response_data <=> chi.response_data
+
+  def snoop_response_selected = snoop.responses.valid
+  chi.requester_responses.valid <== snoop_response_selected ||| acquire.acknowledgements.valid
+  chi.requester_responses.bits <== mux(snoop_response_selected, snoop.responses.bits, acquire.acknowledgements.bits)
+  snoop.responses.ready <== chi.requester_responses.ready
+  acquire.acknowledgements.ready <== chi.requester_responses.ready & !snoop_response_selected
+
+  def snoop_data_selected = snoop.data.valid
+  chi.request_data.valid <== snoop_data_selected ||| release.data.valid
+  chi.request_data.bits <== mux(snoop_data_selected, snoop.data.bits, release.data.bits)
+  snoop.data.ready <== chi.request_data.ready
+  release.data.ready <== chi.request_data.ready & !snoop_data_selected
+
+export:
+  SpikeDataCHI

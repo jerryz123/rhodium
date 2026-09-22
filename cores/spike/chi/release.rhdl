@@ -1,0 +1,103 @@
+#lang rhodium
+// Converts one Spike victim release into a retryable full-line CHI copyback.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "foundation.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
+  lib("chi/protocol/coherence.rhdl") open
+  lib("chi/protocol/messages.rhdl").chi_rn_copyback_data
+  lib("chi/transactions/retryable-transaction.rhdl") open
+
+sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
+  def p = config.flit
+  def packet_count = 64 / p.data_bytes
+  def packet_index_width = index_width(packet_count)
+  input node_id: Bits(p.node_id_width)
+  interface command(Decoupled(SpikeReleaseRequest()), ~role: consumer)
+  interface completion(Irrevocable(SpikeReleaseResponse()), ~role: producer)
+  interface requests(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
+  interface responses(Decoupled(CHIRspFlit(p)), ~role: consumer)
+
+  inst control(CHIRetryableTransactionControl(p, SpikeReleaseResponses))
+  reg address(Bits(64))
+  reg line(Bits(512))
+  reg state(CHICacheState)
+  reg home_id(Bits(p.node_id_width))
+  reg dbid(Bits(12))
+  reg response_state(Bits(3))
+  reg packet_index(~init: bits(0, packet_index_width))
+  reg data_sent(~init: Bool(#false))
+  reg access_fault(~init: Bool(#false))
+
+  command.ready <== !control.active
+  def command_fire = command.fire()
+  def command_home = config.home_map.lookup(spike_chi_address(command.bits.address, p))
+  def command_state :: CHICacheState = command.bits.state
+  when command_fire:
+    assert(command.bits.address.is_aligned(64), "spike_release_address_aligned")
+    assert(spike_chi_address_fits(command.bits.address, p), "spike_release_address_fits")
+    assert(command_home.valid, "spike_release_address_has_home")
+    assert(command_state.is_valid(), "spike_release_state_valid")
+
+  control.attempt
+    |> map_flow(attempt => spike_chi_request(
+      p, node_id, home_id, address, CHITransferSize.Bytes64,
+      CHIReqOpcode.WriteBackFull, bits(1, 12), Bool(#false), Bool(#true),
+      attempt.allow_retry, attempt.pcrd_type
+    ))
+    |> requests
+  responses |> control.response
+  def response = control.event.bits.flit
+  def grant = control.event.valid & SpikeReleaseResponses.milestone(control.event.bits.effects, "grant")
+  when (control.event.valid):
+    assert(response.src_id === home_id, "spike_release_response_home")
+    assert(response.tgt_id === node_id, "spike_release_response_target")
+  when grant:
+    dbid <== response.dbid_or_group_id
+    def coherent_response = CHICoherentResponse():
+      pass_dirty: state.is_dirty()
+      state: mux(state.is_unique(), CHIResponseState.Unique,
+                 mux(state.is_dirty(), CHIResponseState.SharedDirty,
+                     CHIResponseState.SharedClean))
+    response_state <== coherent_response.as_bits()
+
+  def granted = SpikeReleaseResponses.milestone(control.received, "grant")
+  def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
+  data.valid <== granted & !data_sent
+  data.bits <== chi_rn_copyback_data(
+    p, node_id, home_id, dbid, chi_transfer_data_id(packet_number, p),
+    line.as_vec(Bits(p.data_width))[packet_index], response_state
+  )
+  def final_packet = packet_index === bits(packet_count - 1, packet_index_width)
+  def final_data = data.fire() & final_packet
+  completion.valid <== control.active & data_sent
+  completion.bits.access_fault <== access_fault
+  control.start <== command_fire
+  control.finish <== completion.fire()
+  control.external_progress <== data.fire()
+
+  when command_fire:
+    address <== command.bits.address
+    line <== command.bits.line
+    state <== command.bits.state
+    home_id <== command_home.node_id
+    packet_index <== bits(0, packet_index_width)
+    data_sent <== Bool(#false)
+  elsewhen final_data:
+    data_sent <== Bool(#true)
+  elsewhen (data.fire()):
+    packet_index <== packet_index + bits(1, packet_index_width)
+
+  when command_fire:
+    access_fault <== Bool(#false)
+  elsewhen (control.event.valid):
+    access_fault <== access_fault ||| (response.resp_err =/= CHIRespErr.OK)
+
+export:
+  SpikeRelease

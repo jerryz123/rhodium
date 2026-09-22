@@ -157,8 +157,13 @@ The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
 `cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
-The future Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm`
-only for the stable generator-parameter contract. In `riscv/rtl/`, `decode.rhdl` imports
+The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for
+the stable generator-parameter contract. Its public core and typed transaction
+ABI import the implementation-neutral RISC-V hart/interrupt/PMA descriptions,
+public ready-valid and Flow surfaces, and CHI protocol, transaction, and channel
+modules. Spike-owned CHI adapters do not import RV5Stage. Its C++ DPI runtime
+depends on the pinned Spike/FESVR installation built by `sims/fesvr/install.sh`.
+In `riscv/rtl/`, `decode.rhdl` imports
 `std/decode.rhdl`, while `atomic.rhdl` and `interrupt.rhdl` import
 `std/bits.rhdl`; these modules materialize reusable architectural values and
 policy without importing a concrete processor.

@@ -5,6 +5,7 @@ FESVR_DIR := $(CURDIR)/fesvr
 VERILATOR_DIR := $(CURDIR)/verilator
 CHI_DPI_DIR := $(REPO_DIR)/chi/subordinate/dpi
 UART_DPI_DIR := $(REPO_DIR)/devices/dpi
+SPIKE_DPI_DIR := $(REPO_DIR)/cores/spike/dpi
 PYTHON ?= python3
 PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
@@ -40,6 +41,7 @@ SOC_DPI_CFLAGS := $(SOC_DPI_CFLAGS_$(SOC))
 CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR)
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
+SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
 SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC)
 ifeq ($(TRACE),1)
 ifneq ($(SOC),single-core-rv5stage-soc)
@@ -60,6 +62,10 @@ $(error TRACE must be 0 or 1)
 endif
 DPI_BUILD_DIR := $(BUILD_ROOT)/tools
 TILED_LOWERING_DIR := $(BUILD_ROOT)/tiled-lowering
+SPIKE_LOWERING_DIR := $(BUILD_ROOT)/spike-lowering
+SPIKE_MLIR := $(SPIKE_LOWERING_DIR)/spike.mlir
+SPIKE_VERILOG := $(SPIKE_LOWERING_DIR)/SpikeCore.sv
+SPIKE_VERILATOR_DIR := $(SPIKE_LOWERING_DIR)/obj
 SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
 SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
@@ -84,7 +90,7 @@ SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -
 # Failed elaboration or lowering must not leave a reusable partial artifact.
 .DELETE_ON_ERROR:
 
-.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test uart-pty-test zicboz-test zihintntl-test dpi-compile-check chi-dpi-memory-test transport-test tiled-lowering-test
+.PHONY: all setup simulator run smoke trace-smoke boot-test host-mmio-test uart-pty-test zicboz-test zihintntl-test dpi-compile-check spike-core-compile-check spike-dpi-compile-check spike-dpi-abi-check spike-core-test spike-lowering-test chi-dpi-memory-test transport-test tiled-lowering-test
 
 all: simulator
 
@@ -180,6 +186,25 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	  -c $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $(UART_DPI_DIR)/uart_dpi.cc -o $(DPI_BUILD_DIR)/uart_dpi.o
 
+spike-core-compile-check: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr \
+	  -c $(SPIKE_DPI_DIR)/spike_core.cc -o $(DPI_BUILD_DIR)/spike_core.o
+
+spike-dpi-compile-check: spike-core-compile-check
+	@test -n "$(VERILATOR_ROOT)" || \
+	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(SPIKE_DPI_DIR) -I$(VERILATOR_ROOT)/include/vltstd \
+	  -c $(SPIKE_DPI_DIR)/spike_dpi.cc -o $(DPI_BUILD_DIR)/spike_dpi.o
+
+spike-core-test: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(SPIKE_DPI_DIR) \
+	  -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr \
+	  $(SPIKE_DPI_DIR)/spike_core.cc $(REPO_DIR)/cores/spike/tests/spike_core_test.cc \
+	  -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib \
+	  -lriscv -lfesvr -ldisasm -lsoftfloat -pthread \
+	  -o $(DPI_BUILD_DIR)/spike_core_test
+	$(DPI_BUILD_DIR)/spike_core_test
+
 chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
 	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
@@ -202,11 +227,35 @@ tiled-lowering-test: | $(TILED_LOWERING_DIR)
 	  $(HARNESS_EMITTER) $(HARNESS_SOURCE_tiled-rv5stage-soc) > $(TILED_LOWERING_DIR)/soc_harness.mlir
 	$(CIRCT_OPT) --canonicalize --cse $(TILED_LOWERING_DIR)/soc_harness.mlir -o /dev/null
 
+spike-lowering-test: | $(SPIKE_LOWERING_DIR)
+	@test -x "$(CIRCT_OPT)" || \
+	  (echo "circt-opt not found; run 'make setup-circt' at the repository root or set CIRCT_OPT" >&2; exit 1)
+	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
+	  cores/spike/tests/emit.rhm > $(SPIKE_MLIR)
+	$(CIRCT_OPT) --canonicalize --cse $(SPIKE_MLIR) -o /dev/null
+
+spike-dpi-abi-check: spike-lowering-test
+	@test -n "$(VERILATOR_ROOT)" || \
+	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
+	$(CIRCT_OPT) --canonicalize --cse --prettify-verilog \
+	  --lower-seq-hlmem --lower-sim-to-sv --lower-verif-to-sv \
+	  --lower-seq-to-sv='disable-mem-randomization=true disable-reg-randomization=true' \
+	  --export-verilog $(SPIKE_MLIR) -o /dev/null > $(SPIKE_VERILOG)
+	$(VERILATOR) --cc -Wno-fatal --top-module SpikeCore --Mdir $(SPIKE_VERILATOR_DIR) $(SPIKE_VERILOG)
+	$(CXX) -std=c++20 -I$(VERILATOR_ROOT)/include/vltstd \
+	  -include $(SPIKE_DPI_DIR)/spike_dpi.h \
+	  -include $(SPIKE_VERILATOR_DIR)/VSpikeCore__Dpi.h \
+	  -x c++ -fsyntax-only /dev/null
+
 $(FESVR_LIBRARY):
 	@echo "FESVR is not installed; run 'make -C sims setup' first" >&2
 	@exit 1
 
-$(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR):
+$(SPIKE_LIBRARY):
+	@echo "Spike is not installed; run 'make -C sims setup' first" >&2
+	@exit 1
+
+$(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR) $(SPIKE_LOWERING_DIR):
 	mkdir -p $@
 
 $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) | $(SOC_BUILD_DIR)

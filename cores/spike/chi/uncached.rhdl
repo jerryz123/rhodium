@@ -1,0 +1,117 @@
+#lang rhodium
+// Implements Spike's single-outstanding uncached CHI RN-I transaction path.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../protocol.rhdl" open
+  "foundation.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+
+hardware_enum SpikeUncachedState:
+  Idle
+  Request
+  ReadResponse
+  WriteDBID
+  WriteData
+  WriteResponse
+
+sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
+  def p = config.flit
+  def lanes = p.data_bytes / 8
+  def lane_width = index_width(lanes)
+  input node_id: Bits(p.node_id_width)
+  interface transaction(SpikeUncachedTransactions(), ~role: responder)
+  interface chi(CHIRNIChannels(p), ~role: node)
+
+  reg state(~init: SpikeUncachedState.Idle)
+  reg request(SpikeUncachedRequest())
+  reg home_id(Bits(p.node_id_width))
+  reg dbid(Bits(12))
+
+  def idle = state === SpikeUncachedState.Idle
+  def request_home = config.home_map.lookup(spike_chi_address(transaction.request.bits.address, p))
+  transaction.request.ready <== idle & request_home.valid
+  def command_fire = transaction.request.fire()
+  chi.req.valid <== state === SpikeUncachedState.Request
+  chi.req.bits <== spike_chi_request(
+    p, node_id, home_id, request.address, request.size.into(CHITransferSize),
+    mux(request.write, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp),
+    bits(0, 12), Bool(#false), Bool(#false), Bool(#false), bits(0, 4),
+    ~cacheable: Bool(#false), ~device: request.device
+  )
+  def request_fire = chi.req.fire()
+
+  def incoming_response = chi.rsp.response.bits
+  def response_ordinary = incoming_response.opcode =/= CHIRspOpcode.RespLCrdReturn
+  def dbid_expected = state === SpikeUncachedState.WriteDBID
+  def completion_expected = state === SpikeUncachedState.WriteResponse
+  def response_expected = (dbid_expected & incoming_response.opcode.is_one_of(
+    CHIRspOpcode.DBIDResp, CHIRspOpcode.DBIDRespOrd
+  )) ||| (completion_expected & (incoming_response.opcode === CHIRspOpcode.Comp))
+  chi.rsp.response.ready <== !response_ordinary ||| response_expected
+  def response_fire = chi.rsp.response.fire() & response_ordinary
+  def dbid_fire = response_fire & dbid_expected
+  def completion_fire = response_fire & completion_expected
+
+  def lane = if lanes == 1 | bits(0, lane_width) | request.address[3..alignment_bits(p.data_bytes)]
+  def shift_data = lane ++ bits(0, 6)
+  def shift_mask = lane ++ bits(0, 3)
+  def aligned_write_data = if p.data_width == 64 | request.data | request.data.zext(p.data_width)
+  def aligned_write_mask = if p.byte_enable_width == 8 | request.mask | request.mask.zext(p.byte_enable_width)
+  chi.dat.request.valid <== state === SpikeUncachedState.WriteData
+  chi.dat.request.bits <== spike_chi_write_data(
+    p, node_id, home_id, dbid, request.address,
+    aligned_write_data << shift_data,
+    aligned_write_mask << shift_mask
+  )
+  def write_data_fire = chi.dat.request.fire()
+
+  def incoming_data = chi.dat.response.bits
+  def data_ordinary = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
+  def read_expected = state === SpikeUncachedState.ReadResponse
+  chi.dat.response.ready <== !data_ordinary ||| (read_expected & transaction.response.ready)
+  def read_fire = chi.dat.response.fire() & data_ordinary
+  transaction.response.valid <== (
+    chi.dat.response.valid & data_ordinary & read_expected
+  ) ||| completion_fire
+  transaction.response.bits <== SpikeUncachedResponse():
+    data: mux(read_expected,
+              incoming_data.data.as_vec(Bits(64))[lane],
+              bits(0, 64))
+    access_fault: mux(read_expected,
+                      incoming_data.resp_err =/= CHIRespErr.OK,
+                      incoming_response.resp_err =/= CHIRespErr.OK)
+  chi.rsp.requester.valid <== Bool(#false)
+  chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
+
+  when command_fire:
+    assert(spike_chi_address_fits(transaction.request.bits.address, p),
+           "spike_uncached_address_fits")
+    request <== transaction.request.bits
+    home_id <== request_home.node_id
+    state <== SpikeUncachedState.Request
+  elsewhen request_fire:
+    state <== mux(request.write, SpikeUncachedState.WriteDBID,
+                  SpikeUncachedState.ReadResponse)
+  elsewhen dbid_fire:
+    dbid <== incoming_response.dbid_or_group_id
+    state <== SpikeUncachedState.WriteData
+  elsewhen write_data_fire:
+    state <== SpikeUncachedState.WriteResponse
+  elsewhen (read_fire ||| completion_fire):
+    state <== SpikeUncachedState.Idle
+
+  when (chi.rsp.response.valid & response_ordinary):
+    assert(response_expected, "spike_uncached_response_expected")
+    assert(incoming_response.src_id === home_id, "spike_uncached_response_home")
+  when (chi.dat.response.valid & data_ordinary):
+    assert(read_expected, "spike_uncached_data_expected")
+    assert(incoming_data.home_nid_or_pbha_or_mismatched_mecid === home_id,
+           "spike_uncached_data_home")
+
+export:
+  SpikeUncachedState
+  SpikeUncachedCHI
