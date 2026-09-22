@@ -584,3 +584,20 @@ Simulator artifact roots now honor `TMPDIR` to avoid the observed temporary-
 filesystem quota failures. Boundary, license-header, CI-routing, shell syntax,
 and whitespace checks pass. Remaining matcher/ALU/TLB and harness migration,
 integrated validation, and performance measurements remain open.
+
+## Matcher and ALU differential migration
+
+The [dependent matcher/ALU migration](https://github.com/tianrui-wei/rhodium/commit/b375a6a)
+restores the original independent oracles through explicit native ABI fixtures
+and actual library RTL references. Six rotating-matcher shapes pass 700 cycles
+each in raw, native, generated-C, and parallel execution. A 250-cycle feedback
+fixture checks that later-column requests can depend on earlier grants without
+introducing a false cycle. Three retained-construct checks validate shared query
+slices and reject invalid ranges or inconsistent dependencies. RV32/RV64 ALUs
+pass 24,000 physical-control cases in raw and native execution, including
+generated C and stateless query ownership.
+
+The object regression runner includes both groups. Boundary, license-header,
+CI-routing, shell syntax, and whitespace checks pass. These are focused results;
+TLB and harness migration, fresh integrated validation, and performance
+measurements remain open. Simulator sources remain on the dependent branch.
