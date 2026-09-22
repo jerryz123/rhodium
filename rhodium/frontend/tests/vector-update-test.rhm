@@ -16,11 +16,9 @@ fun operation_count(opcode):
 
 check:
   module_def.name ~is "VectorUpdate"
-  operation_count("rtl.vector_get") ~is 3
-  operation_count("rtl.constant") ~is 3
-  operation_count("rtl.eq") ~is 3
-  operation_count("rtl.mux_lookup") ~is 3
-  operation_count("rtl.vector_create") ~is 1
+  operation_count("rtl.vector_write_set") ~is 1
+  operation_count("rtl.ult") ~is 1
+  operation_count("rtl.vector_create") ~is 3
   type_equal(module_def.find_output("result").type,
              VectorType(3, Bits(4))) ~is #true
   verify_design(fixture.design) ~is #void

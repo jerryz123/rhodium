@@ -223,3 +223,14 @@ operation API. Its name allocation covers both ordinary and retained instances;
 keep this operation-level path separate from whole-module signature declarations.
 `foundation.rhm` exposes this hook and composition records for library providers.
 Chained retained maps exercise name disambiguation and portable composition wiring.
+
+## Functional vector updates
+
+`kernel.vector_updated` retains a single `rtl.vector_write_set` operation with
+one write port. Compare the full selector against the vector length before
+truncating its index; a disabled out-of-range write preserves the entire input.
+This keeps update semantics available to native consumers while the CIRCT
+backend uses the existing vector-write lowering. Validate `vector-update-test.rhm`,
+`vector-test.rhm`, and the `vector-update`/`vector-register-update` CIRCT fixtures
+when changing this boundary. The dependent simulator branch additionally covers
+single-element, power-of-two, wide-selector, and multiword-element cases.

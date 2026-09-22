@@ -1176,24 +1176,32 @@ fun vector_updated(entity :: HardwareEntity,
   unless type_equal(replacement_value.type, vector_value.type.element_type)
   | frontend_fail("vector update replacement must have the vector element type",
                   location)
-  def elements:
-    for List (element_index in 0..vector_value.type.length):
-      def existing = vector_get(vector_value,
-                                element_index,
-                                #false,
-                                location)
-      def key = literal(selector_value.type,
-                        element_index,
-                        #false,
-                        location)
-      def selected = hw_eq(selector_value, key, #false, location)
-      hw_mux_lookup(selected,
-                    existing,
-                    [[1, replacement_value]],
-                    #false,
-                    location,
-                    Origin("embedded vector update", to_string(element_index)))
-  vector_create(vector_value.type, elements, name, location)
+  def length = vector_value.type.length
+  def index_width = count_index_width(length)
+  unless selector_value.type.width >= index_width
+  | frontend_fail("vector update selector cannot encode every element", location)
+  // Guard the full selector before truncating it: disabled out-of-range writes
+  // preserve the source, including selectors wider than the vector index.
+  def enabled:
+    if bits.length(length) > selector_value.type.width
+    | literal(Bits(1), 1, #false, location)
+    | hw_ult(selector_value,
+             literal(selector_value.type, length, #false, location),
+             #false, location)
+  def index_value:
+    if selector_value.type.width == index_width
+    | selector_value
+    | trunc(selector_value, index_width, #false, location)
+  require_context(location).builder.vector_write_set(
+    require_module(location),
+    vector_value,
+    vector_create(VectorType(1, Bits(1)), [enabled], #false, location),
+    vector_create(VectorType(1, index_value.type), [index_value], #false, location),
+    vector_create(VectorType(1, replacement_value.type), [replacement_value], #false, location),
+    name,
+    location,
+    Origin("embedded vector update", name || "")
+  )
 
 // Carries a dynamically selected element of a direct vector register. Reads
 // remain ordinary mux selection; writes become one whole next-state update.

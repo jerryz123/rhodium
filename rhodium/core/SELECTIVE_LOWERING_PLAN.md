@@ -506,3 +506,16 @@ user quota on `/tmp` prevented compilation and diagnostics; prior regression
 artifacts were preserved with their old path linked to the new location. These
 focused results leave frontend/core-only fixture migration, integrated validation,
 and performance measurements open.
+
+## Functional vector-update retention
+
+Restoring the ordinary-core simulator regressions exposed an omitted IR
+improvement: `vector_updated` expanded into per-element muxes. The frontend
+now preserves one guarded `rtl.vector_write_set`. It compares the full selector
+before truncating the write index, so out-of-range updates preserve the source.
+Forty-two focused frontend checks pass. Both `vector-update` and
+`vector-register-update` CIRCT/Verilator fixtures pass with `--full`; the reviewed
+functional-update reference now includes an explicit shared range guard.
+Boundary, license-header, CI-routing, example-reference, and whitespace checks
+pass. The dependent simulator's functional-update regression retains the compact
+operation for single-element, power-of-two, wide-selector, and multiword cases.
