@@ -116,8 +116,8 @@ executable construct protocol. The dependent branch establishes the initial mixe
 The evidence sections below are chronological; their pending-work statements
 record the scope at that point. This list is the current remaining scope:
 
-- Extend captured mapping to vector and multiword payloads, including nested
-  aggregates and live captures during stalls.
+- Extend captured mapping to multiword payloads and nested aggregates, including
+  live captures during stalls. Basic two-element vector coverage passes below.
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
 - Retain pipes through the same public extension protocol and validate their
@@ -292,3 +292,14 @@ record models. These focused results do not claim a fresh full-suite run.
 
 Vector/multiword captures, effects, pipes, performance, and previous simulator
 regression migration remain open. Native source remains on the dependent branch.
+
+## Captured vector feedback follow-up
+
+The [dependent vector-map validation](https://github.com/tianrui-wei/rhodium/commit/ea08e83)
+passes 130 shared record/vector host checks, including genuine bypass-cycle
+rejection. Sixteen two-element vector Queue configurations pass 256-cycle
+pre/post-edge replay against an independent oracle in interpreter, generated C,
+and materialized CIRCT/Verilator, including default native optimization. The
+existing scalar and record native replays also pass after the runner change.
+Multiword and nested aggregate captures, effects, retained pipes, performance,
+and previous simulator-suite migration remain open.
