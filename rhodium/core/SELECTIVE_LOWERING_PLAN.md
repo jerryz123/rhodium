@@ -116,3 +116,21 @@ executable construct protocol. No end-to-end native milestone is claimed.
 - Connect native Queue and generic RTL to the shared simulation schedule
   and run the three-way differential gate. The hardware-only fixture is not
   evidence for the native implementation.
+
+## Dependent native progress
+
+The [separate native implementation](https://github.com/tianrui-wei/rhodium/commit/d974be3373456b3174da946310389f3634f70a89)
+selects Queue implementations by public construct identity before portable
+expansion. Its `make sim-selective-test` entry point passes 87 host checks,
+512-cycle pre/post-edge oracle replay across 16 scalar depth/pipe/flow
+configurations, and 256-cycle independent-state replay for repeated instances
+with direct, mixed, and expanded choices. Both interpreter and generated-C
+execution pass. A separate CIRCT/Verilator run matches the same scalar Queue
+vectors. The selected portable Queue body executes zero times.
+
+This establishes the first scalar mixed-design milestone in the dependent
+branch. It does not complete the full native gates: contract/range/dependency
+validation, aggregate feedback, nested composition extraction, typed payload
+regions, broader effect/error cases, performance measurements, and migration of
+the previous simulator regression suite remain. No simulator implementation is
+added to this IR PR.
