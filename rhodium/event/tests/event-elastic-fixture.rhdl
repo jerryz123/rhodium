@@ -82,3 +82,7 @@ export:
   bad_width
   bad_count
   missing_controls
+
+// The same annotated and reference lanes with pipe/map implementations deferred.
+def retained_elastic = elaborate_with_top(EventElastic(), ~constructs: #true)
+export retained_elastic

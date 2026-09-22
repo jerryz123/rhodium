@@ -33,7 +33,7 @@ std::uint64_t node(unsigned lane, unsigned local_site, unsigned payload,
   value.cycle = cycle;
   value.words[0] = payload;
   if (parent >= 0)
-    expected.edges.insert({{lane * 3 + static_cast<unsigned>(parent), parent_sequence}, {site, sequence}});
+    expected.edges.insert({rheg::Ref{lane * 3 + static_cast<unsigned>(parent), parent_sequence}, rheg::Ref{site, sequence}});
   return sequence;
 }
 }

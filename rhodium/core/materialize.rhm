@@ -38,6 +38,7 @@ fun materialize_constructs(
   def sources = MutableList[]
   def imports = MutableMap.by(===){}
   def imported = MutableMap{}
+  def composition_modules = MutableMap{}
   def names = MutableSet{}
   // Portable imports cannot steal names belonging to authored module definitions.
   for (module_def in elaboration.design.modules): names.add(module_def.name)
@@ -178,30 +179,36 @@ fun materialize_constructs(
         | error(~who: #'materialize_constructs, "direct RTL lowering changed the construct boundary contract")
         implementation(body.implementation, name)
     | body is_a ResolvedComposition:
-        def composition = body.composition
-        def children = body.implementations.map(fun (child): implementation(child))
-        def module_def = builder.module(name || fresh_name(composition.name))
-        def inputs = MutableMap{}
-        def outputs = MutableMap{}
-        def instances = MutableMap.by(===){}
-        for (port in composition.contract.ports):
-          if port.direction == "input"
-          | inputs[port.name] := builder.input(module_def, port.name, port.type)
-          | outputs[port.name] := builder.output(module_def, port.name, port.type)
-        for (instance in composition.instances, child in children):
-          instances[instance] := builder.instance(module_def, child, instance.name, instance.location)
-        fun source(endpoint :: CompositionEndpoint):
-          def mutable value = if endpoint.instance | instances[endpoint.instance].output(endpoint.port) | inputs[endpoint.port]
-          for (part in endpoint.path):
-            value := if part is_a String | builder.record_get(module_def, value, part) | builder.vector_get(module_def, value, part)
-          value
-        fun sink(endpoint :: CompositionEndpoint):
-          def mutable place = if endpoint.instance | instances[endpoint.instance].input(endpoint.port) | outputs[endpoint.port]
-          for (part in endpoint.path):
-            place := if part is_a String | builder.project(place, part) | builder.project_vector(place, part)
-          place
-        for (connection in composition.connections): builder.drive(sink(connection.sink), source(connection.source))
-        builder.finish(module_def)
+        def key = [implementation_key(body), name]
+        if composition_modules.has_key(key)
+        | composition_modules[key]
+        | block:
+            def composition = body.composition
+            def children = body.implementations.map(fun (child): implementation(child))
+            def module_def = builder.module(name || fresh_name(composition.name))
+            def inputs = MutableMap{}
+            def outputs = MutableMap{}
+            def instances = MutableMap.by(===){}
+            for (port in composition.contract.ports):
+              if port.direction == "input"
+              | inputs[port.name] := builder.input(module_def, port.name, port.type)
+              | outputs[port.name] := builder.output(module_def, port.name, port.type)
+            for (instance in composition.instances, child in children):
+              instances[instance] := builder.instance(module_def, child, instance.name, instance.location)
+            fun source(endpoint :: CompositionEndpoint):
+              def mutable value = if endpoint.instance | instances[endpoint.instance].output(endpoint.port) | inputs[endpoint.port]
+              for (part in endpoint.path):
+                value := if part is_a String | builder.record_get(module_def, value, part) | builder.vector_get(module_def, value, part)
+              value
+            fun sink(endpoint :: CompositionEndpoint):
+              def mutable place = if endpoint.instance | instances[endpoint.instance].input(endpoint.port) | outputs[endpoint.port]
+              for (part in endpoint.path):
+                place := if part is_a String | builder.project(place, part) | builder.project_vector(place, part)
+              place
+            for (connection in composition.connections): builder.drive(sink(connection.sink), source(connection.source))
+            def completed = builder.finish(module_def)
+            composition_modules[key] := completed
+            completed
     | ~else: error(~who: #'materialize_constructs, "unsupported resolved implementation")
 
   // Collapse only a complete, name-preserving signature boundary. Reordered

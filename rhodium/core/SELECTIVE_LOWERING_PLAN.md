@@ -350,3 +350,21 @@ Boundary, license, CI-routing, and whitespace checks pass.
 
 Native retained-pipe execution, retained trace equivalence, effect/error coverage,
 previous simulator-suite migration, and performance measurements remain open.
+
+## Retained pipe trace preservation
+
+Fixed-latency, flushable, and repeated elastic event fixtures now materialize
+retained pipe/map declarations before instrumentation. Their existing public-
+transfer scoreboards pass CIRCT/Verilator, including independent reference lanes,
+stalls, bubbles, reset, and flush cancellation.
+
+This exposed duplicate module definitions for repeated resolved compositions.
+Materialization now reuses definitions keyed by the composition and selected
+child implementations, preserving authored names without merging occurrence
+state or distinct lowering choices. Complete event manifests match ordinary
+elaboration after this fix. The existing core materialization and pipe CIRCT
+comparison regressions pass (96 checks). The final trace batch passes all nine
+checks, including exact manifests for fixed, flushable, and elastic pipelines.
+Boundary, license-header, CI-routing, and whitespace checks pass. Native pipe
+execution, broader effect/error coverage, simulator regression migration, and
+performance measurements remain open.

@@ -223,3 +223,10 @@ Preserve readable source names where possible and disambiguate against generated
 argument/capture/result names. Run `tests/capture-test.rhm` and
 `tests/capture-hierarchy-test.rhm` for ownership, open source modules, repeated
 captures, escaping writes, and aggregate dependencies through copied hierarchy.
+
+Materialization caches resolved composition definitions by their composition and
+recursively selected child implementation identities, plus any requested module
+name. This preserves definition sharing for repeated retained maps while allowing
+occurrence-specific lowering choices to produce separate variants. Sharing a
+module definition never shares the state of its instantiated occurrences. Event
+`materialized-pipe-test.rhm` checks repeated traced lanes and their module names.
