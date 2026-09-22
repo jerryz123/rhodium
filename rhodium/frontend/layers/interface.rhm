@@ -2118,6 +2118,39 @@ fun describe_interface_transform(handle :: Handle,
                             trace_model,
                             contract_name)
   )
+  kernel.record_semantics(
+    "flow." ++ kind,
+    fun ():
+      def bindings = MutableList[]
+      def endpoints = MutableList[]
+      fun side(name, shape):
+        def ports = if shape is_a Array | (for List (endpoint in shape): endpoint) | [shape]
+        for (endpoint in ports, index in 0..ports.length()):
+          def prefix = name ++ to_string(index)
+          def ancestry = MutableList[]
+          def mutable protocol = endpoint.type
+          while protocol:
+            ancestry.add(protocol.name)
+            protocol := protocol.parent
+          endpoints.add([prefix, endpoint.role, ancestry.snapshot()])
+          for (binding in endpoint.bindings):
+            for (field in binding.direction.type.fields):
+              bindings.add(SemanticBinding(prefix ++ "." ++ field.name, binding.entity, [field.name]))
+      side("in", handle.left)
+      side("out", handle.right)
+      when trace_model && trace_model.dynamic is_a InterfaceTraceCombinational && trace_model.dynamic.guard
+      | bindings.add(SemanticBinding("transfer.guard", trace_model.dynamic.guard))
+      when trace_model && trace_model.fixed_latency_flush()
+      | bindings.add(SemanticBinding("transfer.flush", trace_model.fixed_latency_flush()))
+      SemanticDescription(bindings.snapshot(),
+                          {"version": 1,
+                           "configuration": properties,
+                           "latency": if trace_model | trace_model.latency_cycles() | #false,
+                           "endpoints": endpoints.snapshot(),
+                           "routes": if trace_model | trace_model.routes.map(fun (route): [route.input_index, route.output_index]) | [],
+                           "implementation": if implementation | implementation.operation.attribute("name") | #false},
+                          if implementation | [implementation.operation] | [])
+  )
   handle
 
 // Declares a named local relation, including cuts at internal endpoints.

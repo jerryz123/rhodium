@@ -26,6 +26,10 @@ export:
   Instance
   ModuleMetadataPayload
   ModuleMetadata
+  SemanticBinding
+  SemanticDescription
+  SemanticNode
+  module_semantics
   Module
   Design
   DesignElaboration
@@ -255,6 +259,24 @@ class.together:
   interface ModuleMetadataPayload
 
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
+
+  // A field path retains aggregate typing without creating projection hardware.
+  class SemanticBinding(name :: String,
+                        entity :: Value || Place,
+                        path :: List.of(String || Nat) = [])
+
+  // Extension-owned documentation; a kind alone never authorizes substitution.
+  class SemanticDescription(bindings :: List.of(SemanticBinding) = [],
+                            properties :: Map = {},
+                            references :: List.of(Operation) = [])
+
+  // Nested expansion provenance over the same executable hardware graph.
+  class SemanticNode(module_def :: Module,
+                     kind :: String,
+                     description :: SemanticDescription,
+                     operations :: List.of(Operation) = [],
+                     children :: List.of(SemanticNode) = []):
+    implements ModuleMetadataPayload
 
   class Module(design :: Design,
                id :: Nat,
@@ -556,6 +578,10 @@ class.together:
 // encodings greater than or equal to depth have unspecified hardware behavior.
 fun memory_address_width(depth :: PosInt) :: PosInt:
   count_index_width(depth)
+
+// Semantic roots are module-local; instances retain ordinary hierarchy.
+fun module_semantics(module_def :: Module):
+  module_def.metadata_for("rhodium.semantics")
 
 class DesignElaboration(design :: Design, top :: Module):
   constructor (design :: Design, top :: Module):

@@ -528,3 +528,36 @@ The source ownership table moved to
 
 Contributor test selection and commands moved to
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
+
+## Retained expansion semantics
+
+A design may retain an optional tree of `SemanticNode` records per module,
+returned by `module_semantics(module_def)`. These document high-level expansion
+intent alongside the ordinary executable hardware graph. Generic consumers,
+including CIRCT emission, can ignore the tree without changing behavior.
+`dump_semantic_ir(design)` prints its hierarchy and graph bindings separately
+from `dump_ir`.
+
+Each node has an extension-owned `kind`, a `SemanticDescription`, the local
+operations emitted by its expansion, and nested expansion children. A description
+contains named `SemanticBinding` entries, immutable properties, and explicit
+references to existing local operations (such as an implementing instance).
+Bindings reference a local `Value` or root `Place` and an optional record/vector
+field path; retaining a field never creates a projection operation. Places may
+be bound before they are driven; consumers inspect their completed drivers.
+
+Verification checks module ownership, binding paths and names, immutable
+properties, operation references, tree uniqueness, and containment of child
+implementation operations. The design's existing seal also protects retained
+roots. Properties contain only strings, integers, Booleans, immutable lists,
+and immutable string-keyed maps. Hardware references belong in bindings or
+operation references, not properties.
+
+These records document semantics; structural validation does not prove a
+behavioral replacement equivalent. A consumer must recognize and validate the
+specific extension contract before specializing it. Unknown kinds retain their
+ordinary hardware implementation. Nodes do not introduce execution ordering,
+state, activation, or permission to skip observable computation.
+
+The [frontend expansion API](../frontend/README.md#retaining-expansion-semantics)
+opts into retention and supplies the generic hook used by flow descriptions.

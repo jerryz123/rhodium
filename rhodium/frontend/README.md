@@ -303,3 +303,45 @@ Importing this function from a `.rhdl` program requires no reader, IR,
 verifier, or backend change. For frontend implementation roles, see the
 [frontend contributor guide](DEVELOPING.md); for the existing public features,
 see the [layer reference](layers/README.md).
+
+## Retaining expansion semantics
+
+Normal elaboration runs the common hardware expansion. A consumer that also
+needs high-level intent can request retained expansion nodes:
+
+```rhombus
+def elaboration = elaborate_with_top(Top(), ~semantics: #true)
+```
+
+`elaborate` accepts the same option. The option belongs to one elaboration, so
+ordinary and retaining consumers can reuse the same already-expanded Rhombus
+circuit code without sharing designs or changing specialization identity.
+
+Extension macros can expand to the kernel's
+`semantic_expansion(kind, expand, describe)` hook. `expand` is a zero-argument
+function that constructs the ordinary hardware and returns its usual result.
+`describe(result)` returns a core `SemanticDescription`. In ordinary mode the
+hook calls only `expand`. In retaining mode it also records the description,
+nested expansion nodes, and the local operations constructed by `expand`.
+Both modes execute the hardware expansion exactly once.
+
+Description callbacks must only inspect existing hardware; they must not
+construct hardware or change the design. `record_semantics(kind, describe)`
+is the equivalent hook for documenting already-constructed structures.
+These are elaboration-time hooks emitted by macros, not a second invocation of
+the Rhombus syntax expander and not a simulator dependency in the frontend.
+
+Existing `describe_interface_transform` calls retain `flow.<kind>` nodes in
+this mode. Their bindings preserve endpoint fields and types; properties record
+endpoint roles, protocol ancestry, declared routes, declared latency, and transform
+configuration. Explicit combinational transfer guards and fixed-latency flush
+controls are retained as bindings.
+An implementing instance is retained as a core operation reference. Protocol
+names and transform kinds document intent and do not alone authorize behavioral
+substitution. Detailed interface trace models remain in their owning interface
+metadata; this export does not invent acceptance equations or infer missing
+contracts.
+
+Consumers read the completed tree through the
+[core semantic-node API](../core/README.md#retained-expansion-semantics).
+CIRCT emission uses the same ordinary graph in either mode.

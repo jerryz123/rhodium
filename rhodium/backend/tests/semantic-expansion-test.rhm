@@ -1,0 +1,14 @@
+#lang rhombus
+// Checks that optional semantic retention preserves exact CIRCT output.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../circt.rhm".emit_circt
+  "../../frontend/tests/semantic-expansion-test.rhm" as fixture
+
+check:
+  emit_circt(fixture.ordinary.design) ~is emit_circt(fixture.retained.design)
+  emit_circt(fixture.flow_ordinary.design) ~is emit_circt(fixture.flow_retained.design)
+
+for (pair in fixture.flow_variants):
+  check: emit_circt(pair[0].design) ~is emit_circt(pair[1].design)

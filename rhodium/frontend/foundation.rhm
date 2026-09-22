@@ -235,11 +235,18 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
          $implementation_name($implementation_argument, ...)
       »'
 
-expr.macro 'elaborate($body)':
-  'kernel_run_elaboration(fun (): $body)'
+expr.macro
+| 'elaborate($body, ~semantics: $enabled)':
+    'kernel_run_elaboration(fun (): $body, ~semantics: $enabled)'
+| 'elaborate($body)':
+    'kernel_run_elaboration(fun (): $body)'
 
-expr.macro 'elaborate_with_top($body)':
-  'kernel_run_elaboration_with_top(fun (): $body)'
+expr.macro
+| 'elaborate_with_top($body, ~semantics: $enabled)':
+    'kernel_run_elaboration_with_top(fun (): $body, ~semantics: $enabled)'
+| 'elaborate_with_top($body)':
+    'kernel_run_elaboration_with_top(fun (): $body)'
+
 
 operator (place <== entity):
   ~weaker_than: ~other

@@ -10,6 +10,7 @@ import:
 export:
   dump_ir
   dump_module_ir
+  dump_semantic_ir
 
 fun value_refs(value_list :: List.of(Value)):
   String.join(value_list.map(fun (value): value.ref()), ", ")
@@ -275,3 +276,20 @@ fun dump_module_ir(module_def :: Module):
 fun dump_ir(design :: Design):
   def imports = String.join(design.dpi_imports.map(print_dpi_import), "")
   imports ++ (if imports == "" | "" | "\n") ++ String.join(design.modules.map(dump_module_ir), "\n")
+
+// Optional expansion view; ordinary hardware dumps and backend inputs are unchanged.
+fun dump_semantic_ir(design :: Design):
+  fun print_node(node :: SemanticNode, indent :: String):
+    def bindings = node.description.bindings.map(
+      fun (binding): binding.name ++ "=" ++ binding.entity.ref() ++ to_string(binding.path)
+    )
+    def implementation = node.operations.map(fun (operation): to_string(operation.id))
+    def references = node.description.references.map(fun (operation): to_string(operation.id))
+    String.append(indent, node.kind, "(", String.join(bindings, ", "), ")",
+                  " operations [", String.join(implementation, ", "), "]",
+                  " references [", String.join(references, ", "), "]\n",
+                  String.join(node.children.map(fun (child): print_node(child, indent ++ "  ")), ""))
+  String.join(design.modules.map(
+    fun (module_def):
+      "module @" ++ module_def.name ++ "\n" ++ String.join(module_semantics(module_def).map(fun (node): print_node(node, "  ")), "")
+  ), "")

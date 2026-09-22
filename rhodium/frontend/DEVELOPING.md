@@ -168,3 +168,23 @@ Also run:
 If a frontend change alters the core operations or types produced by existing
 programs, run the focused backend fixture that lowers that behavior as well.
 Do not infer backend correctness from host elaboration tests alone.
+
+## Layered semantic retention
+
+`kernel.rhm` owns the per-elaboration `~semantics` option and the
+`semantic_expansion` / `record_semantics` hooks. A dynamic collector retains
+nested expansion nodes only within the same module; child module definitions
+keep their own roots. No global mode or consumer import participates in macro
+expansion. Descriptions run after ordinary expansion so they bind actual core
+objects; only the retained documentation is optional.
+
+`layers/interface.rhm` uses the generic hook to export declared transform
+endpoints and configuration to core-owned records. Keep protocol-specific trace
+models in the interface layer and do not reconstruct behavior from display
+names. Field bindings use aggregate paths instead of elaborating projections.
+
+`tests/semantic-expansion-test.rhm` compares ordinary IR and emitted CIRCT in
+both modes, exercises a custom nested macro, and checks an existing flow queue.
+Run it with `core/tests/semantic-node-test.rhm` (relative to `rhodium/`) when
+changing this boundary. Existing frontend and profile suites cover the shared
+kernel and elaboration macro surface.

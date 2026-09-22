@@ -681,12 +681,62 @@ fun increment_count(counts :: MutableMap,
                     key :: maybe(String || Nat)):
   counts[key] := counts.get(key, 0) + 1
 
+// Validate documentation edges without interpreting extension-owned kinds.
+fun verify_semantic_nodes(module_def :: Module):
+  def seen = MutableSet.by(===){}
+  fun immutable_property(value):
+    cond
+    | value is_a String || value is_a Boolean || value is_a Int: #true
+    | value is_a List: for all (item in value): immutable_property(item)
+    | value is_a Map:
+        for all (key in value.keys()): key is_a String && immutable_property(value[key])
+    | ~else: #false
+  fun visit(node, enclosing):
+    unless node is_a SemanticNode && node.module_def === module_def
+    | fail("semantic node belongs to a different module")
+    when node in seen
+    | fail("semantic node has multiple parents")
+    seen.add(node)
+    unless node.kind != "" && immutable_property(node.description.properties)
+    | fail("semantic node requires a kind and immutable properties")
+    def operations = MutableSet.by(===){}
+    for (operation in node.operations):
+      unless operation.module_def === module_def && module_def.find_operation(operation.id) === operation
+      | fail("semantic implementation belongs to a different module")
+      when operation in operations
+      | fail("duplicate semantic implementation operation")
+      when enclosing && !(operation in enclosing)
+      | fail("semantic child implementation escapes its parent")
+      operations.add(operation)
+    for (operation in node.description.references):
+      unless operation.module_def === module_def && module_def.find_operation(operation.id) === operation
+      | fail("semantic reference belongs to a different module")
+    def names = MutableSet{}
+    for (binding in node.description.bindings):
+      when binding.name == "" || binding.name in names
+      | fail("semantic binding names must be nonempty and unique")
+      names.add(binding.name)
+      def entity = binding.entity
+      unless entity.module_def === module_def && (if entity is_a Value | module_def.owns_value(entity) | module_def.owns_place(entity))
+      | fail("semantic binding must reference a local value or root place")
+      def mutable type = entity.type
+      for (key in binding.path):
+        cond
+        | key is_a String && record_type(type) && type.field(key):
+            type := type.field(key).type
+        | key is_a Nat && vector_type(type) && key < type.length:
+            type := type.element_type
+        | ~else: fail("semantic binding has an invalid aggregate path")
+    for (child in node.children): visit(child, operations)
+  for (node in module_semantics(module_def)): visit(node, #false)
+
 fun verify_module_structure(module_def :: Module):
   def module_owned = module_def.design is_a Design && module_def.design.owns_module(module_def)
   unless module_owned
   | fail("module belongs to a different design")
   unless module_def.finished
   | fail("module " ++ module_def.name ++ " has not been finished")
+  verify_semantic_nodes(module_def)
   def instance_name_counts = MutableMap{}
   def sync_memory_name_counts = MutableMap{}
   def drive_counts = MutableMap{}

@@ -20,6 +20,8 @@ export:
   frontend_run
   run_elaboration
   run_elaboration_with_top
+  semantic_expansion
+  record_semantics
   build_circuit
   circuit_arguments_same
   defer_circuit_finalizer
@@ -159,7 +161,8 @@ class FrontendContext(design :: Design,
                       mutable active :: Boolean = #true,
                       mutable active_circuits :: List.of(ActiveCircuit) = [],
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
-                      mutable allocated_symbols :: List.of(String) = []):
+                      mutable allocated_symbols :: List.of(String) = [],
+                      retain_semantics :: Boolean = #false):
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
     def count = allocated_symbols.filter(
@@ -174,6 +177,39 @@ Parameter.def current_context = #false
 Parameter.def current_module = #false
 Parameter.def current_conditional_branch = #false
 Parameter.def current_conditional_form = "when"
+Parameter.def current_semantic_capture = #false
+class SemanticCapture(module_def :: Module, nodes :: MutableList)
+
+// Macros expand to this two-level hook: ordinary hardware is always elaborated
+// once; the description callback runs only in a semantics-retaining session.
+fun semantic_expansion(kind :: String,
+                       expand :: Function.of_arity(0),
+                       describe :: Function.of_arity(1)):
+  def context = require_context(Location())
+  if !context.retain_semantics
+  | expand()
+  | block:
+      def module_def = require_module(Location())
+      def before = module_def.operations
+      def capture = SemanticCapture(module_def, MutableList[])
+      def result = parameterize { current_semantic_capture: capture }: expand()
+      def after = module_def.operations
+      def next_id = context.design.next_id
+      def description :: SemanticDescription = describe(result)
+      unless module_def.operations === after && context.design.next_id == next_id
+      | frontend_fail("semantic descriptions must not construct hardware")
+      // Open module collections are reverse construction order.
+      def operations = after.take(after.length() - before.length()).reverse()
+      def node = SemanticNode(module_def, kind, description, operations, capture.nodes.snapshot())
+      def parent = current_semantic_capture()
+      if parent && parent.module_def === module_def
+      | parent.nodes.add(node)
+      | module_def.add_metadata("rhodium.semantics", node)
+      result
+
+// Existing extension declarations can retain bindings without re-expansion.
+fun record_semantics(kind :: String, describe :: Function.of_arity(0)):
+  semantic_expansion(kind, fun (): #void, fun (_): describe())
 
 class ConditionalAssignment(place :: Place, value :: Value)
 class ConditionalMemoryWrite(resource :: Memory,
@@ -1721,9 +1757,9 @@ fun switch_chain(selector :: HardwareEntity,
                                "embedded switch",
                                location)
 
-fun frontend_elaboration(program :: Function.of_arity(0)):
+fun frontend_elaboration(program :: Function.of_arity(0), retain_semantics :: Boolean = #false):
   def design = Design()
-  def context = FrontendContext(design, Builder(design))
+  def context = FrontendContext(design, Builder(design), #true, [], MutableMap.by(===){}, [], retain_semantics)
   def top = parameterize { current_context: context }:
               program()
   context.active := #false
@@ -1740,8 +1776,8 @@ fun frontend_elaboration(program :: Function.of_arity(0)):
 fun frontend_run(program :: Function.of_arity(0)):
   frontend_elaboration(program).design
 
-fun run_elaboration(program :: Function.of_arity(0)):
-  frontend_run(program)
+fun run_elaboration(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false):
+  frontend_elaboration(program, semantics).design
 
-fun run_elaboration_with_top(program :: Function.of_arity(0)):
-  frontend_elaboration(program)
+fun run_elaboration_with_top(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false):
+  frontend_elaboration(program, semantics)

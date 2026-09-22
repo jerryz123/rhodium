@@ -61,6 +61,11 @@ internal module implementing its shared frontend forms is called the
 *foundation*. The frontend guide explains
 [profile selection and elaboration](frontend/README.md).
 
+The frontend kernel's optional semantic expansion hooks depend only on core
+`SemanticNode` records. The interface layer exports transform descriptions
+through those hooks; no simulator or backend dependency is introduced. See the
+[retention implementation guide](frontend/DEVELOPING.md#layered-semantic-retention).
+
 ## Dependency rules
 
 - Core never imports analysis, frontend, backend, or RFPL code.

@@ -129,3 +129,17 @@ worktree-specific `PLTCOMPILEDROOTS`, as described by the owning
 [test guide](../../tools/testing/README.md).
 Reserve frontend, backend, and full-suite validation for changes that actually
 cross those boundaries.
+
+## Expansion documentation
+
+`ir.rhm` owns `SemanticNode`, `SemanticDescription`, `SemanticBinding`, and
+`module_semantics`. Roots use the reserved `rhodium.semantics` metadata namespace;
+`verify.rhm` checks their structural graph links before certifying a design.
+`printer.rhm` exposes a separate semantic-tree dump so ordinary hardware text
+and naming remain stable. Extension kinds are not opcodes and cannot create
+hardware behavior. Extend their behavioral interpretation in the consuming
+package, with evidence for the exact recognized contract.
+
+Run `rhodium/core/tests/semantic-node-test.rhm` for malformed bindings, ownership,
+containment, immutable properties, and sealing, and the frontend
+`semantic-expansion-test.rhm` for macro integration and CIRCT equivalence.
