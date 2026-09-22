@@ -461,3 +461,24 @@ Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
 These are focused results; remaining compiler/object/arithmetic/frontend
 regression migration, integrated validation, and performance measurements remain
 required. Simulator sources stay on the dependent branch.
+
+## Matcher and FIFO execution migration follow-up
+
+The [dependent matcher/FIFO migration](https://github.com/tianrui-wei/rhodium/commit/6ac000f)
+restores five regression groups without changing their original oracle logic.
+Two request-prefix cases pass 4,000 cycles each and reject reuse with mismatched
+update operands. Seven packed-matcher configurations pass 700 cycles across
+sixteen modes against independent arbitration, including prefix feedback,
+priority ownership, grant reuse, reset, and compiled-library swaps. Forty-eight
+empty-FIFO configurations pass 500 cycles in five modes across widths 1, 75, and
+257, depths 1 and 3, and eight protocol options. Ten stationary-matcher cases
+pass 300 cycles in five modes, preserving independent query operands and strict
+invalid-grant behavior. Ten FIFO-batch cases pass 400 cycles in five modes,
+covering up to sixteen queues, wide payloads, late dependencies, repeated
+evaluation, failed host callbacks, retry, and reattachment.
+
+The larger generated-library matrices receive a ten-minute execution limit.
+Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
+Remaining compiler/object/arithmetic/frontend migration, integrated validation,
+and performance measurements stay open. These focused results do not replace
+the earlier complete selective-suite baseline.
