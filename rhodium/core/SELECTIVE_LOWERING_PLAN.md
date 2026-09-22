@@ -430,3 +430,16 @@ libraries; an initial two-minute limit expired before the successful rerun.
 Compiler optimization, object-family, arithmetic, and frontend-fixture migration,
 plus performance measurements, remain open. These results do not claim a fresh
 full selective-suite run.
+
+## FIFO optimization migration follow-up
+
+The [dependent FIFO regression migration](https://github.com/tianrui-wei/rhodium/commit/f24adc7)
+restores independent width and derived-field oracles. Two width-growth cases pass
+4,000 stimulus iterations each, covering safe 240-to-19-bit narrowing, retained
+240-bit cyclic growth, signed/unsigned views, strict selector failures, and invalid
+serialized opcode rejection. Derived-field caching passes 6,000 cycles at depths
+1, 2, and 3; incompatible pipeline storage stays untransformed. The shared runner
+now accepts focused test names after the build directory. Original test semantics
+are preserved; source formatting is adjusted for current compiler warnings.
+Remaining compiler/object/arithmetic/frontend migration and performance gates stay
+open. These focused results do not replace the earlier full-suite baseline.
