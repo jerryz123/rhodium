@@ -637,3 +637,18 @@ CI-routing, shell syntax, and whitespace checks pass. A fresh integrated run
 has been started; its result is not yet evidence of completion. Optional legacy
 profiling/specialization coverage auditing and performance measurements remain
 open alongside integrated validation.
+
+## Profiling helper regression migration
+
+The [dependent profiling migration](https://github.com/tianrui-wei/rhodium/commit/da00b8d)
+restores layout sample decoding and scratch inspection under `sims/native`.
+Three unit tests validate precise-load/lost-record decoding, allocation-range
+precedence, and malformed records. The independent assembly/ELF fixture checks
+spill eligibility, overlapping-slot rejection, SIMD aliases, and virtual-address
+sample attribution. Both groups pass and join the harness runner. Boundary,
+license-header, CI-routing, shell syntax, and whitespace checks pass.
+
+This is parser/analysis validation without PMU permissions, not a live profiling
+or performance claim. The integrated simulator run remains pending; external
+specialization and ordinary-core Verilator coverage still need auditing, along
+with the direct-versus-expanded performance gate.
