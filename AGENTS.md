@@ -21,9 +21,11 @@ artifacts. This file contains the mandatory rules that apply to every change.
   modified behavior. Use a broader suite only when the change spans its scope.
 - Run every Racket or Rhombus test, elaboration, and fixture command through
   `tools/run-racket-tests.sh` or `tools/run-racket.sh`. They use one persistent,
-  worktree-specific compiled root, rebuild changed dependencies incrementally,
-  and clear checkout bytecode when the source-path inventory changes. An
-  explicitly supplied `PLTCOMPILEDROOTS` must name exactly one isolated
+  worktree-owned compiled root under `.rhodium-cache/`, rebuild changed
+  dependencies incrementally, and clear checkout bytecode when the source-path
+  inventory changes. Do not set `PLTCOMPILEDROOTS` during normal repository
+  validation because doing so deliberately bypasses the managed cache. An
+  external harness that must own a root may supply exactly one isolated
   directory; a trailing path-list separator restores unsafe source-adjacent
   `compiled/` fallbacks.
 - Add `-y` when invoking `racket` outside the repository wrapper. Treat an

@@ -1,14 +1,19 @@
 #!/usr/bin/env bash
-# Manages persistent worktree-local Racket bytecode with structural invalidation.
+# Manages persistent worktree-owned Racket bytecode with structural invalidation.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 racket_command="${RACKET:-racket}"
 raco_command="${RACO:-raco}"
-cache_format="v2"
+cache_format="v3"
 lock_timeout="${RHODIUM_RACKET_CACHE_LOCK_TIMEOUT:-60}"
+progress_interval="${RHODIUM_RACKET_CACHE_PROGRESS_INTERVAL:-30}"
 held_locks=()
+child_pid=""
+monitor_pid=""
+script_pid="$$"
+script_parent_pid="$PPID"
 
 hash_stream() {
   if command -v shasum >/dev/null 2>&1; then
@@ -21,9 +26,14 @@ hash_stream() {
   fi
 }
 
+cache_log() {
+  if [[ "${RHODIUM_RACKET_CACHE_QUIET:-}" != 1 ]]; then
+    printf 'rhodium-cache: %s\n' "$*" >&2
+  fi
+}
+
 default_cache_dir() {
-  "$racket_command" -e \
-    '(display (path->string (build-path (find-system-path (quote cache-dir)) "Rhodium" "racket-build")))'
+  printf '%s\n' "$repo_dir/.rhodium-cache/racket-build"
 }
 
 require_safe_directory() {
@@ -36,41 +46,98 @@ require_safe_directory() {
 
 release_locks() {
   local lock
+  local owner
   for lock in "${held_locks[@]-}"; do
     if [[ -n "$lock" ]]; then
-      rm -rf -- "$lock"
+      owner=""
+      if [[ -r "$lock/pid" ]]; then
+        read -r owner < "$lock/pid" || owner=""
+      fi
+      if [[ "$owner" == "$script_pid" ]]; then
+        rm -rf -- "$lock"
+      fi
     fi
   done
   held_locks=()
 }
 
+process_identity() {
+  ps -p "$1" -o lstart= 2>/dev/null | awk '{$1=$1; print}' || true
+}
+
+lock_field() {
+  local lock="$1"
+  local field="$2"
+  sed -n "s/^${field}=//p" "$lock/owner" 2>/dev/null | head -n 1 || true
+}
+
 acquire_lock() {
   local lock="$1"
+  local operation="$2"
   local deadline=$((SECONDS + lock_timeout))
   local owner=""
+  local owner_identity=""
+  local current_identity=""
+  local owner_operation=""
+  local owner_started=""
+  local waiting=false
   mkdir -p "$(dirname "$lock")"
   while ! mkdir "$lock" 2>/dev/null; do
     if [[ -r "$lock/pid" ]]; then
       read -r owner < "$lock/pid" || owner=""
     fi
-    if [[ ! "$owner" =~ ^[0-9]+$ ]] || ! kill -0 "$owner" 2>/dev/null; then
+    owner_identity="$(lock_field "$lock" identity)"
+    current_identity=""
+    if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+      current_identity="$(process_identity "$owner")"
+    fi
+    if [[ ! "$owner" =~ ^[0-9]+$ ]] || ! kill -0 "$owner" 2>/dev/null \
+         || { [[ -n "$owner_identity" && -n "$current_identity" ]] \
+              && [[ "$owner_identity" != "$current_identity" ]]; }; then
       rm -rf -- "$lock"
       owner=""
       continue
     fi
+    owner_operation="$(lock_field "$lock" operation)"
+    owner_started="$(lock_field "$lock" started)"
+    if [[ "$waiting" == false ]]; then
+      cache_log "waiting for worktree cache lock held by PID $owner (${owner_operation:-unknown operation}, started ${owner_started:-unknown})"
+      waiting=true
+    fi
     if (( SECONDS >= deadline )); then
-      echo "timed out waiting for Racket build cache lock held by process $owner" >&2
+      echo "Rhodium's worktree cache is busy: timed out after ${lock_timeout}s waiting for PID $owner (${owner_operation:-unknown operation}, started ${owner_started:-unknown})." >&2
+      echo "Inspect it with: tools/racket-build-cache.sh status" >&2
+      echo "The command was not retried with an uncached root." >&2
       exit 1
     fi
     sleep 0.1
   done
-  printf '%s\n' "$$" > "$lock/pid"
+  printf '%s\n' "$script_pid" > "$lock/pid"
+  {
+    printf 'pid=%s\n' "$script_pid"
+    printf 'parent_pid=%s\n' "$script_parent_pid"
+    printf 'identity=%s\n' "$(process_identity "$script_pid")"
+    printf 'started=%s\n' "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    printf 'operation=%s\n' "$operation"
+    printf 'worktree=%s\n' "$repo_dir"
+  } > "$lock/owner"
   held_locks+=("$lock")
-  trap release_locks EXIT HUP INT TERM
 }
 
 cache_base="${RHODIUM_RACKET_CACHE_DIR:-$(default_cache_dir)}"
 require_safe_directory "$cache_base"
+if ! mkdir -p "$cache_base"; then
+  echo "Rhodium cannot create this worktree's Racket cache at $cache_base" >&2
+  echo "Set RHODIUM_RACKET_CACHE_DIR to one writable absolute directory; the command was not run uncached." >&2
+  exit 1
+fi
+write_probe="$(mktemp "$cache_base/.write-probe.XXXXXX" 2>/dev/null || true)"
+if [[ -z "$write_probe" ]]; then
+  echo "Rhodium cannot write this worktree's Racket cache at $cache_base" >&2
+  echo "Set RHODIUM_RACKET_CACHE_DIR to one writable absolute directory; the command was not run uncached." >&2
+  exit 1
+fi
+rm -f -- "$write_probe"
 package_state_key="$({
   printf '%s\n' "$cache_format" "$(uname -s)" "$(uname -m)"
   "$racket_command" --version
@@ -173,7 +240,9 @@ prepare_locked() {
 }
 
 prepare() {
-  acquire_lock "$workspace_lock"
+  local operation="${1:-prepare}"
+  cache_log "preparing worktree cache $compiled_root"
+  acquire_lock "$workspace_lock" "$operation"
   prepare_locked
 }
 
@@ -184,7 +253,7 @@ publish_dependencies_locked() {
   if [[ -f "$dependency_complete" && -d "$dependency_root" ]]; then
     return
   fi
-  acquire_lock "$dependency_lock"
+  acquire_lock "$dependency_lock" "publish external dependencies"
   if [[ -f "$dependency_complete" && -d "$dependency_root" ]]; then
     return
   fi
@@ -198,35 +267,161 @@ publish_dependencies_locked() {
   mv "$staging" "$dependency_entry"
 }
 
+terminate_child() {
+  local attempt
+  if [[ -z "$child_pid" ]] || ! kill -0 "$child_pid" 2>/dev/null; then
+    return
+  fi
+  kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
+  for attempt in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+    if ! kill -0 "$child_pid" 2>/dev/null; then
+      return
+    fi
+    sleep 0.1
+  done
+  kill -KILL -- "-$child_pid" 2>/dev/null || kill -KILL "$child_pid" 2>/dev/null || true
+}
+
+describe_command() {
+  local argument
+  local description=""
+  local count=0
+  if [[ "${1:-}" == env ]]; then
+    shift
+    while [[ $# -gt 0 && "$1" == *=* ]]; do
+      shift
+    done
+  fi
+  for argument in "$@"; do
+    if [[ -n "$description" ]]; then
+      description="$description "
+    fi
+    description="$description$argument"
+    count=$((count + 1))
+    if (( count == 3 )); then
+      break
+    fi
+  done
+  printf '%s\n' "${description:-unknown command}"
+}
+
+cleanup() {
+  trap - EXIT HUP INT TERM
+  if [[ -n "$monitor_pid" ]]; then
+    kill "$monitor_pid" 2>/dev/null || true
+  fi
+  terminate_child
+  release_locks
+}
+
+handle_signal() {
+  exit "$1"
+}
+
+monitor_child() {
+  local elapsed=0
+  while kill -0 "$child_pid" 2>/dev/null; do
+    sleep 1
+    elapsed=$((elapsed + 1))
+    if [[ "$script_parent_pid" =~ ^[0-9]+$ ]] && (( script_parent_pid > 1 )) \
+       && ! kill -0 "$script_parent_pid" 2>/dev/null; then
+      cache_log "invoking process exited; terminating cached command and releasing its worktree lock"
+      kill -TERM -- "-$child_pid" 2>/dev/null || kill -TERM "$child_pid" 2>/dev/null || true
+      kill -TERM "$script_pid" 2>/dev/null || true
+      return
+    fi
+    if [[ "$progress_interval" =~ ^[0-9]+$ ]] && (( progress_interval > 0 )) \
+       && (( elapsed % progress_interval == 0 )); then
+      cache_log "command still running after ${elapsed}s (PID $child_pid)"
+    fi
+  done
+}
+
+run_command() {
+  local description="$1"
+  shift
+  local status
+  cache_log "running in the worktree cache: $description"
+  set -m
+  env PLTCOMPILEDROOTS="$compiled_root" "$@" &
+  child_pid=$!
+  set +m
+  monitor_child &
+  monitor_pid=$!
+  set +e
+  wait "$child_pid"
+  status=$?
+  set -e
+  child_pid=""
+  kill "$monitor_pid" 2>/dev/null || true
+  wait "$monitor_pid" 2>/dev/null || true
+  monitor_pid=""
+  return "$status"
+}
+
+show_status() {
+  local owner=""
+  local owner_identity=""
+  local current_identity=""
+  printf 'worktree: %s\ncache: %s\ncompiled root: %s\n' "$repo_dir" "$cache_base" "$compiled_root"
+  if [[ -r "$workspace_lock/pid" ]]; then
+    read -r owner < "$workspace_lock/pid" || owner=""
+    owner_identity="$(lock_field "$workspace_lock" identity)"
+    if [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+      current_identity="$(process_identity "$owner")"
+    fi
+    if [[ -n "$current_identity" && -n "$owner_identity" \
+          && "$current_identity" != "$owner_identity" ]]; then
+      printf 'lock: stale\n'
+    elif [[ "$owner" =~ ^[0-9]+$ ]] && kill -0 "$owner" 2>/dev/null; then
+      printf 'lock: held\n'
+    else
+      printf 'lock: stale\n'
+    fi
+    printf 'owner PID: %s\noperation: %s\nstarted: %s\n' \
+      "${owner:-unknown}" \
+      "$(lock_field "$workspace_lock" operation)" \
+      "$(lock_field "$workspace_lock" started)"
+  else
+    printf 'lock: idle\n'
+  fi
+}
+
+trap cleanup EXIT
+trap 'handle_signal 129' HUP
+trap 'handle_signal 130' INT
+trap 'handle_signal 143' TERM
+
 command="${1:-}"
 case "$command" in
   path)
     [[ $# -eq 1 ]] || { echo "usage: $0 path" >&2; exit 2; }
-    prepare
+    prepare "report cache path"
     printf '%s\n' "$compiled_root"
     ;;
   run)
     shift
     [[ $# -gt 0 ]] || { echo "usage: $0 run COMMAND [ARGUMENT ...]" >&2; exit 2; }
-    prepare
-    set +e
-    env PLTCOMPILEDROOTS="$compiled_root" "$@"
-    status=$?
-    set -e
-    exit "$status"
+    description="$(describe_command "$@")"
+    prepare "run $description"
+    run_command "$description" "$@"
     ;;
   publish-dependencies)
     [[ $# -eq 1 ]] || { echo "usage: $0 publish-dependencies" >&2; exit 2; }
-    prepare
+    prepare "publish external dependencies"
     publish_dependencies_locked
     ;;
   clean)
     [[ $# -eq 1 ]] || { echo "usage: $0 clean" >&2; exit 2; }
-    acquire_lock "$workspace_lock"
+    acquire_lock "$workspace_lock" "clean cache"
     rm -rf -- "$workspace_entry"
     ;;
+  status)
+    [[ $# -eq 1 ]] || { echo "usage: $0 status" >&2; exit 2; }
+    show_status
+    ;;
   *)
-    echo "usage: $0 path | run COMMAND [ARGUMENT ...] | publish-dependencies | clean" >&2
+    echo "usage: $0 path | run COMMAND [ARGUMENT ...] | publish-dependencies | clean | status" >&2
     exit 2
     ;;
 esac

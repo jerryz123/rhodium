@@ -79,10 +79,11 @@ backend-manifest coverage; that check does not invoke CIRCT or Verilator.
 ### Host and model checks
 
 For one Racket or Rhombus test, use the repository wrapper so the run receives
-the persistent compiled root owned by this worktree. The first successful local
-test batch for a Racket and package environment also prepares a shared
-external-dependency bytecode cache. Later invocations reuse project bytecode
-incrementally. Set `RHODIUM_RACKET_CACHE_DIR` to relocate the build cache.
+the persistent compiled root owned by this worktree under
+`.rhodium-cache/racket-build/`. Later invocations reuse project and dependency
+bytecode incrementally. Set `RHODIUM_RACKET_CACHE_DIR` to relocate the complete
+cache to another writable absolute directory; project roots remain separated by
+absolute checkout path when several worktrees intentionally use the same base.
 
 ```sh
 tools/run-racket-tests.sh rhodium/core/tests/verify-test.rhm
@@ -90,15 +91,17 @@ tools/run-racket-tests.sh rhodium/frontend/tests/interface-test.rhm
 tools/run-racket-tests.sh rhodium/backend/tests/circt-test.rhm
 ```
 
-Each absolute checkout path receives a separate project root. The wrapper
-hashes source content and invalidates changed modules plus their transitive
-project dependents before Racket recompiles them. It clears the complete
-checkout bytecode subtree when the source-path inventory changes, so branch
-switches and module moves cannot retain orphaned project modules. The shared
-dependency cache strips the complete Rhodium checkout subtree. Supplying
-`PLTCOMPILEDROOTS` explicitly bypasses the managed cache and uses that exact
-root. Run `make clean-racket-cache` to discard the current worktree's project
-bytecode.
+Each absolute checkout path receives a separate mutable project root and lock.
+The wrapper hashes source content and invalidates changed modules plus their
+transitive project dependents before Racket recompiles them. It clears the
+complete checkout bytecode subtree when the source-path inventory changes, so
+branch switches and module moves cannot retain orphaned project modules. A
+dependency snapshot contains no checkout bytecode and becomes immutable when
+published. Supplying `PLTCOMPILEDROOTS` explicitly is reserved for an external
+harness that deliberately owns and bypasses the managed cache. Cache setup and
+lock failures stop before the requested command; they never retry against an
+uncached root. Use `tools/racket-build-cache.sh status` to inspect a lock and
+`make clean-racket-cache` to discard the current worktree's project bytecode.
 
 Then move to the owning target from the tables above. Add
 `make check-boundaries` after moving modules or changing dependency direction.

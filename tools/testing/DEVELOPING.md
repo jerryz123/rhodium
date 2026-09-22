@@ -63,19 +63,26 @@ When it selects any downstream work, CI compiles the positive Racket entrypoint
 manifest once for reuse by the selected jobs. Pull requests and pushes classify
 the changed paths; manual dispatch selects every matrix shard.
 
-Local runner scripts preserve the same freshness boundary with a persistent,
-worktree-specific compiled root. The cache is keyed by the Racket version,
-installed package metadata and checksums, operating system, architecture, and
-absolute checkout path. The wrapper hashes repository sources and uses Racket's
-recorded dependency graph to remove changed modules and their transitive
-project dependents before incremental compilation. It also records the source
-path inventory and clears only the checkout's mirrored bytecode subtree when a
-source is added, removed, or moved, preventing orphaned modules from surviving
-structural changes. Successful test batches can seed a shared
-external-dependency cache; checkout bytecode is never published there. Cache
-access is serialized per worktree. Callers that provide
-`PLTCOMPILEDROOTS` retain full ownership of that root, and CI continues to use
-its separately verified exact-commit bytecode artifact.
+Local runner scripts preserve the same freshness boundary with a persistent
+compiled root owned by each worktree under `.rhodium-cache/`. The cache is keyed
+by the Racket version, installed package metadata and checksums, operating
+system, architecture, and absolute checkout path. The wrapper hashes repository
+sources and uses Racket's recorded dependency graph to remove changed modules
+and their transitive project dependents before incremental compilation. It also
+records the source path inventory and clears only the checkout's mirrored
+bytecode subtree when a source is added, removed, or moved, preventing orphaned
+modules from surviving structural changes.
+
+Mutable project bytecode and its lock are never shared across worktrees. An
+explicit common `RHODIUM_RACKET_CACHE_DIR` still separates project roots by
+absolute checkout path; only a completed external-dependency snapshot can be
+shared, and checkout bytecode is removed before that snapshot is published.
+Cache access is serialized within one worktree. The wrapper supervises the
+cached command, releases its lock on interruption, reports long-running phases,
+and fails without an uncached retry when the cache is unavailable or busy.
+Callers that deliberately provide `PLTCOMPILEDROOTS` retain full ownership of
+that root, while CI continues to use its separately verified exact-commit
+bytecode artifact.
 
 ```mermaid
 flowchart TD
