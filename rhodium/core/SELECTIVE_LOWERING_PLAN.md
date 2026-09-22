@@ -540,3 +540,21 @@ exposed and verified the vector-update retention fix above. Boundary, license,
 CI-routing, shell, and whitespace checks pass. Remaining library/native-object,
 inspection, and harness fixture migration, integrated validation, and performance
 measurements stay open; this is focused evidence, not a complete suite baseline.
+
+## Region, primitive, and inspection migration
+
+The [dependent inspection follow-up](https://github.com/tianrui-wei/rhodium/commit/c21b92a)
+restores contract-guided grouping and lifted-primitive regressions. Grouping
+passes 10,000 independent arithmetic/shared-observer comparisons, analysis-only
+ordering checks, and malformed-contract rejection. Five primitive execution
+modes pass 1,000 cycles across control-mask boundaries 1/3/64/65, packet ownership,
+scoreboard old-state semantics, debug/release generation, parallel schedules,
+failed-host retry, and reattachment.
+
+The package-owned inspection CLI and its original lookup regression also pass,
+covering sparse/default selection, all result slices, source-mapped plans, and
+real x86 compiler-output disassembly. The tool reports static instruction and
+register observations rather than dynamic cost. Both runners include the restored
+groups. Boundary, license, CI-routing, shell, CLI-help, and whitespace checks pass.
+Library/native-object and harness migration, integrated validation, and
+performance measurements remain open.
