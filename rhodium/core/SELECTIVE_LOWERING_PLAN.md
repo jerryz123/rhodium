@@ -104,33 +104,43 @@ and 13 transport examples, covering pipelines, arbitration, routing, forks,
 joins, stalls, retained storage, and windows. After fixing array endpoint
 reconstruction, the complete event regression passes 503 checks. The backend
 continues to reject inputs not yet materialized.
-Native integration, three-way differential simulation, and typed payload regions
-remain pending. Core control contracts accept direct ports, transparent wires,
+Native runtime sources remain outside this IR-only branch; dependent execution
+evidence is recorded below. Typed payload regions remain pending. Core control contracts accept direct ports, transparent wires,
 and reset casts; a data-to-clock cast introduces a distinct domain and cannot
 stand in for a declared boundary clock. Derived controls need explicit support.
 The optional `SemanticNode` mechanism remains descriptive and is not the
-executable construct protocol. No end-to-end native milestone is claimed.
+executable construct protocol. The dependent branch establishes the initial mixed-design execution milestone.
 
 ## Next execution gates
 
-- Connect native Queue and generic RTL to the shared simulation schedule
-  and run the three-way differential gate. The hardware-only fixture is not
-  evidence for the native implementation.
+- Complete nested composition extraction and typed payload regions.
+- Extend effect/error and wide/vector coverage, and migrate the previous
+  simulator regression suite.
+- Measure elaboration, emitted size, memory, and throughput after correctness
+  coverage for the higher-order path passes.
 
 ## Dependent native progress
 
-The [separate native implementation](https://github.com/tianrui-wei/rhodium/commit/d974be3373456b3174da946310389f3634f70a89)
+The [separate native implementation](https://github.com/tianrui-wei/rhodium/commit/0ac2a77ff2ac6b8fbf38292c64315061102f6611)
 selects Queue implementations by public construct identity before portable
-expansion. Its `make sim-selective-test` entry point passes 87 host checks,
+expansion. Its `make sim-selective-test` entry point passes 158 host checks,
 512-cycle pre/post-edge oracle replay across 16 scalar depth/pipe/flow
 configurations, and 256-cycle independent-state replay for repeated instances
 with direct, mixed, and expanded choices. Both interpreter and generated-C
-execution pass. A separate CIRCT/Verilator run matches the same scalar Queue
-vectors. The selected portable Queue body executes zero times.
+execution pass. CIRCT/Verilator matches the same scalar vectors. The selected
+portable Queue body executes zero times.
 
-This establishes the first scalar mixed-design milestone in the dependent
-branch. It does not complete the full native gates: contract/range/dependency
-validation, aggregate feedback, nested composition extraction, typed payload
-regions, broader effect/error cases, performance measurements, and migration of
-the previous simulator regression suite remain. No simulator implementation is
-added to this IR PR.
+Native boundary verification now checks packed ranges, complete disjoint output
+coverage, leaf-sensitive dependency containment, exact effect names, and Queue
+clock/reset/query ABI requirements. Sixteen record-payload configurations with
+legal cross-field feedback pass 256-cycle replay against an independent oracle,
+including interpreter, generated C, and CIRCT/Verilator. Default-optimized native
+models pass as well. Directed cases include reset-time payload writes, full
+replacement, pending reset, and empty bypass. Payload queries preserve field
+input dependencies while state capture continues to read the full payload.
+
+Remaining gates include nested composition extraction, typed payload regions,
+additional effect/error and wide/vector coverage, performance measurements, and
+migration of the previous simulator suite. Boundary verification is not proof
+of an arbitrary target implementation's semantics; differential evidence remains
+required. No simulator implementation is added to this IR PR.
