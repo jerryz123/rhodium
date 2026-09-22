@@ -412,3 +412,21 @@ before failing. This limit is documented alongside the tested hardware-state
 and callback-invocation guarantees. Remaining work includes broader runtime/error
 regression migration and performance measurements; this is focused validation,
 not a new full-suite baseline.
+
+## Runtime publication/scheduling migration follow-up
+
+The [dependent runtime migration](https://github.com/tianrui-wei/rhodium/commit/f79b7eb)
+restores three previous independent C++ regressions under package ownership.
+Fifty batched-cycle configurations pass publication/failure, parity, reset,
+callback, and reattachment checks. Six reference/parallel scheduling modes pass
+512 cycles, including snapshot-prefix splitting and eight-worker execution.
+Seventy-five static-demand modes pass 1,000 cycles across shared guards, wide
+state, scratch reuse, generated layouts, and strict invalid-selector checks.
+
+A standalone `make sim-runtime-regression-test` entry point and integration in
+the selective host runner reuse compiler helpers and runtime builds. CI installs
+Clang explicitly. The demand matrix gets ten minutes to compile its 74 generated
+libraries; an initial two-minute limit expired before the successful rerun.
+Compiler optimization, object-family, arithmetic, and frontend-fixture migration,
+plus performance measurements, remain open. These results do not claim a fresh
+full selective-suite run.
