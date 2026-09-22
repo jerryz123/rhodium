@@ -138,12 +138,19 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
 4. Preserve explicit SRAM ownership and priority among core lookup, line
    gather, refill installation, and snoop service.
    Keep transaction capacity separate from array availability. `miss_active`,
-   `miss_allows_hits`, and `miss_set` span direct acquisition or victim gather
-   through final refill completion, including CHI retries and writeback.
-   Only ordinary demand load/store contexts enable hit-under-miss. Protect the
-   whole set in EX admission and MEM classification, and replay a second miss
-   rather than exposing it as Slow service. Do not weaken store authorization,
-   ordered-queue barriers, or `drained` when enabling independent load reads.
+   `miss_allows_hits`, `miss_set`, and `miss_line_address` span direct
+   acquisition or victim gather through final refill completion, including CHI
+   retries and writeback. Only ordinary demand load/store contexts enable
+   hit-under-miss. Protect the whole set in EX admission and MEM classification.
+   An ordinary load or store matching `miss_line_address` may resolve as Slow
+   and wait in the authorized request queue; it must perform a fresh lookup
+   after completion and must not observe the refill buffer directly. Such a
+   parked head owns no SRAM port and does not block independent load hits. Keep
+   the queue's positive depth specialized by `service_queue_depth`; it bounds
+   accepted waiters but does not add miss entries. Replay every independent
+   second miss and every unsupported same-line operation rather than allocating
+   another owner. Do not weaken store authorization, ordered-queue barriers, or
+   `drained` when enabling independent load reads or same-line waiters.
    Preserve registered read ownership across an installation or snoop arriving
    between EX and MEM; never steal an array cycle from older work.
 5. Acquire Unique for LR without treating it as a store for translation,

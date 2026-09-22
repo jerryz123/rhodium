@@ -13,6 +13,7 @@ import:
 def design = embedded.run_elaboration(
   fun (): cache.RV5StageL1DCache(XLen.X64,
                                  RV5StageCacheConfig(4, 2),
-                                 ~chi: test_params.test_rv5stage_chi_config)
+                                 ~chi: test_params.test_rv5stage_chi_config,
+                                 ~service_queue_depth: 3)
 )
 print(emit_circt(design))

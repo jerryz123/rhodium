@@ -21,7 +21,10 @@ def cache = design.modules.find(fun (module_def): module_def.name == "RV5StageL1
 def data_access_type = protocol.RV5StageDataAccess(XLen.X64, 8)
 def data_request_member = data_access_type.members.find(fun (member): member.name == "request")
 def rv32_design = embedded.run_elaboration(
-  fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config)
+  fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config, ~service_queue_depth: 1)
+)
+def deeper_queue_design = embedded.run_elaboration(
+  fun (): l1d.RV5StageL1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 3)
 )
 def rv32_cache = rv32_design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
 
@@ -61,3 +64,6 @@ check:
   embedded.run_elaboration(
     fun (): l1d.RV5StageL1DCache(64, cache_config, ~chi: config)
   ) ~throws "XLen"
+  embedded.run_elaboration(
+    fun (): l1d.RV5StageL1DCache(XLen.X64, cache_config, ~chi: config, ~service_queue_depth: 0)
+  ) ~throws "PosInt"

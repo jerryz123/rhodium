@@ -114,7 +114,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
-  inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~vector_completion_slots: vector_completion_slots))
+  inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~vector_completion_slots: vector_completion_slots))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
   inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst uncached(RV5StageUncached(xlen, config, ~vector_completion_slots: vector_completion_slots))

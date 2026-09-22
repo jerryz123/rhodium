@@ -67,6 +67,7 @@ fun check_l1d_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
 sync_circuit RV5StageL1DCache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
                               ~chi: config :: RV5StageCHIConfig,
+                              ~service_queue_depth: service_queue_depth :: PosInt = 2,
                               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   def p = config.flit
@@ -118,7 +119,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   writeback.node_id <== node_id
   // Registered capacity owns acceptance even when a paired virtual lookup can
   // bypass this buffer. Busy arrays retain permitted physical requests here.
-  inst service_requests(Queue(RV5StageDataReq(xlen, vector_completion_slots), 2, ~flow: #true))
+  inst service_requests(Queue(RV5StageDataReq(xlen, vector_completion_slots), service_queue_depth, ~flow: #true))
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(RV5StageL1DLookup(xlen, vector_completion_slots), 1))
@@ -163,6 +164,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   reg miss_active(~init: Bool(#false))
   reg miss_allows_hits(~init: Bool(#false))
   reg miss_set(Bits(set_width))
+  reg miss_line_address(Bits(width))
   reg gather_state(~init: RV5StageDataGatherState.Idle)
   reg gather_issue_index(~init: bits(0, word_index_width))
   reg gather_response_pending(~init: Bool(#false))
@@ -219,7 +221,17 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   wire s1_outcome: RV5StagePipelineOutcome
   wire s1_reason: RV5StagePipelineReason
   def s1_miss_set_clear = (pipeline.request.bits.access === RV5StageMemoryOperation.Load) & (s1_set =/= miss_set)
-  when (!(hit_path_available ||| (hit_under_miss & s1_miss_set_clear))):
+  // Ordinary accesses to the one outstanding line become authorized waiters.
+  // They do not consume a partial refill: WB queues them, and the transaction
+  // path performs a fresh authoritative lookup after installation completes.
+  def s1_same_line_waiter = miss_active & pipeline.request.bits.access.is_one_of(
+    RV5StageMemoryOperation.Load,
+    RV5StageMemoryOperation.Store
+  ) & (pipeline.request.bits.address.align_down(RV5StageCacheLineBytes) === miss_line_address)
+  when s1_same_line_waiter:
+    s1_outcome <== RV5StagePipelineOutcome.Slow
+    s1_reason <== RV5StagePipelineReason.Miss
+  elsewhen (!(hit_path_available ||| (hit_under_miss & s1_miss_set_clear))):
     s1_outcome <== RV5StagePipelineOutcome.Replay
     s1_reason <== mux(snoop_pending, RV5StagePipelineReason.Probe, RV5StagePipelineReason.Miss)
   elsewhen s1_probe_conflict:
@@ -595,10 +607,15 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // Shared admission: the EX read never takes an SRAM port from older authorized work or snoops.
   // It reserves no transaction and cannot allocate, mutate, or establish LR.
   // Transaction capacity and SRAM ownership are separate. Queued older work
-  // still blocks bypass; an active miss has already captured its entire context.
+  // still blocks bypass, except for an ordinary request parked behind the
+  // active line: it cannot advance until installation and owns no array port.
   def arrays_available = !maintenance_active & gather_idle & !refill_installing & !pending_mutation_valid & !s4_needs_refill & !local_mutation
   def engines_idle = arrays_available & !miss_active & refill.command.ready & writeback.command.ready
-  def service_order_clear = !service_requests.egress.valid & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
+  def parked_same_line_waiter = ordinary_requests.valid & miss_active & ordinary_requests.bits.access.is_one_of(
+    RV5StageMemoryOperation.Load,
+    RV5StageMemoryOperation.Store
+  ) & (ordinary_requests.bits.address.align_down(RV5StageCacheLineBytes) === miss_line_address)
+  def service_order_clear = (!service_requests.egress.valid ||| parked_same_line_waiter) & !s3_lookup.egress.valid & !s4_result.egress.valid & !virtual_lookup.valid
   hit_path_available <== engines_idle & service_order_clear
   hit_under_miss <== miss_active & miss_allows_hits & arrays_available & service_order_clear & !snoop_pending
   def store_drain_available = engines_idle & !s3_read_valid & !s4_result.egress.valid & !snoop_metadata_pending & !snoop_lookup_start & !snoop.update.valid
@@ -762,6 +779,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     miss_active <== Bool(#true)
     miss_allows_hits <== !s4_prefetch & s4_access.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
     miss_set <== s4_set
+    miss_line_address <== s4_request.address.align_down(RV5StageCacheLineBytes)
   elsewhen complete_refill:
     miss_active <== Bool(#false)
     miss_allows_hits <== Bool(#false)

@@ -790,8 +790,9 @@ specialized core definition to be stamped at multiple placements.
 ### Generator parameters
 
 [`profile.rhm`](profile.rhm) defines the immutable `RV5StageConfig` host
-model: XLEN, supported extensions, MMU mode, and independent instruction and
-data cache geometry. It validates supported combinations and projects a pure
+model: XLEN, supported extensions, MMU mode, independent instruction and data
+cache geometry, and data-cache service capacity. It validates supported
+combinations and projects a pure
 [`RiscvIsaProfile`](../../riscv/isa/profile.rhm) containing the normalized ISA
 extension list and `misa` value. The RV5Stage configuration remains the sole
 specialization input to `RV5Stage` and `RV5StageCore`. Derive immutable profile,
@@ -808,6 +809,7 @@ runs the same cross-field validation as direct construction.
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |
+| `profile.data_cache_service_queue_depth` | Positive capacity for authorized L1D requests and same-line miss waiters; defaults to two |
 | `profile.multiplier` | `Iterative` by default, or a five-stage feed-forward `Pipelined` implementation; both provide operand-independent timing |
 | `~chi` | Required physical flit, address-region, and Home-routing policy |
 

@@ -198,6 +198,7 @@ class RV5StageConfig(xlen :: XLen,
                      extensions :: RV5StageExtensions,
                      mmu_mode :: RV5StageMmuMode,
                      cache_geometry :: RV5StageCacheGeometry,
+                     data_cache_service_queue_depth :: PosInt,
                      multiplier :: RV5StageMultiplierKind,
                      vector :: VectorProfile,
                      vector_extensions :: List.of(VectorExtension),
@@ -209,6 +210,7 @@ class RV5StageConfig(xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
                ~cache_geometry: cache_geometry :: RV5StageCacheGeometry = RV5StageCacheGeometry(),
+               ~data_cache_service_queue_depth: data_cache_service_queue_depth :: PosInt = 2,
                ~multiplier: multiplier :: RV5StageMultiplierKind = RV5StageMultiplierKind.Iterative,
                ~vector: vector :: VectorProfile = DefaultVectorProfile,
                ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions,
@@ -228,16 +230,18 @@ class RV5StageConfig(xlen :: XLen,
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
-    super(xlen, extensions, mmu_mode, cache_geometry, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
+    super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
-  reconstructor (xlen, extensions, mmu_mode, cache_geometry, multiplier,
-                 vector, vector_extensions, vector_length,
+  reconstructor (xlen, extensions, mmu_mode, cache_geometry,
+                 data_cache_service_queue_depth, multiplier, vector,
+                 vector_extensions, vector_length,
                  vector_completion_slots):
     RV5StageConfig(
       ~xlen: xlen,
       ~extensions: extensions,
       ~mmu_mode: mmu_mode,
       ~cache_geometry: cache_geometry,
+      ~data_cache_service_queue_depth: data_cache_service_queue_depth,
       ~multiplier: multiplier,
       ~vector: vector,
       ~vector_extensions: vector_extensions,

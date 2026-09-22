@@ -52,7 +52,9 @@ contract, plus `misa.V` from that same profile. `MiniRV5StageSoC` defaults to
 integer-only RV64 with 2 KiB direct-mapped L1s, and
 `TiledRV5StageSoC` to integer-only RV64 with the C composition. SingleCoreRV5StageSoC and TiledRV5StageSoC
 also select the feed-forward pipelined integer multiplier, while MiniRV5StageSoC
-selects the compact iterative multiplier. They enable Zcmop; MiniRV5StageSoC
+selects the compact iterative multiplier. The single-core and tiled profiles
+provide four authorized L1D service entries, while the compact mini profile
+provides one. They enable Zcmop; MiniRV5StageSoC
 keeps compressed instructions disabled. All three select Sv39;
 Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC also enables
 scalar `Zfa` and `Zfh`, Zcb, Zicbom, Ssnpm/Supm with selectable PMLEN 0, 7, and

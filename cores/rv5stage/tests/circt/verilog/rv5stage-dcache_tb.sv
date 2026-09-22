@@ -1,4 +1,4 @@
-// Verifies flow admission, set-isolated hits under a miss, stores, coherence, and atomics.
+// Verifies flow admission, set-isolated hits and same-line waiters under a miss, stores, coherence, and atomics.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_dcache_tb;
@@ -406,7 +406,7 @@ module rv5stage_dcache_tb;
         chi_in.response_data.bits = '0;
         if(exercise_hits && packet!=0) begin
           check_under_miss(PREFETCH_READ_ADDRESS,PIPE_LOAD_HIT,LINE[63:0]);
-          check_under_miss(address,PIPE_REPLAY); // No partial line may be observed.
+          check_under_miss(address,PIPE_SLOW); // Waiters cannot observe a partial line.
         end
       end
     end
@@ -1395,20 +1395,37 @@ module rv5stage_dcache_tb;
     tx_rsp_pending=0;
     $display("WB stores: squash, byte hazards, physical tags, independent hits, and coherent draining passed");
 
-    // One ordinary miss permits sustained read hits in other sets, including
-    // protocol retry and gapped packets. Neither another miss nor a store can
-    // claim the occupied transaction slot or mutate a reserved way.
+    // One ordinary miss permits sustained read hits in other sets and retains
+    // three authorized same-line waiters through retry, gapped packets, and
+    // installation. Independent misses still cannot claim the transaction.
     for(int store_miss=0;store_miss<2;store_miss++) begin
-      int replies, blocked, resumed;
+      int replies, blocked, resumed, primary_replies, waiter_replies, ack_replies;
       prepare_hit_under_miss();
       send_core_request(THIRD_ADDRESS,store_miss!=0 ? MEMORY_STORE : MEMORY_LOAD,ATOMIC_SWAP,STORE_DATA,2);
       accept_request(store_miss!=0 ? READ_UNIQUE : READ_CLEAN,THIRD_ADDRESS,0,6,1,0);
       stream_under_miss();
       check_under_miss(ADDRESS,PIPE_REPLAY); // Victim still has its old tag.
       check_under_miss(EVICT_ADDRESS,PIPE_REPLAY); // Other way in the reserved set.
-      check_under_miss(THIRD_ADDRESS,PIPE_REPLAY); // Incoming line.
       check_under_miss(PREFETCH_WRITE_ADDRESS,PIPE_REPLAY); // Second miss, another set.
       check_under_miss(PREFETCH_READ_ADDRESS,PIPE_REPLAY,0,MEMORY_STORE);
+      if(store_miss!=0) begin
+        check_under_miss(THIRD_ADDRESS,PIPE_SLOW);
+        send_core_request(THIRD_ADDRESS,MEMORY_LOAD,ATOMIC_SWAP,0,3);
+        check_under_miss(THIRD_ADDRESS+8,PIPE_SLOW,0,MEMORY_STORE);
+        send_core_request(THIRD_ADDRESS+8,MEMORY_STORE,ATOMIC_SWAP,STORE_DATA_2,0);
+        check_under_miss(THIRD_ADDRESS+16,PIPE_SLOW);
+        send_core_request(THIRD_ADDRESS+16,MEMORY_LOAD,ATOMIC_SWAP,0,4);
+      end else begin
+        check_under_miss(THIRD_ADDRESS+8,PIPE_SLOW);
+        send_core_request(THIRD_ADDRESS+8,MEMORY_LOAD,ATOMIC_SWAP,0,3);
+        check_under_miss(THIRD_ADDRESS+16,PIPE_SLOW);
+        send_core_request(THIRD_ADDRESS+16,MEMORY_LOAD,ATOMIC_SWAP,0,4);
+        check_under_miss(THIRD_ADDRESS+24,PIPE_SLOW);
+        send_core_request(THIRD_ADDRESS+24,MEMORY_LOAD,ATOMIC_SWAP,0,5);
+      end
+      #1;
+      assert(!core_out.request.ready)
+        else $fatal(1,"full same-line waiter queue reported ready");
       send_response(RETRY_ACK,0,0,3);
       stream_under_miss();
       send_response(PCRD_GRANT,0,0,3);
@@ -1420,8 +1437,8 @@ module rv5stage_dcache_tb;
       tick();
       pipeline_in.request='{valid:1,bits:'{byte_mask:8'(((1 << (1 << (3))) - 1) << ((PREFETCH_READ_ADDRESS) % 8)),address:PREFETCH_READ_ADDRESS,access:MEMORY_LOAD,width:3,unsigned_0:0,data:0}};
       grant_rsp_credit(); tick(); accept_comp_ack();
-      replies=0; blocked=0; resumed=0;
-      repeat(24) begin
+      replies=0; blocked=0; resumed=0; primary_replies=0; waiter_replies=0; ack_replies=0;
+      repeat(40) begin
         #1;
         if(pipeline_out.response.bits.outcome==PIPE_LOAD_HIT) begin
           assert(pipeline_out.response.bits.data==LINE[63:0]) else $fatal(1,"installation corrupted an independent hit");
@@ -1431,16 +1448,38 @@ module rv5stage_dcache_tb;
           blocked++;
         end
         if(core_out.response.valid) begin
-          assert(core_out.response.bits.writeback==(store_miss!=0 ? 9'b0 : memory_integer(5'd2)) && core_out.response.bits.data==(store_miss!=0 ? 0 : THIRD_LINE[63:0]))
-            else $fatal(1,"miss result mixed with speculative hit");
+          if(store_miss!=0) begin
+            if(core_out.response.bits.writeback==memory_integer(5'd3)) begin
+              assert(core_out.response.bits.data==STORE_DATA)
+                else $fatal(1,"same-line load did not observe the primary store");
+              waiter_replies++;
+            end else if(core_out.response.bits.writeback==memory_integer(5'd4)) begin
+              assert(core_out.response.bits.data==THIRD_LINE[191:128])
+                else $fatal(1,"same-line load returned incorrect refill data");
+              waiter_replies++;
+            end else begin
+              assert(core_out.response.bits.writeback==9'b0 && core_out.response.bits.data==0)
+                else $fatal(1,"same-line store acknowledgement mismatch");
+              ack_replies++;
+            end
+          end else begin
+            case(memory_rd(core_out.response.bits.writeback))
+              5'd2: begin assert(core_out.response.bits.data==THIRD_LINE[63:0]); primary_replies++; end
+              5'd3: begin assert(core_out.response.bits.data==THIRD_LINE[127:64]); waiter_replies++; end
+              5'd4: begin assert(core_out.response.bits.data==THIRD_LINE[191:128]); waiter_replies++; end
+              5'd5: begin assert(core_out.response.bits.data==THIRD_LINE[255:192]); waiter_replies++; end
+              default: $fatal(1,"same-line load returned to an unexpected destination");
+            endcase
+          end
           replies++;
         end
         tick();
       end
       pipeline_lookup_in='0; pipeline_in='0; tick();
-      assert(replies==1 && blocked>=8 && resumed>=8 && core_out.drained && !tx_req_pending)
-        else $fatal(1,"refill progress under streaming hits: replies=%0d blocked=%0d resumed=%0d",replies,blocked,resumed);
+      assert(replies==4 && (store_miss!=0 ? (waiter_replies==2 && ack_replies==2) : (primary_replies==1 && waiter_replies==3)) && blocked>=8 && resumed>=8 && core_out.drained && !tx_req_pending)
+        else $fatal(1,"same-line waiter progress: replies=%0d primary=%0d waiters=%0d acks=%0d blocked=%0d resumed=%0d",replies,primary_replies,waiter_replies,ack_replies,blocked,resumed);
       check_pipeline_load(THIRD_ADDRESS,1,1,store_miss!=0 ? STORE_DATA : THIRD_LINE[63:0]);
+      check_pipeline_load(THIRD_ADDRESS+8,1,1,store_miss!=0 ? STORE_DATA_2 : THIRD_LINE[127:64]);
       check_pipeline_load(EVICT_ADDRESS,1,1,EVICT_LINE[63:0]);
     end
 

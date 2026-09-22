@@ -16,7 +16,7 @@ Contributors changing the L1D implementation should read
 
 | Property | Current contract |
 |---|---|
-| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with load hit-under-miss |
+| Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with independent load hits and same-line authorized waiters |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
 | Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
@@ -25,9 +25,11 @@ Contributors changing the L1D implementation should read
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
 | Prefetch | Demand-priority Valid event; read intent uses `ReadClean`, write intent uses `ReadUnique`, and neither responds or mutates data |
 
-`RV5StageL1DCache(xlen, cache, ~chi: config)` accepts `XLen.X32` or
-`XLen.X64`. The cache configuration supplies set/way geometry; the required
-CHI configuration supplies flit geometry and the Home map. A separate
+`RV5StageL1DCache(xlen, cache, ~chi: config, ~service_queue_depth: 2)` accepts
+`XLen.X32` or `XLen.X64`. The cache configuration supplies set/way geometry;
+the positive service-queue depth bounds authorized requests and same-line
+waiters, while the required CHI configuration supplies flit geometry and the
+Home map. A separate
 `node_id` input supplies the occurrence's RN-F identity. Core addresses use
 XLEN, while emitted CHI requests use the configured CHI request-address width
 and assert that the original physical address fits. Geometry validation also
@@ -115,16 +117,26 @@ request/response path remains ordered and supports only one miss at a time.
 
 The entire miss set is reserved from acquisition/allocation through final
 installation (or non-allocating completion), including the victim and other
-ways. Another miss, a same-set access, or a pipeline store replays during this
-interval. LR/SC, atomic, cache-block, and prefetch transactions do not enable
-hit-under-miss. Queued older requests and retained lookup stages remain ordering
-barriers rather than being bypassed speculatively.
+ways. An ordinary load or store to the outstanding line resolves as slow and
+may enter the configurable authorized request queue. It waits there without
+observing partial refill data, then performs a fresh tag/state lookup after the
+miss completes. This collapses ordinary same-line load traffic when the first
+transaction installs a usable line; a waiter may instead miss again after a
+non-allocating refill or when it needs stronger ownership. An independent
+second miss, a different-line same-set access, or an ordinary store to another
+line still replays during this interval. LR/SC, atomic, cache-block, and
+prefetch transactions do not become waiters. Queued older requests and retained
+lookup stages remain ordering barriers rather than being bypassed
+speculatively, except that a same-line waiter parked behind the active miss
+owns no SRAM port and does not block independent load hits.
 
 Gather, refill installation, mutation, and snoop array activity retain priority.
 Loads replay on conflicting cycles and never observe partially installed data
 or reuse a read result owned by another request. An outstanding miss still keeps
 `drained` false; fences and ordered IO retain their existing completion rules.
-This is not a multi-MSHR cache, miss merging, or store hit-under-miss.
+This remains a single-MSHR cache: waiters relookup after completion rather than
+receiving data directly from the refill engine, and no independent second miss
+can become outstanding.
 
 Requests carry `locality: RiscvMemoryLocality` (`Default`, `P1`, `Pall`,
 `S1`, `All`). Lookup, retained mutation, dirty-victim eviction, and refill
@@ -237,9 +249,13 @@ XLEN word per way. Parallel comparisons select the hit way; assertions reject
 duplicate valid tags. An aligned scalar load, store, LR/SC, or AMO therefore
 touches one data row even though coherent transfers operate on a whole line.
 
-On the authorized transaction path, a two-entry `Queue` with `flow=true, pipe=false` makes core request readiness solely a
-function of registered queue occupancy. Tag, state, and data results may decide
-whether its egress drains, but cannot feed back combinationally into acceptance.
+On the authorized transaction path, a `Queue` with configurable positive depth
+(two by default) and `flow=true, pipe=false` makes core request readiness solely
+a function of registered queue occupancy. Tag, state, and data results may
+decide whether its egress drains, but cannot feed back combinationally into
+acceptance.
+The same queue retains ordinary same-line waiters while the single miss entry is
+occupied; a full queue makes WB replay instead of losing an authorized request.
 When the queue is empty and the SRAM port is available, an early virtual lookup
 reads the arrays in parallel with translation and PMA checks. Its permitted
 physical request bypasses the queue into the lookup pipeline at the read edge.

@@ -25,6 +25,7 @@ def single_core_rv5stage_soc_core_profile = RV5StageConfig(
     ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)
   ),
   ~mmu_mode: RV5StageMmuMode.Sv39,
+  ~data_cache_service_queue_depth: 4,
   ~multiplier: RV5StageMultiplierKind.Pipelined,
   ~vector: VectorProfile.V,
   ~vector_extensions: vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb),
@@ -39,6 +40,7 @@ def mini_rv5stage_soc_core_profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true),
   ~mmu_mode: RV5StageMmuMode.Sv39,
+  ~data_cache_service_queue_depth: 1,
   ~multiplier: RV5StageMultiplierKind.Iterative,
   ~cache_geometry: RV5StageCacheGeometry(
     ~instruction: RV5StageCacheConfig(32, 1),
@@ -50,6 +52,7 @@ def tiled_rv5stage_soc_core_profile = RV5StageConfig(
   ~xlen: XLen.X64,
   ~extensions: RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcmop)),
   ~mmu_mode: RV5StageMmuMode.Sv39,
+  ~data_cache_service_queue_depth: 4,
   ~multiplier: RV5StageMultiplierKind.Pipelined
 )
 

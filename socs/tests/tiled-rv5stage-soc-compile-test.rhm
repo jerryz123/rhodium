@@ -17,6 +17,7 @@ def description = tiled.default_tiled_rv5stage_soc_config.description
 
 check:
   tiled.tiled_rv5stage_soc_core_profile.multiplier ~is profile.RV5StageMultiplierKind.Pipelined
+  tiled.tiled_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
   tiled.tiled_rv5stage_soc_core_profile.extensions.zicbop ~is #true
   tiled.default_tiled_rv5stage_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
