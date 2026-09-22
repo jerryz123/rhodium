@@ -79,7 +79,9 @@ summaries; selection consumes construct/composition contracts. Expansion and
 target-lowering providers are supplied by callers, never imported from libraries
 or simulator packages by core. `materialize.rhm` uses Builder and verification
 to produce a new owned design and source-object maps, without frontend or
-backend imports.
+backend imports. Core `metadata.rhm` calls the remapping protocol declared in
+`ir.rhm`; interface and sync owners implement it through their existing core IR
+imports. No core dependency on frontend or event code is introduced.
 
 ## Dependency rules
 

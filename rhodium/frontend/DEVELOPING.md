@@ -203,3 +203,10 @@ Run the construct-elaboration and construct-syntax tests, then frontend/profile
 coverage for this shared boundary. Flow's retained-queue test checks the real
 library declaration and provider; the backend construct-elaboration test checks
 expanded emission and unresolved-input diagnostics.
+
+The interface layer and sync support implement the core metadata remapping
+protocol. Interface endpoint identity links event annotations to transforms;
+use the mapper's memoization when rebuilding these records. Trace controls
+owned by a child must use that instance's mapping scope. Immutable protocol
+and direction descriptors remain shared. Event materialization tests cover
+these contracts without a reverse dependency on the event package.

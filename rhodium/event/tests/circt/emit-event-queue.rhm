@@ -1,10 +1,13 @@
 #lang rhombus
-// Emits instrumented queue configurations with unannotated differential references.
+// Emits instrumented retained Queue configurations with unannotated differential references.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../../rhodium/backend/circt.rhm".emit_circt
   "../../../../rhodium/event/main.rhm".instrument_events
   "../event-queue-fixture.rhdl" as fixture
+  "../../../core/main.rhm".materialize_constructs
+  "../../../../flow/queue.rhdl".QueueExpansion
 
-print(emit_circt(instrument_events(fixture.queued).instrumented.design))
+def materialized = materialize_constructs(fixture.retained_queued, [QueueExpansion])
+print(emit_circt(instrument_events(materialized.elaboration).instrumented.design))

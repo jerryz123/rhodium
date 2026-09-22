@@ -114,6 +114,7 @@ sync_circuit EventDuplicateQueue():
   describe_interface_queue_storage(1, Bool(#false), Bool(#false), bits(0, 1), bits(0, 1), Bool(#false), Bool(#false))
 
 def queued = elaborate_with_top(EventQueue())
+def retained_queued = elaborate_with_top(EventQueue(), ~constructs: #true)
 fun bad_width(): elaborate_with_top(EventBadQueueWidth())
 fun bad_enable(): elaborate_with_top(EventBadQueueEnable())
 fun missing_controls(): elaborate_with_top(EventMissingQueue())
@@ -122,6 +123,7 @@ fun duplicate_controls(): elaborate_with_top(EventDuplicateQueue())
 
 export:
   queued
+  retained_queued
   bad_width
   bad_enable
   missing_controls

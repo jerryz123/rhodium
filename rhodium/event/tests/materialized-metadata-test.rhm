@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks identity-preserving metadata reconstruction across supported event transport contracts.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm".materialize_constructs
+  "../main.rhm" open
+  "event-pipeline-fixture.rhdl" as pipeline
+  "event-elastic-fixture.rhdl" as elastic
+  "event-arbiter-fixture.rhdl" as arbiter
+  "event-demux-fixture.rhdl" as demux
+  "event-atomic-fork-fixture.rhdl" as fork
+  "event-broadcast-fixture.rhdl" as broadcast
+  "event-join-fixture.rhdl" as join
+  "event-stall-fixture.rhdl" as stall
+  "event-retained-fixture.rhdl" as retained
+  "event-window-fixture.rhdl" as window
+
+for (original in [pipeline.pipeline, pipeline.flush_pipeline, pipeline.nested_projected_channels,
+                  elastic.elastic, arbiter.arbitrated, demux.routed, fork.replicated,
+                  broadcast.replicated, join.joined, stall.stalled,
+                  retained.trace_edges(), retained.contract_links(), window.window(#true)]):
+  def copied = materialize_constructs(original, []).elaboration
+  def before = instrument_events(original)
+  def after = instrument_events(copied)
+  check:
+    event_manifest_to_json(after.manifest) ~is event_manifest_to_json(before.manifest)
+    after.instrumented.design.sealed ~is #true

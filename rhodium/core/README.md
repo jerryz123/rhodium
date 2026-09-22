@@ -657,7 +657,7 @@ verification; it does not infer library meaning from display names.
 
 ### Materializing portable implementations
 
-`materialize_constructs(elaboration, expansions, ~target: "rtl", ~lowerings: [])`
+`materialize_constructs(elaboration, expansions, ~target: "rtl", ~lowerings: [], ~metadata: #true)`
 resolves retained occurrences and returns a `MaterializedDesign`. Its
 `elaboration` is a newly owned, verified `DesignElaboration` containing ordinary
 core operations and modules reachable from the selected top. Pass
@@ -681,9 +681,22 @@ to copied objects. For a collapsed signature, `expansions` maps the retained
 operation ID to the implementation's operation list; the `operations` map
 contains only references with a single corresponding operation. Both the
 signature and portable implementation have source records for the same target
-module. Extension metadata remains on those source modules; it is
-not shallow-copied onto hardware in another design. Consumers of trace or
-inspection metadata must use these maps to remap references. Automatic event
-metadata reconstruction remains integration work;
-emission of the resulting hardware does not imply that trace integration has
-been completed.
+module. Materialization rebuilds metadata by default through the owner-defined
+`ModuleMetadataPayload.remap_hardware(mapping)` method. Unsupported owners
+produce an error; `~metadata: #false` explicitly requests hardware-only output
+while retaining access to source metadata through these records.
+
+`MetadataRemapping` supplies scoped `entity(value)`, `operations(operation)`
+(one-to-many expansion), `for_instance(instance)` (child-local controls), and
+`memoize(object, build)` (shared extension objects). Metadata owners must retain
+sharing when identity links annotations to endpoints. A stable
+`materialization_key()` may coalesce interchangeable declarations within one
+namespace; portable implementation metadata takes precedence over a collapsed
+signature's duplicate declaration. The default key is `#false`, retaining every
+entry. Core semantic descriptions, sync-circuit declarations, and interface/trace
+records implement this protocol.
+
+`Module.add_metadata` is allowed after hardware construction finishes and before
+verification seals the design. This lets transformation passes rebuild metadata
+once all hardware mappings exist. Attaching metadata to a sealed design remains
+an error. Materialization does not rewrite source hardware or metadata.

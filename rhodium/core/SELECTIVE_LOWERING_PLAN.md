@@ -95,8 +95,15 @@ non-identity wiring, per-occurrence choices, source mappings, and per-module
 CIRCT equivalence across 32 Queue configurations after alpha-renaming only
 backend-generated SSA identifiers. The 256-cycle materialized Queue fixture
 passed again; emitted SystemVerilog preserves the Queue/Counter hierarchy,
-authored state/instance names, and counter assertion. Extension metadata reconstruction remains
-pending. The backend continues to reject inputs not yet materialized.
+authored state/instance names, and counter assertion. Extension metadata reconstruction passes 293 focused
+checks, including exact ordinary/materialized Queue manifests. The retained
+event Queue CIRCT/Verilator fixture passes its functional and ancestry scoreboard.
+The frontend/core/analysis regression passes 2,354 checks and frontend negative
+cases. A separate 30-check batch passes exact manifest comparisons for Queue
+and 13 transport examples, covering pipelines, arbitration, routing, forks,
+joins, stalls, retained storage, and windows. After fixing array endpoint
+reconstruction, the complete event regression passes 503 checks. The backend
+continues to reject inputs not yet materialized.
 Native integration, three-way differential simulation, and typed payload regions
 remain pending. Core control contracts accept direct ports, transparent wires,
 and reset casts; a data-to-clock cast introduces a distinct domain and cannot
@@ -104,14 +111,8 @@ stand in for a declared boundary clock. Derived controls need explicit support.
 The optional `SemanticNode` mechanism remains descriptive and is not the
 executable construct protocol. No end-to-end native milestone is claimed.
 
-## Next materialization gates
+## Next execution gates
 
-- Reconstruct extension metadata using source maps before sealing the new
-  modules. Core owns generic mapping; interface/clocking owners rebuild their
-  own records. Do not attach source-design Values or Places to copied modules.
-- Run the event Queue fixture through retained materialization, checking exact
-  trace ancestry as well as unchanged hardware behavior. The ordinary event
-  fixture's earlier success does not prove this path.
-- Then connect native Queue and generic RTL to the shared simulation schedule
+- Connect native Queue and generic RTL to the shared simulation schedule
   and run the three-way differential gate. The hardware-only fixture is not
   evidence for the native implementation.

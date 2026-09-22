@@ -173,10 +173,11 @@ materialization and native execution remain separate integration gates.
 portable modules, replaces retained operations with connected instances, and
 verifies the resulting independent design. It allocates endpoints before
 copying operations so legal forward references and state feedback survive.
-Its source maps preserve access to extension-owned inspection metadata without
+Its source maps support owner-defined metadata reconstruction without
 copying references across design ownership. Run `tests/materialize-test.rhm`,
 backend `materialize-queue-test.rhm`, and the `materialized-queue` CIRCT fixture
-for this transformation. Metadata reconstruction is a separate consumer seam.
+for this transformation. Extension owners implement the remapping protocol
+described below.
 
 Materialization collapses a signature only when its sole retained operation
 consumes every same-named input and directly drives every same-named output,
@@ -185,3 +186,12 @@ modules. Source records distinguish one-to-one operation mappings from a
 retained operation's one-to-many expansion. Backend Queue tests compare module
 names and per-module CIRCT after alpha-renaming only backend-generated SSA
 names; authored names, constants, wiring, and operation order remain checked.
+
+`metadata.rhm` reconstructs owner-defined metadata after hardware construction
+and before design verification. It caches references per source/target module
+pair, scopes child controls through the selected instance, and coalesces only
+owner-keyed duplicate declarations. The public protocol lives in `ir.rhm`; core
+never imports an extension owner. Run `tests/metadata-remap-test.rhm` and event
+materialization coverage for ownership, sealing, endpoint identity, and trace
+preservation. An explicit hardware-only option retains source metadata without
+attaching it to the copied design.

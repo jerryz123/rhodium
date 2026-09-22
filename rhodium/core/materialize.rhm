@@ -9,14 +9,15 @@ import:
   "composition.rhm" open
   "lowering.rhm" open
   "verify.rhm".verify_design
+  "metadata.rhm".rebuild_materialized_metadata
 
 export:
   MaterializedModule
   MaterializedDesign
   materialize_constructs
 
-// Metadata stays with its source owner. Explicit object maps let downstream
-// consumers translate inspection data without attaching foreign IR references.
+// Source maps retain provenance while metadata owners reconstruct inspection
+// records using objects owned by the materialized design.
 class MaterializedModule(source :: Module, module_def :: Module,
                          values :: Map, places :: Map, operations :: Map,
                          expansions :: Map = {})
@@ -27,7 +28,8 @@ fun materialize_constructs(
       elaboration :: DesignElaboration,
       expansions :: List.of(ExpansionProvider),
       ~target: target_name :: String = "rtl",
-      ~lowerings: lowerings :: List.of(TargetLowering) = []):
+      ~lowerings: lowerings :: List.of(TargetLowering) = [],
+      ~metadata: metadata :: Boolean = #true):
   def resolved = resolve_module_constructs(
     elaboration, target_name, expansions, lowerings,
     ~lower_core: fun (body, path): body)
@@ -271,5 +273,6 @@ fun materialize_constructs(
         variants[key]
   def top = walk(resolved)
   def result = DesignElaboration(design, top)
+  when metadata | rebuild_materialized_metadata(sources.snapshot())
   verify_design(design)
   MaterializedDesign(result, sources.snapshot())
