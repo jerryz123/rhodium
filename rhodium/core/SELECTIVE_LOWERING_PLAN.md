@@ -558,3 +558,29 @@ register observations rather than dynamic cost. Both runners include the restore
 groups. Boundary, license, CI-routing, shell, CLI-help, and whitespace checks pass.
 Library/native-object and harness migration, integrated validation, and
 performance measurements remain open.
+
+## Native object, library, and replication migration
+
+The [dependent object/library migration](https://github.com/tianrui-wei/rhodium/commit/aedc795)
+restores the original protocol oracle files without changing their logic. Explicit
+object ABI fixtures replace the removed post-expansion registry. Interpreter and
+generated-C replay pass all 36 FIFO width/depth/pipe/flow configurations with
+functional and payload-free control models, offer replacement, round-robin
+rotation, valid-only pipes, broadcasts, packet arbitration, malformed descriptors,
+and bounded snapshot replication. Actual Flow RTL remains the independent
+reference for pipe/broadcast/packet behavior. Payload-free test fixtures do not
+authorize changing observable public construct payloads.
+
+Shared-Queue replication now selects the retained Queue through `QueueNative`.
+Eleven host checks verify byte/work budgets and one state owner; 800-cycle
+replay checks ordinary and native shared cones. The canonical standard-library
+examples additionally pass six generic execution modes, including x86 assembly
+and generated C, against independent scoreboard, queue, pipe, arbiter, and
+credited-transport oracles. This validates generic fallback without claiming
+direct target registrations for every library construct.
+
+`make sim-object-regression-test` and the selective host runner own this coverage.
+Simulator artifact roots now honor `TMPDIR` to avoid the observed temporary-
+filesystem quota failures. Boundary, license-header, CI-routing, shell syntax,
+and whitespace checks pass. Remaining matcher/ALU/TLB and harness migration,
+integrated validation, and performance measurements remain open.
