@@ -1,0 +1,150 @@
+#lang rhombus
+// Defines typed retained constructs and target-independent deferred implementation selection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "types.rhm" open
+  "ir.rhm".Location
+  "dependencies.rhm".leaf_paths
+
+export:
+  ConstructIdentity
+  ConstructPort
+  PortLeaf
+  ConstructDependency
+  ConstructReset
+  ConstructEffect
+  ConstructContract
+  ConstructSpecialization
+  ConstructOccurrence
+  ExpansionProvider
+  TargetLowering
+  verify_construct_contract
+  verify_construct_specialization
+  same_construct_contract
+
+// Identity is nominal: a library exports one declaration, never a display-name lookup.
+class ConstructIdentity(name :: String, version :: PosInt)
+class ConstructPort(name :: String, direction :: String, type :: HardwareType)
+class PortLeaf(port :: String, path :: List.of(String || Nat) = [])
+class ConstructDependency(output :: PortLeaf, inputs :: List.of(PortLeaf))
+class ConstructReset(port :: String, clock :: String, timing :: String, active_high :: Boolean)
+class ConstructEffect(name :: String, kind :: String, clock :: maybe(String))
+
+// Every output leaf must have an entry, including state-only or constant outputs.
+// Absence is an incomplete contract, not an assertion of independence.
+class ConstructContract(ports :: List.of(ConstructPort),
+                        dependencies :: List.of(ConstructDependency),
+                        clocks :: List.of(String),
+                        resets :: List.of(ConstructReset),
+                        effects :: List.of(ConstructEffect))
+class ConstructSpecialization(identity :: ConstructIdentity,
+                              parameters :: Map,
+                              contract :: ConstructContract)
+class ConstructOccurrence(name :: String,
+                          specialization :: ConstructSpecialization,
+                          location :: Location = Location())
+
+// Providers live outside IR records. Selection precedes invocation of expansion.
+// An expansion returns a specialization, a mixed composition, or a core
+// implementation. The resolver verifies the boundary before descending.
+class ExpansionProvider(identity :: ConstructIdentity, expand :: Function.of_arity(1))
+class TargetLowering(identity :: ConstructIdentity,
+                     target :: String,
+                     applicable :: Function.of_arity(1),
+                     lower :: Function.of_arity(2))
+
+fun fail(message :: String):
+  error(~who: #'construct, message)
+
+fun port_named(contract :: ConstructContract, name :: String):
+  def port = contract.ports.find(fun (port): port.name == name)
+  unless port | fail("unknown port: " ++ name)
+  port
+
+fun verify_leaf(contract :: ConstructContract, leaf :: PortLeaf, direction :: String):
+  def port = port_named(contract, leaf.port)
+  unless port.direction == direction
+  | fail("wrong port direction: " ++ leaf.port)
+  unless leaf.path in leaf_paths(port.type)
+  | fail("dependency must name a valid port leaf: " ++ leaf.port)
+
+fun leaf_key(leaf :: PortLeaf): [leaf.port, leaf.path]
+
+fun verify_construct_contract(contract :: ConstructContract):
+  def names = MutableSet{}
+  for (port in contract.ports):
+    unless port.name != "" && !(port.name in names)
+    | fail("port names must be nonempty and unique")
+    unless port.direction in ["input", "output"]
+    | fail("port direction must be input or output")
+    names.add(port.name)
+  def outputs = MutableSet{}
+  for (dependency in contract.dependencies):
+    verify_leaf(contract, dependency.output, "output")
+    def key = leaf_key(dependency.output)
+    when key in outputs | fail("duplicate output dependency")
+    outputs.add(key)
+    def inputs = MutableSet{}
+    for (input in dependency.inputs):
+      verify_leaf(contract, input, "input")
+      when leaf_key(input) in inputs | fail("duplicate input dependency")
+      inputs.add(leaf_key(input))
+  for (port in contract.ports):
+    when port.direction == "output"
+    | for (path in leaf_paths(port.type)):
+        unless [port.name, path] in outputs
+        | fail("missing output dependency: " ++ port.name)
+  def clocks = MutableSet{}
+  for (clock in contract.clocks):
+    def port = port_named(contract, clock)
+    unless port.direction == "input" && clock_type(port.type)
+    | fail("clock association requires a Clock input")
+    when clock in clocks | fail("duplicate clock association")
+    clocks.add(clock)
+  def resets = MutableSet{}
+  for (reset in contract.resets):
+    def port = port_named(contract, reset.port)
+    unless port.direction == "input" && reset_type(port.type)
+    | fail("reset association requires a Reset input")
+    unless reset.clock in clocks | fail("reset requires a declared clock")
+    unless reset.timing in ["synchronous", "asynchronous"]
+    | fail("reset timing must be synchronous or asynchronous")
+    when reset.port in resets | fail("duplicate reset association")
+    resets.add(reset.port)
+  for (port in contract.ports):
+    when port.direction == "input" && clock_type(port.type) && !(port.name in clocks)
+    | fail("missing clock association: " ++ port.name)
+    when port.direction == "input" && reset_type(port.type) && !(port.name in resets)
+    | fail("missing reset association: " ++ port.name)
+  def effects = MutableSet{}
+  for (effect in contract.effects):
+    unless effect.name != "" && !(effect.name in effects) && effect.kind != ""
+    | fail("effects require unique names and nonempty kinds")
+    unless !effect.clock || effect.clock in clocks
+    | fail("effect requires a declared clock")
+    effects.add(effect.name)
+  #void
+
+fun immutable_parameter(value):
+  cond
+  | value is_a String || value is_a Boolean || value is_a Int || value is_a HardwareType: #true
+  | value is_a List: for all (item in value): immutable_parameter(item)
+  | value is_a Map:
+      for all ((key, item) in value): key is_a String && immutable_parameter(item)
+  | ~else: #false
+
+fun verify_construct_specialization(specialization :: ConstructSpecialization):
+  unless specialization.identity.name != "" | fail("construct identity requires a name")
+  unless immutable_parameter(specialization.parameters)
+  | fail("construct parameters must be immutable values with string map keys")
+  verify_construct_contract(specialization.contract)
+
+fun same_construct_contract(left :: ConstructContract, right :: ConstructContract):
+  left.ports.length() == right.ports.length()
+    && (for all (a in left.ports, b in right.ports):
+          a.name == b.name && a.direction == b.direction && type_equal(a.type, b.type))
+    && left.clocks == right.clocks
+    && left.resets.map(fun (r): [r.port, r.clock, r.timing, r.active_high]) == right.resets.map(fun (r): [r.port, r.clock, r.timing, r.active_high])
+    && left.effects.map(fun (e): [e.name, e.kind, e.clock]) == right.effects.map(fun (e): [e.name, e.kind, e.clock])
+    && left.dependencies.map(fun (d): [leaf_key(d.output), d.inputs.map(leaf_key)]) == right.dependencies.map(fun (d): [leaf_key(d.output), d.inputs.map(leaf_key)])

@@ -143,3 +143,20 @@ package, with evidence for the exact recognized contract.
 Run `rhodium/core/tests/semantic-node-test.rhm` for malformed bindings, ownership,
 containment, immutable properties, and sealing, and the frontend
 `semantic-expansion-test.rhm` for macro integration and CIRCT equivalence.
+
+## Selective lowering implementation
+
+`construct.rhm` owns immutable declaration/specialization records and contract
+validation. `composition.rhm` owns scoped mixed compositions and their wiring,
+control, effect, and dependency checks. `lowering.rhm` owns consumer-local
+selection and recursive portable expansion. These modules depend only on core
+modules and Rhombus; library identities and target adapters remain external.
+`dependencies.rhm` exposes `module_dependency_summaries` so retained and expanded
+hardware use the same leaf-sensitive combinational analysis.
+
+Run `tests/construct-test.rhm` and `tests/composition-test.rhm` for the public
+protocol, selective expansion, mixed core leaves, and malformed compositions.
+Run the existing core verifier tests when changing dependency traversal. The
+[execution plan](SELECTIVE_LOWERING_PLAN.md) records the remaining frontend,
+Flow, simulator, and differential-validation gates; do not describe core-only
+protocol tests as proof of those end-to-end milestones.

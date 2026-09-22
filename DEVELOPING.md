@@ -111,9 +111,12 @@ pre-commit hook checks the exact staged contents through
 
 ## Preserve the architecture
 
-Rhodium has one frontend-independent public hardware IR. Frontend notation and
-ordinary libraries construct that IR; optional analyses, formal queries,
-diagrams, and backends consume it. A change should move downward only when its
+Rhodium has one frontend-independent public hardware model, with retained
+construct/composition and expanded module forms owned by core. Existing
+frontend notation and ordinary libraries construct module IR; optional
+analyses, formal queries, diagrams, and backends consume it. The
+[selective lowering plan](rhodium/core/SELECTIVE_LOWERING_PLAN.md) tracks staged
+integration of retained authoring and additional consumers. A change should move downward only when its
 semantics must be preserved by verification and every backend.
 
 The authoritative implementation graph, package responsibilities, and audited

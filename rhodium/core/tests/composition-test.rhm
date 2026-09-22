@@ -1,0 +1,186 @@
+#lang rhombus
+// Exercises scoped mixed compositions, aggregate dependency precision, and recursive lowering.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def contract = ConstructContract(
+  [ConstructPort("a", "input", Bits(8)), ConstructPort("z", "output", Bits(8))],
+  [ConstructDependency(PortLeaf("z"), [PortLeaf("a")])], [], [], [])
+def identity = ConstructIdentity("test.identity", 1)
+def spec = ConstructSpecialization(identity, {}, contract)
+def child = CompositionInstance("child", spec)
+def input = CompositionEndpoint(#false, "a")
+def output = CompositionEndpoint(#false, "z")
+def child_input = CompositionEndpoint(child, "a")
+def child_output = CompositionEndpoint(child, "z")
+def connections = [CompositionConnection(input, child_input), CompositionConnection(child_output, output)]
+def composition = HardwareComposition("Top", contract, [child], connections)
+verify_composition(composition)
+check:
+  verify_composition(HardwareComposition("Top", contract, [child, child], connections)) ~throws "unique"
+  verify_composition(HardwareComposition("Top", contract, [], connections)) ~throws "foreign"
+  verify_composition(HardwareComposition("Top", contract, [child], [])) ~throws "undriven"
+  verify_composition(HardwareComposition("Top", contract, [child], connections ++ [connections[0]])) ~throws "multiple drivers"
+  verify_composition(HardwareComposition("Top", contract, [child], [CompositionConnection(child_input, output)])) ~throws "direction"
+  verify_composition(HardwareComposition("Top", contract, [child], [CompositionConnection(child_output, child_input), connections[1]])) ~throws "combinational cycle"
+  verify_composition(HardwareComposition("Top", ConstructContract(contract.ports, [ConstructDependency(PortLeaf("z"), [])], [], [], []), [child], connections)) ~throws "undeclared combinational dependency"
+
+// A path through x must not introduce a false dependency through independent y.
+def aggregate = RecordType([RecordField("x", Bits(8)), RecordField("y", Bits(8))])
+def fields_contract = ConstructContract(
+  [ConstructPort("a", "input", aggregate), ConstructPort("z", "output", aggregate)],
+  [ConstructDependency(PortLeaf("z", ["x"]), [PortLeaf("a", ["x"])]),
+   ConstructDependency(PortLeaf("z", ["y"]), [])], [], [], [])
+def fields = CompositionInstance("fields", ConstructSpecialization(identity, {}, fields_contract))
+def leaf_composition = HardwareComposition("Fields", fields_contract, [fields], [
+  CompositionConnection(CompositionEndpoint(#false, "a", ["x"]), CompositionEndpoint(fields, "a", ["x"])),
+  CompositionConnection(CompositionEndpoint(fields, "z", ["x"]), CompositionEndpoint(fields, "a", ["y"])),
+  CompositionConnection(CompositionEndpoint(fields, "z"), CompositionEndpoint(#false, "z"))
+])
+verify_composition(leaf_composition)
+
+// Existing public core modules remain valid leaves with independently checked summaries.
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("Identity")
+def a = builder.input(module_def, "a", Bits(8))
+def z = builder.output(module_def, "z", Bits(8))
+builder.drive(z, a)
+builder.finish(module_def)
+def core_body = CoreImplementation(module_def, contract)
+verify_core_implementation(core_body)
+check:
+  verify_core_implementation(CoreImplementation(module_def, ConstructContract(contract.ports, [ConstructDependency(PortLeaf("z"), [])], [], [], []))) ~throws "undeclared combinational dependency"
+
+def wrapper = ConstructIdentity("test.wrapper", 1)
+def mutable expansion_calls = 0
+def providers = [
+  ExpansionProvider(wrapper, fun (s): composition),
+  ExpansionProvider(
+    identity,
+    fun (s):
+      expansion_calls := expansion_calls + 1
+      core_body)
+]
+def direct = TargetLowering(identity, "test", fun (o): o.name == "top/child", fun (s, o): o.name)
+def root = ConstructOccurrence("top", ConstructSpecialization(wrapper, {}, contract))
+def resolved = resolve_construct(root, "test", providers, [direct])
+check:
+  resolved.implementations[0].implementation ~is "top/child"
+  expansion_calls ~is 0
+
+def expanded = resolve_construct(root, "test", providers, [], ~lower_core: fun (body, path): path)
+check:
+  expanded.implementations[0] ~is ["top", "child"]
+  expansion_calls ~is 1
+  resolve_construct(root, "test", providers, []) ~throws "no core IR lowering"
+
+// Recursive composition expansion must be diagnosed even across a composition boundary.
+def recursive_instance = CompositionInstance("again", root.specialization)
+def recursive = HardwareComposition("Recursive", contract, [recursive_instance], [
+  CompositionConnection(input, CompositionEndpoint(recursive_instance, "a")),
+  CompositionConnection(CompositionEndpoint(recursive_instance, "z"), output)
+])
+check:
+  resolve_construct(root, "test", [ExpansionProvider(wrapper, fun (s): recursive)], []) ~throws "cannot make progress"
+
+// A retained child's effects and timing survive the composition boundary.
+def state_contract = ConstructContract(
+  [ConstructPort("clock", "input", Clock), ConstructPort("reset", "input", Reset)],
+  [], ["clock"], [ConstructReset("reset", "clock", "synchronous", #true)],
+  [ConstructEffect("state", "state", "clock")])
+def stateful = CompositionInstance("stateful", ConstructSpecialization(identity, {}, state_contract))
+def controls = [
+  CompositionConnection(CompositionEndpoint(#false, "clock"), CompositionEndpoint(stateful, "clock")),
+  CompositionConnection(CompositionEndpoint(#false, "reset"), CompositionEndpoint(stateful, "reset"))
+]
+def stateful_composition = HardwareComposition("Stateful", state_contract, [stateful], controls,
+                                               [CompositionEffect(stateful, "state", "state")])
+verify_composition(stateful_composition)
+check:
+  verify_composition(HardwareComposition("Stateful", state_contract, [stateful], controls)) ~throws "unmapped child effect"
+  verify_composition(HardwareComposition("Stateful", state_contract, [stateful], controls, [CompositionEffect(stateful, "missing", "state")])) ~throws "effect kind"
+
+// A recursive occurrence can terminate through an occurrence-specific direct lowering.
+def recursive_direct = TargetLowering(wrapper, "test", fun (o): o.name == "top/again", fun (s, o): "selected")
+check:
+  resolve_construct(root, "test", [ExpansionProvider(wrapper, fun (s): recursive)], [recursive_direct]).implementations[0].implementation ~is "selected"
+
+// Core state cannot pass through a contract as if it were combinational wiring.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("State")
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def zero = builder.constant(module_def, Bits(8), 0)
+  def state = builder.register(module_def, "state", Bits(8), clock, reset, zero)
+  builder.drive(state.next, state.current)
+  builder.finish(module_def)
+  def binding = CoreEffectBinding([], state.operation, "state")
+  verify_core_implementation(CoreImplementation(module_def, state_contract, [binding]))
+  check:
+    verify_core_implementation(CoreImplementation(module_def, state_contract)) ~throws "exactly one effect binding"
+    verify_core_implementation(CoreImplementation(module_def, state_contract, [binding, binding])) ~throws "exactly one effect binding"
+    verify_core_implementation(CoreImplementation(module_def, state_contract, [CoreEffectBinding(["foreign"], state.operation, "state")])) ~throws "exactly one effect binding"
+    verify_core_implementation(CoreImplementation(module_def, state_contract, [CoreEffectBinding([], state.operation, "missing")])) ~throws "wrong kind"
+
+// Mixed wiring uses the same dependencies for retained and ordinary core children.
+block:
+  def rtl = CompositionInstance("rtl", core_body)
+  def mixed = HardwareComposition("Mixed", contract, [child, rtl], [
+    CompositionConnection(input, child_input),
+    CompositionConnection(child_output, CompositionEndpoint(rtl, "a")),
+    CompositionConnection(CompositionEndpoint(rtl, "z"), output)
+  ])
+  verify_composition(mixed)
+  check:
+    verify_composition(HardwareComposition("MixedLoop", contract, [child, rtl], [
+      CompositionConnection(CompositionEndpoint(rtl, "z"), child_input),
+      CompositionConnection(child_output, CompositionEndpoint(rtl, "a")),
+      CompositionConnection(CompositionEndpoint(rtl, "z"), output)
+    ])) ~throws "combinational cycle"
+    verify_composition(HardwareComposition("BadField", contract, [child], [
+      CompositionConnection(CompositionEndpoint(#false, "a", ["missing"]), child_input), connections[1]
+    ])) ~throws "invalid endpoint path"
+
+// Reusing a core module never merges state/effect occurrence identities.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def cell = builder.module("Cell")
+  def cell_clock = builder.input(cell, "clock", Clock)
+  def cell_reset = builder.input(cell, "reset", Reset)
+  def zero = builder.constant(cell, Bits(8), 0)
+  def one = builder.constant(cell, Bits(1), 1)
+  def state = builder.register(cell, "state", Bits(8), cell_clock, cell_reset, zero)
+  builder.drive(state.next, state.current)
+  def assertion = builder.assert(cell, one, cell_clock, cell_reset, one, "invariant")
+  builder.finish(cell)
+  def top = builder.module("TwoCells")
+  def clock = builder.input(top, "clock", Clock)
+  def reset = builder.input(top, "reset", Reset)
+  def first = builder.instance(top, cell, "first")
+  def second = builder.instance(top, cell, "second")
+  for (instance in [first, second]):
+    builder.drive(instance.input("clock"), clock)
+    builder.drive(instance.input("reset"), reset)
+  builder.finish(top)
+  def effects = state_contract.effects ++ [ConstructEffect("check", "assertion", "clock")]
+  def declared = ConstructContract(state_contract.ports, [], ["clock"], state_contract.resets, effects)
+  def bindings = [CoreEffectBinding(["first"], state.operation, "state"),
+                  CoreEffectBinding(["second"], state.operation, "state"),
+                  CoreEffectBinding(["first"], assertion, "check"),
+                  CoreEffectBinding(["second"], assertion, "check")]
+  verify_core_implementation(CoreImplementation(top, declared, bindings))
+  check:
+    verify_core_implementation(CoreImplementation(top, declared, bindings.take(3))) ~throws "exactly one effect binding"
+    verify_core_implementation(CoreImplementation(
+      top,
+      ConstructContract(declared.ports, [], ["clock"], [ConstructReset("reset", "clock", "asynchronous", #true)], effects),
+      bindings)) ~throws "core reset differs"
+    verify_core_implementation(CoreImplementation(
+      top,
+      ConstructContract(declared.ports, [], ["clock"], declared.resets, effects ++ [ConstructEffect("missing", "external", "clock")]),
+      bindings)) ~throws "missing a declared effect"

@@ -9,8 +9,10 @@ implementation boundaries and direct-dependency contract. For repository-wide
 development setup and workflow, see the project [`DEVELOPING.md`](../DEVELOPING.md).
 
 Rhodium has one backend-independent hardware model and several authoring
-profiles. Every frontend path elaborates into the same public core IR; frontend
-syntax is not a second IR.
+profiles. Existing frontend paths elaborate into public core module IR. Core
+also owns a retained composition level for selective implementation lowering;
+frontend syntax is not a second IR. Its staged integration is tracked in the
+[selective lowering plan](core/SELECTIVE_LOWERING_PLAN.md).
 
 ## Implementation architecture
 
@@ -66,6 +68,12 @@ The frontend kernel's optional semantic expansion hooks depend only on core
 through those hooks; no simulator or backend dependency is introduced. See the
 [retention implementation guide](frontend/DEVELOPING.md#layered-semantic-retention).
 
+The core `construct.rhm`, `composition.rhm`, and `lowering.rhm` modules import
+only other core modules. Composition consumes core verification and dependency
+summaries; selection consumes construct/composition contracts. Expansion and
+target-lowering providers are supplied by callers, never imported from libraries
+or simulator packages by core.
+
 ## Dependency rules
 
 - Core never imports analysis, frontend, backend, or RFPL code.
@@ -91,7 +99,7 @@ through those hooks; no simulator or backend dependency is introduced. See the
 | Area | Responsibility | May depend directly on |
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
-| [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
+| [`core/`](core/README.md) | Types, module and retained composition IR, Builder, verification, selection, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
 | [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration and deferred frontend hardware values over the public core | Core |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |

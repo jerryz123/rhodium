@@ -1,0 +1,80 @@
+#lang rhombus
+// Resolves retained constructs recursively before executing portable expansion bodies.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "construct.rhm" open
+  "composition.rhm" open
+  "types.rhm" open
+
+export:
+  ResolvedConstruct
+  ResolvedComposition
+  resolve_construct
+
+class ResolvedConstruct(occurrence :: ConstructOccurrence,
+                        target :: String,
+                        implementation,
+                        expansion_path :: List.of(ConstructIdentity))
+class ResolvedComposition(composition :: HardwareComposition,
+                          implementations :: List)
+
+fun same_parameter(left, right):
+  cond
+  | left is_a HardwareType && right is_a HardwareType: type_equal(left, right)
+  | left is_a List && right is_a List:
+      left.length() == right.length() && (for all (a in left, b in right): same_parameter(a, b))
+  | left is_a Map && right is_a Map:
+      left.length() == right.length() && (
+        for all ((key, value) in left):
+          right.has_key(key) && same_parameter(value, right[key]))
+  | ~else: left == right
+
+// Registrations and traversal state are consumer-local. No selection result or
+// mutable occurrence state is cached across instances or targets.
+fun resolve_construct(occurrence :: ConstructOccurrence,
+                      target :: String,
+                      expansions :: List.of(ExpansionProvider),
+                      lowerings :: List.of(TargetLowering),
+                      ~lower_core: lower_core :: maybe(Function.of_arity(2)) = #false,
+                      ~max_expansions: max_expansions :: PosInt = 256):
+  fun diagnostic(path, visited, message):
+    error(~who: #'resolve_construct,
+          occurrence.location.describe() ++ ": " ++ String.join(path, "/") ++ ": " ++ message
+            ++ " [" ++ String.join(visited.map(fun (s): s.identity.name), " -> ") ++ "]")
+  fun resolve(body :: ConstructSpecialization || CoreImplementation || HardwareComposition, path, visited):
+    cond
+    | body is_a CoreImplementation:
+        verify_core_implementation(body)
+        unless lower_core | diagnostic(path, visited, "no core IR lowering for " ++ target)
+        lower_core(body, path)
+    | body is_a HardwareComposition:
+        verify_composition(body)
+        ResolvedComposition(
+          body,
+          for List (instance in body.instances):
+            resolve(instance.body, path ++ [instance.name], visited))
+    | ~else:
+        def specialization :: ConstructSpecialization = body
+        verify_construct_specialization(specialization)
+        def trace = visited ++ [specialization]
+        def current = ConstructOccurrence(String.join(path, "/"), specialization, occurrence.location)
+        def candidates = lowerings.filter(
+          ~keep: fun (lowering): lowering.identity === specialization.identity && lowering.target == target && lowering.applicable(current))
+        when candidates.length() > 1 | diagnostic(path, trace, "ambiguous target lowering for " ++ target)
+        if candidates.length() == 1
+        | ResolvedConstruct(current, target, candidates[0].lower(specialization, current), trace.map(fun (s): s.identity))
+        | block:
+            when visited.find(
+              fun (prior):
+                prior.identity === specialization.identity && same_parameter(prior.parameters, specialization.parameters))
+            | diagnostic(path, visited, "expansion cannot make progress at " ++ specialization.identity.name)
+            def providers = expansions.filter(~keep: fun (provider): provider.identity === specialization.identity)
+            unless providers.length() == 1
+            | diagnostic(path, trace, if providers.length() == 0 | "unsupported construct for " ++ target | "ambiguous expansion provider")
+            when visited.length() >= max_expansions | diagnostic(path, trace, "expansion limit exceeded")
+            def expanded :: ConstructSpecialization || CoreImplementation || HardwareComposition = providers[0].expand(specialization)
+            unless same_construct_contract(specialization.contract, composition_contract(expanded))
+            | diagnostic(path, trace, "expansion changed the construct boundary contract")
+            resolve(expanded, path, trace)
+  resolve(occurrence.specialization, [occurrence.name], [])

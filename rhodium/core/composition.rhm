@@ -1,0 +1,274 @@
+#lang rhombus
+// Represents mixed retained hardware compositions and verifies typed wiring and dependencies.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "construct.rhm" open
+  "types.rhm" open
+  "ir.rhm" open
+  "ops.rhm".schema_for
+  "verify.rhm".verify_design
+  "dependencies.rhm".leaf_paths
+  "dependencies.rhm".module_dependency_summaries
+
+export:
+  CoreImplementation
+  CoreEffectBinding
+  HardwareComposition
+  CompositionInstance
+  CompositionEndpoint
+  CompositionConnection
+  CompositionEffect
+  composition_contract
+  verify_composition
+  verify_core_implementation
+
+class CoreEffectBinding(instance_path :: List.of(String), operation :: Operation, effect :: String)
+class CoreImplementation(module_def :: Module,
+                         contract :: ConstructContract,
+                         effects :: List.of(CoreEffectBinding) = [])
+class.together:
+  class HardwareComposition(name :: String,
+                            contract :: ConstructContract,
+                            instances :: List.of(CompositionInstance),
+                            connections :: List.of(CompositionConnection),
+                            effects :: List.of(CompositionEffect) = [])
+  class CompositionInstance(name :: String,
+                            body :: ConstructSpecialization || CoreImplementation || HardwareComposition,
+                            location :: Location = Location())
+  // #false denotes the enclosing boundary; instances are referenced by identity.
+  class CompositionEndpoint(instance :: maybe(CompositionInstance),
+                            port :: String,
+                            path :: List.of(String || Nat) = [])
+  class CompositionConnection(source :: CompositionEndpoint, sink :: CompositionEndpoint)
+  class CompositionEffect(instance :: CompositionInstance, effect :: String, boundary_effect :: String)
+
+fun fail(message :: String): error(~who: #'composition, message)
+fun composition_contract(body :: ConstructSpecialization || CoreImplementation || HardwareComposition): body.contract
+fun key(port, path): [port, path]
+fun dependency_keys(dependency :: ConstructDependency):
+  dependency.inputs.map(fun (input): key(input.port, input.path))
+
+// A portable RTL implementation may have fewer dependencies than a conservative
+// public summary, but never an undeclared dependency hidden from its consumer.
+fun verify_core_implementation(body :: CoreImplementation):
+  verify_construct_contract(body.contract)
+  verify_design(body.module_def.design)
+  def module_def = body.module_def
+  def ports = module_def.inputs ++ module_def.outputs
+  unless ports.length() == body.contract.ports.length()
+  | fail("core implementation port count differs from contract")
+  for (port in ports):
+    def declared = body.contract.ports.find(fun (p): p.name == port.name)
+    unless declared && declared.direction == port.direction && type_equal(declared.type, port.type)
+    | fail("core implementation port differs from contract: " ++ port.name)
+  def summary = module_dependency_summaries([module_def])[0]
+  for (port in module_def.outputs, leaves in summary.output_leaf_dependencies):
+    for (leaf in leaves):
+      def declared = body.contract.dependencies.find(fun (d): d.output.port == port.name && d.output.path == leaf.path)
+      def allowed = dependency_keys(declared)
+      for (input in leaf.input_leaves):
+        unless key(module_def.inputs[input.input_index].name, input.path) in allowed
+        | fail("core implementation has an undeclared combinational dependency: " ++ port.name)
+  verify_core_effects(body)
+  #void
+
+fun verify_composition(composition :: HardwareComposition):
+  def active = MutableSet.by(===){}
+  def checked = MutableSet.by(===){}
+  fun verify(current :: HardwareComposition):
+    when current in active | fail("recursive composition: " ++ current.name)
+    unless current in checked
+    | active.add(current)
+      verify_construct_contract(current.contract)
+      def members = MutableSet.by(===){}
+      def names = MutableSet{}
+      for (instance in current.instances):
+        unless instance.name != "" && !(instance.name in names) && !(instance in members)
+        | fail("composition instance names and identities must be unique")
+        members.add(instance)
+        names.add(instance.name)
+        cond
+        | instance.body is_a ConstructSpecialization: verify_construct_specialization(instance.body)
+        | instance.body is_a CoreImplementation: verify_core_implementation(instance.body)
+        | ~else: verify(instance.body)
+
+      // Assign local indices explicitly: equal names never grant cross-scope access.
+      fun endpoint_key(endpoint :: CompositionEndpoint):
+        if !endpoint.instance
+        | [0, endpoint.port, endpoint.path]
+        | block:
+            unless endpoint.instance in members | fail("endpoint references a foreign instance")
+            def mutable index = 0
+            for (instance in current.instances, i in 0..current.instances.length()):
+              when instance === endpoint.instance | index := i + 1
+            [index, endpoint.port, endpoint.path]
+      fun endpoint_type(endpoint :: CompositionEndpoint, source :: Boolean):
+        endpoint_key(endpoint)
+        def contract = if endpoint.instance | endpoint.instance.body.contract | current.contract
+        def port = contract.ports.find(fun (p): p.name == endpoint.port)
+        unless port | fail("unknown endpoint port: " ++ endpoint.port)
+        def expected = if source == !endpoint.instance | "input" | "output"
+        unless port.direction == expected | fail("connection endpoint has wrong direction: " ++ endpoint.port)
+        def mutable type = port.type
+        for (step in endpoint.path):
+          cond
+          | record_type(type) && step is_a String:
+              def field = type.fields.find(fun (f): f.name == step)
+              unless field | fail("invalid endpoint field")
+              type := field.type
+          | vector_type(type) && step is_a Nat && step < type.length:
+              type := type.element_type
+          | ~else: fail("invalid endpoint path")
+        type
+      def drivers = MutableMap{}
+      for (connection in current.connections):
+        def source_type = endpoint_type(connection.source, #true)
+        def sink_type = endpoint_type(connection.sink, #false)
+        unless type_equal(source_type, sink_type) | fail("connection type mismatch")
+        for (path in leaf_paths(source_type)):
+          def source = CompositionEndpoint(connection.source.instance, connection.source.port, connection.source.path ++ path)
+          def sink = CompositionEndpoint(connection.sink.instance, connection.sink.port, connection.sink.path ++ path)
+          def sink_key = endpoint_key(sink)
+          when drivers.has_key(sink_key) | fail("multiple drivers for " ++ sink.port)
+          drivers[sink_key] := endpoint_key(source)
+      fun require_drivers(instance, contract :: ConstructContract, direction :: String):
+        for (port in contract.ports):
+          when port.direction == direction
+          | for (path in leaf_paths(port.type)):
+              unless drivers.has_key(endpoint_key(CompositionEndpoint(instance, port.name, path)))
+              | fail("undriven port leaf: " ++ port.name)
+      require_drivers(#false, current.contract, "output")
+      for (instance in current.instances): require_drivers(instance, instance.body.contract, "input")
+
+      def dependencies = MutableMap{}
+      for ((sink, source) in drivers): dependencies[sink] := [source]
+      for (instance in current.instances):
+        for (dependency in instance.body.contract.dependencies):
+          dependencies[endpoint_key(CompositionEndpoint(instance, dependency.output.port, dependency.output.path))] := dependency.inputs.map(fun (input): endpoint_key(CompositionEndpoint(instance, input.port, input.path)))
+      def visiting = MutableSet{}
+      def summaries = MutableMap{}
+      fun walk(node):
+        when node in visiting | fail("combinational cycle in " ++ current.name)
+        if summaries.has_key(node)
+        | summaries[node]
+        | block:
+            visiting.add(node)
+            def leaves = MutableSet{}
+            if node[0] == 0 && !dependencies.has_key(node)
+            | leaves.add([node[1], node[2]])
+            | for (predecessor in dependencies.get(node, [])):
+                for (leaf in walk(predecessor)): leaves.add(leaf)
+            visiting.remove(node)
+            def result = leaves.snapshot()
+            summaries[node] := result
+            result
+      // Check all internal wiring, including loops with no observable output.
+      for ((node, _) in dependencies): walk(node)
+      for (dependency in current.contract.dependencies):
+        def actual = walk([0, dependency.output.port, dependency.output.path])
+        def allowed = dependency_keys(dependency)
+        for (leaf in actual):
+          unless leaf in allowed | fail("composition has an undeclared combinational dependency")
+      // Clock/reset associations are semantic wiring, not optional metadata.
+      fun boundary_source(instance, port):
+        def leaves = walk(endpoint_key(CompositionEndpoint(instance, port)))
+        unless leaves.length() == 1 | fail("control must resolve to one boundary input: " ++ port)
+        leaves.to_list()[0][0]
+      for (instance in current.instances):
+        for (clock in instance.body.contract.clocks):
+          unless boundary_source(instance, clock) in current.contract.clocks
+          | fail("child clock must bind a declared composition clock")
+        for (reset in instance.body.contract.resets):
+          def boundary_reset = boundary_source(instance, reset.port)
+          def declared = current.contract.resets.find(fun (r): r.port == boundary_reset)
+          unless declared && declared.clock == boundary_source(instance, reset.clock)
+            && declared.timing == reset.timing && declared.active_high == reset.active_high
+          | fail("child reset association differs from composition boundary")
+      def mapped_effects = MutableSet{}
+      def boundary_effects = MutableSet{}
+      for (binding in current.effects):
+        unless binding.instance in members | fail("effect references a foreign instance")
+        def inner = binding.instance.body.contract.effects.find(fun (e): e.name == binding.effect)
+        def outer = current.contract.effects.find(fun (e): e.name == binding.boundary_effect)
+        unless inner && outer && inner.kind == outer.kind
+        | fail("effect binding must preserve a declared effect kind")
+        unless (if inner.clock | boundary_source(binding.instance, inner.clock) | #false) == outer.clock
+        | fail("effect binding must preserve its clock")
+        def effect_key = [binding.instance.name, binding.effect]
+        when effect_key in mapped_effects | fail("duplicate effect binding")
+        mapped_effects.add(effect_key)
+        boundary_effects.add(binding.boundary_effect)
+      for (instance in current.instances):
+        for (effect in instance.body.contract.effects):
+          unless [instance.name, effect.name] in mapped_effects
+          | fail("unmapped child effect: " ++ instance.name ++ "." ++ effect.name)
+      for (effect in current.contract.effects):
+        unless effect.name in boundary_effects | fail("unimplemented composition effect: " ++ effect.name)
+      active.remove(current)
+      checked.add(current)
+    #void
+  verify(composition)
+
+// Explicit occurrence paths distinguish effects in two instances of one module.
+// Currently controls must be direct ports or transparent wire/cast aliases;
+// derived clock/reset expressions need an explicit richer control contract.
+fun verify_core_effects(body :: CoreImplementation):
+  def used = MutableSet.by(===){}
+  def represented = MutableSet{}
+  fun control_origin(value :: Value, controls):
+    if controls.has_key(value)
+    | controls[value]
+    | block:
+        def operation = value.module_def.find_operation(value.defining_op_id)
+        cond
+        | operation.opcode == "rtl.wire": control_origin(operation.places[0].driver, controls)
+        | operation.opcode == "rtl.cast": control_origin(operation.operands[0], controls)
+        | ~else: fail("core control requires a declared boundary port or transparent alias")
+  fun walk(module_def :: Module, path, controls):
+    for (operation in module_def.operations):
+      if operation.opcode == "rtl.instance"
+      | block:
+          def child = operation.attribute("module")
+          def child_controls = MutableMap.by(===){}
+          for (port in child.inputs, place in operation.places):
+            when clock_type(port.type) || reset_type(port.type)
+            | child_controls[port.value] := control_origin(place.driver, controls)
+          walk(child, path ++ [operation.attribute("name")], child_controls)
+      | when schema_for(operation.opcode).kind in ["sequential", "verification"] && operation.opcode != "rtl.memory"
+        | def bindings = body.effects.filter(
+            ~keep: fun (binding): binding.instance_path == path && binding.operation === operation)
+          unless bindings.length() == 1 | fail("core state/effect operation requires exactly one effect binding: " ++ operation.opcode)
+          def binding = bindings[0]
+          def effect = body.contract.effects.find(fun (e): e.name == binding.effect)
+          def kind:
+            cond
+            | operation.opcode == "verif.assert": "assertion"
+            | operation.opcode in ["sim.dpi_call", "sim.dpi_register"]: "external"
+            | ~else: "state"
+          unless effect && effect.kind == kind | fail("core effect binding has the wrong kind")
+          def clock_index:
+            cond
+            | operation.opcode == "rtl.memory_write": 2
+            | operation.opcode == "verif.assert": 1
+            | ~else: 0
+          def clock = control_origin(operation.operands[clock_index], controls)
+          unless effect.clock == clock | fail("core effect binding has the wrong clock")
+          when operation.opcode in ["rtl.register_reset", "verif.assert"]
+          | def reset_index = (if operation.opcode == "verif.assert" | 2 | 1)
+            def reset = control_origin(operation.operands[reset_index], controls)
+            def declared = body.contract.resets.find(fun (r): r.port == reset)
+            unless declared && declared.clock == clock && declared.timing == "synchronous" && declared.active_high
+            | fail("core reset differs from the declared reset association")
+          used.add(binding)
+          represented.add(binding.effect)
+  def controls = MutableMap.by(===){}
+  for (port in body.module_def.inputs):
+    when clock_type(port.type) || reset_type(port.type)
+    | controls[port.value] := port.name
+  walk(body.module_def, [], controls)
+  for (binding in body.effects):
+    unless binding in used | fail("core effect binding references a foreign or non-effect operation")
+  for (effect in body.contract.effects):
+    unless effect.name in represented | fail("core implementation is missing a declared effect")
+  #void

@@ -561,3 +561,67 @@ state, activation, or permission to skip observable computation.
 
 The [frontend expansion API](../frontend/README.md#retaining-expansion-semantics)
 opts into retention and supplies the generic hook used by flow descriptions.
+
+## Retained hardware constructs
+
+The public core also exposes an explicit composition level for consumers that
+need to select implementations before expanding hardware. This is executable
+structure, separate from the descriptive `SemanticNode` metadata above. The
+ordinary frontend still produces fully expanded module IR; deferred frontend
+authoring and Flow conversion are tracked in the
+[selective lowering plan](SELECTIVE_LOWERING_PLAN.md).
+
+A library exports a nominal `ConstructIdentity(name, version)` and creates a
+`ConstructSpecialization(identity, parameters, contract)` for each parameter
+configuration. Names are diagnostic; matching uses declaration identity.
+Parameters are immutable strings, booleans, integers, hardware types, lists,
+and string-keyed maps. A `ConstructOccurrence` adds its own name and location.
+Implementations must preserve occurrence-local state even when specializations
+are shared.
+
+`ConstructContract` declares typed input/output ports, every output leaf's
+combinational input dependencies, clocks, reset timing/polarity, and named
+effects with their clocks. An empty dependency list for an output explicitly
+means independence from current inputs; omitting that output is invalid.
+Aggregate dependencies use `PortLeaf(port, path)` and remain field-sensitive.
+The library is responsible for the semantic truth of its declared contract;
+structural verification cannot establish behavioral equivalence of native code.
+
+`HardwareComposition` contains named `CompositionInstance` objects whose bodies
+are specializations, nested compositions, or `CoreImplementation` modules.
+`CompositionEndpoint` references an instance by identity, or `#false` for the
+enclosing boundary, and optionally selects an aggregate path. Connections
+require matching types and directions, exactly one driver per input/output
+sink leaf, and local references. Unused sources are permitted. The verifier
+checks internal combinational cycles and checks that boundary summaries cover
+all actual dependencies. Core module summaries come from the existing core
+dependency engine, not user-authored guesses.
+
+Composition clocks and resets must resolve to declared boundary controls with
+matching timing and polarity. `CompositionEffect` explicitly maps each child
+effect into a same-kind, same-clock boundary effect; multiple child effects can
+contribute to one boundary effect. Missing child or boundary effects are errors.
+`CoreEffectBinding` maps each clocked state/effect operation, including nested
+module occurrences, to a declared effect. Core implementation checks require
+complete mappings with matching effect kinds, clocks, and synchronous active-high
+reset associations. Controls currently resolve through direct ports and
+transparent wire/cast aliases; derived control expressions require a richer
+contract before they can be accepted. These checks establish structural
+correspondence; behavioral equivalence still requires differential validation.
+
+`ExpansionProvider(identity, expand)` supplies a deferred portable body.
+`TargetLowering(identity, target, applicable, lower)` supplies an optional direct
+implementation. `resolve_construct` takes explicit consumer-local registration
+lists. It selects a unique applicable lowering before invoking an expansion,
+otherwise expands recursively into smaller constructs, compositions, or core
+modules. The optional `~lower_core` callback handles verified core leaves.
+The result preserves composition wiring and ordered per-instance results;
+backend code owns execution and emission. Resolution does not itself schedule
+or simulate the design.
+
+Selection receives the occurrence path, allowing different choices for two
+instances of the same specialization. No global registry or selection cache
+crosses target invocations. Ambiguous choices, unsupported leaves, repeated
+non-progressing specializations, changed expansion boundary contracts, and an
+exceeded expansion-depth limit produce diagnostics. A direct lowering may
+terminate an otherwise recursive occurrence.

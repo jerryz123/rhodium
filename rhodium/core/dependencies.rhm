@@ -22,6 +22,7 @@ export:
   direct_operation_dependencies
   direct_value_dependencies
   verify_combinational_cycles
+  module_dependency_summaries
 
 class InputLeaf(input_index :: Nat, path :: List.of(String || Nat))
 class ValueLeaf(value :: Value, path :: List.of(String || Nat))
@@ -219,7 +220,7 @@ fun direct_value_dependencies(value :: Value,
 
 // Summarizes output-to-input combinational dependencies and rejects cycles.
 // Temporal analysis consumes the same direct leaf dependency rules above.
-fun verify_combinational_cycles(module_defs :: List.of(Module)):
+fun module_dependency_summaries(module_defs :: List.of(Module)):
   def module_summaries = MutableMap.by(===){}
   def active_modules = MutableSet.by(===){}
   def leaf_layouts = MutableMap.by(===){}
@@ -444,6 +445,9 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
         active_modules.remove(module_def)
         summary
 
-  for (module_def in module_defs):
+  for List (module_def in module_defs):
     summarize_module(module_def)
+
+fun verify_combinational_cycles(module_defs :: List.of(Module)):
+  module_dependency_summaries(module_defs)
   #void

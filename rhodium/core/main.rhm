@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "lowering.rhm" open
+  "composition.rhm" open
+  "construct.rhm" open
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
@@ -11,6 +14,9 @@ import:
   "printer.rhm" open
 
 export:
+  all_from("lowering.rhm")
+  all_from("composition.rhm")
+  all_from("construct.rhm")
   all_from("types.rhm")
   all_from("ir.rhm")
   all_from("ops.rhm")
