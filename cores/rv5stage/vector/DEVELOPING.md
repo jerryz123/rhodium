@@ -18,7 +18,8 @@ accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
 successor, or second instruction slot inside the sequencer. The flow-through result queue permits
 consecutive issue while credits cover all nonbackpressurable responses.
-Memory, scan, and compression retain their descriptor through final feedback.
+Memory retains its descriptor through the final external decision; scan and
+compression retain theirs through internal result maturity.
 Reductions release their descriptor at the tail read and retain recurrence in
 owner-indexed state. Stateful and packed schedules wait for older operand
 preparation to drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
@@ -43,7 +44,7 @@ window only from the issue completion of the descriptor that acquired it. The
 completion-slot-sized owner ring lets accepted work outlive sequencing
 ownership. Persistent slots retain route and owner identity across descriptor
 replacement. Keep front admission, sequencing release, execution allocation,
-final acceptance, result arrival, and drain distinct.
+compute maturity or memory acceptance, service-result arrival, and drain distinct.
 
 Every ordinary beat, including immediate integer results, reserves a slot in
 one persistent ring. Packed beats share its allocation/acceptance/drain frontier;
@@ -117,21 +118,25 @@ stalls and explicit flush. Capture on macro acceptance, preserve across retry,
 and release only on the actual occupied-to-idle conditions. Never use the PC or
 the replayable operation index as an occurrence identity.
 
-Every ordinary completion follows successful local authorization into the
-real result-entry array at
-`wb_tag`; ordered drain reads `head` only after its response has completed.
+Every ordinary local-compute completion follows the one-stage private execute
+path. A mature result at the ordered head bypasses the result-entry array; a
+result blocked by an older slot is retained under its execute tag. FP,
+multiply, and divide requests enter their reserved queues from that same
+execute boundary, while memory retains its delayed decision alignment.
+Memory and shared-service results use the same ordered backend after their
+separate acceptance or arrival.
 These accepted entries have FIFO ownership despite out-of-order result arrival,
 so the existing queue-storage contract carries their issue references using
 the original write/read controls. Speculative reservations are not captures;
 retry does not clear accepted owners. No trace model is asserted for arbitrary
 indexed response traversal. There is deliberately no response-arrival event.
 The ordered drained flow reaches the completion checkpoint and existing VRF
-write port. Immediate arithmetic uses the same owner storage as deferred results.
+write port. Immediate arithmetic reserves the same ordered owner slot as
+deferred results and becomes durable at its private execute boundary.
 
 `memory.rhdl` explicitly forks the lookup/context, request/decision, and
-feedback/outcome branches. Ordinary compute acceptance comes from the execution
-result pipe, carrying macro context through the same replay flush as its result.
-The execution engine merges that acceptance with external memory decisions.
+feedback/outcome branches. The private execute boundary supplies compute
+maturity or a shared-service request directly.
 Pair the optional LSU response with the same-cycle lookup context before the
 existing decision pipe; a context-owned
 fallback preserves absent responses and no join may add a wait. Observe its
@@ -146,7 +151,7 @@ memory/FP/muldiv fixtures as functional regressions for the affected paths.
 `rv5stage-vector-overlap` checks consecutive issue for independent single-beat
 compute macros and independently delays FP and memory responses to check
 registered read-tail replacement, FP-to-store row chaining, route changes with
-old responses outstanding, final-beat replay, WAW admission, persistent slot wrap,
+old responses outstanding, final memory-beat replay, WAW admission, persistent slot wrap,
 and a canceled packed prefix whose partial-row carry still needs writeback.
 
 ## Implementation ownership
@@ -172,9 +177,9 @@ independent of that authorization path.
 requests, and lightweight issue tokens. Keep these independent of the parent
 pipeline bundle definitions; scalar bundles must not contain packed vector data.
 `unroller.rhdl` owns descriptor retention, read planning, the sequencing cursor,
-and ordered authorization progress. `bundles.rhdl` owns the read-plan boundary.
-`operand-fetch.rhdl` owns VRF ports, per-beat context alignment, packing, gather,
-compression/retry checkpoints, and response credits. Its downstream beat storage
+internal maturity progress, and memory authorization progress. `bundles.rhdl`
+owns the read-plan boundary. `operand-fetch.rhdl` owns VRF ports, per-beat
+context alignment, packing, gather, compression checkpoints, and response credits. Its downstream beat storage
 survives ordinary sequencer replacement; it never selects or retains a successor
 instruction. `pipeline.rhdl` attaches an owner to each ordinary read plan,
 allocates completion slots from that carried owner, and routes VRF returns by
@@ -193,10 +198,10 @@ not a fault: element masking and exact first-fault semantics remain in memory
 execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.
 [`pipeline.rhdl`](pipeline.rhdl) owns the unroller/VRF/SIMD composition and shared
 service operands. An atomic fork couples local attempt admission to operand
-capture; the three-stage result path and memory decisions meet at local
-acceptance. Any rejected local or packed decision flushes the speculative
-ordinary result and shared-service operand pipes before a younger beat can be
-accepted.
+capture. Compute has one fixed execute stage before local maturity or service
+request acceptance. Memory has that execute stage plus two private stages to
+its external decision. A rejected memory decision flushes younger attempts;
+accepted results and service requests retain their ownership.
 [`memory.rhdl`](memory.rhdl) owns address/lookup, result classification, and
 transaction acceptance. Its replay flushes younger attempts and operand results,
 then restores the unroller checkpoint. It never replays an accepted transaction.
@@ -217,7 +222,7 @@ Vector micro-ops do not traverse scalar EX/MEM/WB. The
 private pipeline supplies its own nonstallable feedback and asserts result alignment.
 Compute retires from its ordinary scalar WB launch token. Memory certification
 updates scalar retirement/PC/NTL macro state once for an early retired macro;
-the conservative memory path still uses final local acceptance.
+the conservative memory path still uses its final external acceptance.
 The macro outcome crosses one register before scalar retirement selection, so
 LSU fault/admission cannot feed back into scalar request formation. Local retry
 feedback remains same-cycle. Certified execution cannot later fault; assert that
@@ -262,7 +267,7 @@ shared FP request. It imports the named FP contracts, RISC-V
 boxing helpers, and HardFloat types; none of those modules imports vector
 execution. The parent pipeline reserves completion slots for both memory and
 FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;
-the engine queues operands at local acceptance.
+the engine queues operands directly from the private execute stage.
 Fused operations reuse the third general VRF read for old `vd`; comparisons
 retain a mask-destination bit beside their completion slot and write the shared
 `v0` shadow through the sole ordered VRF write port. Vector-scalar FP checks the
@@ -400,9 +405,9 @@ snapshot captured by an earlier micro-op or an indexed read port for merging.
 Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
 source reads and a fixed seed address. The parent pipeline gates each owner's
-reduction issue until that owner's preceding beat reaches WB, substitutes the
+reduction issue until that owner's preceding beat matures, substitutes the
 owner's accumulator for subsequent seeds at EX, and updates integer reductions
-only on authorization. The tail read hands off the sequencer; its completion
+only at maturity. The tail read hands off the sequencer; its completion
 slot and owner-scoped recurrence state retain the older macro independently.
 Floating-point reductions retain their owner-local gate until an active fold
 drains from the shared FP service, then advance that owner's accumulator from
@@ -419,13 +424,13 @@ Do not move accumulation into read/issue time. The compute route is
 non-replayable, and final-only VRF writes make source, seed, and mask overlap
 safe.
 The `scalar_result` Valid output carries the existing integer register-write
-type at WB; the core composes it with normal writeback through Flow. Decode
+type at compute maturity; the core composes it with normal writeback through Flow. Decode
 owns the scalar destination/source metadata and rejects nonzero reduction
 `vstart` before the unroller can launch a read.
 The `floating_result` Valid output analogously carries a
 `FloatingPointRegisterWrite` for `vfmv.f.s`. The scalar FP wrapper reserves the
-destination before vector launch and consumes this output only for an
-authorized WB commit. Keep raw vector element bits through the unroller and
+destination before vector launch and consumes this output only for a mature
+private result. Keep raw vector element bits through the unroller and
 NaN-box an SEW32 result only at this architectural boundary. Conversely,
 validate an SEW32 scalar FPR box before packing its payload for `vfmv.v.f`,
 `vfmerge.vfm`, `vfmv.s.f`, or the FP slide forms. These movement operations
@@ -438,13 +443,13 @@ modifiers; the datapath does not recognize instructions. The unroller reads
 source masks at EEW=1 through existing ports and bounds every scan's enables
 to that beat's exclusive end. Iota uses data-width beats; queries and first-bit
 masks use 64-mask-bit beats. The parent retains scan carry separately from
-VRF write data and serializes dependent beats through WB. Index is stateless.
-Admission seeds carry, authorization advances it, and retry retains it.
+VRF write data and serializes dependent beats through result maturity. Index is
+stateless. Admission seeds carry, and maturity advances it.
 Only final query results select GPR WB.
 
 The reduction fixtures also exercise all seven scans across SEW/LMUL, source
 mask aliases, bit-63/64 boundaries, all-masked/empty inputs, packed results,
-nonzero index restart, retries, and partial cancellation. Control fixtures
+nonzero index restart, and partial cancellation. Control fixtures
 sweep source/destination/group/mask legality. The full-core muldiv fixture
 checks scalar consumers, WAW/x0/squash, vector signatures, empty queries, and
 the six nonzero-vstart traps. Include the existing unroller fixtures when
@@ -456,7 +461,7 @@ Run `rv5stage-vector-reduction` for production-pipeline tests of both scalar
 moves and ten integer reductions. It initializes and reads storage through
 public LSU transactions, folds elements with an independent model, and covers
 SEW/LMUL, masks, aliases, tails,
-empty bodies, issue stalls, initial/midstream retry, and partial cancellation.
+empty bodies, issue stalls, result maturity, and partial cancellation.
 The full-core `rv5stage-vector-fp` program covers all six FP reductions,
 unary classification and seven-bit reciprocal/reciprocal-square-root estimates,
 their active-element exception behavior, masking, restart, replay, and squash,
@@ -475,7 +480,7 @@ until source bounds are checked; never wrap a large offset into VRF address
 bits. Per-byte validity handles both negative upward prefixes and fractional
 groups smaller than a physical row. Read context retains those bounds alongside
 the beat. The low byte offset depends only on the retained displacement because
-every issue/retry cursor is destination-chunk-aligned.
+every issue cursor is destination-chunk-aligned.
 
 Preselect the lower chunk's high bytes and upper chunk's low bytes, then use
 the existing SIMD E64 rotate-right path in `execute.rhdl`. Slide1 insertion
@@ -483,8 +488,8 @@ happens before rotation: SEW-aligned displacement preserves each byte's
 element-local scalar position. Decode selects shift/rotate controls directly.
 Override the ALU's physical E64 write mask with byte enables derived from the
 architectural SEW, without changing ordinary SIMD shift behavior.
-Increasing destination order makes legal in-place downward slides replay-safe:
-committed writes cannot overwrite any later beat's needed source elements.
+Increasing destination order makes legal in-place downward slides overlap-safe:
+mature writes cannot overwrite any later beat's needed source elements.
 Upward overlap rejection belongs in decode.
 
 The unroller fixtures compare slide writes against an architectural snapshot
@@ -503,7 +508,7 @@ retains the index-read beat and its mask through a second flushable Valid pipe;
 this context reserves the eventual issue slot before either read. Port zero
 belongs to the dependent data read in the index-response cycle, so the next
 index read may overlap the preceding data response but not its request.
-Retry/cancel flush both read contexts and the pending issue queue together.
+Cancellation flushes both read contexts and the pending issue queue together.
 Never truncate an unsigned index before comparing it with data VLMAX.
 
 The vector gather beat carries the raw source word and a rotation displacement
@@ -517,8 +522,8 @@ state. Do not add a VRF port or a full-vector permutation datapath.
 Run RV32/RV64 control/unroller fixtures for independent index/data geometry,
 full-width bounds, aliases, source reads beyond VL, masks, replay, and reset
 or cancellation in both read phases. The production reduction fixtures cover
-gather through public LSU initialization/readback, authorized-prefix retry,
-and partial cancellation followed by restart, at VLEN128/256/512. The core
+gather through public LSU initialization/readback and partial cancellation
+followed by restart, at VLEN128/256/512. The core
 muldiv fixture covers index producers, scalar hazards, vstart, squash, and
 reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
 `rv5stage-vector-unroller-1024` checks valid scalar and EI16 indices above 255,
@@ -531,17 +536,17 @@ at most one full destination chunk on each source-read beat. If the final
 source beat emits a full chunk and leaves a suffix, a backpressurable flush
 beat emits the remaining partial chunk without consuming another VRF read.
 
-Keep speculative and authorized compression checkpoints separate. Every beat
-carries its post-beat suffix, count, and destination element; only ordered WB
-feedback may advance the authorized copy. Retry restores the source frontier
-and compression state together, including a pending final flush. Do not derive
+Keep speculative and mature compression checkpoints separate. Every beat
+carries its post-beat suffix, count, and destination element; only ordered
+compute maturity may advance the committed copy. Cancellation drops the
+speculative source frontier and compression state, including a pending final flush. Do not derive
 progress from destination writes: a source beat can select no elements and
 still advance the architectural source frontier. Decode owns fixed-vm,
 nonzero-vstart, group alignment, and selection-mask disjointness.
 
 The direct SIMD fixture checks the word compactor against an independent lane
 oracle. The unroller fixtures cover every SEW/LMUL geometry, sparse/dense/empty
-masks, full and partial final chunks, stalls, retry, cancellation, and retained
+masks, full and partial final chunks, stalls, cancellation, and retained
 checkpoints. The production reduction fixtures initialize and read back the
 vector bank through public LSU traffic and exercise the `v0` shadow through
 predication, while the full-core muldiv fixture checks decode, locally accepted
@@ -552,14 +557,14 @@ Run the RV32/RV64 control fixtures whenever compression legality changes.
 2x/4x/8x extension, widening halves, and destination packing. Global element
 position is distinct from enabled-lane
 count. Keep overflow bits until destination bounds are checked. Local `legal`
-outputs are not architectural group/overlap permission or local acceptance.
+outputs are not architectural group/overlap permission or result maturity.
 
 Widening schedules destination-width beats in `unroller.rhdl`. Narrow-source
 lower/upper pairs reread one 64-bit source row. Wide-source forms instead derive
 the `vs2` row from destination-width geometry while their narrow vector/scalar
 source retains lower/upper selection. Each beat independently advances the
-exclusive WB frontier, making retry reconstructible without a speculative
-source buffer. Decode owns doubled EMUL, SEW64 rejection, wide-source alignment
+exclusive maturity frontier without a speculative source buffer. Decode owns
+doubled EMUL, SEW64 rejection, wide-source alignment
 and in-place permission, and the narrow source's high-part-only overlap rule;
 packing owns per-source signed extension, already-wide left selection, and half
 selection.
@@ -569,12 +574,12 @@ Each beat reads one doubled-width `vs2` row and the corresponding half of a
 narrow shift-amount row, executes through the existing SIMD shifter at twice
 SEW, and writes one narrow destination half-row. Keep the architectural
 destination width distinct from the ALU execution width at result packing.
-Ascending issue makes low-part `vd=vs2` overlap replay-safe: an authorized
-prefix can overwrite only wide source elements that have already been read.
+Ascending issue makes low-part `vd=vs2` overlap safe: a mature prefix can
+overwrite only wide source elements that have already been read.
 Decode owns doubled source EMUL/alignment, low-part overlap, different-EEW
 source disjointness, and masked v0 restrictions. Run the RV32/RV64 control and
 unroller fixtures for all three forms, SEWs, masks, partial halves, in-place
-operation, stalls, retry, and cancellation.
+operation, stalls, and cancellation.
 
 Fixed-point scaling and averaging reuse the SIMD tapered shifter and
 lane-isolated adder. Saturating add/sub also reports overflow from that physical
@@ -582,7 +587,7 @@ adder. Keep `vxrm` in the admitted macro snapshot, not as a live execution
 input. Narrowing clip policy belongs in the result packer because it sees the
 rounded doubled-width lane and the destination width together. Carry a
 per-beat saturation bit from either arithmetic saturation or clipping to WB;
-only authorized WB may pulse the CSR bank, and explicit CSR writes take
+only result maturity may pulse the CSR bank, and explicit CSR writes take
 priority over the sticky set.
 
 Keep execution enables separate from `select_right`: merge consumes `v0` as
@@ -636,24 +641,25 @@ configuration, dependent scalar results, CSR reads,
 branch squash, integer writes, macro-only `minstret`, VS Dirty, empty-body
 retirement, and illegal register groups through the real core/frontend. Its
 SV observer binds only to the reusable VRF's public write port, never storage.
-This exercises the production vector pipeline's issue/commit alignment and
-last-beat feedback through the scalar core, not a replacement execution model.
-Two full LMUL=8 streams require sixteen consecutive WB writes each, with exact
-row/data/mask checks across private EX/MEM/WB overlap and in-place reuse.
+This exercises the production vector pipeline's separate compute-maturity and
+memory-decision alignment and last-beat feedback through the scalar core, not a
+replacement execution model. Two full LMUL=8 streams require sixteen
+consecutive VRF writes each, with exact row/data/mask checks across private
+execute, ordered completion, and in-place reuse.
 The signature-memory model rejects each store once, then retains readiness
 until acceptance, exercising replay without periodic readiness/retry phase lock.
 The `rv5stage-vector-unroller` and `rv5stage-vector-unroller-rv32` fixtures
-compose real decode/VRF/execute with a flushable WB boundary. An independent
+compose real decode/VRF/execute with a flushable result boundary. An independent
 element model checks all decoded packed integer operations, fixed-point averaging,
 saturation, rounding, and clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
-mask writes, in-place operations, randomized issue stalls, authorized-prefix
-retry, and cancellation. Keep the retry test's downstream flush explicit.
+mask writes, in-place operations, randomized issue stalls, result maturity,
+and cancellation.
 Whole-register move coverage must include every NREG and SEW, independence from
 `vl` and LMUL, nonzero `vstart`, register-boundary crossing, equal source and
-destination groups, retry, cancellation, and writes to the `v0` shadow.
+destination groups, cancellation, and writes to the `v0` shadow.
 The production reduction fixture uses guaranteed-overflow clips to prove that
-authorized beats pulse saturation once, replay does not duplicate the pulse,
-and cancellation exposes only its already-authorized prefix.
+mature beats pulse saturation once, and cancellation exposes only its
+already-written prefix.
 Changes to shared CSR payloads also require `rv5stage-csr` and the RV32/RV64
 `rv5stage-zihpm-*` fixtures. These fixtures belong to `cores-execution`.
 

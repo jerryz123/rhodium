@@ -1,5 +1,5 @@
 #lang rhodium
-// Tracks speculative vector reservations separately from accepted operations that survive replay.
+// Tracks speculative vector reservations separately from accepted operations that survive replay or drain immediately.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,7 +23,7 @@ sync_circuit RV5StageVectorScoreboard(slots :: Pow2Int):
   when (accept.valid):
     assert(reservations[accept.bits] & !owners[accept.bits], "vector_accept_has_reservation")
   when (release.valid):
-    assert(owners[release.bits], "vector_release_has_accepted_owner")
+    assert(owners[release.bits] ||| (accept.valid & (accept.bits === release.bits)), "vector_release_has_accepted_owner")
   for (slot in 0..slots):
     def tag = bits(slot, index_width(slots))
     when (release.valid & (release.bits === tag)):

@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes one production unroller and delayed services for cross-instruction overlap checks.
+// Exposes one production unroller plus delayed memory decisions and services for overlap checks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -61,7 +61,7 @@ sync_circuit RV5StageVectorOverlap():
   tokens.flush <== cancel ||| (tokens.egress.valid & retry)
   vector.cancel.valid <== cancel
   (
-    feedback |> filter_valid(token => !cancel & (token.memory ||| retry)) |> map_valid(token => RV5StageVectorCommit(xlen, 8)):
+    feedback |> filter_valid(token => token.memory & !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, 8)):
       tag: token.completion_tag
       pc: token.context
       disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)

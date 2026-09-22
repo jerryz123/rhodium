@@ -1,5 +1,5 @@
 #lang rhodium
-// Queues nonspeculative vector descriptors and composes head-owned certification, execution, and memory replay.
+// Queues nonspeculative vector descriptors and composes execution maturity with head-owned memory replay.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

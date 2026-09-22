@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes production vector transfers for independent replay and completion-lineage tests.
+// Exposes production vector transfers for memory replay and completion-lineage tests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -58,7 +58,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   tokens.flush <== recovering
   vector.cancel.valid <== cancel
   (
-    tokens.egress |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, slots)):
+    tokens.egress |> filter_valid(token => token.memory & !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, slots)):
       tag: token.completion_tag
       pc: bits(0x100, 64)
       disposition: disposition
@@ -85,7 +85,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   active <== vector.active
   sequenced <== vector.sequencing_done.valid
   issued <== vector.issue.fire()
-  committed <== vector.decision.valid
+  committed <== tokens.egress.valid & !cancel
   issue_done <== vector.issue_done.valid
   issue_tag <== vector.issue.bits.completion_tag
   enabled <== vector.issue.bits.enabled

@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises the vector execution engine with controlled local acceptance, retry, and cancellation.
+// Exercises internal compute maturity and memory decisions with controlled cancellation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,9 +20,8 @@ import:
 sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar, load_data): Bits(xlen.width)
-  input(request_valid, issue_ready, cancel, retry_enable): Bool
-  input retry_index: Bits(index_width(vlen + 1))
-  output(active, request_ready, issued, committed, retried, retired, saturate): Bool
+  input(request_valid, issue_ready, cancel): Bool
+  output(active, request_ready, issued, compute_matured, memory_committed, retired, saturate): Bool
   output wb_index: Bits(index_width(vlen + 1))
   output store_data: Bits(64)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
@@ -30,6 +29,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   inst vector(RV5StageVectorExecution(xlen, vlen, Bits(32)))
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(32), 8), 3, ~flushable: #true))
+  inst compute_maturity(ValidPipe(Bool, 1, ~flushable: #true))
   reg index(~init: bits(0, index_width(vlen + 1)))
   decode.instruction <== instruction
   vector.request.valid <== request_valid
@@ -57,15 +57,16 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
-  def serialized = decode.control.vector.integer & (decode.control.vector.scan ||| decode.control.vector.compress)
-  def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel & serialized
-  tokens.flush <== cancel ||| retry
+  tokens.flush <== cancel
+  compute_maturity.flush <== cancel
+  compute_maturity.ingress.valid <== vector.issue.fire() & !vector.issue.bits.memory
+  compute_maturity.ingress.bits <== Bool(#true)
   vector.cancel.valid <== cancel
-  vector.decision.valid <== tokens.egress.valid & !cancel
+  vector.decision.valid <== tokens.egress.valid & tokens.egress.bits.memory & !cancel
   vector.decision.bits <== RV5StageVectorCommit(xlen, 8):
     tag: tokens.egress.bits.completion_tag
     pc: bits(0x100, xlen.width)
-    disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
+    disposition: RV5StageVectorDisposition.Authorized
     slow: Bool(#false)
     data: load_data
     cause: bits(0, xlen.width)
@@ -86,15 +87,15 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   request_ready <== vector.request.ready
   active <== vector.active
   issued <== vector.issue.fire()
-  committed <== vector.decision.valid & !retry
-  retried <== retry
+  compute_matured <== compute_maturity.egress.valid
+  memory_committed <== vector.decision.valid
   retired <== vector.retire.valid
   saturate <== vector.saturate.valid
   wb_index <== index
   store_data <== tokens.egress.bits.store_data
   when (vector.request.fire()):
     index <== bits(0, index_width(vlen + 1))
-  elsewhen (vector.decision.valid & !retry):
+  elsewhen memory_committed:
     index <== index + bits(1, index_width(vlen + 1))
 
 export:

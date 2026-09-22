@@ -1,4 +1,4 @@
-// Checks vector event occurrences against public issue, acceptance, and tagged-response transfers.
+// Checks vector event occurrences against issue, compute maturity, and tagged memory-response transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "event-vector_manifest.h"
@@ -101,17 +101,30 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   }
   // The ordered head bypasses completion storage when its response arrives;
   // an older already-complete head drains on the same edge as before.
+  bool drained=false;
   if(!owners.empty() && owners.front().done) {
     expect(vector_sites::complete,completions++,owners.front().attempt.ref);
-    owners.pop_front(); ++late_count; ++complete_count;
+    owners.pop_front(); ++late_count; ++complete_count; drained=true;
+  }
+  // Non-memory compute becomes durable directly from the one-stage private
+  // execute path. It either drains at the ordered head or waits there behind
+  // the single write already selected for this cycle.
+  if(pipe[0] && !pipe[0]->memory) {
+    owners.push_back({*pipe[0],true,cycle});
+    if(!drained && owners.size()==1) {
+      expect(vector_sites::complete,completions++,pipe[0]->ref);
+      owners.pop_front(); ++complete_count; drained=true;
+    }
   }
   if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
   if(commit) {
     if(!pipe[2]) fail("feedback without issue");
-    if(disposition==0) {
+    if(!pipe[2]->memory) {
+      if(disposition!=0) fail("compute received a memory disposition");
+    } else if(disposition==0) {
       for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
       owners.push_back({*pipe[2],!pipe[2]->memory || !slow || !pipe[2]->enabled,cycle+10+(3-pipe[2]->tag)*3});
-      if(pipe[2]->memory && !issue_owners.empty()) issue_owners.front().authorized_index=pipe[2]->index+1;
+      if(!issue_owners.empty()) issue_owners.front().authorized_index=pipe[2]->index+1;
     } else if(disposition==1) {
       if(issue_owners.empty()) fail("retry without issue owner");
       ++retry_count; issue_owners.front().next_index=issue_owners.front().authorized_index;

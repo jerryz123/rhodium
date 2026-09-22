@@ -80,7 +80,7 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 The optional event compiler observes sequencing and beat milestones, not numbered
 pipeline stages: `vector/sequencer` spans the shared descriptor owner's lifetime
 after precheck, `vector/issue` accepts one execution attempt, and
-`vector/complete` records an authorized beat's ordered result drain.
+`vector/complete` records a mature or authorized beat's ordered result drain.
 One sequencer residency parents all
 its issue occurrences; every completion inherits its exact issue occurrence.
 Retries create fresh issue occurrences, while rejected and flushed attempts
@@ -89,8 +89,9 @@ Completion is distinct from scalar macro retirement.
 
 Residency captures PC, instruction, VL, VSTART, encoded SEW/LMUL, and packed mode
 once at admission. Retry does not split its lifetime. Ordinary compute ends
-sequencing when its final read plan transfers; memory and stateful cross-beat operations
-end on final authorization or cancellation/fault/truncation. Accepted results
+sequencing when its final read plan transfers; memory ends on its final external
+decision, while stateful compute ends on internal result maturity or cancellation.
+Resolved results
 may finish later. The shared sequencer emits one residency track for both modes.
 Issue captures
 the macro-local operation index, exclusive element range, and last/empty flags;
@@ -146,16 +147,19 @@ do not retire the macro or restart scalar fetch. Rejection flushes younger
 unaccepted vector stages and restores the unroller's accepted checkpoint.
 Accepted requests, their destination metadata, and their responses survive.
 A younger scalar redirect cannot cancel an allocated macro.
-A saturating or clipping beat reports saturation with its private result, but
-only successful local acceptance emits `saturate: Pulse`; retry and fault
-cannot set `vxsat`.
+A saturating or clipping beat reports saturation when its private compute result
+matures. Memory retry and fault cannot set `vxsat`.
 The CSR bank ORs that pulse into sticky `vxsat`, with an explicit CSR write on
 the same edge taking priority. The integrated core updates architectural vector
 retirement state from scalar WB for compute and from `retire: Pulse` for memory
 certification or successful conservative acceptance. `execution_done: Pulse`
 reports completed execution. `active` includes accepted memory completion
 ownership; `unrolling` reports the separate registered-sequencer lifetime.
-Integer results use fixed-cycle pairing; slow memory uses tagged completions.
+Local compute results mature one cycle after issue and may drain on that same
+edge when they own the ordered head. FP, multiply, and divide requests enter
+their shared services on that edge and complete when their tagged result
+returns. Memory alone retains the three-cycle decision path and tagged slow
+completions.
 
 A two-entry descriptor FIFO snapshots waiting vector macros in addition to the
 single active sequencer instruction. WB may enqueue one descriptor per cycle;
@@ -195,7 +199,7 @@ The integrated core propagates the count through every LSU adapter. Standalone
 compositions must select the same count on their data interfaces and engines.
 
 [`bundles.rhdl`](bundles.rhdl) defines an instruction/configuration snapshot,
-64-bit packed micro-ops, and local acceptance/retry/fault feedback. Position
+64-bit packed micro-ops, and memory acceptance/retry/fault feedback. Position
 is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
@@ -306,26 +310,23 @@ when an integral source group occupies the highest-numbered part of the
 destination group.
 
 The vector pipeline's private execution stage uses
-[`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its result
-registers retain packed data until matching local acceptance transfers ownership
-to the ordered completion backend. An exclusive end position advances even for
+[`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its fixed-latency
+result maturity transfers ownership to the ordered completion backend without
+an external authorization round trip. An exclusive end position advances even for
 masked-off elements. Ordinary compute releases the unroller at its final read
-transfer; serialized operations release it at final authorization. Neither
+transfer; serialized compute releases it at result maturity. Neither
 releases pending result ownership. Architectural retirement follows the certification/outcome
 contract above; interrupt entry waits for all macro contexts to drain.
 A zero-length body or `vstart >= vl` emits one empty
 completion beat, with no register write.
 
-For serialized operations at the low-level unroller boundary, issued and
-authorized positions are separate. Ordered local feedback
-identifies the oldest unauthorized beat and the macro PC. Retry flushes all
-pending reads/issue beats and restarts at the authorized frontier, preserving
-already committed writes and the initial partial-chunk enable floor. The
-internal caller must discard younger downstream beats on retry/cancellation.
-The composed vector pipeline supplies this feedback and flushes its private
-unaccepted pipeline, without routing micro-ops through scalar stages.
-Fault feedback terminates issue and emits the failing element through
-`fault_start`; accepted memory slots remain owned until drained.
+For serialized compute at the low-level unroller boundary, ordered internal
+maturity feedback advances cross-beat state and releases the next beat. Memory
+keeps separate issued and authorized positions: retry flushes pending reads and
+attempts, restarts at the authorized frontier, and preserves accepted writes and
+the initial partial-chunk enable floor. Fault feedback terminates memory issue
+and emits the failing element through `fault_start`; accepted memory slots remain
+owned until drained.
 
 This cut preserves inactive and tail contents, supports fractional LMUL,
 in-place same-width groups, and the permitted high-part overlap for widening
@@ -347,10 +348,10 @@ destination group; misalignment and partial overlap trap before any VRF read.
 One unroller beat produces one 64-bit destination row. Narrow-source forms
 reread the same source row for its lower and upper halves. Wide-source forms
 advance the `vs2` row every beat while the narrow source still selects the
-corresponding half. Each destination-width beat remains its own local acceptance
-and retry boundary without retained speculative operand state. Mask, `vstart`,
-tail, and empty-body behavior use the ordinary packed-element rules. Writes
-remain locally accepted, and retry resumes at the oldest unauthorized half-row.
+corresponding half. Each destination-width beat matures independently without
+retained speculative operand state. Mask, `vstart`, tail, and empty-body behavior
+use the ordinary packed-element rules. Cancellation discards only results that
+have not matured.
 
 ## Narrowing integer shifts
 
@@ -369,11 +370,10 @@ captured before its low-part destination bytes can overwrite it. Other overlap
 with the wide source is rejected, as is overlap between vector `vs1` and `vs2`
 at their different EEWs.
 
-Masks, `vstart`, tails, empty bodies, local acceptance, cancellation, and retry
-use the ordinary packed-integer rules. Retry resumes at the oldest unauthorized
-half-row; an authorized in-place prefix cannot overwrite a source element that
-the suffix still needs. Fixed-point scaling shifts and narrowing clips reuse
-the same execution and recovery rules.
+Masks, `vstart`, tails, empty bodies, result maturity, and cancellation use the
+ordinary packed-integer rules. An in-place destination half-row cannot write
+until the wide source row it overlaps has been captured. Fixed-point scaling
+shifts and narrowing clips reuse the same execution rules.
 
 ## Moves, merge, and mask logic
 
@@ -395,7 +395,7 @@ on a legal `vtype`; `vstart` identifies the first SEW-wide element to copy.
 Decode rejects misaligned or wrapping source and destination groups. Equal
 source and destination groups are a legal no-op. The unroller naturally crosses
 VRF row and register boundaries, preserves the pre-`vstart` prefix, and keeps
-the ordinary local acceptance, replay, cancellation, and `v0`-shadow rules.
+the ordinary result-maturity, cancellation, and `v0`-shadow rules.
 
 `vmandn.mm`, `vmand.mm`, `vmor.mm`, `vmxor.mm`, `vmorn.mm`, `vmnand.mm`,
 `vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand
@@ -407,8 +407,7 @@ port; it does not expand mask bits into SEW-sized data elements.
 All these operations preserve pre-`vstart` and tail contents, including partial
 mask words. Preserving mask tails is a permitted choice for tail-agnostic mask
 results. Empty bodies perform no write but still retire once and clear `vstart`.
-Writes remain locally accepted; retry resumes at the authorized frontier and
-cancellation suppresses speculative writes.
+Writes occur only for mature results; cancellation suppresses future writes.
 
 ## Element moves and integer reductions
 
@@ -420,7 +419,7 @@ Element moves ignore LMUL grouping. Extraction sign-extends or truncates to
 XLEN and executes even when VL is zero or `vstart >= vl`; insertion does not
 write when `vstart >= vl`. Both clear `vstart` on successful retirement.
 The vector pipeline's `scalar_result: Valid(RegisterFileWrite(xlen))` is
-aligned with the local acceptance event, not a deferred completion. The core
+aligned with the internal result-maturity event, not a deferred completion. The core
 routes it to normal GPR writeback; scalar dependencies and older deferred WAW
 hazards remain subject to the existing interlocks.
 
@@ -436,7 +435,7 @@ EMUL=1; a widening seed cannot alias the narrow source group because that would
 read one register at two EEWs.
 
 This first implementation reuses the SIMD ALU with one reduction element per
-owner in flight. Its accumulator advances only with local acceptance, and the
+owner in flight. Its accumulator advances when its private result matures, and the
 non-replayable compute path carries owner and completion tag with every result.
 The tail hands the sequencer to a younger macro while the older completion slot
 retains its final result. Cancellation cannot expose a partial reduction in the
@@ -448,9 +447,9 @@ remain available independently of the dedicated `v0` mask read.
 
 The reusable RV32/RV64 path executes `vcpop.m`, `vfirst.m`, `vmsbf.m`,
 `vmsif.m`, `vmsof.m`, `viota.m`, and `vid.v`. Queries count active source mask
-bits or return the first active set-bit index through the WB-aligned scalar
+bits or return the first active set-bit index at compute maturity through the scalar
 result interface. VL zero still writes a scalar result: zero for population
-count and -1 for first-set. Only the final authorized beat writes the GPR.
+count and -1 for first-set. Only the final mature beat writes the GPR.
 
 The three first-bit mask generators preserve inactive and tail bits and write
 before, through, or only at the first active set bit. Iota writes the count
@@ -466,8 +465,8 @@ index has no source group. Queries permit any source mask, including v0.
 
 The packed scan network processes up to 64 mask bits per query/prefix-mask
 beat or 8/4/2/1 elements per iota beat. One dependent scan beat is in flight;
-its carry advances only at local acceptance, and retries resume from the authorized frontier.
-Cancellation preserves authorized prefix writes while suppressing future writes
+its carry advances only when the private result matures. Cancellation preserves
+already-written prefix results while suppressing future writes
 and unfinished scalar answers. Index needs no carry dependency and retains the
 ordinary packed issue schedule. The bank retains three general read ports plus
 the dedicated `v0` mask read.
@@ -494,9 +493,8 @@ existing 64-bit rotate slot; no separate slide barrel shifter or full-vector
 crossbar is instantiated.
 The rotation operates as E64 while write enables retain architectural SEW.
 The packed schedule supplies 8/4/2/1 elements per beat, with one result per
-cycle in an unstalled stream after setup. Local acceptance authorizes writes. Retry
-resumes at the authorized destination frontier, and cancellation suppresses
-only speculative writes.
+cycle in an unstalled stream after setup. Result maturity authorizes writes,
+and cancellation suppresses only future writes.
 
 ## Register gather
 
@@ -520,9 +518,8 @@ The bank supplies one element every
 two cycles in an unstalled stream after setup. Scalar/immediate forms read
 their selected source word for each destination chunk and broadcast packed
 8/4/2/1-element beats, one per cycle. Both use the existing SIMD 64-bit rotate
-slot, with no extra slide shifter or full-vector crossbar. Only local acceptance authorizes
-writes; retry restarts at the authorized destination frontier, and cancellation
-flushes both read contexts and speculative results.
+slot, with no extra slide shifter or full-vector crossbar. Only result maturity
+authorizes writes; cancellation flushes both read contexts and speculative results.
 
 ## Vector compression
 
@@ -538,10 +535,10 @@ The unroller reads the data and selection-mask chunks through general ports.
 [`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
 owning architectural state. A retained suffix joins the next compacted word;
 each issued beat carries its post-beat suffix, element count, and destination
-position as a speculative checkpoint. local acceptance advances the committed
-checkpoint, retry restores it, and cancellation discards only speculative
-state. A final flush beat writes a partial retained suffix when necessary.
-Every VRF write remains locally accepted, and no extra read or write port is added.
+position as a speculative checkpoint. Result maturity advances the committed
+checkpoint, and cancellation discards only speculative state. A final flush
+beat writes a partial retained suffix when necessary. Every VRF write follows
+result maturity, and no extra read or write port is added.
 
 ## Shared integer multiply/divide
 
@@ -582,9 +579,10 @@ beside the operands. Each scalar adapter has one reserved WB request slot, so
 vector contention cannot steal an ID admission reservation. Scalar GPR
 completion still uses the ordinary deferred writeback arbiter.
 
-Vector elements reserve completion slots before issue, enter request queues
-only at local acceptance, and drain through the single masked VRF write port
-in element order. Backpressure stops earlier issue; MEM/WB remains feed-forward.
+Vector elements reserve completion slots before issue. Local results mature and
+FP, multiply, or divide requests enter their request queues directly from the
+private execute stage. They drain through the single masked VRF write port in
+element order. Backpressure stops earlier issue; MEM/WB remains feed-forward.
 Cancellation discards only speculative work, never accepted requests or their
 response ownership. The multiply completion tag retains the `vsmul` rounding
 mode and result selection; its slot retains saturation until ordered drain, when
@@ -645,7 +643,7 @@ With `Zvfhmin` or `Zvfh`, the same adapter NaN-boxes F16 elements into the
 shared FP service and carries Half/Single precision through ordered vector
 completion. Full `Zvfh` also selects exact 8- and 16-bit integer converter
 widths and promotes widening half arithmetic into the shared FP32 lane.
-Active elements queue for execution only at local acceptance.
+Active elements queue for execution only when their private operands mature.
 Masked, tail, and pre-vstart elements never execute or contribute flags. Empty
 bodies still complete once. Floating-point reductions additionally hold the
 next element behind the prior service result, preserving the ordered-fold
@@ -665,9 +663,9 @@ even when `vl=0`; `vfmv.s.f` and the FP slide forms leave the destination
 unchanged when their body is empty.
 
 The scalar FP wrapper reserves a vector-to-FPR destination before the vector
-macro launches. Only an successful vector acceptance emits the corresponding
-architectural write; retry, fault, redirect, and cancellation cannot alter the
-FPR. Until that write completes, scalar FP issue is held behind the reservation.
+macro launches. Only a mature vector result emits the corresponding architectural
+write; redirect and cancellation cannot alter the FPR. Until that write completes,
+scalar FP issue is held behind the reservation.
 
 The core composes scalar and vector requests around one FP execution service
 using round-robin arbitration and an owner-tagged union. Scalar FPR state
@@ -682,7 +680,7 @@ remain buffered for element-order masked VRF writes and exception-flag updates.
 Scalar and vector flag updates on the same cycle are ORed together.
 
 Cancellation discards speculative slots and private pipeline validity, but
-authorized requests and their result ownership survive until drained. CSR
+accepted service requests and their result ownership survive until drained. CSR
 observers and interrupts wait for this tail. Subsequent vector instructions
 wait for issue ownership and actual register dependencies instead.
 Final completion clears `vstart`; inactive and tail bits remain undisturbed.
@@ -804,7 +802,7 @@ For `vnclipu` and `vnclip`, the shared SIMD datapath rounds the doubled-width
 source according to the captured `vxrm` value before this adapter clips each
 enabled lane to its unsigned or signed destination range. Disabled lanes never
 contribute saturation. The result carries the per-beat saturation indication
-to local acceptance rather than mutating CSR state in the combinational adapter. Cross-beat
+to result maturity rather than mutating CSR state in the combinational adapter. Cross-beat
 reduction and permutation scheduling are not supplied here; element-local Zvbb
 reversals use the ordinary packed execution schedule.
 
@@ -829,7 +827,7 @@ pure [`VectorConfig`](../../../riscv/README.md#vector-geometry) supplies host
 geometry and ordinary data-overlap rules, not an instruction decoder.
 
 Writes are accepted inputs. The bank and packing adapters do not decide macro
-allocation, local acceptance, or replay; the vector execution owner supplies
-that policy after scalar WB has allocated the macro.
+allocation, compute maturity, or memory replay; the vector execution owner
+supplies that policy after scalar WB has allocated the macro.
 
 See [DEVELOPING.md](DEVELOPING.md) for ownership and focused validation.

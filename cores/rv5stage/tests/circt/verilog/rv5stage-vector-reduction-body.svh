@@ -1,4 +1,4 @@
-// Models reductions, scans, slides, gathers, and compression through public LSU readback and WB recovery.
+// Models reductions, scans, slides, gathers, and compression through public LSU readback and cancellation.
 // SPDX-License-Identifier: Apache-2.0
   localparam int CW = $clog2(VLEN+1), CHUNKS = VLEN/64;
   typedef struct packed { logic [4:0] address; logic [XLEN-1:0] data; } scalar_write_t;
@@ -6,17 +6,17 @@
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar, load_data;
-  logic request_valid = 0, issue_ready = 1, cancel = 0, retry_enable = 0;
-  logic [CW-1:0] retry_index = 0, wb_index;
-  logic active, request_ready, issued, committed, retried, retired, saturate;
+  logic request_valid = 0, issue_ready = 1, cancel = 0;
+  logic [CW-1:0] wb_index;
+  logic active, request_ready, issued, compute_matured, memory_committed, retired, saturate;
   logic [63:0] store_data;
   scalar_port_t scalar_result_out;
   RV5StageVectorReductionFixture dut (.*);
   always #5 clock = ~clock;
   logic [63:0] model [0:31][0:CHUNKS-1];
   logic [63:0] rng = 64'h651b3c5defab7809, scalar_expected;
-  int mode = 0, regno = 0, cycles = 0, checks = 0, macros = 0, retry_count = 0;
-  int retired_count, commit_count, scalar_count, saturate_count;
+  int mode = 0, regno = 0, cycles = 0, checks = 0, macros = 0;
+  int retired_count, resolved_count, scalar_count, saturate_count;
   function automatic logic [63:0] random_word();
     rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng;
   endfunction
@@ -45,17 +45,17 @@
   task automatic tick;
     #1;
     if (!reset) begin
-      if (retried) begin retry_count++; end
-      if (committed) begin
-        commit_count++;
+      if (memory_committed) begin
+        resolved_count++;
         if (mode == 2) begin
           assert (XLEN'(store_data) == XLEN'(element(regno,int'(wb_index),XLEN)))
             else $fatal(1,"VRF r%0d element%0d got%h expected%h macro%0d",regno,wb_index,store_data,element(regno,int'(wb_index),XLEN),macros);
           checks++;
         end
       end
+      if (compute_matured) resolved_count++;
       if (saturate) begin
-        assert (committed) else $fatal(1, "saturation escaped WB authorization");
+        assert (compute_matured) else $fatal(1, "saturation escaped compute maturity");
         saturate_count++;
       end
       if (scalar_result_out.valid) begin
@@ -69,28 +69,25 @@
     cycles++;
     if (cycles > 1500000) $fatal(1,"pipeline timeout");
   endtask
-  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int retry_at = -1, kill_after = -1, input bit replayable = 0);
-    int before_retry, timeout;
+  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int kill_after = -1);
+    int timeout;
     instruction = insn; vtype = (XLEN'(sew)<<3)|XLEN'(lm); vl = XLEN'(length); vstart = XLEN'(start);
-    retired_count = 0; commit_count = 0; scalar_count = 0; timeout = 0;
-    retry_enable = retry_at >= 0 && replayable; retry_index = CW'(retry_at); before_retry = retry_count;
+    retired_count = 0; resolved_count = 0; scalar_count = 0; timeout = 0;
     request_valid = 1;
     while (!request_ready) tick();
     tick(); request_valid = 0;
     while (active) begin
       issue_ready = (random_word() & 3) != 0;
       tick();
-      if (retry_count != before_retry) retry_enable = 0;
-      if (kill_after >= 0 && commit_count >= kill_after && active) begin
+      if (kill_after >= 0 && resolved_count >= kill_after && active) begin
         cancel = 1; tick(); cancel = 0; break;
       end
       timeout++; if (timeout > 20000) $fatal(1,"macro stuck insn=%h wb=%0d",insn,wb_index);
     end
     repeat (5) tick();
     assert (retired_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"macro retirement count %0d",retired_count);
-    if (retry_at >= 0 && replayable) assert (retry_count == before_retry+1) else $fatal(1,"retry not exercised");
     if (mode == 3) assert (scalar_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"scalar write count");
-    retry_enable = 0; issue_ready = 1; macros++;
+    issue_ready = 1; macros++;
   endtask
   // Public LSU completions initialize storage; this test adapter is not an RV32 memory-ISA claim.
   task automatic load_reg(input int r);
@@ -114,12 +111,12 @@
       if(signed_operation) value=sext(value,width);
       acc=(acc+value)&wide_mask;
     end
-    run(vec(signed_operation ? 49 : 48,dest,source,seed,0,masked),sew,lm,length,0,-1,kill_after);
+    run(vec(signed_operation ? 49 : 48,dest,source,seed,0,masked),sew,lm,length,0,kill_after);
     if(kill_after<0 && length!=0) model[dest][0]=(model[dest][0]&~wide_mask)|(acc&wide_mask);
     check_reg(dest);
   endtask
   task automatic scan_case(input int op, sew, lm, length, pattern, input bit masked,
-                           input int retry_at = -1, kill_after = -1, start = 0);
+                           input int kill_after = -1, start = 0);
     logic [63:0] expected [0:8*CHUNKS-1];
     logic [63:0] value, lane_mask;
     int count, first_set, width, lanes, dest, source, selector, row, offset, written, groups;
@@ -159,10 +156,10 @@
     end
     selector=op==0 ? 16 : op==1 ? 17 : op==2 ? 1 : op==3 ? 3 : op==4 ? 2 : op==5 ? 16 : 17;
     if (op<2) begin scalar_expected=op==0 ? 64'(count) : 64'($signed(first_set)); mode=3; end
-    run(vec(op<2 ? 16 : 20,dest,op==6 ? 0 : source,selector,2,masked),sew,lm,length,start,retry_at,kill_after,1);
+    run(vec(op<2 ? 16 : 20,dest,op==6 ? 0 : source,selector,2,masked),sew,lm,length,start,kill_after);
     mode=0;
     if(op>=2) begin
-      written=kill_after<0 ? length : commit_count*lanes;
+      written=kill_after<0 ? length : resolved_count*lanes;
       for(int i=start;i<length && i<written;i++) begin
         row=op<5 ? i/64 : i*width/64; offset=op<5 ? i%64 : i*width%64;
         lane_mask=(op<5 ? 64'(1) : '1>>(64-width))<<offset;
@@ -172,7 +169,7 @@
     end
   endtask
   task automatic slide_case(input int form, sew, length, start, input bit masked,
-                            input int retry_at = -1, kill_after = -1, input bit inplace = 0);
+                            input int kill_after = -1, input bit inplace = 0);
     logic [63:0] expected [0:8*CHUNKS-1];
     logic [63:0] value, lane_mask;
     int width, lanes, dest, source, group_elements, count, written, row, offset;
@@ -191,8 +188,8 @@
       row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
       expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
     end
-    run(vec(up ? 14 : 15,dest,source,form inside {1,3} ? count : 3,one ? 6 : form inside {1,3} ? 3 : 4,masked),sew,3,length,start,retry_at,kill_after);
-    written=kill_after<0 ? length : (start/lanes+commit_count)*lanes;
+    run(vec(up ? 14 : 15,dest,source,form inside {1,3} ? count : 3,one ? 6 : form inside {1,3} ? 3 : 4,masked),sew,3,length,start,kill_after);
+    written=kill_after<0 ? length : (start/lanes+resolved_count)*lanes;
     for(int i=start;i<length && i<written;i++) begin
       row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
       model[dest+row/CHUNKS][row%CHUNKS]=(model[dest+row/CHUNKS][row%CHUNKS]&~lane_mask)|(expected[row]&lane_mask);
@@ -200,7 +197,7 @@
     for(int r=0;r<8;r++) check_reg(dest+r);
   endtask
   task automatic gather_case(input int form, sew, lm, length, start, input bit masked,
-                             input int retry_at = -1, kill_after = -1);
+                             input int kill_after = -1);
     logic [63:0] expected [0:8*CHUNKS-1];
     logic [63:0] value, lane_mask, idx;
     logic [31:0] insn;
@@ -237,8 +234,8 @@
       expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
     end
     insn=vec(form==1 ? 14 : 12,24,8,form<2 ? 16 : form==3 ? 31 : 3,form<2 ? 0 : form==2 ? 4 : 3,masked);
-    run(insn,sew,lm,length,start,retry_at,kill_after);
-    written=kill_after<0 ? length : (start/lanes+commit_count)*lanes;
+    run(insn,sew,lm,length,start,kill_after);
+    written=kill_after<0 ? length : (start/lanes+resolved_count)*lanes;
     for(int i=start;i<length && i<written;i++) begin
       row=i*width/64; offset=i*width%64; lane_mask=('1>>(64-width))<<offset;
       model[24+row/CHUNKS][row%CHUNKS]=(model[24+row/CHUNKS][row%CHUNKS]&~lane_mask)|(expected[row]&lane_mask);
@@ -247,12 +244,12 @@
     if(kill_after>=0) begin
       // Restart precisely after the visible prefix, using the same index/data
       // sources; stale second-read context must never write across this edge.
-      run(insn,sew,lm,length,written,0);
+      run(insn,sew,lm,length,written);
       for(int c=0;c<groups*CHUNKS;c++) model[24+c/CHUNKS][c%CHUNKS]=expected[c];
       for(int r=0;r<groups;r++) check_reg(24+r);
     end
   endtask
-  task automatic compress_case(input int sew, lm, length, pattern, input int retry_at = -1);
+  task automatic compress_case(input int sew, lm, length, pattern);
     logic [63:0] expected [0:8*CHUNKS-1];
     logic [63:0] value, lane_mask;
     int width, exponent, groups, output_index, row, offset;
@@ -271,7 +268,7 @@
       expected[row]=(expected[row]&~lane_mask)|((value<<offset)&lane_mask);
       output_index++;
     end
-    run(vec(23,24,8,5,2),sew,lm,length,0,retry_at,-1,1);
+    run(vec(23,24,8,5,2),sew,lm,length);
     for(int c=0;c<groups*CHUNKS;c++) model[24+c/CHUNKS][c%CHUNKS]=expected[c];
     for(int r=0;r<groups;r++) check_reg(24+r);
   endtask
@@ -291,12 +288,12 @@
     begin
       int prior_saturations, beats;
       prior_saturations=saturate_count; run(vec(32,24,8,9,0),0,0,VLEN/8);
-      assert(saturate_count-prior_saturations==CHUNKS) else $fatal(1,"saturating add did not pulse once per authorized beat");
+      assert(saturate_count-prior_saturations==CHUNKS) else $fatal(1,"saturating add did not pulse once per mature beat");
       for (int c=0;c<CHUNKS;c++) model[24][c]='1;
       check_reg(24);
       beats=(VLEN/8+3)/4;
       prior_saturations=saturate_count; run(vec(46,24,8,0,3),0,0,VLEN/8);
-      assert(saturate_count-prior_saturations==beats) else $fatal(1,"authorized clip saturation count");
+      assert(saturate_count-prior_saturations==beats) else $fatal(1,"mature clip saturation count");
     end
     for (int sew=0;sew<4;sew++) begin
       width=8<<sew; mask='1>>(64-width);
@@ -326,7 +323,7 @@
         end
       end
       // Empty reductions preserve even element zero; cancellation discards
-      // partial authorized accumulation without an architectural VRF write.
+      // partial internal accumulation without an architectural VRF write.
       for (int op=0;op<8;op++) begin
         acc=fold(op,width,element(3,0,width),element(8,0,width));
         run(vec(op,7,8,3,2),sew,3,1);
@@ -334,22 +331,22 @@
         check_reg(7);
       end
       run(vec(0,7,8,3,2),sew,3,0); check_reg(7);
-      run(vec(0,7,8,3,2),sew,3,8,0,-1,2); check_reg(7);
+      run(vec(0,7,8,3,2),sew,3,8,0,2); check_reg(7);
       for (int c=0;c<CHUNKS;c++) model[3][c]=random_word();
       load_reg(3);
       // Both scalar moves ignore LMUL; extraction also ignores VL/vstart.
       for (int empty=0;empty<4;empty++) begin
         scalar=XLEN'(-7); old=model[3][0];
-        run(vec(16,3,0,5,6),sew,3,empty==1 ? 0 : 4,empty==2 ? 4 : empty==3 ? 1 : 0,0);
+        run(vec(16,3,0,5,6),sew,3,empty==1 ? 0 : 4,empty==2 ? 4 : empty==3 ? 1 : 0);
         if (empty==0 || empty==3) model[3][0]=(old&~mask)|(64'(sext(64'(scalar),XLEN))&mask);
         check_reg(3);
         scalar_expected=sext(element(3,0,width),width); mode=3;
-        run(vec(16,5,3,0,2),sew,3,0,7,0);
+        run(vec(16,5,3,0,2),sew,3,0,7);
         mode=0;
       end
     end
     // Widening reductions fold narrow LMUL-sized sources into a single wide
-    // seed/result element through the non-replayable compute path.
+    // seed/result element and advance only as each private result matures.
     for(int sew=0;sew<3;sew++) begin
       for(int lm=0;lm<8;lm++) begin
         int exponent, length;
@@ -378,37 +375,37 @@
         for(int op=0;op<7;op++) begin
           int lanes;
           lanes=op<5 ? 64 : 64/(8<<sew);
-          scan_case(op,sew,lm,length,7,0,(length+lanes-1)/lanes/2);
-          scan_case(op,sew,lm,length,6,1,0);
-          scan_case(op,sew,lm,0,0,1,0);
+          scan_case(op,sew,lm,length,7,0);
+          scan_case(op,sew,lm,length,6,1);
+          scan_case(op,sew,lm,0,0,1);
         end
       end
     end
     for(int op=0;op<7;op++) begin
       for(int pattern=0;pattern<6;pattern++) begin
-        scan_case(op,0,3,VLEN,pattern,pattern==5,1);
-        scan_case(op,0,3,65,pattern,1,0);
+        scan_case(op,0,3,VLEN,pattern,pattern==5);
+        scan_case(op,0,3,65,pattern,1);
       end
-      scan_case(op,0,3,VLEN,7,1,-1,1);
-      scan_case(op,0,3,1,1,1,0);
+      scan_case(op,0,3,VLEN,7,1,1);
+      scan_case(op,0,3,1,1,1);
     end
-    // vid supports arbitrary vstart; indices do not restart at zero after replay.
+    // vid supports arbitrary vstart; indices retain their architectural origin.
     for(int sew=0;sew<4;sew++) begin
-      scan_case(6,sew,3,VLEN/(8<<sew)*8,7,1,1,-1,3);
-      scan_case(6,sew,3,1,7,0,0,-1,5);
+      scan_case(6,sew,3,VLEN/(8<<sew)*8,7,1,-1,3);
+      scan_case(6,sew,3,1,7,0,-1,5);
     end
-    // Production private-pipeline authorization, including partial-prefix
+    // Production private-pipeline maturity, including partial-prefix
     // cancellation followed by a nonzero-vstart reissue over preserved state.
     for(int sew=0;sew<4;sew++) begin
       for(int form=0;form<6;form++) begin
         bit down;
         down=form inside {2,3,5}; length=VLEN>>sew;
-        slide_case(form,sew,length,0,0,1,-1,down);
-        slide_case(form,sew,length-1,1,1,0,-1,down);
-        slide_case(form,sew,length,0,1,-1,1,down);
-        slide_case(form,sew,length,8>>sew,1,0,-1,down);
-        slide_case(form,sew,0,0,1,0);
-        slide_case(form,sew,1,0,0,0);
+        slide_case(form,sew,length,0,0,-1,down);
+        slide_case(form,sew,length-1,1,1,-1,down);
+        slide_case(form,sew,length,0,1,1,down);
+        slide_case(form,sew,length,8>>sew,1,-1,down);
+        slide_case(form,sew,0,0,1);
+        slide_case(form,sew,1,0,0);
       end
     end
     for(int sew=0;sew<4;sew++) for(int lm=0;lm<8;lm++) begin
@@ -420,26 +417,26 @@
         int ie, lanes;
         ie=exponent+(form==1 ? 1-sew : 0); lanes=form<2 ? 1 : 8>>sew;
         if(form==1 && (ie < -3 || ie > 3)) continue;
-        gather_case(form,sew,lm,maximum,0,0,0);
-        gather_case(form,sew,lm,maximum-1,1,1,0);
-        gather_case(form,sew,lm,0,0,1,0);
-        gather_case(form,sew,lm,1,3,0,0);
+        gather_case(form,sew,lm,maximum,0,0);
+        gather_case(form,sew,lm,maximum-1,1,1);
+        gather_case(form,sew,lm,0,0,1);
+        gather_case(form,sew,lm,1,3,0);
         if(maximum>lanes) begin
-          gather_case(form,sew,lm,maximum,0,1,1);
-          gather_case(form,sew,lm,maximum,0,0,-1,1);
+          gather_case(form,sew,lm,maximum,0,1);
+          gather_case(form,sew,lm,maximum,0,0,1);
         end
       end
     end
     // Compression streams its mask/data sources through the production bank,
-    // authorizes every packed destination write at WB, and preserves its tail.
+    // writes each mature packed destination beat, and preserves its tail.
     for(int sew=0;sew<4;sew++) begin
       int maximum;
       maximum=VLEN/(8<<sew);
       compress_case(sew,0,maximum,0);
       compress_case(sew,0,maximum>0 ? maximum-1 : 0,1);
-      compress_case(sew,3,8*maximum,2,1);
+      compress_case(sew,3,8*maximum,2);
     end
     compress_case(0,0,0,2);
-    $display("vector reductions/moves/scans/slides/gathers/compression XLEN%0d VLEN%0d passed: %0d macros %0d checks %0d retries",XLEN,VLEN,macros,checks,retry_count);
+    $display("vector reductions/moves/scans/slides/gathers/compression XLEN%0d VLEN%0d passed: %0d macros %0d checks",XLEN,VLEN,macros,checks);
     $finish;
   end
