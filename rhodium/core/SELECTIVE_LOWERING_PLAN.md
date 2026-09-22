@@ -116,8 +116,8 @@ executable construct protocol. The dependent branch establishes the initial mixe
 The evidence sections below are chronological; their pending-work statements
 record the scope at that point. This list is the current remaining scope:
 
-- Extend captured mapping to multiword payloads and nested aggregates, including
-  live captures during stalls. Basic two-element vector coverage passes below.
+- Extend captured mapping to nested aggregates, including live captures during
+  stalls. Basic vector and multiword feedback coverage passes below.
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
 - Retain pipes through the same public extension protocol and validate their
@@ -303,3 +303,15 @@ and materialized CIRCT/Verilator, including default native optimization. The
 existing scalar and record native replays also pass after the runner change.
 Multiword and nested aggregate captures, effects, retained pipes, performance,
 and previous simulator-suite migration remain open.
+
+## Captured multiword feedback follow-up
+
+The [dependent multiword validation](https://github.com/tianrui-wei/rhodium/commit/6134de7)
+passes 195 record/vector/multiword host checks, including genuine cycle rejection.
+Two 65-bit vector elements span three runtime words, with an unaligned second
+element. All 16 Queue configurations pass 256-cycle pre/post-edge oracle replay
+in interpreter, generated C, and materialized CIRCT/Verilator, including default
+optimization. Every payload bit is observed; directed values exercise 64-bit
+carry and 65-bit wraparound alongside random upper bits. Narrow-vector replay
+also passes with the generalized oracle. Nested aggregates, effects, pipes,
+performance, and previous simulator-suite migration remain open.
