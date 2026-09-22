@@ -397,10 +397,33 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   )
   def advance_available = advance_choice.valid
   def advance_slot = advance_choice.index
-  def work_from_input = !advance_locked & !lookup_response_valid & input_pending
+  // A full victim buffer can lock an enqueue whose release depends on either a
+  // buffered completion or, after a failed writeback, its parent's remaining
+  // fill. Service that dependency without discarding the locked enqueue owner.
+  def victim_enqueue_owns_advance = advance_locked & (
+    phases[advance_owner] === CHIInclusiveHNFPhase.EnqueueVictimWriteback
+  )
+  def writeback_completion_preempts_advance = !lookup_response_valid & victim_enqueue_owns_advance & (
+    writeback_completion_pending
+  )
+  def writeback_fill_preempts_advance = !lookup_response_valid & victim_enqueue_owns_advance & (
+    victim_writebacks.completion.valid & !writeback_completion_eligible & fill_pending & (
+      fill_slot === writeback_completion_slot
+    )
+  )
+  def victim_dependency_preempts_advance = writeback_completion_preempts_advance ||| (
+    writeback_fill_preempts_advance
+  )
+  def work_from_input = victim_dependency_preempts_advance ||| (
+    !advance_locked & !lookup_response_valid & input_pending
+  )
   def work_from_advance = (!lookup_response_valid ||| advance_locked) & !work_from_input & advance_available
   def work_valid = work_from_input ||| work_from_advance
-  def work_slot = mux(work_from_input, input_slot, advance_slot)
+  def work_slot = mux(work_from_input,
+                      mux(victim_dependency_preempts_advance,
+                          writeback_completion_slot,
+                          input_slot),
+                      advance_slot)
 
   def phase = phases[work_slot]
   def request = requests[work_slot]
@@ -422,13 +445,20 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def request_installs_miss = (request.opcode =/= CHIReqOpcode.ReadOnce) ||| request.mem_attr.allocate
   def selected_dirty = dirty_lines[selected_set][selected_way]
 
-  def selected_requester_data = work_from_input & requester_data_pending
-  def selected_requester_response = work_from_input & !requester_data_pending & requester_response_pending
-  def selected_subordinate_response = work_from_input & !requester_data_pending & !requester_response_pending & subordinate_response_pending
-  def selected_fill = work_from_input & !requester_data_pending & !requester_response_pending & !subordinate_response_pending & fill_pending
-  def selected_writeback_completion = work_from_input & !requester_data_pending & (
-    !requester_response_pending
-  ) & !subordinate_response_pending & !fill_pending & writeback_completion_pending
+  def ordinary_input_selected = work_from_input & !victim_dependency_preempts_advance
+  def selected_requester_data = ordinary_input_selected & requester_data_pending
+  def selected_requester_response = ordinary_input_selected & !requester_data_pending & requester_response_pending
+  def selected_subordinate_response = ordinary_input_selected & !requester_data_pending & !requester_response_pending & subordinate_response_pending
+  def selected_fill = writeback_fill_preempts_advance ||| (
+    ordinary_input_selected & !requester_data_pending & !requester_response_pending & (
+      !subordinate_response_pending & fill_pending
+    )
+  )
+  def selected_writeback_completion = writeback_completion_preempts_advance ||| (
+    ordinary_input_selected & !requester_data_pending & !requester_response_pending & (
+      !subordinate_response_pending & !fill_pending & writeback_completion_pending
+    )
+  )
 
   requester.request_data.ready <== selected_requester_data
   requester.requester_responses.ready <== mux(

@@ -58,6 +58,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   localparam logic [43:0] LINE1 = 44'h080000100;
   localparam logic [43:0] LINE2 = 44'h080000200;
   localparam logic [43:0] LINE3 = 44'h080000400;
+  localparam logic [43:0] SECOND_SET_PEER = 44'h080000300;
+  localparam logic [43:0] SECOND_SET_REPLACEMENT = 44'h080000500;
   localparam logic [127:0] PARTIAL_DATA = 128'hf0e1d2c3b4a5968778695a4b3c2d1e0f;
   localparam logic [15:0] PARTIAL_MASK = 16'ha55a;
   localparam logic [63:0] SNOOP_MASKS = 64'hffff_8001_5aa5_0001;
@@ -84,6 +86,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   logic [11:0] first_memory_txn;
   logic [11:0] second_memory_txn;
   logic [11:0] victim_memory_txn;
+  logic [11:0] second_victim_memory_txn;
+  integer victim_request_wait_cycles;
+  bit second_victim_request_seen;
   CHIReqFlit active_request;
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
@@ -959,6 +964,87 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     accept_cached_packet(2'd1, 128'h41);
     accept_cached_packet(2'd2, 128'h42);
     accept_cached_packet(2'd3, 128'h43);
+
+    if (INVALID_CASE == 0) begin
+      // A completed writeback must be able to release a full victim buffer
+      // even while the next dirty replacement owns the stalled advance lane.
+      reset = 1; tick(); reset = 0;
+      send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h10);
+      send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h20);
+      send_request(LINE1, READ_NO_SNP); tick(); fill_and_return(LINE1, 8'h30);
+      send_request(SECOND_SET_PEER, READ_NO_SNP); tick(); fill_and_return(SECOND_SET_PEER, 8'h40);
+
+      for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h10 + 128'(packet);
+      send_request(LINE0, 7'h07, 6'd6, DATA_ID); repeat (3) tick(); finish_cached();
+      for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h20 + 128'(packet);
+      send_request(LINE2, READ_NO_SNP); repeat (3) tick(); finish_cached();
+      for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h30 + 128'(packet);
+      send_request(LINE1, 7'h07, 6'd6, DATA_ID); repeat (3) tick(); finish_cached();
+      for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h40 + 128'(packet);
+      send_request(SECOND_SET_PEER, READ_NO_SNP); repeat (3) tick(); finish_cached();
+
+      for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h10 + 128'(packet);
+      send_request(LINE3, READ_NO_SNP); tick(); dirty_snoop(DATA_ID, 8'ha0);
+      for (int packet = 0; packet < 4; packet++)
+        for (int byte_index = 0; byte_index < 16; byte_index++)
+          if (SNOOP_MASKS[packet * 16 + byte_index])
+            expected_line[packet][byte_index * 8 +: 8] = 8'ha0 + 8'(packet);
+      repeat (2) tick();
+      accept_memory_request_transaction(LINE0, WRITE_NO_SNP_FULL, victim_memory_txn);
+      accept_memory_request_slot(LINE3, first_memory_txn);
+      subordinate_responses_in.bits = '0;
+      subordinate_responses_in.bits.opcode = DBID_RESP;
+      subordinate_responses_in.bits.src_id = MEMORY_ID;
+      subordinate_responses_in.bits.tgt_id = HOME_ID;
+      subordinate_responses_in.bits.txn_id = victim_memory_txn;
+      subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+      subordinate_responses_in.valid = 1'b1;
+      #1;
+      assert(port_out.subordinate.rsp.ready)
+        else $fatal(1, "inclusive Home did not accept the first overlapping victim DBID");
+      tick(); subordinate_responses_in = '0;
+      for (int packet = 0; packet < 4; packet++)
+        accept_victim_packet(packet[1:0], expected_line[packet]);
+
+      send_request(SECOND_SET_REPLACEMENT, READ_NO_SNP); tick(); dirty_snoop(DATA_ID, 8'hb0);
+      repeat (3) tick();
+      subordinate_responses_in.bits = '0;
+      subordinate_responses_in.bits.opcode = COMP;
+      subordinate_responses_in.bits.src_id = MEMORY_ID;
+      subordinate_responses_in.bits.tgt_id = HOME_ID;
+      subordinate_responses_in.bits.txn_id = victim_memory_txn;
+      subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+      subordinate_responses_in.valid = 1'b1;
+      #1;
+      assert(port_out.subordinate.rsp.ready)
+        else $fatal(1, "inclusive Home did not accept the first overlapping victim completion");
+      tick(); subordinate_responses_in = '0;
+
+      second_victim_request_seen = 0;
+      victim_request_wait_cycles = 0;
+      subordinate_requests_ready_in.ready = 1'b1;
+      while (!second_victim_request_seen && victim_request_wait_cycles < 12) begin
+        #1;
+        if (port_out.subordinate.req.valid) begin
+          if (port_out.subordinate.req.bits.address == LINE1 &&
+              port_out.subordinate.req.bits.opcode == WRITE_NO_SNP_FULL) begin
+            second_victim_memory_txn = port_out.subordinate.req.bits.txn_id;
+            second_victim_request_seen = 1;
+          end else begin
+            assert(port_out.subordinate.req.bits.address == SECOND_SET_REPLACEMENT &&
+                   port_out.subordinate.req.bits.opcode == READ_NO_SNP)
+              else $fatal(1, "inclusive Home issued unexpected traffic while releasing the victim buffer");
+          end
+        end
+        tick();
+        victim_request_wait_cycles = victim_request_wait_cycles + 1;
+      end
+      subordinate_requests_ready_in = '0;
+      assert(second_victim_request_seen)
+        else $fatal(1, "victim completion did not release the stalled dirty replacement");
+      assert(second_victim_memory_txn == victim_memory_txn)
+        else $fatal(1, "released victim buffer entry changed transaction ID");
+    end
 
     // A resident hit updates tree-PLRU state: after filling LINE0 then LINE2,
     // touching LINE0 makes LINE2 the victim for LINE3.
