@@ -127,6 +127,17 @@ check_matrix_entry rhodium/event/analyze.rhm host_matrix ci-host-hygiene-test
 check_matrix_entry rhodium/event/analyze.rhm circt_matrix ci-circt-language-test
 check_matrix_entry rheg/runtime/rheg.cc circt_matrix ci-circt-language-test
 check_matrix_entry rheg/perfetto/rheg_perfetto.cc host_matrix ci-host-backend-test
+check_matrix_entry riscv/patched_submodule.py host_matrix ci-host-backend-test
+check_matrix_entry riscv/patched_submodule.py host_matrix ci-host-models-test
+check_matrix_entry riscv/patched_submodule.py host_matrix ci-host-hygiene-test
+check_field riscv/patched_submodule.py simulation true
+check_field riscv/patched_submodule.py program_arch true
+check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_arch true
+check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_native false
+check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch host false
+check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch circt false
+check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch simulation false
+check_field riscv/riscv-isa-sim program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"},{"suite":"embench"}]}'
 check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-language-test
 check_field rhodium/event/analyze.rhm simulation true
 check_field rheg/runtime/rheg.cc simulation true

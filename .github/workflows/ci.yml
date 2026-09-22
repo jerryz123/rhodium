@@ -227,11 +227,14 @@ jobs:
         uses: ./.github/actions/setup-riscv-toolchain
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
       - name: Cache FESVR
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ hashFiles('sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
       - name: Build pinned FESVR
         run: make -C sims setup
       - name: Cache CIRCT
@@ -333,11 +336,14 @@ jobs:
           sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - uses: ./.github/actions/setup-riscv-toolchain
       - uses: ./.github/actions/setup-verilator
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
       - name: Cache FESVR
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ hashFiles('sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
       - name: Cache CIRCT
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -383,6 +389,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - uses: ./.github/actions/setup-verilator
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
       - name: Cache CIRCT
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -392,7 +401,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ hashFiles('sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
       - name: Build and attest simulator
         run: |
           make setup-circt
@@ -523,7 +532,7 @@ jobs:
           path: |
             /tmp/rhodium-arch-test/work/**/build
             /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'riscv/riscv-arch-test-patches/**', 'riscv/patched_submodule.py') }}"
       - name: Generate and package every selected ELF
         run: |
           set -o pipefail

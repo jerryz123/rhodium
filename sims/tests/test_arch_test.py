@@ -13,7 +13,6 @@ import unittest
 from unittest.mock import Mock, patch
 
 RUNNER = Path(__file__).resolve().parents[1] / "arch-test" / "run.py"
-SOURCE_PREPARER = RUNNER.with_name("prepare-source.py")
 RVMODEL_MACROS = RUNNER.with_name("rvmodel_macros.h")
 VECTOR_PARAMETERS = {
     "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
@@ -297,39 +296,6 @@ class ArchTestConfigTest(unittest.TestCase):
 
 
 class ArchTestGenerationTest(unittest.TestCase):
-    def test_materializes_patch_series_without_modifying_upstream(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            source = root / "upstream"
-            source.mkdir()
-            (source / "value.txt").write_text("before\n")
-            (source / ".git").mkdir()
-            (source / ".git/metadata").write_text("not copied\n")
-            patches = root / "patches"
-            patches.mkdir()
-            (patches / "series").write_text(
-                "# Applies the fixture patch.\n"
-                "0001-change-value.patch\n"
-            )
-            (patches / "0001-change-value.patch").write_text(
-                "diff --git a/value.txt b/value.txt\n"
-                "--- a/value.txt\n"
-                "+++ b/value.txt\n"
-                "@@ -1 +1 @@\n"
-                "-before\n"
-                "+after\n"
-            )
-            output = root / "build/source"
-            result = subprocess.run(
-                [sys.executable, str(SOURCE_PREPARER), "--source", str(source),
-                 "--output", str(output), "--series", str(patches / "series")],
-                capture_output=True, text=True,
-            )
-            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-            self.assertEqual((source / "value.txt").read_text(), "before\n")
-            self.assertEqual((output / "value.txt").read_text(), "after\n")
-            self.assertFalse((output / ".git").exists())
-
     def test_shards_cover_inventory_exactly_once_and_replace_stale_links(self):
         spec = importlib.util.spec_from_file_location('act_shard', RUNNER.with_name('shard.py'))
         sharder = importlib.util.module_from_spec(spec)
@@ -378,7 +344,9 @@ class ArchTestGenerationTest(unittest.TestCase):
             source_tests.mkdir(parents=True)
             (source_tests / "handwritten.S").write_text("# Handwritten ACT test retained during staging.\n")
             (upstream / "testplans").mkdir()
-            series = root / "series"
+            patch_dir = root / "patches"
+            patch_dir.mkdir()
+            series = patch_dir / "series"
             series.write_text("# No downstream patches are needed by this fixture.\n")
             build_root = root / "build"
             elf_dir = build_root / "work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs"

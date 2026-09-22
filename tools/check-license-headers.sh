@@ -26,7 +26,7 @@ list_paths() {
 
 while IFS= read -r -d '' path; do
   case "$path" in
-    LICENSE|NOTICE|DCO|hardfloat/LICENSE.md|riscv/riscv-arch-test|riscv/riscv-isa-tests|sims/program-test/coremark|sims/program-test/embench-iot|vlsi/double_wide_openframe)
+    LICENSE|NOTICE|DCO|hardfloat/LICENSE.md|riscv/riscv-arch-test|riscv/riscv-isa-sim|riscv/riscv-isa-tests|sims/program-test/coremark|sims/program-test/embench-iot|vlsi/double_wide_openframe)
       continue
       ;;
   esac

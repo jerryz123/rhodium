@@ -1,21 +1,17 @@
 #!/usr/bin/env bash
-# Tests C++ live/replay parity and native Trace Processor queries without Python.
+# Tests C++ live/replay parity and native Trace Processor queries.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 stream_test_dir="$(mktemp -d /tmp/rheg-perfetto.XXXXXX)"
 trap 'rm -rf "$stream_test_dir"' EXIT
 : "${TRACE_PROCESSOR:?Set TRACE_PROCESSOR to the native trace_processor_shell executable}"
-cmake_options=(-DRHEG_PERFETTO_TESTS=ON '-DCMAKE_CXX_FLAGS=-Wall -Wextra -Werror')
-if [[ -n "${NLOHMANN_JSON_SOURCE_DIR:-}" ]]; then
-  cmake_options+=("-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$NLOHMANN_JSON_SOURCE_DIR")
+make_options=(-C "$repo_dir/rheg/perfetto" "BUILD_DIR=$stream_test_dir/build" \
+  'CXXFLAGS=-Wall -Wextra -Werror')
+if [[ -n "${NLOHMANN_JSON_INCLUDE_DIR:-}" ]]; then
+  make_options+=("NLOHMANN_JSON_INCLUDE_DIR=$NLOHMANN_JSON_INCLUDE_DIR")
 fi
-if [[ -n "${RHEG_SPIKE_SOURCE_DIR:-}" ]]; then
-  cmake_options+=("-DFETCHCONTENT_SOURCE_DIR_RHEG_SPIKE=$RHEG_SPIKE_SOURCE_DIR")
-fi
-cmake -S "$repo_dir/rheg/perfetto" -B "$stream_test_dir/build" "${cmake_options[@]}"
-cmake --build "$stream_test_dir/build" -j 4
-ctest --test-dir "$stream_test_dir/build" --output-on-failure
+make "${make_options[@]}" -j 4 test
 "$stream_test_dir/build/rheg-perfetto" --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace"
 cmp "$stream_test_dir/build/shared-tracks.pftrace" "$stream_test_dir/shared-replay.pftrace"
 "$stream_test_dir/build/rheg-perfetto" --gzip --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace.gz"
@@ -137,7 +133,7 @@ for fixture in riscv64 riscv64-properties riscv32 riscv16; do
 done
 assert_query "$stream_test_dir/build/multiple-instructions.pftrace" "SELECT count(*)=10 AND sum(s.name='decode' AND t.name='decode' AND EXTRACT_ARG(s.arg_set_id,'debug.opcode')=EXTRACT_ARG(s.arg_set_id,'debug.instruction'))=10 AS ok FROM slice s JOIN track t ON t.id=s.track_id"
 assert_query "$stream_test_dir/build/riscv64.pftrace" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.fields[1].isa'))='rv64imafdc_zicsr' AND min(json_extract(a.string_value,'$.fields[1].pc'))='address' AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='decode' AND a.key='description'"
-assert_query "$stream_test_dir/build/riscv64-properties.pftrace" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.fields[1].isa'))='rv64imafdcb_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt' AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='decode' AND a.key='description'"
+assert_query "$stream_test_dir/build/riscv64-properties.pftrace" "SELECT count(*)=1 AND min(json_extract(a.string_value,'$.fields[1].isa'))='rv64imafdcb_ssnpm_supm_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt' AS ok FROM track t JOIN args a ON a.arg_set_id=t.source_arg_set_id WHERE t.name='decode' AND a.key='description'"
 assert_query "$stream_test_dir/build/riscv64-properties.pftrace" "SELECT count(*)=10 AND sum(name='li' AND EXTRACT_ARG(arg_set_id,'debug.opcode')='li a0, 5')=1 AND sum(name='fadd.s')=1 AND sum(name='c.nop')=1 AND sum(name='0xffffffff')=1 AS ok FROM slice"
 assert_query "$stream_test_dir/live.pftrace.prefix1" "SELECT count(*)=1 AND min(a.name)='source' AND min(b.name)='left' AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/live.pftrace" "SELECT count(*)=4 AND count(DISTINCT a.name||'->'||b.name)=4 AND sum((a.name||'->'||b.name) IN ('source->left','source->right','left->join','right->join'))=4 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"

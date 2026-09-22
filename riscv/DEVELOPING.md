@@ -51,6 +51,9 @@ architectural state, and retirement in concrete cores. The package-local
 | Typed UDB document values and deterministic YAML serialization | [`udb.rhm`](udb.rhm) |
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
+| Shared patched-submodule materialization and identity | [`patched_submodule.py`](patched_submodule.py), tested by [`tests/test_patched_submodule.py`](tests/test_patched_submodule.py) |
+| Architectural-test upstream and downstream patches | [`riscv-arch-test/`](riscv-arch-test/), [`riscv-arch-test-patches/`](riscv-arch-test-patches/) |
+| Shared Spike disassembler and FESVR upstream | [`riscv-isa-sim/`](riscv-isa-sim/), with downstream changes in [`riscv-isa-sim-patches/`](riscv-isa-sim-patches/) |
 
 ## Extend the model or catalogs
 
@@ -83,8 +86,14 @@ upstream specification changes, compare encodings and legality conditions
 before updating the stated version; do not infer conformance from names alone.
 
 The `riscv-isa-tests` and `riscv-arch-test` submodules supply upstream test
-sources, not package dependencies. Simulator-specific selection and execution remain owned by
-[`../sims/`](../sims/README.md).
+sources, not package dependencies. The `riscv-isa-sim` submodule supplies the
+shared Spike disassembler and FESVR source. Keep both patched submodules
+pristine and express every downstream change through its adjacent ordered
+patch series. Both consumers use the shared materializer; do not add a
+consumer-local copy/apply implementation. Rebase or remove patches when
+advancing either gitlink, then validate the owning ACT flow or both RHEG export
+and FESVR execution. Simulator-specific selection and execution remain owned
+by [`../sims/`](../sims/README.md).
 
 ## Focused validation
 

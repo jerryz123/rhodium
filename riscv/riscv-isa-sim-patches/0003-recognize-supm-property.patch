@@ -1,0 +1,17 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH 3/3] Recognize the Supm property
+Purpose: Lets the embedded disassembler retain the opcode-free Supm ISA claim.
+SPDX-License-Identifier: Apache-2.0
+
+diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+--- a/disasm/isa_parser.cc
++++ b/disasm/isa_parser.cc
+@@ -220,6 +220,7 @@ static const extension_info_t extension_infos[] = {
+   {"smmpm", {EXT_SMMPM}},
+   {"smnpm", {EXT_SMNPM}},
+   {"ssnpm", {EXT_SSNPM}},
++  {"supm"},
+   {"ssdbltrp", {EXT_SSDBLTRP}},
+   {"smdbltrp", {EXT_SMDBLTRP}},
+   {"smaia", {EXT_SMAIA, EXT_SSAIA, EXT_SMCSRIND, EXT_SSCSRIND}},

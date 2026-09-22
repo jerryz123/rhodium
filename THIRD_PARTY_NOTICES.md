@@ -21,6 +21,7 @@ are separate works governed by the license at each pinned upstream revision;
 the repository's Apache-2.0 license does not replace those terms:
 
 - `riscv/riscv-arch-test`
+- `riscv/riscv-isa-sim`
 - `riscv/riscv-isa-tests`
 - `sims/program-test/coremark`
 - `sims/program-test/embench-iot`
@@ -38,6 +39,16 @@ headers; its license text remains in
 [`sims/program-test/embench-iot/COPYING`](sims/program-test/embench-iot/COPYING).
 Rhodium runs it as a bounded functional suite and does not report an Embench
 performance score.
+
+## Spike disassembler
+
+The RHEG Perfetto exporter compiles the ISA parser and disassembler from the
+pinned [`riscv/riscv-isa-sim`](riscv/riscv-isa-sim/) submodule, and simulator
+setup builds FESVR from the same source. Both use the ordered Rhodium patch
+series under
+[`riscv/riscv-isa-sim-patches/`](riscv/riscv-isa-sim-patches/). The upstream
+source remains under the University of California BSD license reproduced in
+[`LICENSE.riscv-isa-sim`](riscv/riscv-isa-sim-patches/LICENSE.riscv-isa-sim).
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their

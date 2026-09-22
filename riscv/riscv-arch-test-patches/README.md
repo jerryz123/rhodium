@@ -3,11 +3,14 @@
 
 # RISC-V architectural-test patches
 
-The `riscv/riscv-arch-test` submodule remains an unmodified upstream checkout.
+The adjacent [`riscv-arch-test`](../riscv-arch-test/) submodule remains an
+unmodified upstream checkout.
 The ordered [`series`](series) file lists the Rhodium-owned changes needed to
 generate the complete vector inventory through ACT's canonical `testgen`
-command. The simulator flow copies the pinned checkout into its build root and
-applies this series there; generated and patched trees are never committed.
+command. The simulator flow uses the shared
+[`patched_submodule.py`](../patched_submodule.py) tool to copy the pinned
+checkout into its build root and apply this series there; generated and patched
+trees are never committed.
 
 Each patch must apply cleanly to the pinned submodule revision. When advancing
 the submodule, remove changes that have landed upstream, rebase the remaining

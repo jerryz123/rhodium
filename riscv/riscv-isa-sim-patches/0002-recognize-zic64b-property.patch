@@ -1,0 +1,17 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH 2/3] Recognize the Zic64b property
+Purpose: Lets the embedded disassembler retain the opcode-free Zic64b ISA claim.
+SPDX-License-Identifier: Apache-2.0
+
+diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+--- a/disasm/isa_parser.cc
++++ b/disasm/isa_parser.cc
+@@ -148,6 +148,7 @@ static const extension_info_t extension_infos[] = {
+   {"zksed", {EXT_ZKSED}},
+   {"zksh", {EXT_ZKSH}},
+   {"zkr", {EXT_ZKR}},
++  {"zic64b"},
+   {"zkt"},
+   {"smepmp", {EXT_SMEPMP}},
+   {"smpmpdeleg", {EXT_SMPMPDELEG}},

@@ -5,12 +5,14 @@ FESVR_DIR := $(CURDIR)/fesvr
 VERILATOR_DIR := $(CURDIR)/verilator
 CHI_DPI_DIR := $(REPO_DIR)/chi/subordinate/dpi
 UART_DPI_DIR := $(REPO_DIR)/devices/dpi
-FESVR_REVISION := e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
-FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)
+PYTHON ?= python3
+PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
+SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
+FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
 SOC ?= single-core-rv5stage-soc
 TRACE ?= 0
 TRACE_FILE ?=
-NLOHMANN_JSON_SOURCE_DIR ?=
+NLOHMANN_JSON_INCLUDE_DIR ?=
 BUILD_JOBS ?= 4
 BUILD_ROOT ?= /tmp/rhodium-sims
 CXX ?= c++
@@ -90,7 +92,7 @@ include arch-test/Makefile.inc
 include program-test/Makefile.inc
 
 setup:
-	$(FESVR_DIR)/install.sh
+	PYTHON="$(PYTHON)" FESVR_PREFIX="$(FESVR_PREFIX)" $(FESVR_DIR)/install.sh
 
 simulator: $(SIMULATOR_BINARY)
 	$(if $(PREBUILT_SIMULATOR),$(PYTHON) program-test/artifact.py verify --binary "$(SIMULATOR_BINARY)" --soc "$(SOC)",@true)
@@ -224,11 +226,10 @@ $(TRACE_HEADER): $(SOC_MLIR)
 	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  sims/materialize-event-harness.rkt $@ > $(SOC_MLIR))
 
-$(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/*)
-	cmake -S $(REPO_DIR)/rheg/perfetto -B $(TRACE_BUILD_DIR) \
-	  $(if $(NLOHMANN_JSON_SOURCE_DIR),-DFETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON=$(NLOHMANN_JSON_SOURCE_DIR)) \
-	  $(if $(RHEG_SPIKE_SOURCE_DIR),-DFETCHCONTENT_SOURCE_DIR_RHEG_SPIKE=$(RHEG_SPIKE_SOURCE_DIR))
-	cmake --build $(TRACE_BUILD_DIR) -j $(BUILD_JOBS)
+$(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/* $(REPO_DIR)/riscv/riscv-isa-sim-patches/*.patch) $(REPO_DIR)/riscv/riscv-isa-sim-patches/series $(PATCHED_SUBMODULE_TOOL)
+	$(MAKE) -C $(REPO_DIR)/rheg/perfetto BUILD_DIR=$(TRACE_BUILD_DIR) PYTHON=$(PYTHON) CXX=$(CXX) \
+	  $(if $(NLOHMANN_JSON_INCLUDE_DIR),NLOHMANN_JSON_INCLUDE_DIR=$(NLOHMANN_JSON_INCLUDE_DIR)) \
+	  libraries
 endif
 
 $(SOC_VERILOG): $(SOC_MLIR)

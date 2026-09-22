@@ -8,6 +8,8 @@ compact-to-canonical expansion as immutable host data. The pure [`model/`](model
 and [`isa/`](isa/) packages do not depend on Rhodium. The isolated
 [`rtl/`](rtl/README.md) adapter materializes those descriptions as hardware
 without moving processor policy into the architectural model.
+Pinned upstream RISC-V repositories live beside these packages but are not
+dependencies of the pure model.
 
 Contributors extending the model or catalogs should read
 [`DEVELOPING.md`](DEVELOPING.md).
@@ -24,6 +26,7 @@ Contributors extending the model or catalogs should read
 | Turn descriptions into hardware patterns or extracted fields | [RISC-V/Rhodium adapter](rtl/README.md) |
 | Build CSR, PMA, Sv39, counter, trap, interrupt, or FP hardware | [Adapter component map](rtl/README.md#component-map) |
 | Serialize a concrete core description for Unified Database tooling | [UDB configuration model](#udb-configuration-model) |
+| Initialize the shared Spike disassembler and FESVR source | [Spike and FESVR](#spike-and-fesvr) |
 | Run the focused package checks | [Validation](#validation) |
 | Initialize the architectural test sources | [Architectural tests](#architectural-tests) |
 
@@ -425,6 +428,23 @@ canonical no-effect instruction where the base ISA assigns that behavior. See
 the [adapter contract](rtl/README.md#compressed-instruction-expansion) for the
 exact profile matrix and output rules.
 
+## Spike and FESVR
+
+[`riscv-isa-sim/`](riscv-isa-sim/) pins the upstream Spike repository used by
+two native consumers: RHEG builds its ISA parser and instruction disassembler,
+while simulator setup builds the repository's `libfesvr.a`. Initialize it with:
+
+```sh
+git submodule update --init riscv/riscv-isa-sim
+```
+
+The adjacent [`riscv-isa-sim-patches/`](riscv-isa-sim-patches/) directory owns
+the ordered downstream patch series. The shared Python 3.9+
+[`patched_submodule.py`](patched_submodule.py) tool applies it to build-local
+copies; consumers never modify the submodule checkout. The same tool combines
+the gitlink revision, order, and patch contents so FESVR artifacts cannot
+survive a source or patch change.
+
 ## Architectural tests
 
 [`riscv-isa-tests/`](riscv-isa-tests/) pins the upstream
@@ -436,9 +456,12 @@ git submodule update --init --recursive riscv/riscv-isa-tests
 ```
 
 [`riscv-arch-test/`](riscv-arch-test/) separately pins the UDB-driven ACT4
-framework. The [simulation ACT workflow](../sims/README.md#architectural-certification-tests)
-owns its setup, generated configuration, reference-model execution, and DUT
-runner. Both upstream test repositories are retained.
+framework. Its adjacent
+[`riscv-arch-test-patches/`](riscv-arch-test-patches/) queue is materialized by
+the same shared helper as Spike. The
+[simulation ACT workflow](../sims/README.md#architectural-certification-tests)
+owns setup, generated configuration, reference-model execution, and the DUT
+runner. Both upstream test repositories remain pristine.
 
 The submodule supplies architectural sources and standard target environments.
 Simulator-specific selection, building, and execution belong under

@@ -34,6 +34,7 @@ systems cannot reuse another system's generated RTL.
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
 | System-specific parameterless tops | [`single-core-rv5stage-soc-harness.rhdl`](single-core-rv5stage-soc-harness.rhdl), [`mini-rv5stage-soc-harness.rhdl`](mini-rv5stage-soc-harness.rhdl), [`tiled-rv5stage-soc-harness.rhdl`](tiled-rv5stage-soc-harness.rhdl) |
 | Direct-memory FESVR transport and CHI requester | [`fesvr/`](fesvr/) |
+| Pinned upstream FESVR and shared downstream patches | [`../riscv/riscv-isa-sim/`](../riscv/riscv-isa-sim/), [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
 | PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
@@ -241,7 +242,9 @@ Reference/harness limitations remain distinct from core extension support;
 extend and validate the projection as newly selected suites expose gaps.
 
 `arch-test-source` copies the clean upstream checkout into the build root and
-applies the ordered series under `arch-test/patches/riscv-arch-test/`.
+applies the ordered series under
+[`../riscv/riscv-arch-test-patches/`](../riscv/riscv-arch-test-patches/) with
+the shared RISC-V patched-submodule materializer.
 `arch-test-tests` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
 checked into the upstream test tree, so it must be generated through this same

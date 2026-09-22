@@ -253,30 +253,33 @@ indistinguishable from continuously held reset and share an epoch ID.
 The optional [`rheg_perfetto`](perfetto/rheg_perfetto.h) C++
 library writes native `.pftrace` packets as settled batches arrive. The same
 encoder powers the standalone `rheg-perfetto` snapshot converter.
-Build with CMake 3.20+ and a C++17 Clang/GCC compiler on macOS or Linux:
+Build with Make, Python 3.9+, and a C++17 Clang/GCC compiler on macOS or Linux:
 
 ```sh
-cmake -S rheg/perfetto -B /tmp/rhodium-perfetto-build
-cmake --build /tmp/rhodium-perfetto-build -j 4
+make -C rheg/perfetto BUILD_DIR=/tmp/rhodium-perfetto-build -j 4
 ```
 
-The exporter requires system zlib development headers/libraries and privately
-uses nlohmann JSON 3.12.0 (found locally or fetched) and
-Spike's disassembler (fetched at a pinned revision). Downloads are checksum-pinned.
-The Spike simulator and FESVR are not built. No Python, LLVM, external disassembler
-process, Perfetto SDK, or protobuf runtime is required.
+The exporter requires system zlib development headers/libraries and nlohmann
+JSON headers as explicit build dependencies. On Debian or Ubuntu, install
+`zlib1g-dev` and `nlohmann-json3-dev`; with Homebrew, install `zlib` and
+`nlohmann-json`. It builds only the parser
+and disassembler from the pinned [`riscv-isa-sim`](../riscv/riscv-isa-sim/)
+submodule after applying the adjacent ordered patch series to a build-local copy.
+Initialize that submodule before building RHEG. The Spike simulator and FESVR
+are not built by this target. Python only materializes that patched source tree
+during the build; no Python participates in conversion or at runtime.
+No LLVM, external disassembler process, Perfetto SDK, or protobuf runtime is
+required.
 
-For offline builds, point CMake at extracted source trees:
+The compiler's normal include search path must contain `nlohmann/json.hpp`. If
+the package is installed elsewhere, pass
+`NLOHMANN_JSON_INCLUDE_DIR=/path/to/include` to Make, the test runner, or the
+simulator build.
 
-| Dependency | CMake option | Test-script / simulator make variable |
-|---|---|---|
-| nlohmann JSON | `FETCHCONTENT_SOURCE_DIR_NLOHMANN_JSON` | `NLOHMANN_JSON_SOURCE_DIR` |
-| Spike | `FETCHCONTENT_SOURCE_DIR_RHEG_SPIKE` | `RHEG_SPIKE_SOURCE_DIR` |
-
-For integration, `add_subdirectory(rheg/perfetto)` and link the
-`rheg_perfetto` CMake target. It links `rheg_runtime` transitively;
-do not also compile another copy of the collector. After binding a manifest
-and timing, begin a stream on an empty graph:
+For integration, build the `libraries` Make target and link
+`librheg_perfetto.a`, `librheg_runtime.a`, and system zlib in that order. Do not
+also compile another copy of the collector. After binding a manifest and timing,
+begin a stream on an empty graph:
 
 ```cpp
 #include "rheg_perfetto.h"

@@ -17,3 +17,6 @@
 [submodule "sims/program-test/embench-iot"]
 	path = sims/program-test/embench-iot
 	url = https://github.com/embench/embench-iot.git
+[submodule "riscv/riscv-isa-sim"]
+	path = riscv/riscv-isa-sim
+	url = https://github.com/riscv-software-src/riscv-isa-sim.git

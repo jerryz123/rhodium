@@ -165,6 +165,7 @@ noc-test:
 riscv-test:
 	bash riscv/check-boundaries.sh
 	tools/run-racket-tests.sh $(RISCV_TESTS)
+	python3 -m unittest discover -s riscv/tests -p 'test_*.py'
 
 device-test: check-boundaries
 	tools/run-racket-tests.sh $(DEVICE_TESTS)

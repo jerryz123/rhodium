@@ -13,7 +13,8 @@ ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
 ACT_WORKDIR := $(ACT_BUILD_ROOT)/work/$(ACT_CONFIGURATION)
 ACT_SOURCE_DIR := $(ACT_BUILD_ROOT)/source/riscv-arch-test
 ACT_TEST_DIR := $(ACT_BUILD_ROOT)/tests
-ACT_PATCH_SERIES ?= $(CURDIR)/arch-test/patches/riscv-arch-test/series
+ACT_PATCH_SERIES ?= $(REPO_DIR)/riscv/riscv-arch-test-patches/series
+PATCHED_SUBMODULE_TOOL ?= $(REPO_DIR)/riscv/patched_submodule.py
 ACT_BUNDLE_PATH ?= $(REPO_DIR)/.tools/act-bundle
 ACT_JOBS ?= 1
 ACT_BUILD_JOBS ?= 2
@@ -35,7 +36,8 @@ arch-test-setup:
 	PYTHON="$(PYTHON)" ACT_VENV="$(ACT_VENV)" ACT_BUNDLE_PATH="$(ACT_BUNDLE_PATH)" bash arch-test/setup.sh
 
 arch-test-source:
-	$(PYTHON) arch-test/prepare-source.py --source "$(ACT_DIR)" --output "$(ACT_SOURCE_DIR)" --series "$(ACT_PATCH_SERIES)"
+	$(PYTHON) "$(PATCHED_SUBMODULE_TOOL)" materialize --source "$(ACT_DIR)" \
+	  --series "$(ACT_PATCH_SERIES)" --output "$(ACT_SOURCE_DIR)"
 
 arch-test-config:
 	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)

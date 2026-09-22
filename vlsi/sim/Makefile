@@ -22,8 +22,10 @@ else
 $(error mapped simulation currently supports TECH=sky130, not TECH=$(TECH))
 endif
 
-FESVR_REVISION := e1fa113cfb6d55d878a3c1ea3befa8d9c13ce154
-FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(FESVR_REVISION)
+PYTHON ?= python3
+PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
+SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
+FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 FESVR_DIR := $(SIMS_DIR)/fesvr
 VERILATOR_DIR := $(SIMS_DIR)/verilator
@@ -34,7 +36,6 @@ CIRCT_ROOT ?= $(abspath $(dir $(CIRCT_OPT))/..)
 RACKET ?= racket
 VERILATOR ?= verilator
 RISCV_CC ?= riscv64-unknown-elf-gcc
-PYTHON ?= python3
 
 MEMORY_SITE_PLUGIN := $(SRAM_DIR)/build/circt/rhodium-memory-sites.so
 MEMORY_MAPPER := $(SRAM_DIR)/map-memories.py

@@ -78,6 +78,12 @@ make -C sims simulator SOC=mini-rv5stage-soc
 make -C sims simulator SOC=tiled-rv5stage-soc
 ```
 
+Setup requires Python 3.9+, initializes the shared
+[`riscv-isa-sim`](../riscv/riscv-isa-sim/) submodule, applies Rhodium's
+adjacent ordered patch series to a temporary source tree, and installs only
+FESVR under `.tools/`. RHEG uses the same gitlink and patch series for
+instruction disassembly; neither consumer modifies the submodule checkout.
+
 `SOC` accepts `single-core-rv5stage-soc`, `mini-rv5stage-soc`, or `tiled-rv5stage-soc` and defaults to `single-core-rv5stage-soc`. The
 SingleCoreRV5StageSoC and TiledRV5StageSoC harnesses attach `CHIDPIMemory` to their exposed ready-valid SN-F
 channels as a simulation-only external memory model. MiniRV5StageSoC instead contains
@@ -206,7 +212,7 @@ metadata, and SQL queries. Only the initial reset epoch is supported by this
 driver. Exit and timeout flush the final settled cycle. A timeout returns failure
 but leaves an importable prefix; output after an export/I/O failure is incomplete.
 
-The optional build requires CMake and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
+The optional build requires Make and the [RHEG exporter dependencies](../rheg/README.md#streaming-to-perfetto).
 That guide also lists the offline source-tree variables for JSON and the Spike
 disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 
@@ -415,7 +421,9 @@ working around the pinned UDB installer's Linux-only library download.
 
 `arch-test-config` only prepares and validates the Sail/platform files.
 `arch-test-source` copies the clean pinned ACT checkout into the build root and
-applies Rhodium's ordered ACT patch series there. `arch-test-tests` stages the
+applies Rhodium's adjacent
+[`riscv-arch-test-patches`](../riscv/riscv-arch-test-patches/) series there.
+`arch-test-tests` stages the
 handwritten tests from that materialized tree and runs ACT's canonical generator
 into the same build-root tree, including vector suites whose generated assembly
 is intentionally not tracked. The upstream submodule remains unmodified.

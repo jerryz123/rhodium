@@ -680,7 +680,7 @@ int main(int argc, char** argv) {
   enum_trace(std::string(argv[1]) + "/enums.pftrace");
   interning_trace(std::string(argv[1]) + "/interning.pftrace");
   instruction_trace(std::string(argv[1]) + "/riscv64.pftrace", "rv64imafdc_zicsr", 64);
-  instruction_trace(std::string(argv[1]) + "/riscv64-properties.pftrace", "rv64imafdcb_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt", 64);
+  instruction_trace(std::string(argv[1]) + "/riscv64-properties.pftrace", "rv64imafdcb_ssnpm_supm_za64rs_zba_zbb_zbs_zcmop_zic64b_zicbop_zicboz_zawrs_zihintpause_zihintntl_zicntr_zicond_zicsr_zifencei_zihpm_zimop_zkt", 64);
   instruction_trace(std::string(argv[1]) + "/riscv32.pftrace", "rv32i", 32);
   instruction_trace(std::string(argv[1]) + "/riscv16.pftrace", "rv32ic", 32, 16);
   instruction_trace(std::string(argv[1]) + "/multiple-instructions.pftrace", "rv64imafdc_zicsr", 64, 32, true);
@@ -688,6 +688,7 @@ int main(int argc, char** argv) {
   rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_znotreal", 64), {1}); }, "invalid RISC-V ISA");
   rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_zic64bogus", 64), {1}); }, "invalid RISC-V ISA");
   rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_zic64b_znotreal", 64), {1}); }, "invalid RISC-V ISA");
+  rejects([&] { PerfettoWriter w(invalid_isa_output, instruction_manifest("rv64i_ssnpm_supmbogus", 64), {1}); }, "invalid RISC-V ISA");
   check(invalid_isa_output.str().empty());
   std::ostringstream output;
   rejects([&] { PerfettoWriter w(output, manifest(), {0}); }, "positive clock");

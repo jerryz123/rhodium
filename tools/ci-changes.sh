@@ -207,8 +207,10 @@ classify_path() {
       program_coremark=true ;;
     sims/program-test/build-embench.py|sims/program-test/embench-iot-riscv-baremetal/*|sims/program-test/embench-iot|sims/program-test/embench-iot/*)
       program_embench=true ;;
-    sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|tools/write-riscv-udb-config.rhm)
+    sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
+    riscv/patched_submodule.py|riscv/tests/test_patched_submodule.py|riscv/riscv-isa-sim|riscv/riscv-isa-sim/*|riscv/riscv-isa-sim-patches/*)
+      mark_all_programs ;;
     riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|sims/program-test/build.py)
       program_isa=true; program_benchmark=true ;;
     rhodium/core/*|rhodium/frontend/*|rhodium/base/*|rhodium/std/*|rhodium/backend/*|rhodium/language.rhm|rhodium/main.rkt|flow/*|cores/*|riscv/*|hardfloat/*|chi/*|noc/*|devices/*|socs/*|sims/*|support/annotations.rhm|devicetree/*|tools/install-circt.sh|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
@@ -239,8 +241,19 @@ classify_path() {
     sims/program-test/*|sims/tests/test_program_test.py|riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
       simulation=true
       ;;
-    riscv/riscv-arch-test|riscv/riscv-arch-test/*|sims/arch-test/*|sims/tests/test_arch_test.py)
+    riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|sims/arch-test/*|sims/tests/test_arch_test.py)
       # These are covered by the selected software lane's adapter and workload checks.
+      ;;
+    riscv/patched_submodule.py|riscv/tests/test_patched_submodule.py)
+      host_models=true
+      host_backend=true
+      host_hygiene=true
+      simulation=true
+      ;;
+    riscv/riscv-isa-sim|riscv/riscv-isa-sim/*|riscv/riscv-isa-sim-patches/*)
+      host_backend=true
+      host_hygiene=true
+      simulation=true
       ;;
     Makefile)
       mark_all

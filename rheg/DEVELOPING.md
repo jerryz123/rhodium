@@ -183,13 +183,20 @@ Validate `riscv` capture widths and PC references in the standard-library-only
 collector. Validate full ISA configurations when constructing the exporter,
 before writing any bytes. Disassembly is presentation, not legality validation.
 
-Keep Spike headers private. CMake checksum-pins its source and builds the three
-disassembler sources into the Perfetto archive, not the simulator or FESVR.
-The build-local ISA parser replaces its two abort sites with exceptions and
-registers the opcode-free `zic64b` cache-block property, absent from the pinned
-parser. Verify the adaptation sites and leave downloaded sources and licenses
-unchanged. Keep the full ISA in trace metadata; do not discard unknown extension
-tokens. No subprocess or simulator state is involved.
+Keep Spike headers private. The repository gitlink pins its source, and the
+Perfetto Makefile builds the three disassembler sources into the archive, not the
+simulator or FESVR.
+The ordered patch series under
+[`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/)
+replaces the parser's two abort sites with exceptions and registers opcode-free
+properties absent from the pinned parser. The shared
+[`patched_submodule.py`](../riscv/patched_submodule.py) tool applies it to a
+build-local copy; leave the pinned submodule and its
+license unchanged.
+When advancing Spike, remove
+upstreamed patches and rebase the remainder against the new pin. Keep the full
+ISA in trace metadata; do not discard unknown extension tokens. No subprocess or
+simulator state is involved.
 
 Own decoder instances per ISA per writer. Cache by ISA, PC, bits, and capture
 width; clear the bounded cache at 4096 entries. Resolve only the full `pc + ` or
