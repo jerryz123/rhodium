@@ -279,6 +279,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                                       input logic [1:0] error = 0);
     CHIDatFlit expected_packet;
     begin
+      while (!port_out.requester.response_data.valid) tick();
       expected_packet = '0;
       expected_packet.data = payload;
       expected_packet.resp_err = error;
@@ -509,6 +510,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                                       input logic [127:0] payload);
     CHIDatFlit expected_packet;
     begin
+      while (!port_out.subordinate.dat.request.valid) tick();
       expected_packet = '0;
       expected_packet.data = payload;
       expected_packet.byte_enable = '1;

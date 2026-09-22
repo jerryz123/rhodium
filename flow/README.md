@@ -45,7 +45,7 @@ in this library:
 
 | Transaction generator | Behavior |
 |---|---|
-| `CompletionQueue(Request, Response, depth)` | Reserves response capacity at a ready-valid request handshake, emits a nonstallable issue, and buffers the matching nonstallable completion |
+| `CompletionQueue(Request, Response, depth, ~pipe: #true)` | Reserves response capacity at a ready-valid request handshake, emits a nonstallable issue, and buffers the matching nonstallable completion |
 
 | Credited transport generator | Behavior |
 |---|---|
@@ -717,13 +717,15 @@ pre-edge interface offers; callers must filter transfers they intend to cancel.
 The intrinsic retained-window trace contract follows shifting slots and optional
 empty bypass, including flush and full simultaneous replacement.
 
-`CompletionQueue(Request, Response, depth)` couples a ready-valid request path
+`CompletionQueue(Request, Response, depth, ~pipe: #true)` couples a ready-valid request path
 to a nonbackpressured implementation. Each request handshake reserves one
 slot and appears immediately on the `Valid` `issue` endpoint. The implementation
 must later produce exactly one `Valid` `completion`; completed responses emerge
 in arrival order through the `Irrevocable` `response` endpoint. Assertions
 detect unreserved completions, unavailable completion slots, and reservation
-counts outside the configured depth.
+counts outside the configured depth. The default pipelined form may replace a
+retiring reservation in the same cycle. Set `~pipe: #false` when request
+admission must depend only on registered capacity rather than response readiness.
 
 ## Examples
 

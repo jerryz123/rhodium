@@ -19,6 +19,9 @@ def detached_boundary_top = fixture.detached_boundary_design.modules.find(
   fun (module_def): module_def.name == "DetachedFlowBoundary"
 )
 def nested_boundary_top = fixture.nested_boundary_design.modules[0]
+def completion_registered_capacity_top = fixture.completion_registered_capacity_design.modules.find(
+  fun (module_def): module_def.name == "CompletionQueueRegisteredCapacity"
+)
 def completion_top = completion_example.design.modules.find(
   fun (module_def): module_def.name == "CompletionQueue"
 )
@@ -114,6 +117,10 @@ check:
     fun (module_def): module_def.name
   ) ~is ["CompletionQueue", "Queue"]
   verify_design(completion_example.single_design) ~is #void
+  completion_registered_capacity_top.find_output("request_out").type.field(
+    "ready"
+  ).type.packed_width() ~is 1
+  verify_design(fixture.completion_registered_capacity_design) ~is #void
 
   embedded.run_elaboration(
     fun (): fixture.MapValidWrongProtocol()

@@ -164,6 +164,25 @@ sync_circuit ToDecoupledWrongProtocol():
   interface ingress(Decoupled(Bits(8)), ~role: consumer)
   ingress |> to_decoupled()
 
+// Closes response readiness back to request readiness to prove that the
+// non-pipelined completion queue admits requests from registered capacity only.
+sync_circuit CompletionQueueRegisteredCapacity():
+  interface request(Decoupled(Bits(8)), ~role: consumer)
+  interface completion(Valid(Bits(16)), ~role: consumer)
+  output issue_valid: Bool
+  output issue_bits: Bits(8)
+  output response_valid: Bool
+  output response_bits: Bits(16)
+
+  inst bridge(CompletionQueue(Bits(8), Bits(16), 2, ~pipe: #false))
+  request <=> bridge.request
+  completion <=> bridge.completion
+  bridge.response.ready <== request.ready
+  issue_valid <== bridge.issue.valid
+  issue_bits <== bridge.issue.bits
+  response_valid <== bridge.response.valid
+  response_bits <== bridge.response.bits
+
 sync_circuit CompletionQueueZeroDepth():
   inst invalid(CompletionQueue(Bits(8), Bits(8), 0))
 
@@ -172,6 +191,7 @@ def control_boundary_design = elaborate(ControlFlowBoundary())
 def reverse_provider_boundary_design = elaborate(ReverseProviderFlowBoundary())
 def detached_boundary_design = elaborate(DetachedFlowBoundary())
 def nested_boundary_design = elaborate(NestedFlowBoundary())
+def completion_registered_capacity_design = elaborate(CompletionQueueRegisteredCapacity())
 export:
   GenericFlowBoundary
   ControlFlowBoundary
@@ -186,9 +206,11 @@ export:
   EjectFlowMissingBinding
   ToValidWrongProtocol
   ToDecoupledWrongProtocol
+  CompletionQueueRegisteredCapacity
   CompletionQueueZeroDepth
   generic_boundary_design
   control_boundary_design
   reverse_provider_boundary_design
   detached_boundary_design
   nested_boundary_design
+  completion_registered_capacity_design

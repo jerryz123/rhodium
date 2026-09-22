@@ -178,8 +178,8 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   interface read_response(Irrevocable(Completion), ~role: producer)
   interface write_response(Irrevocable(Completion), ~role: producer)
 
-  inst read_completions(CompletionQueue(Operation, Completion, depth))
-  inst write_completions(CompletionQueue(Operation, Completion, depth))
+  inst read_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
+  inst write_completions(CompletionQueue(Operation, Completion, depth, ~pipe: #false))
   reg prefer_write(~init: Bool(#false))
 
   def read_eligible = read_request.valid & read_completions.request.ready
@@ -255,9 +255,9 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   def slot_width = index_width(limit)
   def MemoryOperation = CHIRamMemoryOperation(p, slot_width)
 
-  inst dbid_responses(Queue(CHIRspFlit(p), limit, ~pipe: #true))
-  inst read_operations(Queue(MemoryOperation, limit, ~pipe: #true))
-  inst write_operations(Queue(MemoryOperation, limit, ~pipe: #true))
+  inst dbid_responses(Queue(CHIRspFlit(p), limit))
+  inst read_operations(Queue(MemoryOperation, limit))
+  inst write_operations(Queue(MemoryOperation, limit))
   inst memory_operations(CHIRamOperationScheduler(p, slot_width, limit))
   def connect_backend :: Function.of_arity(2) = backend()
   inst completion_router(CHIRamCompletionRouter(p, slot_width))

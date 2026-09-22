@@ -9,6 +9,7 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
   lib("flow/circular-priority.rhdl") open
+  lib("flow/queue.rhdl").Queue
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -165,6 +166,21 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def home_id = identity.home_node_id
   def subordinate_id = identity.subordinate_node_id
 
+  // Two-entry non-pipelined ingress buffers break the dependency from
+  // autonomous output readiness back to the external producer while retaining
+  // full-rate back-to-back flits.
+  inst requester_data_buffer(Queue(CHIDatFlit(p), 2))
+  inst requester_response_buffer(Queue(CHIRspFlit(p), 2))
+  inst subordinate_response_buffer(Queue(CHIRspFlit(p), 2))
+  inst fill_buffer(Queue(CHIDatFlit(p), 2))
+  requester.requester_responses <=> requester_response_buffer.ingress
+  subordinate.rsp <=> subordinate_response_buffer.ingress
+  subordinate.dat.response <=> fill_buffer.ingress
+  def requester_data = requester_data_buffer.egress
+  def requester_response = requester_response_buffer.egress
+  def subordinate_response = subordinate_response_buffer.egress
+  def fill_response = fill_buffer.egress
+
   fun cache_set(address :: Bits(p.request_address_width)):
     config.addressing.project_offset(address - identity.service_base)[offset_width..(offset_width + set_width)]
   fun line_address(address :: Bits(p.request_address_width)):
@@ -241,6 +257,51 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
   def incoming_request = requester.requests.bits
   def incoming_set = cache_set(incoming_request.address)
+  def incoming_requester_data_txn = requester.request_data.bits.txn_id
+  def incoming_requester_data_is_snoop = requester.request_data.bits.opcode.is_one_of(
+    CHIDatOpcode.SnpRespData,
+    CHIDatOpcode.SnpRespDataPtl
+  )
+  def incoming_requester_data_snoop_target_matches = vec(
+    for List (index in 0..resident_count):
+      block:
+        def range_base = index * slots
+        (requester.request_data.bits.src_id === bits(residents[index].node_id, p.node_id_width)) & (
+          (incoming_requester_data_txn - bits(range_base, 12)) < bits(slots, 12)
+        )
+  )
+  def incoming_requester_data_snoop_target_valid = incoming_requester_data_snoop_target_matches.or_reduce()
+  def incoming_requester_data_snoop_target = priority_encoder(incoming_requester_data_snoop_target_matches)
+  def incoming_requester_data_snoop_slots = vec(
+    for List (index in 0..resident_count):
+      (incoming_requester_data_txn - bits(index * slots, 12))[0..slot_width]
+  )
+  def incoming_requester_data_direct_slot_valid = incoming_requester_data_txn < bits(slots, 12)
+  def incoming_requester_data_slot_valid = mux(incoming_requester_data_is_snoop,
+                                               incoming_requester_data_snoop_target_valid,
+                                               incoming_requester_data_direct_slot_valid)
+  def incoming_requester_data_slot = mux(
+    incoming_requester_data_is_snoop,
+    incoming_requester_data_snoop_slots[incoming_requester_data_snoop_target],
+    mux(incoming_requester_data_direct_slot_valid,
+        incoming_requester_data_txn[0..slot_width],
+        bits(0, slot_width))
+  )
+  def incoming_requester_data_phase_valid = phases[incoming_requester_data_slot].is_one_of(
+    CHIInclusiveHNFPhase.ReceiveRequesterData,
+    CHIInclusiveHNFPhase.SendSnoop,
+    CHIInclusiveHNFPhase.AwaitSnoop
+  )
+  def incoming_requester_data_eligible = incoming_requester_data_slot_valid & (
+    occupied[incoming_requester_data_slot]
+  ) & incoming_requester_data_phase_valid
+  requester_data_buffer.ingress.valid <== requester.request_data.valid & incoming_requester_data_eligible
+  requester_data_buffer.ingress.bits <== requester.request_data.bits
+  requester.request_data.ready <== requester_data_buffer.ingress.ready & incoming_requester_data_eligible
+  when (requester.request_data.valid):
+    assert(incoming_requester_data_slot_valid, "chi_inclusive_hnf_requester_data_slot_in_range")
+    assert(occupied[incoming_requester_data_slot], "chi_inclusive_hnf_requester_data_slot_occupied")
+    assert(incoming_requester_data_phase_valid, "chi_inclusive_hnf_requester_data_phase")
   def free_slots = vec(for List (index in 0..slots): !occupied[index])
   def allocation_available = free_slots.or_reduce()
   def allocation_slot = priority_encoder(free_slots)
@@ -268,8 +329,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   when lookup_response_valid:
     assert(lines.port.response.valid, "chi_inclusive_hnf_lookup_storage_ready")
 
-  def requester_data_txn = requester.request_data.bits.txn_id
-  def requester_data_is_snoop = requester.request_data.bits.opcode.is_one_of(
+  def requester_data_txn = requester_data.bits.txn_id
+  def requester_data_is_snoop = requester_data.bits.opcode.is_one_of(
     CHIDatOpcode.SnpRespData,
     CHIDatOpcode.SnpRespDataPtl
   )
@@ -277,7 +338,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     for List (index in 0..resident_count):
       block:
         def range_base = index * slots
-        (requester.request_data.bits.src_id === bits(residents[index].node_id, p.node_id_width)) & (
+        (requester_data.bits.src_id === bits(residents[index].node_id, p.node_id_width)) & (
           (requester_data_txn - bits(range_base, 12)) < bits(slots, 12)
         )
   )
@@ -298,7 +359,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         requester_data_txn[0..slot_width],
         bits(0, slot_width))
   )
-  def requester_response_flit = requester.requester_responses.bits
+  def requester_response_flit = requester_response.bits
   def incoming_comp_ack = requester_response_flit.opcode === CHIRspOpcode.CompAck
   def requester_response_target_matches = vec(
     for List (index in 0..resident_count):
@@ -318,16 +379,16 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def requester_response_slot = mux(requester_response_slot_valid,
                                     requester_response_slots[requester_response_target],
                                     bits(0, slot_width))
-  def subordinate_response_slot_valid = subordinate.rsp.bits.txn_id < bits(slots, 12)
-  def subordinate_response_is_writeback = (subordinate.rsp.bits.txn_id >= bits(slots, 12)) & (
-    subordinate.rsp.bits.txn_id < bits(slots + victim_writeback_entries, 12)
+  def subordinate_response_slot_valid = subordinate_response.bits.txn_id < bits(slots, 12)
+  def subordinate_response_is_writeback = (subordinate_response.bits.txn_id >= bits(slots, 12)) & (
+    subordinate_response.bits.txn_id < bits(slots + victim_writeback_entries, 12)
   )
   def subordinate_response_slot = mux(subordinate_response_slot_valid,
-                                      subordinate.rsp.bits.txn_id[0..slot_width],
+                                      subordinate_response.bits.txn_id[0..slot_width],
                                       bits(0, slot_width))
-  def fill_slot_valid = subordinate.dat.response.bits.txn_id < bits(slots, 12)
+  def fill_slot_valid = fill_response.bits.txn_id < bits(slots, 12)
   def fill_slot = mux(fill_slot_valid,
-                      subordinate.dat.response.bits.txn_id[0..slot_width],
+                      fill_response.bits.txn_id[0..slot_width],
                       bits(0, slot_width))
   def writeback_completion_slot = victim_writebacks.completion.bits.parent_slot
   def writeback_completion_phase = phases[writeback_completion_slot]
@@ -336,13 +397,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     writeback_completion_phase =/= CHIInclusiveHNFPhase.ReceiveFillData
   )
 
-  victim_writebacks.response.valid <== subordinate.rsp.valid & subordinate_response_is_writeback
-  victim_writebacks.response.bits <== subordinate.rsp.bits
+  victim_writebacks.response.valid <== subordinate_response.valid & subordinate_response_is_writeback
+  victim_writebacks.response.bits <== subordinate_response.bits
 
-  def requester_data_pending = requester.request_data.valid
-  def requester_response_pending = requester.requester_responses.valid & !incoming_comp_ack
-  def subordinate_response_pending = subordinate.rsp.valid & !subordinate_response_is_writeback
-  def fill_pending = subordinate.dat.response.valid
+  def requester_data_pending = requester_data.valid
+  def requester_response_pending = requester_response.valid & !incoming_comp_ack
+  def subordinate_response_pending = subordinate_response.valid & !subordinate_response_is_writeback
+  def fill_pending = fill_response.valid
   def writeback_completion_pending = victim_writebacks.completion.valid & writeback_completion_eligible
   def input_pending = requester_data_pending ||| requester_response_pending ||| (
     subordinate_response_pending
@@ -440,11 +501,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       advance_data_candidate & (!subordinate.dat.request.ready ||| locked_data_prefers_writeback)
     )
   )
-  def work_from_input = !lookup_response_valid & input_event.valid & (!advance_locked ||| locked_advance_stalled)
+  def work_from_input = !lookup_response_valid & input_event.valid & (
+    !advance_available ||| locked_advance_stalled
+  )
   def work_from_advance = (!lookup_response_valid ||| advance_locked) & !work_from_input & advance_available
   def work_valid = work_from_input ||| work_from_advance
   def work_slot = mux(work_from_input, input_event.slot, advance_slot)
-  def advance_presented = work_from_advance ||| advance_locked
+  def advance_presented = (!lookup_response_valid ||| advance_locked) & advance_available
 
   def phase = phases[work_slot]
   def request = requests[work_slot]
@@ -481,47 +544,40 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def selected_fill = selected_input(CHIInclusiveHNFInputEventKind.FillData)
   def selected_writeback_completion = selected_input(CHIInclusiveHNFInputEventKind.VictimWritebackCompletion)
 
-  requester.request_data.ready <== selected_requester_data
-  requester.requester_responses.ready <== mux(
+  requester_data.ready <== selected_requester_data
+  requester_response.ready <== mux(
     incoming_comp_ack,
     comp_acks.acknowledgement.ready,
     selected_requester_response
   )
-  subordinate.rsp.ready <== mux(subordinate_response_is_writeback,
-                                victim_writebacks.response.ready,
-                                selected_subordinate_response)
-  subordinate.dat.response.ready <== selected_fill
+  subordinate_response.ready <== mux(subordinate_response_is_writeback,
+                                     victim_writebacks.response.ready,
+                                     selected_subordinate_response)
+  fill_response.ready <== selected_fill
   victim_writebacks.completion.ready <== selected_writeback_completion
-  comp_acks.acknowledgement.valid <== requester.requester_responses.valid & incoming_comp_ack
+  comp_acks.acknowledgement.valid <== requester_response.valid & incoming_comp_ack
   comp_acks.acknowledgement.bits <== requester_response_flit
 
-  def requester_data_fire = requester.request_data.fire()
-  def requester_response_fire = requester.requester_responses.fire() & !incoming_comp_ack
-  def subordinate_response_fire = subordinate.rsp.fire()
+  def requester_data_fire = requester_data.fire()
+  def requester_response_fire = requester_response.fire() & !incoming_comp_ack
+  def subordinate_response_fire = subordinate_response.fire()
   def slot_subordinate_response_fire = subordinate_response_fire & !subordinate_response_is_writeback
-  def fill_data_fire = subordinate.dat.response.fire()
+  def fill_data_fire = fill_response.fire()
   def writeback_completion_fire = victim_writebacks.completion.fire()
 
-  when (requester.request_data.valid):
-    assert(requester_data_slot_valid, "chi_inclusive_hnf_requester_data_slot_in_range")
-    assert(occupied[requester_data_slot], "chi_inclusive_hnf_requester_data_slot_occupied")
-    assert(phases[requester_data_slot].is_one_of(CHIInclusiveHNFPhase.ReceiveRequesterData,
-                                                 CHIInclusiveHNFPhase.SendSnoop,
-                                                 CHIInclusiveHNFPhase.AwaitSnoop),
-           "chi_inclusive_hnf_requester_data_phase")
-  when (requester.requester_responses.valid & !incoming_comp_ack):
+  when (requester_response.valid & !incoming_comp_ack):
     assert(requester_response_slot_valid, "chi_inclusive_hnf_requester_response_slot_in_range")
     assert(occupied[requester_response_slot], "chi_inclusive_hnf_requester_response_slot_occupied")
     assert(phases[requester_response_slot].is_one_of(CHIInclusiveHNFPhase.SendSnoop,
                                                      CHIInclusiveHNFPhase.AwaitSnoop),
            "chi_inclusive_hnf_requester_response_phase")
-  when (subordinate.rsp.valid & !subordinate_response_is_writeback):
+  when (subordinate_response.valid & !subordinate_response_is_writeback):
     assert(subordinate_response_slot_valid, "chi_inclusive_hnf_subordinate_response_slot_in_range")
     assert(occupied[subordinate_response_slot], "chi_inclusive_hnf_subordinate_response_slot_occupied")
     assert(phases[subordinate_response_slot].is_one_of(CHIInclusiveHNFPhase.AwaitVictimDBID,
                                                        CHIInclusiveHNFPhase.AwaitVictimCompletion),
            "chi_inclusive_hnf_subordinate_response_phase")
-  when (subordinate.dat.response.valid):
+  when (fill_response.valid):
     assert(fill_slot_valid, "chi_inclusive_hnf_fill_slot_in_range")
     assert(occupied[fill_slot], "chi_inclusive_hnf_fill_slot_occupied")
     assert(phases[fill_slot] === CHIInclusiveHNFPhase.ReceiveFillData,
@@ -552,33 +608,33 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                                        CHIInclusiveHNFPhase.AwaitSnoop)
   def requester_write_data_fire = requester_data_fire & receiving_requester_data
   def snoop_data_fire = requester_data_fire & awaiting_snoop
-  def requester_data_id_mask = one_hot(requester.request_data.bits.data_id).as_bits()
+  def requester_data_id_mask = one_hot(requester_data.bits.data_id).as_bits()
   def expected_requester_data_ids = chi_transfer_data_ids(request.address, chi_req_size(p, request), p)
   def next_requester_data_ids = received_requester_ids ||| requester_data_id_mask
   def final_requester_data = next_requester_data_ids === expected_requester_data_ids
-  def requester_write_line_packet = chi_transfer_beat(requester.request_data.bits.data_id, p)[0..packet_index_width]
+  def requester_write_line_packet = chi_transfer_beat(requester_data.bits.data_id, p)[0..packet_index_width]
   def requester_write_line_data_mask = vec(
     for List (packet in 0..line_packets): requester_write_line_packet === bits(packet, packet_index_width)
   ).as_bits()
   when requester_write_data_fire:
-    assert(requester.request_data.bits.opcode === mux(copyback, CHIDatOpcode.CopyBackWriteData, CHIDatOpcode.NonCopyBackWriteData),
+    assert(requester_data.bits.opcode === mux(copyback, CHIDatOpcode.CopyBackWriteData, CHIDatOpcode.NonCopyBackWriteData),
            "chi_inclusive_hnf_requester_write_opcode")
-    assert(requester.request_data.bits.src_id === request.src_id,
+    assert(requester_data.bits.src_id === request.src_id,
            "chi_inclusive_hnf_requester_write_source")
-    assert(requester.request_data.bits.tgt_id === home_id,
+    assert(requester_data.bits.tgt_id === home_id,
            "chi_inclusive_hnf_requester_write_target")
-    assert(requester.request_data.bits.txn_id === slot_txn_id(work_slot),
+    assert(requester_data.bits.txn_id === slot_txn_id(work_slot),
            "chi_inclusive_hnf_requester_write_dbid")
     assert((expected_requester_data_ids & requester_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_requester_write_data_id_expected")
     assert(!(received_requester_ids & requester_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_requester_write_data_id_unique")
     when copyback:
-      monitor_chi_copyback_data(p, requester.request_data.bits, "chi_inclusive_hnf_copyback")
-      assert(!received_requester_ids.or_reduce() ||| (requester.request_data.bits.resp === copyback_state),
+      monitor_chi_copyback_data(p, requester_data.bits, "chi_inclusive_hnf_copyback")
+      assert(!received_requester_ids.or_reduce() ||| (requester_data.bits.resp === copyback_state),
              "chi_inclusive_hnf_copyback_state_consistent")
 
-  def snoop_data_id_mask = one_hot(requester.request_data.bits.data_id).as_bits()
+  def snoop_data_id_mask = one_hot(requester_data.bits.data_id).as_bits()
   def next_snoop_data_ids = received_snoop_ids ||| snoop_data_id_mask
   def expected_snoop_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
@@ -596,21 +652,21 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       )
   )
   when snoop_data_fire:
-    assert(chi_snoop_response_state_valid(snoop_opcode, requester.request_data.bits.resp.into(CHICoherentResponse())),
+    assert(chi_snoop_response_state_valid(snoop_opcode, requester_data.bits.resp.into(CHICoherentResponse())),
            "chi_inclusive_hnf_snoop_data_state")
     assert(!maintenance_discard, "chi_inclusive_hnf_discard_has_no_data")
-    assert(requester.request_data.bits.txn_id === snoop_txn_id(work_slot, requester_data_snoop_target),
+    assert(requester_data.bits.txn_id === snoop_txn_id(work_slot, requester_data_snoop_target),
            "chi_inclusive_hnf_snoop_data_txn")
     assert(snoop_data_target_outstanding,
            "chi_inclusive_hnf_snoop_data_outstanding")
     assert((expected_snoop_data_ids & snoop_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_snoop_data_id_expected")
-    assert(requester.request_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData,
-                                                        CHIDatOpcode.SnpRespDataPtl),
+    assert(requester_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData,
+                                                CHIDatOpcode.SnpRespDataPtl),
            "chi_inclusive_hnf_snoop_data_opcode")
-    assert(requester.request_data.bits.tgt_id === home_id,
+    assert(requester_data.bits.tgt_id === home_id,
            "chi_inclusive_hnf_snoop_data_target")
-    assert(requester.request_data.bits.resp.into(CHICoherentResponse()).pass_dirty,
+    assert(requester_data.bits.resp.into(CHICoherentResponse()).pass_dirty,
            "chi_inclusive_hnf_snoop_data_dirty")
     assert(!other_snoop_data_received,
            "chi_inclusive_hnf_snoop_data_single_dirty_responder")
@@ -721,15 +777,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def await_victim_dbid = phase === CHIInclusiveHNFPhase.AwaitVictimDBID
   def await_victim_completion = phase === CHIInclusiveHNFPhase.AwaitVictimCompletion
   when slot_subordinate_response_fire:
-    assert(subordinate.rsp.bits.src_id === subordinate_id,
+    assert(subordinate_response.bits.src_id === subordinate_id,
            "chi_inclusive_hnf_write_response_source")
-    assert(subordinate.rsp.bits.tgt_id === home_id,
+    assert(subordinate_response.bits.tgt_id === home_id,
            "chi_inclusive_hnf_write_response_target")
-    assert(subordinate.rsp.bits.txn_id === slot_txn_id(work_slot),
+    assert(subordinate_response.bits.txn_id === slot_txn_id(work_slot),
            "chi_inclusive_hnf_write_response_txn")
-    assert(subordinate.rsp.bits.opcode === mux(await_victim_dbid,
-                                               CHIRspOpcode.DBIDResp,
-                                               CHIRspOpcode.Comp),
+    assert(subordinate_response.bits.opcode === mux(await_victim_dbid,
+                                                    CHIRspOpcode.DBIDResp,
+                                                    CHIRspOpcode.Comp),
            "chi_inclusive_hnf_write_response_opcode")
 
   def send_victim_data = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendVictimData)
@@ -779,18 +835,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     subordinate_data_locked <== Bool(#true)
     subordinate_data_writeback_owner <== selected_subordinate_data_writeback
 
-  def fill_data_id_mask = one_hot(subordinate.dat.response.bits.data_id).as_bits()
+  def fill_data_id_mask = one_hot(fill_response.bits.data_id).as_bits()
   def next_fill_data_ids = received_fill_ids ||| fill_data_id_mask
   def expected_fill_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_fill_data = next_fill_data_ids === expected_fill_data_ids
   when fill_data_fire:
-    assert(subordinate.dat.response.bits.opcode === CHIDatOpcode.CompData,
+    assert(fill_response.bits.opcode === CHIDatOpcode.CompData,
            "chi_inclusive_hnf_fill_data_opcode")
-    assert(subordinate.dat.response.bits.src_id === subordinate_id,
+    assert(fill_response.bits.src_id === subordinate_id,
            "chi_inclusive_hnf_fill_data_source")
-    assert(subordinate.dat.response.bits.tgt_id === home_id,
+    assert(fill_response.bits.tgt_id === home_id,
            "chi_inclusive_hnf_fill_data_target")
-    assert(subordinate.dat.response.bits.txn_id === slot_txn_id(work_slot),
+    assert(fill_response.bits.txn_id === slot_txn_id(work_slot),
            "chi_inclusive_hnf_fill_data_txn")
     assert(!(received_fill_ids & fill_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_fill_data_id_unique")
@@ -833,18 +889,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                                                                packet_data.byte_enable.expand_mask(8))
         mux(requester_write_valids[packet], merged_packet, selected_line[packet])
   )
-  def snoop_line_packet = chi_transfer_beat(requester.request_data.bits.data_id, p)[0..packet_index_width]
+  def snoop_line_packet = chi_transfer_beat(requester_data.bits.data_id, p)[0..packet_index_width]
   def merged_snoop_packet = selected_line[snoop_line_packet].masked_merge(
-    requester.request_data.bits.data,
-    requester.request_data.bits.byte_enable.expand_mask(8)
+    requester_data.bits.data,
+    requester_data.bits.byte_enable.expand_mask(8)
   )
-  def fill_line_packet = chi_transfer_beat(subordinate.dat.response.bits.data_id, p)[0..packet_index_width]
-  def final_fill_line = selected_line.updated(fill_line_packet, subordinate.dat.response.bits.data)
+  def fill_line_packet = chi_transfer_beat(fill_response.bits.data_id, p)[0..packet_index_width]
+  def final_fill_line = selected_line.updated(fill_line_packet, fill_response.bits.data)
   def fill_successful = (completion_error === CHIRespErr.OK) & (
-    subordinate.dat.response.bits.resp_err === CHIRespErr.OK
+    fill_response.bits.resp_err === CHIRespErr.OK
   )
   def victim_write_successful = (completion_error === CHIRespErr.OK) & (
-    subordinate.rsp.bits.resp_err === CHIRespErr.OK
+    subordinate_response.bits.resp_err === CHIRespErr.OK
   )
 
   def after_snoops = work_from_advance & (phase === CHIInclusiveHNFPhase.AfterSnoops)
@@ -1040,10 +1096,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       when (requester_output_response_fire & send_requester_dbid):
         phases[index] <== CHIInclusiveHNFPhase.ReceiveRequesterData
       elsewhen requester_write_data_fire:
-        copyback_states[index] <== requester.request_data.bits.resp
+        copyback_states[index] <== requester_data.bits.resp
         requester_write_data[index] <== requester_write_data[index].updated(
           requester_write_line_packet,
-          requester.request_data.bits
+          requester_data.bits
         )
         requester_write_line_valids[index] <== requester_write_line_valids[index] ||| requester_write_line_data_mask
         received_requester_data_ids[index] <== next_requester_data_ids
@@ -1067,8 +1123,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         snoop_retains_copies[index] <== snoop_retains_copies[index].updated(
           requester_data_snoop_target,
           snoop_retains_copies[index][requester_data_snoop_target] ||| (
-            requester.request_data.bits.resp.into(CHICoherentResponse()).state =/= CHIResponseState.Invalid
-          ) ||| (requester.request_data.bits.resp_err =/= CHIRespErr.OK)
+            requester_data.bits.resp.into(CHICoherentResponse()).state =/= CHIResponseState.Invalid
+          ) ||| (requester_data.bits.resp_err =/= CHIRespErr.OK)
         )
         line_buffers[index] <== selected_line.updated(snoop_line_packet, merged_snoop_packet)
         maintenance_dirty[index] <== Bool(#true)
@@ -1124,7 +1180,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
           received_fill_data_ids[index] <== bits(0, 4)
           phases[index] <== CHIInclusiveHNFPhase.ReceiveFillData
       elsewhen (slot_subordinate_response_fire & await_victim_dbid):
-        subordinate_dbids[index] <== subordinate.rsp.bits.dbid_or_group_id
+        subordinate_dbids[index] <== subordinate_response.bits.dbid_or_group_id
         phases[index] <== CHIInclusiveHNFPhase.SendVictimData
       elsewhen subordinate_data_fire:
         victim_data_beats[index] <== mux(final_victim_data,
@@ -1175,14 +1231,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         occupied[index] <== Bool(#false)
         phases[index] <== CHIInclusiveHNFPhase.Idle
 
-      when (fill_data_fire & (subordinate.dat.response.bits.resp_err =/= CHIRespErr.OK)):
-        completion_errors[index] <== subordinate.dat.response.bits.resp_err
-      elsewhen (slot_subordinate_response_fire & (subordinate.rsp.bits.resp_err =/= CHIRespErr.OK)):
-        completion_errors[index] <== subordinate.rsp.bits.resp_err
+      when (fill_data_fire & (fill_response.bits.resp_err =/= CHIRespErr.OK)):
+        completion_errors[index] <== fill_response.bits.resp_err
+      elsewhen (slot_subordinate_response_fire & (subordinate_response.bits.resp_err =/= CHIRespErr.OK)):
+        completion_errors[index] <== subordinate_response.bits.resp_err
       elsewhen (writeback_completion_fire & (writeback_completion_error =/= CHIRespErr.OK)):
         completion_errors[index] <== writeback_completion_error
-      elsewhen (snoop_data_fire & (requester.request_data.bits.resp_err =/= CHIRespErr.OK)):
-        completion_errors[index] <== requester.request_data.bits.resp_err
+      elsewhen (snoop_data_fire & (requester_data.bits.resp_err =/= CHIRespErr.OK)):
+        completion_errors[index] <== requester_data.bits.resp_err
       elsewhen (requester_response_fire & (requester_response_flit.resp_err =/= CHIRespErr.OK)):
         completion_errors[index] <== requester_response_flit.resp_err
 
@@ -1292,8 +1348,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def absent_data = snoop_data_fire & final_snoop_data & (
     !snoop_retains_copies[work_slot][requester_data_snoop_target]
   ) & (
-    requester.request_data.bits.resp_err === CHIRespErr.OK
-  ) & (requester.request_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
+    requester_data.bits.resp_err === CHIRespErr.OK
+  ) & (requester_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
   def directory_line_valid = valid_lines[selected_set][selected_way] & (
     !maintenance ||| maintenance_hits[work_slot]
   )

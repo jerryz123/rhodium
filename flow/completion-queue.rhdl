@@ -9,16 +9,19 @@ import:
 // Each accepted request reserves one response slot and emits one immediate
 // Valid issue. The producer must later present exactly one Valid completion;
 // completions cannot be backpressured and emerge in their arrival order.
+// Pipelined admission may replace a retiring reservation; registered admission
+// cannot.
 sync_circuit CompletionQueue(Request :: DataType,
                              Response :: DataType,
-                             depth :: PosInt):
+                             depth :: PosInt,
+                             ~pipe: pipe :: Boolean = #true):
 
   interface request(Decoupled(Request), ~role: consumer)
   interface issue(Valid(Request), ~role: producer)
   interface completion(Valid(Response), ~role: consumer)
   interface response(Irrevocable(Response), ~role: producer)
 
-  inst completed(Queue(Response, depth, ~pipe: #true))
+  inst completed(Queue(Response, depth, ~pipe: pipe))
   completed.egress |> response
 
   def count_width = index_width(depth + 1)
@@ -27,7 +30,7 @@ sync_circuit CompletionQueue(Request :: DataType,
 
   def response_fire = response.fire()
   def capacity_available = outstanding < bits(depth, count_width)
-  request.ready <== capacity_available ||| response_fire
+  request.ready <== if pipe | capacity_available ||| response_fire | capacity_available
   def request_fire = request.fire()
 
   issue.valid <== request_fire

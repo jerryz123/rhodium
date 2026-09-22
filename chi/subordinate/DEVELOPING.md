@@ -45,11 +45,13 @@ Keep the controller as an elaboration helper, not a wrapper circuit or a new
 public memory protocol. Its backend factory runs once in the caller's module
 and returns the binder for nonstallable issue/completion flows. Preserve the
 operation metadata and ordering on every completion. Both current backends
-complete one cycle after issue. Independent read and write `CompletionQueue`
-lanes own capacity reservations and isolate DAT backpressure from RSP progress;
-the shared scheduler fairly selects one backend issue per cycle. Transaction
-slots accept simultaneous read and write retirements. Storage and DPI policy
-remain backend-owned.
+complete one cycle after issue. Independent, non-pipelined read and write
+`CompletionQueue` lanes own registered capacity reservations and isolate DAT
+backpressure from RSP progress. Non-pipelined operation and DBID queues prevent
+response readiness from propagating into CHI request admission. The shared
+scheduler fairly selects one backend issue per cycle. Transaction slots accept
+simultaneous read and write retirements. Storage and DPI policy remain
+backend-owned.
 Static configuration checks run in the shared constructors; request alignment,
 range, mask, and poison assertions remain runtime controller checks. Do not
 repeat constructor invariants in either concrete memory circuit.
