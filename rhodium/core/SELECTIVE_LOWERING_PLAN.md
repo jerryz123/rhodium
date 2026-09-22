@@ -113,11 +113,23 @@ executable construct protocol. The dependent branch establishes the initial mixe
 
 ## Next execution gates
 
-- Implement typed payload regions with explicit captures.
-- Extend effect/error and wide/vector coverage, and migrate the previous
-  simulator regression suite.
-- Measure elaboration, emitted size, memory, and throughput after correctness
-  coverage for the higher-order path passes.
+The evidence sections below are chronological; their pending-work statements
+record the scope at that point. This list is the current remaining scope:
+
+- Extend captured mapping to vector and multiword payloads, including nested
+  aggregates and live captures during stalls.
+- Complete effect/error coverage, preserving assertions and exactly-once effects
+  across direct selection and portable expansion.
+- Retain pipes through the same public extension protocol and validate their
+  latency, backpressure, reset, and payload behavior differentially.
+- Migrate the previous simulator regression suite, including core-only inputs.
+- Measure elaboration and compilation time, emitted size, peak memory, and
+  throughput for identical direct and expanded workloads after correctness.
+
+Typed payload regions, frontend capture extraction, retained maps, nested native
+composition, and initial captured-map execution are implemented; see the later
+evidence sections. Completion requires the remaining gates above, not just the
+initial mixed Queue milestone.
 
 ## Dependent native progress
 
@@ -265,3 +277,18 @@ native captured-map milestone. Broader aggregate/vector captured mapping,
 effects, additional higher-order constructs, performance measurements, and
 previous simulator-suite migration remain open. Simulator sources remain outside
 this IR-only PR.
+
+## Captured record feedback follow-up
+
+The [dependent record-map validation](https://github.com/tianrui-wei/rhodium/commit/27ff886)
+adds a retained record-producing map with live cross-field Queue feedback.
+Sixteen configurations pass 64 positive host checks; the final 65-check record
+batch also rejects same-field feedback when empty bypass creates a combinational
+cycle. A combined scalar/record batch passes 192 checks. Thirty-two materialized
+CIRCT/Verilator models match interpreter and generated-C execution against the
+independent oracles, including default optimization: 256 cycles for record
+feedback and 512 for scalar captures. The native runner now includes mapped
+record models. These focused results do not claim a fresh full-suite run.
+
+Vector/multiword captures, effects, pipes, performance, and previous simulator
+regression migration remain open. Native source remains on the dependent branch.
