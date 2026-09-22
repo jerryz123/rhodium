@@ -519,3 +519,24 @@ functional-update reference now includes an explicit shared range guard.
 Boundary, license-header, CI-routing, example-reference, and whitespace checks
 pass. The dependent simulator's functional-update regression retains the compact
 operation for single-element, power-of-two, wide-selector, and multiword cases.
+
+## Ordinary core compiler/runtime migration
+
+The [dependent core regression migration](https://github.com/tianrui-wei/rhodium/commit/fcf4141)
+adds `make sim-core-regression-test` and integrates it into the selective host
+runner. Fresh-root core fixture elaboration passes. Compiler interchange,
+deterministic output, malformed inputs, 800 wide arithmetic evaluations, and
+1,440 regrouped mask/state evaluations pass. Typed semantic exchange passes its
+compiled one/four-worker region and decode checks. Eight ordinary runtime modes
+and the x86 assembly mode pass independent arithmetic, hierarchy, memory,
+aggregate, assertion, and pipeline oracles. All fifteen generated-C scheduling
+modes pass, followed by functional updates, one-hot selections, demand-gated
+cones, native-object attachment/tracing, callback failure recovery, and executable
+identity checks. Each arithmetic replay checks 59,400 independent observations.
+
+The attachment fixtures now construct FIFO/broadcast object ABI models directly,
+without restoring post-expansion library recognition. The migrated regression
+exposed and verified the vector-update retention fix above. Boundary, license,
+CI-routing, shell, and whitespace checks pass. Remaining library/native-object,
+inspection, and harness fixture migration, integrated validation, and performance
+measurements stay open; this is focused evidence, not a complete suite baseline.
