@@ -80,3 +80,9 @@ bench, DPI companion, and exact-reference changes follow
 Run `make check-boundaries` after import or file-ownership changes. Direct
 Racket or Rhombus invocations must use the repository wrappers, which supply the
 persistent worktree-specific `PLTCOMPILEDROOTS` when the caller does not.
+
+The `materialized-queue` direct fixture exercises the portable retained-input
+path through core materialization, CIRCT, and Verilator. Its independent
+transaction scoreboard checks every output before and after edges, including
+invalid-cycle bypass payloads. Host `tests/materialize-queue-test.rhm` covers
+Queue depth/options and aggregate payload shapes at the emission boundary.

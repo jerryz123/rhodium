@@ -1,0 +1,26 @@
+#lang rhombus
+// Exercises CIRCT emission from retained Queue designs after portable materialization.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+  "../../core/dependencies.rhm".module_dependency_summaries
+  "../../../flow/tests/retained-queue-fixture.rhdl" open
+  "../circt.rhm" open
+
+for (depth in [1, 2, 3, 8]):
+  for (pipe in [#false, #true]):
+    for (flow in [#false, #true]):
+      for (type in [Bits(8), RecordType([RecordField("data", Bits(8)), RecordField("tag", Bits(3))])]):
+        def original = elaborate_queue(type, depth, pipe, flow, #true)
+        def lowered = materialize_constructs(original, [QueueExpansion])
+        def text = emit_circt(lowered.elaboration.design)
+        def ordinary = elaborate_queue(type, depth, pipe, flow, #false)
+        fun summary(top):
+          module_dependency_summaries([top])[0].output_leaf_dependencies.map(
+            fun (leaves): leaves.map(fun (leaf): [leaf.path, leaf.input_leaves.map(fun (input): [input.input_index, input.path])]))
+        check:
+          summary(lowered.elaboration.top) ~is summary(ordinary.top)
+          text.contains("hw.module @MixedQueue") ~is #true
+          text.contains("seq.firreg") ~is #true
+          lowered.sources.find(fun (source): source.source.name == "Queue").source.metadata.length() > 0 ~is #true

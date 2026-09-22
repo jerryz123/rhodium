@@ -1,0 +1,199 @@
+#lang rhombus
+// Materializes selected construct implementations into an independently owned core design.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "ir.rhm" open
+  "builder.rhm".Builder
+  "construct.rhm" open
+  "composition.rhm" open
+  "lowering.rhm" open
+  "verify.rhm".verify_design
+
+export:
+  MaterializedModule
+  MaterializedDesign
+  materialize_constructs
+
+// Metadata stays with its source owner. Explicit object maps let downstream
+// consumers translate inspection data without attaching foreign IR references.
+class MaterializedModule(source :: Module, module_def :: Module,
+                         values :: Map, places :: Map, operations :: Map)
+class MaterializedDesign(elaboration :: DesignElaboration,
+                         sources :: List.of(MaterializedModule))
+
+fun materialize_constructs(
+      elaboration :: DesignElaboration,
+      expansions :: List.of(ExpansionProvider),
+      ~target: target_name :: String = "rtl",
+      ~lowerings: lowerings :: List.of(TargetLowering) = []):
+  def resolved = resolve_module_constructs(
+    elaboration, target_name, expansions, lowerings,
+    ~lower_core: fun (body, path): body)
+  def design = Design()
+  def builder = Builder(design)
+  def sources = MutableList[]
+  def imports = MutableMap.by(===){}
+  def imported = MutableMap.by(===){}
+  def names = MutableSet{}
+  // Reserve the public top name before importing children from other designs.
+  names.add(elaboration.top.name)
+  fun fresh_name(base):
+    def mutable name = base
+    def mutable suffix = 0
+    while name in names:
+      suffix := suffix + 1
+      name := base ++ "_" ++ to_string(suffix)
+    names.add(name)
+    name
+  fun import_dpi(original :: DpiImport):
+    unless imports.has_key(original)
+    | imports[original] := builder.dpi_import_results(
+        original.name, original.input_names, original.input_types, original.results, original.location)
+    imports[original]
+  fun import_module(original :: Module):
+    unless imported.has_key(original)
+    | def children = MutableMap{}
+      for (op in original.operations):
+        when op.opcode == "rtl.instance"
+        | children[op.id] := import_module(op.attribute("module"))
+        when op.opcode == "construct.apply"
+        | error(~who: #'materialize_constructs, "core implementation contains an unresolved construct")
+      imported[original] := copy_module(original, fresh_name(original.name), children)
+    imported[original]
+
+  fun copy_module(original :: Module, name :: String, children :: MutableMap):
+    def module_def = builder.module(name)
+    def ids = MutableMap{}
+    def value_map = MutableMap{}
+    def places = MutableMap{}
+    def memories = MutableMap{}
+    def operations = MutableMap{}
+    def instances = MutableMap{}
+    // Allocate every endpoint before copying expressions: valid DFGs need not
+    // be in topological order, and register feedback is intentionally cyclic.
+    for (op in original.operations):
+      if op.opcode in ["rtl.instance", "construct.apply"]
+      | block:
+          def instance = builder.instance(module_def, children[op.id], op.attribute("name"), op.location, op.origin)
+          instances[op.id] := instance
+          operations[op.id] := instance.operation
+          ids[op.id] := instance.operation.id
+          if op.opcode == "rtl.instance"
+          | block:
+              for (port in op.attribute("module").outputs, value in op.results):
+                value_map[value.id] := instance.output(port.name)
+              for (port in op.attribute("module").inputs, place in op.places):
+                places[place.id] := instance.input(port.name)
+          | block:
+              def outputs = op.attribute("specialization").contract.ports.filter(~keep: fun (p): p.direction == "output")
+              for (port in outputs, value in op.results): value_map[value.id] := instance.output(port.name)
+      | ids[op.id] := design.fresh_id()
+    for (value in original.values):
+      unless value_map.has_key(value.id)
+      | def replacement = Value(design.fresh_id(), value.name, value.type, module_def, ids[value.defining_op_id])
+        value_map[value.id] := replacement
+        module_def.add_value(replacement)
+    for (place in original.places):
+      unless places.has_key(place.id)
+      | def replacement = Place(design.fresh_id(), place.name, place.type, module_def, ids[place.owner_op_id])
+        places[place.id] := replacement
+        module_def.add_place(replacement)
+    for (memory in original.memories):
+      def replacement = Memory(design.fresh_id(), memory.name, memory.depth, memory.element_type, module_def, ids[memory.defining_op_id])
+      memories[memory.id] := replacement
+      module_def.add_memory(replacement)
+    fun attribute(value):
+      cond
+      | value is_a Value: value_map[value.id]
+      | value is_a Place: places[value.id]
+      | value is_a Memory: memories[value.id]
+      | value is_a DpiImport: import_dpi(value)
+      | value is_a Module: error(~who: #'materialize_constructs, "unexpected module-valued attribute")
+      | value is_a List: value.map(attribute)
+      | value is_a Map:
+          for Map ((key, entry) in value): values(key, attribute(entry))
+      | ~else: value
+    for (op in original.operations):
+      cond
+      | op.opcode == "construct.apply":
+          def inputs = op.attribute("specialization").contract.ports.filter(~keep: fun (p): p.direction == "input")
+          for (port in inputs, operand in op.operands):
+            builder.drive(instances[op.id].input(port.name), value_map[operand.id], op.location, op.origin)
+      | op.opcode == "rtl.instance": #void
+      | ~else:
+          def operands = op.operands.map(fun (value): value_map[value.id])
+          def replacement = Operation(
+            ids[op.id], op.opcode, module_def, operands,
+            op.results.map(fun (value): value_map[value.id]),
+            op.places.map(fun (place): places[place.id]),
+            attribute(op.attributes), op.location, op.origin)
+          for (operand in operands): operand.add_user(replacement.id)
+          module_def.add_operation(replacement)
+          operations[op.id] := replacement
+    for (place in original.places):
+      when place.driver | places[place.id].set_driver(value_map[place.driver.id])
+    for (port in original.inputs):
+      module_def.add_input(Port(port.name, "input", port.type, value_map[port.value.id]))
+    for (port in original.outputs):
+      module_def.add_output(Port(port.name, "output", port.type, #false, places[port.place.id]))
+    builder.finish(module_def)
+    sources.add(MaterializedModule(original, module_def, value_map.snapshot(), places.snapshot(), operations.snapshot()))
+    module_def
+
+  fun implementation(body):
+    cond
+    | body is_a CoreImplementation:
+        verify_core_implementation(body)
+        import_module(body.module_def)
+    | body is_a ResolvedConstruct:
+        unless body.implementation is_a CoreImplementation
+        | error(~who: #'materialize_constructs, "direct RTL lowering must return a CoreImplementation")
+        unless same_construct_contract(body.occurrence.specialization.contract, body.implementation.contract)
+        | error(~who: #'materialize_constructs, "direct RTL lowering changed the construct boundary contract")
+        implementation(body.implementation)
+    | body is_a ResolvedComposition:
+        def composition = body.composition
+        def children = body.implementations.map(implementation)
+        def module_def = builder.module(fresh_name(composition.name))
+        def inputs = MutableMap{}
+        def outputs = MutableMap{}
+        def instances = MutableMap.by(===){}
+        for (port in composition.contract.ports):
+          if port.direction == "input"
+          | inputs[port.name] := builder.input(module_def, port.name, port.type)
+          | outputs[port.name] := builder.output(module_def, port.name, port.type)
+        for (instance in composition.instances, child in children):
+          instances[instance] := builder.instance(module_def, child, instance.name, instance.location)
+        fun source(endpoint :: CompositionEndpoint):
+          def mutable value = if endpoint.instance | instances[endpoint.instance].output(endpoint.port) | inputs[endpoint.port]
+          for (part in endpoint.path):
+            value := if part is_a String | builder.record_get(module_def, value, part) | builder.vector_get(module_def, value, part)
+          value
+        fun sink(endpoint :: CompositionEndpoint):
+          def mutable place = if endpoint.instance | instances[endpoint.instance].input(endpoint.port) | outputs[endpoint.port]
+          for (part in endpoint.path):
+            place := if part is_a String | builder.project(place, part) | builder.project_vector(place, part)
+          place
+        for (connection in composition.connections): builder.drive(sink(connection.sink), source(connection.source))
+        builder.finish(module_def)
+    | ~else: error(~who: #'materialize_constructs, "unsupported resolved implementation")
+
+  // Equivalent resolved module variants share definitions, never occurrence state.
+  def variants = MutableMap{}
+  fun walk(occurrence :: ResolvedModuleOccurrence, top :: Boolean = #false):
+    def children = MutableMap{}
+    def child_modules = occurrence.instances.map(fun (child): walk(child))
+    def original_instances = occurrence.module_def.operations.filter(~keep: fun (op): op.opcode == "rtl.instance")
+    for (op in original_instances, child in child_modules): children[op.id] := child
+    for (retained in occurrence.constructs): children[retained.operation.id] := implementation(retained.resolution)
+    def key = [occurrence.module_def, for List (id in children.keys().sort()): [id, children[id]]]
+    unless variants.has_key(key)
+    | variants[key] := copy_module(
+        occurrence.module_def,
+        if top | elaboration.top.name | fresh_name(occurrence.module_def.name), children)
+    variants[key]
+  def top = walk(resolved, #true)
+  def result = DesignElaboration(design, top)
+  verify_design(design)
+  MaterializedDesign(result, sources.snapshot())

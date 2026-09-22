@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "materialize.rhm" open
   "lowering.rhm" open
   "composition.rhm" open
   "construct.rhm" open
@@ -14,6 +15,7 @@ import:
   "printer.rhm" open
 
 export:
+  all_from("materialize.rhm")
   all_from("lowering.rhm")
   all_from("composition.rhm")
   all_from("construct.rhm")

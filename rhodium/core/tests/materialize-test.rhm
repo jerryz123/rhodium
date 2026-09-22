@@ -1,0 +1,106 @@
+#lang rhombus
+// Checks recursive portable materialization, occurrence choices, and source ownership maps.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def contract = ConstructContract(
+  [ConstructPort("a", "input", Bits(8)), ConstructPort("z", "output", Bits(8))],
+  [ConstructDependency(PortLeaf("z"), [PortLeaf("a")])], [], [], [])
+def identity = ConstructIdentity("test.increment", 1)
+def wrapper = ConstructIdentity("test.wrapper", 1)
+def specialization = ConstructSpecialization(identity, {}, contract)
+def core_design = Design()
+def core_builder = Builder(core_design)
+def increment = core_builder.module("Increment")
+def a = core_builder.input(increment, "a", Bits(8))
+def z = core_builder.output(increment, "z", Bits(8))
+core_builder.drive(z, core_builder.add(increment, a, core_builder.constant(increment, Bits(8), 1)))
+core_builder.finish(increment)
+def core_body = CoreImplementation(increment, contract)
+def child = CompositionInstance("child", specialization)
+def composition = HardwareComposition("Wrapper", contract, [child], [
+  CompositionConnection(CompositionEndpoint(#false, "a"), CompositionEndpoint(child, "a")),
+  CompositionConnection(CompositionEndpoint(child, "z"), CompositionEndpoint(#false, "z"))
+])
+def providers = [ExpansionProvider(identity, fun (s): core_body), ExpansionProvider(wrapper, fun (s): composition)]
+def design = Design()
+def builder = Builder(design)
+def top = builder.module("Top")
+def input = builder.input(top, "input", Bits(8))
+def output = builder.output(top, "output", Bits(8))
+def first = builder.construct_apply(top, ConstructSpecialization(wrapper, {}, contract), [input], "first")
+def second = builder.construct_apply(top, specialization, [first.results[0]], "second")
+builder.drive(output, builder.add(top, second.results[0], input))
+builder.finish(top)
+def original = DesignElaboration(design, top)
+def materialized = materialize_constructs(original, providers)
+check:
+  materialized.elaboration.top.name ~is "Top"
+  materialized.elaboration.design.sealed ~is #true
+  materialized.elaboration.design.walk().find(fun (op): op.opcode == "construct.apply") ~is #false
+  original.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply").length() ~is 2
+  materialized.sources.find(fun (source): source.source === top).operations[first.id].opcode ~is "rtl.instance"
+  materialized.sources.find(fun (source): source.source === top).values[input.id].module_def === materialized.elaboration.top ~is #true
+  materialized.elaboration.design.modules.filter(~keep: fun (m): m.name == "Increment").length() ~is 1
+
+// Direct implementation selection is checked against the same declared boundary.
+def mutable expanded = 0
+def counted = ExpansionProvider(
+  identity,
+  fun (s):
+    expanded := expanded + 1
+    core_body)
+def direct = TargetLowering(identity, "rtl", fun (o): #true, fun (s, o): core_body)
+def directly_selected = materialize_constructs(original, [counted, providers[1]], ~lowerings: [direct])
+check: expanded ~is 0
+check:
+  materialize_constructs(
+    original, providers,
+    ~lowerings: [TargetLowering(identity, "rtl", fun (o): #true, fun (s, o): "opaque")]) ~throws "CoreImplementation"
+
+// Scoped aggregate leaf connections must survive projection and drive canonicalization.
+block:
+  def type = RecordType([RecordField("lanes", VectorType(2, Bits(8)))])
+  def declared = ConstructContract(
+    [ConstructPort("a", "input", type), ConstructPort("z", "output", type)],
+    [ConstructDependency(PortLeaf("z", ["lanes", 0]), [PortLeaf("a", ["lanes", 1])]),
+     ConstructDependency(PortLeaf("z", ["lanes", 1]), [PortLeaf("a", ["lanes", 0])])], [], [], [])
+  def swap = ConstructIdentity("test.swap", 1)
+  def body = HardwareComposition("Swap", declared, [], [
+    CompositionConnection(CompositionEndpoint(#false, "a", ["lanes", 0]), CompositionEndpoint(#false, "z", ["lanes", 1])),
+    CompositionConnection(CompositionEndpoint(#false, "a", ["lanes", 1]), CompositionEndpoint(#false, "z", ["lanes", 0]))
+  ])
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Aggregate")
+  def input = builder.input(module_def, "a", type)
+  def output = builder.output(module_def, "z", type)
+  def operation = builder.construct_apply(module_def, ConstructSpecialization(swap, {}, declared), [input], "swap")
+  builder.drive(output, operation.results[0])
+  builder.finish(module_def)
+  def result = materialize_constructs(DesignElaboration(design, module_def), [ExpansionProvider(swap, fun (s): body)])
+  def copied = result.elaboration.design.find_module_named("Swap")
+  verify_core_implementation(CoreImplementation(copied, declared))
+  check:
+    copied.find_output("z").place.driver.type == type ~is #true
+
+// External effects must reference declarations owned by the resulting design.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def imported = builder.dpi_import("observe", ["sample"], [Bits(8)])
+  def module_def = builder.module("Effects")
+  def clock = builder.input(module_def, "clock", Clock)
+  def input = builder.input(module_def, "sample", Bits(8))
+  def enable = builder.constant(module_def, Bits(1), 1)
+  def call = builder.dpi_call(module_def, imported, [input], clock, enable)
+  builder.finish(module_def)
+  def result = materialize_constructs(DesignElaboration(design, module_def), [])
+  def copied_call = result.sources[0].operations[call.id]
+  def copied_import = copied_call.attribute("dpi_import")
+  check:
+    result.elaboration.design.dpi_imports.length() ~is 1
+    copied_import.design === result.elaboration.design ~is #true
+    copied_import.name ~is "observe"
+    copied_call.operands[0].module_def === result.elaboration.top ~is #true

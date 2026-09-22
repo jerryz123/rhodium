@@ -168,3 +168,12 @@ selection result for each occurrence, sharing only portable expansion bodies.
 Run `tests/construct-operation-test.rhm`, frontend construct elaboration/syntax
 coverage, and Flow retained-queue coverage when changing this boundary. CIRCT
 materialization and native execution remain separate integration gates.
+
+`materialize.rhm` consumes resolved module occurrences and compositions, imports
+portable modules, replaces retained operations with connected instances, and
+verifies the resulting independent design. It allocates endpoints before
+copying operations so legal forward references and state feedback survive.
+Its source maps preserve access to extension-owned inspection metadata without
+copying references across design ownership. Run `tests/materialize-test.rhm`,
+backend `materialize-queue-test.rhm`, and the `materialized-queue` CIRCT fixture
+for this transformation. Metadata reconstruction is a separate consumer seam.

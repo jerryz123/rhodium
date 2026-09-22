@@ -181,3 +181,19 @@ Contributor ownership and the backend change workflow are in
 in the [backend test guide](../../tools/testing/circt/README.md); exact-reference and
 fixture maintenance are in its
 [`DEVELOPING.md`](../../tools/testing/circt/DEVELOPING.md).
+
+## Retained construct input
+
+Use core `materialize_constructs` with caller-supplied expansion providers before
+`emit_circt` when the input contains retained constructs. For example, after
+importing core, the backend, and the library's provider:
+
+```rhombus
+def lowered = materialize_constructs(retained, [QueueExpansion])
+print(emit_circt(lowered.elaboration.design))
+```
+
+The backend still diagnoses unresolved `construct.apply` input. It does not
+import libraries or choose their implementations implicitly. The core
+[materialization contract](../core/README.md#materializing-portable-implementations)
+owns naming, source maps, and metadata limitations.

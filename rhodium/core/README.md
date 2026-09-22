@@ -654,3 +654,30 @@ produce a verified portable `CoreImplementation`. The callback receives each
 state/effect operation and its nested instance path and selects the declared
 effect name. The helper performs complete mapping and dependency/control
 verification; it does not infer library meaning from display names.
+
+### Materializing portable implementations
+
+`materialize_constructs(elaboration, expansions, ~target: "rtl", ~lowerings: [])`
+resolves retained occurrences and returns a `MaterializedDesign`. Its
+`elaboration` is a newly owned, verified `DesignElaboration` containing ordinary
+core operations and modules reachable from the selected top. Pass
+`result.elaboration.design` to a backend.
+Nested compositions become modules; retained operations become instances with
+named port connections. Direct lowerings for this consumer must return a
+verified `CoreImplementation` with the same boundary contract.
+
+Materialization leaves the original sealed design intact. Reused portable
+modules remain shared definitions, and occurrences retain independent state.
+DPI declarations with matching names/signatures are shared; incompatible
+signatures are rejected. Module names are deterministic and collision-free,
+with the public top name preserved. Implementation wrappers currently remain
+visible as additional hierarchy.
+
+`result.sources` contains `MaterializedModule` records linking each copied
+module to its source and immutable maps from source value/place/operation IDs
+to copied objects. Extension metadata remains on those source modules; it is
+not shallow-copied onto hardware in another design. Consumers of trace or
+inspection metadata must use these maps to remap references. Automatic event
+metadata reconstruction and wrapper elimination remain integration work;
+emission of the resulting hardware does not imply that trace integration has
+been completed.

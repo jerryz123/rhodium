@@ -91,7 +91,7 @@ integration_fixtures=(
   vector-update vec-shift-register-param
   async-read-memory sync-memory-masked sync-ram
   clocked-dpi assertions hierarchy bundle interface-array
-  queue-options shift-queue rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
+  materialized-queue queue-options shift-queue rr-arbiter packet-rr-arbiter round-robin-matcher ctrl-queue-options
   state-flow
   tiled-time tiled-distribution
   dont-care decode noc-route-computer noc-router noc-network noc-wormhole noc-router-family noc-escape-router
@@ -232,7 +232,7 @@ fixture_in_group() {
     language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
-    language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
+    language:materialized-queue|language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -721,6 +721,7 @@ fixture_specs=(
 )
 
 direct_fixture_specs=(
+  'materialized-queue|materialized_queue_tb'
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'
   'event-window|event_window_tb'

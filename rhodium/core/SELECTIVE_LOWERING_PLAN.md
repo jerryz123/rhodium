@@ -84,11 +84,32 @@ results establish portable RTL and trace preservation, not native simulation
 correctness. A fresh focused batch passed 280 checks and exercises skipped
 bodies, per-occurrence selection, aggregate dependencies, and effect mappings.
 
-Whole-design materialization from resolved retained IR into CIRCT-compatible
-core IR is still pending: the backend currently rejects unresolved constructs.
+Whole-design materialization passed 142 focused checks across recursive/core
+construction and 32 Queue configurations. The backend regression suite passed
+409 checks. The `materialized-queue` CIRCT/Verilator
+fixture passed a 256-cycle pre/post-edge transaction scoreboard, including
+invalid-cycle bypass payloads and pending reset. Materialization builds new core
+modules with source-object maps; extension
+metadata reconstruction and elimination of implementation wrappers remain
+pending. The backend continues to reject inputs not yet materialized.
 Native integration, three-way differential simulation, and typed payload regions
 remain pending. Core control contracts accept direct ports, transparent wires,
 and reset casts; a data-to-clock cast introduces a distinct domain and cannot
 stand in for a declared boundary clock. Derived controls need explicit support.
 The optional `SemanticNode` mechanism remains descriptive and is not the
 executable construct protocol. No end-to-end native milestone is claimed.
+
+## Next materialization gates
+
+- Eliminate signature-only implementation wrappers while preserving authored
+  module/instance names and ordinary portable emission. Compare ordinary versus
+  retained-then-materialized CIRCT and review generated SystemVerilog hierarchy.
+- Reconstruct extension metadata using source maps before sealing the new
+  modules. Core owns generic mapping; interface/clocking owners rebuild their
+  own records. Do not attach source-design Values or Places to copied modules.
+- Run the event Queue fixture through retained materialization, checking exact
+  trace ancestry as well as unchanged hardware behavior. The ordinary event
+  fixture's earlier success does not prove this path.
+- Then connect native Queue and generic RTL to the shared simulation schedule
+  and run the three-way differential gate. The hardware-only fixture is not
+  evidence for the native implementation.

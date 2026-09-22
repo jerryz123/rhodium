@@ -73,11 +73,13 @@ APIs. The foundation exports the core construct declaration records and
 `bind_core_implementation` through the public language, so libraries can supply
 portable implementations without importing compiler internals.
 
-The core `construct.rhm`, `composition.rhm`, and `lowering.rhm` modules import
-only other core modules. Composition consumes core verification and dependency
+The core construct, composition, selection, and materialization modules use
+core APIs and dependency-neutral support annotations. Composition consumes core verification and dependency
 summaries; selection consumes construct/composition contracts. Expansion and
 target-lowering providers are supplied by callers, never imported from libraries
-or simulator packages by core.
+or simulator packages by core. `materialize.rhm` uses Builder and verification
+to produce a new owned design and source-object maps, without frontend or
+backend imports.
 
 ## Dependency rules
 
