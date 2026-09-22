@@ -601,3 +601,21 @@ The object regression runner includes both groups. Boundary, license-header,
 CI-routing, shell syntax, and whitespace checks pass. These are focused results;
 TLB and harness migration, fresh integrated validation, and performance
 measurements remain open. Simulator sources remain on the dependent branch.
+
+## Sv39 TLB differential migration
+
+The [dependent TLB migration](https://github.com/tianrui-wei/rhodium/commit/8f94cdf)
+restores the independent Sv39 oracle at depths 2/4/8, each for 6,000 cycles
+across six raw/native/generated-C/parallel modes. Actual processor RTL remains
+the reference; explicit ABI fixtures provide optimized and unoptimized native
+models without post-expansion recognition. Demand and probe permissions,
+noncanonical addresses, overlapping entries, reset/fill/invalidate priority,
+replacement, and compiled-library reattachment pass. Three additional execution
+modes preserve TLB contents and replacement priority after a failed host effect
+and accept a clean retry.
+
+The object runner includes this group. Fresh-root elaboration, native fixture
+compilation, the complete TLB replay, boundary/license/CI-routing checks, shell
+syntax, and whitespace validation pass. Remaining work includes harness and
+legacy coverage auditing, fresh integrated validation, and performance
+measurements. These focused results do not replace a complete-suite baseline.
