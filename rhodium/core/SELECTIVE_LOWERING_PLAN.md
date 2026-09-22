@@ -482,3 +482,27 @@ Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
 Remaining compiler/object/arithmetic/frontend migration, integrated validation,
 and performance measurements stay open. These focused results do not replace
 the earlier complete selective-suite baseline.
+
+## Contract and payload optimization migration follow-up
+
+The [dependent contract/payload migration](https://github.com/tianrui-wei/rhodium/commit/c6513bd)
+restores seven regression groups. Contract kernels pass 1,000 cycles across ten
+modes, including captured computations, branches, feedback, snapshot updates,
+and malformed-program rejection. Decoder specialization passes 66 shapes over
+8,192 inputs in eight modes against independent first-match/default decoding.
+Concurrent payload pooling passes 5,000 cycles in five modes. Lifetime sharing
+passes 88 configurations at 2,000 cycles each across five modes, including
+intermediate readers, exact capacity, and payload-independent control. Routed
+exchange passes all 468 width/variant/layout combinations at 4,000 cycles each
+across five modes, including 1,024-bit payloads, ownership rejection, failed-edge
+retry, and reattachment. Both cross-object cache cases pass 512 cycles in ten
+modes; semantic provenance passes demanded-field, feedback, wide-key, pruning,
+and malformed-mapping checks.
+
+The original oracle logic remains intact; the decoder cleanup loop is reformatted
+for GCC 16. Boundary, license-header, CI-routing, shell syntax, and whitespace
+checks pass. Validation artifacts moved to the home-filesystem cache after the
+user quota on `/tmp` prevented compilation and diagnostics; prior regression
+artifacts were preserved with their old path linked to the new location. These
+focused results leave frontend/core-only fixture migration, integrated validation,
+and performance measurements open.
