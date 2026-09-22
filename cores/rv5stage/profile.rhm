@@ -12,6 +12,7 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector.rhm").VectorLength
   lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/hart.rhm") open
 
 def RV5StageCacheLineBytes :: Pow2Int = 64
 
@@ -262,6 +263,15 @@ class RV5StageConfig(xlen :: XLen,
     when vector_profile_is_v(vector)
     | misa := misa ++ [MisaExtension.V]
     RiscvIsaProfile(xlen, names, misa)
+
+  property hart_description :: RiscvHartDescription:
+    RiscvHartDescription(
+      isa_profile,
+      if mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
+      RiscvCacheDescription(RV5StageCacheLineBytes, cache_geometry.instruction.sets, cache_geometry.instruction.capacity_bytes),
+      RiscvCacheDescription(RV5StageCacheLineBytes, cache_geometry.data.sets, cache_geometry.data.capacity_bytes),
+      ~cbo_block_bytes: RV5StageCacheLineBytes
+    )
 
 export:
   RV5StageCacheLineBytes

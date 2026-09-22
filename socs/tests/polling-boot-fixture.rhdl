@@ -6,9 +6,9 @@ import:
   lib("chi/protocol/channels.rhdl") open
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   lib("cores/rv5stage/profile.rhm").RV5StageConfig
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIConfig
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIIdentity
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIConfig
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/tests/params.rhdl").test_rv5stage_uncached_config
   lib("devices/bootrom-image.rhm").riscv_bootrom_image
@@ -16,11 +16,12 @@ import:
   lib("riscv/rtl/pma.rhdl") open
 
 sync_circuit RV5StagePollingBoot():
-  def config = RV5StageCHIConfig(
+  def config = RiscvHartCHIConfig(
     test_rv5stage_uncached_config.flit,
+    test_rv5stage_uncached_config.cache_line_bytes,
     for List (region in test_rv5stage_uncached_config.regions):
       if region.physical.attributes.executable && (!region.physical.attributes.cacheable)
-      | RV5StageCHIRegion(RiscvPhysicalMemoryRegion(region.physical.address_set, RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), region.home)
+      | RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(region.physical.address_set, RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), region.home)
       | region
   )
   def p = config.flit
@@ -43,7 +44,7 @@ sync_circuit RV5StagePollingBoot():
     supervisor_external: Bool(#false)
     machine_external: Bool(#false)
   core.time_counter <== bits(0, 64)
-  core.chi_identity <== RV5StageCHIIdentity(p):
+  core.chi_identity <== RiscvHartCHIIdentity(p):
     instruction_node_id: bits(2, p.node_id_width)
     data_node_id: bits(3, p.node_id_width)
     uncached_node_id: bits(5, p.node_id_width)

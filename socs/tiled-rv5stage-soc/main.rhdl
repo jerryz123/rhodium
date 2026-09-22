@@ -8,7 +8,7 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/home/home-common.rhdl").CHIHNFIdentity
   lib("rhodium/std/counter.rhdl").Counter
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIIdentity
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIIdentity
   lib("devices/bootrom.rhdl") open
   lib("devices/boot-address.rhdl") open
   lib("devices/aclint.rhdl").AclintIdentity
@@ -97,7 +97,7 @@ sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_r
     rv5stages[index].identity <== RV5StageTileIdentity(p, site_width):
       site_key: bits(implementation.site_key(entry.placement.router), site_width)
       hart_id: bits(index, 64)
-      chi: (RV5StageCHIIdentity(p):
+      chi: (RiscvHartCHIIdentity(p):
               instruction_node_id: bits(entry.chi.instruction_node_id, p.node_id_width)
               data_node_id: bits(entry.chi.data_node_id, p.node_id_width)
               uncached_node_id: bits(entry.chi.uncached_node_id, p.node_id_width))

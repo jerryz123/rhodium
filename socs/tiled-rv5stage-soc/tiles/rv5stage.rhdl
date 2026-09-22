@@ -8,14 +8,14 @@ import:
   lib("rhodium/std/flit.rhdl").FramedFixedFlit
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/noc/noc-router.rhdl") open
-  lib("cores/rv5stage/chi/foundation.rhdl") open
+  lib("cores/riscv/chi-hart.rhdl") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/profile.rhm").RV5StageConfig
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   "../time.rhdl" open
   "../distribution.rhdl" open
 
-class RV5StageTileParams(rv5stage :: RV5StageCHIConfig,
+class RV5StageTileParams(rv5stage :: RiscvHartCHIConfig,
                          router :: CHIRouterParams,
                          hart_count :: PosInt,
                          core_profile :: RV5StageConfig):
@@ -24,7 +24,7 @@ class RV5StageTileParams(rv5stage :: RV5StageCHIConfig,
 bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   hart_id: Bits(64)
-  chi: RV5StageCHIIdentity(p)
+  chi: RiscvHartCHIIdentity(p)
 
 sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_address :: Nat):
   def router_params = params.router

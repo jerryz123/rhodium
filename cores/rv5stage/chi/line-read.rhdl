@@ -21,7 +21,7 @@ bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
   line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
   access_fault: Bool
 
-sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RV5StageCHIConfig):
+sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   unless RV5StageCacheLineBytes >= p.data_bytes
   | error(~who: #'RV5StageLineRead,

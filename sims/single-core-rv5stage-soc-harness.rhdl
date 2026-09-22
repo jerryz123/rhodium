@@ -16,7 +16,7 @@ sync_circuit SoCHarness(params :: single_core.SingleCoreRV5StageSoCParams = sing
   output exit: Bits(32)
 
   def fabric_params = params.fabric
-  inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.rv5stage_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
+  inst requester(FesvrRequester(XLen.X64, fabric_params.flit, fabric_params.host_node, fabric_params.home_map, fabric_params.hart_config.physical_map, fabric_params.host_services, fabric_params.boot.boot_address_register))
   inst soc(single_core.SingleCoreRV5StageSoC(params))
   inst uart(UartDPI(0, uart_oversample_divisor))
   inst memory(CHIDPIMemory(CHIRamConfig(fabric_params.flit, fabric_params.memory_bytes, ~max_outstanding: fabric_params.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0))

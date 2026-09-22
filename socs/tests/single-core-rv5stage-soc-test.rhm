@@ -17,12 +17,12 @@ def compact_soc_params = soc.single_core_rv5stage_soc_params with (
   llc_ways = 2
 )
 def description = soc.single_core_rv5stage_soc_params.description
-for (cache in [description.core_profile.cache_geometry.instruction,
-               description.core_profile.cache_geometry.data]):
+for (cache in [description.hart.instruction_cache,
+               description.hart.data_cache]):
   check:
     cache.sets ~is 64
     cache.ways ~is 4
-    cache.capacity_bytes ~is 16384
+    cache.size_bytes ~is 16384
 check:
   soc.single_core_rv5stage_soc_core_profile.multiplier ~is RV5StageMultiplierKind.Pipelined
   soc.single_core_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
@@ -75,7 +75,7 @@ check:
   description.model ~is "Rhodium Single-Core RV5Stage SoC"
   description.compatible ~is ["rhodium,single-core-rv5stage-soc"]
   description.harts ~is [0]
-  description.core_profile === soc.single_core_rv5stage_soc_params.core_profile ~is #true
+  description.hart.isa_profile.isa_extensions ~is soc.single_core_rv5stage_soc_params.core_profile.isa_profile.isa_extensions
   description.clocks === soc.single_core_rv5stage_soc_params.clocks ~is #true
   description.memory_regions[0].address_set ~is soc.single_core_rv5stage_soc_memory_service.address_sets[0]
   description.boot.rom.address_set ~is soc.single_core_rv5stage_soc_platform.bootrom.rom_params.service.address_sets[0]

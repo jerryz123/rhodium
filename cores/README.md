@@ -138,9 +138,11 @@ launch and buffer the fixed-latency responses outside the reusable block.
 
 [`riscv/`](riscv/README.md) contains reusable decode relations that map the
 pure architectural catalogs onto the ALU, branch resolver, multiplier, and
-divider above. These modules define component-facing controls and standalone
-relations, but not a complete core catalog or pipeline policy. Named cores
-compose them with their own supported extension set.
+divider above, plus implementation-neutral RISC-V protocol attachments such as
+the CHI hart placement contract. These modules define component-facing controls
+and integration boundaries, but not a complete core catalog or pipeline policy.
+Named cores compose them with their own supported extension set and transaction
+engines.
 
 ## Add or inspect a named core
 
@@ -157,6 +159,11 @@ extension. See [`rv5stage/README.md`](rv5stage/README.md) for the owned
 instruction families, pipeline and completion contracts, FP state and
 execution, memory hierarchy, CHI boundary, generator parameters, ports, tests,
 and deliberate limits.
+
+[`spike/profile.rhm`](spike/profile.rhm) establishes the implementation-owned
+configuration boundary for a future Spike-backed core. It currently projects
+the shared architectural hart description but does not yet provide execution
+or protocol RTL.
 
 ## Preserve dependency direction
 

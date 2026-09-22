@@ -11,7 +11,7 @@ import:
 sync_circuit SoCHarness(uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   output exit: Bits(32)
 
-  inst requester(FesvrRequester(XLen.X64, mini_rv5stage.mini_rv5stage_soc_flit, mini_rv5stage.mini_rv5stage_soc_host_node, mini_rv5stage.mini_rv5stage_soc_home_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.rv5stage_config.physical_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.host_services, mini_rv5stage.mini_rv5stage_soc_fabric_params.boot.boot_address_register))
+  inst requester(FesvrRequester(XLen.X64, mini_rv5stage.mini_rv5stage_soc_flit, mini_rv5stage.mini_rv5stage_soc_host_node, mini_rv5stage.mini_rv5stage_soc_home_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.hart_config.physical_map, mini_rv5stage.mini_rv5stage_soc_fabric_params.host_services, mini_rv5stage.mini_rv5stage_soc_fabric_params.boot.boot_address_register))
   inst soc(mini_rv5stage.MiniRV5StageSoC())
   inst uart(UartDPI(0, uart_oversample_divisor))
 

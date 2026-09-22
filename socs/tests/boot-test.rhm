@@ -22,7 +22,7 @@ def tiny_description = RiscvSoCDescription(
   ~model: "Rhodium tiny-ROM fixture",
   ~compatible: ["rhodium,tiny-rom-fixture"],
   ~harts: fixture.description.harts,
-  ~core_profile: fixture.description.core_profile,
+  ~hart: fixture.description.hart,
   ~clocks: fixture.description.clocks,
   ~memory_regions: fixture.description.memory_regions,
   ~boot: RiscvBootLayout(

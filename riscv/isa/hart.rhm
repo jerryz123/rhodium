@@ -1,0 +1,50 @@
+#lang rhombus
+// Defines implementation-neutral architectural descriptions of RISC-V harts and private caches.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "profile.rhm".RiscvIsaProfile
+  "xlen.rhm".XLen
+
+enum RiscvMmuType
+| Bare
+| Sv39
+
+class RiscvCacheDescription(block_bytes :: PosInt,
+                            sets :: PosInt,
+                            size_bytes :: PosInt):
+  constructor (block_bytes :: PosInt,
+               sets :: PosInt,
+               size_bytes :: PosInt):
+    unless size_bytes mod (block_bytes * sets) == 0
+    | error(~who: #'RiscvCacheDescription,
+            "cache size must contain a whole number of equally populated sets")
+    super(block_bytes, sets, size_bytes)
+
+  property ways :: PosInt: size_bytes / (block_bytes * sets)
+
+class RiscvHartDescription(isa_profile :: RiscvIsaProfile,
+                           mmu_type :: RiscvMmuType,
+                           instruction_cache :: RiscvCacheDescription,
+                           data_cache :: RiscvCacheDescription,
+                           cbo_block_bytes :: maybe(PosInt)):
+  constructor (isa_profile :: RiscvIsaProfile,
+               mmu_type :: RiscvMmuType,
+               instruction_cache :: RiscvCacheDescription,
+               data_cache :: RiscvCacheDescription,
+               ~cbo_block_bytes: cbo_block_bytes :: maybe(PosInt) = #false):
+    when mmu_type == RiscvMmuType.Sv39 && isa_profile.xlen != XLen.X64
+    | error(~who: #'RiscvHartDescription, "Sv39 requires RV64")
+    when for any (extension in ["zic64b", "zicbom", "zicbop", "zicboz"]):
+           isa_profile.isa_extensions.contains(extension) && !(cbo_block_bytes is_a PosInt)
+    | error(~who: #'RiscvHartDescription,
+            "cache-block extensions require a CBO block size")
+    super(isa_profile, mmu_type, instruction_cache, data_cache,
+          cbo_block_bytes)
+
+  property xlen :: XLen: isa_profile.xlen
+
+export:
+  RiscvMmuType
+  RiscvCacheDescription
+  RiscvHartDescription

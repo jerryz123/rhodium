@@ -21,6 +21,7 @@ Contributors extending the model or catalogs should read
 | Define a field, encoding, format, or instruction | [Pure model](#pure-model) |
 | Select an integer, floating-point, compressed, or privileged catalog | [ISA catalog map](#isa-catalog-map) |
 | Represent a normalized ISA claim and MISA value | [`isa/profile.rhm`](isa/profile.rhm) |
+| Describe one implementation-neutral hart for system integration | [`isa/hart.rhm`](isa/hart.rhm) |
 | Project canonical capabilities to GNU `-march` and `-mabi` | [GNU toolchain projection](#gnu-toolchain-projection) |
 | Expand a 16-bit C instruction to its canonical 32-bit instruction | [Compressed-instruction expansion](#compressed-instruction-expansion) |
 | Turn descriptions into hardware patterns or extracted fields | [RISC-V/Rhodium adapter](rtl/README.md) |

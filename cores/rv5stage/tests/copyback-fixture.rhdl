@@ -47,7 +47,7 @@ sync_circuit RV5StageCopyBackFixture():
   output observed: Vec(3, CopyBackObservation())
   for (data_width in [128, 256, 512], index in 0..3):
     def p = CHIFlitParams(~data_width: data_width)
-    inst engine(RV5StageLineWriteback(Bits(8), 64, RV5StageCHIConfig(p, test.test_rv5stage_chi_config.regions), 1))
+    inst engine(RV5StageLineWriteback(Bits(8), 64, RiscvHartCHIConfig(p, 64, test.test_rv5stage_chi_config.regions), 1))
     engine.node_id <== bits(3, 7)
     engine.victim_state <== state
     engine.snoop_pending <== snoop_pending

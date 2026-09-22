@@ -21,7 +21,7 @@ bundle RV5StageLineWritebackCommand(Context :: DataType, address_width :: PosInt
 bundle RV5StageLineWritebackResult(Context :: DataType):
   context: Context
 
-sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt, config :: RV5StageCHIConfig, txn_id :: Nat):
+sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
   def p = config.flit
   def packets = RV5StageCacheLineBytes / p.data_bytes
   def packet_width = index_width(packets)

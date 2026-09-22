@@ -32,7 +32,7 @@ DEVICE_TESTS := $(sort $(wildcard devices/tests/*-test.rhm))
 CHI_TESTS := $(sort $(wildcard chi/tests/*-test.rhm))
 SOC_TESTS := $(sort $(wildcard socs/tests/*-test.rhm))
 HARDFLOAT_TESTS := $(sort $(wildcard hardfloat/tests/*-test.rhm))
-RV5STAGE_TESTS := $(sort $(wildcard cores/tests/*-test.rhm) $(wildcard cores/riscv/tests/*-test.rhm) $(wildcard cores/rv5stage/tests/*-test.rhm))
+PROCESSOR_TESTS := $(sort $(shell find cores/tests cores/riscv/tests cores/rv5stage/tests cores/spike/tests -type f -name '*-test.rhm'))
 RFPL_TESTS := $(sort $(wildcard rfpl/tests/*-test.rhm))
 RFPL_EXAMPLES := $(sort $(wildcard examples/rfpl/*.rfpl))
 RHODIUM_EXAMPLES := $(sort $(shell find examples/rtl -type f \( -name '*.rhm' -o -name '*.rhdl' \)))
@@ -51,7 +51,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
   $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) \
   $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
-  $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(RV5STAGE_TESTS) $(EXAMPLES) \
+  $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
   tools/write-riscv-udb-config.rhm \
   $(shell find . -type f -path '*/tests/circt/emit-*.rhm' -print) \
@@ -191,7 +191,7 @@ emacs-test:
 	emacs -Q --batch -L tools/emacs -l tools/emacs/tests/rhodium-mode-test.el -f ert-run-tests-batch-and-exit
 
 rv5stage-host-test: check-boundaries
-	tools/run-racket-tests.sh $(RV5STAGE_TESTS)
+	tools/run-racket-tests.sh $(PROCESSOR_TESTS)
 
 riscv-udb-config:
 	@set -e; \

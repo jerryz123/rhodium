@@ -15,8 +15,11 @@ Rhodium libraries. Transaction engines must not import either cache
 implementation. `uncached.rhdl` may import the I-cache and D-cache protocol
 types that form its core-facing boundary.
 
-`foundation.rhdl` is the dependency root. Snapshot-read, refill, write-unique, snoop, and
-uncached engines depend on it. Writeback directly composes CHI retry control
+[`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) owns generic RISC-V
+hart attachment configuration, capabilities, and identities. `foundation.rhdl`
+is the RV5Stage dependency root for transaction profiles and flit construction.
+Snapshot-read, refill, write-unique, snoop, and uncached engines depend on it.
+Writeback directly composes CHI retry control
 and the shared copyback packet constructor, not the scalar write-unique engine.
 The I-cache and D-cache instantiate the shared engines, while `rv5stage.rhdl`
 owns external channel composition.
@@ -55,7 +58,8 @@ including nonzero trace/QoS.
 
 | File | Ownership |
 |---|---|
-| [`foundation.rhdl`](foundation.rhdl) | Response profiles, physical-region/Home configuration, RN parameters and identities, and common flit constructors |
+| [`../../riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl) | Implementation-neutral physical-region/Home configuration, RN parameters, capabilities, and identities |
+| [`foundation.rhdl`](foundation.rhdl) | RV5Stage endpoint capabilities, transaction profiles, and common flit constructors |
 | [`line-read.rhdl`](line-read.rhdl) | Coherent RAM snapshots and immutable-ROM line reads, without cache ownership |
 | [`refill.rhdl`](refill.rhdl) | Retry-aware packet-complete cache-line acquisition and acknowledgement |
 | [`write-unique.rhdl`](write-unique.rhdl) | One partial-width retryable `WriteUniquePtl` transaction |
@@ -92,8 +96,9 @@ only coherent reads. This certifies one parent, the last arriving packet, not
 an accumulation of all line packets. Do not use packet index order as arrival
 order, or extend acknowledgement ownership through stalled line installation.
 
-1. Put configuration, capability descriptions, and flit construction shared by
-   several engines in `foundation.rhdl`.
+1. Put implementation-neutral hart attachment configuration and capabilities in
+   `cores/riscv/chi-hart.rhdl`; put RV5Stage flit construction shared by several
+   engines in `foundation.rhdl`.
 2. Keep each retained transaction lifetime in its owning engine; do not move
    cache arrays or replacement policy into this package.
 3. Preserve selected Home, transaction identifiers, retry state, packet

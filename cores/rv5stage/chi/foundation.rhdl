@@ -1,21 +1,20 @@
 #lang rhodium
-// Defines RV5Stage's RN-F/RN-I endpoint parameters and conservative CHI flit constructors.
+// Defines RV5Stage-specific CHI endpoint capabilities, transaction profiles, and flit constructors.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../cache.rhdl".RV5StageCacheLineBytes
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl").chi_line_data_id
   lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
-  lib("chi/transactions/retryable-transaction.rhdl") open
-  lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
+  lib("chi/transactions/retryable-transaction.rhdl") open
+  lib("chi/transactions/cache-maintenance.rhdl").CHICacheMaintenanceResponses
   lib("chi/protocol/messages.rhdl").chi_response
   lib("chi/protocol/messages.rhdl").chi_rn_write_data
-  "../../../riscv/rtl/pma.rhdl" open
+  "../../riscv/chi-hart.rhdl" open
 
 def RV5StageRefillResponses = response_profile("rv5stage_refill"):
   retryable
@@ -37,74 +36,13 @@ def RV5StageCopyBackResponses = response_profile("rv5stage_copyback"):
   response [CHIRspOpcode.CompDBIDResp]:
     completes [grant]
 
-class RV5StageCHIRegion(physical :: RiscvPhysicalMemoryRegion,
-                        home :: CHIHomeParams):
-  implements StableCircuitParam
-
-class RV5StageCHIConfig(flit :: CHIFlitParams,
-                        regions :: NonemptyList.of(RV5StageCHIRegion),
-                        home_map :: CHIHomeMap,
-                        physical_map :: RiscvPhysicalMemoryMap):
-  implements StableCircuitParam
-
-  property normal_address_sets:
-    regions.filter(
-      ~keep: fun (region): region.physical.attributes.cacheable
-    ).map(fun (region): region.physical.address_set)
-  property uncached_address_sets:
-    regions.filter(
-      ~keep: fun (region): !region.physical.attributes.cacheable
-    ).map(fun (region): region.physical.address_set)
-  property has_uncached: uncached_address_sets.length() > 0
-
-  constructor (flit :: CHIFlitParams,
-               regions :: NonemptyList.of(RV5StageCHIRegion)):
-    unless for any (region in regions): region.physical.attributes.cacheable
-    | error(~who: #'RV5StageCHIConfig,
-            "RV5Stage map must contain at least one cacheable normal-memory range")
-    for (region in regions):
-      def attributes = region.physical.attributes
-      unless attributes.readable || attributes.writable || attributes.executable
-      | error(~who: #'RV5StageCHIConfig,
-              "RV5Stage physical-memory region must permit at least one access")
-      unless (!attributes.atomic) || (attributes.readable && attributes.writable)
-      | error(~who: #'RV5StageCHIConfig,
-              "atomic RV5Stage physical memory must be readable and writable")
-      unless (!attributes.executable) || attributes.read_idempotent
-      | error(~who: #'RV5StageCHIConfig,
-              "executable RV5Stage regions must permit idempotent reads")
-      unless attributes.cacheable == (region.home.kind == CHINodeKind.HNF)
-      | error(~who: #'RV5StageCHIConfig,
-              "cacheable RV5Stage regions require HN-F Homes and uncached regions require HN-I Homes")
-      unless (!attributes.cacheable) || attributes.instruction_cacheable
-      | error(~who: #'RV5StageCHIConfig,
-              "RV5Stage coherent regions require instruction cacheability")
-      unless (!(attributes.cacheable || attributes.instruction_cacheable)) || (
-        (region.physical.address_set.mask bits.and (RV5StageCacheLineBytes - 1)) == (
-          RV5StageCacheLineBytes - 1
-        )
-      )
-      | error(~who: #'RV5StageCHIConfig,
-              "cacheable RV5Stage regions must contain complete cache lines")
-    super(
-      flit,
-      regions,
-      CHIHomeMap(
-        flit,
-        regions.map(fun (region): CHIHomeMapEntry(region.physical.address_set,
-                                                  region.home))
-      ),
-      RiscvPhysicalMemoryMap(flit.request_address_width,
-                             regions.map(fun (region): region.physical))
-    )
-
-class RV5StageCHIParams(config :: RV5StageCHIConfig,
-                        instruction_node_id :: Nat,
-                        data_node_id :: Nat,
-                        uncached_node_id :: Nat):
-
-  property flit: config.flit
-  property home_map: config.home_map
+class RV5StageCHIParams(hart :: RiscvHartCHIParams):
+  property config: hart.config
+  property flit: hart.flit
+  property home_map: hart.home_map
+  property instruction_node_id: hart.instruction_node_id
+  property data_node_id: hart.data_node_id
+  property uncached_node_id: hart.uncached_node_id
 
   property instruction_node:
     CHINodeParams(
@@ -161,6 +99,7 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
       ),
       ~max_outstanding: 2
     )
+
   property uncached_node:
     CHINodeParams(
       "rv5stage-uncached",
@@ -177,40 +116,12 @@ class RV5StageCHIParams(config :: RV5StageCHIConfig,
       ~max_outstanding: 1
     )
 
-  constructor (config :: RV5StageCHIConfig,
+  constructor (config :: RiscvHartCHIConfig,
                instruction_node_id :: Nat,
                data_node_id :: Nat,
                ~uncached_node_id: uncached_node_id :: Nat = 0):
-    unless bits.length(instruction_node_id) <= config.flit.node_id_width
-    | error(~who: #'RV5StageCHIParams,
-            "instruction NodeID must fit in the CHI NodeID width")
-    unless bits.length(data_node_id) <= config.flit.node_id_width
-    | error(~who: #'RV5StageCHIParams,
-            "data NodeID must fit in the CHI NodeID width")
-    unless instruction_node_id != data_node_id
-    | error(~who: #'RV5StageCHIParams,
-            "instruction and data NodeIDs must be distinct")
-    if config.has_uncached
-    | block:
-        unless bits.length(uncached_node_id) <= config.flit.node_id_width
-        | error(~who: #'RV5StageCHIParams,
-                "uncached NodeID must fit in the CHI NodeID width")
-        unless uncached_node_id != instruction_node_id && uncached_node_id != data_node_id
-        | error(~who: #'RV5StageCHIParams,
-                "instruction, data, and uncached NodeIDs must be distinct")
-    | #void
-    for (entry in config.home_map.entries):
-      unless entry.target_node_id != instruction_node_id && entry.target_node_id != data_node_id && (
-        (!config.has_uncached) || (entry.target_node_id != uncached_node_id)
-      )
-      | error(~who: #'RV5StageCHIParams,
-              "Home, instruction, data, and uncached NodeIDs must be distinct")
-    super(config, instruction_node_id, data_node_id, uncached_node_id)
-
-bundle RV5StageCHIIdentity(p :: CHIFlitParams):
-  instruction_node_id: Bits(p.node_id_width)
-  data_node_id: Bits(p.node_id_width)
-  uncached_node_id: Bits(p.node_id_width)
+    super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
+                             ~uncached_node_id: uncached_node_id))
 
 fun rv5stage_chi_address(address :: Bits,
                          p :: CHIFlitParams) :~ Bits(p.request_address_width):
@@ -327,10 +238,11 @@ export:
   RV5StageRefillResponses
   RV5StageWriteUniqueResponses
   RV5StageCopyBackResponses
-  RV5StageCHIRegion
-  RV5StageCHIConfig
+  RiscvHartCHIRegion
+  RiscvHartCHIConfig
+  RiscvHartCHIParams
   RV5StageCHIParams
-  RV5StageCHIIdentity
+  RiscvHartCHIIdentity
   rv5stage_chi_address
   rv5stage_chi_address_fits
   rv5stage_chi_snoop_address

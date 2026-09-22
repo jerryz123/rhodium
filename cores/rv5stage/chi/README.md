@@ -4,29 +4,32 @@
 # RV5Stage CHI endpoints
 
 This package adapts RV5Stage's private caches and shared uncached path to CHI.
-It owns the physical-region and Home mapping, placement-specific RN identities,
-retry-aware cache transactions, snoop responses, dirty-line writeback, and the
-one-outstanding RN-I implementation.
+It owns retry-aware cache transactions, snoop responses, dirty-line writeback,
+and the one-outstanding RN-I implementation. The implementation-neutral
+physical-region, Home mapping, requester capability, and placement contract is
+owned by [`cores/riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl).
 
 ## Configuration and identity
 
-`RV5StageCHIConfig` combines one `CHIFlitParams` value with a nonempty list of
+`RiscvHartCHIConfig` combines one `CHIFlitParams` value with a nonempty list of
 physical regions and their Homes. It derives both the RISC-V physical-memory
 map and the CHI Home map from that list. Cacheable regions require HN-F Homes;
 uncached regions require HN-I Homes. Executable regions must permit idempotent
 reads, atomic regions must be readable and writable, and cacheable regions must
-contain complete 64-byte cache lines.
+contain complete configured cache lines. RV5Stage separately requires that
+generic line size to be 64 bytes.
 Instruction-only cacheable ROM remains data-uncacheable and uses HN-I;
 its region must also contain complete lines. Its PMA contract is defined in
 the [RISC-V adapter](../../../riscv/rtl/README.md).
 Coherent regions retain instruction cacheability because this core's uncached
 instruction path targets HN-I rather than coherent Homes.
 
-`RV5StageCHIParams` describes host-side instruction RN-I, data RN-F, and
-optional uncached RN-I nodes. It checks NodeID widths and requires every RN and
-Home NodeID to be distinct. `RV5StageCHIIdentity` carries the placement-specific
-NodeIDs into hardware so one specialized core can be instantiated at multiple
-locations.
+`RiscvHartCHIParams` carries the implementation-neutral instruction, data, and
+optional uncached NodeIDs. It checks NodeID widths and requires every RN and
+Home NodeID to be distinct. `RV5StageCHIParams` adds this core's RN-I/RN-F
+capability declarations and outstanding-transaction limits. The generic
+`RiscvHartCHIIdentity` carries the placement-specific NodeIDs into hardware so
+one specialized core can be instantiated at multiple locations.
 
 ## Instruction snapshot read
 

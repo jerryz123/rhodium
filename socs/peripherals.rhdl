@@ -8,7 +8,7 @@ import:
   lib("chi/protocol/link.rhdl").CHIHomeRequesterParams
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/home/home.rhdl").CHIHNIParams
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot-address.rhdl") open
   lib("devices/aclint.rhdl") open
@@ -37,21 +37,21 @@ fun soc_plic_contexts(hart_count :: PosInt):
   contexts
 
 fun soc_peripheral_regions(home :: CHIHomeParams):
-  [RV5StageCHIRegion(
+  [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(SoCAclintBase, AclintWindowBytes - 1),
        soc_device_attributes
      ),
      home
    ),
-   RV5StageCHIRegion(
+   RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(SoCPlicBase, PlicWindowBytes - 1),
        soc_device_attributes
      ),
      home
    ),
-   RV5StageCHIRegion(
+   RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(SoCUartBase, Uart16550WindowBytes - 1),
        soc_device_attributes
@@ -124,7 +124,7 @@ class SoCPlatformParams(flit :: CHIFlitParams,
     CHISubordinateMap(flit, [bootrom.rom_params.service, boot_address.service, aclint.service, plic.service, uart.service])
   property regions:
     [bootrom.region,
-     RV5StageCHIRegion(RiscvPhysicalMemoryRegion(boot_address.service.address_sets[0], soc_boot_address_attributes), home)] ++ soc_peripheral_regions(home)
+     RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(boot_address.service.address_sets[0], soc_boot_address_attributes), home)] ++ soc_peripheral_regions(home)
 
   property host_services:
     subordinate_map.services.map(fun (service): CHIHomeServiceParams(home, service.address_sets, service.requests))

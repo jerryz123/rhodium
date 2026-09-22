@@ -22,23 +22,24 @@ check:
   params.test_rv5stage_uncached_config.physical_map.regions[1].attributes.read_idempotent ~is #false
   params.test_rv5stage_uncached_config.physical_map.regions[2].attributes.device ~is #false
   params.test_rv5stage_uncached_config.physical_map.regions[2].attributes.read_idempotent ~is #true
-  rvchi.RV5StageCHIConfig(
+  rvchi.RiscvHartCHIConfig(
     params.test_rv5stage_flit,
-    [rvchi.RV5StageCHIRegion(
+    64,
+    [rvchi.RiscvHartCHIRegion(
        pma.RiscvPhysicalMemoryRegion(
          AddressSet(0, 0x7fff),
          params.test_rv5stage_memory_attributes
        ),
        params.test_rv5stage_home
      ),
-     rvchi.RV5StageCHIRegion(
+     rvchi.RiscvHartCHIRegion(
        pma.RiscvPhysicalMemoryRegion(
          AddressSet(0xc000, 0x3fff),
          pma.RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #false)
        ),
        params.test_rv5stage_uncached_home
      )]
-  ) ~throws "executable RV5Stage regions must permit idempotent reads"
+  ) ~throws "executable hart regions must permit idempotent reads"
   params.test_rv5stage_uncached_params.uncached_node.kind ~is CHINodeKind.RNI
   params.test_rv5stage_uncached_params.uncached_node.emits.req ~is [
     CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl

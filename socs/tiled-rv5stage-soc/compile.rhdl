@@ -21,7 +21,9 @@ import:
   lib("noc/std/topology/main.rhm") open
   lib("noc/std/routing/main.rhm") open
   lib("noc/rtl/router.rhdl") open
-  lib("cores/rv5stage/chi/foundation.rhdl") open
+  lib("cores/riscv/chi-hart.rhdl") open
+  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIParams
+  lib("cores/rv5stage/profile.rhm").RV5StageCacheLineBytes
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/bootrom.rhdl").CHIBootROMParams
   lib("devices/aclint.rhdl").AclintParams
@@ -149,7 +151,7 @@ class TiledRV5StageSoCImplementation(config :: TiledRV5StageSoCConfig,
                                      node_ids :: NonemptyList.of(Nat),
                                      flit :: CHIFlitParams,
                                      home_map :: CHIHomeMap,
-                                     rv5stage_config :: RV5StageCHIConfig,
+                                     rv5stage_config :: RiscvHartCHIConfig,
                                      address_layout :: StripedAddressLayout,
                                      hnf_config :: CHIHNFConfig,
                                      llc_config :: CHIInclusiveHNFConfig,
@@ -393,11 +395,12 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
   def platform = config.platform_for(device_home)
 
   def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
-  def rv5stage_config = RV5StageCHIConfig(
+  def rv5stage_config = RiscvHartCHIConfig(
     flit,
+    RV5StageCacheLineBytes,
     (for List (placement in llc_placements,
                home in homes):
-       RV5StageCHIRegion(
+       RiscvHartCHIRegion(
          RiscvPhysicalMemoryRegion(
            address_layout.address_set(memory.base, placement.slice_index),
            memory_attributes

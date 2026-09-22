@@ -29,16 +29,18 @@ def instruction_response_member = instruction_access_type.members.find(
   fun (member): member.name == "response"
 )
 check:
-  RV5StageCHIConfig(
+  RiscvHartCHIConfig(
     config.flit,
-    [RV5StageCHIRegion(
+    64,
+    [RiscvHartCHIRegion(
        RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~instruction_cacheable: #false)),
        test_params.test_rv5stage_home)]
-  ) ~throws "coherent regions require instruction cacheability"
-  RV5StageCHIConfig(
+  ) ~throws "coherent hart regions require instruction cacheability"
+  RiscvHartCHIConfig(
     config.flit,
+    64,
     [test_params.test_rv5stage_uncached_config.regions[0],
-     RV5StageCHIRegion(
+     RiscvHartCHIRegion(
        RiscvPhysicalMemoryRegion(AddressSet(0xc000, 31), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)),
        test_params.test_rv5stage_uncached_home)]
   ) ~throws "complete cache lines"

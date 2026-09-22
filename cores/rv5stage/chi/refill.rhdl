@@ -28,7 +28,7 @@ bundle RV5StageLineRefillResult(Context :: DataType,
 
 sync_circuit RV5StageLineRefill(Context :: DataType,
                                 address_width :: PosInt,
-                                config :: RV5StageCHIConfig):
+                                config :: RiscvHartCHIConfig):
   def p = config.flit
   unless RV5StageCacheLineBytes >= p.data_bytes
   | error(~who: #'RV5StageLineRefill,

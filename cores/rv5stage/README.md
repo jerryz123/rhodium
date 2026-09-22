@@ -774,28 +774,32 @@ flowchart LR
 
 ```
 
-`RV5StageCHIConfig` supplies the flit shape and a single list of physical
+`RiscvHartCHIConfig` supplies the flit shape and a single list of physical
 regions paired with CHI Homes. From that list it derives both the RISC-V
 physical-memory map and `CHIHomeMap`, preventing permissions, cacheability, and
 CHI routing from describing different address ranges. Cache transactions decode
 their address once and retain the selected HN-F NodeID through retry, data, and
-completion acknowledgement. The [RV5Stage CHI contract](chi/README.md) owns
-endpoint configuration and shared transaction behavior.
+completion acknowledgement. The reusable
+[`cores/riscv/chi-hart.rhdl`](../riscv/chi-hart.rhdl) contract owns attachment
+configuration and identity; the [RV5Stage CHI contract](chi/README.md) owns the
+core-specific transaction behavior.
 
-`RV5StageCHIParams` contains host-only placement metadata for instruction and
-data RN-F NodeIDs and the optional uncached RN-I NodeID. An occurrence receives
-those values through `RV5StageCHIIdentity` hardware inputs, allowing one
-specialized core definition to be stamped at multiple placements.
+`RiscvHartCHIParams` contains host-only placement metadata for instruction,
+data, and optional uncached NodeIDs. `RV5StageCHIParams` layers this core's
+RN-I/RN-F capabilities onto those generic IDs. An occurrence receives the IDs
+through `RiscvHartCHIIdentity` hardware inputs, allowing one specialized core
+definition to be stamped at multiple placements.
 
 ### Generator parameters
 
-[`profile.rhm`](profile.rhm) defines the immutable `RV5StageConfig` host
-model: XLEN, supported extensions, MMU mode, independent instruction and data
-cache geometry, and data-cache service capacity. It validates supported
-combinations and projects a pure
-[`RiscvIsaProfile`](../../riscv/isa/profile.rhm) containing the normalized ISA
-extension list and `misa` value. The RV5Stage configuration remains the sole
-specialization input to `RV5Stage` and `RV5StageCore`. Derive immutable profile,
+[`profile.rhm`](profile.rhm) defines the immutable `RV5StageConfig` host model:
+XLEN, supported extensions, MMU mode, independent instruction and data cache
+geometry, and data-cache service capacity. It validates supported combinations
+and projects both a pure [`RiscvIsaProfile`](../../riscv/isa/profile.rhm) and an
+implementation-neutral
+[`RiscvHartDescription`](../../riscv/isa/hart.rhm) for SoC/device-tree consumers.
+The RV5Stage configuration remains the sole specialization input to `RV5Stage`
+and `RV5StageCore`. Derive immutable profile,
 extension, or cache variants with `profile with (field = value)`; reconstruction
 runs the same cross-field validation as direct construction.
 

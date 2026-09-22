@@ -40,7 +40,7 @@ bundle RV5StageL1IResolved(address_width :: PosInt, way_width :: PosInt):
 
 sync_circuit RV5StageL1ICache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
-                              ~chi: config :: RV5StageCHIConfig):
+                              ~chi: config :: RiscvHartCHIConfig):
   def width = xlen.width
   def p = config.flit
   check_l1i_geometry(width, cache)

@@ -22,7 +22,7 @@ bundle RV5StageDataSnoopUpdate(address_width :: PosInt):
   state: CHICacheState
 
 sync_circuit RV5StageDataSnoop(address_width :: PosInt,
-                               config :: RV5StageCHIConfig):
+                               config :: RiscvHartCHIConfig):
   def p = config.flit
   def packet_count :: PosInt = RV5StageCacheLineBytes / p.data_bytes
   def packet_index_width = index_width(packet_count)

@@ -71,7 +71,8 @@ containing RX, TX, and interrupt signals.
 
 [`description.rhm`](description.rhm) defines the immutable
 `RiscvSoCDescription` consumed by architecture-facing generators. It combines
-the model and compatible strings, hart IDs and `RV5StageConfig`, clock and
+the model and compatible strings, hart IDs and an implementation-neutral
+`RiscvHartDescription`, clock and
 timebase frequencies, architectural memory regions, BootROM layout, ACLINT,
 an optional PLIC, and an optional UART. The PLIC description identifies every
 source and orders machine and supervisor contexts for each hart. Address regions retain their originating `AddressSet`,

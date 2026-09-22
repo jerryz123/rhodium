@@ -22,7 +22,7 @@ check:
   description.model ~is "Rhodium Mini RV5Stage SoC"
   description.compatible ~is ["rhodium,mini-rv5stage-soc"]
   description.harts ~is [0]
-  description.core_profile === soc.mini_rv5stage_soc_core_profile ~is #true
+  description.hart.isa_profile.isa_extensions ~is soc.mini_rv5stage_soc_core_profile.isa_profile.isa_extensions
   description.clocks === soc.mini_rv5stage_soc_clocks ~is #true
   description.memory_regions[0].address_set ~is soc.mini_rv5stage_soc_ram_params.service.address_sets[0]
   description.boot.rom.address_set ~is soc.mini_rv5stage_soc_fabric_params.platform.bootrom.rom_params.service.address_sets[0]

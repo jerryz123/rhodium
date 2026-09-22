@@ -51,7 +51,7 @@ sync_circuit RV5StageLRSCCoreProgress(xlen :: XLen = XLen.X64, btb_entries :: Na
     machine_timer: Bool(#false)
     supervisor_external: Bool(#false)
     machine_external: Bool(#false)
-  cpu.chi_identity <== RV5StageCHIIdentity(p):
+  cpu.chi_identity <== RiscvHartCHIIdentity(p):
     instruction_node_id: bits(2, p.node_id_width)
     data_node_id: bits(3, p.node_id_width)
     uncached_node_id: bits(6, p.node_id_width)

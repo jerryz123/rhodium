@@ -25,7 +25,7 @@ each other; share external transaction machinery through the CHI package.
 
 | Area | Ownership |
 |---|---|
-| [`profile.rhm`](profile.rhm) | Immutable RV5Stage extension, MMU, cache, vector, and completion configuration; projects a pure `RiscvIsaProfile` |
+| [`profile.rhm`](profile.rhm) | Immutable RV5Stage extension, MMU, cache, vector, and completion configuration; projects pure `RiscvIsaProfile` and `RiscvHartDescription` values |
 | [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
@@ -534,7 +534,7 @@ Run `tools/run-racket-tests.sh socs/tests/main-memory-test.rhm` to audit concret
 SoC PMAs. The test checks every cacheable HN-F region, including sparse tiled
 bank masks, for executable, readable, writable, idempotent, non-device,
 atomic-capable RAM and exact coverage of described memory. Generic
-`RV5StageCHIConfig` still allows restricted cacheable maps. The top-level
+The reusable `RiscvHartCHIConfig` still allows restricted cacheable maps. The top-level
 `RV5Stage` elaboration checks them against the selected `ziccif`/`ziccamoa`/`ziccrse`
 profile claims before instantiating hardware. Keep the default SoC profiles,
 profile/UDB projection tests, and per-hart DTB checks aligned when changing

@@ -83,9 +83,12 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
 
 sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~reset_address: reset_address :: Nat,
-                      ~chi: config :: RV5StageCHIConfig,
+                      ~chi: config :: RiscvHartCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
+  unless config.cache_line_bytes == RV5StageCacheLineBytes
+  | error(~who: #'RV5Stage,
+          "RV5Stage requires 64-byte CHI cache lines")
   def vector_completion_slots = profile.vector_completion_slots
   def xlen = profile.xlen
   def extensions = profile.extensions
@@ -102,7 +105,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
     unless (!attributes.cacheable) || (!extensions.ziccrse) || (attributes.readable && attributes.writable && attributes.atomic && attributes.read_idempotent)
     | error(~who: #'RV5Stage, "Ziccrse requires readable, writable, atomic-capable, read-idempotent cacheable coherent memory")
 
-  input chi_identity: RV5StageCHIIdentity(p)
+  input chi_identity: RiscvHartCHIIdentity(p)
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
   input time_counter: Bits(64)

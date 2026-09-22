@@ -154,8 +154,11 @@ The reusable packed execution module `cores/simd-alu.rhdl` directly imports
 operations use the public language; it imports no ISA catalog or named core.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
-pure RISC-V instruction catalogs onto root processor-component controls. They
-import no named core. In `riscv/rtl/`, `decode.rhdl` imports
+pure RISC-V instruction catalogs onto root processor-component controls.
+`cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
+configuration and NodeID-width checks. These modules import no named core.
+The future Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm`
+only for the stable generator-parameter contract. In `riscv/rtl/`, `decode.rhdl` imports
 `std/decode.rhdl`, while `atomic.rhdl` and `interrupt.rhdl` import
 `std/bits.rhdl`; these modules materialize reusable architectural values and
 policy without importing a concrete processor.

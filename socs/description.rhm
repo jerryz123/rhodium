@@ -8,7 +8,7 @@ import:
   lib("devicetree/main.rhm") open
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
   lib("rhodium/std/interconnect.rhdl").AddressSet
-  lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/hart.rhm") open
   lib("riscv/isa/interrupt.rhm") open
 
 class SoCClockConfig(clock_frequency_hz :: PosInt,
@@ -137,16 +137,23 @@ fun cpu_interrupt_label(hart :: Nat):
 fun plic_interrupt_label(region :: SoCAddressRegion):
   DeviceTreeLabel("plic_" ++ unit_address(region.base))
 
-fun mmu_type(mode :: RV5StageMmuMode):
+fun mmu_type(mode :: RiscvMmuType):
   match mode
-  | RV5StageMmuMode.Bare: "riscv,none"
-  | RV5StageMmuMode.Sv39: "riscv,sv39"
+  | RiscvMmuType.Bare: "riscv,none"
+  | RiscvMmuType.Sv39: "riscv,sv39"
 
 fun cpu_node(hart :: Nat,
-             profile :: RV5StageConfig,
+             description :: RiscvHartDescription,
              clocks :: SoCClockConfig):
-  def instruction_cache = profile.cache_geometry.instruction
-  def data_cache = profile.cache_geometry.data
+  def instruction_cache = description.instruction_cache
+  def data_cache = description.data_cache
+  def mutable cache_block_properties = []
+  when description.isa_profile.isa_extensions.contains("zicboz")
+  | block:
+      unless description.cbo_block_bytes is_a PosInt
+      | error(~who: #'cpu_node,
+              "Zicboz requires a CBO block size")
+      cache_block_properties := [DeviceTreeProperty("riscv,cboz-block-size", DeviceTreeU32(description.cbo_block_bytes))]
   DeviceTreeNode(
     "cpu@" ++ unit_address(hart),
     [DeviceTreeProperty("device_type", DeviceTreeString("cpu")),
@@ -154,19 +161,15 @@ fun cpu_node(hart :: Nat,
      DeviceTreeProperty("status", DeviceTreeString("okay")),
      DeviceTreeProperty("compatible", DeviceTreeString("riscv")),
      DeviceTreeProperty("clock-frequency", DeviceTreeU32(clocks.clock_frequency_hz)),
-     DeviceTreeProperty("riscv,isa-base", DeviceTreeString(profile.isa_profile.isa_base)),
-     DeviceTreeProperty("riscv,isa-extensions", DeviceTreeStringList(profile.isa_profile.isa_extensions)),
-     DeviceTreeProperty("mmu-type", DeviceTreeString(mmu_type(profile.mmu_mode))),
-     DeviceTreeProperty("i-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
+     DeviceTreeProperty("riscv,isa-base", DeviceTreeString(description.isa_profile.isa_base)),
+     DeviceTreeProperty("riscv,isa-extensions", DeviceTreeStringList(description.isa_profile.isa_extensions)),
+     DeviceTreeProperty("mmu-type", DeviceTreeString(mmu_type(description.mmu_type))),
+     DeviceTreeProperty("i-cache-block-size", DeviceTreeU32(instruction_cache.block_bytes)),
      DeviceTreeProperty("i-cache-sets", DeviceTreeU32(instruction_cache.sets)),
-     DeviceTreeProperty("i-cache-size", DeviceTreeU32(instruction_cache.capacity_bytes)),
-     DeviceTreeProperty("d-cache-block-size", DeviceTreeU32(RV5StageCacheLineBytes)),
+     DeviceTreeProperty("i-cache-size", DeviceTreeU32(instruction_cache.size_bytes)),
+     DeviceTreeProperty("d-cache-block-size", DeviceTreeU32(data_cache.block_bytes)),
      DeviceTreeProperty("d-cache-sets", DeviceTreeU32(data_cache.sets)),
-     DeviceTreeProperty("d-cache-size", DeviceTreeU32(data_cache.capacity_bytes))] ++ (
-      if profile.extensions.zicboz
-      | [DeviceTreeProperty("riscv,cboz-block-size", DeviceTreeU32(RV5StageCacheLineBytes))]
-      | []
-    ),
+     DeviceTreeProperty("d-cache-size", DeviceTreeU32(data_cache.size_bytes))] ++ cache_block_properties,
     [DeviceTreeNode(
        "interrupt-controller",
        [DeviceTreeProperty("#interrupt-cells", DeviceTreeU32(1)),
@@ -177,14 +180,14 @@ fun cpu_node(hart :: Nat,
   )
 
 fun cpus_node(harts :: NonemptyList.of(Nat),
-              profile :: RV5StageConfig,
+              description :: RiscvHartDescription,
               clocks :: SoCClockConfig):
   DeviceTreeNode(
     "cpus",
     [DeviceTreeProperty("#address-cells", DeviceTreeU32(1)),
      DeviceTreeProperty("#size-cells", DeviceTreeU32(0)),
      DeviceTreeProperty("timebase-frequency", DeviceTreeU32(clocks.timebase_frequency_hz))],
-    for List (hart in harts): cpu_node(hart, profile, clocks)
+    for List (hart in harts): cpu_node(hart, description, clocks)
   )
 
 fun memory_node(region :: SoCAddressRegion):
@@ -271,9 +274,9 @@ fun require_unique_strings(strings :: NonemptyList.of(NonemptyString), who :: Sy
     unless strings.filter(~keep: fun (candidate): candidate == value).length() == 1
     | error(~who: who, "compatible strings must be unique")
 
-fun require_unique_harts(harts :: NonemptyList.of(Nat), profile :: RV5StageConfig):
+fun require_unique_harts(harts :: NonemptyList.of(Nat), description :: RiscvHartDescription):
   for (hart in harts):
-    unless hart < (1 << profile.xlen.width)
+    unless hart < (1 << description.xlen.width)
     | error(~who: #'RiscvSoCDescription, "hart ID must fit XLEN")
     unless harts.filter(~keep: fun (candidate): candidate == hart).length() == 1
     | error(~who: #'RiscvSoCDescription, "hart IDs must be unique")
@@ -288,7 +291,7 @@ fun require_disjoint_regions(regions :: NonemptyList.of(SoCAddressRegion)):
 class RiscvSoCDescription(model :: NonemptyString,
                           compatible :: NonemptyList.of(NonemptyString),
                           harts :: NonemptyList.of(Nat),
-                          core_profile :: RV5StageConfig,
+                          hart :: RiscvHartDescription,
                           clocks :: SoCClockConfig,
                           memory_regions :: NonemptyList.of(SoCAddressRegion),
                           boot :: RiscvBootLayout,
@@ -300,7 +303,7 @@ class RiscvSoCDescription(model :: NonemptyString,
   constructor (~model: model :: NonemptyString,
                ~compatible: compatible :: NonemptyList.of(NonemptyString),
                ~harts: harts :: NonemptyList.of(Nat),
-               ~core_profile: core_profile :: RV5StageConfig,
+               ~hart: hart :: RiscvHartDescription,
                ~clocks: clocks :: SoCClockConfig,
                ~memory_regions: memory_regions :: NonemptyList.of(SoCAddressRegion),
                ~boot: boot :: RiscvBootLayout,
@@ -308,7 +311,7 @@ class RiscvSoCDescription(model :: NonemptyString,
                ~plic: plic :: maybe(RiscvPlicDescription) = #false,
                ~uart: uart :: maybe(RiscvUartDescription) = #false):
     require_unique_strings(compatible, #'RiscvSoCDescription)
-    require_unique_harts(harts, core_profile)
+    require_unique_harts(harts, hart)
     unless for any (region in memory_regions): region.contains(boot.payload_address)
     | error(~who: #'RiscvSoCDescription,
             "boot payload address must lie in architectural memory")
@@ -333,7 +336,7 @@ class RiscvSoCDescription(model :: NonemptyString,
     super(model,
           compatible,
           harts,
-          core_profile,
+          hart,
           clocks,
           memory_regions,
           boot,
@@ -341,13 +344,13 @@ class RiscvSoCDescription(model :: NonemptyString,
           plic,
           uart)
 
-  reconstructor (model, compatible, harts, core_profile, clocks,
+  reconstructor (model, compatible, harts, hart, clocks,
                  memory_regions, boot, aclint, plic, uart):
     RiscvSoCDescription(
       ~model: model,
       ~compatible: compatible,
       ~harts: harts,
-      ~core_profile: core_profile,
+      ~hart: hart,
       ~clocks: clocks,
       ~memory_regions: memory_regions,
       ~boot: boot,
@@ -364,7 +367,7 @@ class RiscvSoCDescription(model :: NonemptyString,
          DeviceTreeProperty("compatible", DeviceTreeStringList(compatible)),
          DeviceTreeProperty("#address-cells", DeviceTreeU32(2)),
          DeviceTreeProperty("#size-cells", DeviceTreeU32(2))],
-        [cpus_node(harts, core_profile, clocks)] ++ (
+        [cpus_node(harts, hart, clocks)] ++ (
           for List (region in memory_regions): memory_node(region)
         ) ++ [soc_node(harts, clocks, aclint, plic, uart)]
       ),

@@ -69,7 +69,7 @@ sync_circuit MiniRV5StageSoC(params :: MiniRV5StageSoCParams = mini_rv5stage_soc
   interface uart(SoCUartInterface(), ~role: soc)
 
   inst ram(CHIRam(params.ram.config))
-  populate_single_core(fabric_params, params.description, host, ram.port, uart)
+  populate_single_core(fabric_params, params.description, params.core_profile, host, ram.port, uart)
   ram.identity <== CHIRamIdentity(fabric_params.flit):
     node_id: bits(params.ram.node_id, fabric_params.flit.node_id_width)
     base_address: bits(params.ram.base_address, fabric_params.flit.request_address_width)

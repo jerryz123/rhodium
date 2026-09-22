@@ -40,6 +40,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Architectural catalogs and profiles | [`isa/`](isa/) |
 | CSR identifiers, addresses, and architectural fields | [`isa/csr.rhm`](isa/csr.rhm) |
 | Normalized ISA claims and MISA projection | [`isa/profile.rhm`](isa/profile.rhm), tested by [`tests/profile-test.rhm`](tests/profile-test.rhm) |
+| Implementation-neutral hart, MMU, cache, and CBO description | [`isa/hart.rhm`](isa/hart.rhm), tested by [`tests/profile-test.rhm`](tests/profile-test.rhm) |
 | Pure vector geometry and data-overlap model | [`isa/vector.rhm`](isa/vector.rhm), tested by [`tests/vector-test.rhm`](tests/vector-test.rhm) |
 | Standard vector profile selection | [`isa/vector-profile.rhm`](isa/vector-profile.rhm) |
 | RVV 1.0 instruction catalog and fields | [`isa/v.rhm`](isa/v.rhm), tested by [`tests/vector-isa-test.rhm`](tests/vector-isa-test.rhm) |

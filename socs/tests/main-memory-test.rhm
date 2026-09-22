@@ -11,8 +11,8 @@ import:
 
 def compiled = compiler.compile_tiled_rv5stage_soc(tiled_rv5stage.default_tiled_rv5stage_soc_config)
 def systems = [
-  [single_core.single_core_rv5stage_soc_rv5stage_config, single_core.single_core_rv5stage_soc_params.description],
-  [mini_rv5stage.mini_rv5stage_soc_fabric_params.rv5stage_config, mini_rv5stage.mini_rv5stage_soc_params.description],
+  [single_core.single_core_rv5stage_soc_hart_config, single_core.single_core_rv5stage_soc_params.description],
+  [mini_rv5stage.mini_rv5stage_soc_fabric_params.hart_config, mini_rv5stage.mini_rv5stage_soc_params.description],
   [compiled.rv5stage_config, tiled_rv5stage.default_tiled_rv5stage_soc_config.description]
 ]
 
@@ -41,7 +41,7 @@ for ([config, description] in systems):
       contained ~is #true
     mapped_bytes := mapped_bytes + address_count(region.physical.address_set.mask)
   // The sparse tiled bank sets must partition, not merely sample, described RAM.
-  // RV5StageCHIConfig already rejects overlapping regions. Cardinality plus
+  // RiscvHartCHIConfig already rejects overlapping regions. Cardinality plus
   // containment proves that no described RAM byte is omitted from these PMAs.
   for (memory in description.memory_regions): described_bytes := described_bytes + memory.size_bytes
   check: mapped_bytes ~is described_bytes

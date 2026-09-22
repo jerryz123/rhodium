@@ -103,7 +103,7 @@ def single_core_rv5stage_soc_params = SingleCoreRV5StageSoCParams(
   ~llc_sets: 64,
   ~llc_ways: 4
 )
-def single_core_rv5stage_soc_rv5stage_config = single_core_rv5stage_soc_params.fabric.rv5stage_config
+def single_core_rv5stage_soc_hart_config = single_core_rv5stage_soc_params.fabric.hart_config
 def single_core_rv5stage_soc_home_map :: CHIHomeMap = single_core_rv5stage_soc_params.fabric.home_map
 def single_core_rv5stage_soc_rv5stage_params = single_core_rv5stage_soc_params.fabric.rv5stage_params
 def single_core_rv5stage_soc_instruction_port = single_core_rv5stage_soc_params.fabric.instruction_port
@@ -156,7 +156,7 @@ sync_circuit SingleCoreRV5StageSoC(params :: SingleCoreRV5StageSoCParams = singl
   interface uart(SoCUartInterface(), ~role: soc)
 
   def HomeModule = CHIInclusiveHNF(params.llc_config)
-  populate_single_core(fabric_params, params.description, host, memory, uart, ~home: HomeModule)
+  populate_single_core(fabric_params, params.description, params.core_profile, host, memory, uart, ~home: HomeModule)
 
 def design = elaborate(SingleCoreRV5StageSoC())
 
@@ -172,7 +172,7 @@ export:
   single_core_rv5stage_soc_host_node
   SingleCoreRV5StageSoCParams
   single_core_rv5stage_soc_params
-  single_core_rv5stage_soc_rv5stage_config
+  single_core_rv5stage_soc_hart_config
   single_core_rv5stage_soc_rv5stage_params
   single_core_rv5stage_soc_host_port
   single_core_rv5stage_soc_instruction_port

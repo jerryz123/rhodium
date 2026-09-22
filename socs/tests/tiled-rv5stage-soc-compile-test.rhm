@@ -26,7 +26,7 @@ check:
   description.model ~is "Rhodium Tiled RV5Stage SoC"
   description.compatible ~is ["rhodium,tiled-rv5stage-soc"]
   description.harts ~is [0, 1, 2, 3, 4, 5, 6, 7]
-  description.core_profile === tiled.default_tiled_rv5stage_soc_config.core_profile ~is #true
+  description.hart.isa_profile.isa_extensions ~is tiled.default_tiled_rv5stage_soc_config.core_profile.isa_profile.isa_extensions
   description.clocks === tiled.default_tiled_rv5stage_soc_config.clocks ~is #true
   description.memory_regions[0].base ~is 0x80000000
   description.memory_regions[0].size_bytes ~is 0x40000000

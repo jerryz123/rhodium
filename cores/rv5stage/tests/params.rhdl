@@ -13,9 +13,10 @@ import:
 def test_rv5stage_flit = CHIFlitParams()
 def test_rv5stage_home = CHIHomeParams("test-rv5stage-home", 1, CHINodeKind.HNF, ~max_outstanding: 2)
 def test_rv5stage_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
-def test_rv5stage_chi_config = RV5StageCHIConfig(
+def test_rv5stage_chi_config = RiscvHartCHIConfig(
   test_rv5stage_flit,
-  [RV5StageCHIRegion(
+  64,
+  [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(0, (1 << test_rv5stage_flit.request_address_width) - 1),
        test_rv5stage_memory_attributes
@@ -29,19 +30,20 @@ def test_rv5stage_chi_params = RV5StageCHIParams(test_rv5stage_chi_config, 2, 3)
 def test_rv5stage_uncached_home = CHIHomeParams("test-rv5stage-uncached", 4, CHINodeKind.HNI, ~max_outstanding: 1)
 def test_rv5stage_device_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)
 def test_rv5stage_uncached_executable_attributes = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true)
-def test_rv5stage_uncached_config = RV5StageCHIConfig(
+def test_rv5stage_uncached_config = RiscvHartCHIConfig(
   test_rv5stage_flit,
-  [RV5StageCHIRegion(
+  64,
+  [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(AddressSet(0x0000, 0x7fff),
                                test_rv5stage_memory_attributes),
      test_rv5stage_home
    ),
-   RV5StageCHIRegion(
+   RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x3fff),
                                test_rv5stage_device_attributes),
      test_rv5stage_uncached_home
    ),
-   RV5StageCHIRegion(
+   RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(AddressSet(0xc000, 0x3fff),
                                test_rv5stage_uncached_executable_attributes),
      test_rv5stage_uncached_home

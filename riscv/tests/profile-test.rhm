@@ -5,6 +5,7 @@
 import:
   "../isa/profile.rhm" open
   "../isa/xlen.rhm".XLen
+  "../isa/hart.rhm" open
 
 def rv32 = RiscvIsaProfile(
   XLen.X32,
@@ -26,3 +27,8 @@ check:
   rv64.misa_value ~is 0x800000000000112d
   RiscvIsaProfile(XLen.X64, ["i", "i"], [MisaExtension.I]) ~throws "unique"
   RiscvIsaProfile(XLen.X64, ["i"], [MisaExtension.I, MisaExtension.I]) ~throws "unique"
+  RiscvCacheDescription(64, 64, 4096).ways ~is 1
+  RiscvCacheDescription(64, 64, 16384).ways ~is 4
+  RiscvCacheDescription(64, 3, 4096) ~throws "whole number"
+  RiscvHartDescription(rv32, RiscvMmuType.Sv39, RiscvCacheDescription(64, 64, 4096), RiscvCacheDescription(64, 64, 4096)) ~throws "Sv39"
+  RiscvHartDescription(RiscvIsaProfile(XLen.X64, ["i", "zic64b"], [MisaExtension.I]), RiscvMmuType.Bare, RiscvCacheDescription(64, 64, 4096), RiscvCacheDescription(64, 64, 4096)) ~throws "CBO block size"

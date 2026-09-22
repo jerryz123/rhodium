@@ -54,7 +54,7 @@ check:
   relocated.home_map.entry(0x1000) ~is #false
   relocated.boot.program.size_bytes ~is 40
   riscv_soc_boot_config(~boot_address_register: 0x1008) ~throws "page aligned"
-  system_params(0x40000000, 12, 0x40000000, 0x40000000).rv5stage_config ~throws "overlap"
+  system_params(0x40000000, 12, 0x40000000, 0x40000000).hart_config ~throws "overlap"
   params.device_home_params.requester_endpoints[1].kind ~is CHINodeKind.RNF
   params.device_home_params.requester_endpoints[1].supports.req ~is [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl]
   params.device_home_params.requester_endpoints[1].emits.snp ~is []
@@ -72,7 +72,7 @@ check:
   params.home_map.entry(0x4001ffff).home.node_id ~is 15
   params.home_map.entry(0x40020000) ~is #false
   params.home_map.entry(SoCAclintBase).home.node_id ~is 16
-  params.rv5stage_config.flit.data_width ~is 256
+  params.hart_config.flit.data_width ~is 256
   params.home_params.subordinate_endpoint.node_id ~is 19
   params.device_home_params.home.node_id ~is 16
   params.instruction_site.node_id ~is 12

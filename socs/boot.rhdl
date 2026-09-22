@@ -8,7 +8,7 @@ import:
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/fabric.rhdl").CHIHomeParams
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIRegion
+  lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("devices/bootrom-image.rhm") open
@@ -114,7 +114,7 @@ class SoCBootROMParams(flit :: CHIFlitParams,
                      rom_layout,
                      ~base_address: boot.reset_address)
   property region:
-    RV5StageCHIRegion(
+    RiscvHartCHIRegion(
       RiscvPhysicalMemoryRegion(
         AddressSet(boot.reset_address, boot.window_bytes - 1),
         soc_bootrom_attributes

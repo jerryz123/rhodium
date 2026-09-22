@@ -1,0 +1,27 @@
+#lang rhombus
+// Checks that Spike-owned configuration projects the shared architectural hart description.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../profile.rhm".SpikeConfig
+  "../../../riscv/isa/hart.rhm" open
+  "../../../riscv/isa/profile.rhm" open
+  "../../../riscv/isa/xlen.rhm".XLen
+
+def isa = RiscvIsaProfile(
+  XLen.X64,
+  ["i", "m", "a", "zic64b"],
+  [MisaExtension.I, MisaExtension.M, MisaExtension.A]
+)
+def cache = RiscvCacheDescription(64, 64, 4096)
+def architecture = RiscvHartDescription(
+  isa,
+  RiscvMmuType.Sv39,
+  cache,
+  cache,
+  ~cbo_block_bytes: 64
+)
+def config = SpikeConfig(architecture)
+
+check:
+  config.hart_description === architecture ~is #true

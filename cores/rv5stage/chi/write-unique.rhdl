@@ -23,7 +23,7 @@ bundle RV5StageWriteUniqueResult(Context :: DataType):
 
 sync_circuit RV5StageWriteUnique(Context :: DataType,
                                  address_width :: PosInt,
-                                 config :: RV5StageCHIConfig,
+                                 config :: RiscvHartCHIConfig,
                                  txn_id :: Nat):
   def p = config.flit
   unless bits.length(txn_id) <= 12

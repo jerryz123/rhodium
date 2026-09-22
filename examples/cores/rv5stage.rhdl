@@ -4,7 +4,7 @@
 
 import:
   lib("cores/rv5stage/rv5stage.rhdl") open
-  lib("cores/rv5stage/chi/foundation.rhdl") open
+  lib("cores/riscv/chi-hart.rhdl") open
   lib("cores/rv5stage/profile.rhm") open
   lib("chi/main.rhdl") open
   lib("riscv/isa/c.rhm") open
@@ -14,9 +14,10 @@ import:
 def example_flit = CHIFlitParams()
 def example_home = CHIHomeParams("example-home", 1, CHINodeKind.HNF, ~max_outstanding: 2)
 def example_memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
-def example_chi_config = RV5StageCHIConfig(
+def example_chi_config = RiscvHartCHIConfig(
   example_flit,
-  [RV5StageCHIRegion(
+  64,
+  [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
        AddressSet(0, (1 << example_flit.request_address_width) - 1),
        example_memory_attributes

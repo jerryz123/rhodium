@@ -20,15 +20,15 @@ def description :: RiscvSoCDescription = match name
 | "tiled-rv5stage-soc": tiled_rv5stage.default_tiled_rv5stage_soc_config.description
 | ~else: error(~who: #'write_program_target, "expected single-core-rv5stage-soc, mini-rv5stage-soc, or tiled-rv5stage-soc")
 def compiler_target = gnu_isa_target(
-  description.core_profile.xlen,
-  description.core_profile.isa_profile.isa_extensions
+  description.hart.xlen,
+  description.hart.isa_profile.isa_extensions
 )
 
 // ISA extension names are canonical identifiers from the core profile.
-def extensions = String.join(description.core_profile.isa_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
+def extensions = String.join(description.hart.isa_profile.isa_extensions.map(fun (extension :: String): "\"" ++ extension ++ "\""), ",")
 def region_strings = for List (region in description.memory_regions):
   "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
 def regions = String.join(region_strings, ",")
 filesystem.write_string(arguments[1],
-                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.core_profile.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"ram\":[" ++ regions ++ "]}\n",
+                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"ram\":[" ++ regions ++ "]}\n",
                         ~exists: #'truncate)

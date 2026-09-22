@@ -8,6 +8,7 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
+  "../../../riscv/isa/hart.rhm".RiscvMmuType
 
 def rv64_integer = RV5StageConfig(
   ~xlen: XLen.X64,
@@ -104,6 +105,15 @@ check:
   ]
   rv32_half.cache_geometry.instruction.capacity_bytes ~is 4096
   rv32_half.cache_geometry.data.capacity_bytes ~is 4096
+  rv64_integer.hart_description.isa_profile.isa_extensions ~is rv64_integer.isa_profile.isa_extensions
+  rv64_integer.hart_description.xlen ~is XLen.X64
+  rv64_integer.hart_description.mmu_type ~is RiscvMmuType.Sv39
+  rv64_integer.hart_description.instruction_cache.block_bytes ~is RV5StageCacheLineBytes
+  rv64_integer.hart_description.instruction_cache.sets ~is 64
+  rv64_integer.hart_description.instruction_cache.size_bytes ~is 4096
+  rv64_integer.hart_description.instruction_cache.ways ~is 1
+  rv64_integer.hart_description.data_cache.size_bytes ~is 4096
+  rv64_integer.hart_description.cbo_block_bytes ~is RV5StageCacheLineBytes
 
 // Memory guarantees are independent opt-ins and do not alter misa.
 for (xlen in [XLen.X32, XLen.X64]):

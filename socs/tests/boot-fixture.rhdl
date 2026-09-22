@@ -20,7 +20,7 @@ def description = RiscvSoCDescription(
   ~model: "Rhodium boot fixture",
   ~compatible: ["rhodium,boot-fixture"],
   ~harts: [0, 1, 2, 3],
-  ~core_profile: RV5StageConfig(~xlen: XLen.X64),
+  ~hart: RV5StageConfig(~xlen: XLen.X64).hart_description,
   ~clocks: SoCClockConfig(
     ~clock_frequency_hz: 100000000,
     ~timebase_frequency_hz: 1000000

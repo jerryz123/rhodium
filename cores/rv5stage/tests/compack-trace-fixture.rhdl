@@ -11,9 +11,9 @@ import:
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/rtl/pma.rhdl") open
 
-def config = RV5StageCHIConfig(test_rv5stage_flit, [
-  RV5StageCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), test_rv5stage_memory_attributes), test_rv5stage_home),
-  RV5StageCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_rv5stage_uncached_home)
+def config = RiscvHartCHIConfig(test_rv5stage_flit, 64, [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 0x7fff), test_rv5stage_memory_attributes), test_rv5stage_home),
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x8000, 0x7fff), RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)), test_rv5stage_uncached_home)
 ])
 
 sync_circuit EventCompAck():

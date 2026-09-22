@@ -40,7 +40,7 @@ for ([attributes, diagnostic] in [
   [RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #false, #false, #true), "Ziccamoa"]
 ]):
   def region = config.regions[0]
-  def restricted = chi.RV5StageCHIConfig(config.flit, [chi.RV5StageCHIRegion(
+  def restricted = chi.RiscvHartCHIConfig(config.flit, config.cache_line_bytes, [chi.RiscvHartCHIRegion(
     RiscvPhysicalMemoryRegion(region.physical.address_set, attributes), region.home
   )])
   check:
@@ -55,7 +55,7 @@ for (attributes in [
   RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #true, #false, #false)
 ]):
   def region = config.regions[0]
-  def restricted = chi.RV5StageCHIConfig(config.flit, [chi.RV5StageCHIRegion(
+  def restricted = chi.RiscvHartCHIConfig(config.flit, config.cache_line_bytes, [chi.RiscvHartCHIRegion(
     RiscvPhysicalMemoryRegion(region.physical.address_set, attributes), region.home
   )])
   for (xlen in [XLen.X32, XLen.X64]):
@@ -97,8 +97,11 @@ check:
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64, ~extensions: core_profile.RV5StageExtensions(~compressed: compressed_extensions(CompressedExtension.Zca))), ~chi: config, ~reset_address: 1)
   ) ~throws "instruction aligned"
-  chi.RV5StageCHIParams(config, 1, 3) ~throws "distinct"
-  chi.RV5StageCHIParams(config, 128, 3) ~throws "fit"
+  chi.RiscvHartCHIParams(config, 1, 3) ~throws "distinct"
+  chi.RiscvHartCHIParams(config, 128, 3) ~throws "fit"
+  embedded.run_elaboration(
+    fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X64), ~chi: chi.RiscvHartCHIConfig(config.flit, 32, config.regions), ~reset_address: 0)
+  ) ~throws "64-byte CHI cache lines"
 
 for (xlen in [XLen.X32, XLen.X64]):
   check:

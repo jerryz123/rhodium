@@ -1,0 +1,123 @@
+#lang rhodium
+// Defines implementation-neutral CHI regions, placement, and identities for a RISC-V hart.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/link.rhdl") open
+  lib("chi/protocol/fabric.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+
+class RiscvHartCHIRegion(physical :: RiscvPhysicalMemoryRegion,
+                         home :: CHIHomeParams):
+  implements StableCircuitParam
+
+class RiscvHartCHIConfig(flit :: CHIFlitParams,
+                         cache_line_bytes :: Pow2Int,
+                         regions :: NonemptyList.of(RiscvHartCHIRegion),
+                         home_map :: CHIHomeMap,
+                         physical_map :: RiscvPhysicalMemoryMap):
+  implements StableCircuitParam
+
+  property normal_address_sets:
+    regions.filter(
+      ~keep: fun (region): region.physical.attributes.cacheable
+    ).map(fun (region): region.physical.address_set)
+  property uncached_address_sets:
+    regions.filter(
+      ~keep: fun (region): !region.physical.attributes.cacheable
+    ).map(fun (region): region.physical.address_set)
+  property has_uncached: uncached_address_sets.length() > 0
+
+  constructor (flit :: CHIFlitParams,
+               cache_line_bytes :: Pow2Int,
+               regions :: NonemptyList.of(RiscvHartCHIRegion)):
+    unless for any (region in regions): region.physical.attributes.cacheable
+    | error(~who: #'RiscvHartCHIConfig,
+            "hart map must contain at least one cacheable normal-memory range")
+    for (region in regions):
+      def attributes = region.physical.attributes
+      unless attributes.readable || attributes.writable || attributes.executable
+      | error(~who: #'RiscvHartCHIConfig,
+              "hart physical-memory region must permit at least one access")
+      unless (!attributes.atomic) || (attributes.readable && attributes.writable)
+      | error(~who: #'RiscvHartCHIConfig,
+              "atomic hart physical memory must be readable and writable")
+      unless (!attributes.executable) || attributes.read_idempotent
+      | error(~who: #'RiscvHartCHIConfig,
+              "executable hart regions must permit idempotent reads")
+      unless attributes.cacheable == (region.home.kind == CHINodeKind.HNF)
+      | error(~who: #'RiscvHartCHIConfig,
+              "cacheable hart regions require HN-F Homes and uncached regions require HN-I Homes")
+      unless (!attributes.cacheable) || attributes.instruction_cacheable
+      | error(~who: #'RiscvHartCHIConfig,
+              "coherent hart regions require instruction cacheability")
+      unless (!(attributes.cacheable || attributes.instruction_cacheable)) || (
+        (region.physical.address_set.mask bits.and (cache_line_bytes - 1)) == (
+          cache_line_bytes - 1
+        )
+      )
+      | error(~who: #'RiscvHartCHIConfig,
+              "cacheable hart regions must contain complete cache lines")
+    super(
+      flit,
+      cache_line_bytes,
+      regions,
+      CHIHomeMap(
+        flit,
+        regions.map(fun (region): CHIHomeMapEntry(region.physical.address_set,
+                                                  region.home))
+      ),
+      RiscvPhysicalMemoryMap(flit.request_address_width,
+                             regions.map(fun (region): region.physical))
+    )
+
+class RiscvHartCHIParams(config :: RiscvHartCHIConfig,
+                         instruction_node_id :: Nat,
+                         data_node_id :: Nat,
+                         uncached_node_id :: Nat):
+
+  property flit: config.flit
+  property home_map: config.home_map
+
+  constructor (config :: RiscvHartCHIConfig,
+               instruction_node_id :: Nat,
+               data_node_id :: Nat,
+               ~uncached_node_id: uncached_node_id :: Nat = 0):
+    unless bits.length(instruction_node_id) <= config.flit.node_id_width
+    | error(~who: #'RiscvHartCHIParams,
+            "instruction NodeID must fit in the CHI NodeID width")
+    unless bits.length(data_node_id) <= config.flit.node_id_width
+    | error(~who: #'RiscvHartCHIParams,
+            "data NodeID must fit in the CHI NodeID width")
+    unless instruction_node_id != data_node_id
+    | error(~who: #'RiscvHartCHIParams,
+            "instruction and data NodeIDs must be distinct")
+    if config.has_uncached
+    | block:
+        unless bits.length(uncached_node_id) <= config.flit.node_id_width
+        | error(~who: #'RiscvHartCHIParams,
+                "uncached NodeID must fit in the CHI NodeID width")
+        unless uncached_node_id != instruction_node_id && uncached_node_id != data_node_id
+        | error(~who: #'RiscvHartCHIParams,
+                "instruction, data, and uncached NodeIDs must be distinct")
+    | #void
+    for (entry in config.home_map.entries):
+      unless entry.target_node_id != instruction_node_id && entry.target_node_id != data_node_id && (
+        (!config.has_uncached) || (entry.target_node_id != uncached_node_id)
+      )
+      | error(~who: #'RiscvHartCHIParams,
+              "Home, instruction, data, and uncached NodeIDs must be distinct")
+    super(config, instruction_node_id, data_node_id, uncached_node_id)
+
+bundle RiscvHartCHIIdentity(p :: CHIFlitParams):
+  instruction_node_id: Bits(p.node_id_width)
+  data_node_id: Bits(p.node_id_width)
+  uncached_node_id: Bits(p.node_id_width)
+
+export:
+  RiscvHartCHIRegion
+  RiscvHartCHIConfig
+  RiscvHartCHIParams
+  RiscvHartCHIIdentity

@@ -1,0 +1,15 @@
+#lang rhombus
+// Defines the implementation-owned configuration boundary for a future Spike-backed core.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("riscv/isa/hart.rhm").RiscvHartDescription
+
+class SpikeConfig(architecture :: RiscvHartDescription):
+  implements StableCircuitParam
+
+  property hart_description :: RiscvHartDescription: architecture
+
+export:
+  SpikeConfig

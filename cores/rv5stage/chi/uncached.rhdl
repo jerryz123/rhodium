@@ -26,7 +26,7 @@ hardware_enum RV5StageUncachedState:
   WriteResponse
 
 sync_circuit RV5StageUncached(xlen :: XLen,
-                              config :: RV5StageCHIConfig,
+                              config :: RiscvHartCHIConfig,
                               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   def p = config.flit
