@@ -173,3 +173,22 @@ Repeated nested occurrences also pass 256-cycle independent-state replay for
 direct, mixed, and expanded choices. These results close the nested validation
 items listed above. Typed payload regions, broader effect/error and wide/vector
 coverage, performance measurements, and simulator-suite migration remain open.
+
+## Payload region foundation
+
+Core now exposes `PayloadRegion`, `payload_region`, and
+`verify_payload_region`. A region partitions every input of a pure core module
+into typed arguments and explicit live capture ports. Its `CoreImplementation`
+contract derives leaf dependencies from the body. Verification seals the design,
+checks the complete input partition, rejects state/effects/control ports through
+hierarchy, and checks explicitly supplied dependency contracts.
+
+This is a computation representation, not completed higher-order retention.
+Connecting regions to retained construct declarations, extracting frontend
+captures, retaining `map_flow`, and testing changing captures under stalls
+remain required before gate 6 is complete.
+
+The focused payload/composition batch passes 37 checks, including explicit
+capture coverage, pure hierarchical dependencies, state rejection, sealing, and
+understated dependency diagnostics. Boundary, license, and CI-routing checks pass.
+This evidence does not yet cover captured computation during native execution.

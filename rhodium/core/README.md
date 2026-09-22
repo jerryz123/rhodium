@@ -700,3 +700,23 @@ records implement this protocol.
 verification seals the design. This lets transformation passes rebuild metadata
 once all hardware mappings exist. Attaching metadata to a sealed design remains
 an error. Materialization does not rewrite source hardware or metadata.
+
+## Payload computation regions
+
+`payload_region(module_def, arguments, captures)` builds a `PayloadRegion` from
+an ordinary pure core module. `arguments` and `captures` are disjoint lists of
+input-port names and together must cover every input. Port types define the
+argument, capture, and result types. Capture ports receive live hardware values;
+they do not hold elaboration-time snapshots. Results are the module output ports.
+
+The region's `implementation` is a `CoreImplementation` that can be connected as
+a leaf in a `HardwareComposition`. Its contract derives field-level dependencies
+from the module body. The factory verifies and seals the owning design; finish
+building that design before creating a region. `verify_payload_region` also
+checks explicitly constructed records, including their declared dependencies.
+Regions permit pure hierarchical computation and reject state, effects, control
+ports, and unexpanded constructs. Transport state and effects belong outside the
+payload computation.
+
+This core API does not yet retain `map_flow` automatically. Frontend capture
+extraction and higher-order construct integration remain under development.

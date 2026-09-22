@@ -195,3 +195,13 @@ never imports an extension owner. Run `tests/metadata-remap-test.rhm` and event
 materialization coverage for ownership, sealing, endpoint identity, and trace
 preservation. An explicit hardware-only option retains source metadata without
 attaching it to the copied design.
+
+## Payload region ownership
+
+`payload.rhm` owns the typed argument/capture partition and pure computation
+checks. It reuses `CoreImplementation`, whole-design verification, and public
+leaf dependency analysis; it does not introduce another expression opcode set.
+Validate all descendant modules, including unused operations, before accepting
+a region as pure. Keep frontend capture discovery and Flow transport contracts
+outside core. Run `tests/payload-test.rhm` for explicit capture coverage,
+immutability, purity, and dependency-contract rejection.

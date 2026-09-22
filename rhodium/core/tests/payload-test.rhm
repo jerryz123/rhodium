@@ -1,0 +1,66 @@
+#lang rhombus
+// Checks typed payload arguments, explicit captures, purity, and precise public dependencies.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("CapturedAdd")
+def payload = builder.input(module_def, "payload", Bits(8))
+def bias = builder.input(module_def, "bias", Bits(8))
+def result = builder.output(module_def, "result", Bits(8))
+builder.drive(result, builder.add(module_def, payload, bias))
+builder.finish(module_def)
+def region = payload_region(module_def, ["payload"], ["bias"])
+check:
+  region.arguments ~is ["payload"]
+  region.captures ~is ["bias"]
+  region.implementation.contract.dependencies[0].inputs.map(fun (leaf): leaf.port).sort() ~is ["bias", "payload"]
+  payload_region(module_def, ["payload"], []) ~throws "every input"
+  payload_region(module_def, ["payload"], ["payload"]) ~throws "distinct"
+  payload_region(module_def, ["payload"], ["unknown"]) ~throws "every input"
+  builder.module("LateModule") ~throws "sealed"
+
+// Even a derived internal clock cannot hide state inside a payload region.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def cell = builder.module("StatefulPayload")
+  def clock_bits = builder.input(cell, "clock_bits", Bits(1))
+  def clock = builder.cast(cell, clock_bits, Clock)
+  def state = builder.register(cell, "state", Bits(8), clock)
+  builder.drive(state.next, state.current)
+  builder.finish(cell)
+  check:
+    payload_region(cell, [], ["clock_bits"]) ~throws "state or effects"
+
+// A public region cannot advertise fewer dependencies than its body actually reads.
+block:
+  def body = region.implementation
+  def false_contract = ConstructContract(body.contract.ports, [ConstructDependency(PortLeaf("result"), [PortLeaf("payload")])], [], [], [])
+  check:
+    verify_payload_region(PayloadRegion(CoreImplementation(module_def, false_contract), ["payload"], ["bias"])) ~throws "undeclared combinational dependency"
+
+// A pure child receives the current capture through ordinary instance wiring.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("CapturedChild")
+  def x = builder.input(child, "x", Bits(8))
+  def capture = builder.input(child, "capture", Bits(8))
+  def y = builder.output(child, "y", Bits(8))
+  builder.drive(y, builder.add(child, x, capture))
+  builder.finish(child)
+  def parent = builder.module("CapturedParent")
+  def input = builder.input(parent, "input", Bits(8))
+  def live = builder.input(parent, "live", Bits(8))
+  def output = builder.output(parent, "output", Bits(8))
+  def instance = builder.instance(parent, child, "compute")
+  builder.drive(instance.input("x"), input)
+  builder.drive(instance.input("capture"), live)
+  builder.drive(output, instance.output("y"))
+  builder.finish(parent)
+  def hierarchical = payload_region(parent, ["input"], ["live"])
+  check:
+    hierarchical.implementation.contract.dependencies[0].inputs.map(fun (leaf): leaf.port).sort() ~is ["input", "live"]
