@@ -619,3 +619,21 @@ compilation, the complete TLB replay, boundary/license/CI-routing checks, shell
 syntax, and whitespace validation pass. Remaining work includes harness and
 legacy coverage auditing, fresh integrated validation, and performance
 measurements. These focused results do not replace a complete-suite baseline.
+
+## Native harness regression migration
+
+The [dependent harness migration](https://github.com/tianrui-wei/rhodium/commit/73b741b)
+restores benchmark audit and host-loader utilities under `sims/native`, with
+package-local tests. Timing-gate rejection, subprocess environment isolation,
+shared-inode staging, and immutable artifact audits pass. Loader trace hashing
+passes 250,000 independent reset/handshake/wide-input comparisons; sized
+transactions, acknowledged boot, polling, reset, and response errors pass.
+The original runtime smoke driver also compiles against the current runtime.
+These helper tests do not establish an end-to-end SoC boot or measured
+profile-guided speedup.
+
+The selective runner includes the harness gate. Boundary, license-header,
+CI-routing, shell syntax, and whitespace checks pass. A fresh integrated run
+has been started; its result is not yet evidence of completion. Optional legacy
+profiling/specialization coverage auditing and performance measurements remain
+open alongside integrated validation.
