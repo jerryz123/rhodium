@@ -111,19 +111,13 @@ stand in for a declared boundary clock. Derived controls need explicit support.
 The optional `SemanticNode` mechanism remains descriptive and is not the
 executable construct protocol. The dependent branch establishes the initial mixed-design execution milestone.
 
-## Next execution gates
+## Completion status
 
+All six execution gates are implemented and locally validated. The final
+acceptance audit and measured limitations appear at the end of this document.
 The evidence sections below are chronological; their pending-work statements
-record the scope at that point. This list is the current remaining scope:
-
-- Measure elaboration and compilation time, emitted size, peak memory, and
-  throughput for identical direct and expanded workloads after correctness.
-- Complete the final source/PR scope audit and publish the measured limitations.
-
-Typed payload regions, frontend capture extraction, retained maps, nested native
-composition, and initial captured-map execution are implemented; see the later
-evidence sections. Completion requires the remaining gates above, not just the
-initial mixed Queue milestone.
+record the scope at that point, not current outstanding work. Simulator sources
+remain on the separate dependent branch. No remote CI success is claimed.
 
 ## Dependent native progress
 
@@ -724,3 +718,38 @@ timings; peak lowering memory describes the matched batch. The report records
 raw samples, source/tool identities, affinity, and includes host stimulus,
 oracle, and port access in checked-cycle throughput. No completed full-matrix
 performance result or whole-SoC speedup is claimed yet.
+
+## Final measurements and acceptance audit
+
+The completed [measurement report](https://github.com/tianrui-wei/rhodium/blob/891457eba22036781ee0cc0b47aa6ba5b4cf0333/rhodium/sim/SELECTIVE_MEASUREMENTS.md) records the exact source revision,
+reproduction command, host/tool identities, raw-report hash, medians, and limits.
+All 36 model samples and 72 million checked interpreter/generated-C cycles pass.
+Direct Queue expansion counts are zero; expanded counts are one. Model hashes
+are stable across repetitions and execution checksums agree. A cache-stability
+guard rejects bytecode changes during measured emission; earlier unstable-cache
+process/RSS samples were discarded.
+
+For these small eight-bit mixed Queue circuits, direct images are 792–804 bytes
+versus 876–1,942 expanded. Median lowering at depths three/eight is 3.97–4.75 ms
+versus 7.42–7.77 ms. Compiled checked throughput is roughly similar overall;
+expanded depth-one RTL is faster. Peak batch RSS is effectively unchanged
+(262.34/262.60 MiB medians). Throughput includes host stimulus, the independent
+oracle, and port access. These measurements do not establish whole-SoC speedup.
+
+| Gate | Acceptance evidence |
+|---|---|
+| Public contracts and scoped composition | Core construct/composition/operation tests cover nominal identities, typing, complete leaf dependencies, ownership/drivers, true versus false cycles, clocks/resets, and effect mappings. Core remains independent of frontend, Flow, and simulation. |
+| Deferred local selection | Frontend declaration tests, recursive resolver tests, retained Queue counters/sentinels, and repeated-occurrence replay establish selection before bodies, per-occurrence choices, cached portable definitions, and ambiguity/non-progress diagnostics. |
+| Portable RTL/SystemVerilog | The 32-configuration Queue comparison and retained pipe comparisons preserve normalized per-module CIRCT, names, hierarchy, and dependencies. Event manifest comparisons and event CIRCT fixtures preserve tracing. Fresh emitted SystemVerilog retains Queue/Counter modules, packed interfaces, named state, and the counter assertion. |
+| Unified execution | The completed selective host suite covers native/expanded/mixed siblings, independent state, shared scheduling, pre/post-edge observation, reset, assertion failure/retry, and external callback preflight/publication. |
+| Differential correctness | The fresh integrated run passes 889 retained host checks, all retained interpreter/generated-C replays, and every migrated runtime/core/object/harness group. The complete retained CIRCT/Verilator run passes separately, as do optional external-specialization and ordinary-core Verilator comparisons. |
+| Nested and higher-order semantics | Typed payload-region tests and captured scalar/record/vector/65-bit/nested-aggregate replays preserve live captures and leaf-sensitive feedback. Nested compositions and mixed pipe families pass three-way replay. The repeated measurement matrix above completes the performance gate. |
+| Delivery | Separate worktrees preserve the user's primary checkout. PR #4 contains public IR/frontend/portable Flow changes and evidence, with no `rhodium/sim/` or `sims/native/` implementation files. The dependent branch contains the native consumer and measurement tools. |
+
+Supported limits remain explicit in the owning READMEs: derived clock controls
+need richer contracts, native execution uses its declared synchronous timing
+boundary, and external side effects already performed by a failing callback
+cannot be rolled back. Direct adapters remain consumer-owned; generic fallback
+supports ordinary core inputs and constructs without a direct adapter. Runtime
+and performance evidence does not claim every Flow construct has a direct native
+implementation. PR #4 reports no remote checks; the evidence here is local.

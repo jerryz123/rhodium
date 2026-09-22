@@ -570,8 +570,8 @@ need to select implementations before expanding hardware. This is executable
 structure, separate from the descriptive `SemanticNode` metadata above. The
 frontend can retain declarations as `construct.apply` operations in the same
 module DFG with `~constructs: #true`; ordinary elaboration executes the portable
-body. The [selective lowering plan](SELECTIVE_LOWERING_PLAN.md) tracks the
-remaining consumer integration.
+body. The [selective lowering plan](SELECTIVE_LOWERING_PLAN.md) records the
+implementation, consumer validation, and measured limitations.
 
 A library exports a nominal `ConstructIdentity(name, version)` and creates a
 `ConstructSpecialization(identity, parameters, contract)` for each parameter
