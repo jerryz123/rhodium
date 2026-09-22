@@ -7,6 +7,8 @@ import:
   "../core/types.rhm" open
   "../core/construct.rhm" open
   "../core/composition.rhm".bind_core_implementation
+  "kernel.rhm".payload_expansion
+  "kernel.rhm".PayloadExpansion
   "kernel.rhm".construct_signature
   "kernel.rhm".construct_implementation as kernel_construct_implementation
   "kernel.rhm".StableCircuitParam
@@ -53,6 +55,8 @@ export:
   ConstructContract
   ConstructSpecialization
   construct_signature
+  payload_expansion
+  PayloadExpansion
   implementation
   HardwareType
   DataType

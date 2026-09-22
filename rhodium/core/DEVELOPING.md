@@ -215,3 +215,11 @@ certification helpers are internal and are not re-exported by the public core.
 `lowering.rhm` compares regions by identity for expansion progress. Printer
 support exposes the body name and argument/capture split. Payload tests also
 exercise direct selection, deferred portable expansion, and materialization.
+
+`capture.rhm` owns operation-scope extraction and explicit source bindings. It
+allocates value/place maps before cloning connections, recursively copies pure
+child modules, rebuilds child output drives, and verifies the independent design.
+Preserve readable source names where possible and disambiguate against generated
+argument/capture/result names. Run `tests/capture-test.rhm` and
+`tests/capture-hierarchy-test.rhm` for ownership, open source modules, repeated
+captures, escaping writes, and aggregate dependencies through copied hierarchy.

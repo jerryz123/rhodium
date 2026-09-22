@@ -1,0 +1,145 @@
+#lang rhombus
+// Extracts scoped pure computations into independently owned payload regions with explicit live bindings.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "ir.rhm" open
+  "builder.rhm".Builder
+  "ops.rhm".schema_for
+  "payload.rhm" open
+
+export CapturedPayload capture_payload
+
+class CapturedPayload(region :: PayloadRegion, arguments :: List.of(Value), captures :: List.of(Value))
+
+fun fail(message): error(~who: #'capture_payload, message)
+
+// Operations delimit the source expansion; values defined outside it become captures.
+// The source may still be under construction. Only the independent copied design is sealed.
+fun capture_payload(source :: Module,
+                    operations :: List.of(Operation),
+                    arguments :: List.of(Value),
+                    results :: List.of(Value),
+                    ~name: name :: String = "Payload"):
+  def selected = MutableSet.by(===){}
+  def internal = MutableSet.by(===){}
+  for (operation in operations):
+    unless operation.module_def === source && source.find_operation(operation.id) === operation
+    | fail("operation belongs to a different scope")
+    when operation in selected | fail("duplicate scoped operation")
+    selected.add(operation)
+    for (value in operation.results): internal.add(value)
+  def external = MutableSet.by(===){}
+  for (value in arguments):
+    when value in external || value in internal | fail("arguments must be distinct values outside the computation")
+    external.add(value)
+  def captures = MutableList[]
+  fun observe(value):
+    unless value is_a Value && value.module_def === source && source.owns_value(value)
+    | fail("value belongs to a different scope or has no driver")
+    unless value in internal || value in external
+    | external.add(value)
+      captures.add(value)
+  for (value in arguments): observe(value)
+  for (operation in operations):
+    for (operand in operation.operands): observe(operand)
+    for (place in operation.places):
+      unless source.find_operation(place.owner_op_id) in selected
+      | fail("computation writes a place outside its scope")
+      when place.projected_places.length() != 0 | fail("finish aggregate place connections before capture")
+      when place.driver | observe(place.driver)
+  for (value in results): observe(value)
+
+  def design = Design()
+  def builder = Builder(design)
+  def children = MutableMap.by(===){}
+  def active = MutableSet.by(===){}
+  def mutable serial = 0
+  fun copy_child(child):
+    when child in active | fail("recursive payload module hierarchy")
+    unless children.has_key(child)
+    | active.add(child)
+      serial := serial + 1
+      while design.find_module_named("PayloadChild_" ++ to_string(serial)):
+        serial := serial + 1
+      fun body_operation(op):
+        !(op.opcode in ["rtl.input_port", "rtl.output_port"])
+          && !(op.opcode == "rtl.drive" && child.find_operation(op.places[0].owner_op_id).opcode == "rtl.output_port")
+      def child_operations = child.operations.filter(~keep: body_operation)
+      children[child] := copy_module(
+        child, child_operations, child.inputs.map(fun (port): [port.name, port.value]),
+        child.outputs.map(fun (port): [port.name, port.place.driver]), "PayloadChild_" ++ to_string(serial))
+      active.remove(child)
+    children[child]
+
+  fun copy_module(original, body, inputs, outputs, module_name):
+    def module_def = builder.module(module_name)
+    def values_by_source = MutableMap.by(===){}
+    def places = MutableMap.by(===){}
+    def ids = MutableMap.by(===){}
+    def names = MutableSet{}
+    for (port in inputs ++ outputs): names.add(port[0])
+    fun local_name(base):
+      def mutable candidate = base
+      def mutable suffix = 0
+      while candidate in names:
+        suffix := suffix + 1
+        candidate := base ++ "_payload_" ++ to_string(suffix)
+      names.add(candidate)
+      candidate
+    for (input in inputs): values_by_source[input[1]] := builder.input(module_def, input[0], input[1].type)
+    for (operation in body):
+      unless operation.module_def === original && original.find_operation(operation.id) === operation
+      | fail("foreign operation in payload body")
+      def schema = schema_for(operation.opcode)
+      unless schema && (schema.kind == "combinational" || operation.opcode in ["rtl.wire", "rtl.drive", "rtl.instance"])
+      | fail("payload scope contains state or effects: " ++ operation.opcode)
+      ids[operation] := design.fresh_id()
+      for (value in operation.results):
+        def replacement = Value(design.fresh_id(), local_name(value.name), value.type, module_def, ids[operation])
+        values_by_source[value] := replacement
+        module_def.add_value(replacement)
+      for (place in operation.places):
+        when place.owner_op_id == operation.id
+        | def replacement = Place(design.fresh_id(), local_name(place.name), place.type, module_def, ids[operation])
+          places[place] := replacement
+          module_def.add_place(replacement)
+    fun mapped(value):
+      unless values_by_source.has_key(value) | fail("unbound value in payload body")
+      values_by_source[value]
+    fun attribute(value):
+      cond
+      | value is_a Value: mapped(value)
+      | value is_a Place:
+          unless places.has_key(value) | fail("external place in payload body")
+          places[value]
+      | value is_a Module: copy_child(value)
+      | value is_a Memory || value is_a DpiImport: fail("payload computation requires an explicit resource capture")
+      | value is_a List: value.map(attribute)
+      | value is_a Map: for Map ((key, item) in value): values(key, attribute(item))
+      | ~else: value
+    for (operation in body):
+      def operands = operation.operands.map(mapped)
+      def replacement = Operation(
+        ids[operation], operation.opcode, module_def, operands,
+        operation.results.map(mapped),
+        operation.places.map(fun (place): places[place]),
+        attribute(operation.attributes), operation.location, operation.origin)
+      for (operand in operands): operand.add_user(replacement.id)
+      module_def.add_operation(replacement)
+    for ((original_place, replacement) in places):
+      when original_place.driver | replacement.set_driver(mapped(original_place.driver))
+    for (output in outputs):
+      def value = mapped(output[1])
+      builder.drive(builder.output(module_def, output[0], value.type), value)
+    builder.finish(module_def)
+    module_def
+
+  def argument_names = for List (index in 0..arguments.length()): "argument_" ++ to_string(index)
+  def capture_names = for List (index in 0..captures.length()): "capture_" ++ to_string(index)
+  def bindings = arguments ++ captures.snapshot()
+  def input_names = argument_names ++ capture_names
+  def inputs = for List (value in bindings, port_name in input_names): [port_name, value]
+  def outputs = for List (value in results, index in 0..results.length()): ["result_" ++ to_string(index), value]
+  def module_def = copy_module(source, operations, inputs, outputs, name)
+  CapturedPayload(payload_region(module_def, argument_names, capture_names), arguments, captures.snapshot())

@@ -731,3 +731,17 @@ in a larger composition. Explicitly constructed region records must pass
 distinct during recursive expansion checks; no equivalence of arbitrary payload
 programs is inferred. IR text identifies the body module and argument/capture
 partition.
+
+`capture_payload(source, operations, arguments, results, ~name: "Payload")`
+extracts a scoped computation while its source module is still being built.
+It returns `CapturedPayload(region, arguments, captures)`: the region owns an
+independent verified design, while the binding lists refer to the original live
+hardware values. Inputs are ordered as arguments followed by captures. Repeated
+references to the same external value share a capture port. A result outside the
+selected operation scope is also captured.
+
+The selected body can contain combinational operations, complete local wires,
+and pure module instances. Child modules are copied into the independent design.
+State, external effects, resource references, and writes outside the selected
+scope fail explicitly. Finish aggregate place connections before extracting
+them. Extraction does not seal or modify the enclosing design.

@@ -1,0 +1,41 @@
+#lang rhombus
+// Checks once-only payload elaboration and explicit live capture extraction in retained mode.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+  "../kernel.rhm" as kernel
+  "../foundation.rhm".elaborate_with_top
+  "../foundation.rhm".payload_expansion
+
+def mutable calls = 0
+def mutable captured = #false
+def identity = kernel.new_circuit_identity("PayloadCapture")
+fun circuit():
+  kernel.build_circuit(
+    identity, "PayloadCapture", [],
+    fun ():
+      def argument = kernel.input("payload", Bits(8))
+      def live = kernel.input("live", Bits(8))
+      def output = kernel.output("result", Bits(8))
+      def expansion = payload_expansion(
+        [argument],
+        fun ():
+          calls := calls + 1
+          kernel.hw_add(argument, live))
+      captured := expansion.captured
+      kernel.connect(output, expansion.value))
+
+def ordinary = elaborate_with_top(circuit())
+check:
+  calls ~is 1
+  captured ~is #false
+
+def retained = elaborate_with_top(circuit(), ~constructs: #true)
+check:
+  calls ~is 2
+  captured.captures.length() ~is 1
+  captured.captures[0] === retained.top.inputs[1].value ~is #true
+  captured.region.captures ~is ["capture_0"]
+  dump_ir(ordinary.design) ~is dump_ir(retained.design)
+  captured.region.implementation.module_def.design === retained.design ~is #false

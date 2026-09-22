@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "capture.rhm" open
   "payload.rhm" open
   "materialize.rhm" open
   "lowering.rhm" open
@@ -16,6 +17,7 @@ import:
   "printer.rhm" open
 
 export:
+  all_from("capture.rhm")
   all_from("payload.rhm")
   all_from("materialize.rhm")
   all_from("lowering.rhm")

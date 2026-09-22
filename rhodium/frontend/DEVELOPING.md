@@ -210,3 +210,10 @@ use the mapper's memoization when rebuilding these records. Trace controls
 owned by a child must use that instance's mapping scope. Immutable protocol
 and direction descriptors remain shared. Event materialization tests cover
 these contracts without a reverse dependency on the event package.
+
+`kernel.payload_expansion` normalizes arguments before recording the operation
+scope, invokes the payload callback once, and delegates retained-mode extraction
+to core. `foundation.rhm` exports this extension hook. Test it with
+`tests/payload-expansion-test.rhm`: ordinary and retained hardware must match,
+while retained captures reference the original module's live values. Keep
+transport identities and protocol policy in their owning library.

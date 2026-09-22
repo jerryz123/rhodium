@@ -209,3 +209,20 @@ uncertified-region rejection, direct selection without expansion, portable
 selection, materialization, and readable IR. Boundary, license, and CI-routing
 checks pass. Frontend capture extraction, retained `map_flow`, and changing-capture
 execution under stalls remain required; this is still partial gate-6 progress.
+
+## Scoped capture extraction
+
+`capture_payload` copies a scoped pure computation into an independent verified
+design and returns original argument/capture values for live binding. It
+coalesces repeated captures, includes external results, copies pure child
+modules, preserves aggregate dependencies and readable names, and rejects state,
+resources, and writes escaping the selected scope. The source design remains
+mutable. Aggregate place connections must be complete before extraction.
+
+The frontend `payload_expansion` hook invokes its callback once. Ordinary mode
+returns the original hardware result; retained mode also returns the extracted
+region and live bindings. The focused core/frontend batch passes 48 checks,
+including copied hierarchy, record-field dependencies, retained parameters, and
+identical ordinary/retained hardware. Boundary, license, and CI-routing checks
+pass. Retained `map_flow`, native execution with changing captures under stalls,
+and the other gate-6 work remain unfinished.

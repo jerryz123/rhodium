@@ -8,6 +8,7 @@ import:
   "../core/builder.rhm" open
   "../core/verify.rhm" open
   "../core/construct.rhm" open
+  "../core/capture.rhm" open
   "../core/dependencies.rhm".leaf_paths
 
 export:
@@ -23,6 +24,8 @@ export:
   run_elaboration
   run_elaboration_with_top
   semantic_expansion
+  PayloadExpansion
+  payload_expansion
   record_semantics
   build_circuit
   construct_signature
@@ -211,6 +214,24 @@ fun semantic_expansion(kind :: String,
       | parent.nodes.add(node)
       | module_def.add_metadata("rhodium.semantics", node)
       result
+
+// Payload syntax elaborates once; retained mode extracts an independent pure body.
+class PayloadExpansion(value :: Value, captured :: maybe(CapturedPayload))
+
+fun payload_expansion(arguments :: List.of(HardwareEntity), expand :: Function.of_arity(0)):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  def inputs = arguments.map(fun (argument): read(argument))
+  def before = module_def.operations
+  def result = read(expand())
+  def captured:
+    if context.retain_constructs
+    | block:
+        def after = module_def.operations
+        def operations = after.take(after.length() - before.length()).reverse()
+        capture_payload(module_def, operations, inputs, [result])
+    | #false
+  PayloadExpansion(result, captured)
 
 // Existing extension declarations can retain bindings without re-expansion.
 fun record_semantics(kind :: String, describe :: Function.of_arity(0)):
