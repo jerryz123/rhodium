@@ -113,7 +113,7 @@ executable construct protocol. The dependent branch establishes the initial mixe
 
 ## Next execution gates
 
-- Extend nested composition coverage and implement typed payload regions.
+- Implement typed payload regions with explicit captures.
 - Extend effect/error and wide/vector coverage, and migrate the previous
   simulator regression suite.
 - Measure elaboration, emitted size, memory, and throughput after correctness
@@ -160,3 +160,16 @@ feedback across nested boundaries, and CIRCT/Verilator comparison of these new
 fixtures. Typed payload regions and the other outstanding gates remain active.
 The implementation stays on the dependent branch; this PR contains no simulator
 runtime or compiler code.
+
+## Nested differential follow-up
+
+The [dependent validation follow-up](https://github.com/tianrui-wei/rhodium/commit/fa25a43)
+passes 224 scalar/aggregate nested checks plus seven repeated-instance selection
+checks. Two enclosing composition levels preserve legal record-field feedback.
+Thirty-two materialized CIRCT/Verilator models match the same oracle as native
+interpreter and generated-C execution: 512 cycles for scalar configurations and
+256 for aggregate configurations, including default native optimization.
+Repeated nested occurrences also pass 256-cycle independent-state replay for
+direct, mixed, and expanded choices. These results close the nested validation
+items listed above. Typed payload regions, broader effect/error and wide/vector
+coverage, performance measurements, and simulator-suite migration remain open.
