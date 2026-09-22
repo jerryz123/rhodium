@@ -576,7 +576,8 @@ remaining consumer integration.
 A library exports a nominal `ConstructIdentity(name, version)` and creates a
 `ConstructSpecialization(identity, parameters, contract)` for each parameter
 configuration. Names are diagnostic; matching uses declaration identity.
-Parameters are immutable strings, booleans, integers, hardware types, lists,
+Parameters are immutable strings, booleans, integers, hardware types, verified
+[payload regions](#payload-computation-regions), lists,
 and string-keyed maps. A `ConstructOccurrence` adds its own name and location.
 Implementations must preserve occurrence-local state even when specializations
 are shared.
@@ -720,3 +721,13 @@ payload computation.
 
 This core API does not yet retain `map_flow` automatically. Frontend capture
 extraction and higher-order construct integration remain under development.
+
+Verified regions may also appear in `ConstructSpecialization.parameters`,
+including nested lists or maps. Direct lowerings receive the region before
+portable expansion and can lower its computation through the generic core path.
+Portable providers can return its `implementation` or embed that implementation
+in a larger composition. Explicitly constructed region records must pass
+`verify_payload_region` before use as parameters. Different region objects remain
+distinct during recursive expansion checks; no equivalence of arbitrary payload
+programs is inferred. IR text identifies the body module and argument/capture
+partition.

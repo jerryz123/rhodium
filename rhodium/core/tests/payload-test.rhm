@@ -64,3 +64,46 @@ block:
   def hierarchical = payload_region(parent, ["input"], ["live"])
   check:
     hierarchical.implementation.contract.dependencies[0].inputs.map(fun (leaf): leaf.port).sort() ~is ["input", "live"]
+
+// Retained declarations carry verified computations through direct and portable selection.
+block:
+  def identity = ConstructIdentity("test.payload.map", 1)
+  def contract = region.implementation.contract
+  def spec = ConstructSpecialization(identity, {"computation": region}, contract)
+  verify_construct_specialization(spec)
+  def unchecked = PayloadRegion(region.implementation, ["payload"], ["bias"])
+  def unchecked_spec = ConstructSpecialization(identity, {"computation": unchecked}, contract)
+  check:
+    verify_construct_specialization(unchecked_spec) ~throws "verified payload regions"
+  verify_payload_region(unchecked)
+  verify_construct_specialization(unchecked_spec)
+  def mutable expansions = 0
+  def provider = ExpansionProvider(
+    identity,
+    fun (specialization):
+      expansions := expansions + 1
+      specialization.parameters["computation"].implementation)
+  def direct = TargetLowering(identity, "test", fun (o): #true, fun (s, o): s.parameters["computation"])
+  def occurrence = ConstructOccurrence("map", spec)
+  check:
+    resolve_construct(occurrence, "test", [provider], [direct]).implementation === region ~is #true
+    expansions ~is 0
+    resolve_construct(occurrence, "test", [provider], [], ~lower_core: fun (body, path): body.module_def) === module_def ~is #true
+    expansions ~is 1
+
+  // Portable materialization binds the capture as a live external input.
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("RetainedMap")
+  def payload_input = builder.input(top, "payload", Bits(8))
+  def capture_input = builder.input(top, "bias", Bits(8))
+  def output = builder.output(top, "result", Bits(8))
+  def apply = builder.construct_apply(top, spec, [payload_input, capture_input], "map")
+  builder.drive(output, apply.results[0])
+  builder.finish(top)
+  check:
+    dump_module_ir(top).contains("payload_region @CapturedAdd(arguments=[payload], captures=[bias])") ~is #true
+  def lowered = materialize_constructs(DesignElaboration(design, top), [provider]).elaboration
+  check:
+    lowered.top.inputs.map(fun (port): port.name) ~is ["payload", "bias"]
+    lowered.top.outputs.map(fun (port): port.name) ~is ["result"]

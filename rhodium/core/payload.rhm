@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "payload-record.rhm" open
   "ir.rhm".Module
   "types.rhm" open
   "ops.rhm".schema_for
@@ -13,16 +14,10 @@ import:
 
 export PayloadRegion payload_region verify_payload_region
 
-// Capture names identify ordinary hardware input ports, never frozen host values.
-// The implementation remains a first-class core leaf for every consumer.
-class PayloadRegion(implementation :: CoreImplementation,
-                    arguments :: List.of(String),
-                    captures :: List.of(String))
-
 fun fail(message): error(~who: #'payload_region, message)
 
 fun verify_payload_region(region :: PayloadRegion):
-  def body = region.implementation
+  def body :: CoreImplementation = region.implementation
   verify_design(body.module_def.design)
   def names = region.arguments ++ region.captures
   def seen = MutableSet{}
@@ -49,6 +44,7 @@ fun verify_payload_region(region :: PayloadRegion):
         | ~else: fail("payload computation contains state or effects: " ++ operation.opcode)
   visit(body.module_def)
   verify_core_implementation(body)
+  certify_payload_region(region)
   #void
 
 // Derive precise public dependency leaves from the same analysis used by core verification.

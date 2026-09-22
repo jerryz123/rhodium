@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "payload-record.rhm".PayloadRegion
+  "payload-record.rhm".payload_region_verified
   "types.rhm" open
   "../../support/annotations.rhm".AsciiIdentifier
   "ir.rhm".Location
@@ -131,6 +133,7 @@ fun verify_construct_contract(contract :: ConstructContract):
 fun immutable_parameter(value):
   cond
   | value is_a String || value is_a Boolean || value is_a Int || value is_a HardwareType: #true
+  | value is_a PayloadRegion: payload_region_verified(value)
   | value is_a List: for all (item in value): immutable_parameter(item)
   | value is_a Map:
       for all ((key, item) in value): key is_a String && immutable_parameter(item)
@@ -139,7 +142,7 @@ fun immutable_parameter(value):
 fun verify_construct_specialization(specialization :: ConstructSpecialization):
   unless specialization.identity.name != "" | fail("construct identity requires a name")
   unless immutable_parameter(specialization.parameters)
-  | fail("construct parameters must be immutable values with string map keys")
+  | fail("construct parameters must be immutable values or verified payload regions with string map keys")
   verify_construct_contract(specialization.contract)
 
 fun same_construct_contract(left :: ConstructContract, right :: ConstructContract):

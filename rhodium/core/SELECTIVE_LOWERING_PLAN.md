@@ -192,3 +192,20 @@ The focused payload/composition batch passes 37 checks, including explicit
 capture coverage, pure hierarchical dependencies, state rejection, sealing, and
 understated dependency diagnostics. Boundary, license, and CI-routing checks pass.
 This evidence does not yet cover captured computation during native execution.
+
+## Retained payload parameters
+
+Verified payload regions can now appear in immutable construct parameters.
+A dependency-neutral record and weak identity certificate registry avoid an
+import cycle between declarations and full verification. Only successfully
+verified regions are accepted; recursive expansion compares regions by identity.
+Direct lowerings receive the region without running portable expansion. A
+portable provider can return its existing core implementation, and materialization
+preserves capture ports as live inputs. IR text exposes the module name and
+argument/capture partition.
+
+The focused payload/construct/composition batch passes 68 checks, including
+uncertified-region rejection, direct selection without expansion, portable
+selection, materialization, and readable IR. Boundary, license, and CI-routing
+checks pass. Frontend capture extraction, retained `map_flow`, and changing-capture
+execution under stalls remain required; this is still partial gate-6 progress.

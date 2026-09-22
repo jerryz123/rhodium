@@ -1,0 +1,17 @@
+#lang rhombus
+// Shares immutable payload records and verification certificates without a construct/verifier import cycle.
+// SPDX-License-Identifier: Apache-2.0
+
+export PayloadRegion payload_region_verified certify_payload_region
+
+// The public payload verifier checks the implementation's CoreImplementation type.
+class PayloadRegion(implementation,
+                    arguments :: List.of(String),
+                    captures :: List.of(String))
+
+def verified_regions = WeakMutableSet.by(===){}
+
+fun payload_region_verified(region :: PayloadRegion): region in verified_regions
+
+// Internal publication hook; only payload.rhm calls this after complete verification.
+fun certify_payload_region(region :: PayloadRegion): verified_regions.add(region)

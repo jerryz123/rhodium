@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "payload-record.rhm".PayloadRegion
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
@@ -16,6 +17,10 @@ export:
 fun construct_parameter_text(value):
   cond
   | value is_a HardwareType: value.describe()
+  | value is_a PayloadRegion:
+      "payload_region @" ++ value.implementation.module_def.name
+        ++ "(arguments=" ++ construct_parameter_text(value.arguments)
+        ++ ", captures=" ++ construct_parameter_text(value.captures) ++ ")"
   | value is_a Map:
       "{" ++ String.join(value.keys().sort().map(fun (key): key ++ "=" ++ construct_parameter_text(value[key])), ", ") ++ "}"
   | value is_a List:

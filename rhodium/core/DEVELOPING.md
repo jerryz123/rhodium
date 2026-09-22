@@ -205,3 +205,13 @@ Validate all descendant modules, including unused operations, before accepting
 a region as pure. Keep frontend capture discovery and Flow transport contracts
 outside core. Run `tests/payload-test.rhm` for explicit capture coverage,
 immutability, purity, and dependency-contract rejection.
+
+`payload-record.rhm` separates the immutable region declaration and weak identity
+certificate registry from validation. This keeps construct parameter checking
+independent of the verifier/composition import chain. Only `payload.rhm`
+publishes certificates after full purity, dependency, and ownership checks;
+certification helpers are internal and are not re-exported by the public core.
+`construct.rhm` accepts certified regions as immutable parameters, and
+`lowering.rhm` compares regions by identity for expansion progress. Printer
+support exposes the body name and argument/capture split. Payload tests also
+exercise direct selection, deferred portable expansion, and materialization.

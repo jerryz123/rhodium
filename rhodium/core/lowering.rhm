@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "payload-record.rhm".PayloadRegion
   "construct.rhm" open
   "composition.rhm" open
   "types.rhm" open
@@ -26,6 +27,7 @@ class ResolvedComposition(composition :: HardwareComposition,
 
 fun same_parameter(left, right):
   cond
+  | left is_a PayloadRegion || right is_a PayloadRegion: left === right
   | left is_a HardwareType && right is_a HardwareType: type_equal(left, right)
   | left is_a List && right is_a List:
       left.length() == right.length() && (for all (a in left, b in right): same_parameter(a, b))
