@@ -4,9 +4,11 @@
 
 import:
   rhombus/rx open
+  "../../support/annotations.rhm".AsciiIdentifier
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
+  "construct.rhm" open
   "dependencies.rhm".verify_combinational_cycles
 
 export:
@@ -79,6 +81,21 @@ fun check_operation_types(module_def :: Module,
                           operation :: Operation,
                           schema :: OperationSchema):
   match schema.type_rule
+  | "construct_apply":
+      def specialization = operation.attribute("specialization")
+      unless specialization is_a ConstructSpecialization
+      | fail_operation(operation, "construct requires a typed specialization")
+      verify_construct_specialization(specialization)
+      def inputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "input")
+      def outputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "output")
+      unless operation.operands.length() == inputs.length() && operation.results.length() == outputs.length()
+      | fail_operation(operation, "construct arity differs from its boundary")
+      for (value in operation.operands ++ operation.results, port in inputs ++ outputs):
+        unless type_equal(value.type, port.type)
+        | fail_operation(operation, "construct port type mismatch: " ++ port.name)
+      def name = operation.attribute("name")
+      unless name is_a AsciiIdentifier
+      | fail_operation(operation, "construct occurrence requires an identifier")
   | "hardware_input_port":
       unless type_well_formed(operation.results[0].type)
       | fail_operation(operation, "input port must have a well-formed HardwareType")
@@ -743,7 +760,7 @@ fun verify_module_structure(module_def :: Module):
   def memory_name_counts = MutableMap{}
   for (operation in module_def.operations):
     when operation is_a Operation
-    | when operation.opcode == "rtl.instance"
+    | when operation.opcode in ["rtl.instance", "construct.apply"]
       | increment_count(instance_name_counts, operation.attribute("name", #false))
       when operation.opcode == "rtl.sync_memory"
       | increment_count(sync_memory_name_counts, operation.attribute("name", #false))
@@ -764,7 +781,7 @@ fun verify_module_structure(module_def :: Module):
     unless operation is_a Operation && operation.module_def === module_def
     | fail("operation belongs to a different module")
     def schema = check_schema(operation)
-    when operation.opcode == "rtl.instance"
+    when operation.opcode in ["rtl.instance", "construct.apply"]
     | unless instance_name_counts.get(operation.attribute("name", #false), 0) == 1
       | fail_operation(operation,
                        "instance name " ++ operation.attribute("name") ++ " is not unique")

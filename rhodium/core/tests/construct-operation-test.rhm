@@ -1,0 +1,48 @@
+#lang rhombus
+// Validates retained DFG occurrences, local ownership, and cross-boundary dependency cycles.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def identity = ConstructIdentity("test.identity", 1)
+def contract = ConstructContract(
+  [ConstructPort("a", "input", Bits(8)), ConstructPort("z", "output", Bits(8))],
+  [ConstructDependency(PortLeaf("z"), [PortLeaf("a")])], [], [], [])
+def spec = ConstructSpecialization(identity, {}, contract)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Mixed")
+  def a = builder.input(module_def, "a", Bits(8))
+  def z = builder.output(module_def, "z", Bits(8))
+  def retained = builder.construct_apply(module_def, spec, [a], "retained")
+  builder.drive(z, builder.add(module_def, retained.results[0], a))
+  builder.finish(module_def)
+  verify_design(design)
+  check:
+    retained.operands[0] === a ~is #true
+    a.has_user(retained.id) ~is #true
+    builder.construct_apply(module_def, spec, [a], "late") ~throws "already finished"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Cycle")
+  def wire = builder.wire(module_def, "feedback", Bits(8))
+  def retained = builder.construct_apply(module_def, spec, [builder.read(wire)], "retained")
+  builder.drive(wire, retained.results[0])
+  builder.finish(module_def)
+  check: verify_design(design) ~throws "combinational cycle"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Invalid")
+  def a = builder.input(module_def, "a", Bits(4))
+  check:
+    builder.construct_apply(module_def, spec, [], "missing") ~throws "inputs must match"
+    builder.construct_apply(module_def, spec, [a], "mismatch") ~throws "input type"
+  def other = builder.module("Other")
+  def foreign = builder.input(other, "foreign", Bits(8))
+  check: builder.construct_apply(module_def, spec, [foreign], "foreign") ~throws "different module"

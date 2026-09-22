@@ -7,6 +7,8 @@ import:
   "../core/ir.rhm" open
   "../core/builder.rhm" open
   "../core/verify.rhm" open
+  "../core/construct.rhm" open
+  "../core/dependencies.rhm".leaf_paths
 
 export:
   StableCircuitParam
@@ -23,6 +25,8 @@ export:
   semantic_expansion
   record_semantics
   build_circuit
+  construct_signature
+  construct_implementation
   circuit_arguments_same
   defer_circuit_finalizer
   run_circuit_finalizers
@@ -162,7 +166,8 @@ class FrontendContext(design :: Design,
                       mutable active_circuits :: List.of(ActiveCircuit) = [],
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
                       mutable allocated_symbols :: List.of(String) = [],
-                      retain_semantics :: Boolean = #false):
+                      retain_semantics :: Boolean = #false,
+                      retain_constructs :: Boolean = #false):
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
     def count = allocated_symbols.filter(
@@ -394,6 +399,57 @@ fun build_circuit(identity :: CircuitIdentity,
           | specializations.add(specialization)
           | context.specializations_by_circuit[identity] := MutableList[specialization]
       module_def
+
+// The signature executes before this boundary and may declare typed ports and
+// interface metadata. Its body is a deferred implementation, never introspected
+// to discover the construct's meaning.
+fun construct_signature(identity :: ConstructIdentity,
+                        parameters :: Map,
+                        dependencies :: Function.of_arity(1),
+                        ~clocks: clocks :: List.of(String) = [],
+                        ~resets: resets :: List.of(ConstructReset) = [],
+                        ~effects: effects :: List.of(ConstructEffect) = []):
+  def module_def = require_module(Location())
+  def ports = (module_def.inputs.reverse() ++ module_def.outputs.reverse()).map(
+    fun (port): ConstructPort(port.name, port.direction, port.type))
+  def summaries = MutableList[]
+  for (port in ports):
+    when port.direction == "output"
+    | for (path in leaf_paths(port.type)):
+        def output = PortLeaf(port.name, path)
+        summaries.add(ConstructDependency(output, dependencies(output)))
+  def specialization = ConstructSpecialization(identity, parameters,
+                                               ConstructContract(ports, summaries.snapshot(), clocks, resets, effects))
+  verify_construct_specialization(specialization)
+  specialization
+
+fun construct_implementation(specialization :: ConstructSpecialization,
+                             implementation :: Function.of_arity(0)):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  verify_construct_specialization(specialization)
+  unless (for all (op in module_def.operations): op.opcode in ["rtl.input_port", "rtl.output_port"])
+  | frontend_fail("construct signature must precede all implementation hardware")
+  def ports = module_def.inputs ++ module_def.outputs
+  unless ports.length() == specialization.contract.ports.length()
+  | frontend_fail("construct signature differs from declared ports")
+  for (port in ports):
+    def declared = specialization.contract.ports.find(fun (p): p.name == port.name)
+    unless declared && declared.direction == port.direction && type_equal(declared.type, port.type)
+    | frontend_fail("construct signature differs from port " ++ port.name)
+  if context.retain_constructs
+  | block:
+      def inputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "input")
+      def outputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "output")
+      def mutable occurrence_name = "implementation"
+      while module_def.hardware_name_used(occurrence_name): occurrence_name := occurrence_name ++ "_"
+      def operation = context.builder.construct_apply(module_def, specialization,
+                                                      inputs.map(fun (p): module_def.find_input(p.name).value),
+                                                      occurrence_name)
+      for (port in outputs, value in operation.results):
+        context.builder.drive(module_def.find_output(port.name).place, value)
+      #void
+  | implementation()
 
 fun input(name :: AsciiIdentifier,
           type :: HardwareType,
@@ -1757,10 +1813,10 @@ fun switch_chain(selector :: HardwareEntity,
                                "embedded switch",
                                location)
 
-fun frontend_elaboration(program :: Function.of_arity(0), retain_semantics :: Boolean = #false):
+fun frontend_elaboration(program :: Function.of_arity(0), retain_semantics :: Boolean = #false, retain_constructs :: Boolean = #false):
   def design = Design()
-  def context = FrontendContext(design, Builder(design), #true, [], MutableMap.by(===){}, [], retain_semantics)
-  def top = parameterize { current_context: context }:
+  def context = FrontendContext(design, Builder(design), #true, [], MutableMap.by(===){}, [], retain_semantics, retain_constructs)
+  def top = parameterize { current_context: context, current_module: #false }:
               program()
   context.active := #false
   def top_module:
@@ -1776,8 +1832,8 @@ fun frontend_elaboration(program :: Function.of_arity(0), retain_semantics :: Bo
 fun frontend_run(program :: Function.of_arity(0)):
   frontend_elaboration(program).design
 
-fun run_elaboration(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false):
-  frontend_elaboration(program, semantics).design
+fun run_elaboration(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false, ~constructs: constructs :: Boolean = #false):
+  frontend_elaboration(program, semantics, constructs).design
 
-fun run_elaboration_with_top(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false):
-  frontend_elaboration(program, semantics)
+fun run_elaboration_with_top(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false, ~constructs: constructs :: Boolean = #false):
+  frontend_elaboration(program, semantics, constructs)

@@ -225,3 +225,19 @@ When adding or moving source, update the dependency inventory and ensure
 Compilation discovers flow transitively through the existing test and example
 entrypoints; source annotation hygiene covers the repository root. Do not add
 a second source manifest or silently drop downstream coverage.
+
+## Queue construct boundary
+
+`queue.rhdl` owns `QueueConstruct`, its signature dependency function, and
+`QueueExpansion`. Its `implementation` block contains the existing RTL and
+implementation-specific trace controls. Keep the declaration conservative and
+sound across all pipe/flow options; preserve payload dependencies on invalid
+cycles as well as accepted transfers. The portable provider maps state and
+named assertions through public core helpers exposed by the language.
+
+`tests/retained-queue-test.rhm` compares declared and actual dependencies across
+depths/options/payload shapes and checks direct/configured identity, deferred
+selection, portable effects, and per-occurrence choice with shared modules.
+Use `queue-options` and `event-queue` CIRCT fixtures for cycle-visible RTL and
+trace preservation. Native simulation and its differential suite remain with
+the consuming simulator.

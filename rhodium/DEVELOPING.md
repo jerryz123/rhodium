@@ -68,6 +68,11 @@ The frontend kernel's optional semantic expansion hooks depend only on core
 through those hooks; no simulator or backend dependency is introduced. See the
 [retention implementation guide](frontend/DEVELOPING.md#layered-semantic-retention).
 
+The frontend kernel also imports the core construct contract and leaf-path
+APIs. The foundation exports the core construct declaration records and
+`bind_core_implementation` through the public language, so libraries can supply
+portable implementations without importing compiler internals.
+
 The core `construct.rhm`, `composition.rhm`, and `lowering.rhm` modules import
 only other core modules. Composition consumes core verification and dependency
 summaries; selection consumes construct/composition contracts. Expansion and
@@ -103,7 +108,7 @@ or simulator packages by core.
 | [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration and deferred frontend hardware values over the public core | Core |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
-| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
+| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, core type and construct/composition APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
 | [`frontend/standard.rhm`](frontend/standard.rhm) | Aggregation only; defines no feature behavior | Foundation and all standard layers |
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |

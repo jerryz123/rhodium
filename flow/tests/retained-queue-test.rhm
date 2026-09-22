@@ -1,0 +1,86 @@
+#lang rhombus
+// Checks Queue's retained boundary against expanded RTL across supported parameter combinations.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "retained-queue-fixture.rhdl" open
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/core/dependencies.rhm".module_dependency_summaries
+
+for (depth in [1, 2, 3, 8]):
+  for (pipe in [#false, #true]):
+    for (flow in [#false, #true]):
+      for (type in [Bits(8), RecordType([RecordField("data", Bits(8)), RecordField("tag", Bits(3))])]):
+        def retained = elaborate_queue(type, depth, pipe, flow, #true)
+        def expanded = elaborate_queue(type, depth, pipe, flow, #false)
+        def configured = elaborate_configured(type, depth, pipe, flow, #true)
+        def operations = retained.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply")
+        def configured_operations = configured.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply")
+        check:
+          operations.length() ~is 1
+          configured_operations.length() ~is 1
+          operations[0].attribute("specialization").identity === QueueConstruct ~is #true
+          same_construct_contract(operations[0].attribute("specialization").contract,
+                                  configured_operations[0].attribute("specialization").contract) ~is #true
+          retained.design.walk().filter(~keep: fun (op): op.opcode == "rtl.register" || op.opcode == "rtl.register_reset" || op.opcode == "rtl.memory").length() ~is 0
+        fun summary(top):
+          module_dependency_summaries([top])[0].output_leaf_dependencies.map(
+            fun (leaves): leaves.map(fun (leaf): [leaf.path, leaf.input_leaves.map(fun (input): [input.input_index, input.path])]))
+        check: summary(retained.top) ~is summary(expanded.top)
+
+// The public library provider proves the fallback against the retained ABI and
+// effects; a directly selected implementation never calls that provider.
+block:
+  def retained = elaborate_queue(Bits(8), 3, #true, #true, #true)
+  def mutable expansions = 0
+  def counted = ExpansionProvider(
+    QueueConstruct,
+    fun (specialization):
+      expansions := expansions + 1
+      QueueExpansion.expand(specialization))
+  def direct = TargetLowering(QueueConstruct, "test", fun (occurrence): #true, fun (specialization, occurrence): occurrence.name)
+  def selected = resolve_module_constructs(retained, "test", [counted], [direct])
+  check:
+    expansions ~is 0
+    selected.instances[0].constructs[0].resolution.implementation ~is "MixedQueue/queue_instance/implementation"
+  def fallback = resolve_module_constructs(retained, "test", [counted], [], ~lower_core: fun (body, path): body)
+  check:
+    expansions ~is 1
+    (for all (effect in fallback.instances[0].constructs[0].resolution.contract.effects):
+       fallback.instances[0].constructs[0].resolution.effects.find(fun (binding): binding.effect == effect.name) != #false) ~is #true
+
+block:
+  def mutable expansions = 0
+  def counted = ExpansionProvider(
+    QueueConstruct,
+    fun (specialization):
+      expansions := expansions + 1
+      QueueExpansion.expand(specialization))
+  def direct = TargetLowering(QueueConstruct, "test", fun (occurrence): occurrence.name == "TwinQueue/first/implementation", fun (specialization, occurrence): occurrence.name)
+  def resolved = resolve_module_constructs(twins, "test", [counted], [direct], ~lower_core: fun (body, path): body)
+  check:
+    resolved.instances[0].module_def === resolved.instances[1].module_def ~is #true
+    expansions ~is 1
+    resolved.instances[0].constructs[0].resolution.implementation ~is "TwinQueue/first/implementation"
+    resolved.instances[1].constructs[0].resolution is_a CoreImplementation ~is #true
+
+// Portable module definitions may be shared, but lowering runs for each occurrence.
+block:
+  def mutable expansions = 0
+  def mutable lowerings = 0
+  def counted = ExpansionProvider(
+    QueueConstruct,
+    fun (specialization):
+      expansions := expansions + 1
+      QueueExpansion.expand(specialization))
+  def resolved = resolve_module_constructs(
+    twins, "test", [counted], [],
+    ~lower_core:
+      fun (body, path):
+        lowerings := lowerings + 1
+        path)
+  check:
+    expansions ~is 1
+    lowerings ~is 2
+    resolved.instances[0].constructs[0].resolution ~is ["TwinQueue", "first", "implementation"]
+    resolved.instances[1].constructs[0].resolution ~is ["TwinQueue", "second", "implementation"]

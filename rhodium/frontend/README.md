@@ -345,3 +345,40 @@ contracts.
 Consumers read the completed tree through the
 [core semantic-node API](../core/README.md#retained-expansion-semantics).
 CIRCT emission uses the same ordinary graph in either mode.
+
+## Deferred construct implementations
+
+A circuit can declare its signature before supplying a portable body:
+
+```rhombus
+def AddConstruct = ConstructIdentity("example.add", 1)
+circuit Add():
+  input(a, b): Bits(8)
+  output sum: Bits(8)
+  def declaration = construct_signature(
+    AddConstruct, {}, fun (output): [PortLeaf("a"), PortLeaf("b")])
+  implementation(~construct: declaration):
+    sum <== a + b
+```
+
+`construct_signature` obtains the typed ports already declared in the current
+circuit and calls the required dependency function for each output leaf. Supply
+`~clocks`, `~resets`, and `~effects` for stateful meanings; these are core
+`ConstructReset` and `ConstructEffect` records. Port and interface declarations
+may precede the implementation block; hardware computations must be inside it.
+The block must supply the implementation of the whole declared boundary.
+
+Default elaboration executes this body. `elaborate_with_top(Top(), ~constructs:
+#true)` retains `construct.apply` nodes without executing their bodies; plain
+`elaborate` accepts the same option. Interface types and frontend member
+metadata survive retention. The option is local to one elaboration and can be
+combined with `~semantics`. Ordinary Rhombus specialization still runs, and
+module specializations remain shared within that elaboration.
+
+Libraries export an `ExpansionProvider` separately from their nominal identity.
+The provider returns a lower-level construct/composition or a verified core
+implementation. `bind_core_implementation` is available through the public
+language to bind expanded RTL's effects to the declaration. Consumers use the
+[core selection API](../core/README.md#constructs-inside-module-dfgs) with their
+own registrations. Standard CIRCT emission currently consumes expanded module
+IR; it diagnoses an unresolved `construct.apply` rather than omitting it.

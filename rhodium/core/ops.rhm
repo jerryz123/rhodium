@@ -18,7 +18,9 @@ class OperationSchema(opcode :: String,
                       print_form :: String)
 
 def schemas:
-  [OperationSchema("rtl.input_port", "structural", 0, 1, 0,
+  [OperationSchema("construct.apply", "construct", #false, #false, 0,
+                   ["name", "specialization"], "construct_apply", "construct_apply"),
+   OperationSchema("rtl.input_port", "structural", 0, 1, 0,
                    ["name"], "hardware_input_port", "input_port"),
    OperationSchema("rtl.output_port", "structural", 0, 0, 1,
                    ["name"], "hardware_output_port", "output_port"),

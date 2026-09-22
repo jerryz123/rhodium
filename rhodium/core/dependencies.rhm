@@ -116,6 +116,20 @@ fun place_leaf_driver(place :: Place,
   | ValueLeaf(projected_place!!.driver, [])
   | ValueLeaf(place.driver, path)
 
+// Kept outside the static visitor: the verifier certifies the open construct
+// attribute before dependency analysis reads its library-owned declaration.
+fun construct_dependencies(operation :: Operation, value :: Value, path :: List.of(String || Nat)) :: List.of(ValueLeaf):
+  def contract = operation.attribute("specialization").contract
+  def inputs = contract.ports.filter(~keep: fun (p): p.direction == "input")
+  def outputs = contract.ports.filter(~keep: fun (p): p.direction == "output")
+  def output = outputs[identity_index(operation.results, value)]
+  def dependency = contract.dependencies.find(fun (d): d.output.port == output.name && d.output.path == path)
+  for List (input in dependency.inputs):
+    def mutable index = 0
+    for (port in inputs, i in 0..inputs.length()):
+      when port.name == input.port | index := i
+    ValueLeaf(operation.operands[index], input.path)
+
 // Visits direct dependency leaves through one shared opcode dispatch. Public
 // path-valued queries and the verifier's indexed walk supply their own sinks.
 fun visit_present_operation_dependencies(
@@ -132,6 +146,10 @@ fun visit_present_operation_dependencies(
   | opcode == "rtl.wire":
       def driver = place_leaf_driver(places[0], path)
       add_operand(driver.value, driver.path)
+      #true
+  | opcode == "construct.apply":
+      for (dependency :: ValueLeaf in construct_dependencies(operation, value, path)):
+        add_operand(dependency.value, dependency.path)
       #true
   | combinational_opcode(opcode):
       cond

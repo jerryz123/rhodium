@@ -7,6 +7,16 @@ import:
   lib("rhodium/std/counter.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+// Exported nominal identity lets consumers register implementations without
+// recognizing names or elaborating the queue's pointer/storage body.
+def QueueConstruct = ConstructIdentity("flow.queue", 1)
+
+fun queue_dependencies(output :: PortLeaf, pipe :: Boolean, flow :: Boolean):
+  cond
+  | output.port == "ingress_out" && pipe: [PortLeaf("egress_in", ["ready"])]
+  | output.port == "egress_out" && flow: [PortLeaf("ingress_in", output.path)]
+  | ~else: []
+
 // Queue uses asynchronous-read storage. A synchronous-read option belongs here
 // once Rhodium has a corresponding memory primitive. Stored payloads remain stable
 // under backpressure.
@@ -20,83 +30,114 @@ sync_circuit Queue(T :: DataType,
   interface egress(Egress, ~role: producer)
   output count: Bits(index_width(depth + 1))
 
-  // Flow changes an empty queue into a combinational bypass. Pipe lets a full
-  // queue replace the item being removed without inserting a bubble. These
-  // host choices remove disabled paths from the elaborated hardware instead
-  // of leaving constant-false dependencies for hierarchy analysis to follow.
-  fun ready_for_input(full :: Bool):
-    if pipe | (!full ||| egress.ready) | !full
-  fun valid_for_output(empty :: Bool):
-    if flow | (!empty ||| ingress.valid) | !empty
-  fun bits_for_output(empty :: Bool, stored_bits :: Hardware.of(T)):
-    if flow | mux(empty, ingress.bits, stored_bits) | stored_bits
+  def assertions:
+    if depth == 1
+    | []
+    | [ConstructEffect("queue_occupancy_in_range", "assertion", "clock"),
+       ConstructEffect("read_pointer.counter_state_in_range", "assertion", "clock"),
+       ConstructEffect("write_pointer.counter_state_in_range", "assertion", "clock")]
+  def effects = [ConstructEffect("state", "state", "clock")] ++ assertions
+  def specification = construct_signature(
+    QueueConstruct,
+    {"payload": T, "depth": depth, "pipe": pipe, "flow": flow},
+    fun (output): queue_dependencies(output, pipe, flow),
+    ~clocks: ["clock"],
+    ~resets: [ConstructReset("reset", "clock", "synchronous", #true)],
+    ~effects: effects)
 
-  // A flow-through transfer does not touch storage, so internal enqueue and
-  // dequeue events differ from the externally visible ready-valid handshakes.
-  fun stores_input(empty :: Bool, ingress_ready :: Bool):
-    if flow
-    | ingress.valid & ingress_ready & !(empty & egress.ready)
-    | ingress.valid & ingress_ready
-  fun removes_output(empty :: Bool): !empty & egress.ready
+  implementation(~construct: specification):
+    // Flow changes an empty queue into a combinational bypass. Pipe lets a full
+    // queue replace the item being removed without inserting a bubble. These
+    // host choices remove disabled paths from the elaborated hardware instead
+    // of leaving constant-false dependencies for hierarchy analysis to follow.
+    fun ready_for_input(full :: Bool):
+      if pipe | (!full ||| egress.ready) | !full
+    fun valid_for_output(empty :: Bool):
+      if flow | (!empty ||| ingress.valid) | !empty
+    fun bits_for_output(empty :: Bool, stored_bits :: Hardware.of(T)):
+      if flow | mux(empty, ingress.bits, stored_bits) | stored_bits
 
-  if (depth == 1)
-  | block:
-      reg occupied(~init: Bool(#false))
-      reg payload(T)
-      def empty = !occupied
-      def input_ready = ready_for_input(occupied)
-      def output_valid = valid_for_output(empty)
-      def enqueue = stores_input(empty, input_ready)
-      def dequeue = removes_output(empty)
+    // A flow-through transfer does not touch storage, so internal enqueue and
+    // dequeue events differ from the externally visible ready-valid handshakes.
+    fun stores_input(empty :: Bool, ingress_ready :: Bool):
+      if flow
+      | ingress.valid & ingress_ready & !(empty & egress.ready)
+      | ingress.valid & ingress_ready
+    fun removes_output(empty :: Bool): !empty & egress.ready
 
-      ingress.ready <== input_ready
-      egress.valid <== output_valid
-      egress.bits <== bits_for_output(empty, payload)
-      count <== occupied.as_bits()
+    if (depth == 1)
+    | block:
+        reg occupied(~init: Bool(#false))
+        reg payload(T)
+        def empty = !occupied
+        def input_ready = ready_for_input(occupied)
+        def output_valid = valid_for_output(empty)
+        def enqueue = stores_input(empty, input_ready)
+        def dequeue = removes_output(empty)
 
-      when (enqueue ^ dequeue):
-        occupied <== enqueue
-      when (enqueue):
-        payload <== ingress.bits
-      describe_interface_queue_storage(depth, enqueue, dequeue, bits(0, 1), bits(0, 1), !empty, if flow | empty | Bool(#false))
-      #void
-  | block:
-      def count_width = index_width(depth + 1)
-      mem storage(depth, T)
-      reg occupancy(~init: bits(0, count_width))
-      def PointerCounter = Counter(depth)
-      inst read_pointer(PointerCounter)
-      inst write_pointer(PointerCounter)
+        ingress.ready <== input_ready
+        egress.valid <== output_valid
+        egress.bits <== bits_for_output(empty, payload)
+        count <== occupied.as_bits()
 
-      def empty = !occupancy.or_reduce()
-      def full = occupancy === bits(depth, count_width)
-      // Detects an encoded count beyond the queue's physical capacity.
-      assert(occupancy <= bits(depth, count_width),
-             "queue_occupancy_in_range")
-      def input_ready = ready_for_input(full)
-      def output_valid = valid_for_output(empty)
-      def stored_bits = storage[read_pointer.value]
-      def enqueue = stores_input(empty, input_ready)
-      def dequeue = removes_output(empty)
+        when (enqueue ^ dequeue):
+          occupied <== enqueue
+        when (enqueue):
+          payload <== ingress.bits
+        describe_interface_queue_storage(depth, enqueue, dequeue, bits(0, 1), bits(0, 1), !empty, if flow | empty | Bool(#false))
+        #void
+    | block:
+        def count_width = index_width(depth + 1)
+        mem storage(depth, T)
+        reg occupancy(~init: bits(0, count_width))
+        def PointerCounter = Counter(depth)
+        inst read_pointer(PointerCounter)
+        inst write_pointer(PointerCounter)
 
-      ingress.ready <== input_ready
-      egress.valid <== output_valid
-      egress.bits <== bits_for_output(empty, stored_bits)
-      count <== occupancy
-      storage.write(write_pointer.value, ingress.bits, ~enable: enqueue)
+        def empty = !occupancy.or_reduce()
+        def full = occupancy === bits(depth, count_width)
+        // Detects an encoded count beyond the queue's physical capacity.
+        assert(occupancy <= bits(depth, count_width),
+               "queue_occupancy_in_range")
+        def input_ready = ready_for_input(full)
+        def output_valid = valid_for_output(empty)
+        def stored_bits = storage[read_pointer.value]
+        def enqueue = stores_input(empty, input_ready)
+        def dequeue = removes_output(empty)
 
-      read_pointer.enable <== dequeue
-      write_pointer.enable <== enqueue
-      when (enqueue ^ dequeue):
-        occupancy <== mux(
-          enqueue,
-          occupancy + bits(1, count_width),
-          occupancy - bits(1, count_width)
-        )
-      describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
-      #void
+        ingress.ready <== input_ready
+        egress.valid <== output_valid
+        egress.bits <== bits_for_output(empty, stored_bits)
+        count <== occupancy
+        storage.write(write_pointer.value, ingress.bits, ~enable: enqueue)
 
-  describe_interface_contract(ingress, egress, "data", ~kind: "queue", ~trace_model: interface_trace_queue())
+        read_pointer.enable <== dequeue
+        write_pointer.enable <== enqueue
+        when (enqueue ^ dequeue):
+          occupancy <== mux(
+            enqueue,
+            occupancy + bits(1, count_width),
+            occupancy - bits(1, count_width)
+          )
+        describe_interface_queue_storage(depth, enqueue, dequeue, read_pointer.value, write_pointer.value, !empty, if flow | empty | Bool(#false))
+        #void
+
+    describe_interface_contract(ingress, egress, "data", ~kind: "queue", ~trace_model: interface_trace_queue())
+
+// Portable expansion is registered separately from semantic identity. A target
+// that selects a direct implementation never invokes this elaboration.
+def QueueExpansion = ExpansionProvider(
+  QueueConstruct,
+  fun (specialization):
+    def parameters = specialization.parameters
+    def expanded = elaborate_with_top(Queue(parameters["payload"], parameters["depth"], ~pipe: parameters["pipe"], ~flow: parameters["flow"]))
+    bind_core_implementation(
+      expanded.top,
+      specialization.contract,
+      fun (operation, path):
+        if operation.opcode == "verif.assert"
+        | String.join(path ++ [operation.attribute("label")], ".")
+        | "state"))
 
 // Tokens are indistinguishable, so the control-only queue needs occupancy
 // state but no payload memory or read/write pointers.
@@ -204,6 +245,8 @@ fun ctrl_queue(depth :: PosInt,
 
 export:
   Queue
+  QueueConstruct
+  QueueExpansion
   queue
   CtrlQueue
   ctrl_queue

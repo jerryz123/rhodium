@@ -12,6 +12,16 @@ export:
   dump_module_ir
   dump_semantic_ir
 
+// Stable inspection text for immutable construct parameters, including types.
+fun construct_parameter_text(value):
+  cond
+  | value is_a HardwareType: value.describe()
+  | value is_a Map:
+      "{" ++ String.join(value.keys().sort().map(fun (key): key ++ "=" ++ construct_parameter_text(value[key])), ", ") ++ "}"
+  | value is_a List:
+      "[" ++ String.join(value.map(construct_parameter_text), ", ") ++ "]"
+  | ~else: to_string(value)
+
 fun value_refs(value_list :: List.of(Value)):
   String.join(value_list.map(fun (value): value.ref()), ", ")
 
@@ -249,6 +259,13 @@ fun print_operation(operation :: Operation):
                     " to ", operation.operands[1].ref(), " stages [",
                     value_refs(operation.operands.drop(2)),
                     "] promise stable_level")
+  | "construct_apply":
+      def specialization = operation.attribute("specialization")
+      def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "
+      "    " ++ results ++ "construct.apply @" ++ specialization.identity.name
+        ++ ":" ++ to_string(specialization.identity.version) ++ " " ++ construct_parameter_text(specialization.parameters)
+        ++ " as " ++ operation.attribute("name")
+        ++ "(" ++ value_refs(operation.operands) ++ ")"
   | "instance":
       def child = operation.attribute("module")
       def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "

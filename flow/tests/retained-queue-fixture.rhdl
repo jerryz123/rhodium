@@ -1,0 +1,43 @@
+#lang rhodium
+// Supplies explicit and configured Queue occurrences for retained-construct validation.
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/queue.rhdl") open
+import lib("rhodium/std/ready-valid.rhdl") open
+
+sync_circuit MixedQueue(T :: DataType, depth :: PosInt, pipe :: Boolean, flow :: Boolean):
+  interface ingress(Decoupled(T), ~role: consumer)
+  interface egress(Decoupled(T), ~role: producer)
+  output occupancy: Bits(index_width(depth + 1))
+  inst queue_instance(Queue(T, depth, ~pipe: pipe, ~flow: flow))
+  ingress |> queue_instance.ingress
+  queue_instance.egress |> egress
+  occupancy <== queue_instance.count
+
+sync_circuit ConfiguredQueue(T :: DataType, depth :: PosInt, pipe :: Boolean, flow :: Boolean):
+  interface ingress(Decoupled(T), ~role: consumer)
+  interface egress(Decoupled(T), ~role: producer)
+  ingress |> queue(depth, ~pipe: pipe, ~flow: flow) |> egress
+
+fun elaborate_queue(T, depth, pipe, flow, retain):
+  elaborate_with_top(MixedQueue(T, depth, pipe, flow), ~constructs: retain)
+fun elaborate_configured(T, depth, pipe, flow, retain):
+  elaborate_with_top(ConfiguredQueue(T, depth, pipe, flow), ~constructs: retain)
+
+export elaborate_queue elaborate_configured QueueConstruct QueueExpansion
+
+sync_circuit TwinQueue():
+  interface first_ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface first_egress(Decoupled(Bits(8)), ~role: producer)
+  interface second_ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface second_egress(Decoupled(Bits(8)), ~role: producer)
+  def Component = Queue(Bits(8), 3)
+  inst first(Component)
+  inst second(Component)
+  first_ingress |> first.ingress
+  first.egress |> first_egress
+  second_ingress |> second.ingress
+  second.egress |> second_egress
+
+def twins = elaborate_with_top(TwinQueue(), ~constructs: #true)
+export twins

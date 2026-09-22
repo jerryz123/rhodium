@@ -5,6 +5,10 @@
 import:
   rhombus/meta open
   "../core/types.rhm" open
+  "../core/construct.rhm" open
+  "../core/composition.rhm".bind_core_implementation
+  "kernel.rhm".construct_signature
+  "kernel.rhm".construct_implementation as kernel_construct_implementation
   "kernel.rhm".StableCircuitParam
   "kernel.rhm".input as kernel_input
   "kernel.rhm".output as kernel_output
@@ -38,6 +42,18 @@ annot.macro 'Reset':
 
 export:
   StableCircuitParam
+  ConstructIdentity
+  ExpansionProvider
+  bind_core_implementation
+  ConstructPort
+  PortLeaf
+  ConstructDependency
+  ConstructReset
+  ConstructEffect
+  ConstructContract
+  ConstructSpecialization
+  construct_signature
+  implementation
   HardwareType
   DataType
   ScalarDataType
@@ -235,13 +251,33 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
          $implementation_name($implementation_argument, ...)
       »'
 
+// Signature declarations remain in the enclosing circuit scope; the body is
+// captured without being evaluated when retained constructs are requested.
+defn.macro 'implementation(~construct: $specialization): $body; ...':
+  'kernel_construct_implementation($specialization,
+                                   fun ():
+                                     $body
+                                     ...)'
+
 expr.macro
+| 'elaborate($body, ~constructs: $constructs, ~semantics: $semantics)':
+    'kernel_run_elaboration(fun (): $body, ~constructs: $constructs, ~semantics: $semantics)'
+| 'elaborate($body, ~semantics: $semantics, ~constructs: $constructs)':
+    'kernel_run_elaboration(fun (): $body, ~constructs: $constructs, ~semantics: $semantics)'
+| 'elaborate($body, ~constructs: $constructs)':
+    'kernel_run_elaboration(fun (): $body, ~constructs: $constructs)'
 | 'elaborate($body, ~semantics: $enabled)':
     'kernel_run_elaboration(fun (): $body, ~semantics: $enabled)'
 | 'elaborate($body)':
     'kernel_run_elaboration(fun (): $body)'
 
 expr.macro
+| 'elaborate_with_top($body, ~constructs: $constructs, ~semantics: $semantics)':
+    'kernel_run_elaboration_with_top(fun (): $body, ~constructs: $constructs, ~semantics: $semantics)'
+| 'elaborate_with_top($body, ~semantics: $semantics, ~constructs: $constructs)':
+    'kernel_run_elaboration_with_top(fun (): $body, ~constructs: $constructs, ~semantics: $semantics)'
+| 'elaborate_with_top($body, ~constructs: $constructs)':
+    'kernel_run_elaboration_with_top(fun (): $body, ~constructs: $constructs)'
 | 'elaborate_with_top($body, ~semantics: $enabled)':
     'kernel_run_elaboration_with_top(fun (): $body, ~semantics: $enabled)'
 | 'elaborate_with_top($body)':

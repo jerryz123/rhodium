@@ -220,3 +220,9 @@ max-skew are also downstream concerns.
 
 Contributor test ownership and commands moved to
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
+
+Retained `construct.apply` operations contribute their declared clocks and
+resets to module clock-use inventory and ambient-clock checking. Detailed
+`summarize_module_temporal` provenance requires expanded implementations and
+reports an error for retained constructs; declaration-only dependency summaries
+do not establish payload/state provenance for CDC analysis.

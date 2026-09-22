@@ -4,8 +4,9 @@
 # Flow library
 
 `flow/` provides reusable buffering, arbitration, routing, packet adapters,
-and typed streaming composition in ordinary `#lang rhodium`. It adds no
-compiler or core IR semantics.
+and typed streaming composition in ordinary `#lang rhodium`. Retained library
+meanings use the public construct protocol without Flow-specific compiler
+opcodes.
 
 Import the facade when composing several facilities, or a focused module
 such as `lib("flow/queue.rhdl")` for one family:
@@ -733,3 +734,18 @@ pipe, queue, fixed-priority arbitration, and chaining, and
 round-robin arbitration, demux, join, atomic fork, payload mapping, and
 broadcast. The parallel token-only family is materialized in
 [`../examples/std/ctrl-flow.rhdl`](../examples/std/ctrl-flow.rhdl).
+
+## Retained Queue semantics
+
+`Queue` and configured `queue(...)` support the frontend's
+[deferred implementation mode](../rhodium/frontend/README.md#deferred-construct-implementations).
+Their signatures retain protocol types, count, payload type, depth, pipe/flow
+options, parameter-dependent combinational dependencies, clock/reset, and state
+and assertion obligations before the pointer/storage implementation executes.
+Default elaboration retains the existing RTL implementation and tracing.
+
+`QueueConstruct` is the exported nominal declaration identity; `QueueExpansion`
+is its portable expansion provider. Register a consumer's direct implementation
+against that identity, not the diagnostic string `flow.queue`. Direct selection
+skips the provider. Portable expansion preserves state and assertion obligations,
+including both pointer counter assertions for depths greater than one.

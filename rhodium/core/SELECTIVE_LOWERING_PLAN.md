@@ -69,12 +69,26 @@ implementation routing belongs in DEVELOPING guides.
 
 ## Current implementation evidence
 
-The core construct/composition and recursive resolver APIs are implemented.
-The focused construct, composition, existing verifier, and semantic metadata
-batch passes 148 checks. It covers selection before expansion, mixed RTL
-leaves, leaf-sensitive cycles, nested occurrence effects, and clock/reset
-correspondence. Frontend deferred authoring, real queue conversion, native
-integration, differential simulation, and payload regions are not yet
-implemented by this work. Core control contracts currently accept direct
-ports and transparent aliases; derived controls remain an integration gate. The existing optional `SemanticNode` mechanism
-remains descriptive and is not the executable construct protocol.
+Core provides construct/composition verification, recursive selection, and
+occurrence-local resolution of `construct.apply` operations embedded in ordinary
+module DFGs. Frontend signature declarations now precede deferred implementation
+bodies. Flow Queue declares its signature independently of its existing portable
+RTL body; explicit and configured APIs use the same construct identity.
+Expansion bodies are cached by specialization identity within one resolution,
+while target selection and lowering remain occurrence-local.
+
+The frontend/core/analysis regression batch passed 2,318 checks, profile
+coverage passed 30, Flow passed 591, and backend coverage passed 281. The
+`queue-options` and `event-queue` CIRCT/Verilator simulations passed. These
+results establish portable RTL and trace preservation, not native simulation
+correctness. A fresh focused batch passed 280 checks and exercises skipped
+bodies, per-occurrence selection, aggregate dependencies, and effect mappings.
+
+Whole-design materialization from resolved retained IR into CIRCT-compatible
+core IR is still pending: the backend currently rejects unresolved constructs.
+Native integration, three-way differential simulation, and typed payload regions
+remain pending. Core control contracts accept direct ports, transparent wires,
+and reset casts; a data-to-clock cast introduces a distinct domain and cannot
+stand in for a declared boundary clock. Derived controls need explicit support.
+The optional `SemanticNode` mechanism remains descriptive and is not the
+executable construct protocol. No end-to-end native milestone is claimed.

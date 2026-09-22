@@ -1,0 +1,11 @@
+#lang rhombus
+// Checks that portable elaboration emits CIRCT and unresolved retained input requires lowering.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../frontend/tests/construct-elaboration-test.rhm" open
+  "../circt.rhm" open
+
+check:
+  emit_circt(ordinary.design).contains("comb.add") ~is #true
+  emit_circt(retained.design) ~throws "no CIRCT lowering for operation construct.apply"

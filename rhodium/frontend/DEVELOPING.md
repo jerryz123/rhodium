@@ -188,3 +188,18 @@ both modes, exercises a custom nested macro, and checks an existing flow queue.
 Run it with `core/tests/semantic-node-test.rhm` (relative to `rhodium/`) when
 changing this boundary. Existing frontend and profile suites cover the shared
 kernel and elaboration macro surface.
+
+## Deferred executable constructs
+
+The foundation's `implementation(~construct: declaration)` form captures an
+implementation thunk after ordinary signature declarations. Kernel
+`construct_signature` reads the declared core ports; `construct_implementation`
+checks the boundary and either executes the thunk or uses
+`Builder.construct_apply` to supply all declared outputs. No simulator import,
+global mode, or separately compiled macro profile participates in this choice.
+`frontend_elaboration` isolates the current module as well as its context.
+
+Run the construct-elaboration and construct-syntax tests, then frontend/profile
+coverage for this shared boundary. Flow's retained-queue test checks the real
+library declaration and provider; the backend construct-elaboration test checks
+expanded emission and unresolved-input diagnostics.

@@ -4,6 +4,7 @@
 
 import:
   "types.rhm" open
+  "../../support/annotations.rhm".AsciiIdentifier
   "ir.rhm".Location
   "dependencies.rhm".leaf_paths
 
@@ -74,10 +75,11 @@ fun leaf_key(leaf :: PortLeaf): [leaf.port, leaf.path]
 fun verify_construct_contract(contract :: ConstructContract):
   def names = MutableSet{}
   for (port in contract.ports):
-    unless port.name != "" && !(port.name in names)
+    unless port.name is_a AsciiIdentifier && !(port.name in names)
     | fail("port names must be nonempty and unique")
     unless port.direction in ["input", "output"]
     | fail("port direction must be input or output")
+    unless type_well_formed(port.type) | fail("construct port has a malformed hardware type")
     names.add(port.name)
   def outputs = MutableSet{}
   for (dependency in contract.dependencies):

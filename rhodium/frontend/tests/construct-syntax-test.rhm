@@ -1,0 +1,12 @@
+#lang rhombus
+// Loads and validates public deferred construct syntax through the standard profile.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "construct-syntax-fixture.rhdl" as fixture
+  "../../core/main.rhm" open
+
+check:
+  fixture.retained.top.inputs.length() ~is 3
+  fixture.retained.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply").length() ~is 1
+  fixture.ordinary.design.walk().filter(~keep: fun (op): op.opcode == "rtl.add").length() ~is 1

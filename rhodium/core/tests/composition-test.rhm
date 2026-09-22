@@ -184,3 +184,18 @@ block:
       top,
       ConstructContract(declared.ports, [], ["clock"], declared.resets, effects ++ [ConstructEffect("missing", "external", "clock")]),
       bindings)) ~throws "missing a declared effect"
+
+// Equal-width data-to-clock casts introduce a distinct domain, not a clock alias.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("DerivedClock")
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def data_clock = builder.cast(module_def, clock, Bits(1))
+  def derived_clock = builder.cast(module_def, data_clock, Clock)
+  def state = builder.register(module_def, "state", Bits(8), derived_clock)
+  builder.drive(state.next, state.current)
+  builder.finish(module_def)
+  check:
+    verify_core_implementation(CoreImplementation(module_def, state_contract, [CoreEffectBinding([], state.operation, "state")])) ~throws "declared boundary port"

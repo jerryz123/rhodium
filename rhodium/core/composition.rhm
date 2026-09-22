@@ -22,6 +22,7 @@ export:
   composition_contract
   verify_composition
   verify_core_implementation
+  bind_core_implementation
 
 class CoreEffectBinding(instance_path :: List.of(String), operation :: Operation, effect :: String)
 class CoreImplementation(module_def :: Module,
@@ -211,7 +212,8 @@ fun verify_composition(composition :: HardwareComposition):
   verify(composition)
 
 // Explicit occurrence paths distinguish effects in two instances of one module.
-// Currently controls must be direct ports or transparent wire/cast aliases;
+// Controls must be direct ports or wire aliases; reset casts are transparent.
+// A cast to Clock introduces a new clock identity and is not a boundary alias;
 // derived clock/reset expressions need an explicit richer control contract.
 fun verify_core_effects(body :: CoreImplementation):
   def used = MutableSet.by(===){}
@@ -223,9 +225,11 @@ fun verify_core_effects(body :: CoreImplementation):
         def operation = value.module_def.find_operation(value.defining_op_id)
         cond
         | operation.opcode == "rtl.wire": control_origin(operation.places[0].driver, controls)
-        | operation.opcode == "rtl.cast": control_origin(operation.operands[0], controls)
+        | operation.opcode == "rtl.cast" && !clock_type(value.type): control_origin(operation.operands[0], controls)
         | ~else: fail("core control requires a declared boundary port or transparent alias")
   fun walk(module_def :: Module, path, controls):
+    when module_def.operations.find(fun (op): op.opcode == "construct.apply")
+    | fail("core implementation must expand retained constructs before effect binding")
     for (operation in module_def.operations):
       if operation.opcode == "rtl.instance"
       | block:
@@ -272,3 +276,23 @@ fun verify_core_effects(body :: CoreImplementation):
   for (effect in body.contract.effects):
     unless effect.name in represented | fail("core implementation is missing a declared effect")
   #void
+
+// Libraries identify their semantic effects; core owns occurrence traversal and
+// verifies complete correspondence with the returned portable RTL module.
+fun bind_core_implementation(module_def :: Module,
+                             contract :: ConstructContract,
+                             effect_name :: Function.of_arity(2)):
+  verify_design(module_def.design)
+  def bindings = MutableList[]
+  fun walk(current :: Module, path):
+    for (operation in current.operations):
+      cond
+      | operation.opcode == "rtl.instance":
+          walk(operation.attribute("module"), path ++ [operation.attribute("name")])
+      | schema_for(operation.opcode).kind in ["sequential", "verification"] && operation.opcode != "rtl.memory":
+          bindings.add(CoreEffectBinding(path, operation, effect_name(operation, path)))
+      | ~else: #void
+  walk(module_def, [])
+  def body = CoreImplementation(module_def, contract, bindings.snapshot())
+  verify_core_implementation(body)
+  body

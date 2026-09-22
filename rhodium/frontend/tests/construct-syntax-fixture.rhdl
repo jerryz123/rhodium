@@ -1,0 +1,22 @@
+#lang rhodium
+// Exercises the public deferred implementation block with synchronous circuit signatures.
+// SPDX-License-Identifier: Apache-2.0
+
+def identity = ConstructIdentity("test.sync_adder", 1)
+def mutable calls = 0
+sync_circuit Adder():
+  input a: Bits(8)
+  output z: Bits(8)
+  def specification = construct_signature(
+    identity, {}, fun (output): [PortLeaf("a")],
+    ~clocks: ["clock"],
+    ~resets: [ConstructReset("reset", "clock", "synchronous", #true)])
+  implementation(~construct: specification):
+    calls := calls + 1
+    z <== a + bits(1, 8)
+
+def retained = elaborate_with_top(Adder(), ~constructs: #true)
+check: calls ~is 0
+def ordinary = elaborate_with_top(Adder())
+check: calls ~is 1
+export retained ordinary

@@ -259,7 +259,7 @@ depend on surrounding expressions or a later backend inference phase.
 
 ## Operation reference
 
-Operations use namespaced `rtl.*`, `cdc.*`, `verif.*`, and `sim.*` opcodes plus
+Operations use namespaced `rtl.*`, `construct.*`, `cdc.*`, `verif.*`, and `sim.*` opcodes plus
 the static registry in [`ops.rhm`](ops.rhm), rather than a closed node-class
 hierarchy. Each `OperationSchema` records semantic category, operand/result/
 place arity, required attributes, a verifier type rule, and a printer form.
@@ -267,6 +267,7 @@ Backend lowering choices are not part of core schemas.
 
 | Group | Core opcodes |
 |---|---|
+| Retained constructs | `construct.apply` |
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
 | Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
@@ -567,9 +568,10 @@ opts into retention and supplies the generic hook used by flow descriptions.
 The public core also exposes an explicit composition level for consumers that
 need to select implementations before expanding hardware. This is executable
 structure, separate from the descriptive `SemanticNode` metadata above. The
-ordinary frontend still produces fully expanded module IR; deferred frontend
-authoring and Flow conversion are tracked in the
-[selective lowering plan](SELECTIVE_LOWERING_PLAN.md).
+frontend can retain declarations as `construct.apply` operations in the same
+module DFG with `~constructs: #true`; ordinary elaboration executes the portable
+body. The [selective lowering plan](SELECTIVE_LOWERING_PLAN.md) tracks the
+remaining consumer integration.
 
 A library exports a nominal `ConstructIdentity(name, version)` and creates a
 `ConstructSpecialization(identity, parameters, contract)` for each parameter
@@ -604,8 +606,8 @@ contribute to one boundary effect. Missing child or boundary effects are errors.
 `CoreEffectBinding` maps each clocked state/effect operation, including nested
 module occurrences, to a declared effect. Core implementation checks require
 complete mappings with matching effect kinds, clocks, and synchronous active-high
-reset associations. Controls currently resolve through direct ports and
-transparent wire/cast aliases; derived control expressions require a richer
+reset associations. Controls currently resolve through direct ports, wire aliases, and reset
+casts; a cast to Clock introduces a distinct clock identity. Other derived control expressions require a richer
 contract before they can be accepted. These checks establish structural
 correspondence; behavioral equivalence still requires differential validation.
 
@@ -621,7 +623,34 @@ or simulate the design.
 
 Selection receives the occurrence path, allowing different choices for two
 instances of the same specialization. No global registry or selection cache
-crosses target invocations. Ambiguous choices, unsupported leaves, repeated
+crosses target invocations. Portable expansion bodies are cached by immutable
+specialization identity within one resolution, while target lowering runs
+separately for each occurrence. Ambiguous choices, unsupported leaves, repeated
 non-progressing specializations, changed expansion boundary contracts, and an
 exceeded expansion-depth limit produce diagnostics. A direct lowering may
 terminate an otherwise recursive occurrence.
+
+
+### Constructs inside module DFGs
+
+`Builder.construct_apply(module, specialization, inputs, name)` creates one
+retained occurrence with ordinary Value operands/results. Operand/result order
+follows the specialization's input/output port order. Its body has not been
+expanded. Verification checks the declaration, local ownership, port types,
+arity, occurrence naming, and use-def links. Combinational cycle analysis uses
+the same complete leaf dependency contract as explicit compositions. State and
+effects belong to the occurrence even when it has no output values.
+
+`resolve_module_constructs(elaboration, target, expansions, lowerings,
+~lower_core: callback)` resolves these nodes through the module hierarchy.
+Its `ResolvedModuleOccurrence` tree preserves the original verified module,
+instance path, child occurrences, and per-operation resolutions. Shared module
+definitions do not share selection decisions or state identities. Resolution
+can return consumer-defined direct results or verified portable core bodies;
+it does not modify the original design or schedule execution.
+
+`bind_core_implementation(module, contract, effect_name)` helps library providers
+produce a verified portable `CoreImplementation`. The callback receives each
+state/effect operation and its nested instance path and selects the declared
+effect name. The helper performs complete mapping and dependency/control
+verification; it does not infer library meaning from display names.

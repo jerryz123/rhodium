@@ -160,3 +160,11 @@ Run the existing core verifier tests when changing dependency traversal. The
 [execution plan](SELECTIVE_LOWERING_PLAN.md) records the remaining frontend,
 Flow, simulator, and differential-validation gates; do not describe core-only
 protocol tests as proof of those end-to-end milestones.
+
+`construct.apply` embeds declared constructs in ordinary module DFGs. Builder,
+verification, dependency analysis, and printing own its structural integration.
+`resolve_module_constructs` traverses instance occurrences and retains a separate
+selection result for each occurrence, sharing only portable expansion bodies.
+Run `tests/construct-operation-test.rhm`, frontend construct elaboration/syntax
+coverage, and Flow retained-queue coverage when changing this boundary. CIRCT
+materialization and native execution remain separate integration gates.
