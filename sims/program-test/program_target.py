@@ -26,6 +26,17 @@ def validate_target(target):
                    or not isinstance(region['base'], int) or not isinstance(region['size'], int)
                    or region['base'] < 0 or region['size'] <= 0 for region in target['ram'])):
         raise ValueError('invalid program target descriptor')
+    if 'harts' in target:
+        harts = target['harts']
+        if (not isinstance(harts, list) or not harts
+                or any(not isinstance(hart, int) or hart < 0 for hart in harts)
+                or len(harts) != len(set(harts))):
+            raise ValueError('invalid program target hart inventory')
+    if 'boot' in target:
+        boot = target['boot']
+        if (not isinstance(boot, dict) or set(boot) != {'payload_address'}
+                or not isinstance(boot['payload_address'], int) or boot['payload_address'] < 0):
+            raise ValueError('invalid program target boot description')
     return target
 
 

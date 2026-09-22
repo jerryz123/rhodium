@@ -53,6 +53,18 @@ class ProgramTargetTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'invalid program target'):
                 self.target.validate_target(target)
 
+    def test_optional_boot_and_hart_metadata_is_validated(self):
+        target = program_target()
+        target.update(harts=[0], boot={'payload_address': 0x80000000})
+        self.assertEqual(self.target.validate_target(target), target)
+        target['harts'] = [0, 0]
+        with self.assertRaisesRegex(ValueError, 'hart inventory'):
+            self.target.validate_target(target)
+        target['harts'] = [0]
+        target['boot'] = {'payload_address': -1}
+        with self.assertRaisesRegex(ValueError, 'boot description'):
+            self.target.validate_target(target)
+
 
 class ProgramArchiveTest(unittest.TestCase):
     def setUp(self):

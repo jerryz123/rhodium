@@ -20,3 +20,6 @@
 [submodule "riscv/riscv-isa-sim"]
 	path = riscv/riscv-isa-sim
 	url = https://github.com/riscv-software-src/riscv-isa-sim.git
+[submodule "riscv/opensbi"]
+	path = riscv/opensbi
+	url = https://github.com/riscv-software-src/opensbi.git

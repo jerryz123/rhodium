@@ -1,0 +1,36 @@
+#lang rhombus
+// Writes the simulator-specific OpenSBI device tree with an HTIF reset endpoint.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  "../../devicetree/main.rhm" open
+  "../../socs/description.rhm".RiscvSoCDescription
+  "../program-test/targets.rhm".simulator_soc_description
+
+fun opensbi_device_tree(description :: RiscvSoCDescription):
+  def base = description.to_device_tree()
+  def root = base.root
+  DeviceTree(
+    DeviceTreeNode(
+      root.name,
+      root.properties,
+      root.children ++ [
+        DeviceTreeNode(
+          "htif",
+          [DeviceTreeProperty("compatible", DeviceTreeString("ucb,htif0"))]
+        )
+      ]
+    ),
+    base.reservations,
+    ~boot_cpuid: base.boot_cpuid
+  )
+
+def arguments = current_command_line()
+unless arguments.length() == 2
+| error(~who: #'write_opensbi_device_tree, "expected a SoC name and output file")
+filesystem.write_bytes(
+  arguments[1],
+  opensbi_device_tree(simulator_soc_description(arguments[0])).to_dtb(),
+  ~exists: #'truncate
+)

@@ -87,14 +87,16 @@ upstream specification changes, compare encodings and legality conditions
 before updating the stated version; do not infer conformance from names alone.
 
 The `riscv-isa-tests` and `riscv-arch-test` submodules supply upstream test
-sources, not package dependencies. The `riscv-isa-sim` submodule supplies the
-shared Spike disassembler and FESVR source. Keep both patched submodules
-pristine and express every downstream change through its adjacent ordered
-patch series. Both consumers use the shared materializer; do not add a
-consumer-local copy/apply implementation. Rebase or remove patches when
-advancing either gitlink, then validate the owning ACT flow or both RHEG export
-and FESVR execution. Simulator-specific selection and execution remain owned
-by [`../sims/`](../sims/README.md).
+sources, the `opensbi` submodule supplies upstream firmware source, and the
+`riscv-isa-sim` submodule supplies the shared Spike disassembler and FESVR
+source. They are not package dependencies. Keep the patched `riscv-arch-test`
+and `riscv-isa-sim` submodules pristine and express every downstream change
+through its adjacent ordered patch series. Both consumers use the shared
+materializer; do not add a consumer-local copy/apply implementation. OpenSBI
+is used unmodified at its pinned revision. Rebase or remove patches when
+advancing either patched gitlink, then validate the owning ACT flow or both
+RHEG export and FESVR execution. Simulator-specific selection, configuration,
+building, and execution remain owned by [`../sims/`](../sims/README.md).
 
 ## Focused validation
 

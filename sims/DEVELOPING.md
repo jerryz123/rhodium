@@ -39,8 +39,10 @@ systems cannot reuse another system's generated RTL.
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
 | PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
+| Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | Upstream ISA/benchmark/CoreMark/Embench-IoT builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
+| OpenSBI target-derived firmware layout, build adapter, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Add or change a harness

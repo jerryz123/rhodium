@@ -101,6 +101,52 @@ imported nor elaborated. Every harness emits the same parameterless
 `SoCHarness` Verilog top contract, allowing `TestDriver.v` to remain shared;
 there is no Rhodium variant enum or conditional harness circuit.
 
+## Run OpenSBI
+
+Initialize the pinned OpenSBI source and build generic `FW_JUMP` firmware for
+the selected SoC:
+
+```sh
+make -C sims opensbi-setup
+make -C sims opensbi-firmware SOC=single-core-rv5stage-soc
+```
+
+The build derives the firmware, next-stage, and writable FDT addresses from the
+same target description as the simulator. It derives an OpenSBI-only DTB from
+the canonical SoC description and adds the simulator's `ucb,htif0` reset
+endpoint. FW_JUMP embeds that DTB, relocates it to RAM using
+`FW_JUMP_FDT_ADDR`, and passes the relocated address to S-mode. The
+synthesizable SoC and its BootROM retain their hardware-only DTB. Generated
+firmware, the derived DTB, and layout metadata are under
+`/tmp/rhodium-software/<soc>/opensbi/`.
+OpenSBI requires a linker capable of producing RISC-V PIEs. When the selected
+GNU cross-linker lacks that support, select a complete LLVM installation with
+`OPENSBI_LLVM=/path/to/llvm/bin`.
+
+Run a caller-provided S-mode ELF linked at the `next_stage_address` recorded in
+`layout.json`:
+
+```sh
+make -C sims opensbi-run SOC=single-core-rv5stage-soc \
+  NEXT_STAGE=/absolute/path/to/next-stage.elf
+```
+
+FESVR loads the next-stage ELF with its existing auxiliary-payload facility
+and boots from `fw_jump.elf`. OpenSBI owns the firmware's `tohost` and
+`fromhost`; an S-mode next stage terminates through SBI system reset rather
+than defining a second HTIF mailbox. OpenSBI itself contains no embedded
+application. The repository's tiny S-mode SBI qualification image is available
+only through:
+
+```sh
+make -C sims opensbi-test SOC=single-core-rv5stage-soc
+```
+
+The initial qualification requires one bootable RV64 hart, IMA,
+Zicsr/Zifencei/Zicntr, and enough writable RAM for the firmware, a 2 MiB-aligned
+next stage, and a 64 KiB FDT reservation. Other cores and SoCs are selected by
+those capabilities rather than by core name.
+
 ## Use the UART terminal
 
 Every harness creates UART DPI model 0 and prints `UART DPI model 0 PTY: <path>`

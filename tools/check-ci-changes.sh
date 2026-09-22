@@ -98,6 +98,10 @@ check_field sims/program-test/embench-iot simulation true
 check_field sims/program-test/embench-iot-riscv-baremetal/start.S program_matrix '{"include":[{"suite":"embench"}]}'
 check_field sims/program-test/embench-iot-riscv-baremetal/start.S simulation true
 check_field sims/program-test/write-target.rhm simulation true
+check_field sims/opensbi/build.py simulation true
+check_field sims/opensbi/build.py programs false
+check_field riscv/opensbi simulation true
+check_field riscv/opensbi programs false
 check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'

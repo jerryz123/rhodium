@@ -213,6 +213,8 @@ classify_path() {
       mark_all_programs ;;
     riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|sims/program-test/build.py)
       program_isa=true; program_benchmark=true ;;
+    riscv/opensbi|riscv/opensbi/*|sims/opensbi/*)
+      ;;
     rhodium/core/*|rhodium/frontend/*|rhodium/base/*|rhodium/std/*|rhodium/backend/*|rhodium/language.rhm|rhodium/main.rkt|flow/*|cores/*|riscv/*|hardfloat/*|chi/*|noc/*|devices/*|socs/*|sims/*|support/annotations.rhm|devicetree/*|tools/install-circt.sh|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
       mark_all_programs ;;
   esac
@@ -239,6 +241,9 @@ classify_path() {
       mark_all
       ;;
     sims/program-test/*|sims/tests/test_program_test.py|riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
+      simulation=true
+      ;;
+    riscv/opensbi|riscv/opensbi/*|sims/opensbi/*)
       simulation=true
       ;;
     riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|sims/arch-test/*|sims/tests/test_arch_test.py)

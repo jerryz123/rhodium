@@ -20,6 +20,7 @@ The following paths are independently maintained Git submodules. Their contents
 are separate works governed by the license at each pinned upstream revision;
 the repository's Apache-2.0 license does not replace those terms:
 
+- `riscv/opensbi`
 - `riscv/riscv-arch-test`
 - `riscv/riscv-isa-sim`
 - `riscv/riscv-isa-tests`
@@ -49,6 +50,12 @@ series under
 [`riscv/riscv-isa-sim-patches/`](riscv/riscv-isa-sim-patches/). The upstream
 source remains under the University of California BSD license reproduced in
 [`LICENSE.riscv-isa-sim`](riscv/riscv-isa-sim-patches/LICENSE.riscv-isa-sim).
+
+## OpenSBI
+
+OpenSBI is used unmodified from its pinned upstream checkout under its
+BSD-2-Clause license, which remains in
+[`riscv/opensbi/COPYING.BSD`](riscv/opensbi/COPYING.BSD).
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their
