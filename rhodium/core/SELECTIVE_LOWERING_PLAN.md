@@ -707,3 +707,20 @@ remote CI success: PR #4 currently reports no checks. The benchmark sources are
 still under smoke validation and were not part of this integrated correctness
 run. Repeated direct-versus-expanded measurements and the final delivery audit
 remain open.
+
+## Reproducible selective benchmark infrastructure
+
+The [dependent benchmark](https://github.com/tianrui-wei/rhodium/commit/08e2d4f)
+measures matched retained/expanded circuits with explicit expansion counts,
+per-circuit elaboration/lowering times, generated-C emission/compilation times,
+artifact sizes, peak process memory, and independently checked throughput.
+A depth-eight smoke comparison passes both protocol configurations in direct
+and expanded interpreter/generated-C execution. The full matrix is running:
+depths 1/3/8, both configurations, three repetitions, and one million checked
+cycles per execution, pinned to one initially idle CPU.
+
+Emission batches share Racket startup while retaining separate circuit phase
+timings; peak lowering memory describes the matched batch. The report records
+raw samples, source/tool identities, affinity, and includes host stimulus,
+oracle, and port access in checked-cycle throughput. No completed full-matrix
+performance result or whole-SoC speedup is claimed yet.
