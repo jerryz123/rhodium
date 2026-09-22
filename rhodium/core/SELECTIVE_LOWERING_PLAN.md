@@ -383,3 +383,15 @@ The shared runtime ABI helper passes existing nested multiword replay across
 16 configurations. This is focused evidence after the 777-check full baseline.
 Broader effects/errors, previous simulator regression migration, and performance
 measurements remain open.
+
+## Retained assertion failure/retry follow-up
+
+The [dependent assertion validation](https://github.com/tianrui-wei/rhodium/commit/3ff43b4)
+adds a retained guarded assertion/state construct beside Queue. Forty-eight host
+checks verify exactly one named assertion after direct/expanded extraction and
+optimization. Forty-eight interpreter/generated-C traces each pass 256 accepted
+edges, including repeated rejected attempts with different proposed inputs.
+Register/Queue state and diagnostic cycle numbers remain unchanged on failure;
+retry agrees with clean execution, including later drain. Reset and disabled
+guards suppress checks. This is focused evidence; external callback effects,
+previous simulator regression migration, and performance remain open.
