@@ -226,3 +226,24 @@ including copied hierarchy, record-field dependencies, retained parameters, and
 identical ordinary/retained hardware. Boundary, license, and CI-routing checks
 pass. Retained `map_flow`, native execution with changing captures under stalls,
 and the other gate-6 work remain unfinished.
+
+## Retained Flow map
+
+`map_flow` now emits `MapConstruct` in retained elaboration. Its parameters carry
+the verified payload region and stable-mapping promise; operands carry payload,
+live captures, valid, and ready. `MapExpansion` returns a scoped composition
+with a generic computation child and direct handshake connections. Default
+elaboration retains direct assignments and existing invalid-use diagnostics.
+The frontend exposes `apply_construct` and composition records for inline
+library providers; chained maps use distinct occurrence names.
+
+The retained-map and existing flow-chain/static/frontend regressions pass 109
+checks. The `retained-flow-map` CIRCT/Verilator fixture materializes the canonical
+record mapper and passes 512 stimulus steps with a second capture-only change
+at every step, including stalls and invalid input. This verifies live captures
+on the portable SystemVerilog path. Native captured-map execution, mixed map/Queue
+stateful replay, broader capture/effect/vector cases, and performance evidence
+remain required. The simulator sources stay on the dependent branch.
+
+The ordinary `flow-map --full` fixture also passes its exact SystemVerilog
+reference comparison and existing simulation after the shared macro change.

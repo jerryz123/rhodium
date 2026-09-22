@@ -1,0 +1,16 @@
+#lang rhodium
+// Supplies retained scalar maps with live captures, chained occurrences, and stable protocol declarations.
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/main.rhdl") open
+
+circuit CapturedMap(stable :: Boolean):
+  interface ingress(Irrevocable(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  input bias: Bits(8)
+  if stable
+  | ingress |> map_flow(~stable: #true, payload => payload + bits(1, 8)) |> egress
+  | ingress |> map_flow(payload => payload + bias) |> map_flow(payload => payload ^ bias) |> egress
+
+fun elaborate_map(retain, stable): elaborate_with_top(CapturedMap(stable), ~constructs: retain)
+export elaborate_map

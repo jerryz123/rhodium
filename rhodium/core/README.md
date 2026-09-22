@@ -719,8 +719,8 @@ Regions permit pure hierarchical computation and reject state, effects, control
 ports, and unexpanded constructs. Transport state and effects belong outside the
 payload computation.
 
-This core API does not yet retain `map_flow` automatically. Frontend capture
-extraction and higher-order construct integration remain under development.
+Flow uses these records for [retained payload mapping](../../flow/README.md#retained-payload-mapping);
+source capture discovery belongs to the frontend extension hook.
 
 Verified regions may also appear in `ConstructSpecialization.parameters`,
 including nested lists or maps. Direct lowerings receive the region before

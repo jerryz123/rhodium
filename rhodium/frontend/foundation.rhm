@@ -7,6 +7,11 @@ import:
   "../core/types.rhm" open
   "../core/construct.rhm" open
   "../core/composition.rhm".bind_core_implementation
+  "../core/composition.rhm".HardwareComposition
+  "../core/composition.rhm".CompositionInstance
+  "../core/composition.rhm".CompositionEndpoint
+  "../core/composition.rhm".CompositionConnection
+  "kernel.rhm".apply_construct
   "kernel.rhm".payload_expansion
   "kernel.rhm".PayloadExpansion
   "kernel.rhm".construct_signature
@@ -47,6 +52,11 @@ export:
   ConstructIdentity
   ExpansionProvider
   bind_core_implementation
+  HardwareComposition
+  CompositionInstance
+  CompositionEndpoint
+  CompositionConnection
+  apply_construct
   ConstructPort
   PortLeaf
   ConstructDependency

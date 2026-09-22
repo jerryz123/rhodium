@@ -29,6 +29,7 @@ export:
   record_semantics
   build_circuit
   construct_signature
+  apply_construct
   construct_implementation
   circuit_arguments_same
   defer_circuit_finalizer
@@ -421,9 +422,20 @@ fun build_circuit(identity :: CircuitIdentity,
           | context.specializations_by_circuit[identity] := MutableList[specialization]
       module_def
 
-// The signature executes before this boundary and may declare typed ports and
-// interface metadata. Its body is a deferred implementation, never introspected
-// to discover the construct's meaning.
+// Inline library constructs share the ordinary operation-level retained boundary.
+fun apply_construct(specialization :: ConstructSpecialization,
+                    inputs :: List.of(HardwareEntity),
+                    ~name: name :: String = "construct"):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  def mutable instance_name = name
+  def mutable suffix = 0
+  while module_def.operations.find(fun (op): op.opcode in ["rtl.instance", "construct.apply"] && op.attribute("name") == instance_name):
+    suffix := suffix + 1
+    instance_name := name ++ "_" ++ to_string(suffix)
+  context.builder.construct_apply(module_def, specialization, inputs.map(fun (input): read(input)), instance_name).results
+
+// The signature describes ports and effects before an implementation body executes.
 fun construct_signature(identity :: ConstructIdentity,
                         parameters :: Map,
                         dependencies :: Function.of_arity(1),

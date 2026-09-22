@@ -241,3 +241,18 @@ selection, portable effects, and per-occurrence choice with shared modules.
 Use `queue-options` and `event-queue` CIRCT fixtures for cycle-visible RTL and
 trace preservation. Native simulation and its differential suite remain with
 the consuming simulator.
+
+## Map construct boundary
+
+`map.rhdl` uses the frontend payload hook to extract one typed computation per
+mapping occurrence. It owns `MapConstruct`, the live operand and dependency
+contract, and `MapExpansion`'s scoped composition. Reuse the normalized payload
+value for both the explicit argument and the inline binder; reading an endpoint
+projection twice would incorrectly capture its containing interface instead.
+Default elaboration keeps direct assignments. Preserve invalid-use diagnostics
+and stable protocol behavior when changing this macro.
+
+Run `tests/retained-map-test.rhm`, the flow-chain/static regressions, and the
+`retained-flow-map` CIRCT/Verilator fixture. The latter materializes the canonical
+record-mapping example and changes its captured tag while stalled and invalid.
+Native differential execution belongs to the dependent simulator suite.

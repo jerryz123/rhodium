@@ -1,0 +1,45 @@
+#lang rhombus
+// Checks retained map identity, live payload captures, direct selection, and portable materialization.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/core/dependencies.rhm".module_dependency_summaries
+  "../../rhodium/backend/circt.rhm".emit_circt
+  "../map.rhdl".MapConstruct
+  "../map.rhdl".MapExpansion
+  "retained-map-fixture.rhdl".elaborate_map
+
+fun summary(top):
+  module_dependency_summaries([top])[0].output_leaf_dependencies.map(
+    fun (leaves): leaves.map(fun (leaf): [leaf.path, leaf.input_leaves.map(fun (input): [input.input_index, input.path])]))
+
+for (stable in [#false, #true]):
+  def ordinary = elaborate_map(#false, stable)
+  def retained = elaborate_map(#true, stable)
+  def maps = retained.top.operations.filter(~keep: fun (op): op.opcode == "construct.apply")
+  check:
+    maps.length() ~is (if stable | 1 | 2)
+    summary(retained.top) ~is summary(ordinary.top)
+  for (operation in maps):
+    def spec = operation.attribute("specialization")
+    check:
+      spec.identity === MapConstruct ~is #true
+      spec.parameters["stable"] ~is stable
+      spec.parameters["payload"].captures.length() ~is (if stable | 0 | 1)
+  def mutable expansions = 0
+  def provider = ExpansionProvider(
+    MapConstruct,
+    fun (spec):
+      expansions := expansions + 1
+      MapExpansion.expand(spec))
+  def direct = TargetLowering(MapConstruct, "test", fun (o): #true, fun (s, o): s.parameters["payload"])
+  def selected = resolve_module_constructs(retained, "test", [provider], [direct])
+  check:
+    selected.constructs.length() ~is maps.length()
+    expansions ~is 0
+  def materialized = materialize_constructs(retained, [provider]).elaboration
+  check:
+    expansions ~is maps.length()
+    summary(materialized.top) ~is summary(ordinary.top)
+    emit_circt(materialized.design).contains("construct.apply") ~is #false

@@ -749,3 +749,19 @@ is its portable expansion provider. Register a consumer's direct implementation
 against that identity, not the diagnostic string `flow.queue`. Direct selection
 skips the provider. Portable expansion preserves state and assertion obligations,
 including both pointer counter assertions for depths greater than one.
+
+## Retained payload mapping
+
+With `~constructs: #true`, `map_flow` emits a `MapConstruct` operation carrying
+its verified payload region, explicit live capture operands, and `~stable`
+setting. Payload syntax still elaborates once to determine its typed computation.
+Valid and ready remain same-cycle pass-through signals; payload dependencies
+remain precise for individual record/vector fields. Captured signals continue
+to affect the mapped value while stalled and on invalid cycles.
+
+`flow/map.rhdl` exports `MapConstruct` and `MapExpansion`. The portable provider
+expands to a composition containing the generic payload computation and direct
+handshake connections. Consumers materializing retained designs containing both
+maps and queues should register both `MapExpansion` and `QueueExpansion`.
+The existing stable-mapping promise and protocol checks still apply; retention
+does not make a mapping with changing captures stable.

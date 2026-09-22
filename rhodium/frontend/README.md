@@ -393,5 +393,10 @@ executes once. The result has `value`, the ordinary hardware result, and
 source bindings. See the [core payload contract](../core/README.md#payload-computation-regions).
 
 This hook extracts computation; it does not insert a retained transport construct
-or change the result's wiring. Library-specific retention, including `map_flow`,
-is a separate integration step.
+or change the result's wiring. A library can use
+`apply_construct(specialization, inputs, ~name: "construct")` to emit a retained
+operation and receive its result values. Inputs follow the contract's input-port
+order; names are disambiguated against existing instances and retained operations.
+The public language also exposes the core composition records for portable
+providers. Flow's [retained map](../../flow/README.md#retained-payload-mapping)
+combines these extension APIs.

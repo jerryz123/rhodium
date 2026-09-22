@@ -1,0 +1,14 @@
+#lang rhombus
+// Emits the canonical captured-record map through retained IR and portable composition lowering.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm".materialize_constructs
+  "../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../rhodium/frontend/kernel.rhm" as kernel
+  "../../../examples/std/flow-topology.rhdl".MapFlowExample
+  "../../map.rhdl".MapExpansion
+
+def retained = kernel.run_elaboration_with_top(fun (): MapFlowExample(), ~constructs: #true)
+def materialized = materialize_constructs(retained, [MapExpansion]).elaboration
+print(emit_circt(materialized.design))
