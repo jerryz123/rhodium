@@ -177,3 +177,11 @@ Its source maps preserve access to extension-owned inspection metadata without
 copying references across design ownership. Run `tests/materialize-test.rhm`,
 backend `materialize-queue-test.rhm`, and the `materialized-queue` CIRCT fixture
 for this transformation. Metadata reconstruction is a separate consumer seam.
+
+Materialization collapses a signature only when its sole retained operation
+consumes every same-named input and directly drives every same-named output,
+with no other hardware. Keep operation order stable when copying ordinary
+modules. Source records distinguish one-to-one operation mappings from a
+retained operation's one-to-many expansion. Backend Queue tests compare module
+names and per-module CIRCT after alpha-renaming only backend-generated SSA
+names; authored names, constants, wiring, and operation order remain checked.

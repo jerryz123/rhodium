@@ -7,6 +7,7 @@ import:
   "../../core/dependencies.rhm".module_dependency_summaries
   "../../../flow/tests/retained-queue-fixture.rhdl" open
   "../circt.rhm" open
+  "normalize-circt.rkt".normalize_circt
 
 for (depth in [1, 2, 3, 8]):
   for (pipe in [#false, #true]):
@@ -19,6 +20,11 @@ for (depth in [1, 2, 3, 8]):
         fun summary(top):
           module_dependency_summaries([top])[0].output_leaf_dependencies.map(
             fun (leaves): leaves.map(fun (leaf): [leaf.path, leaf.input_leaves.map(fun (input): [input.input_index, input.path])]))
+        check:
+          lowered.elaboration.design.modules.map(fun (m): m.name).sort() ~is ordinary.design.modules.map(fun (m): m.name).sort()
+        for (module_def in ordinary.design.modules):
+          def copied = lowered.elaboration.design.find_module_named(module_def.name)
+          check: normalize_circt(emit_module_circt(copied)) ~is normalize_circt(emit_module_circt(module_def))
         check:
           summary(lowered.elaboration.top) ~is summary(ordinary.top)
           text.contains("hw.module @MixedQueue") ~is #true

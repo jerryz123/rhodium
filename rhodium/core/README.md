@@ -670,14 +670,20 @@ Materialization leaves the original sealed design intact. Reused portable
 modules remain shared definitions, and occurrences retain independent state.
 DPI declarations with matching names/signatures are shared; incompatible
 signatures are rejected. Module names are deterministic and collision-free,
-with the public top name preserved. Implementation wrappers currently remain
-visible as additional hierarchy.
+with authored module names reserved before portable imports. Signature-only
+modules adopt their selected implementation under the authored name; modules
+with additional hardware or non-identity boundary connections keep their
+explicit hierarchy.
 
 `result.sources` contains `MaterializedModule` records linking each copied
 module to its source and immutable maps from source value/place/operation IDs
-to copied objects. Extension metadata remains on those source modules; it is
+to copied objects. For a collapsed signature, `expansions` maps the retained
+operation ID to the implementation's operation list; the `operations` map
+contains only references with a single corresponding operation. Both the
+signature and portable implementation have source records for the same target
+module. Extension metadata remains on those source modules; it is
 not shallow-copied onto hardware in another design. Consumers of trace or
 inspection metadata must use these maps to remap references. Automatic event
-metadata reconstruction and wrapper elimination remain integration work;
+metadata reconstruction remains integration work;
 emission of the resulting hardware does not imply that trace integration has
 been completed.

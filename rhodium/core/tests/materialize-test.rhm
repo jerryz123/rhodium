@@ -80,10 +80,13 @@ block:
   builder.drive(output, operation.results[0])
   builder.finish(module_def)
   def result = materialize_constructs(DesignElaboration(design, module_def), [ExpansionProvider(swap, fun (s): body)])
-  def copied = result.elaboration.design.find_module_named("Swap")
+  def copied = result.elaboration.top
   verify_core_implementation(CoreImplementation(copied, declared))
   check:
     copied.find_output("z").place.driver.type == type ~is #true
+    copied.name ~is "Aggregate"
+    result.sources.find(fun (source): source.source === module_def).expansions[operation.id] ~is copied.operations
+    result.sources.find(fun (source): source.source === module_def).values[input.id] === copied.find_input("a").value ~is #true
 
 // External effects must reference declarations owned by the resulting design.
 block:
@@ -104,3 +107,71 @@ block:
     copied_import.design === result.elaboration.design ~is #true
     copied_import.name ~is "observe"
     copied_call.operands[0].module_def === result.elaboration.top ~is #true
+
+// A signature can disappear only if every port is connected by its declared name.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def declared = ConstructContract(
+    [ConstructPort("a", "input", Bits(8)), ConstructPort("b", "input", Bits(8)), ConstructPort("z", "output", Bits(8))],
+    [ConstructDependency(PortLeaf("z"), [PortLeaf("a")])], [], [], [])
+  def identity = ConstructIdentity("test.pick_first", 1)
+  def module_def = builder.module("RenamedBoundary")
+  def a = builder.input(module_def, "a", Bits(8))
+  def b = builder.input(module_def, "b", Bits(8))
+  def z = builder.output(module_def, "z", Bits(8))
+  def retained = builder.construct_apply(module_def, ConstructSpecialization(identity, {}, declared), [b, a], "swapped")
+  builder.drive(z, retained.results[0])
+  builder.finish(module_def)
+  def implementation_design = Design()
+  def implementation_builder = Builder(implementation_design)
+  def implementation_module = implementation_builder.module("PickFirst")
+  def input = implementation_builder.input(implementation_module, "a", Bits(8))
+  implementation_builder.input(implementation_module, "b", Bits(8))
+  def output = implementation_builder.output(implementation_module, "z", Bits(8))
+  implementation_builder.drive(output, input)
+  implementation_builder.finish(implementation_module)
+  def result = materialize_constructs(
+    DesignElaboration(design, module_def),
+    [ExpansionProvider(identity, fun (s): CoreImplementation(implementation_module, declared))])
+  def instance = result.elaboration.top.operations.find(fun (op): op.opcode == "rtl.instance")
+  check:
+    instance.places[0].driver.name ~is "b"
+    instance.places[1].driver.name ~is "a"
+    result.elaboration.top.name ~is "RenamedBoundary"
+
+
+// One shared signature may select different bodies at different occurrences.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def cell = builder.module("Cell")
+  def a = builder.input(cell, "a", Bits(8))
+  def z = builder.output(cell, "z", Bits(8))
+  def operation = builder.construct_apply(cell, specialization, [a], "implementation")
+  builder.drive(z, operation.results[0])
+  builder.finish(cell)
+  def top = builder.module("Pair")
+  def input = builder.input(top, "input", Bits(8))
+  def output = builder.output(top, "output", Bits(8))
+  def left = builder.instance(top, cell, "left")
+  def right = builder.instance(top, cell, "right")
+  builder.drive(left.input("a"), input)
+  builder.drive(right.input("a"), left.output("z"))
+  builder.drive(output, right.output("z"))
+  builder.finish(top)
+  def other_design = Design()
+  def other_builder = Builder(other_design)
+  def other = other_builder.module("Identity")
+  def other_a = other_builder.input(other, "a", Bits(8))
+  def other_z = other_builder.output(other, "z", Bits(8))
+  other_builder.drive(other_z, other_a)
+  other_builder.finish(other)
+  def direct = TargetLowering(identity, "rtl", fun (o): o.name == "Pair/left/implementation", fun (s, o): CoreImplementation(other, contract))
+  def result = materialize_constructs(DesignElaboration(design, top), providers, ~lowerings: [direct])
+  def instances = result.elaboration.top.operations.filter(~keep: fun (op): op.opcode == "rtl.instance")
+  check:
+    instances.map(fun (op): op.attribute("name")) ~is ["left", "right"]
+    instances.map(fun (op): op.attribute("module").name) ~is ["Cell", "Cell_1"]
+    instances[0].attribute("module").operations.find(fun (op): op.opcode == "rtl.add") ~is #false
+    instances[1].attribute("module").operations.filter(~keep: fun (op): op.opcode == "rtl.add").length() ~is 1

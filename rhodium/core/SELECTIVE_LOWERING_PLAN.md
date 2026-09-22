@@ -89,8 +89,13 @@ construction and 32 Queue configurations. The backend regression suite passed
 409 checks. The `materialized-queue` CIRCT/Verilator
 fixture passed a 256-cycle pre/post-edge transaction scoreboard, including
 invalid-cycle bypass payloads and pending reset. Materialization builds new core
-modules with source-object maps; extension
-metadata reconstruction and elimination of implementation wrappers remain
+modules with source-object maps. Signature-only implementation wrappers now
+collapse under authored module names. A 272-check batch verifies collapse,
+non-identity wiring, per-occurrence choices, source mappings, and per-module
+CIRCT equivalence across 32 Queue configurations after alpha-renaming only
+backend-generated SSA identifiers. The 256-cycle materialized Queue fixture
+passed again; emitted SystemVerilog preserves the Queue/Counter hierarchy,
+authored state/instance names, and counter assertion. Extension metadata reconstruction remains
 pending. The backend continues to reject inputs not yet materialized.
 Native integration, three-way differential simulation, and typed payload regions
 remain pending. Core control contracts accept direct ports, transparent wires,
@@ -101,9 +106,6 @@ executable construct protocol. No end-to-end native milestone is claimed.
 
 ## Next materialization gates
 
-- Eliminate signature-only implementation wrappers while preserving authored
-  module/instance names and ordinary portable emission. Compare ordinary versus
-  retained-then-materialized CIRCT and review generated SystemVerilog hierarchy.
 - Reconstruct extension metadata using source maps before sealing the new
   modules. Core owns generic mapping; interface/clocking owners rebuild their
   own records. Do not attach source-design Values or Places to copied modules.
