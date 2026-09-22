@@ -11,6 +11,8 @@ PROGRAM_TIMEOUT ?= 300
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
 BENCHMARK_MODE ?= target
+SINGLE_CORE_SOC := single-core-rv5stage-soc
+SMOKE_SOCS := mini-rv5stage-soc tiled-rv5stage-soc
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
@@ -21,7 +23,8 @@ ISA_SMOKE_DIR := $(PROGRAM_BUILD_ROOT)/$(SOC)/isa-smoke
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup embench-setup program-test-adapter-test program-target simulator-attestation
-.PHONY: isa-elfs benchmark-elfs coremark-elf embench-elfs isa-test benchmark-test coremark-test embench-test program-test
+.PHONY: isa-elfs benchmark-elfs coremark-elf embench-elfs isa-test benchmark-test coremark-test embench-test
+.PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
 
@@ -35,12 +38,14 @@ $(PROGRAM_TARGET):
 endif
 
 isa-smoke-config:
+	@test -n "$(filter $(SOC),$(SMOKE_SOCS))" || (echo 'ISA smoke supports SOC=$(SMOKE_SOCS)' >&2; exit 2)
 	mkdir -p "$(ISA_SMOKE_DIR)"
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm "$(SOC)" "$(ISA_SMOKE_DIR)/target.json"
 
 isa-smoke-elfs: isa-smoke-config
 	$(PYTHON) program-test/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json"
+	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json" \
+	  --isa-selection smoke
 
 isa-smoke: isa-smoke-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(ISA_SMOKE_DIR)/manifest.json" \
@@ -62,33 +67,35 @@ program-test-setup: isa-setup coremark-setup embench-setup
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 
-isa-elfs:
-	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Upstream program suites currently support SOC=single-core-rv5stage-soc only' >&2; exit 2)
+isa-elfs: program-target
+	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'The full ISA suite supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(PROGRAM_BUILD_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)"
+	  --output "$(PROGRAM_BUILD_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" --isa-selection full
 
 benchmark-elfs: program-target
-	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Upstream program suites currently support SOC=single-core-rv5stage-soc only' >&2; exit 2)
+	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'The full benchmark suite supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 coremark-elf: program-target
-	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'CoreMark currently supports SOC=single-core-rv5stage-soc only' >&2; exit 2)
+	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'CoreMark supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
 
 embench-elfs: program-target
-	@test "$(SOC)" = single-core-rv5stage-soc || (echo 'Embench-IoT currently supports SOC=single-core-rv5stage-soc only' >&2; exit 2)
+	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'Embench-IoT supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
 	$(PYTHON) program-test/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
 	  --output "$(PROGRAM_BUILD_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
-isa-test: isa-elfs simulator
+isa-test: isa-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/isa/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --output "$(PROGRAM_BUILD_ROOT)/isa/results" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(PROGRAM_BUILD_ROOT)/isa/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 
 simulator-attestation: simulator program-target
@@ -113,9 +120,9 @@ embench-test: embench-elfs simulator-attestation
 	  --output "$(PROGRAM_BUILD_ROOT)/embench/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(EMBENCH_MAX_CYCLES)
 
-program-test:
-	$(MAKE) isa-test
-	$(MAKE) benchmark-test
-	$(MAKE) coremark-test
-	$(MAKE) embench-test
-	$(MAKE) arch-test ACT_CONFIGURATION=single-core-rv5stage-soc
+single-core-software-test:
+	$(MAKE) isa-test SOC=$(SINGLE_CORE_SOC)
+	$(MAKE) benchmark-test SOC=$(SINGLE_CORE_SOC)
+	$(MAKE) coremark-test SOC=$(SINGLE_CORE_SOC)
+	$(MAKE) embench-test SOC=$(SINGLE_CORE_SOC)
+	$(MAKE) arch-test SOC=$(SINGLE_CORE_SOC) ACT_CONFIGURATION=$(SINGLE_CORE_SOC)

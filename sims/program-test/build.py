@@ -25,25 +25,48 @@ BASELINE_MARCH = 'rv64imafdc_zicsr_zifencei'
 BASELINE_MABI = 'lp64d'
 HERE = Path(__file__).resolve().parent
 
+# Upstream physical-environment groups supported by the adapter, keyed by the
+# architectural extension that makes each group applicable.
+ISA_GROUPS = {
+    'i': 'rv64ui',
+    'm': 'rv64um',
+    'a': 'rv64ua',
+    'f': 'rv64uf',
+    'd': 'rv64ud',
+    'c': 'rv64uc',
+    'zba': 'rv64uzba',
+    'zbb': 'rv64uzbb',
+    'zbs': 'rv64uzbs',
+    'zicond': 'rv64uzicond',
+    'zicboz': 'rv64mzicbo',
+}
+
 # Representative operations, chosen by feature rather than observed pass status.
-SMOKE_GROUPS = {
-    'i': ('rv64ui', ('add', 'sub', 'sll', 'sltu', 'beq', 'bne', 'jalr', 'lb', 'ld', 'sb', 'sd')),
-    'm': ('rv64um', ('mul', 'mulh', 'div', 'rem')),
-    'a': ('rv64ua', ('amoadd_d', 'amoswap_w', 'lrsc')),
-    'c': ('rv64uc', ('rvc',)),
-    'zba': ('rv64uzba', ('sh1add',)),
-    'zbb': ('rv64uzbb', ('clz',)),
-    'zbs': ('rv64uzbs', ('bset',)),
-    'zicond': ('rv64uzicond', ('czero_eqz',)),
-    'zicboz': ('rv64mzicbo', ('zero',)),
+SMOKE_TESTS = {
+    'i': ('add', 'sub', 'sll', 'sltu', 'beq', 'bne', 'jalr', 'lb', 'ld', 'sb', 'sd'),
+    'm': ('mul', 'mulh', 'div', 'rem'),
+    'a': ('amoadd_d', 'amoswap_w', 'lrsc'),
+    'c': ('rvc',),
+    'zba': ('sh1add',),
+    'zbb': ('clz',),
+    'zbs': ('bset',),
+    'zicond': ('czero_eqz',),
+    'zicboz': ('zero',),
 }
 
 
-def smoke_selection(target):
+def isa_groups(target):
     if target['xlen'] != 64 or 'i' not in target['extensions']:
-        raise ValueError('ISA smoke requires an RV64 I target')
-    selected = [value for extension, value in SMOKE_GROUPS.items() if extension in target['extensions']]
-    return [group for group, _ in selected], [f'{group}-p-{test}' for group, tests in selected for test in tests]
+        raise ValueError('ISA tests require an RV64 I target')
+    return [group for extension, group in ISA_GROUPS.items() if extension in target['extensions']]
+
+
+def smoke_selection(target):
+    isa_groups(target)
+    extensions = [extension for extension in SMOKE_TESTS if extension in target['extensions']]
+    return ([ISA_GROUPS[extension] for extension in extensions],
+            [f'{ISA_GROUPS[extension]}-p-{test}'
+             for extension in extensions for test in SMOKE_TESTS[extension]])
 
 
 def benchmark_selection(target, mode):
@@ -94,14 +117,19 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--compiler', required=True)
     parser.add_argument('--target', type=Path, help='generated concrete SoC program-target descriptor')
+    parser.add_argument('--isa-selection', choices=('full', 'smoke'))
     parser.add_argument('--benchmark-mode', choices=('target', 'baseline'), default='target')
     args = parser.parse_args()
     try:
         target = load_target(args.target) if args.target else None
     except ValueError as error:
         parser.error(str(error))
-    if args.suite == 'benchmark' and not target:
-        parser.error('benchmark builds require a concrete --target descriptor')
+    if not target:
+        parser.error('workload builds require a concrete --target descriptor')
+    if args.suite == 'isa' and not args.isa_selection:
+        parser.error('ISA builds require --isa-selection=full or --isa-selection=smoke')
+    if args.suite != 'isa' and args.isa_selection:
+        parser.error('--isa-selection applies only to ISA builds')
     source, output = args.source.resolve(), args.output.resolve()
     compiler = shutil.which(args.compiler)
     if not compiler or not (source / 'env/p/link.ld').is_file():
@@ -112,7 +140,8 @@ def main():
     for checkout in (source, source / 'env'):
         subprocess.run(['git', '-C', str(checkout), 'diff', '--quiet', 'HEAD', '--ignore-submodules=untracked'], check=True)
     key = hashlib.sha256((revision + env_revision + version + str(source) + compiler
-                          + args.benchmark_mode + json.dumps(target, sort_keys=True)).encode()
+                          + str(args.isa_selection) + args.benchmark_mode
+                          + json.dumps(target, sort_keys=True)).encode()
                          + Path(__file__).read_bytes() + (HERE / 'program_target.py').read_bytes()
                          + (HERE / 'isa.mk').read_bytes()).hexdigest()
     # Content-addressed directories prevent Make timestamps or restored caches
@@ -128,11 +157,11 @@ def main():
                    'XLEN=64', f'src_dir={source / "isa"}', f'RISCV_GCC={compiler}',
                    'RISCV_GCC_OPTS=-static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles',
                    f'RISCV_PREFIX={compiler.removesuffix("gcc")}']
-        if target:
-            groups, selected = smoke_selection(target)
-            command += ['program_groups=' + ' '.join(groups)]
+        groups = isa_groups(target)
+        command += ['program_groups=' + ' '.join(groups)]
         names = subprocess.check_output(command + ['program-manifest'], cwd=build, text=True).splitlines()
-        if target:
+        if args.isa_selection == 'smoke':
+            _, selected = smoke_selection(target)
             missing = set(selected) - set(names)
             if missing:
                 raise ValueError(f'upstream smoke tests missing from inventory: {sorted(missing)}')
@@ -140,8 +169,8 @@ def main():
         exclusions = {'rv64ui-p-ma_data': 'Requires successful misaligned data accesses.',
                       '*-v-*': 'Virtual execution environment is outside this initial ISA adapter.',
                       'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
-                      'other instruction groups': 'Require extensions outside the SingleCoreRV5StageSoC instruction profile.'}
-        if target:
+                      'other instruction groups': 'Require extensions outside the concrete target profile.'}
+        if args.isa_selection == 'smoke':
             exclusions['other instruction groups'] = 'Outside the fixed capability-filtered ISA smoke subset.'
     else:
         benchmarks = benchmark_selection(target, args.benchmark_mode)
@@ -203,8 +232,8 @@ def main():
                     compiler=version, cache_key=key, exclusions=exclusions, tests=tests)
     if target:
         manifest.update(target=target, target_fingerprint=target_fingerprint(target))
-    if args.suite == 'isa' and target:
-        manifest['selection'] = 'smoke'
+    if args.suite == 'isa':
+        manifest['selection'] = args.isa_selection
     if args.suite == 'benchmark':
         manifest.update(benchmark_mode=args.benchmark_mode, march=march, mabi=mabi,
                         compiler_arch=compiler_arch)

@@ -271,22 +271,21 @@ Runtime `tohost`/`fromhost` polling and signature reads observe dirty RV5Stage c
 lines without reserving a special mailbox address range. The same endpoint
 can access platform devices, including the boot-address register and UART.
 
-## SingleCoreRV5StageSoC software suites
+## SoC software suites
 
-Run the upstream ISA tests, benchmarks, CoreMark, and Embench-IoT through the same FESVR-backed
-SingleCoreRV5StageSoC simulator used by architectural tests:
+Run the complete supported upstream ISA selection, benchmarks, CoreMark,
+Embench-IoT, and ACT on `SingleCoreRV5StageSoC` through its FESVR-backed
+simulator:
 
 ```sh
 make -C sims program-test-setup
-make -C sims isa-test SOC=single-core-rv5stage-soc
-make -C sims benchmark-test SOC=single-core-rv5stage-soc
-make -C sims coremark-test SOC=single-core-rv5stage-soc
-make -C sims embench-test SOC=single-core-rv5stage-soc
+make -C sims single-core-software-test
 ```
 
-After also installing ACT dependencies below, `make -C sims program-test
-SOC=single-core-rv5stage-soc` runs all five suites. This aggregate stops if a suite fails;
-CI runs the suites independently so one failure does not suppress the others.
+This target requires the ACT dependencies described below. The individual
+`isa-test`, `benchmark-test`, `coremark-test`, and `embench-test` targets remain
+available for focused execution. CI schedules all five complete suites
+independently so one failure does not suppress the others.
 
 The ISA adapter selects upstream physical-environment tests for RV64 I/M/A/F/D/C,
 Zba/Zbb/Zbs/Zicond, and Zicboz. It omits `rv64ui-p-ma_data`, which requires
@@ -295,7 +294,8 @@ and privileged-platform groups are outside this initial ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
-MiniRV5StageSoC and TiledRV5StageSoC have a smaller, single-hart ISA smoke subset:
+Run the smaller, single-hart ISA selections on `MiniRV5StageSoC` and
+`TiledRV5StageSoC` explicitly:
 
 ```sh
 make -C sims program-test-setup
@@ -303,13 +303,18 @@ make -C sims isa-smoke SOC=mini-rv5stage-soc
 make -C sims isa-smoke SOC=tiled-rv5stage-soc
 ```
 
+Each command is independently runnable. CI attempts both commands even if one
+fails, so one SoC cannot suppress the other's result.
+
 Selection follows each concrete SoC's core profile and covers representative
 integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
 operations, conditional zeroing, and cache zeroing where supported. TiledRV5StageSoC
 also runs the compressed-instruction test. Every selected ELF must fit the
 actual RAM window, including zero-filled BSS; oversized tests fail preparation
 rather than being silently skipped. These physical assembly tests use no
-runtime-allocated stack. Results and target descriptions live under
+runtime-allocated stack. The complete and smoke ISA selections both bind their
+manifests to the generated target description and require a matching simulator
+attestation. Smoke results and target descriptions live under
 `$PROGRAM_BUILD_ROOT/<soc>/isa-smoke/`, independently of the full SingleCoreRV5StageSoC
 suites. The existing runner executes every selected test even after failures.
 TiledRV5StageSoC boots only hart 0: this is mesh-backed memory coverage, not a

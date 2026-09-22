@@ -362,13 +362,20 @@ binary may use the target extensions; they do not prove dynamic instruction
 coverage.
 
 `program-test/write-target.rhm` projects the existing concrete SoC description
-to the ISA smoke adapter; do not duplicate ISA or RAM constants in Python.
-`SMOKE_GROUPS` selects fixed representative tests by required extension and
-checks their names against upstream inventories. The target description is
-part of the build cache key. Validate every selected ELF's physical PT_LOAD
-ranges (using `p_memsz`, not file size) and executable entry before publishing
-a manifest, including on cache reuse. Physical ISA tests have no dynamic
-stack; adding C workloads requires an explicit stack/linker contract.
+to the workload adapters; do not duplicate ISA or RAM constants in Python.
+SingleCoreRV5StageSoC owns the complete supported ISA inventory, benchmarks,
+CoreMark, Embench-IoT, and ACT. MiniRV5StageSoC and TiledRV5StageSoC use
+capability-filtered ISA smoke. This coverage assignment is test policy, not
+hardware metadata; do not add a suite category to an SoC or core configuration.
+`ISA_GROUPS` maps target capabilities to upstream physical-environment
+inventories, and `SMOKE_TESTS`
+selects fixed representative tests from those applicable groups. Both modes
+bind their manifests and simulator attestations to the generated target
+description. The target description and selection mode are part of the build
+cache key. Validate every selected ELF's physical PT_LOAD ranges (using
+`p_memsz`, not file size) and executable entry before publishing a manifest,
+including on cache reuse. Physical ISA tests have no dynamic stack; adding C
+workloads requires an explicit stack/linker contract.
 
 The simulation CI job reuses its MiniRV5StageSoC and TiledRV5StageSoC executables for
 `isa-smoke`, attempts both targets even if one fails, and uploads independent

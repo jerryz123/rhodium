@@ -118,9 +118,12 @@ simulation change selection. Its separate build and bounded execution cannot
 consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
-The software matrix independently selects ISA tests, benchmarks, CoreMark, Embench-IoT, and ACT. Shared
-SingleCoreRV5StageSoC dependencies (including CHI, NoC, devices, and RISC-V support) select all
-five; suite-only adapter/source changes select the owning lane. ACT configuration
+The SingleCoreRV5StageSoC software matrix independently selects ISA tests,
+benchmarks, CoreMark, Embench-IoT, and ACT. Shared SingleCoreRV5StageSoC dependencies
+(including CHI, NoC, devices, and RISC-V support) select all five; suite-only
+adapter/source changes select the owning lane. MiniRV5StageSoC and
+TiledRV5StageSoC remain capability-filtered smoke targets in the simulation job
+and do not receive additional full-suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing

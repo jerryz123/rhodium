@@ -226,6 +226,16 @@ class ProgramBuildTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'RV64'):
             self.builder.smoke_selection(target)
 
+    def test_full_isa_groups_follow_target_capabilities(self):
+        target = program_target()
+        target['extensions'] += ['a', 'f', 'd', 'c', 'zba', 'zicond']
+        self.assertEqual(self.builder.isa_groups(target),
+                         ['rv64ui', 'rv64um', 'rv64ua', 'rv64uf', 'rv64ud',
+                          'rv64uc', 'rv64uzba', 'rv64uzicond'])
+        target['xlen'] = 32
+        with self.assertRaisesRegex(ValueError, 'RV64'):
+            self.builder.isa_groups(target)
+
     def test_benchmark_selection_follows_vector_capability_and_mode(self):
         target = program_target()
         self.assertEqual(self.builder.benchmark_selection(target, 'target'), self.builder.SCALAR_BENCHMARKS)
@@ -274,6 +284,8 @@ class ProgramBuildTest(unittest.TestCase):
             source, output = root / 'source', root / 'output'
             (source / 'env/p').mkdir(parents=True)
             (source / 'env/p/link.ld').touch()
+            target_path = root / 'target.json'
+            target_path.write_text(json.dumps(program_target()))
             count = 0
             fail = False
 
@@ -294,13 +306,17 @@ class ProgramBuildTest(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             argv = ['build.py', '--suite', 'isa', '--source', str(source),
-                    '--output', str(output), '--compiler', sys.executable]
+                    '--output', str(output), '--compiler', sys.executable,
+                    '--target', str(target_path), '--isa-selection', 'full']
             with patch.object(sys, 'argv', argv), patch.object(builder.subprocess, 'check_output', side_effect=check_output), \
-                    patch.object(builder.subprocess, 'run', side_effect=run):
+                    patch.object(builder.subprocess, 'run', side_effect=run), \
+                    patch.object(builder, 'check_elf_memory', return_value=[]):
                 builder.main()
                 builder.main()
                 self.assertEqual(count, 1)
                 manifest = json.loads((output / 'manifest.json').read_text())
+                self.assertEqual(manifest['selection'], 'full')
+                self.assertEqual(manifest['target'], program_target())
                 elf = output / manifest['tests'][0]['elf']
                 elf.write_bytes(b'corrupt')
                 builder.main()
@@ -346,7 +362,8 @@ class ProgramBuildTest(unittest.TestCase):
                 return subprocess.CompletedProcess(command, 0)
 
             argv = ['build.py', '--suite', 'isa', '--source', str(source), '--output', str(output),
-                    '--compiler', sys.executable, '--target', str(target_path)]
+                    '--compiler', sys.executable, '--target', str(target_path),
+                    '--isa-selection', 'smoke']
             with patch.object(sys, 'argv', argv), patch.object(builder.subprocess, 'check_output', side_effect=check_output), \
                     patch.object(builder.subprocess, 'run', side_effect=run):
                 builder.main()
@@ -356,6 +373,7 @@ class ProgramBuildTest(unittest.TestCase):
                 self.assertEqual(len(builds), 1)
                 manifest = json.loads((output / 'manifest.json').read_text())
                 self.assertEqual(manifest['target'], target)
+                self.assertEqual(manifest['selection'], 'smoke')
                 target['soc'] = 'tiled-rv5stage-soc'
                 target['ram'][0]['size'] = 0x8000
                 target_path.write_text(json.dumps(target))
