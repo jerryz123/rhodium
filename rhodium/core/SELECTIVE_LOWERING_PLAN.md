@@ -443,3 +443,21 @@ now accepts focused test names after the build directory. Original test semantic
 are preserved; source formatting is adjusted for current compiler warnings.
 Remaining compiler/object/arithmetic/frontend migration and performance gates stay
 open. These focused results do not replace the earlier full-suite baseline.
+
+## Boolean and selector migration follow-up
+
+The [dependent selector regression migration](https://github.com/tianrui-wei/rhodium/commit/c7a592e)
+restores three package-owned regressions. Eight Boolean cases exhaust 512 input
+combinations each across six-bit and 68-bit fields, including overlapping decoder
+rows and first-match/default semantics. Six sparse selector matrices pass 4,000
+cycles each against independent software, including disabled rows and serialized
+model round trips. Eight ring-selection configurations pass 2,400 cycles each
+with 150-bit FIFO payloads and 70-bit aligned views, reference versus generated C,
+one/four workers, debug/release builds, strict invalid-selector retry, reset,
+wraparound, and compiled-library reattachment. A Boost big-integer oracle
+expression now uses explicit bit setting to compile cleanly with GCC 16.
+
+Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
+These are focused results; remaining compiler/object/arithmetic/frontend
+regression migration, integrated validation, and performance measurements remain
+required. Simulator sources stay on the dependent branch.
