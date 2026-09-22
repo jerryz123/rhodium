@@ -113,7 +113,7 @@ executable construct protocol. The dependent branch establishes the initial mixe
 
 ## Next execution gates
 
-- Complete nested composition extraction and typed payload regions.
+- Extend nested composition coverage and implement typed payload regions.
 - Extend effect/error and wide/vector coverage, and migrate the previous
   simulator regression suite.
 - Measure elaboration, emitted size, memory, and throughput after correctness
@@ -144,3 +144,19 @@ additional effect/error and wide/vector coverage, performance measurements, and
 migration of the previous simulator suite. Boundary verification is not proof
 of an arbitrary target implementation's semantics; differential evidence remains
 required. No simulator implementation is added to this IR PR.
+
+## Nested native execution follow-up
+
+The [dependent nested extractor](https://github.com/tianrui-wei/rhodium/commit/fb97afb)
+passes 112 checks across two composition levels and 16 Queue configurations.
+Connections use individual leaves in reverse declaration order. Direct selection
+skips the Queue body; portable fallback expands it once. Both paths pass
+512-cycle pre/post-edge replay in the interpreter and generated C against the
+independent mixed Queue/arithmetic/register oracle. A focused existing Queue,
+aggregate, and repeated-occurrence regression passes 119 checks.
+
+Remaining nested coverage includes differently selected siblings, aggregate
+feedback across nested boundaries, and CIRCT/Verilator comparison of these new
+fixtures. Typed payload regions and the other outstanding gates remain active.
+The implementation stays on the dependent branch; this PR contains no simulator
+runtime or compiler code.
