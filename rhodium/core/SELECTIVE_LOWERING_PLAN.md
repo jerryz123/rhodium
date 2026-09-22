@@ -118,8 +118,8 @@ record the scope at that point. This list is the current remaining scope:
 
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
-- Retain pipes through the same public extension protocol and validate their
-  latency, backpressure, reset, and payload behavior differentially.
+- Complete retained pipe consumer execution and trace validation; public
+  declarations and portable RTL preservation are implemented below.
 - Migrate the previous simulator regression suite, including core-only inputs.
 - Measure elaboration and compilation time, emitted size, peak memory, and
   throughput for identical direct and expanded workloads after correctness.
@@ -330,3 +330,23 @@ validated separately; it is not part of that host entry point. Remaining work is
 effect/error preservation, retained pipes, previous simulator regression migration,
 and performance measurements. Simulator implementation remains on its dependent
 branch.
+
+## Retained pipe declarations and portable expansion
+
+Flow now exports nominal identities and deferred providers for `Pipe`,
+`ValidPipe`, `ValidPipeAlwaysCapture`, and `CtrlPipe`. Their signatures retain
+stage count, payload shape, optional flush ports, backward-ready dependencies
+where applicable, synchronous reset, and state effects. Implementation bodies
+continue to own register construction and trace controls. `PipeExpansions`
+collects all four portable providers without a simulator dependency.
+
+A 288-check focused batch validates skipped bodies, declared versus actual
+leaf dependencies, portable materialization, authored hierarchy/names, and
+normalized per-module CIRCT equality across stage counts, scalar/wide-vector
+payloads, and flush options. The existing Flow chain/static tests pass 78 checks.
+The `pipe`, `ctrl-pipe`, `valid-pipe`, and `valid-pipe-capture-always` CIRCT/Verilator
+fixtures pass with `--full`, including available exact SystemVerilog references.
+Boundary, license, CI-routing, and whitespace checks pass.
+
+Native retained-pipe execution, retained trace equivalence, effect/error coverage,
+previous simulator-suite migration, and performance measurements remain open.

@@ -1,0 +1,21 @@
+#lang rhombus
+// Compares retained pipe materialization with ordinary CIRCT, including authored hierarchy and names.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+  "../../../flow/tests/retained-pipe-fixture.rhdl" open
+  "../circt.rhm" open
+  "normalize-circt.rkt".normalize_circt
+
+for (kind in ["elastic", "valid", "always", "control"]):
+  for (stages in [1, 2, 4]):
+    for (T in [Bits(8), VectorType(2, Bits(65))]):
+      for (flushable in (if kind in ["valid", "always"] | [#false, #true] | [#false])):
+        def ordinary = elaborate_pipe(kind, T, stages, flushable, #false)
+        def retained = elaborate_pipe(kind, T, stages, flushable, #true)
+        def lowered = materialize_constructs(retained, PipeExpansions).elaboration
+        check: lowered.design.modules.map(fun (m): m.name).sort() ~is ordinary.design.modules.map(fun (m): m.name).sort()
+        for (module_def in ordinary.design.modules):
+          def copied = lowered.design.find_module_named(module_def.name)
+          check: normalize_circt(emit_module_circt(copied)) ~is normalize_circt(emit_module_circt(module_def))

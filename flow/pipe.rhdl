@@ -7,6 +7,20 @@ import:
   lib("rhodium/std/shift-register.rhdl").shift_register
   lib("flow/ready-valid-support.rhdl") open
 
+// These nominal declarations let consumers select implementations before RTL expansion.
+def PipeConstruct = ConstructIdentity("flow.pipe", 1)
+def ValidPipeConstruct = ConstructIdentity("flow.valid-pipe", 1)
+def ValidPipeAlwaysCaptureConstruct = ConstructIdentity("flow.valid-pipe-always-capture", 1)
+def CtrlPipeConstruct = ConstructIdentity("flow.ctrl-pipe", 1)
+
+fun pipe_signature(identity, parameters, elastic):
+  construct_signature(
+    identity, parameters,
+    fun (output): if elastic && output.port == "ingress_out" | [PortLeaf("egress_in", ["ready"])] | [],
+    ~clocks: ["clock"],
+    ~resets: [ConstructReset("reset", "clock", "synchronous", #true)],
+    ~effects: [ConstructEffect("state", "state", "clock")])
+
 // Each stage stores one item, contributes one cycle of unloaded latency, and
 // propagates readiness combinationally backward. Stored payloads remain stable
 // under backpressure.
@@ -15,36 +29,38 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
   interface ingress(Decoupled(T), ~role: consumer)
   interface egress(Irrevocable(T), ~role: producer)
 
-  def initial_valid = vec(
-    for List (_ in 0..stages): Bool(#false)
-  )
-  reg stage_valid(~init: initial_valid)
-  reg stage_bits(Vec(stages, T))
+  def specification = pipe_signature(PipeConstruct, {"payload": T, "stages": stages}, #true)
+  implementation(~construct: specification):
+    def initial_valid = vec(
+      for List (_ in 0..stages): Bool(#false)
+    )
+    reg stage_valid(~init: initial_valid)
+    reg stage_bits(Vec(stages, T))
 
-  def valid_sources = [ingress.valid] ++ (
-    for List (index in 0..(stages - 1)): stage_valid[index]
-  )
-  def bits_sources = [ingress.bits] ++ (
-    for List (index in 0..(stages - 1)): stage_bits[index]
-  )
+    def valid_sources = [ingress.valid] ++ (
+      for List (index in 0..(stages - 1)): stage_valid[index]
+    )
+    def bits_sources = [ingress.bits] ++ (
+      for List (index in 0..(stages - 1)): stage_bits[index]
+    )
 
-  def mutable ready = [egress.ready]
-  for (offset in 0..stages):
-    def index = stages - offset - 1
-    ready := [!stage_valid[index] ||| ready[0]] ++ ready
+    def mutable ready = [egress.ready]
+    for (offset in 0..stages):
+      def index = stages - offset - 1
+      ready := [!stage_valid[index] ||| ready[0]] ++ ready
 
-  ingress.ready <== ready[0]
-  egress.valid <== stage_valid[stages - 1]
-  egress.bits <== stage_bits[stages - 1]
+    ingress.ready <== ready[0]
+    egress.valid <== stage_valid[stages - 1]
+    egress.bits <== stage_bits[stages - 1]
 
-  for (index in 0..stages):
-    when (ready[index]):
-      stage_valid[index] <== valid_sources[index]
-      when (valid_sources[index]):
-        stage_bits[index] <== bits_sources[index]
+    for (index in 0..stages):
+      when (ready[index]):
+        stage_valid[index] <== valid_sources[index]
+        when (valid_sources[index]):
+          stage_bits[index] <== bits_sources[index]
 
-  describe_interface_elastic_stages(ready.take(stages), valid_sources)
-  describe_interface_contract(ingress, egress, "data", ~kind: "pipe", ~trace_model: interface_trace_elastic())
+    describe_interface_elastic_stages(ready.take(stages), valid_sources)
+    describe_interface_contract(ingress, egress, "data", ~kind: "pipe", ~trace_model: interface_trace_elastic())
 
 // Valid has no backpressure: every stage advances on every clock, and each
 // asserted input cycle emerges after exactly `stages` cycles unless flushed.
@@ -53,31 +69,34 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable ::
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)
 
-  def clear:
+  def flush_input:
     if flushable
     | block:
         input flush: Bool
         flush
-    | Bool(#false)
-  reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
-  stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
-  reg stage_bits(Vec(stages, T))
+    | #false
+  def specification = pipe_signature(ValidPipeConstruct, {"payload": T, "stages": stages, "flushable": flushable}, #false)
+  implementation(~construct: specification):
+    def clear = if flushable | flush_input | Bool(#false)
+    reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
+    stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
+    reg stage_bits(Vec(stages, T))
 
-  def valid_sources = [ingress.valid] ++ (
-    for List (index in 0..(stages - 1)): stage_valid[index]
-  )
-  def bits_sources = [ingress.bits] ++ (
-    for List (index in 0..(stages - 1)): stage_bits[index]
-  )
+    def valid_sources = [ingress.valid] ++ (
+      for List (index in 0..(stages - 1)): stage_valid[index]
+    )
+    def bits_sources = [ingress.bits] ++ (
+      for List (index in 0..(stages - 1)): stage_bits[index]
+    )
 
-  egress.valid <== stage_valid[stages - 1]
-  egress.bits <== stage_bits[stages - 1]
+    egress.valid <== stage_valid[stages - 1]
+    egress.bits <== stage_bits[stages - 1]
 
-  for (index in 0..stages):
-    when (valid_sources[index]):
-      stage_bits[index] <== bits_sources[index]
+    for (index in 0..stages):
+      when (valid_sources[index]):
+        stage_bits[index] <== bits_sources[index]
 
-  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
+    describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
 // Payload advances even through invalid cycles, keeping late validity and
 // cancellation logic off every payload register's write-enable path.
@@ -85,20 +104,23 @@ sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt, ~flushable:
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)
 
-  def clear:
+  def flush_input:
     if flushable
     | block:
         input flush: Bool
         flush
-    | Bool(#false)
-  reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
-  stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
-  shift_register stage_bits(ingress.bits, stages)
+    | #false
+  def specification = pipe_signature(ValidPipeAlwaysCaptureConstruct, {"payload": T, "stages": stages, "flushable": flushable}, #false)
+  implementation(~construct: specification):
+    def clear = if flushable | flush_input | Bool(#false)
+    reg stage_valid(~init: vec(for List (_ in 0..stages): Bool(#false)))
+    stage_valid <== mux(clear, vec(for List (_ in 0..stages): Bool(#false)), vec([ingress.valid] ++ (for List (index in 0..(stages - 1)): stage_valid[index])))
+    shift_register stage_bits(ingress.bits, stages)
 
-  egress.valid <== stage_valid[stages - 1]
-  egress.bits <== stage_bits[stages - 1]
+    egress.valid <== stage_valid[stages - 1]
+    egress.bits <== stage_bits[stages - 1]
 
-  describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
+    describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
 // The control-only specialization stores just the validity of each token.
 // Its output is irrevocable because an occupied stage cannot withdraw while
@@ -108,25 +130,37 @@ sync_circuit CtrlPipe(stages :: PosInt):
   interface ingress(DecoupledCtrl(), ~role: consumer)
   interface egress(IrrevocableCtrl(), ~role: producer)
 
-  def initial_valid = vec(
-    for List (_ in 0..stages): Bool(#false)
-  )
-  reg stage_valid(~init: initial_valid)
-  def valid_sources = [ingress.valid] ++ (
-    for List (index in 0..(stages - 1)): stage_valid[index]
-  )
+  def specification = pipe_signature(CtrlPipeConstruct, {"stages": stages}, #true)
+  implementation(~construct: specification):
+    def initial_valid = vec(
+      for List (_ in 0..stages): Bool(#false)
+    )
+    reg stage_valid(~init: initial_valid)
+    def valid_sources = [ingress.valid] ++ (
+      for List (index in 0..(stages - 1)): stage_valid[index]
+    )
 
-  def mutable ready = [egress.ready]
-  for (offset in 0..stages):
-    def index = stages - offset - 1
-    ready := [!stage_valid[index] ||| ready[0]] ++ ready
+    def mutable ready = [egress.ready]
+    for (offset in 0..stages):
+      def index = stages - offset - 1
+      ready := [!stage_valid[index] ||| ready[0]] ++ ready
 
-  ingress.ready <== ready[0]
-  egress.valid <== stage_valid[stages - 1]
+    ingress.ready <== ready[0]
+    egress.valid <== stage_valid[stages - 1]
 
-  for (index in 0..stages):
-    when (ready[index]):
-      stage_valid[index] <== valid_sources[index]
+    for (index in 0..stages):
+      when (ready[index]):
+        stage_valid[index] <== valid_sources[index]
+
+// Portable providers preserve the existing circuit bodies and their trace metadata.
+fun pipe_body(expanded, specialization):
+  bind_core_implementation(expanded.top, specialization.contract, fun (operation, path): "state")
+
+def PipeExpansion = ExpansionProvider(PipeConstruct, fun (s): pipe_body(elaborate_with_top(Pipe(s.parameters["payload"], s.parameters["stages"])), s))
+def ValidPipeExpansion = ExpansionProvider(ValidPipeConstruct, fun (s): pipe_body(elaborate_with_top(ValidPipe(s.parameters["payload"], s.parameters["stages"], ~flushable: s.parameters["flushable"])), s))
+def ValidPipeAlwaysCaptureExpansion = ExpansionProvider(ValidPipeAlwaysCaptureConstruct, fun (s): pipe_body(elaborate_with_top(ValidPipeAlwaysCapture(s.parameters["payload"], s.parameters["stages"], ~flushable: s.parameters["flushable"])), s))
+def CtrlPipeExpansion = ExpansionProvider(CtrlPipeConstruct, fun (s): pipe_body(elaborate_with_top(CtrlPipe(s.parameters["stages"])), s))
+def PipeExpansions = [PipeExpansion, ValidPipeExpansion, ValidPipeAlwaysCaptureExpansion, CtrlPipeExpansion]
 
 // Configuration produces a unary flow operation. A payload type constructs
 // an unconnected handle; an endpoint connects immediately and exposes the far
@@ -211,3 +245,14 @@ export:
   valid_pipe_always_capture
   CtrlPipe
   ctrl_pipe
+
+export:
+  PipeConstruct
+  ValidPipeConstruct
+  ValidPipeAlwaysCaptureConstruct
+  CtrlPipeConstruct
+  PipeExpansion
+  ValidPipeExpansion
+  ValidPipeAlwaysCaptureExpansion
+  CtrlPipeExpansion
+  PipeExpansions

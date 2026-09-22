@@ -765,3 +765,19 @@ handshake connections. Consumers materializing retained designs containing both
 maps and queues should register both `MapExpansion` and `QueueExpansion`.
 The existing stable-mapping promise and protocol checks still apply; retention
 does not make a mapping with changing captures stable.
+
+## Retained pipe semantics
+
+`Pipe`, `ValidPipe`, `ValidPipeAlwaysCapture`, and `CtrlPipe`, including their
+configured forms, support deferred implementation mode. Their declarations
+preserve stage count, payload type where applicable, flush support, protocol
+ports, synchronous reset, and state obligations. Elastic pipes declare the
+combinational backward ready dependency; their outputs are registered. Valid-only
+pipe outputs have no same-cycle input dependency.
+
+`flow/pipe.rhdl` exports the corresponding `*Construct` identities and
+`*Expansion` providers. `PipeExpansions` is the list of all four portable
+providers. Add these providers when materializing a design containing retained
+pipes. Direct target selection skips the RTL body; portable expansion retains
+the existing state, payload capture policy, and trace metadata. Ordinary
+elaboration and authoring APIs are unchanged.

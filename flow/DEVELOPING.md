@@ -256,3 +256,19 @@ Run `tests/retained-map-test.rhm`, the flow-chain/static regressions, and the
 `retained-flow-map` CIRCT/Verilator fixture. The latter materializes the canonical
 record-mapping example and changes its captured tag while stalled and invalid.
 Native differential execution belongs to the dependent simulator suite.
+
+## Pipe construct boundaries
+
+`pipe.rhdl` owns distinct nominal identities for elastic payload pipes,
+valid-only pipes, always-capture valid pipes, and control-only pipes. Shared
+signature construction declares synchronous state and the elastic backward-ready
+dependency. Declare optional flush ports before deferring the body; keep all
+register construction and implementation-specific tracing inside the body.
+The exported providers bind each portable body's state to its declared effect.
+
+Run `tests/retained-pipe-test.rhm` for skipped-body selection, actual versus
+declared dependencies, and portable materialization. Backend
+`materialize-pipe-test.rhm` compares authored module names and normalized CIRCT
+across stages, payload shapes, and flush options. Existing pipe, control-pipe,
+valid-pipe, and always-capture fixtures own observable RTL behavior and references.
+Native execution remains a separate consumer validation gate.
