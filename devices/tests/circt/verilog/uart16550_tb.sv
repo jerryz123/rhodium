@@ -221,7 +221,8 @@ module uart16550_tb;
     write_register(12'h102, 3'd7, 8'ha5);
     read_register(12'h103, 3'd7, 8'ha5);
 
-    write_register(12'h104, 3'd3, 8'h83);
+    // Standard 8250 initialization may temporarily select DLAB without 8-N-1.
+    write_register(12'h104, 3'd3, 8'h80);
     write_register(12'h105, 3'd0, 8'h02);
     write_register(12'h106, 3'd1, 8'h00);
     read_register(12'h107, 3'd0, 8'h02);

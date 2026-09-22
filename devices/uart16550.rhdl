@@ -314,7 +314,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
     interrupt_enable <== write_byte & bits(0x03, 8)
   when write_lcr:
     line_control <== write_byte
-    assert((write_byte & bits(0x7f, 8)) === bits(0x03, 8),
+    assert(write_byte[7].into(Bool) ||| ((write_byte & bits(0x7f, 8)) === bits(0x03, 8)),
            "uart16550_line_control_is_8n1")
   when write_mcr:
     modem_control <== write_byte

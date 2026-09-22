@@ -218,7 +218,7 @@ queues, interrupt/status logic, and this eight-byte register window:
 | `0` | RBR / THR | DLL | Receive/read and transmit/write data, or divisor low byte |
 | `1` | IER | DLM | RX-data and TX-empty enables, or divisor high byte |
 | `2` | IIR / FCR | IIR / FCR | Interrupt identification; FIFO enable and RX/TX clear |
-| `3` | LCR | LCR | DLAB plus enforced 8-N-1 format |
+| `3` | LCR | LCR | DLAB plus enforced 8-N-1 format when DLAB is clear |
 | `4` | MCR | MCR | Software readback only; no modem-control pins |
 | `5` | LSR | LSR | RX ready, overrun, framing, THR empty, and transmitter empty |
 | `6` | MSR | MSR | Reads zero; no modem-status pins |
@@ -232,10 +232,11 @@ serial receiver, FIFO clears are synchronous, and CHI responses remain stable
 under backpressure.
 
 This is intentionally a compatibility subset, not a claim of complete 16550
-hardware. Only 8-N-1 is implemented; unsupported LCR formats assert. Only RX
-data and TX empty interrupt causes exist, and the hardware boundary exposes
-only `rx`, `tx`, and `interrupt`. Current SoCs route the UART interrupt through
-their PLIC to RV5Stage's external interrupt inputs.
+hardware. Only 8-N-1 is implemented; unsupported LCR formats assert when DLAB
+is clear. Standard divisor programming may temporarily set LCR to `0x80` while
+DLAB is active. Only RX data and TX empty interrupt causes exist, and the
+hardware boundary exposes only `rx`, `tx`, and `interrupt`. Current SoCs route
+the UART interrupt through their PLIC to RV5Stage's external interrupt inputs.
 
 ## Attach the PTY UART model
 
