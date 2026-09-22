@@ -320,7 +320,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s2_prefetch = prefetch_valid & !virtual_lookup.valid & !s2_queued & !reservation_count.or_reduce() & !pipeline_lookup.valid & !pipeline.request.valid & !s2_store_candidate.egress.valid & stores.empty
   // Buffered requests and hints are already physical; their page offsets are
   // the same index as the original VA. A fresh demand indexes directly by VA.
-  def s2_index_address = mux(s2_queued, service_requests.egress.bits.address, mux(s2_prefetch, prefetch_request.address, virtual_lookup.bits))
+  def s2_index_address = priority_mux(~default: virtual_lookup.bits):
+    s2_queued: service_requests.egress.bits.address
+    s2_prefetch: prefetch_request.address
   // s3 / authorized lookup: retained request paired with the synchronous SRAM response.
   def s3_request = s3_lookup.egress.bits.request
   def s3_set = s3_request.address[offset_width..(offset_width + set_width)]
@@ -624,7 +626,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   stores.full_drain <== full_store_drain
   stores.drain.ready <== full_store_drain ||| (store_drain_available & (force_store_drain ||| !s0_load))
   store_drain <== stores.drain.fire()
-  def array_read_address = mux(s0_read_issue, pipeline_lookup.bits.address, mux(s2_retry, s3_lookup.egress.bits.request.address, s2_index_address))
+  def array_read_address = priority_mux(~default: s2_index_address):
+    s0_read_issue: pipeline_lookup.bits.address
+    s2_retry: s3_lookup.egress.bits.request.address
   def array_read_set = array_read_address[offset_width..(offset_width + set_width)]
   def array_read_data_address = array_read_address[word_offset_width..(offset_width + set_width)]
   def s2_admit = !management_waiting & s3_can_advance & !s2_retry & stores.empty & !s2_store_candidate.egress.valid
@@ -671,11 +675,10 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_load_hit = s4_local.valid & s4_load & s4_hit & (!s4_lr ||| s4_state.is_unique())
   def s4_failed_sc = s4_local.valid & s4_sc & !s4_sc_authorized
   def produces_response = maintenance_complete ||| s4_load_hit ||| local_mutation_complete ||| s4_failed_sc ||| (complete_refill & !refill_prefetch)
-  def response_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(
-    maintenance_complete,
-    maintenance_done.bits.context,
-    mux(complete_refill, refill_request, mux(local_mutation_commit, pending_mutation_request, s4_request))
-  )
+  def response_request :: RV5StageDataReq(xlen, vector_completion_slots) = priority_mux(~default: s4_request):
+    maintenance_complete: maintenance_done.bits.context
+    complete_refill: refill_request
+    local_mutation_commit: pending_mutation_request
   def response_access = response_request.access
   def response_address = response_request.address
   def response_width = response_request.width
@@ -701,7 +704,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def full_byte_mask = (!bits(0, word_bytes)).into(Mask(word_bytes))
   def refill_lane_mask = rv5stage_cache_lane_mask(cache, refill_way, word_bytes, full_byte_mask)
   def local_mutation_lane_mask = rv5stage_cache_lane_mask(cache, pending_mutation_way, word_bytes, mux(pending_zero, full_byte_mask, pending_mutation_request.byte_mask.into(Mask(word_bytes))))
-  def line_write_bytes = mux(store_drain, stores.drain.bits.data.as_vec(Bits(8)), mux(local_mutation_commit, local_store_word_data, refill_install_data))
+  def line_write_bytes = priority_mux(~default: refill_install_data):
+    store_drain: stores.drain.bits.data.as_vec(Bits(8))
+    local_mutation_commit: local_store_word_data
   def store_way_mask = rv5stage_cache_way_mask(cache, stores.drain.bits.way)
   def store_lane_mask = rv5stage_cache_lane_mask(cache, stores.drain.bits.way, word_bytes, stores.drain.bits.mask.into(Mask(word_bytes)))
   def mutable repeated_line_write_bytes = []
@@ -711,11 +716,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   arrays.tags.request.valid <== array_lookup_issue ||| install_refill ||| snoop_lookup_start
   arrays.tags.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
-    address: mux(install_refill,
-                 refill_set,
-                 mux(snoop_lookup_start,
-                     snoop_set,
-                     array_read_set))
+    address: (
+      priority_mux(~default: array_read_set):
+        install_refill: refill_set
+        snoop_lookup_start: snoop_set
+    )
     write: install_refill
     data: vec(for List (_way in 0..ways): refill_tag)
     mask: install_way_mask
@@ -730,12 +735,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def mutation_or_snoop_mask = mux(local_mutation_commit, local_mutation_way_mask, snoop_update_way_mask)
   def state_write_mask = mux(install_refill, install_way_mask, mutation_or_snoop_mask)
   arrays.states.request.bits <== ReadWriteRequest(set_width, CHICacheState, ways):
-    address: mux(
-      store_state_write, stores.drain.bits.address[offset_width..(offset_width + set_width)],
-      mux(install_refill, refill_set,
-          mux(local_mutation_commit, pending_mutation_request.address[offset_width..(offset_width + set_width)],
-              mux(snoop_lookup_start, snoop_set,
-                  mux(update_snoop_state, snoop.update.bits.address[offset_width..(offset_width + set_width)], array_read_set))))
+    address: (
+      priority_mux(~default: array_read_set):
+        store_state_write: stores.drain.bits.address[offset_width..(offset_width + set_width)]
+        install_refill: refill_set
+        local_mutation_commit: pending_mutation_request.address[offset_width..(offset_width + set_width)]
+        snoop_lookup_start: snoop_set
+        update_snoop_state: snoop.update.bits.address[offset_width..(offset_width + set_width)]
     )
     write: install_refill ||| local_mutation_commit ||| update_snoop_state ||| store_state_write
     data: vec(for List (_way in 0..ways): mux(store_state_write, CHICacheState.UniqueDirty, state_write_data))
@@ -746,13 +752,20 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def array_data_read = (s0_read_issue & s0_load) ||| s2_retry ||| (array_lookup_issue & !s0_read_issue)
   arrays.data.request.valid <== array_data_read ||| cache_write ||| gather_issue ||| store_drain
   arrays.data.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
-    address: mux(
-      store_drain, stores.drain.bits.address[word_offset_width..(offset_width + set_width)],
-      mux(cache_write, mux(local_mutation_commit, local_mutation_address, refill_install_address), mux(gather_issue, gather_address, array_read_data_address))
+    address: (
+      priority_mux(~default: array_read_data_address):
+        store_drain: stores.drain.bits.address[word_offset_width..(offset_width + set_width)]
+        local_mutation_commit: local_mutation_address
+        cache_write: refill_install_address
+        gather_issue: gather_address
     )
     write: cache_write ||| store_drain
     data: vec(repeated_line_write_bytes)
-    mask: mux(store_drain, store_lane_mask, mux(local_mutation_commit, local_mutation_lane_mask, refill_lane_mask))
+    mask: (
+      priority_mux(~default: refill_lane_mask):
+        store_drain: store_lane_mask
+        local_mutation_commit: local_mutation_lane_mask
+    )
 
   assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")
   assert(!(store_state_write & (array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state)), "l1d_store_drain_state_port_exclusive")

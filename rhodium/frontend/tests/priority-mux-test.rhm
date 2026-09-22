@@ -1,0 +1,38 @@
+#lang rhombus
+// Checks ordered priority-mux lowering for block and host-list case forms.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/kernel.rhm" as embedded
+  "priority-mux-fixture.rhdl" as fixture
+
+fun muxes(module_def :: Module):
+  module_def.operations.filter(
+    ~keep: fun (operation): operation.opcode == "rtl.mux_lookup"
+  )
+
+fun check_priority_shape(module_def :: Module):
+  def selected = module_def.find_output("selected").place.driver
+  def outer = module_def.find_operation(selected.defining_op_id)
+  def inner = module_def.find_operation(outer.operands[1].defining_op_id)
+  (for all (matches in [
+    outer.operands[2] === module_def.find_input("a").value,
+    inner.operands[2] === module_def.find_input("b").value,
+    inner.operands[1] === module_def.find_input("fallback").value,
+    outer.origin.kind == "embedded priority mux",
+    inner.origin.kind == "embedded priority mux"
+  ]): matches)
+
+def block_design = embedded.run_elaboration(fun (): fixture.PriorityMuxBlock())
+def block_module = block_design.modules[0]
+def list_design = embedded.run_elaboration(fun (): fixture.PriorityMuxList())
+def list_module = list_design.modules[0]
+
+check:
+  muxes(block_module).length() ~is 2
+  muxes(list_module).length() ~is 2
+  check_priority_shape(block_module) ~is #true
+  check_priority_shape(list_module) ~is #true
+  verify_design(block_design) ~is #void
+  verify_design(list_design) ~is #void

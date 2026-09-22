@@ -42,6 +42,7 @@ export:
   unsigned_le
   unsigned_ge
   mux
+  priority_mux
   ===
   =/=
   <
@@ -889,6 +890,48 @@ fun build_mux(condition :: HardwareEntity,
                        location,
                        Origin("embedded mux", name || ""))
 
+// Builds an expression-level priority chain. Cases remain ordered host data;
+// the first true hardware Bool selects its value and no condition is implicit.
+fun build_priority_mux(cases :: List.of(List),
+                       default_value :: HardwareEntity,
+                       name :: maybe(String) = #false,
+                       location :: Location = Location()) :~ HardwareFields:
+  unless cases.length() > 0
+  | error(~who: #'priority_mux,
+          location.describe() ++ ": priority_mux requires at least one case")
+  def normalized_cases = cases.map(
+    fun (case):
+      unless case.length() == 2
+      | error(~who: #'priority_mux,
+              location.describe() ++ ": priority_mux cases must be [condition, value] pairs")
+      unless case[0] is_a HardwareEntity
+      | error(~who: #'priority_mux,
+              location.describe() ++ ": priority_mux condition must be a hardware Bool")
+      def condition = kernel.read(case[0], location)
+      unless bool_type(condition.type)
+      | error(~who: #'priority_mux,
+              location.describe() ++ ": priority_mux condition must be Bool")
+      [condition, case[1]]
+  )
+  fun build_case(index :: Nat):
+    if index == normalized_cases.length()
+    | default_value
+    | block:
+        def condition = normalized_cases[index][0]
+        kernel.hw_mux_lookup(
+          hardware_as_bits(condition,
+                           #'priority_mux,
+                           "priority_mux condition",
+                           #false,
+                           location),
+          build_case(index + 1),
+          [[1, normalized_cases[index][1]]],
+          if index == 0 | name | #false,
+          location,
+          Origin("embedded priority mux", name || "")
+        )
+  build_case(0)
+
 meta:
   fun mux_result(result :: Syntax, true_value :: Syntax):
     match true_value.group
@@ -916,3 +959,15 @@ expr.macro
        $(location :: expr_meta.Parsed))':
     def result = 'build_mux($condition, $true_value, $false_value, $name, $location)'
     mux_result(result, true_value)
+
+expr.macro
+| 'priority_mux($(cases :: expr_meta.Parsed),
+                ~default: $(default_value :: expr_meta.Parsed))':
+    mux_result('build_priority_mux($cases, $default_value)', default_value)
+| 'priority_mux(~default: $(default_value :: expr_meta.Parsed)):
+     $(condition :: expr_meta.Parsed): $case_value
+     ...':
+    mux_result(
+      'build_priority_mux([[$condition, $case_value], ...], $default_value)',
+      default_value
+    )

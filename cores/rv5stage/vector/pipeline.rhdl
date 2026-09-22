@@ -336,7 +336,13 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def arriving_at_head = delayed_load_at_head ||| immediate_load_at_head ||| fp_at_head ||| multiply_at_head ||| divide_at_head
   def direct_head_completion = !completed[head] & arriving_at_head
   def fp_arrival_data = mux(result.mask_destination, fp_result.bits.integer_value[0].as_bits().zext(64), mux(result.fp_result === VectorFloatResult.Integer, if xlen == XLen.X64 | fp_result.bits.integer_value | fp_result.bits.integer_value.zext(64), if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)))
-  def arriving_head_data = mux(delayed_load_at_head, if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64), mux(immediate_load_at_head, if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64), mux(fp_at_head, fp_arrival_data, mux(multiply_at_head, multiply_completion.data, vector_divide_value(xlen, vector_completion_slots, divide_result.bits)))))
+  def delayed_load_data = if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64)
+  def immediate_load_data = if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
+  def arriving_head_data = priority_mux(~default: vector_divide_value(xlen, vector_completion_slots, divide_result.bits)):
+    delayed_load_at_head: delayed_load_data
+    immediate_load_at_head: immediate_load_data
+    fp_at_head: fp_arrival_data
+    multiply_at_head: multiply_completion.data
   def drain = authorized_slots[head] & !entry_packed[head] & (completed[head] ||| direct_head_completion) & !packed.drain_blocked
   def drained_data = mux(direct_head_completion, arriving_head_data, completion_data[head])
   def drained_flags = mux(fp_at_head & direct_head_completion, mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5)), completion_flags[head])

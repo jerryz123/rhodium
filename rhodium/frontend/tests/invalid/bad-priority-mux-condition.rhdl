@@ -1,0 +1,13 @@
+#lang rhodium
+// Supplies a non-Boolean hardware condition to the ordered priority mux.
+// SPDX-License-Identifier: Apache-2.0
+
+circuit BadPriorityMuxCondition():
+  input condition: Bits(1)
+  input value: Bits(8)
+  output result: Bits(8)
+
+  result <== priority_mux(~default: value):
+    condition: value
+
+elaborate(BadPriorityMuxCondition())

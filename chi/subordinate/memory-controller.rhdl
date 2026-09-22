@@ -163,34 +163,84 @@ fun monitor_chi_ram_write_data(p :: CHIFlitParams,
     | assert(!data.poison.or_reduce(), "chi_ram_write_data_not_poisoned")
     | #void
 
+// Fairly shares one backend issue port while retaining completions in
+// independently backpressured read and write lanes.
+sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
+                                      slot_width :: PosInt,
+                                      depth :: PosInt):
+  def Operation = CHIRamMemoryOperation(p, slot_width)
+  def Completion = CHIRamMemoryCompletion(p, slot_width)
+
+  interface read_request(Decoupled(Operation), ~role: consumer)
+  interface write_request(Decoupled(Operation), ~role: consumer)
+  interface issue(Valid(Operation), ~role: producer)
+  interface completion(Valid(Completion), ~role: consumer)
+  interface read_response(Irrevocable(Completion), ~role: producer)
+  interface write_response(Irrevocable(Completion), ~role: producer)
+
+  inst read_completions(CompletionQueue(Operation, Completion, depth))
+  inst write_completions(CompletionQueue(Operation, Completion, depth))
+  reg prefer_write(~init: Bool(#false))
+
+  def read_eligible = read_request.valid & read_completions.request.ready
+  def write_eligible = write_request.valid & write_completions.request.ready
+  def select_write = write_eligible & (!read_eligible ||| prefer_write)
+  def select_read = read_eligible & !select_write
+  read_request.ready <== select_read
+  write_request.ready <== select_write
+  read_completions.request.valid <== select_read
+  read_completions.request.bits <== read_request.bits
+  write_completions.request.valid <== select_write
+  write_completions.request.bits <== write_request.bits
+  when select_read:
+    prefer_write <== Bool(#true)
+  elsewhen select_write:
+    prefer_write <== Bool(#false)
+
+  issue.valid <== read_completions.issue.valid ||| write_completions.issue.valid
+  issue.bits <== mux(write_completions.issue.valid,
+                     write_completions.issue.bits,
+                     read_completions.issue.bits)
+  def completion_is_write = completion.bits.memory_operation.write
+  read_completions.completion.valid <== completion.valid & !completion_is_write
+  read_completions.completion.bits <== completion.bits
+  write_completions.completion.valid <== completion.valid & completion_is_write
+  write_completions.completion.bits <== completion.bits
+  read_completions.response <=> read_response
+  write_completions.response <=> write_response
+
 circuit CHIRamCompletionRouter(p :: CHIFlitParams,
                                slot_width :: PosInt):
   input node_id: Bits(p.node_id_width)
-  interface ingress(Irrevocable(CHIRamMemoryCompletion(p, slot_width)),
-                    ~role: consumer)
+  interface read_completion(Irrevocable(CHIRamMemoryCompletion(p, slot_width)), ~role: consumer)
+  interface write_completion(Irrevocable(CHIRamMemoryCompletion(p, slot_width)), ~role: consumer)
   interface read_response(Irrevocable(CHIDatFlit(p)), ~role: producer)
   interface write_response(Irrevocable(CHIRspFlit(p)), ~role: producer)
-  interface completed(Valid(Bits(slot_width)), ~role: producer)
+  interface read_completed(Valid(Bits(slot_width)), ~role: producer)
+  interface write_completed(Valid(Bits(slot_width)), ~role: producer)
 
-  def completion = ingress.bits
-  def operation = completion.memory_operation
-  def write = operation.write
-  ingress.ready <== mux(write,
-                        !operation.last ||| write_response.ready,
-                        read_response.ready)
-  read_response.valid <== ingress.valid & !write
+  def read = read_completion.bits
+  def read_operation = read.memory_operation
+  read_completion.ready <== read_response.ready
+  read_response.valid <== read_completion.valid
   read_response.bits <== chi_sn_read_completion(p,
                                                 node_id,
-                                                operation.request,
-                                                operation.data_id,
-                                                completion.data)
-  write_response.valid <== ingress.valid & write & operation.last
+                                                read_operation.request,
+                                                read_operation.data_id,
+                                                read.data)
+  read_completed.valid <== read_completion.fire() & read_operation.last
+  read_completed.bits <== read_operation.slot
+
+  def write = write_completion.bits
+  def write_operation = write.memory_operation
+  write_completion.ready <== !write_operation.last ||| write_response.ready
+  write_response.valid <== write_completion.valid & write_operation.last
   write_response.bits <== chi_sn_write_completion(p,
                                                   node_id,
-                                                  operation.request,
-                                                  operation.slot)
-  completed.valid <== ingress.fire() & operation.last
-  completed.bits <== operation.slot
+                                                  write_operation.request,
+                                                  write_operation.slot)
+  write_completed.valid <== write_completion.fire() & write_operation.last
+  write_completed.bits <== write_operation.slot
 
 // Builds transaction machinery in the caller's module. The backend factory
 // instantiates local storage and returns a binder for Valid issue/completion
@@ -204,15 +254,11 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   def limit = config.max_outstanding
   def slot_width = index_width(limit)
   def MemoryOperation = CHIRamMemoryOperation(p, slot_width)
-  def MemoryCompletion = CHIRamMemoryCompletion(p, slot_width)
 
   inst dbid_responses(Queue(CHIRspFlit(p), limit, ~pipe: #true))
   inst read_operations(Queue(MemoryOperation, limit, ~pipe: #true))
   inst write_operations(Queue(MemoryOperation, limit, ~pipe: #true))
-  inst operation_arbiter(RRArbiter(MemoryOperation, 2))
-  inst memory_operations(CompletionQueue(MemoryOperation,
-                                         MemoryCompletion,
-                                         limit))
+  inst memory_operations(CHIRamOperationScheduler(p, slot_width, limit))
   def connect_backend :: Function.of_arity(2) = backend()
   inst completion_router(CHIRamCompletionRouter(p, slot_width))
   completion_router.node_id <== identity.node_id
@@ -284,12 +330,12 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
         mask: matched.data.byte_enable.into(Mask(p.data_bytes))
   )
 
-  read_operations.egress <=> operation_arbiter.ingress[0]
-  write_operations.egress <=> operation_arbiter.ingress[1]
-  operation_arbiter.egress <=> memory_operations.request
+  read_operations.egress <=> memory_operations.read_request
+  write_operations.egress <=> memory_operations.write_request
   connect_backend(memory_operations.issue, memory_operations.completion)
 
-  memory_operations.response <=> completion_router.ingress
+  memory_operations.read_response <=> completion_router.read_completion
+  memory_operations.write_response <=> completion_router.write_completion
   def dbid_response_paths = dbid_responses.egress |> atomic_fork(2)
   dbid_response_paths[0] <=> response_arbiter.ingress[0]
   transaction_slots.dbid_sent <=> (
@@ -299,7 +345,8 @@ fun build_chi_ram_controller(config :: CHIRamConfig,
   completion_router.write_response <=> response_arbiter.ingress[1]
   response_arbiter.egress <=> port.rsp
   completion_router.read_response <=> port.dat.response
-  completion_router.completed <=> transaction_slots.completed
+  completion_router.read_completed <=> transaction_slots.read_completed
+  completion_router.write_completed <=> transaction_slots.write_completed
 
   monitor_chi_ram_request(config, identity.base_address, port.req.valid, port.req.bits)
   monitor_chi_ram_write_data(p,

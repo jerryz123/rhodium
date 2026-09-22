@@ -153,11 +153,10 @@ sync_circuit Aclint(config :: AclintConfig):
   def register_mask :: Bits(data_bytes) = port.dat.request.bits.byte_enable >> register_lane
   def write_value = register_data[0..64]
   def write_mask = register_mask[0..8].expand_mask(8)
-  def selected_value = mux(
-    mswi_access,
-    msip[mswi_index].as_bits().zext(64),
-    mux(mtimecmp_access, mtimecmp[mtimecmp_index], mux(mtime_access, mtime, bits(0, 64)))
-  )
+  def selected_value = priority_mux(~default: bits(0, 64)):
+    mswi_access: msip[mswi_index].as_bits().zext(64)
+    mtimecmp_access: mtimecmp[mtimecmp_index]
+    mtime_access: mtime
   def widened_selected_value:
     if data_bytes == 8 | selected_value | selected_value.zext(p.data_width)
   def register_read_data = widened_selected_value << register_shift

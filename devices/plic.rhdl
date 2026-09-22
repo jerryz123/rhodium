@@ -210,15 +210,12 @@ sync_circuit Plic(config :: PlicConfig):
   def priority_value = priorities[priority_index].zext(32)
   def threshold_value = thresholds[active_context].zext(32)
   def claim_value = mux(selected_winner.valid, selected_winner.source_id.zext(32), bits(0, 32))
-  def selected_value = mux(
-    priority_access,
-    priority_value,
-    mux(pending_access,
-        pending_word_value,
-        mux(enable_access,
-            enable_word_value,
-            mux(threshold_access, threshold_value, mux(claim_access, claim_value, bits(0, 32)))))
-  )
+  def selected_value = priority_mux(~default: bits(0, 32)):
+    priority_access: priority_value
+    pending_access: pending_word_value
+    enable_access: enable_word_value
+    threshold_access: threshold_value
+    claim_access: claim_value
 
   def register_lane = active_address[0..lane_width]
   def register_shift = register_lane ++ bits(0, 3)

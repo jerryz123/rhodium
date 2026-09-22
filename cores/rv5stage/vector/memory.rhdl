@@ -93,7 +93,10 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   def accepted = slow & memory.request.ready & !fault
   def truncate = fault & token.truncate_on_fault
   recover <== retry ||| fault
-  def disposition = mux(retry, RV5StageVectorDisposition.Retry, mux(truncate, RV5StageVectorDisposition.Truncate, mux(fault, RV5StageVectorDisposition.Fault, RV5StageVectorDisposition.Authorized)))
+  def disposition = priority_mux(~default: RV5StageVectorDisposition.Authorized):
+    retry: RV5StageVectorDisposition.Retry
+    truncate: RV5StageVectorDisposition.Truncate
+    fault: RV5StageVectorDisposition.Fault
   def page_cause = mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width))
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
   def alignment_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, xlen.width), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, xlen.width))

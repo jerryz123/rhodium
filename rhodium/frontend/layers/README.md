@@ -233,6 +233,22 @@ Cases may come from a host list. Keys are checked and normalized during
 elaboration. Binary `mux(sel, when_true, when_false)` is a `Bool` specialization
 of the same core `rtl.mux_lookup`; there is no separate core mux operation.
 
+Ordered predicate selection uses `priority_mux`:
+
+```rhombus
+result <== priority_mux(~default: fallback):
+  first_valid: first_value
+  second_valid: second_value
+```
+
+Cases are considered in source order and the first true hardware `Bool` wins.
+The case list must be nonempty and the explicit default is selected when no
+condition is true. The equivalent host-list form is
+`priority_mux([[condition, value], ...], ~default: fallback)`. Results must
+have one common hardware type. The frontend lowers the construct to the
+existing `rtl.mux_lookup` representation rather than adding a priority-mux core
+operation.
+
 ### Boolean, reductions, and ordering
 
 `Bool` is a nominal one-bit frontend `BitwiseType`, not a core special case:

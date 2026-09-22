@@ -21,15 +21,11 @@ sync_circuit Uart8N1Transmitter():
 
   bytes.ready <== !active
   def accept = fire(bytes)
-  def data_phase = (phase >= bits(1, 4)) & (phase <= bits(8, 4))
   def data_index = phase - bits(1, 4)
-  def serial_bit = mux(
-    !active,
-    Bool(#true),
-    mux(phase === bits(0, 4),
-        Bool(#false),
-        mux(data_phase, (data >> data_index)[0].into(Bool), Bool(#true)))
-  )
+  def serial_bit = priority_mux(~default: Bool(#true)):
+    !active: Bool(#true)
+    phase === bits(0, 4): Bool(#false)
+    (phase >= bits(1, 4)) & (phase <= bits(8, 4)): (data >> data_index)[0].into(Bool)
 
   tx <== serial_bit.as_bits()
   busy <== active

@@ -1,0 +1,11 @@
+#lang rhodium
+// Supplies an empty ordered case list to the priority mux.
+// SPDX-License-Identifier: Apache-2.0
+
+circuit BadPriorityMuxEmpty():
+  input value: Bits(8)
+  output result: Bits(8)
+
+  result <== priority_mux([], ~default: value)
+
+elaborate(BadPriorityMuxEmpty())

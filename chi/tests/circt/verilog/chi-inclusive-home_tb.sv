@@ -87,6 +87,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   logic [11:0] second_memory_txn;
   logic [11:0] victim_memory_txn;
   logic [11:0] second_victim_memory_txn;
+  CHIRspFlit stalled_response;
   integer victim_request_wait_cycles;
   bit second_victim_request_seen;
   CHIReqFlit active_request;
@@ -623,6 +624,44 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     reset = 1'b0;
 
 `ifndef CHI_HOME_TRACE
+    // A stalled autonomous output retains its owner while an unrelated input
+    // event advances another slot.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h701, 12'h711);
+    accept_memory_request_slot(LINE0, first_memory_txn);
+    send_request(LINE1, WRITE_UNIQUE_PTL, 6'd2, DATA_ID, 0, 0, 12'h702, 12'h712);
+    while (!port_out.requester.responses.valid) tick();
+    stalled_response = port_out.requester.responses.bits;
+    assert(stalled_response.opcode == DBID_RESP)
+      else $fatal(1, "inclusive Home did not present the stalled requester DBID");
+    tick();
+    subordinate_data_in.bits = '0;
+    subordinate_data_in.bits.opcode = COMP_DATA;
+    subordinate_data_in.bits.src_id = MEMORY_ID;
+    subordinate_data_in.bits.tgt_id = HOME_ID;
+    subordinate_data_in.bits.txn_id = first_memory_txn;
+    subordinate_data_in.bits.data_id = 0;
+    subordinate_data_in.bits.byte_enable = 16'hffff;
+    subordinate_data_in.bits.data = 128'h5a;
+    subordinate_data_in.valid = 1'b1;
+    #1;
+    assert(port_out.subordinate.dat.response.ready)
+      else $fatal(1, "stalled requester output blocked an unrelated fill");
+    assert(port_out.requester.responses.valid &&
+           port_out.requester.responses.bits == stalled_response)
+      else $fatal(1, "inclusive Home changed the stalled autonomous output");
+    tick();
+    subordinate_data_in = '0;
+    requester_responses_ready_in.ready = 1'b1;
+    #1;
+    assert(port_out.requester.responses.valid &&
+           port_out.requester.responses.bits == stalled_response)
+      else $fatal(1, "inclusive Home lost the retained autonomous output");
+    tick();
+    requester_responses_ready_in = '0;
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+
     // A cached line in one set completes while a distinct-set miss remains
     // parked on DRAM. A non-final fill beat may arrive while the hit DAT is
     // stalled because it only updates the miss slot's private line buffer.
@@ -965,6 +1004,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     accept_cached_packet(2'd2, 128'h42);
     accept_cached_packet(2'd3, 128'h43);
 
+`ifndef CHI_HOME_TRACE
     if (INVALID_CASE == 0) begin
       // A completed writeback must be able to release a full victim buffer
       // even while the next dirty replacement owns the stalled advance lane.
@@ -1045,6 +1085,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       assert(second_victim_memory_txn == victim_memory_txn)
         else $fatal(1, "released victim buffer entry changed transaction ID");
     end
+`endif
 
     // A resident hit updates tree-PLRU state: after filling LINE0 then LINE2,
     // touching LINE0 makes LINE2 the victim for LINE3.

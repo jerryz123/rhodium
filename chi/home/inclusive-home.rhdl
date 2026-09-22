@@ -98,6 +98,19 @@ hardware_enum CHIInclusiveHNFPhase(~width: 5):
   AwaitVictimWriteback = 20
   InstallFill = 21
 
+// Gives the shared ingress scheduler one explicit slot-targeted event surface.
+hardware_enum CHIInclusiveHNFInputEventKind(~width: 3):
+  RequesterData = 0
+  RequesterResponse = 1
+  SubordinateResponse = 2
+  FillData = 3
+  VictimWritebackCompletion = 4
+
+bundle CHIInclusiveHNFInputEvent(slot_width :: PosInt):
+  valid: Bool
+  kind: CHIInclusiveHNFInputEventKind
+  slot: Bits(slot_width)
+
 fun chi_inclusive_cached_data(p :: CHIFlitParams,
                               home_node_id :: Bits(p.node_id_width),
                               request :: CHIReqFlit(p),
@@ -334,15 +347,22 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def input_pending = requester_data_pending ||| requester_response_pending ||| (
     subordinate_response_pending
   ) ||| fill_pending ||| writeback_completion_pending
-  def input_slot = mux(requester_data_pending,
-                       requester_data_slot,
-                       mux(requester_response_pending,
-                           requester_response_slot,
-                           mux(subordinate_response_pending,
-                               subordinate_response_slot,
-                               mux(fill_pending,
-                                   fill_slot,
-                                   writeback_completion_slot))))
+  def input_event = CHIInclusiveHNFInputEvent(slot_width):
+    valid: input_pending
+    kind: (
+      priority_mux(~default: CHIInclusiveHNFInputEventKind.VictimWritebackCompletion):
+        requester_data_pending: CHIInclusiveHNFInputEventKind.RequesterData
+        requester_response_pending: CHIInclusiveHNFInputEventKind.RequesterResponse
+        subordinate_response_pending: CHIInclusiveHNFInputEventKind.SubordinateResponse
+        fill_pending: CHIInclusiveHNFInputEventKind.FillData
+    )
+    slot: (
+      priority_mux(~default: writeback_completion_slot):
+        requester_data_pending: requester_data_slot
+        requester_response_pending: requester_response_slot
+        subordinate_response_pending: subordinate_response_slot
+        fill_pending: fill_slot
+    )
 
   fun autonomous_phase(value :: CHIInclusiveHNFPhase):
     value.is_one_of(CHIInclusiveHNFPhase.SendRequesterDBID,
@@ -397,33 +417,34 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   )
   def advance_available = advance_choice.valid
   def advance_slot = advance_choice.index
-  // A full victim buffer can lock an enqueue whose release depends on either a
-  // buffered completion or, after a failed writeback, its parent's remaining
-  // fill. Service that dependency without discarding the locked enqueue owner.
-  def victim_enqueue_owns_advance = advance_locked & (
-    phases[advance_owner] === CHIInclusiveHNFPhase.EnqueueVictimWriteback
+  def advance_phase = phases[advance_slot]
+  def advance_pending_targets = pending_snoop_targets[advance_slot]
+  def advance_request_candidate = advance_phase.is_one_of(
+    CHIInclusiveHNFPhase.SendFillRequest,
+    CHIInclusiveHNFPhase.SendVictimWriteRequest
   )
-  def writeback_completion_preempts_advance = !lookup_response_valid & victim_enqueue_owns_advance & (
-    writeback_completion_pending
-  )
-  def writeback_fill_preempts_advance = !lookup_response_valid & victim_enqueue_owns_advance & (
-    victim_writebacks.completion.valid & !writeback_completion_eligible & fill_pending & (
-      fill_slot === writeback_completion_slot
+  def advance_data_candidate = advance_phase === CHIInclusiveHNFPhase.SendVictimData
+  def locked_request_prefers_writeback = mux(subordinate_request_locked,
+                                             subordinate_request_writeback_owner,
+                                             victim_writebacks.request.valid & subordinate_request_prefers_writeback)
+  def locked_data_prefers_writeback = mux(subordinate_data_locked,
+                                          subordinate_data_writeback_owner,
+                                          victim_writebacks.data.valid & subordinate_data_prefers_writeback)
+  def locked_advance_stalled = advance_locked & (
+    (advance_phase.is_one_of(CHIInclusiveHNFPhase.SendRequesterDBID,
+                             CHIInclusiveHNFPhase.SendRequesterCompletion) & !requester.responses.ready) ||| (
+      (advance_phase === CHIInclusiveHNFPhase.SendSnoop) & advance_pending_targets.or_reduce() & !requester.snoops.ready
+    ) ||| (
+      (advance_phase === CHIInclusiveHNFPhase.EnqueueVictimWriteback) & !victim_writebacks.enqueue.ready
+    ) ||| (advance_request_candidate & (!subordinate.req.ready ||| locked_request_prefers_writeback)) ||| (
+      advance_data_candidate & (!subordinate.dat.request.ready ||| locked_data_prefers_writeback)
     )
   )
-  def victim_dependency_preempts_advance = writeback_completion_preempts_advance ||| (
-    writeback_fill_preempts_advance
-  )
-  def work_from_input = victim_dependency_preempts_advance ||| (
-    !advance_locked & !lookup_response_valid & input_pending
-  )
+  def work_from_input = !lookup_response_valid & input_event.valid & (!advance_locked ||| locked_advance_stalled)
   def work_from_advance = (!lookup_response_valid ||| advance_locked) & !work_from_input & advance_available
   def work_valid = work_from_input ||| work_from_advance
-  def work_slot = mux(work_from_input,
-                      mux(victim_dependency_preempts_advance,
-                          writeback_completion_slot,
-                          input_slot),
-                      advance_slot)
+  def work_slot = mux(work_from_input, input_event.slot, advance_slot)
+  def advance_presented = work_from_advance ||| advance_locked
 
   def phase = phases[work_slot]
   def request = requests[work_slot]
@@ -444,21 +465,21 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def request_write = chi_hnf_subordinate_opcode(request.opcode).is_initial_write()
   def request_installs_miss = (request.opcode =/= CHIReqOpcode.ReadOnce) ||| request.mem_attr.allocate
   def selected_dirty = dirty_lines[selected_set][selected_way]
+  def advance_request = requests[advance_slot]
+  def advance_selected_line = line_buffers[advance_slot]
+  def advance_victim_address = victim_addresses[advance_slot]
+  def advance_snoop_victim = snoop_victims[advance_slot]
+  def advance_completion_error = completion_errors[advance_slot]
+  def advance_copyback = advance_request.opcode === CHIReqOpcode.WriteBackFull
+  def advance_maintenance = chi_cache_maintenance(advance_request.opcode)
 
-  def ordinary_input_selected = work_from_input & !victim_dependency_preempts_advance
-  def selected_requester_data = ordinary_input_selected & requester_data_pending
-  def selected_requester_response = ordinary_input_selected & !requester_data_pending & requester_response_pending
-  def selected_subordinate_response = ordinary_input_selected & !requester_data_pending & !requester_response_pending & subordinate_response_pending
-  def selected_fill = writeback_fill_preempts_advance ||| (
-    ordinary_input_selected & !requester_data_pending & !requester_response_pending & (
-      !subordinate_response_pending & fill_pending
-    )
-  )
-  def selected_writeback_completion = writeback_completion_preempts_advance ||| (
-    ordinary_input_selected & !requester_data_pending & !requester_response_pending & (
-      !subordinate_response_pending & !fill_pending & writeback_completion_pending
-    )
-  )
+  fun selected_input(kind :: CHIInclusiveHNFInputEventKind):
+    work_from_input & (input_event.kind === kind)
+  def selected_requester_data = selected_input(CHIInclusiveHNFInputEventKind.RequesterData)
+  def selected_requester_response = selected_input(CHIInclusiveHNFInputEventKind.RequesterResponse)
+  def selected_subordinate_response = selected_input(CHIInclusiveHNFInputEventKind.SubordinateResponse)
+  def selected_fill = selected_input(CHIInclusiveHNFInputEventKind.FillData)
+  def selected_writeback_completion = selected_input(CHIInclusiveHNFInputEventKind.VictimWritebackCompletion)
 
   requester.request_data.ready <== selected_requester_data
   requester.requester_responses.ready <== mux(
@@ -511,18 +532,18 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(victim_writebacks_pending[writeback_completion_slot],
            "chi_inclusive_hnf_victim_writeback_parent_pending")
 
-  def send_requester_dbid = work_from_advance & (phase === CHIInclusiveHNFPhase.SendRequesterDBID)
-  def send_requester_completion = work_from_advance & (phase === CHIInclusiveHNFPhase.SendRequesterCompletion)
+  def send_requester_dbid = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendRequesterDBID)
+  def send_requester_completion = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendRequesterCompletion)
   requester.responses.valid <== send_requester_dbid ||| send_requester_completion
   requester.responses.bits <== chi_hnf_response(
     p,
     home_id,
-    request,
+    advance_request,
     mux(send_requester_dbid,
-        mux(copyback, CHIRspOpcode.CompDBIDResp, CHIRspOpcode.DBIDResp),
+        mux(advance_copyback, CHIRspOpcode.CompDBIDResp, CHIRspOpcode.DBIDResp),
         CHIRspOpcode.Comp),
-    ~dbid: mux(send_requester_dbid, slot_txn_id(work_slot), bits(0, 12)),
-    ~error: completion_error
+    ~dbid: mux(send_requester_dbid, slot_txn_id(advance_slot), bits(0, 12)),
+    ~error: advance_completion_error
   )
   def requester_output_response_fire = requester.responses.fire()
 
@@ -562,6 +583,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def expected_snoop_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
   def snoop_opcode = mux(snoop_victim, CHISnpOpcode.SnpCleanInvalid, chi_home_snoop_opcode(request.opcode))
+  def advance_snoop_opcode = mux(advance_snoop_victim,
+                                 CHISnpOpcode.SnpCleanInvalid,
+                                 chi_home_snoop_opcode(advance_request.opcode))
   def outstanding_targets = outstanding_snoop_targets[work_slot]
   def snoop_data_target_outstanding = outstanding_targets[requester_data_snoop_target]
   def requester_response_target_outstanding = outstanding_targets[requester_response_target]
@@ -594,23 +618,25 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
            "chi_inclusive_hnf_snoop_data_id_unique")
 
   def pending_targets = pending_snoop_targets[work_slot]
-  def snoops_remaining = pending_targets.or_reduce()
-  def next_snoop_index = priority_encoder(pending_targets)
+  def snoops_remaining = advance_pending_targets.or_reduce()
+  def next_snoop_index = priority_encoder(advance_pending_targets)
   def next_snoop_node = vec(
     for List (endpoint in residents): bits(endpoint.node_id, p.node_id_width)
   )[next_snoop_index]
-  def next_snoop_txn_id = snoop_txn_id(work_slot, next_snoop_index)
-  def send_snoop = work_from_advance & (phase === CHIInclusiveHNFPhase.SendSnoop)
-  def snoop_address = mux(snoop_victim, victim_address, request.address)
+  def next_snoop_txn_id = snoop_txn_id(advance_slot, next_snoop_index)
+  def send_snoop = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendSnoop)
+  def snoop_address = mux(advance_snoop_victim,
+                          advance_victim_address,
+                          advance_request.address)
   requester.snoops.valid <== send_snoop & snoops_remaining
   requester.snoops.bits <== CHISnoopDispatch(p):
     target_id: next_snoop_node
-    flit: chi_hnf_snoop(p, home_id, request,
+    flit: chi_hnf_snoop(p, home_id, advance_request,
                         ~address: snoop_address,
-                        ~opcode: snoop_opcode,
+                        ~opcode: advance_snoop_opcode,
                         ~txn_id: next_snoop_txn_id)
   def snoop_fire = requester.snoops.fire()
-  def pending_targets_after_issue = pending_targets.updated(next_snoop_index, Bool(#false))
+  def pending_targets_after_issue = advance_pending_targets.updated(next_snoop_index, Bool(#false))
   def outstanding_targets_after_issue = outstanding_targets.updated(next_snoop_index, Bool(#true))
   def outstanding_targets_after_response = outstanding_targets.updated(requester_response_target, Bool(#false))
   def outstanding_targets_after_data = outstanding_targets.updated(requester_data_snoop_target, Bool(#false))
@@ -641,33 +667,33 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(!requester_response_flit.resp.into(CHICoherentResponse()).pass_dirty,
            "chi_inclusive_hnf_snoop_response_clean")
 
-  def enqueue_victim_writeback = work_from_advance & (
-    phase === CHIInclusiveHNFPhase.EnqueueVictimWriteback
+  def enqueue_victim_writeback = advance_presented & (
+    advance_phase === CHIInclusiveHNFPhase.EnqueueVictimWriteback
   )
   victim_writebacks.enqueue.valid <== enqueue_victim_writeback
   victim_writebacks.enqueue.bits <== CHIInclusiveVictimWriteback(p, slot_width):
-    parent_slot: work_slot
-    request: request
-    address: victim_address
-    line: selected_line.as_bits()
+    parent_slot: advance_slot
+    request: advance_request
+    address: advance_victim_address
+    line: advance_selected_line.as_bits()
   def victim_writeback_enqueue_fire = victim_writebacks.enqueue.fire()
 
-  def send_fill_request = work_from_advance & (phase === CHIInclusiveHNFPhase.SendFillRequest)
-  def send_victim_write_request = work_from_advance & (phase === CHIInclusiveHNFPhase.SendVictimWriteRequest)
+  def send_fill_request = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendFillRequest)
+  def send_victim_write_request = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendVictimWriteRequest)
   def slot_subordinate_request_valid = send_fill_request ||| send_victim_write_request
   def slot_subordinate_request_bits = chi_hnf_downstream_request(
     p,
     home_id,
     subordinate_id,
-    request,
-    ~address: mux(send_victim_write_request & !maintenance,
-                  victim_address,
-                  request.address.align_down(64)),
+    advance_request,
+    ~address: mux(send_victim_write_request & !advance_maintenance,
+                  advance_victim_address,
+                  advance_request.address.align_down(64)),
     ~size: bits(6, 6),
     ~opcode: mux(send_victim_write_request,
                  CHIReqOpcode.WriteNoSnpFull,
                  CHIReqOpcode.ReadNoSnp),
-    ~txn_id: slot_txn_id(work_slot)
+    ~txn_id: slot_txn_id(advance_slot)
   )
   def unlocked_subordinate_request_writeback = victim_writebacks.request.valid & (
     !slot_subordinate_request_valid ||| subordinate_request_prefers_writeback
@@ -706,17 +732,17 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                                                CHIRspOpcode.Comp),
            "chi_inclusive_hnf_write_response_opcode")
 
-  def send_victim_data = work_from_advance & (phase === CHIInclusiveHNFPhase.SendVictimData)
-  def victim_data_beat = victim_data_beats[work_slot]
+  def send_victim_data = advance_presented & (advance_phase === CHIInclusiveHNFPhase.SendVictimData)
+  def victim_data_beat = victim_data_beats[advance_slot]
   def victim_data_id = chi_transfer_data_id(victim_data_beat, p)
   def slot_subordinate_data_bits = chi_inclusive_victim_data(
     p,
     home_id,
     subordinate_id,
-    request,
-    subordinate_dbids[work_slot],
+    advance_request,
+    subordinate_dbids[advance_slot],
     victim_data_id,
-    selected_line[victim_data_beat[0..packet_index_width]]
+    advance_selected_line[victim_data_beat[0..packet_index_width]]
   )
   def final_victim_data = victim_data_beat === chi_data_beats_minus_one(CHITransferSize.Bytes64, p)
   def unlocked_subordinate_data_writeback = victim_writebacks.data.valid & (
@@ -858,10 +884,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def slot_shared_output_fire = requester.responses.fire() ||| requester.snoops.fire() ||| (
     subordinate_request_fire
   ) ||| subordinate_data_fire ||| victim_writeback_enqueue_fire
-  def advance_stalled = work_from_advance & slot_shared_output_valid & !slot_shared_output_fire
+  def advance_stalled = advance_presented & slot_shared_output_valid & !slot_shared_output_fire
   when advance_stalled:
     advance_locked <== Bool(#true)
-    advance_owner <== work_slot
+    advance_owner <== advance_slot
   elsewhen (advance_locked & work_from_advance):
     advance_locked <== Bool(#false)
   when (work_from_advance & (!slot_shared_output_valid ||| slot_shared_output_fire)):

@@ -202,11 +202,10 @@ sync_circuit Uart16550(config :: Uart16550Config):
   )
   def receive_interrupt = interrupt_enable[0].into(Bool) & receiver_data_available
   def transmit_interrupt = interrupt_enable[1].into(Bool) & transmitter_holding_empty
-  def interrupt_identification = (
-    mux(receive_interrupt,
-        bits(0x04, 8),
-        mux(transmit_interrupt, bits(0x02, 8), bits(0x01, 8)))
-  ) ||| mux(fifo_enabled, bits(0xc0, 8), bits(0, 8))
+  def interrupt_cause = priority_mux(~default: bits(0x01, 8)):
+    receive_interrupt: bits(0x04, 8)
+    transmit_interrupt: bits(0x02, 8)
+  def interrupt_identification = interrupt_cause ||| mux(fifo_enabled, bits(0xc0, 8), bits(0, 8))
   interrupt <== receive_interrupt ||| transmit_interrupt
 
   def selected_read_byte :: Bits(8) = mux_lookup(

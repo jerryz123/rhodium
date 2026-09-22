@@ -82,7 +82,9 @@ sync_circuit RV5StageBtb(xlen :: XLen,
       def matches = vec(for List (index in 0..entry_count): entries[index].valid & write_pc_pages[entries[index].pc_page] & (entries[index].pc_low === write_pc[0..match_bits]))
       def empty = vec(for List (index in 0..entry_count): !entries[index].valid)
       def matched = matches.or_reduce()
-      def selected_index = mux(matched, priority_encoder(matches), mux(empty.or_reduce(), priority_encoder(empty), replacement))
+      def selected_index = priority_mux(~default: replacement):
+        matched: priority_encoder(matches)
+        empty.or_reduce(): priority_encoder(empty)
       def previous = entries[selected_index]
       def incremented = mux(previous.counter === bits(3, 2), previous.counter, previous.counter + bits(1, 2))
       def decremented = mux(previous.counter === bits(0, 2), previous.counter, previous.counter - bits(1, 2))
@@ -96,10 +98,15 @@ sync_circuit RV5StageBtb(xlen :: XLen,
       def same_page = page_tag(write_pc) === page_tag(write_target)
       def target_existing_page = priority_encoder(write_target_pages)
       def pc_replacement = mux(!same_page & target_page_found & (page_replacement === target_existing_page), next_page(page_replacement), page_replacement)
-      def pc_page = mux(pc_page_found, priority_encoder(write_pc_pages), mux(empty_pages.or_reduce(), priority_encoder(empty_pages), pc_replacement))
+      def pc_page = priority_mux(~default: pc_replacement):
+        pc_page_found: priority_encoder(write_pc_pages)
+        empty_pages.or_reduce(): priority_encoder(empty_pages)
       def target_empty_pages = vec(for List (index in 0..page_count): empty_pages[index] & (pc_page =/= bits(index, page_index_bits)))
       def target_replacement = mux(page_replacement === pc_page, next_page(page_replacement), page_replacement)
-      def target_page = mux(same_page, pc_page, mux(target_page_found, target_existing_page, mux(target_empty_pages.or_reduce(), priority_encoder(target_empty_pages), target_replacement)))
+      def target_page = priority_mux(~default: target_replacement):
+        same_page: pc_page
+        target_page_found: target_existing_page
+        target_empty_pages.or_reduce(): priority_encoder(target_empty_pages)
       def replace_pc_page = allocate_pages & !pc_page_found & pages[pc_page].valid
       def replace_target_page = allocate_pages & !same_page & !target_page_found & pages[target_page].valid
       def replaced_page = vec(

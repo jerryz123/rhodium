@@ -192,10 +192,6 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = entries[index]
-        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]
-        def write_data_here = tx_dat_event & (tx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]
-        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]
-        def read_completion_here = rx_dat_event & (rx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]
         def next_write_data_ids = entry.received_data_ids ||| outgoing_data_id
         def next_read_data_ids = entry.received_data_ids ||| incoming_data_id
         def after_dbid = entry.updated(
@@ -211,19 +207,12 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
           ~phase: CHIInitialTransactionPhase.ReadPending,
           ~received_data_ids: next_read_data_ids
         )
-        def progressed = mux(dbid_response_here,
-                             after_dbid,
-                             mux(write_data_here,
-                                 after_write_data,
-                                 mux(write_completion_here,
-                                     empty,
-                                     mux(read_completion_here,
-                                         mux(next_read_data_ids === entry.expected_data_ids,
-                                             empty,
-                                             after_read_data),
-                                         entry))))
-        def allocate_here = allocate & (allocation_index === bits(index, index_width(limit)))
-        mux(allocate_here, allocated, progressed)
+        priority_mux(~default: entry):
+          allocate & (allocation_index === bits(index, index_width(limit))): allocated
+          rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]: after_dbid
+          tx_dat_event & (tx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]: after_write_data
+          rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]: empty
+          rx_dat_event & (rx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]: mux(next_read_data_ids === entry.expected_data_ids, empty, after_read_data)
   )
   entries <== next_entries
 
@@ -355,10 +344,6 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
     for List (index in 0..limit):
       block:
         def entry = entries[index]
-        def dbid_response_here = rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]
-        def write_data_here = rx_dat_event & (rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]
-        def write_completion_here = rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]
-        def read_completion_here = tx_dat_event & (tx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]
         def next_write_data_ids = entry.received_data_ids ||| incoming_write_data_id
         def next_read_data_ids = entry.received_data_ids ||| outgoing_read_data_id
         def after_dbid = entry.updated(
@@ -373,19 +358,12 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
           ~phase: CHIInitialTransactionPhase.ReadPending,
           ~received_data_ids: next_read_data_ids
         )
-        def progressed = mux(dbid_response_here,
-                             after_dbid,
-                             mux(write_data_here,
-                                 after_write_data,
-                                 mux(write_completion_here,
-                                     empty,
-                                     mux(read_completion_here,
-                                         mux(next_read_data_ids === entry.expected_data_ids,
-                                             empty,
-                                             after_read_data),
-                                         entry))))
-        def allocate_here = allocate & (allocation_index === bits(index, index_width(limit)))
-        mux(allocate_here, allocated, progressed)
+        priority_mux(~default: entry):
+          allocate & (allocation_index === bits(index, index_width(limit))): allocated
+          rsp_event & (rsp.opcode === CHIRspOpcode.DBIDResp) & dbid_response_matches[index]: after_dbid
+          rx_dat_event & (rx_dat.opcode === CHIDatOpcode.NonCopyBackWriteData) & write_data_matches[index]: after_write_data
+          rsp_event & (rsp.opcode === CHIRspOpcode.Comp) & write_completion_matches[index]: empty
+          tx_dat_event & (tx_dat.opcode === CHIDatOpcode.CompData) & read_completion_matches[index]: mux(next_read_data_ids === entry.expected_data_ids, empty, after_read_data)
   )
   entries <== next_entries
 
@@ -575,11 +553,6 @@ fun home_transaction_monitor(p :: CHIFlitParams,
       block:
         def entry = entries[index]
         def index_bits = bits(index, slot_width)
-        def allocate_here = request_pair & (request_slot === index_bits)
-        def dbid_here = response_pair & response_dbid & (response_slot === index_bits)
-        def write_data_here = write_data_pair & (write_data_slot === index_bits)
-        def write_comp_here = response_pair & response_comp & (response_slot === index_bits)
-        def read_data_here = read_data_pair & (read_data_slot === index_bits)
         def allocated:
           CHIHomeTransaction(p):
             phase: mux(upstream_request_opcode.is_initial_write(),
@@ -608,18 +581,12 @@ fun home_transaction_monitor(p :: CHIFlitParams,
           ~phase: CHIInitialTransactionPhase.ReadPending,
           ~received_data_ids: next_read_data_ids
         )
-        def progressed = mux(dbid_here,
-                             after_dbid,
-                             mux(write_data_here,
-                                 after_write_data,
-                                 mux(write_comp_here,
-                                     empty,
-                                     mux(read_data_here,
-                                         mux(next_read_data_ids === entry.expected_data_ids,
-                                             empty,
-                                             after_read_data),
-                                         entry))))
-        mux(allocate_here, allocated, progressed)
+        priority_mux(~default: entry):
+          request_pair & (request_slot === index_bits): allocated
+          response_pair & response_dbid & (response_slot === index_bits): after_dbid
+          write_data_pair & (write_data_slot === index_bits): after_write_data
+          response_pair & response_comp & (response_slot === index_bits): empty
+          read_data_pair & (read_data_slot === index_bits): mux(next_read_data_ids === entry.expected_data_ids, empty, after_read_data)
   )
   entries <== next_entries
 

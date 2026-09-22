@@ -312,6 +312,17 @@ module chi_ram_tb;
     issue_request(READ_NO_SNP, 12'h307, 44'h080000010, 6'd4, 12'h607);
     accept_read(12'h607, 2'd1, 16'hffff, 128'h8888);
 
+    // A stalled read DAT must not hide a later write completion on RSP.
+    issue_request(READ_NO_SNP, 12'h308, 44'h080000000, 6'd4, 12'h608);
+    wait_dat();
+    issue_request(WRITE_NO_SNP_FULL, 12'h309, 44'h080000020, 6'd4, 12'b0);
+    accept_dbid(12'h309, dbid_a);
+    issue_write_data(dbid_a, 2'd2, 16'hffff, 128'h9999);
+    accept_comp(12'h309, dbid_a);
+    assert (response_data_out.valid)
+      else $fatal(1, "write completion consumed the stalled read response");
+    accept_read(12'h608, 2'd0, 16'hffff, 128'h44444444444444444444444444444444);
+
     // Move the idle 64-byte window to the top of the physical address space.
     identity.base_address = 44'hfffffffffc0;
     issue_request(READ_NO_SNP, 12'h205, 44'hffffffffff0, 6'd4, 12'h505);

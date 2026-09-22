@@ -28,18 +28,19 @@ bundle CHISNMatchedWrite(p :: CHIFlitParams, slot_width :: PosInt):
 sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def slot_width = index_width(limit)
 
-  // Allocation and matched DAT can wait for acceptance. The two notifications
-  // report transfers that have already occurred and therefore cannot stall.
+  // Allocation and matched DAT can wait for acceptance. The DBID and two
+  // completion notifications report transfers that already occurred and cannot stall.
   interface allocation(Decoupled(CHISNTransactionAllocation(p)), ~role: consumer)
   interface allocated(Decoupled(CHISNAllocatedTransaction(p, slot_width)), ~role: producer)
   interface dbid_sent(Valid(Bits(slot_width)), ~role: consumer)
   interface write_data(Decoupled(CHIDatFlit(p)), ~role: consumer)
   interface matched_write(Decoupled(CHISNMatchedWrite(p, slot_width)), ~role: producer)
-  interface completed(Valid(Bits(slot_width)), ~role: consumer)
+  interface read_completed(Valid(Bits(slot_width)), ~role: consumer)
+  interface write_completed(Valid(Bits(slot_width)), ~role: consumer)
 
-  inst occupancy(Scoreboard(limit))
   inst awaiting_write_data(Scoreboard(limit))
-  def occupied = occupancy.busy.into(Vec(limit, Bool))
+  reg occupancy(~init: Mask(limit)(0))
+  def occupied = occupancy.into(Vec(limit, Bool))
   def awaiting_write_data_slots = awaiting_write_data.busy.into(Vec(limit, Bool))
   reg received_write_data_ids(~init: vec(for List (_index in 0..limit): bits(0, 4)))
   mem write_requests(limit, CHIReqFlit(p))
@@ -88,9 +89,23 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def allocate = allocated.fire()
   def accept_write_data = matched_write.fire()
 
-  occupancy.set.valid <== allocate
-  occupancy.set.bits <== allocated.bits.slot
-  occupancy.clear <=> completed
+  fun selected_slot_mask(valid :: Bool, slot :: Bits(slot_width)):
+    vec(for List (index in 0..limit): valid & (slot === bits(index, slot_width))).into(Mask(limit))
+  def allocation_mask = selected_slot_mask(allocate, allocated.bits.slot)
+  def read_completion_mask = selected_slot_mask(read_completed.valid, read_completed.bits)
+  def write_completion_mask = selected_slot_mask(write_completed.valid, write_completed.bits)
+  def completion_mask = read_completion_mask ||| write_completion_mask
+  when (read_completed.valid):
+    assert(or_reduce(occupancy & read_completion_mask),
+           "chi_sn_read_completion_slot_occupied")
+  when (write_completed.valid):
+    assert(or_reduce(occupancy & write_completion_mask),
+           "chi_sn_write_completion_slot_occupied")
+  when (read_completed.valid & write_completed.valid):
+    assert(read_completed.bits =/= write_completed.bits,
+           "chi_sn_simultaneous_completions_distinct")
+  when (allocate ||| read_completed.valid ||| write_completed.valid):
+    occupancy <== (occupancy ||| allocation_mask) & !completion_mask
 
   awaiting_write_data.set <=> dbid_sent
   awaiting_write_data.clear.valid <== accept_write_data & matched_write.bits.last

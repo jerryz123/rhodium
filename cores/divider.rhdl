@@ -56,7 +56,10 @@ sync_circuit IterativeDivider(width :: PosInt):
   def direct_result = divisor_zero ||| divisor_one ||| dividend_smaller ||| dividend_equal
   def signed_dividend_magnitude = mux(request_negate_quotient, -dividend_magnitude, dividend_magnitude)
   def signed_one = mux(request_negate_quotient, -bits(1, width), bits(1, width))
-  def direct_quotient = mux(divisor_zero, !bits(0, width), mux(divisor_one, signed_dividend_magnitude, mux(dividend_equal, signed_one, bits(0, width))))
+  def direct_quotient = priority_mux(~default: bits(0, width)):
+    divisor_zero: !bits(0, width)
+    divisor_one: signed_dividend_magnitude
+    dividend_equal: signed_one
   def direct_remainder = mux(divisor_zero ||| dividend_smaller, request.bits.dividend, bits(0, width))
   def dividend_leading_zeros = count_leading_zeros(dividend_magnitude)
   def initial_count = dividend_leading_zeros[0..count_width]

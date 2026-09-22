@@ -58,8 +58,14 @@ DBID. The slot index is the Home TxnID/DBID on subordinate and snoop traffic.
 One shared SRAM lookup port accepts at most one lookup per cycle. Different
 sets may overlap, but an admitted transaction owns its set until retirement;
 same-set requests remain backpressured so directory and replacement updates
-cannot conflict. Lookup, internal/control progress, and requester DAT use
-independent rotating slot selectors. A non-final subordinate fill beat may
+cannot conflict. Lookup issue, autonomous progress, and requester response DAT
+use independent rotating slot selectors. Requester DAT/RSP, subordinate DAT/RSP,
+and victim-writeback completion decode onto one typed, slot-targeted ingress
+event. A retained autonomous output continues presenting the same owner and
+payload while a stalled handshake permits that ingress event to advance; an
+available autonomous handshake wins before another ingress event so only one
+autonomous phase transition commits per cycle. Lookup response remains the
+nonstallable shared-resource priority. A non-final subordinate fill beat may
 update its private slot buffer in the same cycle that another slot returns DAT,
 and a lookup may issue alongside a non-final fill. A final fill, merge, or
 intervention update reserves the single LLC array port instead. Requester DAT

@@ -53,6 +53,8 @@
  ("bad-popcount-type.rhdl" "popcount operand must have a packable DataType")
  ("bad-priority-encoder-type.rhdl" "priority_encoder operand must have a packable DataType")
  ("bad-priority-encoder-oh-type.rhdl" "priority_encoder_oh operand must have a packable DataType")
+ ("bad-priority-mux-condition.rhdl" "priority_mux condition must be Bool")
+ ("bad-priority-mux-empty.rhdl" "priority_mux requires at least one case")
  ("bad-invert-enum.rhdl" "bit_not operand must have a bitwise type")
  ("bad-enum-member.rhdl" "enum State has no member named Missing")
  ("bad-enum-mux-integer-key.rhdl" "enum mux lookup keys must be members of the selector's enum type")

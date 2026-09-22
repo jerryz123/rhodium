@@ -1,0 +1,30 @@
+#lang rhodium
+// Defines block- and list-authored priority muxes for frontend lowering tests.
+// SPDX-License-Identifier: Apache-2.0
+
+circuit PriorityMuxBlock():
+  input first: Bool
+  input second: Bool
+  input a: Bits(4)
+  input b: Bits(4)
+  input fallback: Bits(4)
+  output selected: Bits(4)
+
+  selected <== priority_mux(~default: fallback):
+    first: a
+    second: b
+
+circuit PriorityMuxList():
+  input first: Bool
+  input second: Bool
+  input a: Bits(4)
+  input b: Bits(4)
+  input fallback: Bits(4)
+  output selected: Bits(4)
+
+  def cases = [[first, a], [second, b]]
+  selected <== priority_mux(cases, ~default: fallback)
+
+export:
+  PriorityMuxBlock
+  PriorityMuxList
