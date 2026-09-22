@@ -116,11 +116,9 @@ executable construct protocol. The dependent branch establishes the initial mixe
 The evidence sections below are chronological; their pending-work statements
 record the scope at that point. This list is the current remaining scope:
 
-- Complete effect/error coverage, preserving assertions and exactly-once effects
-  across direct selection and portable expansion.
-- Migrate the previous simulator regression suite, including core-only inputs.
 - Measure elaboration and compilation time, emitted size, peak memory, and
   throughput for identical direct and expanded workloads after correctness.
+- Complete the final source/PR scope audit and publish the measured limitations.
 
 Typed payload regions, frontend capture extraction, retained maps, nested native
 composition, and initial captured-map execution are implemented; see the later
@@ -688,3 +686,24 @@ graph immutability, report round trips, compiler remapping, and invalid bindings
 The core regression runner includes this gate. Boundary, license-header,
 CI-routing, shell syntax, and whitespace checks pass. Direct-versus-expanded
 benchmark infrastructure is under validation; no timing result is claimed yet.
+
+## Fresh integrated native validation
+
+A fresh `make sim-selective-test` run completed successfully on the dependent
+native worktree after the contract-export migration. The retained host batch
+passes 889 checks; all base/nested/repeated/captured aggregate/multiword/pipe,
+assertion-retry, and external-host interpreter/generated-C replays pass. Every
+migrated standalone runtime group passes, followed by ordinary-core compiler,
+semantic exchange, runtime, generated-C, inspection, and Flow-contract export.
+The object batch passes 14 host checks and all native-object/library/replication,
+matcher, ALU, and TLB replays, including supported assembly execution. Harness,
+250,000-case loader traces, workload transactions, layout decoding, and scratch
+inspection also pass. The separate complete retained Verilator run passed as
+recorded above; optional external-specialization and ordinary-core Verilator
+comparisons have their separately recorded passing results.
+
+This supersedes the earlier 777-check retained-host baseline. It does not claim
+remote CI success: PR #4 currently reports no checks. The benchmark sources are
+still under smoke validation and were not part of this integrated correctness
+run. Repeated direct-versus-expanded measurements and the final delivery audit
+remain open.
