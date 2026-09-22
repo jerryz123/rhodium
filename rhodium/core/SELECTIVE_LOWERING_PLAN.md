@@ -670,3 +670,21 @@ produced under concurrent validation load and are not performance evidence.
 Boundary, license-header, CI-routing, shell syntax, and whitespace checks pass.
 Fresh integrated and retained-construct Verilator runs remain active; the
 retained direct-versus-expanded performance gate remains open.
+
+## Fresh retained Verilator and Flow contract export validation
+
+The complete retained-construct CIRCT/Verilator runner passes again using the
+fresh integrated host batch's models. Scalar and nested compositions, repeated
+occurrence state, captured scalar/record/vector/multiword/nested payloads, and
+18 mixed Queue/pipe configurations match independent pre/post-edge oracles in
+native interpreter, generated C, and Verilator execution. This closes the fresh
+retained Verilator gate; the broader integrated host run is still active.
+
+The [dependent contract-export migration](https://github.com/tianrui-wei/rhodium/commit/11296173)
+restores the optional interface-transform metadata adapter without introducing
+post-expansion implementation recognition. All 23 original checks pass with a
+fresh compiled root: packed bindings, stable/ambient protocol ancestry, routes,
+graph immutability, report round trips, compiler remapping, and invalid bindings.
+The core regression runner includes this gate. Boundary, license-header,
+CI-routing, shell syntax, and whitespace checks pass. Direct-versus-expanded
+benchmark infrastructure is under validation; no timing result is claimed yet.
