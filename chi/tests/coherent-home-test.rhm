@@ -84,6 +84,26 @@ check:
     ~ways: 2
   ).transaction_slots ~is 64
   chi.CHIInclusiveHNFConfig(
+    exhaustive_snoop_config,
+    excessive_snoop_addressing,
+    ~sets: 2,
+    ~ways: 2
+  ).victim_writeback_entries ~is 1
+  chi.CHIInclusiveHNFConfig(
+    exhaustive_snoop_config,
+    excessive_snoop_addressing,
+    ~sets: 2,
+    ~ways: 2,
+    ~victim_writeback_entries: 960
+  ).victim_writeback_entries ~is 960
+  chi.CHIInclusiveHNFConfig(
+    exhaustive_snoop_config,
+    excessive_snoop_addressing,
+    ~sets: 2,
+    ~ways: 2,
+    ~victim_writeback_entries: 961
+  ) ~throws "1024 outstanding subordinate transactions"
+  chi.CHIInclusiveHNFConfig(
     excessive_snoop_config,
     excessive_snoop_addressing,
     ~sets: 2,

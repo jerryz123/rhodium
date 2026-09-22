@@ -71,7 +71,7 @@ def memory_endpoint = CHIICNPortParams(
     ~rsp: [CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp],
     ~dat: [CHIDatOpcode.CompData]
   ),
-  ~max_outstanding: 1
+  ~max_outstanding: 4
 )
 def memory_service = CHISubordinateServiceParams(
   memory_endpoint,

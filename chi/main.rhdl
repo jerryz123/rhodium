@@ -209,6 +209,7 @@ export:
   CHIHNFIdentity
   CHIHNF
   CHIInclusiveHNFConfig
+  // Compatibility-only implementation state, not CHI protocol vocabulary.
   CHIInclusiveHNFPhase
   CHIInclusiveHNF
   CHIRNLink

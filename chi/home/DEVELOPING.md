@@ -86,6 +86,21 @@ resident read or write lookups touch it; failed fills, maintenance, and
 copyback leave recency unchanged. Invalid-first selection remains owned by the
 shared standard-library policy.
 
+`CHIInclusiveVictimWritebackBuffer` owns replacement write REQ/DBID/DAT/Comp
+state after the parent slot has resolved every victim snoop. Its entries use
+subordinate transaction IDs immediately above the demand-slot range, retain
+the complete post-snoop line, and return completion plus rollback data to the
+parent slot. Track `DBIDResp`, `Comp`, and the final write-data transfer as
+independent events: separate write responses may arrive in either order and
+`Comp` may precede write data. `DBIDResp` carries no error; a completion error
+is retained from `Comp`, including when it arrives first. The parent continues
+to own its set and selected way. It may start the refill after enqueue, but it
+installs the new tag and line only after both the fill and writeback succeed. A
+writeback error remains buffered while an already-issued fill drains, then
+rewrites the old line without changing its tag, valid, dirty, or surviving
+resident metadata. Keep maintenance writebacks on their existing serialized
+slot path until they deliberately adopt the same ownership transfer.
+
 Copyback bypasses snoop-target loading and ordinary allocation. Its saved
 response state is consistent across every expected DAT packet; install dirty
 data only after the complete receipt mask. Clean/Invalid late returns must

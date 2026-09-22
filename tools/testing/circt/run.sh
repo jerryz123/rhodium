@@ -1055,6 +1055,10 @@ run_expected_assertion_failure chi-inclusive-home chi_copyback_duplicate_tb \
   chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_requester_write_data_id_unique
 run_expected_assertion_failure chi-inclusive-home chi_copyback_state_tb \
   chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_hnf_copyback_state_consistent
+run_expected_assertion_failure chi-inclusive-home chi_victim_dbid_error_tb \
+  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_victim_writeback_dbid_error_zero
+run_expected_assertion_failure chi-inclusive-home chi_victim_comp_dbid_tb \
+  chi/tests/circt/verilog/chi-inclusive-home_tb.sv chi_inclusive_victim_writeback_completion_matches_dbid
 run_expected_assertion_failure chi-coherent-home chi_copyback_backing_error_tb \
   chi/tests/circt/verilog/chi-coherent-home_tb.sv chi_hnf_copyback_backing_response_ok
 run_expected_assertion_failure chi-cache-maintenance \

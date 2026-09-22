@@ -1,0 +1,317 @@
+#lang rhodium
+// Buffers inclusive-Home dirty victims while their replacement refills proceed independently.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/scoreboard.rhdl") open
+  lib("flow/circular-priority.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/protocol.rhdl") open
+  lib("chi/protocol/messages.rhdl") open
+  lib("chi/home/home-common.rhdl").chi_hnf_downstream_request
+
+bundle CHIInclusiveVictimWriteback(p :: CHIFlitParams,
+                                   parent_slot_width :: PosInt):
+  parent_slot: Bits(parent_slot_width)
+  request: CHIReqFlit(p)
+  address: Bits(p.request_address_width)
+  line: Bits(512)
+
+bundle CHIInclusiveVictimWritebackCompletion(parent_slot_width :: PosInt):
+  parent_slot: Bits(parent_slot_width)
+  line: Bits(512)
+  error: CHIRespErr
+
+hardware_enum CHIInclusiveVictimWritebackPhase(~width: 3):
+  Free = 0
+  SendRequest = 1
+  AwaitDBID = 2
+  SendData = 3
+  AwaitCompletion = 4
+  Complete = 5
+
+fun chi_inclusive_victim_data(p :: CHIFlitParams,
+                              home_node_id :: Bits(p.node_id_width),
+                              subordinate_node_id :: Bits(p.node_id_width),
+                              request :: CHIReqFlit(p),
+                              dbid :: Bits(12),
+                              data_id :: Bits(2),
+                              data :: Bits(p.data_width)) :~ CHIDatFlit(p):
+  chi_rn_write_data(p, home_node_id, subordinate_node_id, dbid, data, !bits(0, p.data_bytes),
+                    ~data_id: data_id, ~ccid: bits(0, 2), ~dbid_or_mecid: dbid.zext(16)).updated(
+    ~trace_tag: request.trace_tag,
+    ~home_nid_or_pbha_or_mismatched_mecid: home_node_id,
+    ~qos: request.qos
+  )
+
+sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
+                                               entries :: PosInt,
+                                               parent_slots :: PosInt):
+  unless parent_slots + entries <= 1024
+  | error(~who: #'CHIInclusiveVictimWritebackBuffer,
+          "Home slots and victim writebacks exceed 1024 outstanding subordinate transactions")
+
+  def Entry = Bits(index_width(entries))
+  def Payload = CHIInclusiveVictimWriteback(p, index_width(parent_slots))
+  def Completion = CHIInclusiveVictimWritebackCompletion(index_width(parent_slots))
+  def line_packets = 64 / p.data_bytes
+  def packet_index_width = index_width(line_packets)
+
+  input home_node_id: Bits(p.node_id_width)
+  input subordinate_node_id: Bits(p.node_id_width)
+  interface enqueue(Decoupled(Payload), ~role: consumer)
+  interface request(Decoupled(CHIReqFlit(p)), ~role: producer)
+  interface data(Decoupled(CHIDatFlit(p)), ~role: producer)
+  interface response(Decoupled(CHIRspFlit(p)), ~role: consumer)
+  interface completion(Decoupled(Completion), ~role: producer)
+
+  inst occupancy(Scoreboard(entries))
+  def occupied = occupancy.busy.into(Vec(entries, Bool))
+  def free_entries = vec(for List (index in 0..entries): !occupied[index])
+  def allocation_available = free_entries.or_reduce()
+  def allocation_entry = priority_encoder(free_entries)
+
+  reg phases(~init: vec(
+    for List (_index in 0..entries): CHIInclusiveVictimWritebackPhase.Free
+  ))
+  reg payloads(Vec(entries, Payload))
+  reg subordinate_dbids(~init: vec(for List (_index in 0..entries): bits(0, 12)))
+  reg data_beats(~init: vec(for List (_index in 0..entries): bits(0, 2)))
+  reg dbids_seen(~init: vec(for List (_index in 0..entries): Bool(#false)))
+  reg completions_seen(~init: vec(for List (_index in 0..entries): Bool(#false)))
+  reg errors(~init: vec(for List (_index in 0..entries): CHIRespErr.OK))
+
+  enqueue.ready <== allocation_available
+  def enqueue_fire = enqueue.fire()
+  occupancy.set.valid <== enqueue_fire
+  occupancy.set.bits <== allocation_entry
+
+  fun next_entry_priority(entry :: Bits(index_width(entries))):
+    mux(entry === bits(entries - 1, index_width(entries)),
+        bits(0, index_width(entries)),
+        entry + bits(1, index_width(entries)))
+  fun writeback_txn_id(entry :: Bits(index_width(entries))):
+    bits(parent_slots, 12) + entry.zext(12)
+
+  def request_entries = vec(
+    for List (index in 0..entries):
+      occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.SendRequest)
+  )
+  reg request_locked(~init: Bool(#false))
+  reg request_owner(Entry)
+  reg request_next_priority(~init: bits(0, index_width(entries)))
+  def request_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(
+    request_entries,
+    request_next_priority
+  )
+  def request_entry = mux(request_locked, request_owner, request_choice.index)
+  def request_valid = mux(request_locked, request_entries[request_owner], request_choice.valid)
+  def request_payload = payloads[request_entry]
+  request.valid <== request_valid
+  request.bits <== chi_hnf_downstream_request(
+    p,
+    home_node_id,
+    subordinate_node_id,
+    request_payload.request,
+    ~address: request_payload.address,
+    ~size: bits(6, 6),
+    ~opcode: CHIReqOpcode.WriteNoSnpFull,
+    ~txn_id: writeback_txn_id(request_entry)
+  )
+  def request_fire = request.fire()
+  when (request.valid & !request.ready):
+    request_locked <== Bool(#true)
+    request_owner <== request_entry
+  elsewhen request_fire:
+    request_locked <== Bool(#false)
+    request_next_priority <== next_entry_priority(request_entry)
+
+  def data_entries = vec(
+    for List (index in 0..entries):
+      occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.SendData)
+  )
+  reg data_locked(~init: Bool(#false))
+  reg data_owner(Entry)
+  reg data_next_priority(~init: bits(0, index_width(entries)))
+  def data_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(
+    data_entries,
+    data_next_priority
+  )
+  def data_entry = mux(data_locked, data_owner, data_choice.index)
+  def data_valid = mux(data_locked, data_entries[data_owner], data_choice.valid)
+  def data_payload = payloads[data_entry]
+  def data_beat = data_beats[data_entry]
+  def data_id = chi_transfer_data_id(data_beat, p)
+  def data_line = data_payload.line.as_vec(Bits(p.data_width))
+  def final_data = data_beat === chi_data_beats_minus_one(CHITransferSize.Bytes64, p)
+  data.valid <== data_valid
+  data.bits <== chi_inclusive_victim_data(
+    p,
+    home_node_id,
+    subordinate_node_id,
+    data_payload.request,
+    subordinate_dbids[data_entry],
+    data_id,
+    data_line[data_beat[0..packet_index_width]]
+  )
+  def data_fire = data.fire()
+  when (data.valid & !data.ready):
+    data_locked <== Bool(#true)
+    data_owner <== data_entry
+  elsewhen (data_fire & final_data):
+    data_locked <== Bool(#false)
+    data_next_priority <== next_entry_priority(data_entry)
+  elsewhen data_fire:
+    data_locked <== Bool(#true)
+    data_owner <== data_entry
+
+  def response_txn_id = response.bits.txn_id
+  def response_entry_valid = (response_txn_id >= bits(parent_slots, 12)) & (
+    response_txn_id < bits(parent_slots + entries, 12)
+  )
+  def response_entry = (response_txn_id - bits(parent_slots, 12))[0..index_width(entries)]
+  def response_phase = phases[response_entry]
+  def response_is_dbid = response.bits.opcode === CHIRspOpcode.DBIDResp
+  def response_is_completion = response.bits.opcode === CHIRspOpcode.Comp
+  def response_matches_issued_request = request_fire & (request_entry === response_entry)
+  def response_request_accepted = (response_phase =/= CHIInclusiveVictimWritebackPhase.SendRequest) ||| (
+    response_matches_issued_request
+  )
+  response.ready <== response_entry_valid
+  def response_fire = response.fire()
+  when (response.valid):
+    assert(response_entry_valid, "chi_inclusive_victim_writeback_response_entry_in_range")
+    assert(occupied[response_entry], "chi_inclusive_victim_writeback_response_entry_occupied")
+    assert(response.bits.src_id === subordinate_node_id,
+           "chi_inclusive_victim_writeback_response_source")
+    assert(response.bits.tgt_id === home_node_id,
+           "chi_inclusive_victim_writeback_response_target")
+    assert(response.bits.opcode.is_one_of(CHIRspOpcode.DBIDResp, CHIRspOpcode.Comp),
+           "chi_inclusive_victim_writeback_response_opcode")
+    assert(response_request_accepted, "chi_inclusive_victim_writeback_response_after_request")
+    when response_is_dbid:
+      assert(!dbids_seen[response_entry], "chi_inclusive_victim_writeback_single_dbid")
+      assert(response_phase.is_one_of(CHIInclusiveVictimWritebackPhase.SendRequest,
+                                      CHIInclusiveVictimWritebackPhase.AwaitDBID),
+             "chi_inclusive_victim_writeback_dbid_phase")
+      assert(response.bits.resp === bits(0, 3),
+             "chi_inclusive_victim_writeback_dbid_response_zero")
+      assert(response.bits.resp_err === CHIRespErr.OK,
+             "chi_inclusive_victim_writeback_dbid_error_zero")
+      when (completions_seen[response_entry]):
+        assert(response.bits.dbid_or_group_id === subordinate_dbids[response_entry],
+               "chi_inclusive_victim_writeback_dbid_matches_completion")
+    otherwise:
+      assert(!completions_seen[response_entry],
+             "chi_inclusive_victim_writeback_single_completion")
+      assert(response_phase.is_one_of(CHIInclusiveVictimWritebackPhase.SendRequest,
+                                      CHIInclusiveVictimWritebackPhase.AwaitDBID,
+                                      CHIInclusiveVictimWritebackPhase.SendData,
+                                      CHIInclusiveVictimWritebackPhase.AwaitCompletion),
+             "chi_inclusive_victim_writeback_completion_phase")
+      when (dbids_seen[response_entry]):
+        assert(response.bits.dbid_or_group_id === subordinate_dbids[response_entry],
+               "chi_inclusive_victim_writeback_completion_matches_dbid")
+
+  def complete_entries = vec(
+    for List (index in 0..entries):
+      occupied[index] & (phases[index] === CHIInclusiveVictimWritebackPhase.Complete)
+  )
+  reg completion_locked(~init: Bool(#false))
+  reg completion_owner(Entry)
+  reg completion_next_priority(~init: bits(0, index_width(entries)))
+  def completion_choice :: CircularPriorityChoice(entries, index_width(entries)) = circular_priority_onehot(
+    complete_entries,
+    completion_next_priority
+  )
+  def completion_entry = mux(completion_locked, completion_owner, completion_choice.index)
+  def completion_valid = mux(completion_locked, complete_entries[completion_owner], completion_choice.valid)
+  def completion_payload = payloads[completion_entry]
+  completion.valid <== completion_valid
+  completion.bits <== CHIInclusiveVictimWritebackCompletion(index_width(parent_slots)):
+    parent_slot: completion_payload.parent_slot
+    line: completion_payload.line
+    error: errors[completion_entry]
+  def completion_fire = completion.fire()
+  when (completion.valid & !completion.ready):
+    completion_locked <== Bool(#true)
+    completion_owner <== completion_entry
+  elsewhen completion_fire:
+    completion_locked <== Bool(#false)
+    completion_next_priority <== next_entry_priority(completion_entry)
+
+  occupancy.clear.valid <== completion_fire
+  occupancy.clear.bits <== completion_entry
+
+  for (index in 0..entries):
+    def index_tag = bits(index, index_width(entries))
+    def allocate_index = enqueue_fire & (allocation_entry === index_tag)
+    def request_index = request_fire & (request_entry === index_tag)
+    def response_index = response_fire & (response_entry === index_tag)
+    def response_dbid_index = response_index & response_is_dbid
+    def response_completion_index = response_index & response_is_completion
+    def data_index = data_fire & (data_entry === index_tag)
+    def completion_index = completion_fire & (completion_entry === index_tag)
+
+    when allocate_index:
+      payloads[index] <== enqueue.bits
+      subordinate_dbids[index] <== bits(0, 12)
+      data_beats[index] <== bits(0, 2)
+      dbids_seen[index] <== Bool(#false)
+      completions_seen[index] <== Bool(#false)
+      errors[index] <== CHIRespErr.OK
+      phases[index] <== CHIInclusiveVictimWritebackPhase.SendRequest
+    elsewhen (request_index & response_dbid_index):
+      subordinate_dbids[index] <== response.bits.dbid_or_group_id
+      dbids_seen[index] <== Bool(#true)
+      phases[index] <== CHIInclusiveVictimWritebackPhase.SendData
+    elsewhen (request_index & response_completion_index):
+      subordinate_dbids[index] <== response.bits.dbid_or_group_id
+      completions_seen[index] <== Bool(#true)
+      errors[index] <== response.bits.resp_err
+      phases[index] <== CHIInclusiveVictimWritebackPhase.AwaitDBID
+    elsewhen request_index:
+      phases[index] <== CHIInclusiveVictimWritebackPhase.AwaitDBID
+    elsewhen response_dbid_index:
+      subordinate_dbids[index] <== response.bits.dbid_or_group_id
+      dbids_seen[index] <== Bool(#true)
+      phases[index] <== CHIInclusiveVictimWritebackPhase.SendData
+    elsewhen (response_completion_index & data_index):
+      subordinate_dbids[index] <== mux(dbids_seen[index],
+                                       subordinate_dbids[index],
+                                       response.bits.dbid_or_group_id)
+      data_beats[index] <== mux(final_data, data_beat, data_beat + bits(1, 2))
+      completions_seen[index] <== Bool(#true)
+      errors[index] <== response.bits.resp_err
+      phases[index] <== mux(final_data,
+                            CHIInclusiveVictimWritebackPhase.Complete,
+                            CHIInclusiveVictimWritebackPhase.SendData)
+    elsewhen response_completion_index:
+      subordinate_dbids[index] <== mux(dbids_seen[index],
+                                       subordinate_dbids[index],
+                                       response.bits.dbid_or_group_id)
+      completions_seen[index] <== Bool(#true)
+      errors[index] <== response.bits.resp_err
+      phases[index] <== mux(response_phase === CHIInclusiveVictimWritebackPhase.AwaitCompletion,
+                            CHIInclusiveVictimWritebackPhase.Complete,
+                            response_phase)
+    elsewhen data_index:
+      data_beats[index] <== mux(final_data, data_beat, data_beat + bits(1, 2))
+      phases[index] <== mux(final_data,
+                            mux(completions_seen[index],
+                                CHIInclusiveVictimWritebackPhase.Complete,
+                                CHIInclusiveVictimWritebackPhase.AwaitCompletion),
+                            CHIInclusiveVictimWritebackPhase.SendData)
+    elsewhen completion_index:
+      dbids_seen[index] <== Bool(#false)
+      completions_seen[index] <== Bool(#false)
+      phases[index] <== CHIInclusiveVictimWritebackPhase.Free
+
+export:
+  CHIInclusiveVictimWriteback
+  CHIInclusiveVictimWritebackCompletion
+  CHIInclusiveVictimWritebackBuffer
+  chi_inclusive_victim_data

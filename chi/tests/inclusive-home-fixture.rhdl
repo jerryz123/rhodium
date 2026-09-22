@@ -36,7 +36,8 @@ def inclusive_home_config = CHIInclusiveHNFConfig(
   inclusive_home_addressing,
   ~sets: 2,
   ~ways: 2,
-  ~comp_ack_entries: 2
+  ~comp_ack_entries: 2,
+  ~victim_writeback_entries: 2
 )
 def inclusive_home_serial_config = CHIInclusiveHNFConfig(
   inclusive_home_serial_base_config,

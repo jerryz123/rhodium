@@ -517,7 +517,7 @@ flowchart LR
 | --- | --- | --- |
 | [`CHIHNI`](home/home.rhdl) | Non-coherent RN-I or RN-F Home traffic reaching one or more SN-I services | Bounded Home-owned slots and translation of requester TxnIDs, ReturnTxnIDs, data targets, and subordinate DBIDs |
 | [`CHIHNF`](home/coherent-home.rhdl) | Mixed RN-I/RN-F traffic without an LLC | One globally active transaction; broadcast coherence and dirty intervention before non-snoopable subordinate traffic |
-| [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with an inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention/writeback, and one to 64 bounded transaction slots |
+| [`CHIInclusiveHNF`](home/inclusive-home.rhdl) | Mixed RN-I/RN-F traffic with an inclusive LLC | Set-associative `SyncRam1RW` tag/data arrays, hit service, victim invalidation, dirty intervention, one to 64 transaction slots, and parameterized buffered replacement writeback |
 | [`CHIRam`](subordinate/ram.rhdl) | Synthesizable non-coherent memory | SN-F by default or SN-I by selection; configurable 128/256/512-bit DAT and native transfers from one beat through 64 bytes |
 | [`CHIDPIMemory`](subordinate/dpi-memory.rhdl) | Sparse simulation memory | The same native `CHISNChannels` transaction contract as `CHIRam`, backed by a bounded sparse C++ byte store and fixed 512-bit data ABI |
 
@@ -696,19 +696,32 @@ continues. Reads become `ReadNoSnp`; their upstream state is SharedClean for
 
 `CHIInclusiveHNF` adds set-associative storage, serves hits without a
 subordinate request, snoops tracked residents before replacing a victim, absorbs
-dirty snoop data, and writes back dirty victims before refill. Sets are a
+dirty snoop data, and transfers resolved dirty victims into a bounded writeback
+buffer before starting their refills. The refill and backing write may proceed
+independently, but installation and requester success wait for the writeback
+completion. A failed writeback drains any issued refill and restores the
+post-snoop victim in its reserved way. Sets are a
 power-of-two count of at least two, ways are positive, and the complete cache
 must fit the projected dense local range. It requires 64-byte subordinate
 `ReadNoSnp` and `WriteNoSnpFull` support.
 
 Each inclusive-Home transaction slot retains its request, Home TxnID/DBID,
-selected set and way, line buffer, snoop targets and responses, fill/writeback
-DataID masks, error, and response phase. A shared lookup port accepts at most
+selected set and way, line buffer, snoop targets and responses, fill DataID
+mask, error, and response phase. Parameterized writeback entries separately
+retain the victim line, parent slot, DBID, data beat, and independently arriving
+DBID/completion status. A separate `Comp` may arrive before `DBIDResp` or before
+the final write-data packet; the entry retires only after both the completion
+and complete data transfer. `DBIDResp` has zero `Resp` and `RespErr`, while a
+completion error remains associated with the buffered victim. Demand and
+writeback entries together are limited to 1024 outstanding Home-to-subordinate
+transactions even though the TxnID field is 12 bits.
+A shared lookup port accepts at most
 one lookup per cycle, and shared REQ/RSP/DAT/SNP outputs advance one selected
 slot per cycle. Distinct sets may overlap. A transaction conservatively owns
 its set until retirement, so same-set requests serialize and cannot race
-directory, data, or replacement updates. Subordinate responses, subordinate
-data, and requester snoop responses select their owner using the Home slot ID.
+directory, data, or replacement updates. Demand traffic uses the low
+subordinate transaction IDs; writeback entries use the following IDs and
+requester snoop responses use their encoded Home slot and RN-F target.
 
 Replacement selects the lowest-index invalid way, then uses padded tree
 pseudo-LRU from [`rhodium/std/plru.rhdl`](../rhodium/std/plru.rhdl). Successful

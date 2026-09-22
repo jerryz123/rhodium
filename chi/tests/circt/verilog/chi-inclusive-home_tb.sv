@@ -83,6 +83,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   logic [11:0] second_comp_ack_dbid;
   logic [11:0] first_memory_txn;
   logic [11:0] second_memory_txn;
+  logic [11:0] victim_memory_txn;
   CHIReqFlit active_request;
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
@@ -191,6 +192,23 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     end
   endtask
 
+  task automatic accept_memory_request_transaction(input logic [43:0] address,
+                                                   input logic [6:0] opcode,
+                                                   output logic [11:0] transaction);
+    begin
+      while (!port_out.subordinate.req.valid) tick();
+      #1;
+      assert (port_out.subordinate.req.bits.address == address &&
+              port_out.subordinate.req.bits.size_or_num_req == 6'd6 &&
+              port_out.subordinate.req.bits.opcode == opcode)
+        else $fatal(1, "inclusive Home issued an incorrect identified memory request");
+      transaction = port_out.subordinate.req.bits.txn_id;
+      subordinate_requests_ready_in.ready = 1'b1;
+      tick();
+      subordinate_requests_ready_in = '0;
+    end
+  endtask
+
   task automatic accept_memory_request_slot(input logic [43:0] address,
                                             output logic [11:0] transaction);
     begin
@@ -283,7 +301,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.requester.response_data.bits.data_id == packet_id &&
               port_out.requester.response_data.bits.data == payload &&
               port_out.requester.response_data.bits.resp_err == error)
-        else $fatal(1, "inclusive Home returned incorrect cached data");
+        else $fatal(1, "inclusive Home returned incorrect cached data packet=%0d actual=%h expected=%h error=%0d",
+                    packet_id, port_out.requester.response_data.bits.data, payload,
+                    port_out.requester.response_data.bits.resp_err);
       tick();
       response_data_ready_in = '0;
     end
@@ -892,12 +912,19 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
           expected_line[packet][byte_index * 8 +: 8] = 8'ha0 + 8'(packet);
     tick();
     tick();
-    accept_memory_request(LINE0, WRITE_NO_SNP_FULL);
+    accept_memory_request_transaction(LINE0, WRITE_NO_SNP_FULL, victim_memory_txn);
+    // The refill may leave the Home as soon as the buffer owns the complete
+    // victim; it does not wait for the backing write completion.
+    accept_memory_request_slot(LINE3, first_memory_txn);
+    assert(victim_memory_txn != first_memory_txn)
+      else $fatal(1, "victim writeback reused a live demand transaction ID");
     subordinate_responses_in.bits = '0;
     subordinate_responses_in.bits.opcode = DBID_RESP;
     subordinate_responses_in.bits.src_id = MEMORY_ID;
     subordinate_responses_in.bits.tgt_id = HOME_ID;
+    subordinate_responses_in.bits.txn_id = victim_memory_txn;
     subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+    if (INVALID_CASE == 4) subordinate_responses_in.bits.resp_err = 2'd2;
     subordinate_responses_in.valid = 1'b1;
     #1;
     assert (port_out.subordinate.rsp.ready)
@@ -910,17 +937,24 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     subordinate_responses_in.bits.opcode = COMP;
     subordinate_responses_in.bits.src_id = MEMORY_ID;
     subordinate_responses_in.bits.tgt_id = HOME_ID;
+    subordinate_responses_in.bits.txn_id = victim_memory_txn;
+    subordinate_responses_in.bits.dbid_or_group_id = INVALID_CASE == 5 ? MEMORY_DBID + 1 : MEMORY_DBID;
+    return_fill_packet(2'd0, 8'h40, 2'd0, first_memory_txn);
+    return_fill_packet(2'd1, 8'h41, 2'd0, first_memory_txn);
+    return_fill_packet(2'd2, 8'h42, 2'd0, first_memory_txn);
+    return_fill_packet(2'd3, 8'h43, 2'd0, first_memory_txn);
+    repeat (3) begin
+      assert(!port_out.requester.response_data.valid)
+        else $fatal(1, "replacement fill escaped before victim completion");
+      tick();
+    end
     subordinate_responses_in.valid = 1'b1;
     #1;
     assert (port_out.subordinate.rsp.ready)
       else $fatal(1, "inclusive Home did not accept victim completion");
     tick();
     subordinate_responses_in = '0;
-    accept_memory_request(LINE3, READ_NO_SNP);
-    return_fill_packet(2'd0, 8'h40);
-    return_fill_packet(2'd1, 8'h41);
-    return_fill_packet(2'd2, 8'h42);
-    return_fill_packet(2'd3, 8'h43);
+    while (!port_out.requester.response_data.valid) tick();
     accept_cached_packet(2'd0, 128'h40);
     accept_cached_packet(2'd1, 128'h41);
     accept_cached_packet(2'd2, 128'h42);
@@ -1089,6 +1123,50 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     copyback(LINE0 + 44'h10000, 3'd0);
     send_request(LINE0, 7'h03); finish_cached();
 
+    // A failed buffered writeback drains its already-issued refill, returns an
+    // error, and restores the complete post-snoop dirty victim in its old way.
+    reset = 1; tick(); reset = 0;
+    send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'h80);
+    send_request(LINE2, READ_NO_SNP); tick(); fill_and_return(LINE2, 8'h30);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h80 + 128'(packet);
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID); repeat (3) tick(); finish_cached();
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h30 + 128'(packet);
+    send_request(LINE2, READ_NO_SNP); repeat (3) tick(); finish_cached();
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'h80 + 128'(packet);
+    send_request(LINE3, READ_NO_SNP); tick(); dirty_snoop(DATA_ID, 8'hd0);
+    for (int packet = 0; packet < 4; packet++)
+      for (int byte_index = 0; byte_index < 16; byte_index++)
+        if (SNOOP_MASKS[packet * 16 + byte_index])
+          expected_line[packet][byte_index * 8 +: 8] = 8'hd0 + 8'(packet);
+    accept_memory_request_transaction(LINE0, WRITE_NO_SNP_FULL, victim_memory_txn);
+    accept_memory_request_slot(LINE3, first_memory_txn);
+    // Separate write responses can arrive in either order. An errored Comp is
+    // retained while the later DBIDResp enables the complete data transfer.
+    subordinate_responses_in = '0;
+    subordinate_responses_in.bits.opcode = COMP;
+    subordinate_responses_in.bits.src_id = MEMORY_ID;
+    subordinate_responses_in.bits.tgt_id = HOME_ID;
+    subordinate_responses_in.bits.txn_id = victim_memory_txn;
+    subordinate_responses_in.bits.resp_err = 2'd2;
+    subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+    subordinate_responses_in.valid = 1'b1;
+    tick(); subordinate_responses_in = '0;
+    subordinate_responses_in.bits.opcode = DBID_RESP;
+    subordinate_responses_in.bits.src_id = MEMORY_ID;
+    subordinate_responses_in.bits.tgt_id = HOME_ID;
+    subordinate_responses_in.bits.txn_id = victim_memory_txn;
+    subordinate_responses_in.bits.dbid_or_group_id = MEMORY_DBID;
+    subordinate_responses_in.valid = 1'b1;
+    tick(); subordinate_responses_in = '0;
+    for (int packet = 0; packet < 4; packet++)
+      accept_victim_packet(packet[1:0], expected_line[packet]);
+    for (int packet = 0; packet < 4; packet++)
+      return_fill_packet(packet[1:0], 8'h90 + packet[7:0], 2'd0, first_memory_txn);
+    while (!port_out.requester.response_data.valid) tick();
+    for (int packet = 0; packet < 4; packet++)
+      accept_cached_packet(packet[1:0], 128'h90 + 128'(packet), 2'd2);
+    send_request(LINE0, READ_NO_SNP); repeat (3) tick(); finish_cached();
+
     $display("CHI inclusive Home residency, copyback, response errors, and storage simulation passed");
 `ifdef CHI_HOME_TRACE
     event_home_finish();
@@ -1105,4 +1183,10 @@ module chi_copyback_duplicate_tb;
 endmodule
 module chi_copyback_state_tb;
   chi_inclusive_home_tb #(.INVALID_CASE(3)) test();
+endmodule
+module chi_victim_dbid_error_tb;
+  chi_inclusive_home_tb #(.INVALID_CASE(4)) test();
+endmodule
+module chi_victim_comp_dbid_tb;
+  chi_inclusive_home_tb #(.INVALID_CASE(5)) test();
 endmodule
