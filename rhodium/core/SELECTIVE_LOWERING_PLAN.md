@@ -118,8 +118,6 @@ record the scope at that point. This list is the current remaining scope:
 
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
-- Complete native retained-pipe execution; public declarations, portable RTL
-  preservation, and retained trace equivalence are validated below.
 - Migrate the previous simulator regression suite, including core-only inputs.
 - Measure elaboration and compilation time, emitted size, peak memory, and
   throughput for identical direct and expanded workloads after correctness.
@@ -368,3 +366,20 @@ checks, including exact manifests for fixed, flushable, and elastic pipelines.
 Boundary, license-header, CI-routing, and whitespace checks pass. Native pipe
 execution, broader effect/error coverage, simulator regression migration, and
 performance measurements remain open.
+
+## Mixed native pipe execution follow-up
+
+The [dependent simulator validation](https://github.com/tianrui-wei/rhodium/commit/cc4068a)
+merges public pipe and trace support. Eighteen mixed Queue/pipe configurations
+pass 54 host checks and 512-cycle pre/post-edge oracle replay in interpreter,
+generated C, and materialized CIRCT/Verilator, including default optimization.
+Elastic, control-only, valid-only, and always-capture families cover one, two,
+and four stages and flush options. Direct Queue selection has no Queue expansion
+provider; pipe bodies use portable expansion and generic native execution under
+the same schedule. Tests cover stalls, invalid payloads, pending reset,
+consecutive flushes, and repeated evaluation without clock advancement.
+
+The shared runtime ABI helper passes existing nested multiword replay across
+16 configurations. This is focused evidence after the 777-check full baseline.
+Broader effects/errors, previous simulator regression migration, and performance
+measurements remain open.
