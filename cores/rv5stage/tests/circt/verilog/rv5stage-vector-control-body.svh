@@ -754,6 +754,25 @@
     end
     instruction=32'h5c21a0d7; #1;
     assert(!decoded_valid) else $fatal(1,"masked compress encoding accepted");
+    // State-dependent operation legality belongs to the operation checker.
+    // Reductions, compress, and non-index scans require vstart=0; VID.V does not.
+    test_vtype=0; test_vstart=0;
+    instruction={6'd0,1'b1,5'd8,5'd3,3'd2,5'd7,7'h57}; #1;
+    assert(decoded_valid && legal) else $fatal(1,"reduction rejected zero vstart");
+    test_vstart=1; #1;
+    assert(!legal) else $fatal(1,"reduction accepted nonzero vstart");
+    test_vstart=0;
+    instruction={6'h17,1'b1,5'd8,5'd1,3'd2,5'd16,7'h57}; #1;
+    assert(decoded_valid && legal) else $fatal(1,"compress rejected zero vstart");
+    test_vstart=1; #1;
+    assert(!legal) else $fatal(1,"compress accepted nonzero vstart");
+    test_vstart=0;
+    instruction={6'h14,1'b1,5'd8,5'd16,3'd2,5'd16,7'h57}; #1;
+    assert(decoded_valid && legal) else $fatal(1,"VIOTA rejected zero vstart");
+    test_vstart=1; #1;
+    assert(!legal) else $fatal(1,"VIOTA accepted nonzero vstart");
+    instruction={6'h14,1'b1,5'd0,5'd17,3'd2,5'd16,7'h57}; #1;
+    assert(decoded_valid && legal) else $fatal(1,"VID rejected resumable nonzero vstart");
     // Whole-register moves use their encoded NREG rather than LMUL, but use
     // SEW to interpret vstart and therefore still require a legal vtype.
     test_vtype=0; test_vstart=0;

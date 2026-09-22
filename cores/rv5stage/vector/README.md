@@ -35,10 +35,15 @@ The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer
 
 ## Configuration and decode
 
-The vector core executes `vsetvli`, `vsetivli`, and `vsetvl` through the
-existing serializing system-instruction path. Only WB updates `vl`, `vtype`,
-and `vstart`; scalar `rd` receives the new VL. Squashed or faulting operations
-do not update this state. Supported physical geometry is SEW 8/16/32/64 and
+The vector core executes `vsetvli`, `vsetivli`, and `vsetvl` in EX without
+treating configuration as a global vector-drain fence. Only ordered WB commits
+`vl`, `vtype`, and `vstart`; scalar `rd` receives the new VL. EX computes each
+configuration from the newest older configuration or architectural state and
+bypasses the result to younger `vset*`, scalar consumers, and vector-state
+snapshots. Each vector macro carries that EX snapshot through WB admission, so
+a vector instruction can immediately follow a configuration while older macros
+retain their prior snapshots. Squashed or faulting operations do not update this state.
+Supported physical geometry is SEW 8/16/32/64 and
 LMUL 1/8 through 8, with the selected profile limiting architectural ELEN to
 32 or 64, subject to SEW <= LMUL * ELEN. Unsupported configurations
 set `vill` and zero VL. Ordinary AVL selection uses `min(AVL, VLMAX)`;
@@ -60,8 +65,9 @@ and narrow-source widening plus wide-source widening add/sub using direct SIMD c
 signedness, comparison inversion, and operand swapping. Runtime group checks
 cover alignment, fractional groups, doubled widening EMUL, masked data
 destinations, mask-result overlap, and widening source/destination overlap.
-Legal rows reach WB as side-effect-free launch tokens, then execute through the
-integer unroller. VS Off, `vill`, and invalid register groups trap before launch.
+EX checks decoded rows against the same bypassed vector-state snapshot carried
+to WB as a side-effect-free launch token. VS Off, `vill`, and invalid register
+groups trap before launch.
 The profile-specific legality boundary follows [RVV 1.0](https://docs.riscv.org/reference/isa/unpriv/v-st-ext):
 Zve32 profiles reject SEW64, integer-only profiles reject vector FP, Zve FP
 profiles admit only their supported FP widths, and the Zve64 profiles reject

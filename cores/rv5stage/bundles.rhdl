@@ -78,6 +78,7 @@ bundle RV5StageVectorLaunchContext(xlen :: XLen):
   pointer_masking: PointerMaskControl()
   instruction: Bits(32)
   control: RV5StageVectorControl()
+  state: RiscvVectorState(xlen)
   scalar: Bits(xlen.width)
   stride: Bits(xlen.width)
 

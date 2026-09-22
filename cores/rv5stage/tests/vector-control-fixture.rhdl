@@ -38,20 +38,20 @@ sync_circuit RV5StageVectorControlFixture(vlen :: VectorLength):
   inst decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions))
   inst base_decoder(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst csrs(RV5StageCsrFile(RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: selected_vector_extensions, ~vector_length: vlen)))
-  inst legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, selected_vector_extensions))
-  inst full_half_legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, full_half_vector_extensions))
+  inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, selected_vector_extensions))
+  inst full_half_operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, full_half_vector_extensions))
   decoder.instruction <== instruction
   base_decoder.instruction <== instruction
-  legality.instruction <== instruction
-  legality.control <== decoder.control.vector
-  legality.vtype <== test_vtype
-  legality.vstart <== test_vstart
-  full_half_legality.instruction <== instruction
-  full_half_legality.control <== decoder.control.vector
-  full_half_legality.vtype <== test_vtype
-  full_half_legality.vstart <== test_vstart
-  legal <== decoder.valid & legality.legal
-  full_half_legal <== decoder.valid & full_half_legality.legal
+  operation_legality.instruction <== instruction
+  operation_legality.control <== decoder.control.vector
+  operation_legality.vtype <== test_vtype
+  operation_legality.vstart <== test_vstart
+  full_half_operation_legality.instruction <== instruction
+  full_half_operation_legality.control <== decoder.control.vector
+  full_half_operation_legality.vtype <== test_vtype
+  full_half_operation_legality.vstart <== test_vstart
+  legal <== decoder.valid & operation_legality.legal
+  full_half_legal <== decoder.valid & full_half_operation_legality.legal
   decoded_valid <== decoder.valid
   base_decoded_valid <== base_decoder.valid
   configuration <== decoder.control.vector.configure.as_bits()

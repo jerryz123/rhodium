@@ -719,8 +719,11 @@ semantic memory machinery in [`memory.rhdl`](memory.rhdl) and return through the
 same deferred path as loads.
 
 CSR instructions return the old value and update state atomically at WB. System
-instructions serialize in Decode and wait for older deferred work before
-entering the pipeline. Execute-detected exceptions cross EX/MEM before Memory
+instructions other than `vset*` serialize in Decode and wait for older deferred
+work before entering the pipeline. Vector configuration instead commits in
+order at WB after EX computes and bypasses its resulting state to following
+vector instructions or configurations, without draining older vector execution.
+Execute-detected exceptions cross EX/MEM before Memory
 squashes younger work. Data page and access faults are instead classified from
 the registered virtual request at WB. CSR state records EPC, cause, and trap
 value after older authorized memory and register-producing work has drained.

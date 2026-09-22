@@ -72,7 +72,7 @@ module rv5stage_vector_config_tb;
       12: return 32'h3000a073;
       16: return 32'h00300093;
       20: return 32'h0100f157;
-      24: return 32'h00110193;
+      24: return 32'h010171d7; // vsetvli x3,x2,e8,m1 consumes the preceding vset result
       28: return 32'h00303023;
       32: return 32'h01900213;
       36: return 32'h80407057;
@@ -116,8 +116,8 @@ module rv5stage_vector_config_tb;
       188: return 32'h0287b457; // must not write
       192: return 32'h00307157; // vsetvli x2,x0,e8,m8: 128 elements
       196: return 32'h2e840457; // sixteen packed beats through all private stages
-      200: return 32'h00100513; // independent scalar result during background execution
-      204: return 32'h04a03423; // sd x10,72(x0), while the older integer vector still writes
+      200: return 32'h00307557; // vsetvli x10,x0,e8,m8 while the older vector still writes
+      204: return 32'h04a03423; // sd x10,72(x0), without draining the older vector
       208: return 32'h0080006f; // younger redirect must preserve the active vector
       212: return 32'h0287b457; // squashed
       216: return 32'h0280b457; // in-place vadd.vi v8,v8,1
@@ -170,7 +170,7 @@ module rv5stage_vector_config_tb;
         assert (data_access_out.request.bits.access == 2 && data_access_out.request.bits.address == 64'(stores) * 8)
           else $fatal(1, "unexpected vector-program memory request, store=%0d address=%0d", stores, data_access_out.request.bits.address);
         case (stores)
-          0: assert (data_access_out.request.bits.data == 4) else $fatal(1, "vset result forwarding");
+          0: assert (data_access_out.request.bits.data == 3) else $fatal(1, "back-to-back vset forwarding");
           1: assert (data_access_out.request.bits.data == 3) else $fatal(1, "vsetvl preserve");
           2,3: assert (data_access_out.request.bits.data == 5) else $fatal(1, "vsetivli or squash");
           4: assert (data_access_out.request.bits.data == 0) else $fatal(1, "vstart");
@@ -178,8 +178,8 @@ module rv5stage_vector_config_tb;
           6,8: assert (data_access_out.request.bits.data == 0) else $fatal(1, "arithmetic did not clear vstart");
           7: assert (data_access_out.request.bits.data[10:9] == 3 && data_access_out.request.bits.data[63]) else $fatal(1, "vector writes did not dirty VS");
           9: begin
-            assert (data_access_out.request.bits.data == 1 && scalar_during_vector)
-              else $fatal(1, "independent scalar result did not commit during vector unrolling");
+            assert (data_access_out.request.bits.data == 128 && scalar_during_vector)
+              else $fatal(1, "vset did not commit during vector unrolling");
           end
           10,12: assert (data_access_out.request.bits.data == 2 && vector_writes == 46) else $fatal(1, "illegal instruction must trap after older vector execution drains");
           11: begin
@@ -207,12 +207,12 @@ module rv5stage_vector_config_tb;
   end
 endmodule
 
-// Observe the public macro lifetime while a scalar signature commits.
+// Observe the public macro lifetime while a younger vset result commits.
 module vector_core_scalar_observer(input logic clock, reset, input logic [69:0] writes_0_in);
   always @(posedge clock) begin
-    if (!reset && writes_0_in[69] && writes_0_in[68:64] == 10 && writes_0_in[63:0] == 1) begin
+    if (!reset && writes_0_in[69] && writes_0_in[68:64] == 10 && writes_0_in[63:0] == 128) begin
       assert (rv5stage_vector_config_tb.vector_writes >= 14 && rv5stage_vector_config_tb.vector_writes < 30)
-        else $fatal(1, "scalar WB waited for the last vector beat");
+        else $fatal(1, "vset WB waited for the last vector beat");
       rv5stage_vector_config_tb.scalar_during_vector = 1;
     end
   end

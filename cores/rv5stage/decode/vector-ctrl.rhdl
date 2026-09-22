@@ -1023,8 +1023,8 @@ fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruc
     maximum: !immediate_avl & source_zero & !destination_zero
     keep_vl: !immediate_avl & source_zero & destination_zero
 
-// Runtime legality covers equal-width groups, widening overlap, and memory EMUL.
-circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+// Checks state-dependent runtime legality for decoded non-configuration operations.
+circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input control: RV5StageVectorControl()
   input vtype: Bits(xlen.width)
@@ -1032,6 +1032,8 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: Ve
   output legal: Bool
   validate_vector_extensions(profile, extensions)
   def config = vector_type(xlen, vlen, vtype, ~elen: vector_profile_elen(profile))
+  def requires_zero_start = control.reduction ||| (control.integer & (control.compress ||| (control.scan & !control.scan_control.index)))
+  def start_legal = !requires_zero_start ||| !vstart.or_reduce()
   def elen = bits(if vector_profile_supports_integer64(profile) | 3 | 2, 2)
   def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
   def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
@@ -1174,7 +1176,7 @@ circuit RV5StageVectorLegality(xlen :: XLen, vlen :: VectorLength, profile :: Ve
   def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
   def multiply_profile_legal = Bool(vector_profile_is_v(profile)) ||| !((config.sew === bits(3, 2)) & restricted_elen64_multiply)
   def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
-  legal <== whole_register_legal ||| (!config.vill & (integer_legal ||| ordinary_memory_legal ||| mask_memory_legal ||| fp_legal ||| multiply_divide_legal))
+  legal <== start_legal & (whole_register_legal ||| (!config.vill & (integer_legal ||| ordinary_memory_legal ||| mask_memory_legal ||| fp_legal ||| multiply_divide_legal)))
 
 export:
   VectorScanResult
@@ -1225,5 +1227,5 @@ export:
   VectorMultiplyCases
   VectorMultiplyDivideCases
   VectorControlCases
-  RV5StageVectorLegality
+  RV5StageVectorOperationLegality
   vector_configuration_request

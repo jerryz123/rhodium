@@ -198,9 +198,16 @@ owners: replay releases only the former. [`load-response.rhdl`](load-response.rh
 keeps immediate hits and delayed responses independent, so both can complete
 on one edge before the shared ordered VRF write port drains them.
 
-Configuration follows ordinary serializing system instructions through
-`core.rhdl`. Vector micro-ops do not traverse scalar EX/MEM/WB. The private
-pipeline supplies its own nonstallable feedback and asserts result alignment.
+Configuration commits in order at WB through `core.rhdl`, but is not a global
+vector-drain fence. EX computes configuration from the newest older in-flight
+configuration or committed state, bypasses its VL result through the scalar
+pipeline, and attaches the resulting `vl`/`vtype`/`vstart` snapshot to younger
+vector launches. `RV5StageVectorOperationLegality` owns every state-dependent
+non-configuration rule, including the operation-specific `vstart` restrictions,
+and consumes that same snapshot. This allows a vector macro or another `vset*`
+to follow in the next cycle while older admitted macros retain their own state.
+Vector micro-ops do not traverse scalar EX/MEM/WB. The
+private pipeline supplies its own nonstallable feedback and asserts result alignment.
 Compute retires from its ordinary scalar WB launch token. Memory certification
 updates scalar retirement/PC/NTL macro state once for an early retired macro;
 the conservative memory path still uses final local acceptance.

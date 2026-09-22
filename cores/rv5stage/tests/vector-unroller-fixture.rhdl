@@ -30,7 +30,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   output(active, request_ready, legal, issued, committed, retried): Bool
   output result: RV5StageVectorResultBeat(vlen)
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: vector_extensions))
-  inst legality(RV5StageVectorLegality(xlen, vlen, VectorProfile.V, vector_extensions))
+  inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, vector_extensions))
   inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
   unroller.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
   unroller.packed_memory <== Bool(#false)
@@ -42,11 +42,11 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   execute.alignment.bits <== dont_care(RV5StageVectorAlignment())
   inst pipeline(ValidPipe(RV5StageVectorResultBeat(vlen), 3, ~flushable: #true))
   decode.instruction <== instruction
-  legality.instruction <== instruction
-  legality.control <== decode.control.vector
-  legality.vtype <== vtype
-  legality.vstart <== vstart
-  legal <== decode.valid & legality.legal
+  operation_legality.instruction <== instruction
+  operation_legality.control <== decode.control.vector
+  operation_legality.vtype <== vtype
+  operation_legality.vstart <== vstart
+  legal <== decode.valid & operation_legality.legal
   unroller.request.valid <== request_valid
   unroller.request.bits <== RV5StageVectorInstruction(xlen, Bits(xlen.width)):
     context: bits(0x100, xlen.width)
