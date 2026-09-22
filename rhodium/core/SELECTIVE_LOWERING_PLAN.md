@@ -118,8 +118,8 @@ record the scope at that point. This list is the current remaining scope:
 
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
-- Complete retained pipe consumer execution and trace validation; public
-  declarations and portable RTL preservation are implemented below.
+- Complete native retained-pipe execution; public declarations, portable RTL
+  preservation, and retained trace equivalence are validated below.
 - Migrate the previous simulator regression suite, including core-only inputs.
 - Measure elaboration and compilation time, emitted size, peak memory, and
   throughput for identical direct and expanded workloads after correctness.
