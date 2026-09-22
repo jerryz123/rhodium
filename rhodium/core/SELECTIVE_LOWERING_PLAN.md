@@ -116,8 +116,6 @@ executable construct protocol. The dependent branch establishes the initial mixe
 The evidence sections below are chronological; their pending-work statements
 record the scope at that point. This list is the current remaining scope:
 
-- Extend captured mapping to nested aggregates, including live captures during
-  stalls. Basic vector and multiword feedback coverage passes below.
 - Complete effect/error coverage, preserving assertions and exactly-once effects
   across direct selection and portable expansion.
 - Retain pipes through the same public extension protocol and validate their
@@ -315,3 +313,20 @@ optimization. Every payload bit is observed; directed values exercise 64-bit
 carry and 65-bit wraparound alongside random upper bits. Narrow-vector replay
 also passes with the generalized oracle. Nested aggregates, effects, pipes,
 performance, and previous simulator-suite migration remain open.
+
+## Captured nested aggregate and complete-suite follow-up
+
+The [dependent nested aggregate validation](https://github.com/tianrui-wei/rhodium/commit/12786b0)
+retains a record containing a vector of 65-bit records. All three aggregate
+boundaries preserve live capture dependencies. The four-shape matrix passes 260
+host checks, including genuine-cycle rejection; sixteen nested configurations
+pass 256-cycle pre/post-edge replay in interpreter, generated C, and materialized
+CIRCT/Verilator, including optimization and observation of every payload bit.
+
+The complete updated `make sim-selective-test` passes 777 host checks and all
+base, nested-composition, repeated-instance, captured scalar/record/vector,
+multiword, and nested-aggregate interpreter/generated-C replays. Verilator is
+validated separately; it is not part of that host entry point. Remaining work is
+effect/error preservation, retained pipes, previous simulator regression migration,
+and performance measurements. Simulator implementation remains on its dependent
+branch.
