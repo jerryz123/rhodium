@@ -7,38 +7,61 @@
 volatile uint64_t tohost __attribute__((section(".tohost"), aligned(8)));
 volatile uint64_t fromhost __attribute__((section(".tohost"), aligned(8)));
 
+enum
+{
+    CONSOLE_BUFFER_SIZE = 256
+};
+
+static volatile uint64_t console_request[8] __attribute__((aligned(64)));
+static char console_buffer[CONSOLE_BUFFER_SIZE] __attribute__((aligned(64)));
+static size_t console_buffer_length;
+
 static void memory_barrier(void)
 {
     __asm__ volatile("fence rw, rw" ::: "memory");
 }
 
-static void put_character(char character)
+static void write_console(const char *data, size_t length)
 {
-    volatile uint64_t request[8] __attribute__((aligned(64)));
-    request[0] = 64;
-    request[1] = 1;
-    request[2] = (uintptr_t)&character;
-    request[3] = 1;
+    console_request[0] = 64;
+    console_request[1] = 1;
+    console_request[2] = (uintptr_t)data;
+    console_request[3] = length;
     memory_barrier();
-    tohost = (uintptr_t)request;
+    tohost = (uintptr_t)console_request;
     while (fromhost == 0)
         ;
     fromhost = 0;
     memory_barrier();
 }
 
-static int put_string(const char *text)
+static void flush_console(void)
+{
+    if (console_buffer_length == 0)
+        return;
+    write_console(console_buffer, console_buffer_length);
+    console_buffer_length = 0;
+}
+
+static void emit_character(char character)
+{
+    console_buffer[console_buffer_length++] = character;
+    if (console_buffer_length == CONSOLE_BUFFER_SIZE)
+        flush_console();
+}
+
+static int emit_string(const char *text)
 {
     int count = 0;
     while (*text)
     {
-        put_character(*text++);
+        emit_character(*text++);
         count++;
     }
     return count;
 }
 
-static int put_unsigned(uint64_t value, unsigned base, unsigned width, char padding)
+static int emit_unsigned(uint64_t value, unsigned base, unsigned width, char padding)
 {
     char digits[32];
     unsigned length = 0;
@@ -51,13 +74,13 @@ static int put_unsigned(uint64_t value, unsigned base, unsigned width, char padd
     } while (value);
     while (width > length)
     {
-        put_character(padding);
+        emit_character(padding);
         width--;
         count++;
     }
     while (length)
     {
-        put_character(digits[--length]);
+        emit_character(digits[--length]);
         count++;
     }
     return count;
@@ -72,7 +95,7 @@ int ee_printf(const char *format, ...)
     {
         if (*format != '%')
         {
-            put_character(*format++);
+            emit_character(*format++);
             count++;
             continue;
         }
@@ -95,45 +118,46 @@ int ee_printf(const char *format, ...)
         switch (*format++)
         {
         case '%':
-            put_character('%');
+            emit_character('%');
             count++;
             break;
         case 'c':
-            put_character((char)va_arg(arguments, int));
+            emit_character((char)va_arg(arguments, int));
             count++;
             break;
         case 's':
-            count += put_string(va_arg(arguments, const char *));
+            count += emit_string(va_arg(arguments, const char *));
             break;
         case 'd':
         {
             int64_t value = longs ? va_arg(arguments, long) : va_arg(arguments, int);
             if (value < 0)
             {
-                put_character('-');
+                emit_character('-');
                 count++;
                 value = -value;
             }
-            count += put_unsigned((uint64_t)value, 10, width, padding);
+            count += emit_unsigned((uint64_t)value, 10, width, padding);
             break;
         }
         case 'u':
-            count += put_unsigned(longs ? va_arg(arguments, unsigned long)
+            count += emit_unsigned(longs ? va_arg(arguments, unsigned long)
                                         : va_arg(arguments, unsigned int),
                                   10, width, padding);
             break;
         case 'x':
-            count += put_unsigned(longs ? va_arg(arguments, unsigned long)
+            count += emit_unsigned(longs ? va_arg(arguments, unsigned long)
                                         : va_arg(arguments, unsigned int),
                                   16, width, padding);
             break;
         default:
-            put_character('?');
+            emit_character('?');
             count++;
             break;
         }
     }
     va_end(arguments);
+    flush_console();
     return count;
 }
 
