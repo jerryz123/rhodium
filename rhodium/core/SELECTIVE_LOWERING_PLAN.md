@@ -247,3 +247,21 @@ remain required. The simulator sources stay on the dependent branch.
 
 The ordinary `flow-map --full` fixture also passes its exact SystemVerilog
 reference comparison and existing simulation after the shared macro change.
+
+## Dependent native captured-map evidence
+
+The [native captured-map follow-up](https://github.com/tianrui-wei/rhodium/commit/ee3d88d)
+merges the public region/capture/map implementation into the dependent simulator
+branch. Maps before and after Queue capture the same independently advancing
+register. Across 16 configurations, 128 new host checks establish retained
+computations and skipped Queue expansion. Direct, expanded, and default-optimized
+native models match a 512-cycle pre/post-edge oracle in interpreter and generated
+C, and materialized CIRCT/Verilator matches the same vectors. Captures change on
+every edge, including during stalls and pending reset.
+
+The full native entry point passes 517 host checks and all scalar, aggregate,
+nested, repeated-instance, and mapped runtime replays. This closes the initial
+native captured-map milestone. Broader aggregate/vector captured mapping,
+effects, additional higher-order constructs, performance measurements, and
+previous simulator-suite migration remain open. Simulator sources remain outside
+this IR-only PR.
