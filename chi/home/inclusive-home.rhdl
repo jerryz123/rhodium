@@ -54,6 +54,9 @@ class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
     unless sets * ways * 64 <= addressing.local_bytes
     | error(~who: #'CHIInclusiveHNFConfig,
             "cache capacity exceeds the dense local address range")
+    unless home.transaction_slots * home.snoop_endpoints.length() <= 4096
+    | error(~who: #'CHIInclusiveHNFConfig,
+            "Home slots and RN-F targets exceed the 12-bit snoop transaction-ID space")
     def line_reads = home.service_requests.filter(
       ~keep: fun (support): support.opcode == CHIReqOpcode.ReadNoSnp && support.sizes.max_bytes >= 64
     )
@@ -136,8 +139,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def Line = Vec(line_packets, Bits(p.data_width))
   def residents = home_config.snoop_endpoints
   def resident_count = residents.length()
+  def resident_width = index_width(resident_count)
   def empty_slots = vec(for List (_index in 0..slots): Bool(#false))
   def empty_data_ids = vec(for List (_index in 0..slots): bits(0, 4))
+  def empty_snoop_targets = vec(
+    for List (_slot in 0..slots): vec(for List (_resident in 0..resident_count): Bool(#false))
+  )
+  def empty_snoop_data_ids = vec(
+    for List (_slot in 0..slots): vec(for List (_resident in 0..resident_count): bits(0, 4))
+  )
 
   input identity: CHIHNFIdentity(p)
   interface port(CHIHNChannels(p), ~role: home)
@@ -152,6 +162,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     address[offset_width..p.request_address_width]
   fun slot_txn_id(slot :: Bits(slot_width)):
     slot.zext(12)
+  fun snoop_txn_id(slot :: Bits(slot_width), target :: Bits(resident_width)):
+    slot_txn_id(slot) + vec(
+      for List (index in 0..resident_count): bits(index * slots, 12)
+    )[target]
   fun next_slot_priority(slot :: Bits(slot_width)):
     mux(slot === bits(slots - 1, slot_width),
         bits(0, slot_width),
@@ -170,12 +184,10 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg line_buffers(Vec(slots, Line))
   reg victim_addresses(Vec(slots, Bits(p.request_address_width)))
   reg snoop_victims(~init: empty_slots)
-  reg pending_snoop_targets(~init: vec(
-    for List (_slot in 0..slots): vec(for List (_resident in 0..resident_count): Bool(#false))
-  ))
-  reg expected_snoop_nodes(Vec(slots, Bits(p.node_id_width)))
-  reg received_snoop_data_ids(~init: empty_data_ids)
-  reg snoop_retains_copies(~init: empty_slots)
+  reg pending_snoop_targets(~init: empty_snoop_targets)
+  reg outstanding_snoop_targets(~init: empty_snoop_targets)
+  reg received_snoop_data_ids(~init: empty_snoop_data_ids)
+  reg snoop_retains_copies(~init: empty_snoop_targets)
   reg received_fill_data_ids(~init: empty_data_ids)
   reg remaining_response_data_ids(~init: empty_data_ids)
   reg subordinate_dbids(~init: vec(for List (_index in 0..slots): bits(0, 12)))
@@ -235,15 +247,54 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(lines.port.response.valid, "chi_inclusive_hnf_lookup_storage_ready")
 
   def requester_data_txn = requester.request_data.bits.txn_id
-  def requester_data_slot_valid = requester_data_txn < bits(slots, 12)
-  def requester_data_slot = mux(requester_data_slot_valid,
-                                requester_data_txn[0..slot_width],
-                                bits(0, slot_width))
+  def requester_data_is_snoop = requester.request_data.bits.opcode.is_one_of(
+    CHIDatOpcode.SnpRespData,
+    CHIDatOpcode.SnpRespDataPtl
+  )
+  def requester_data_snoop_target_matches = vec(
+    for List (index in 0..resident_count):
+      block:
+        def range_base = index * slots
+        (requester.request_data.bits.src_id === bits(residents[index].node_id, p.node_id_width)) & (
+          (requester_data_txn - bits(range_base, 12)) < bits(slots, 12)
+        )
+  )
+  def requester_data_snoop_target_valid = requester_data_snoop_target_matches.or_reduce()
+  def requester_data_snoop_target = priority_encoder(requester_data_snoop_target_matches)
+  def requester_data_snoop_slots = vec(
+    for List (index in 0..resident_count):
+      (requester_data_txn - bits(index * slots, 12))[0..slot_width]
+  )
+  def requester_data_direct_slot_valid = requester_data_txn < bits(slots, 12)
+  def requester_data_slot_valid = mux(requester_data_is_snoop,
+                                      requester_data_snoop_target_valid,
+                                      requester_data_direct_slot_valid)
+  def requester_data_slot = mux(
+    requester_data_is_snoop,
+    requester_data_snoop_slots[requester_data_snoop_target],
+    mux(requester_data_direct_slot_valid,
+        requester_data_txn[0..slot_width],
+        bits(0, slot_width))
+  )
   def requester_response_flit = requester.requester_responses.bits
   def incoming_comp_ack = requester_response_flit.opcode === CHIRspOpcode.CompAck
-  def requester_response_slot_valid = requester_response_flit.txn_id < bits(slots, 12)
+  def requester_response_target_matches = vec(
+    for List (index in 0..resident_count):
+      block:
+        def range_base = index * slots
+        (requester_response_flit.src_id === bits(residents[index].node_id, p.node_id_width)) & (
+          (requester_response_flit.txn_id - bits(range_base, 12)) < bits(slots, 12)
+        )
+  )
+  def requester_response_target_valid = requester_response_target_matches.or_reduce()
+  def requester_response_target = priority_encoder(requester_response_target_matches)
+  def requester_response_slots = vec(
+    for List (index in 0..resident_count):
+      (requester_response_flit.txn_id - bits(index * slots, 12))[0..slot_width]
+  )
+  def requester_response_slot_valid = requester_response_target_valid
   def requester_response_slot = mux(requester_response_slot_valid,
-                                    requester_response_flit.txn_id[0..slot_width],
+                                    requester_response_slots[requester_response_target],
                                     bits(0, slot_width))
   def subordinate_response_slot_valid = subordinate.rsp.bits.txn_id < bits(slots, 12)
   def subordinate_response_slot = mux(subordinate_response_slot_valid,
@@ -331,7 +382,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def victim_address = victim_addresses[work_slot]
   def snoop_victim = snoop_victims[work_slot]
   def received_requester_ids = received_requester_data_ids[work_slot]
-  def received_snoop_ids = received_snoop_data_ids[work_slot]
+  def received_snoop_ids = received_snoop_data_ids[work_slot][requester_data_snoop_target]
   def received_fill_ids = received_fill_data_ids[work_slot]
   def completion_error = completion_errors[work_slot]
   def copyback_state = copyback_states[work_slot]
@@ -368,12 +419,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     assert(requester_data_slot_valid, "chi_inclusive_hnf_requester_data_slot_in_range")
     assert(occupied[requester_data_slot], "chi_inclusive_hnf_requester_data_slot_occupied")
     assert(phases[requester_data_slot].is_one_of(CHIInclusiveHNFPhase.ReceiveRequesterData,
+                                                 CHIInclusiveHNFPhase.SendSnoop,
                                                  CHIInclusiveHNFPhase.AwaitSnoop),
            "chi_inclusive_hnf_requester_data_phase")
   when (requester.requester_responses.valid & !incoming_comp_ack):
     assert(requester_response_slot_valid, "chi_inclusive_hnf_requester_response_slot_in_range")
     assert(occupied[requester_response_slot], "chi_inclusive_hnf_requester_response_slot_occupied")
-    assert(phases[requester_response_slot] === CHIInclusiveHNFPhase.AwaitSnoop,
+    assert(phases[requester_response_slot].is_one_of(CHIInclusiveHNFPhase.SendSnoop,
+                                                     CHIInclusiveHNFPhase.AwaitSnoop),
            "chi_inclusive_hnf_requester_response_phase")
   when (subordinate.rsp.valid):
     assert(subordinate_response_slot_valid, "chi_inclusive_hnf_subordinate_response_slot_in_range")
@@ -403,7 +456,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def requester_output_response_fire = requester.responses.fire()
 
   def receiving_requester_data = phase === CHIInclusiveHNFPhase.ReceiveRequesterData
-  def awaiting_snoop = phase === CHIInclusiveHNFPhase.AwaitSnoop
+  def awaiting_snoop = phase.is_one_of(CHIInclusiveHNFPhase.SendSnoop,
+                                       CHIInclusiveHNFPhase.AwaitSnoop)
   def requester_write_data_fire = requester_data_fire & receiving_requester_data
   def snoop_data_fire = requester_data_fire & awaiting_snoop
   def requester_data_id_mask = one_hot(requester.request_data.bits.data_id).as_bits()
@@ -437,24 +491,34 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def expected_snoop_data_ids = chi_transfer_data_ids(bits(0, p.request_address_width), CHITransferSize.Bytes64, p)
   def final_snoop_data = next_snoop_data_ids === expected_snoop_data_ids
   def snoop_opcode = mux(snoop_victim, CHISnpOpcode.SnpCleanInvalid, chi_home_snoop_opcode(request.opcode))
-  def expected_snoop_node = expected_snoop_nodes[work_slot]
+  def outstanding_targets = outstanding_snoop_targets[work_slot]
+  def snoop_data_target_outstanding = outstanding_targets[requester_data_snoop_target]
+  def requester_response_target_outstanding = outstanding_targets[requester_response_target]
+  def other_snoop_data_received = or_reduce(
+    for List (index in 0..resident_count):
+      (requester_data_snoop_target =/= bits(index, resident_width)) & (
+        received_snoop_data_ids[work_slot][index].or_reduce()
+      )
+  )
   when snoop_data_fire:
     assert(chi_snoop_response_state_valid(snoop_opcode, requester.request_data.bits.resp.into(CHICoherentResponse())),
            "chi_inclusive_hnf_snoop_data_state")
     assert(!maintenance_discard, "chi_inclusive_hnf_discard_has_no_data")
-    assert(requester.request_data.bits.txn_id === slot_txn_id(work_slot),
+    assert(requester.request_data.bits.txn_id === snoop_txn_id(work_slot, requester_data_snoop_target),
            "chi_inclusive_hnf_snoop_data_txn")
+    assert(snoop_data_target_outstanding,
+           "chi_inclusive_hnf_snoop_data_outstanding")
     assert((expected_snoop_data_ids & snoop_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_snoop_data_id_expected")
     assert(requester.request_data.bits.opcode.is_one_of(CHIDatOpcode.SnpRespData,
                                                         CHIDatOpcode.SnpRespDataPtl),
            "chi_inclusive_hnf_snoop_data_opcode")
-    assert(requester.request_data.bits.src_id === expected_snoop_node,
-           "chi_inclusive_hnf_snoop_data_source")
     assert(requester.request_data.bits.tgt_id === home_id,
            "chi_inclusive_hnf_snoop_data_target")
     assert(requester.request_data.bits.resp.into(CHICoherentResponse()).pass_dirty,
            "chi_inclusive_hnf_snoop_data_dirty")
+    assert(!other_snoop_data_received,
+           "chi_inclusive_hnf_snoop_data_single_dirty_responder")
     assert(!(received_snoop_ids & snoop_data_id_mask).or_reduce(),
            "chi_inclusive_hnf_snoop_data_id_unique")
 
@@ -464,6 +528,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def next_snoop_node = vec(
     for List (endpoint in residents): bits(endpoint.node_id, p.node_id_width)
   )[next_snoop_index]
+  def next_snoop_txn_id = snoop_txn_id(work_slot, next_snoop_index)
   def send_snoop = work_from_advance & (phase === CHIInclusiveHNFPhase.SendSnoop)
   def snoop_address = mux(snoop_victim, victim_address, request.address)
   requester.snoops.valid <== send_snoop & snoops_remaining
@@ -472,20 +537,36 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
     flit: chi_hnf_snoop(p, home_id, request,
                         ~address: snoop_address,
                         ~opcode: snoop_opcode,
-                        ~txn_id: slot_txn_id(work_slot))
+                        ~txn_id: next_snoop_txn_id)
   def snoop_fire = requester.snoops.fire()
+  def pending_targets_after_issue = pending_targets.updated(next_snoop_index, Bool(#false))
+  def outstanding_targets_after_issue = outstanding_targets.updated(next_snoop_index, Bool(#true))
+  def outstanding_targets_after_response = outstanding_targets.updated(requester_response_target, Bool(#false))
+  def outstanding_targets_after_data = outstanding_targets.updated(requester_data_snoop_target, Bool(#false))
+  def phase_after_response = mux(pending_targets.or_reduce(),
+                                 CHIInclusiveHNFPhase.SendSnoop,
+                                 mux(outstanding_targets_after_response.or_reduce(),
+                                     CHIInclusiveHNFPhase.AwaitSnoop,
+                                     CHIInclusiveHNFPhase.AfterSnoops))
+  def phase_after_data = mux(pending_targets.or_reduce(),
+                             CHIInclusiveHNFPhase.SendSnoop,
+                             mux(outstanding_targets_after_data.or_reduce(),
+                                 CHIInclusiveHNFPhase.AwaitSnoop,
+                                 CHIInclusiveHNFPhase.AfterSnoops))
 
   when requester_response_fire:
     assert(chi_snoop_response_state_valid(snoop_opcode, requester_response_flit.resp.into(CHICoherentResponse())),
            "chi_inclusive_hnf_snoop_response_state")
     assert(requester_response_flit.tgt_id === home_id,
            "chi_inclusive_hnf_snoop_response_target")
-    assert(requester_response_flit.txn_id === slot_txn_id(work_slot),
+    assert(requester_response_flit.txn_id === snoop_txn_id(work_slot, requester_response_target),
            "chi_inclusive_hnf_snoop_response_txn")
     assert(requester_response_flit.opcode === CHIRspOpcode.SnpResp,
            "chi_inclusive_hnf_snoop_response_opcode")
-    assert(requester_response_flit.src_id === expected_snoop_node,
-           "chi_inclusive_hnf_snoop_response_source")
+    assert(requester_response_target_outstanding,
+           "chi_inclusive_hnf_snoop_response_outstanding")
+    assert(!received_snoop_data_ids[work_slot][requester_response_target].or_reduce(),
+           "chi_inclusive_hnf_snoop_response_without_data")
     assert(!requester_response_flit.resp.into(CHICoherentResponse()).pass_dirty,
            "chi_inclusive_hnf_snoop_response_clean")
 
@@ -742,6 +823,15 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       pending_snoop_targets[index] <== mux(lookup_copyback,
                                            vec(for List (_resident in 0..resident_count): Bool(#false)),
                                            lookup_snoop_targets)
+      outstanding_snoop_targets[index] <== vec(
+        for List (_resident in 0..resident_count): Bool(#false)
+      )
+      received_snoop_data_ids[index] <== vec(
+        for List (_resident in 0..resident_count): bits(0, 4)
+      )
+      snoop_retains_copies[index] <== vec(
+        for List (_resident in 0..resident_count): Bool(#false)
+      )
       when lookup_copyback:
         assert(!copyback_states[index][2].into(Bool) ||| lookup_selection.valid,
                "chi_inclusive_hnf_dirty_copyback_has_entry")
@@ -791,25 +881,36 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
                               CHIInclusiveHNFPhase.IssueLookup,
                               CHIInclusiveHNFPhase.ReceiveRequesterData)
       elsewhen (send_snoop & !snoops_remaining):
-        phases[index] <== CHIInclusiveHNFPhase.AfterSnoops
+        phases[index] <== mux(outstanding_targets.or_reduce(),
+                              CHIInclusiveHNFPhase.AwaitSnoop,
+                              CHIInclusiveHNFPhase.AfterSnoops)
       elsewhen snoop_fire:
-        pending_snoop_targets[index] <== pending_targets.updated(next_snoop_index, Bool(#false))
-        expected_snoop_nodes[index] <== next_snoop_node
-        received_snoop_data_ids[index] <== bits(0, 4)
-        snoop_retains_copies[index] <== Bool(#false)
-        phases[index] <== CHIInclusiveHNFPhase.AwaitSnoop
-      elsewhen requester_response_fire:
-        phases[index] <== CHIInclusiveHNFPhase.SendSnoop
-      elsewhen snoop_data_fire:
-        snoop_retains_copies[index] <== snoop_retains_copies[index] ||| (
-          requester.request_data.bits.resp.into(CHICoherentResponse()).state =/= CHIResponseState.Invalid
-        ) ||| (requester.request_data.bits.resp_err =/= CHIRespErr.OK)
-        line_buffers[index] <== selected_line.updated(snoop_line_packet, merged_snoop_packet)
-        maintenance_dirty[index] <== Bool(#true)
-        received_snoop_data_ids[index] <== next_snoop_data_ids
-        phases[index] <== mux(final_snoop_data,
+        pending_snoop_targets[index] <== pending_targets_after_issue
+        outstanding_snoop_targets[index] <== outstanding_targets_after_issue
+        phases[index] <== mux(pending_targets_after_issue.or_reduce(),
                               CHIInclusiveHNFPhase.SendSnoop,
                               CHIInclusiveHNFPhase.AwaitSnoop)
+      elsewhen requester_response_fire:
+        outstanding_snoop_targets[index] <== outstanding_targets_after_response
+        phases[index] <== phase_after_response
+      elsewhen snoop_data_fire:
+        snoop_retains_copies[index] <== snoop_retains_copies[index].updated(
+          requester_data_snoop_target,
+          snoop_retains_copies[index][requester_data_snoop_target] ||| (
+            requester.request_data.bits.resp.into(CHICoherentResponse()).state =/= CHIResponseState.Invalid
+          ) ||| (requester.request_data.bits.resp_err =/= CHIRespErr.OK)
+        )
+        line_buffers[index] <== selected_line.updated(snoop_line_packet, merged_snoop_packet)
+        maintenance_dirty[index] <== Bool(#true)
+        received_snoop_data_ids[index] <== received_snoop_data_ids[index].updated(
+          requester_data_snoop_target,
+          next_snoop_data_ids
+        )
+        when final_snoop_data:
+          outstanding_snoop_targets[index] <== outstanding_targets_after_data
+        phases[index] <== mux(final_snoop_data,
+                              phase_after_data,
+                              phase)
       elsewhen after_snoops:
         victim_data_beats[index] <== bits(0, 2)
         when (completion_error =/= CHIRespErr.OK):
@@ -968,8 +1069,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       plru_touch(ways, replacement_state[selected_set], selected_way)
     )
 
+  def responder_index = mux(requester_response_fire,
+                            requester_response_target,
+                            requester_data_snoop_target)
   def responder_mask = vec(
-    for List (endpoint in residents): expected_snoop_node === bits(endpoint.node_id, p.node_id_width)
+    for List (index in 0..resident_count): responder_index === bits(index, resident_width)
   ).as_bits()
   def work_requester_mask = vec(
     for List (endpoint in residents): request.src_id === bits(endpoint.node_id, p.node_id_width)
@@ -980,7 +1084,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def absent_control = requester_response_fire & (
     requester_response_flit.resp_err === CHIRespErr.OK
   ) & (requester_response_flit.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
-  def absent_data = snoop_data_fire & final_snoop_data & !snoop_retains_copies[work_slot] & (
+  def absent_data = snoop_data_fire & final_snoop_data & (
+    !snoop_retains_copies[work_slot][requester_data_snoop_target]
+  ) & (
     requester.request_data.bits.resp_err === CHIRespErr.OK
   ) & (requester.request_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
   def directory_line_valid = valid_lines[selected_set][selected_way] & (

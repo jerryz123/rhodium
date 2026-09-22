@@ -20,9 +20,11 @@ coherent transactions. `CHIInclusiveHNF` uses those slots as Home TxnIDs/DBIDs,
 permits distinct sets to overlap, and serializes requests that address an owned
 set. An LLC hit may return while a distinct-set miss waits for subordinate
 memory; non-final fill data can also enter the miss slot while the hit response
-is stalled. Final fill installation retains exclusive use of the shared LLC
-array port. The parameter defaults to one for compatibility; the complete
-single-core and tiled SoCs select two.
+is stalled. Resident snoops issue on consecutive accepted cycles with distinct
+transaction IDs and may complete out of order; the owning Home transaction
+advances only after every targeted RN-F completes. Final fill installation
+retains exclusive use of the shared LLC array port. The parameter defaults to
+one for compatibility; the complete single-core and tiled SoCs select two.
 
 ## Inclusive Home event tracing
 

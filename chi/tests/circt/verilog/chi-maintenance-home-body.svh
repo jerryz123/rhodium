@@ -103,7 +103,7 @@ always @(posedge clock) begin
         else $fatal(1, "snoop dispatch changed under backpressure");
     stalled_snoop <= port_out.requester.snoops.valid && !port_in.requester.snoops.ready;
     stalled_dispatch <= port_out.requester.snoops.bits;
-    if (snp_active)
+    if (snp_active && !INCLUSIVE)
       assert(!port_out.requester.snoops.valid) else $fatal(1, "Home issued another snoop before retiring its responder");
     if (issue.valid && port_out.requester.requests.ready) begin
       maintenance_active <= issue.bits.opcode inside {7'd8, 7'd9, 7'd10};

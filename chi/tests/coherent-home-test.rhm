@@ -5,6 +5,34 @@
 import:
   "../main.rhdl" as chi
   "coherent-home-fixture.rhdl" as fixture
+  lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
+
+def excessive_snoop_endpoints:
+  for List (index in 0..65):
+    chi.CHIICNPortParams(
+      "snoop-target-" ++ to_string(index),
+      16 + index,
+      chi.CHINodeKind.RNF,
+      ~emits: fixture.data_endpoint.emits,
+      ~supports: fixture.data_endpoint.supports,
+      ~max_outstanding: fixture.data_endpoint.max_outstanding
+    )
+
+def excessive_snoop_addressing = StripedAddressLayout(0x04000000, 64, 4)
+def exhaustive_snoop_config = chi.CHIHNFConfig(
+  fixture.coherent_home_flit,
+  excessive_snoop_endpoints.take(64),
+  excessive_snoop_addressing.global_mask,
+  fixture.coherent_home_config.service_requests,
+  ~transaction_slots: 64
+)
+def excessive_snoop_config = chi.CHIHNFConfig(
+  fixture.coherent_home_flit,
+  excessive_snoop_endpoints,
+  excessive_snoop_addressing.global_mask,
+  fixture.coherent_home_config.service_requests,
+  ~transaction_slots: 64
+)
 
 check:
   fixture.coherent_home_params.home.kind ~is chi.CHINodeKind.HNF
@@ -48,3 +76,16 @@ check:
                    fixture.coherent_home_config.requester_endpoints,
                    fixture.coherent_home_config.service_mask,
                    [chi.CHIRequestSupport(chi.CHIReqOpcode.ReadNoSnp, chi.TransferSizes(1, 64))]) ~throws "backing writes"
+
+  chi.CHIInclusiveHNFConfig(
+    exhaustive_snoop_config,
+    excessive_snoop_addressing,
+    ~sets: 2,
+    ~ways: 2
+  ).transaction_slots ~is 64
+  chi.CHIInclusiveHNFConfig(
+    excessive_snoop_config,
+    excessive_snoop_addressing,
+    ~sets: 2,
+    ~ways: 2
+  ) ~throws "snoop transaction-ID space"

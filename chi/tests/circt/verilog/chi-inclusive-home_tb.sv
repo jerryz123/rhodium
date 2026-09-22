@@ -345,6 +345,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                             input logic [4:0] opcode = SNP_CLEAN_INVALID,
                             input logic [2:0] state = 0,
                             input logic [1:0] error = 0);
+    logic [11:0] snoop_txn_id;
     begin
       while (!port_out.requester.snoops.valid) tick();
       repeat (3) begin
@@ -358,12 +359,14 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.requester.snoops.bits.target_id == target &&
               port_out.requester.snoops.bits.flit.opcode == opcode)
         else $fatal(1, "inclusive Home did not invalidate the victim sharer");
+      snoop_txn_id = port_out.requester.snoops.bits.flit.txn_id;
       tick();
       snoops_ready_in = '0;
       requester_responses_in.bits = '0;
       requester_responses_in.bits.opcode = SNP_RESP;
       requester_responses_in.bits.src_id = target;
       requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.bits.txn_id = snoop_txn_id;
       requester_responses_in.bits.resp = state;
       requester_responses_in.bits.resp_err = error;
       requester_responses_in.valid = 1'b1;
@@ -380,6 +383,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
                              input logic [4:0] opcode = SNP_CLEAN_INVALID,
                              input logic [2:0] state = 3'b100,
                              input bit early_error = 0);
+    logic [11:0] snoop_txn_id;
     begin
       while (!port_out.requester.snoops.valid) tick();
       snoops_ready_in.ready = 1'b1;
@@ -388,6 +392,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.requester.snoops.bits.target_id == target &&
               port_out.requester.snoops.bits.flit.opcode == opcode)
         else $fatal(1, "inclusive Home did not invalidate the dirty victim sharer");
+      snoop_txn_id = port_out.requester.snoops.bits.flit.txn_id;
       tick();
       snoops_ready_in = '0;
       for (int packet = 0; packet < 4; packet++) begin
@@ -395,6 +400,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
         request_data_in.bits.opcode = SNP_RESP_DATA_PTL;
         request_data_in.bits.src_id = target;
         request_data_in.bits.tgt_id = HOME_ID;
+        request_data_in.bits.txn_id = snoop_txn_id;
         request_data_in.bits.data_id = packet[1:0];
         request_data_in.bits.byte_enable = SNOOP_MASKS[packet * 16 +: 16];
         request_data_in.bits.resp = state;
@@ -412,6 +418,54 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
           tick();
         end
       end
+    end
+  endtask
+
+  task automatic clean_snoops_back_to_back(input logic [6:0] first_target,
+                                            input logic [6:0] second_target,
+                                            input logic [4:0] opcode,
+                                            input logic [2:0] state);
+    logic [11:0] first_txn_id;
+    logic [11:0] second_txn_id;
+    begin
+      while (!port_out.requester.snoops.valid) tick();
+      snoops_ready_in.ready = 1'b1;
+      #1;
+      assert(port_out.requester.snoops.bits.target_id == first_target &&
+             port_out.requester.snoops.bits.flit.opcode == opcode)
+        else $fatal(1, "inclusive Home issued the first pipelined snoop to the wrong resident");
+      first_txn_id = port_out.requester.snoops.bits.flit.txn_id;
+      tick();
+      #1;
+      assert(port_out.requester.snoops.valid &&
+             port_out.requester.snoops.bits.target_id == second_target &&
+             port_out.requester.snoops.bits.flit.opcode == opcode)
+        else $fatal(1, "inclusive Home did not issue resident snoops back-to-back");
+      second_txn_id = port_out.requester.snoops.bits.flit.txn_id;
+      assert(first_txn_id != second_txn_id)
+        else $fatal(1, "inclusive Home reused a live snoop transaction ID");
+      tick();
+      snoops_ready_in = '0;
+
+      requester_responses_in.bits = '0;
+      requester_responses_in.bits.opcode = SNP_RESP;
+      requester_responses_in.bits.src_id = second_target;
+      requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.bits.txn_id = second_txn_id;
+      requester_responses_in.bits.resp = state;
+      requester_responses_in.valid = 1'b1;
+      #1;
+      assert(port_out.requester.requester_responses.ready)
+        else $fatal(1, "inclusive Home did not accept the second resident response first");
+      tick();
+
+      requester_responses_in.bits.src_id = first_target;
+      requester_responses_in.bits.txn_id = first_txn_id;
+      #1;
+      assert(port_out.requester.requester_responses.ready)
+        else $fatal(1, "inclusive Home did not accept the first resident response last");
+      tick();
+      requester_responses_in = '0;
     end
   endtask
 
@@ -924,8 +978,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_request(LINE0, 7'h02, 6'd6, DATA_ID);
     clean_snoop(INSTRUCTION_ID, 5'h08, 3'd1); finish_cached();
     send_request(LINE0, 7'h03);
-    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
-    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
+    clean_snoops_back_to_back(INSTRUCTION_ID, DATA_ID, 5'h03, 3'd1);
+    finish_cached();
 
     // A silent clean eviction leaves one stale positive, then Invalid clears it.
     send_request(LINE0, 7'h03);

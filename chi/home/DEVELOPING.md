@@ -30,18 +30,24 @@ Keep LLC lookup, replacement, dirty-data ownership, and retirement in their
 respective engines rather than adding modes to one shared state machine.
 
 The noncaching Home instantiates `CHIHomeSnoopTargets` from its owning module.
-The inclusive Home keeps the equivalent pending mask and expected responder in
-each transaction slot, then arbitrates one outgoing snoop at a time. Neither
-form adds a snoop-payload buffer or pipeline stage. Each Home computes its
-target mask, constructs the snoop, and gates
+The inclusive Home keeps pending and outstanding masks plus per-responder DAT
+receipt state in each transaction slot, then arbitrates one outgoing snoop at a
+time. Its 12-bit snoop transaction identity is the configured RN-F index times
+the Home slot count plus the slot index. This permits consecutive dispatch to
+different residents and out-of-order completion while preserving direct slot
+routing. The configured RN-F count times the slot count must fit the snoop
+transaction-ID space. Neither Home form adds a snoop-payload buffer or pipeline
+stage. Each Home computes its target mask, constructs the snoop, and gates
 `target.ready` with its own issue phase and SNP sink readiness. That handshake
 must coincide with the outgoing snoop handshake. In particular, a pending
-target must not advance while the Home is processing the previous responder's
-control, dirty data, or intervention write. Keep receipt masks and completion
-decisions in the Home engines. Mask loading and dispatch are phase-exclusive
-in both callers. Run both Home fixtures and both maintenance fixtures when
-changing this bookkeeping; the shared maintenance bench checks target order,
-stalled dispatch stability, and reset before and after a dispatch.
+target must advance only when the corresponding outgoing snoop transfers.
+Control and data responses clear only their encoded outstanding target, and a
+slot leaves snoop processing only after both target masks are empty. Keep
+receipt masks and completion decisions in the Home engines. Mask loading and
+dispatch are phase-exclusive in both callers. Run both Home fixtures and both
+maintenance fixtures when changing this bookkeeping; the shared maintenance
+bench checks target order, stalled dispatch stability, and reset before and
+after a dispatch.
 
 `CHIInclusiveHNF` owns `resident_lines`, indexed by LLC set/way and configured
 RN-F order. Keep the absence invariant separate from LLC dirty state and from

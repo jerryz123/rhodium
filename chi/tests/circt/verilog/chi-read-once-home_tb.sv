@@ -265,6 +265,7 @@ module chi_read_once_home_tb;
       requester_responses_in.bits.opcode = SNP_RESP;
       requester_responses_in.bits.src_id = OWNER_ID;
       requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.bits.txn_id = held_snoop.flit.txn_id;
       requester_responses_in.bits.resp = 3'd1;
       requester_responses_in.valid = 1'b1;
       #1;
@@ -276,12 +277,14 @@ module chi_read_once_home_tb;
   endtask
 
   task automatic dirty_snoop(input logic [7:0] payload_base);
+    logic [11:0] snoop_txn_id;
     begin
       while (!port_out.requester.snoops.valid) tick();
       #1;
       assert(port_out.requester.snoops.bits.target_id == OWNER_ID &&
              port_out.requester.snoops.bits.flit.opcode == SNP_ONCE)
         else $fatal(1, "ReadOnce did not snoop the dirty RN-F owner");
+      snoop_txn_id = port_out.requester.snoops.bits.flit.txn_id;
       snoops_ready_in.ready = 1'b1;
       tick();
       snoops_ready_in = '0;
@@ -290,6 +293,7 @@ module chi_read_once_home_tb;
         request_data_in.bits.opcode = SNP_RESP_DATA_PTL;
         request_data_in.bits.src_id = OWNER_ID;
         request_data_in.bits.tgt_id = HOME_ID;
+        request_data_in.bits.txn_id = snoop_txn_id;
         request_data_in.bits.data_id = packet[1:0];
         request_data_in.bits.byte_enable = 16'hffff;
         request_data_in.bits.resp = 3'b100;
