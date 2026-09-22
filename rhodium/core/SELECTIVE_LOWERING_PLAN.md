@@ -395,3 +395,20 @@ Register/Queue state and diagnostic cycle numbers remain unchanged on failure;
 retry agrees with clean execution, including later drain. Reset and disabled
 guards suppress checks. This is focused evidence; external callback effects,
 previous simulator regression migration, and performance remain open.
+
+## Retained external callback follow-up
+
+The [dependent host-effect validation](https://github.com/tianrui-wei/rhodium/commit/4773366)
+passes 30 host/native/Queue contract checks. Malformed callback inputs now fail
+during lowering. Four 256-edge traces exercise repeated retained host occurrences
+in interpreter and generated C, with and without optimization. Accepted edges
+invoke each occurrence once; evaluation, failed assertions, and missing sibling
+bindings invoke none. Registered 64-bit results, reset handling, and suppression
+of tentative outputs after callback failure pass. Native selection never executes
+the portable sentinel.
+
+The runtime does not roll back external side effects a callback already performed
+before failing. This limit is documented alongside the tested hardware-state
+and callback-invocation guarantees. Remaining work includes broader runtime/error
+regression migration and performance measurements; this is focused validation,
+not a new full-suite baseline.
