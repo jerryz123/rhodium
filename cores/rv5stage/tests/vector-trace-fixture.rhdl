@@ -58,7 +58,8 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   tokens.flush <== recovering
   vector.cancel.valid <== cancel
   (
-    tokens.egress |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen)):
+    tokens.egress |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, slots)):
+      tag: token.completion_tag
       pc: bits(0x100, 64)
       disposition: disposition
       slow: slow & token.enabled

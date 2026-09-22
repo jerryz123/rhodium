@@ -18,15 +18,17 @@ accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
 successor, or second instruction slot inside the sequencer. The flow-through result queue permits
 consecutive issue while credits cover all nonbackpressurable responses.
-Memory, reduction, scan, and compression retain their descriptor through final
-feedback. Stateful and packed schedules wait for older operand preparation to
-drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
+Memory, scan, and compression retain their descriptor through final feedback.
+Reductions release their descriptor at the tail read and retain recurrence in
+owner-indexed state. Stateful and packed schedules wait for older operand
+preparation to drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
 accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
 descriptor FIFO so WB admission and head-only page-range certification can overlap
 the active owner. The FIFO is registered, with same-cycle full replacement and
 no empty bypass. The scalar pipeline does not reserve its space in Decode: WB
-either transfers the descriptor and its scalar-result reservation atomically,
-or precisely replays the instruction with no vector-side effect. It is not a
+either transfers the descriptor and any floating-point scalar-result reservation
+atomically, or precisely replays the instruction with no vector-side effect.
+Integer scalar results are bounded by the completion-slot count. It is not a
 bank of per-service instruction queues. Check-started, check-complete, and
 certificate state belong to the FIFO head and reset on dispatch, never on tail
 enqueue. Compute heads dispatch without a preparation cycle. Memory heads wait
@@ -392,12 +394,14 @@ snapshot captured by an earlier micro-op or an indexed read port for merging.
 
 Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
-source reads and a fixed seed address. The parent pipeline gates reduction
-issue until the preceding beat reaches WB, substitutes the authorized
-accumulator for subsequent seeds at EX, and updates integer reductions only on
-authorization. Floating-point reductions retain that gate until an active fold
-drains from the shared FP service, then advance the accumulator from the
-ordered result. Inactive folds bypass the service and retain the accumulator;
+source reads and a fixed seed address. The parent pipeline gates each owner's
+reduction issue until that owner's preceding beat reaches WB, substitutes the
+owner's accumulator for subsequent seeds at EX, and updates integer reductions
+only on authorization. The tail read hands off the sequencer; its completion
+slot and owner-scoped recurrence state retain the older macro independently.
+Floating-point reductions retain their owner-local gate until an active fold
+drains from the shared FP service, then advance that owner's accumulator from
+the ordered result. Inactive folds bypass the service and retain the accumulator;
 active intermediate folds update `fflags` but only the final fold carries a VRF
 write mask. This implements both sum variants as the permitted ordered fold and
 gives an all-masked nonzero body an exact seed copy with no FP exception
@@ -406,8 +410,9 @@ Widening reductions keep source addressing at SEW while the execute adapter
 extends that element into the twice-SEW accumulator width. The seed and result
 remain single-register scalars; do not route this form through doubled-EMUL
 destination scheduling. Decode rejects SEW64 and different-EEW source aliases.
-Do not move accumulation into read/issue time without a speculative checkpoint
-design. Final-only VRF writes make source, seed, and mask overlap safe.
+Do not move accumulation into read/issue time. The compute route is
+non-replayable, and final-only VRF writes make source, seed, and mask overlap
+safe.
 The `scalar_result` Valid output carries the existing integer register-write
 type at WB; the core composes it with normal writeback through Flow. Decode
 owns the scalar destination/source metadata and rejects nonzero reduction

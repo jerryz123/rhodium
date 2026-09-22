@@ -58,7 +58,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   input instruction: RV5StageVectorInstruction(xlen, Context)
   input occupied: Bool
   interface issue(Decoupled(RV5StageVectorToken(Context, slots)), ~role: producer)
-  interface commit(Valid(RV5StageVectorCommit(xlen)), ~role: consumer)
+  interface commit(Valid(RV5StageVectorCommit(xlen, slots)), ~role: consumer)
   interface cancel(Pulse(), ~role: consumer)
   interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
   interface reads[3](Valid(Address), ~role: producer)
@@ -127,12 +127,8 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     byte_mask: token.byte_mask
     slot(~format: "unsigned"): token.completion_tag
     last: token.last
-  def Array(external_issue, attempt_issue) = issued |> atomic_fork(2)
-  external_issue |> issue
-  inst attempts(ValidPipe(Tag, 3, ~flushable: #true))
-  attempt_issue |> to_valid() |> map_valid(token => token.completion_tag) |> attempts.ingress
-  attempts.flush <== clear
-  def wb = attempts.egress
+  issued |> issue
+  def wb = commit |> map_valid(event => event.tag)
 
   // Increment the logical byte/field cursor; no element-address multiplier or divider.
   def mutable element :: Bits(index_width(vlen + 1)) = cursor.element
@@ -289,7 +285,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def release_slot = drainable & (entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load)))
   write.valid <== (load_piece & carry_valid & !same_row) ||| flush_carry ||| split_load ||| full_row
   write.bits <== mux(split_load ||| full_row, combined, carry)
-  def accepted = attempts.egress |> filter_valid(_tag => successful)
+  def accepted = wb |> filter_valid(_tag => successful)
   def release_event = inject_flow(Valid(Tag), ~valid: release_slot, ~bits: head)
   describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")
   describe_interface_contract(accepted, release_event, "accepted-beats", ~trace_model: interface_trace_queue(~name: "accepted-beats"))

@@ -113,7 +113,8 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   compress_state: RV5StageVectorCompressState(vlen)
 
 // LSU tags name bounded completion slots, not scalar register destinations.
-bundle RV5StageVectorCommit(xlen :: XLen):
+bundle RV5StageVectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
+  tag: Bits(index_width(vector_completion_slots))
   pc: Bits(xlen.width)
   disposition: RV5StageVectorDisposition
   slow: Bool

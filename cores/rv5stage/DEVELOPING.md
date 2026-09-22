@@ -64,9 +64,9 @@ each other; share external transaction machinery through the CHI package.
    start device IO. Rejection replays before transaction acceptance; accepted
    transactions must never be replayed. Keep coherence service independent.
    Vector instructions likewise pass ID without predicting descriptor capacity.
-   WB atomically admits the descriptor and any scalar-result reservation, or
-   precisely replays the instruction without vector, precheck, or reservation
-   side effects. Keep dependency, certification, memory-ordering, and
+   WB atomically admits the descriptor and any required floating-point
+   scalar-result reservation, or precisely replays the instruction without
+   vector, precheck, or reservation side effects. Keep dependency, certification, memory-ordering, and
    serialization interlocks in ID; descriptor availability is not an ID hazard.
    State observers wait for older vector launches in EX/MEM/WB as well as
    admitted vector work; the vector sink's registered active flag alone leaves

@@ -119,7 +119,7 @@ attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
 The memory path shares the scalar LSU through a fixed-cycle lookup arbiter and
 a separate transaction arbiter; returned union tags retain response ownership.
 
-`outcome: Valid(RV5StageVectorCommit(xlen))` reports memory certification,
+`outcome: Valid(RV5StageVectorCommit(xlen, slots))` reports memory certification,
 final conservative acceptance, a precise fault, or fault-only-first truncation
 to scalar retirement one cycle after the local decision. Non-memory macros
 retire through their ordinary scalar WB launch token and do not wait for result
@@ -161,9 +161,10 @@ A two-entry descriptor FIFO snapshots waiting vector macros in addition to the
 single active sequencer instruction. WB may enqueue one descriptor per cycle;
 a full FIFO can replace its departing head on that same edge. Only the head
 can start page-range certification or enter the sequencer, and a blocked head
-does not replay through scalar fetch. WB still replays if admission or a required
-scalar-result reservation cannot succeed. There is no out-of-order instruction
-selection. Pending status includes both waiting entries, so scalar ordering and
+does not replay through scalar fetch. WB still replays if descriptor admission
+or a required floating-point scalar-result reservation cannot succeed. Integer
+scalar results use completion-slot-bounded buffering. There is no out-of-order
+instruction selection. Pending status includes both waiting entries, so scalar ordering and
 FP/CSR observers cannot overlook a queued instruction. An uncertified memory
 macro blocks younger admission until its retirement outcome; accepting a
 younger descriptor cannot overwrite the head's certificate. Pending certification
@@ -175,8 +176,10 @@ controls and owner through VRF latency and issue backpressure, independently of
 sequencer replacement. Independent single-beat instructions can therefore read
 and issue on consecutive cycles. The completion-slot owner ring retains older
 issued work.
-Memory, reduction, scan, and compression instead retain the descriptor through
-final feedback because they carry replay or cross-beat state. A dependent
+Memory, scan, and compression instead retain the descriptor through final
+feedback because they carry replay or checkpointed cross-beat state. Reductions
+release at their tail read while owner-local recurrence and completion state
+finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
 instruction; overlapping destination groups conservatively interlock. All
 operands are captured before issue. The sequencer never alternates between
@@ -432,10 +435,12 @@ each narrow source element, and reject SEW64. Their wide scalar operands retain
 EMUL=1; a widening seed cannot alias the narrow source group because that would
 read one register at two EEWs.
 
-This first implementation reuses the SIMD ALU with one reduction element in
-flight. Its accumulator advances only with local acceptance, so retries retain
-the authorized prefix without double counting. Cancellation cannot expose a
-partial reduction in the VRF. This is not a packed-per-cycle reduction tree;
+This first implementation reuses the SIMD ALU with one reduction element per
+owner in flight. Its accumulator advances only with local acceptance, and the
+non-replayable compute path carries owner and completion tag with every result.
+The tail hands the sequencer to a younger macro while the older completion slot
+retains its final result. Cancellation cannot expose a partial reduction in the
+VRF. This is not a packed-per-cycle reduction tree;
 ordinary packed integer throughput is unchanged. The three general read ports
 remain available independently of the dedicated `v0` mask read.
 

@@ -29,8 +29,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   interface issue(Decoupled(Token), ~role: consumer)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
   interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
-  interface feedback(Valid(RV5StageVectorCommit(xlen)), ~role: producer)
-  interface outcome(Valid(RV5StageVectorCommit(xlen)), ~role: producer)
+  interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
+  interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: producer)
   input store: Bool
   input pointer_masking: PointerMaskControl()
@@ -110,7 +110,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     admitted: accepted
   def Array(request_path, decision_path) = response_capture |> fork_valid(2)
   request_path |> filter_valid(_operation => slow) |> map_valid(operation => operation.request_context.request) |> offer_decoupled() |> memory.request
-  def decision = decision_path |> map_valid(operation => RV5StageVectorCommit(xlen)):
+  def decision = decision_path |> map_valid(operation => RV5StageVectorCommit(xlen, slots)):
+    tag: operation.request_context.token.completion_tag
     pc: operation.request_context.token.context
     disposition: disposition
     slow: accepted

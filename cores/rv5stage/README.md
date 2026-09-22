@@ -25,10 +25,10 @@ as a side-effect-free launch token, then WB starts a separate
 [`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
 SIMD datapath, and vector bank. The allocated macro unrolls autonomously through
 local feed-forward execution and memory stages; scalar stages do not carry its
-micro-ops. Ordinary compute hands the sole sequencer to its successor when its
-tail beat issues, while completion slots retain older issued work. Replayable
-memory and stateful cross-beat operations remain serialized. Nonfaulting
-certification lets independent scalar instructions retire
+micro-ops. Compute, including owner-scoped reductions, hands the sole sequencer
+to its successor when its tail beat issues, while completion slots retain older
+issued work. Replayable memory and explicitly checkpointed cross-beat operations
+remain serialized. Nonfaulting certification lets independent scalar instructions retire
 while the macro executes in the background. Contiguous one- or two-page memory
 ranges use retained page translations; other memory forms keep precise
 element-wise execution. See the [vector ownership contract](vector/README.md#execution-ownership)

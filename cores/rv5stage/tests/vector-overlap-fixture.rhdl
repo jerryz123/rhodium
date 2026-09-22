@@ -61,7 +61,8 @@ sync_circuit RV5StageVectorOverlap():
   tokens.flush <== cancel ||| (tokens.egress.valid & retry)
   vector.cancel.valid <== cancel
   (
-    feedback |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen)):
+    feedback |> filter_valid(_token => !cancel) |> map_valid(token => RV5StageVectorCommit(xlen, 8)):
+      tag: token.completion_tag
       pc: token.context
       disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
       slow: slow & token.memory & token.enabled

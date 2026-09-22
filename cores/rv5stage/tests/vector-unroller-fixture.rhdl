@@ -85,7 +85,7 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retained_control = unroller.retained.descriptor.control
-  def serialized = (retained_control.integer ||| retained_control.fp_service) & retained_control.reduction ||| (retained_control.integer & (retained_control.scan ||| retained_control.compress))
+  def serialized = retained_control.integer & (retained_control.scan ||| retained_control.compress)
   def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel & serialized
   pipeline.flush <== cancel ||| retry
   def authorization = pipeline.egress.valid & !retry & !cancel

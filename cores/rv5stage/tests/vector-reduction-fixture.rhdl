@@ -57,12 +57,13 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
-  def serialized = (decode.control.vector.integer ||| decode.control.vector.fp_service) & decode.control.vector.reduction ||| (decode.control.vector.integer & (decode.control.vector.scan ||| decode.control.vector.compress))
+  def serialized = decode.control.vector.integer & (decode.control.vector.scan ||| decode.control.vector.compress)
   def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel & serialized
   tokens.flush <== cancel ||| retry
   vector.cancel.valid <== cancel
   vector.commit.valid <== tokens.egress.valid & !cancel
-  vector.commit.bits <== RV5StageVectorCommit(xlen):
+  vector.commit.bits <== RV5StageVectorCommit(xlen, 8):
+    tag: tokens.egress.bits.completion_tag
     pc: bits(0x100, xlen.width)
     disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
     slow: Bool(#false)

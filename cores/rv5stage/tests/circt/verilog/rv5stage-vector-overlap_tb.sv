@@ -13,7 +13,7 @@ module rv5stage_vector_overlap_tb;
   struct packed { logic valid; RV5StageVectorToken bits; } attempt_out;
   wire request_ready, active, issued, issue_finished, sequencing_finished, retired;
   RV5StageVectorOverlap dut(.*);
-  int cycle=0, phase=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0;
+  int cycle=0, phase=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0, reduction_retirements=0;
   int phase1_issue_count=0, phase1_last_issue=0;
   int phase1_launches=0, phase1_sequences=0;
   int fp_tags[8], memory_tags[8];
@@ -29,6 +29,9 @@ module rv5stage_vector_overlap_tb;
   endfunction
   function automatic logic [31:0] store_insn(input int rs);
     return 32'h02007027 | (32'(rs)<<7);
+  endfunction
+  function automatic logic [31:0] reduction_insn(input int vd);
+    return 32'h02002057 | (32'd8<<20) | (32'd3<<15) | (32'(vd)<<7);
   endfunction
   task automatic tick;
     #1;
@@ -214,7 +217,16 @@ module rv5stage_vector_overlap_tb;
     launch(add_insn(21),64'h70,0);
     launch(add_insn(22),64'h80,0);
     cancel=1; tick(); cancel=0; issue_ready=1; drain();
-    $display("Vector overlap passed: tail handoff, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
+    // A reduction retains only owner-local recurrence and completion state.
+    // Its tail hands off the sequencer before the final result retires.
+    phase=9; vl=2; vtype=24;
+    reduction_retirements=retired_count;
+    launch(reduction_insn(24),64'h900,0);
+    launch(add_insn(25),64'h910,0);
+    assert(retired_count==reduction_retirements) else $fatal(1,"reduction retained the sequencer until retirement");
+    drain();
+    assert(retired_count==reduction_retirements+2) else $fatal(1,"overlapped reduction ownership leaked");
+    $display("Vector overlap passed: tail handoff, reductions, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

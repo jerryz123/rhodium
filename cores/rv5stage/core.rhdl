@@ -1314,7 +1314,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           address: completion.rd
           data: completion.integer_value
   ) |> wb_tag_completion(RV5StageCompletionSource.FpInteger) |> wb_completion_arbiter.ingress[3]
-  def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.or_reduce()) |> to_decoupled() |> queue(1)
+  // Every admitted scalar-producing vector macro owns a completion slot. Match
+  // that bound here so unrelated deferred completions cannot overflow its sink.
+  def wb_vector_integer_completion = wb_vector_scalar_result_link.right |> filter_valid(write => write.address.or_reduce()) |> to_decoupled() |> queue(vector_completion_slots)
   wb_vector_integer_write_pending <== wb_vector_integer_completion.valid
   wb_vector_integer_completion |> wb_tag_completion(RV5StageCompletionSource.VectorInteger) |> wb_completion_arbiter.ingress[4]
   def Array(

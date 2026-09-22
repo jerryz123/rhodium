@@ -103,7 +103,8 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.released |> slots_owner.release
   slots_owner.replay.valid <== attempts.egress.valid & retry
   (
-    attempts.egress |> map_valid(_token => RV5StageVectorCommit(xlen)):
+    attempts.egress |> map_valid(token => RV5StageVectorCommit(xlen, slots)):
+      tag: token.completion_tag
       pc: bits(0x100, xlen.width)
       disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
       slow: slow

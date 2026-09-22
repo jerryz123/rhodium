@@ -32,7 +32,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface request(Decoupled(RV5StageVectorDescriptor(xlen)), ~role: consumer)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
   interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
-  interface outcome(Valid(RV5StageVectorCommit(xlen)), ~role: producer)
+  interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
   interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
@@ -89,7 +89,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   precheck.release.valid <== execution.issue_done.valid & active_precheck
   def empty_memory = inject_flow(Valid(Bits(xlen.width)), ~valid: execution.request.fire() & queued_descriptor.bits.control.memory & footprint.empty, ~bits: queued_descriptor.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
-  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen)):
+  def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen, slots)):
+    tag: bits(0, index_width(slots))
     pc: pc
     disposition: RV5StageVectorDisposition.Authorized
     slow: Bool(#false)
@@ -99,7 +100,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   def Array(compute, memory_issue) = execution.issue |> demux_flow(2, operation => operation.memory.as_bits())
   memory_issue |> access.issue
   def compute_wb = compute |> to_valid() |> valid_pipe(3)
-  def compute_accept = compute_wb |> map_valid(operation => RV5StageVectorCommit(xlen)):
+  def compute_accept = compute_wb |> map_valid(operation => RV5StageVectorCommit(xlen, slots)):
+    tag: operation.completion_tag
     pc: operation.context
     disposition: RV5StageVectorDisposition.Authorized
     slow: Bool(#false)
