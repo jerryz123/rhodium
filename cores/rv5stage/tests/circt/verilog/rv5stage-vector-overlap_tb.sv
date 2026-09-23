@@ -21,8 +21,11 @@ module rv5stage_vector_overlap_tb;
   logic [63:0] stores[8];
   bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
 
+  function automatic logic [31:0] add_insn_source(input int vd, input int vs2);
+    return 32'h02000057 | (32'(vs2)<<20) | (32'd4<<15) | (32'(vd)<<7);
+  endfunction
   function automatic logic [31:0] add_insn(input int vd);
-    return 32'h02000057 | (32'd2<<20) | (32'd4<<15) | (32'(vd)<<7);
+    return add_insn_source(vd, 2);
   endfunction
 
   function automatic logic [31:0] load_insn(input int rd);
@@ -117,7 +120,8 @@ module rv5stage_vector_overlap_tb;
     // Continue beyond the owner-ring depth: replacement must sustain issue,
     // not merely empty a short burst already held in operand preparation.
     for (int destination=12; destination<24; destination++)
-      launch(add_insn(destination),64'(destination-8)<<4,0);
+      // v17 reuses v9's completion slot; v18 must not see its old write metadata.
+      launch(add_insn_source(destination, destination==18 ? 9 : 2),64'(destination-8)<<4,0);
     drain();
     assert(tail_handoff_seen && phase1_sequences==16 && phase1_issue_count==16 && done_count==16 && retired_count==16) else $fatal(1,"single-beat vector tail inserted a sequencing bubble");
     done_count=0; retired_count=0; vl=2;

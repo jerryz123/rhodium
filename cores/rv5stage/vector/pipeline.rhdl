@@ -518,6 +518,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       entries[slot] <== resolution_beat
       entry_write_address[slot] <== resolution_beat.write.address
       entry_writes[slot] <== resolution_beat.write.mask.or_reduce()
+    elsewhen (issue.fire() & (tail === tag)):
+      entry_writes[slot] <== Bool(#false)
     when (fp_result.fire() & (fp_result.bits.tag === tag)):
       completion_flags[slot] <== mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5))
     elsewhen resolving:
