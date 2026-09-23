@@ -332,9 +332,9 @@ can access platform devices, including the boot-address register and UART.
 
 ## SoC software suites
 
-Run the complete profile-selected upstream ISA suite, benchmarks, CoreMark,
-Embench-IoT, configuration-exact ACT, and OpenSBI qualification on both
-single-core SoCs:
+Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
+variants, Embench-IoT, configuration-exact ACT, and OpenSBI qualification on
+both single-core SoCs:
 
 ```sh
 make -C sims program-test-setup
@@ -346,9 +346,10 @@ make -C sims single-core-software-test
 `rv5stage spike`; set `SOFTWARE_CORE=rv5stage` or `SOFTWARE_CORE=spike` to
 select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
-`isa-test`, `benchmark-test`, `coremark-test`, and `embench-test` targets accept
-either single-core SoC and remain available for focused execution. CI schedules
-the four native suites and ACT independently for Spike and RV5Stage, and
+`isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`, and
+`embench-test` targets accept either single-core SoC and remain available for
+focused execution. CI schedules
+the five native suites and ACT independently for Spike and RV5Stage, and
 qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
@@ -412,6 +413,14 @@ score. Override `COREMARK_ITERATIONS` to exercise a longer run. The port reads
 the concrete SoC target descriptor. The upstream benchmark sources remain
 unmodified in the submodule.
 
+`coremark_scalar-test` uses the same upstream sources, 32-bit types, seeds, and
+CRC requirements, but compiles with GCC auto-vectorization disabled via
+`-fno-tree-vectorize`. It produces a separate `coremark_scalar.riscv` and
+manifest. Both variants run in CI and use separate build caches and results.
+Use `coremark_scalar-elf` to build without running the simulator. Compare their
+instruction reports to isolate the effect of auto-vectorization; neither
+one-iteration functional run is a CoreMark score.
+
 `embench-test` builds all 19 workloads from the recorded upstream Embench-IoT
 development-tree revision for the concrete RV64 target. Each executable uses
 the upstream lifecycle and result-verification path, then returns that result
@@ -465,8 +474,8 @@ not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 `COREMARK_MAX_CYCLES`, or `EMBENCH_MAX_CYCLES` when diagnosing timeouts.
 Benchmark CI checks correctness, never exact cycle counts.
 
-CI selects ISA tests, benchmarks, CoreMark smoke, Embench-IoT, and ACT on pull requests and
-pushes to `main`; manual dispatch selects all five. The native suites consume
+CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
+pushes to `main`; manual dispatch selects all six. The native suites consume
 one exact-commit SingleCoreSpikeSoC executable and its matching patched Spike
 runtime. ACT generates one profile-specific ELF inventory for each single-core
 SoC, then partitions each across four execution jobs that consume that SoC's

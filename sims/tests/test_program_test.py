@@ -123,6 +123,13 @@ class CoreMarkBuildTest(unittest.TestCase):
         self.assertIn('2K performance run parameters for coremark.', self.builder.REQUIRED_OUTPUT)
         self.assertIn('[0]crclist       : 0xe714', self.builder.REQUIRED_OUTPUT)
         self.assertIn('ERROR! list crc', self.builder.FORBIDDEN_OUTPUT)
+        self.assertIn('ERROR: ee_u32 is not a 32b datatype!', self.builder.FORBIDDEN_OUTPUT)
+
+    def test_scalar_variant_disables_auto_vectorization_without_relaxing_checks(self):
+        self.assertEqual(self.builder.SCALAR_NAME, 'coremark_scalar.riscv')
+        self.assertEqual(self.builder.SCALAR_FLAGS, ('-fno-tree-vectorize',))
+        self.assertIn('[0]crcmatrix     : 0x1fd7', self.builder.REQUIRED_OUTPUT)
+        self.assertIn('ERROR: ee_u32 is not a 32b datatype!', self.builder.FORBIDDEN_OUTPUT)
 
     def test_linker_template_uses_target_ram(self):
         with tempfile.TemporaryDirectory() as directory:

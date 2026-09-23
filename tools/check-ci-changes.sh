@@ -101,9 +101,9 @@ check_field sims/arch-test/configure.py program_native false
 check_program_matrix sims/program-test/isa.mk isa
 check_field sims/program-test/isa.mk simulation true
 check_field sims/program-test/build.py simulation true
-check_program_matrix sims/program-test/build-coremark.py coremark
+check_program_matrix sims/program-test/build-coremark.py coremark coremark_scalar
 check_field sims/program-test/build-coremark.py simulation true
-check_program_matrix sims/program-test/coremark coremark
+check_program_matrix sims/program-test/coremark coremark coremark_scalar
 check_field sims/program-test/coremark simulation true
 check_program_matrix sims/program-test/build-embench.py embench
 check_field sims/program-test/build-embench.py simulation true
@@ -120,7 +120,7 @@ check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
 check_program_matrix riscv/riscv-isa-tests isa benchmark
 for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/interrupt/aclint.rhdl socs/products/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
-  check_program_matrix "$path" isa benchmark coremark embench
+  check_program_matrix "$path" isa benchmark coremark coremark_scalar embench
   check_field "$path" program_arch true
 done
 check_field tools/write-riscv-udb-config.rhm program_arch true
@@ -155,7 +155,7 @@ check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch host false
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch circt false
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch simulation false
-check_program_matrix riscv/riscv-isa-sim isa benchmark coremark embench
+check_program_matrix riscv/riscv-isa-sim isa benchmark coremark coremark_scalar embench
 check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-language-test
 check_field rhodium/event/analyze.rhm simulation true
 check_field rheg/runtime/rheg.cc simulation true

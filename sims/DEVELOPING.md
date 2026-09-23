@@ -351,8 +351,12 @@ profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
 selection, mode choice, compiler probing, ELF-attribute checks, and
 content-addressed ELF directories. `build-coremark.py` separately compiles the
 pristine CoreMark submodule with the Rhodium-owned RV64 port under
-`program-test/coremark-riscv-baremetal/`. `build-embench.py` likewise compiles
-the recorded upstream Embench-IoT development revision with the RV64 port under
+`program-test/coremark-riscv-baremetal/`. Its `coremark_scalar` variant disables
+GCC auto-vectorization without changing CoreMark's types or CRC requirements.
+The variants have distinct manifests, cache keys, CI selection, and execution
+artifacts; neither short functional run is a CoreMark score.
+`build-embench.py` likewise compiles the recorded upstream Embench-IoT
+development revision with the RV64 port under
 `program-test/embench-iot-riscv-baremetal/`, checks the complete source-directory
 inventory, materializes build-only copies whose local loop scale is explicit,
 and publishes one target-bound ELF per workload. Its xgboost functional profile

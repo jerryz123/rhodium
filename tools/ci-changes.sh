@@ -183,6 +183,11 @@ emit_jobs() {
       for soc in single-core-rv5stage-soc single-core-spike-soc; do
         append_matrix_entry program_matrix "{\"soc\":\"$soc\",\"suite\":\"$suite\"}"
       done
+      if [[ "$suite" == coremark ]]; then
+        for soc in single-core-rv5stage-soc single-core-spike-soc; do
+          append_matrix_entry program_matrix "{\"soc\":\"$soc\",\"suite\":\"coremark_scalar\"}"
+        done
+      fi
     fi
   done
   echo "programs=$programs"

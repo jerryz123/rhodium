@@ -26,8 +26,8 @@ ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
 PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
-.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup embench-setup program-test-adapter-test program-target simulator-attestation
-.PHONY: isa-elfs benchmark-elfs coremark-elf embench-elfs isa-test benchmark-test coremark-test embench-test
+.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup program-test-adapter-test program-target simulator-attestation
+.PHONY: isa-elfs benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs isa-test benchmark-test coremark-test coremark_scalar-test embench-test
 .PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
@@ -63,6 +63,8 @@ isa-setup benchmark-setup:
 coremark-setup:
 	git -C $(REPO_DIR) submodule update --init sims/program-test/coremark
 
+coremark_scalar-setup: coremark-setup
+
 embench-setup:
 	git -C $(REPO_DIR) submodule update --init sims/program-test/embench-iot
 
@@ -88,6 +90,12 @@ coremark-elf: program-target
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
+
+coremark_scalar-elf: program-target
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark scalar supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)" --variant coremark_scalar
 
 embench-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
@@ -118,6 +126,12 @@ coremark-test: coremark-elf simulator-attestation
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
 
+coremark_scalar-test: coremark_scalar-elf simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar/results" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
+
 embench-test: embench-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/embench/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
@@ -126,7 +140,7 @@ embench-test: embench-elfs simulator-attestation
 
 single-core-software-test:
 	@status=0; for core in $(SOFTWARE_CORE); do \
-	  for suite in isa benchmark coremark embench; do \
+	  for suite in isa benchmark coremark coremark_scalar embench; do \
 	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
 	  done; \
 	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ACT_CONFIGURATION="single-core-$$core-soc" || status=1; \

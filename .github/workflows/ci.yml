@@ -550,7 +550,7 @@ jobs:
         run: |
           make -C sims "$SUITE-setup"
           case "$SUITE" in
-            coremark) source=sims/program-test/coremark ;;
+            coremark|coremark_scalar) source=sims/program-test/coremark ;;
             embench) source=sims/program-test/embench-iot ;;
             *) source=riscv/riscv-isa-tests ;;
           esac

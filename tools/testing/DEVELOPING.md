@@ -103,7 +103,7 @@ flowchart TD
     Compile --> SpikeBuild["Build SingleCoreSpikeSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
     SpikeBuild --> Simulation
-    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, CoreMark, and Embench-IoT"]
+    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants, and Embench-IoT"]
     SpikeBuild --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     SimpleBuild --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
@@ -131,8 +131,8 @@ consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
 Both single-core software matrices independently select ISA tests, benchmarks,
-CoreMark, and Embench-IoT. The simulation job qualifies OpenSBI on both
-single-core products. Both profiles select their own ACT generation and
+both CoreMark variants, and Embench-IoT. The simulation job qualifies OpenSBI
+on both single-core products. Both profiles select their own ACT generation and
 four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. MiniRV5StageSoC and

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Builds pristine CoreMark sources for the concrete Rhodium RV64 bare-metal target.
+# Builds default and scalar CoreMark variants for an RV64 target.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -16,14 +16,18 @@ from program_target import (elf_architecture, instruction_inventory, load_target
 
 CORE_SOURCES = ('core_list_join.c', 'core_main.c', 'core_matrix.c', 'core_state.c', 'core_util.c')
 NAME = 'coremark.riscv'
+SCALAR_NAME = 'coremark_scalar.riscv'
 REQUIRED_OUTPUT = ('2K performance run parameters for coremark.',
                    '[0]crclist       : 0xe714',
                    '[0]crcmatrix     : 0x1fd7',
                    '[0]crcstate      : 0x8e3a')
 FORBIDDEN_OUTPUT = ('ERROR! list crc', 'ERROR! matrix crc', 'ERROR! state crc',
-                    'ERROR! Rhodium CoreMark platform type mismatch', 'Cannot validate operation')
+                    'ERROR! Rhodium CoreMark platform type mismatch',
+                    'ERROR: ee_u32 is not a 32b datatype!',
+                    'Cannot validate operation')
 COMMON_FLAGS = ('-O2', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding', '-fno-common',
                 '-fno-builtin', '-fno-pie', '-ffunction-sections', '-fdata-sections')
+SCALAR_FLAGS = ('-fno-tree-vectorize',)
 
 
 def verify_upstream(source):
@@ -49,6 +53,7 @@ def main():
     parser.add_argument('--compiler', required=True)
     parser.add_argument('--target', type=Path, required=True)
     parser.add_argument('--iterations', type=int, required=True)
+    parser.add_argument('--variant', choices=('coremark', 'coremark_scalar'), default='coremark')
     args = parser.parse_args()
     if args.iterations <= 0:
         parser.error('iterations must be positive')
@@ -68,7 +73,7 @@ def main():
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], output)
     port_inputs = [port / name for name in ('core_portme.c', 'core_portme.h', 'htif.c', 'start.S', 'link.ld.in')]
-    key_input = (revision + version + str(source) + compiler + str(args.iterations)
+    key_input = (revision + version + str(source) + compiler + str(args.iterations) + args.variant
                  + json.dumps(target, sort_keys=True)).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'), *port_inputs]:
         key_input += path.read_bytes()
@@ -79,12 +84,17 @@ def main():
         (output / generated).unlink(missing_ok=True)
     linker = build / 'link.ld'
     write_linker(port / 'link.ld.in', linker, target['ram'][0])
-    flag_text = ' '.join((*COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}'))
+    scalar = args.variant == 'coremark_scalar'
+    variant_flags = SCALAR_FLAGS if scalar else ()
+    flag_text = ' '.join((*COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
+                          *variant_flags))
     common = [compiler, *COMMON_FLAGS, f'-march={target["march"]}', f'-mabi={target["mabi"]}',
+              *variant_flags,
               f'-I{port}', f'-I{source}', f'-DITERATIONS={args.iterations}', '-DTOTAL_DATA_SIZE=2000',
               f'-DRHODIUM_CLOCK_FREQUENCY_HZ={target["clock_frequency_hz"]}',
               f'-DFLAGS_STR="{flag_text}"']
-    names = [NAME]
+    name = SCALAR_NAME if scalar else NAME
+    names = [name]
     stamp = build / 'built.json'
     try:
         cached = json.loads(stamp.read_text())
@@ -99,7 +109,7 @@ def main():
     readelf = readelf_for(compiler)
     objdump = objdump_for(compiler)
     with (output / 'build.log').open('w') as log:
-        elf = build / NAME
+        elf = build / name
         if reuse:
             log.write(f'Reusing checksum-verified ELF {elf}\n')
         else:
@@ -114,13 +124,13 @@ def main():
         elf_arch = elf_architecture(readelf, elf)
         if elf_arch != compiler_arch:
             raise RuntimeError(f'{elf}: ISA attributes {elf_arch} do not match {compiler_arch}')
-        test = dict(name=NAME, elf=str(elf.relative_to(output)),
+        test = dict(name=name, elf=str(elf.relative_to(output)),
                     sha256=hashlib.sha256(elf.read_bytes()).hexdigest(), elf_arch=elf_arch,
                     load_segments=check_elf_memory(elf, target['ram']),
                     required_output=list(REQUIRED_OUTPUT), forbidden_output=list(FORBIDDEN_OUTPUT))
         tests.append(test)
-        report.append(dict(name=NAME, elf_arch=elf_arch, **instruction_inventory(objdump, elf)))
-    manifest = dict(suite='coremark', revision=revision, compiler=version, cache_key=key,
+        report.append(dict(name=name, elf_arch=elf_arch, **instruction_inventory(objdump, elf)))
+    manifest = dict(suite=args.variant, revision=revision, compiler=version, cache_key=key,
                     iterations=args.iterations, march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests)
