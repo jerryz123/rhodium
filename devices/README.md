@@ -27,6 +27,7 @@ SoC address map:
 | `Uart8N1Transmitter` / `Uart8N1Receiver` | Reusable serial engines | Byte flow plus serial pins and a 16x oversample tick | Fixed 8-N-1 framing |
 | `Uart16550` | Byte-addressed UART registers, FIFOs, and interrupts | One-outstanding CHI SN-I; one-byte `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; RX/TX pins | CHI flits and FIFO depth 1--16 |
 | `HDMIFrameReader` | Ordered fixed-frame fetches with video-row markers | Retryable nonallocating CHI RN-I `ReadOnce`; irrevocable 64-byte lines | Fixed framebuffer mode, outstanding slots, and TxnID range |
+| `HDMIScanout` | SRAM-buffered fixed-cadence RGB scanout | CHI RN-I, pixel enable, RGB888, HS/VS, and data enable | Frame reader configuration and row-buffer count |
 
 `UartDPI` and [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) are simulation-only. They
 bridge serial pins to a host pseudo-terminal (PTY); they are not a
@@ -52,9 +53,39 @@ and frame-end markers plus error and poison state. The reader exposes the
 stream's active, completion, starvation, and underflow state and retains a
 sticky fetch-failure flag until the next command.
 
-The frame reader is intentionally backpressured and does not attempt to be a
-fixed-rate pixel consumer. Row buffering, pixel unpacking, video timing, MMIO
-control, and the TMDS transmitter remain separate later components.
+[`hdmi-scanout.rhdl`](hdmi-scanout.rhdl) composes the frame reader with
+`HDMIPixelScanout(mode, ~rows: 2)`. Each of the two or more row buffers is a
+single-port synchronous SRAM containing one complete row (two rows consume
+10 KiB at 720p). A row becomes readable only after its final fetch line is
+stored and becomes writable after its last pixel is read. Full buffers
+backpressure memory delivery. Pixels are unpacked from low to high addresses;
+each little-endian X8R8G8B8 word emits bits 23:0 as RGB888.
+
+`HDMIScanout(config, ~rows: 2)` takes `enable`, `pixel_enable`, a physical
+`framebuffer` command, and CHI `identity`. All ports use one clock. Each
+asserted `pixel_enable` launches one video sample; `pixel_valid` and its
+RGB/HS/VS/data-enable result appear after that rising edge, aligned with the
+one-cycle SRAM read. Video is meaningful only when `pixel_valid` is true.
+Timing advances solely on pixel enables, including while disabled or starved;
+RGB is black during blanking and while disabled. Reset begins at the start of
+vertical blanking. The platform supplies the pixel cadence and keeps node
+identity stable while transactions are outstanding.
+
+At the start of every vertical blank, an enabled scanout captures the
+framebuffer command, restarts the reader, and clears row ownership to prefill
+the next frame. Late CHI completions retain their transaction slots until they
+retire and cannot become pixels in the new frame. Enabling mid-frame waits
+until the next vertical blank. Base/PAS/QoS changes take effect there too.
+The standalone pixel component exposes this cancellation boundary as
+`restart`; its line producer must discard the old frame on that pulse.
+
+If a complete row is unavailable at its first pixel, scanout latches
+`underflow`, emits black for the remainder of that frame, and drains returned
+lines. A response error or poison similarly latches `fetch_failed` and blacks
+the remaining frame. Recovery is attempted at the next vertical blank;
+status remains sticky until disable or reset. These flags describe display
+failures, separately from the frame reader's demand-based starvation status.
+MMIO control and the TMDS transmitter remain later components.
 
 The first physical profile is DVI-compatible video carried by TMDS through an
 HDMI connector. Audio, auxiliary data islands and infoframes, HDCP, DDC/EDID,

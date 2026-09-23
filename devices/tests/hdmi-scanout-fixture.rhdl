@@ -1,0 +1,18 @@
+#lang rhodium
+// Exercises the complete CHI reader and SRAM scanout over a five-row miniature frame.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  "../hdmi.rhdl" open
+  "../hdmi-scanout.rhdl" open
+
+def mode = HDMIFixedFramebufferMode(
+  HDMIVideoTiming(100, 32, 2, 2, 1, 5, 1, 1, 1, #true, #false),
+  HDMIPixelFormat.X8R8G8B8
+)
+def config = HDMIFrameReaderConfig(CHIFlitParams(~data_width: 512, ~poison: #true), mode, 3, 16)
+def design = elaborate(HDMIScanout(config))
+
+export:
+  design

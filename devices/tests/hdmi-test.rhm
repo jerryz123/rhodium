@@ -1,10 +1,12 @@
 #lang rhombus
-// Checks the fixed 720p60 HDMI timing, framebuffer geometry, and alignment contract.
+// Checks HDMI timing, framebuffer geometry, reader ranges, and row-buffer constraints.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../../rhodium/frontend/kernel.rhm" as embedded
   "../hdmi.rhdl" open
+  "../hdmi-scanout.rhdl" open
 
 def flit = CHIFlitParams()
 def reader = HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 8, 32)
@@ -45,3 +47,5 @@ check:
   HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 1025, 0) ~throws "outstanding limit"
   HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 8, 4090) ~throws "transaction-ID range"
   HDMIFrameReaderConfig(flit, oversized_mode, 1, 0) ~throws "frame byte count"
+  embedded.run_elaboration(fun (): HDMIPixelScanout(HDMI720p60X8R8G8B8, ~rows: 1)) ~throws "Int.in"
+  embedded.run_elaboration(fun (): HDMIScanout(reader, ~rows: 0)) ~throws "Int.in"

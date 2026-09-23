@@ -1,0 +1,174 @@
+#lang rhodium
+// Buffers framebuffer rows in synchronous SRAM and emits fixed-cadence RGB video.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
+  lib("chi/protocol/flits.rhdl").CHIRespErr
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+  "hdmi.rhdl" open
+
+bundle HDMIVideo():
+  rgb: Bits(24)
+  hsync: Bool
+  vsync: Bool
+  data_enable: Bool
+
+// restart cancels the previous frame at the source. Lines accepted afterward
+// must belong to the new frame; HDMIFrameReader supplies this restart contract.
+sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: Int.in(2 ..) = 2):
+  def t = mode.timing
+  def bank_width = index_width(rows)
+  def word_width = index_width(mode.fetch_lines_per_row)
+  def x_width = index_width(t.horizontal_total)
+  def y_width = index_width(t.vertical_total)
+  input enable: Bool
+  input pixel_enable: Bool
+  interface line(Irrevocable(HDMIFrameReaderLine()), ~role: consumer)
+  output restart: Bool
+  output pixel_valid: Bool
+  output video: HDMIVideo()
+  output underflow: Bool
+  output fetch_failed: Bool
+
+  reg x(~init: bits(0, x_width))
+  reg y(~init: bits(t.vertical_active, y_width))
+  reg armed(~init: Bool(#false))
+  reg dropped(~init: Bool(#true))
+  reg starvation(~init: Bool(#false))
+  reg failure(~init: Bool(#false))
+  reg full(Vec(rows, Bool), ~init: vec(for List (_ in 0..rows): Bool(#false)))
+  reg fill_bank(~init: bits(0, bank_width))
+  reg read_bank(~init: bits(0, bank_width))
+  reg fill_word(~init: bits(0, word_width))
+  reg fill_row(~init: bits(0, index_width(t.vertical_active)))
+  reg frame_filled(~init: Bool(#false))
+  reg sample_bank(~init: bits(0, bank_width))
+  reg sample_lane(~init: bits(0, 4))
+  reg sample_show(~init: Bool(#false))
+  reg sample_valid(~init: Bool(#false))
+  reg sample_de(~init: Bool(#false))
+  reg sample_hs(~init: Bool(!t.horizontal_sync_positive))
+  reg sample_vs(~init: Bool(!t.vertical_sync_positive))
+
+  def active_pixel = (x < bits(t.horizontal_active, x_width)) & (y < bits(t.vertical_active, y_width))
+  def row_last = x === bits(t.horizontal_active - 1, x_width)
+  def line_last = x === bits(t.horizontal_total - 1, x_width)
+  def frame_last = y === bits(t.vertical_total - 1, y_width)
+  restart <== enable & pixel_enable & (x === bits(0, x_width)) & (y === bits(t.vertical_active, y_width))
+  def missing = enable & armed & !dropped & pixel_enable & active_pixel & !full[read_bank]
+  line.ready <== enable & armed & !restart & (dropped ||| (!frame_filled & !full[fill_bank]))
+  def accepts = line.fire()
+  def bad_line = accepts & ((line.bits.error =/= CHIRespErr.OK) ||| line.bits.poisoned)
+  def writes = accepts & !dropped
+  def reads = enable & armed & !dropped & !bad_line & pixel_enable & active_pixel & full[read_bank]
+  def releases = reads & row_last
+  def last_word = fill_word === bits(mode.fetch_lines_per_row - 1, word_width)
+  def last_row = fill_row === bits(t.vertical_active - 1, index_width(t.vertical_active))
+
+  when writes:
+    assert(line.bits.row_end === last_word, "hdmi_scanout_row_marker")
+    assert(line.bits.frame_end === (last_word & last_row), "hdmi_scanout_frame_marker")
+
+  def mutable returned :: Bits(512) = bits(0, 512)
+  for (bank in 0..rows):
+    inst storage(SyncRam1RW(mode.fetch_lines_per_row, Bits(512), 1))
+    def writing = writes & (fill_bank === bits(bank, bank_width))
+    def reading = reads & (read_bank === bits(bank, bank_width))
+    storage.port.request.valid <== writing ||| reading
+    storage.port.request.bits.write <== writing
+    storage.port.request.bits.address <== mux(writing, fill_word, x[4..(4 + word_width)])
+    storage.port.request.bits.data <== vec([line.bits.data])
+    storage.port.request.bits.mask <== bits(1, 1).into(Mask(1))
+    returned := mux(sample_bank === bits(bank, bank_width), storage.port.response.bits[0], returned)
+    when (restart ||| !enable):
+      full[bank] <== Bool(#false)
+    elsewhen (releases & (read_bank === bits(bank, bank_width))):
+      full[bank] <== Bool(#false)
+    elsewhen (writing & last_word):
+      full[bank] <== Bool(#true)
+    when (writing):
+      assert(!reading, "hdmi_scanout_bank_ownership")
+
+  when pixel_enable:
+    x <== mux(line_last, bits(0, x_width), x + bits(1, x_width))
+    when line_last:
+      y <== mux(frame_last, bits(0, y_width), y + bits(1, y_width))
+  when (!enable):
+    armed <== Bool(#false)
+    dropped <== Bool(#true)
+    starvation <== Bool(#false)
+    failure <== Bool(#false)
+  elsewhen restart:
+    armed <== Bool(#true)
+    dropped <== Bool(#false)
+  elsewhen (missing ||| bad_line):
+    dropped <== Bool(#true)
+    starvation <== starvation ||| missing
+    failure <== failure ||| bad_line
+
+  when restart:
+    fill_bank <== bits(0, bank_width)
+    read_bank <== bits(0, bank_width)
+    fill_word <== bits(0, word_width)
+    fill_row <== bits(0, index_width(t.vertical_active))
+    frame_filled <== Bool(#false)
+  otherwise:
+    when writes:
+      fill_word <== mux(last_word, bits(0, word_width), fill_word + bits(1, word_width))
+      when last_word:
+        fill_bank <== mux(fill_bank === bits(rows - 1, bank_width), bits(0, bank_width), fill_bank + bits(1, bank_width))
+        fill_row <== fill_row + bits(1, index_width(t.vertical_active))
+        frame_filled <== last_row
+    when releases:
+      read_bank <== mux(read_bank === bits(rows - 1, bank_width), bits(0, bank_width), read_bank + bits(1, bank_width))
+
+  // SRAM data and these timing/lane registers describe the same launch edge.
+  sample_valid <== pixel_enable
+  when pixel_enable:
+    sample_bank <== read_bank
+    sample_lane <== x[0..4]
+    sample_show <== reads
+    sample_de <== active_pixel
+    sample_hs <== ((x >= bits(t.horizontal_active + t.horizontal_front_porch, x_width)) & (x < bits(t.horizontal_active + t.horizontal_front_porch + t.horizontal_sync, x_width))) === Bool(t.horizontal_sync_positive)
+    sample_vs <== ((y >= bits(t.vertical_active + t.vertical_front_porch, y_width)) & (y < bits(t.vertical_active + t.vertical_front_porch + t.vertical_sync, y_width))) === Bool(t.vertical_sync_positive)
+  def pixel = returned.as_vec(Bits(32))[sample_lane]
+  video <== HDMIVideo():
+    rgb: mux(sample_show, pixel[0..24], bits(0, 24))
+    hsync: sample_hs
+    vsync: sample_vs
+    data_enable: sample_de
+  pixel_valid <== sample_valid
+  underflow <== starvation
+  fetch_failed <== failure
+
+sync_circuit HDMIScanout(config :: HDMIFrameReaderConfig, ~rows: rows :: Int.in(2 ..) = 2):
+  input identity: HDMIFrameReaderIdentity(config.flit)
+  input framebuffer: HDMIFrameReaderCommand(config.flit)
+  input enable: Bool
+  input pixel_enable: Bool
+  interface chi(CHIRNIChannels(config.flit), ~role: node)
+  output pixel_valid: Bool
+  output video: HDMIVideo()
+  output underflow: Bool
+  output fetch_failed: Bool
+  inst reader(HDMIFrameReader(config))
+  inst scanout(HDMIPixelScanout(config.mode, ~rows: rows))
+  reader.identity <== identity
+  reader.chi <=> chi
+  reader.command.valid <== scanout.restart
+  reader.command.bits <== framebuffer
+  reader.line <=> scanout.line
+  scanout.enable <== enable
+  scanout.pixel_enable <== pixel_enable
+  pixel_valid <== scanout.pixel_valid
+  video <== scanout.video
+  underflow <== scanout.underflow
+  fetch_failed <== scanout.fetch_failed
+
+export:
+  HDMIVideo
+  HDMIPixelScanout
+  HDMIScanout

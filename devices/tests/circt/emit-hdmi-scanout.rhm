@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the integrated CHI framebuffer reader and synchronous row-buffer scanout.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../hdmi-scanout-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))
