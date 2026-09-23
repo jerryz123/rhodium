@@ -57,7 +57,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     alignment: RV5StageVectorAlignment()
   interface launch(Valid(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   input instruction: RV5StageVectorInstruction(xlen, Context)
-  input occupied: Bool
+  input(occupied, schedule_enable): Bool
   interface issue(Decoupled(RV5StageVectorToken(Context, slots)), ~role: producer)
   interface commit(Valid(RV5StageVectorCommit(xlen, slots)), ~role: consumer)
   interface cancel(Pulse(), ~role: consumer)
@@ -119,6 +119,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def retry = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Retry)
   def clear = retry ||| cancel.valid
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
+  def scheduling = occupied & schedule_enable
   def offers :: Handle = interface_link(Decoupled(RV5StageVectorToken(Context, slots)))
   def offered = offers.left
   def issued = offers.right |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: token):
@@ -175,12 +176,12 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   store_words.flush <== clear
   def store_credit = (store_words.count + store_reads.egress.valid.as_bits().zext(2)) < bits(2, 2)
   def mapped_sources_ready = !vec(for List (lane in 0..bytes): mapped.live[lane].into(Bool) & blocked_rows[mapped.rows[lane]]).as_bits().or_reduce()
-  def prefetch_store = occupied & fast_store & !all_issued & !clear & mapped_sources_ready & (store_credit ||| issue.fire())
+  def prefetch_store = scheduling & fast_store & !all_issued & !clear & mapped_sources_ready & (store_credit ||| issue.fire())
   store_reads.ingress.valid <== prefetch_store
   store_reads.ingress.bits <== mapped
   def offered_layout = mux(fast_load, mapped, mux(fast_store, store_words.egress.bits.layout, layout))
   def offered_mask = mux(fast_load ||| fast_store, offered_layout.live, byte_mask)
-  def can_issue = occupied & (!all_issued ||| fast_store) & !clear & slot_available
+  def can_issue = scheduling & (!all_issued ||| fast_store) & !clear & slot_available
   offered.valid <== can_issue & mux(fast_store, store_words.egress.valid & alignment_available, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
   store_words.egress.ready <== can_issue & fast_store & alignment_available & issue.ready
   offered.bits <== RV5StageVectorToken(Context, slots):
@@ -208,7 +209,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def start_mask = layout.elements[0] >> 6
   def end_mask = layout.elements[bytes - 1] >> 6
   def masks_ready = !blocked_rows[start_mask[0..index_width(vector_chunks(vlen))].zext(index_width(vector_depth(vlen)))] & !blocked_rows[end_mask[0..index_width(vector_chunks(vlen))].zext(index_width(vector_depth(vlen)))]
-  mask_read.valid <== occupied & !clear & masks_ready & ((prepare === RV5StagePackedPrepare.MaskLow) ||| (prepare === RV5StagePackedPrepare.MaskHigh))
+  mask_read.valid <== scheduling & !clear & masks_ready & ((prepare === RV5StagePackedPrepare.MaskLow) ||| (prepare === RV5StagePackedPrepare.MaskHigh))
   mask_read.bits <== mux(prepare === RV5StagePackedPrepare.MaskHigh, end_mask, start_mask)[0..index_width(vector_chunks(vlen))]
   def enabled_bytes = vec(for List (lane in 0..bytes):
                             def word = mux((layout.elements[lane] >> 6) === start_mask, low_mask, high_mask)
@@ -220,7 +221,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   for (lane in 0..bytes):
     last_store_row := mux(mapped.live[lane].into(Bool), mapped.rows[lane], last_store_row)
   for (port in 0..3):
-    reads[port].valid <== (Bool(port < 2) & prefetch_store) ||| (Bool(port == 0) & !fast_store & store & occupied & !clear & (prepare === RV5StagePackedPrepare.Read) & store_remaining.or_reduce() & !blocked_rows[source_row])
+    reads[port].valid <== (Bool(port < 2) & prefetch_store) ||| (Bool(port == 0) & !fast_store & store & scheduling & !clear & (prepare === RV5StagePackedPrepare.Read) & store_remaining.or_reduce() & !blocked_rows[source_row])
     reads[port].bits <== mux(fast_store, if port == 0 | mapped.rows[first_store_lane] | last_store_row, source_row)
   def store_group = vec(for List (lane in 0..bytes): store_remaining[lane].into(Bool) & (layout.rows[lane] === read_row)).as_bits()
   def store_rotation = layout.offsets[read_lane] - (if bytes == 8 | read_lane | read_lane.zext(3))
@@ -234,7 +235,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def group = vec(for List (lane in 0..bytes): remaining[lane].into(Bool) & (entry.layout.rows[lane] === target_row)).as_bits()
   def rotation = (if bytes == 8 | target_lane | target_lane.zext(3)) - entry.layout.offsets[target_lane]
   def fast_store_alignment = can_issue & fast_store & store_words.egress.valid & alignment_available
-  def slow_store_alignment = occupied & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
+  def slow_store_alignment = scheduling & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
   def store_alignment = fast_store_alignment ||| slow_store_alignment
   def load_piece = drainable & !entry.store & remaining.or_reduce() & alignment_available & !store_alignment
   def prefetched = store_reads.egress.bits
@@ -338,7 +339,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     cursor <== offered_layout.after
     all_issued <== offered_layout.last
     prepare <== RV5StagePackedPrepare.Map
-  elsewhen (occupied & !all_issued & !fast_load & !fast_store):
+  elsewhen (scheduling & !all_issued & !fast_load & !fast_store):
     when (prepare === RV5StagePackedPrepare.Map):
       layout <== mapped
       byte_mask <== mapped.live

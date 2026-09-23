@@ -1,4 +1,4 @@
-// Checks registered read-tail replacement, consecutive issue, row chaining, ownership, and replay.
+// Checks registered read-tail replacement, age-ordered packed issue, row chaining, ownership, and replay.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_overlap_tb;
   logic clock=0, reset=1;
@@ -17,6 +17,7 @@ module rv5stage_vector_overlap_tb;
   int phase1_issue_count=0, phase1_last_issue=0;
   int phase1_launches=0, phase1_sequences=0;
   int phase5_younger_attempts=0;
+  int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
   bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
@@ -64,6 +65,16 @@ module rv5stage_vector_overlap_tb;
         fp_tags[fp_count++]=int'(fp_request_out.bits.tag);
       end
       if (attempt_out.valid && !cancel) begin
+        if (phase==10) begin
+          assert(phase10_attempts<2) else $fatal(1,"extra compute/packed overlap attempt");
+          assert(attempt_out.bits.context_0==(phase10_attempts==0 ? 64'ha00 : 64'ha80)) else $fatal(1,"younger packed memory issued ahead of older compute");
+          phase10_attempts++;
+        end
+        if (phase==11) begin
+          assert(phase11_attempts<2) else $fatal(1,"extra compute/packed store overlap attempt");
+          assert(attempt_out.bits.context_0==(phase11_attempts==0 ? 64'hb00 : 64'hb80)) else $fatal(1,"younger packed store issued ahead of older compute");
+          phase11_attempts++;
+        end
         if (retry) retried=1;
         else if (attempt_out.bits.memory) begin
           if (phase==5 && attempt_out.bits.address>=64'h180 && attempt_out.bits.address<64'h200) phase5_younger_attempts++;
@@ -234,7 +245,29 @@ module rv5stage_vector_overlap_tb;
     assert(retired_count==reduction_retirements) else $fatal(1,"reduction retained the sequencer until retirement");
     drain();
     assert(retired_count==reduction_retirements+2) else $fatal(1,"overlapped reduction ownership leaked");
-    $display("Vector overlap passed: tail handoff, reductions, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
+    // A packed successor may enter the sequencer as the older compute launches
+    // its final VRF read, but cannot take the older beat's completion slot.
+    reset=1; tick(); reset=0;
+    phase=0; vl=1; vtype=24;
+    launch(add_insn(26),64'h980,0); drain();
+    repeat(4) tick();
+    phase=10;
+    older_issue_count=done_count;
+    launch(add_insn(27),64'ha00,0);
+    launch(load_insn(28),64'ha80,1);
+    assert(done_count==older_issue_count) else $fatal(1,"packed successor did not overlap older compute preparation");
+    drain();
+    assert(phase10_attempts==2) else $fatal(1,"compute/packed overlap lost an attempt");
+    repeat(4) tick();
+    phase=11;
+    older_issue_count=done_count;
+    previous_stores=store_count;
+    launch(add_insn(29),64'hb00,0);
+    launch(store_insn(26),64'hb80,1);
+    assert(done_count==older_issue_count) else $fatal(1,"packed store successor did not overlap older compute preparation");
+    drain();
+    assert(phase11_attempts==2 && store_count==previous_stores+1) else $fatal(1,"compute/packed store overlap lost an attempt");
+    $display("Vector overlap passed: tail handoff, age-ordered packed issue, reductions, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

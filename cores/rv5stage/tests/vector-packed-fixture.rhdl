@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes certified beat scheduling, real VRF storage, and the shared SIMD alignment datapath.
+// Exposes always-enabled certified beat scheduling, real VRF storage, and shared SIMD alignment.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../vector/packed-memory.rhdl" open
@@ -36,6 +36,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   unroller.packed_memory <== Bool(#true)
   engine.issue_done |> unroller.packed_done
   engine.occupied <== unroller.active
+  engine.schedule_enable <== Bool(#true)
   engine.closed_owners <== vec([!unroller.active, Bool(#true)])
   engine.cancel.valid <== Bool(#false)
   engine.instruction <== unroller.retained

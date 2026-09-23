@@ -183,6 +183,9 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     context: unroller.retained.context.value
     descriptor: unroller.retained.descriptor
   packed.occupied <== unroller.active & current_packed
+  // Admission can coincide with the older macro's final read. Retain packed
+  // ownership, but defer shared VRF activity and issue until that read issues.
+  packed.schedule_enable <== !operand_fetch.active
   when (request.fire()):
     current_packed <== packed_memory
     current_owner <== next_owner

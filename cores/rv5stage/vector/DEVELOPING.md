@@ -22,8 +22,10 @@ Memory retains its descriptor through the final external decision; scan and
 compression retain theirs through internal result maturity.
 Reductions release their descriptor at the tail read and retain recurrence in
 owner-indexed state. Stateful and packed schedules wait for older operand
-preparation to drain before admission; ordinary compute can overlap it. The packed-memory schedule consumes the same
-accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
+preparation to drain before admission; ordinary compute can overlap it. A packed
+admission coincident with an older final read retains its descriptor, but packed
+VRF activity and issue wait for that read's reservation to clear. The packed-memory
+schedule consumes the same accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
 descriptor FIFO so WB admission and head-only page-range certification can overlap
 the active owner. The FIFO is registered, with same-cycle full replacement and
 no empty bypass. The scalar pipeline does not reserve its space in Decode: WB
