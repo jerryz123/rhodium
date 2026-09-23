@@ -16,6 +16,7 @@ typedef struct packed {
   logic unsigned_load;
   logic [XLEN-1:0] data;
   logic [8:0] writeback;
+  logic origin;
   logic [2:0] locality;
 } dreq_bits_t;
 typedef struct packed { logic valid; dreq_bits_t bits; } dreq_t;
@@ -23,6 +24,7 @@ typedef struct packed {
   logic access_fault;
   logic [XLEN-1:0] data;
   logic [8:0] writeback;
+  logic origin;
 } dresp_bits_t;
 typedef struct packed { logic valid; dresp_bits_t bits; } dresp_t;
 typedef struct packed { ready_t request; logic request_fault, request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;

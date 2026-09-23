@@ -22,6 +22,11 @@ tagged_union RV5StageMemoryWriteback(vector_completion_slots :: Pow2Int):
   FloatingPoint(RV5StageFpMemoryWriteback())
   Vector(Bits(index_width(vector_completion_slots)))
 
+// Physical response routing is independent of the architectural writeback kind.
+hardware_enum RV5StageDataOrigin:
+  Core
+  Walker
+
 hardware_enum RV5StagePipelineOutcome:
   Slow
   LoadHit
@@ -77,6 +82,7 @@ bundle RV5StageDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
   unsigned: Bool
   data: Bits(xlen.width)
   writeback: RV5StageMemoryWriteback(vector_completion_slots)
+  origin: RV5StageDataOrigin
   locality: RiscvMemoryLocality
 
 bundle RV5StageDataResp(xlen :: XLen, vector_completion_slots :: Pow2Int):
@@ -85,6 +91,7 @@ bundle RV5StageDataResp(xlen :: XLen, vector_completion_slots :: Pow2Int):
   access_fault: Bool
   data: Bits(xlen.width)
   writeback: RV5StageMemoryWriteback(vector_completion_slots)
+  origin: RV5StageDataOrigin
 
 interface RV5StageDataAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
   role requester
@@ -109,6 +116,7 @@ export:
   RV5StagePipelineReason
   RV5StageFpMemoryWriteback
   RV5StageMemoryWriteback
+  RV5StageDataOrigin
   RV5StageDataReq
   RV5StageDataResp
   RV5StageDataAccess

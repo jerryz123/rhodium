@@ -1,0 +1,45 @@
+#lang rhodium
+// Arbitrates core and page-table physical data requests while retaining response origin.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "dcache/protocol.rhdl" open
+  "../../riscv/isa/xlen.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
+  interface core(RV5StageDataAccess(xlen, slots), ~role: responder)
+  interface walker(RV5StageDataAccess(xlen, slots), ~role: responder)
+  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface core_lookup(Valid(Bits(xlen.width)), ~role: consumer)
+  interface walker_lookup(Valid(Bits(xlen.width)), ~role: consumer)
+  interface lookup(Valid(Bits(xlen.width)), ~role: producer)
+
+  inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
+  Array(core.request, walker.request) <=> requests.ingress
+  def selected_walker = requests.chosen === bits(1, 1)
+  requests.egress |> map_flow(request => request.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core))) |> memory.request
+
+  core.request_fault <== memory.request_fault & !selected_walker
+  core.request_access_fault <== memory.request_access_fault & !selected_walker
+  walker.request_fault <== memory.request_fault & selected_walker
+  walker.request_access_fault <== memory.request_access_fault & selected_walker
+  def Array(core_responses, walker_responses) = memory.response |> fork_valid(2)
+  core_responses |> filter_valid(response => response.origin === RV5StageDataOrigin.Core) |> core.response
+  walker_responses |> filter_valid(response => response.origin === RV5StageDataOrigin.Walker) |> walker.response
+  core.drained <== memory.drained
+  walker.drained <== memory.drained
+  core.reservation_valid <== memory.reservation_valid
+  walker.reservation_valid <== Bool(#false)
+
+  // The early SRAM index belongs to the offered physical requester, even if
+  // backpressured. A lone unresolved core translation may still read by VA.
+  lookup.valid <== mux(selected_walker, walker_lookup.valid, core_lookup.valid)
+  lookup.bits <== mux(selected_walker, walker_lookup.bits, core_lookup.bits)
+  when (memory.request.valid):
+    assert(lookup.valid, "rv5stage_physical_data_request_has_lookup")
+    assert(lookup.bits[0..12] === memory.request.bits.address[0..12], "rv5stage_physical_data_lookup_page_offset")
+
+export:
+  RV5StageDataPortArbiter

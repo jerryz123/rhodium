@@ -1,0 +1,67 @@
+#lang rhodium
+// Composes the MMU and physical data arbiter for cycle-level walk and replay tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../mmu/mmu.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../data-port-arbiter.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../icache/protocol.rhdl" open
+  "../uncached-protocol.rhdl" open
+  "../profile.rhm" open
+  "../csr.rhdl" open
+  "params.rhdl" open
+  "../../cache-prefetch.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageMmuDataPortFixture():
+  def xlen = XLen.X64
+  def slots = 8
+  interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
+  interface data(RV5StageDataAccess(xlen, slots), ~role: responder)
+  interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  input pipeline_vector: Bool
+  interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
+  interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
+  interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
+  interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
+  interface data_memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface instruction_lookup(Decoupled(Bits(64)), ~role: producer)
+  interface data_lookup(Valid(Bits(64)), ~role: producer)
+  interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
+  interface physical_prefetch(Valid(CachePrefetchReq(64)), ~role: producer)
+  input privilege: PrivilegeMode
+  input mstatus: Bits(64)
+  input satp: Bits(64)
+  input invalidate_all: Bool
+  input ordered_busy: Bool
+
+  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
+  inst arbiter(RV5StageDataPortArbiter(xlen, slots))
+  instruction |> mmu.instruction
+  data |> mmu.data
+  pipeline |> mmu.pipeline
+  vector_precheck |> mmu.vector_precheck
+  mmu.pipeline_vector <== pipeline_vector
+  mmu.pipeline_memory |> pipeline_memory
+  mmu.pipeline_lookup |> pipeline_lookup
+  mmu.instruction_memory |> instruction_memory
+  mmu.instruction_lookup |> instruction_lookup
+  mmu.core_memory |> arbiter.core
+  mmu.walker_memory |> arbiter.walker
+  mmu.core_lookup |> arbiter.core_lookup
+  mmu.walker_lookup |> arbiter.walker_lookup
+  arbiter.memory |> data_memory
+  arbiter.lookup |> data_lookup
+  prefetch |> mmu.prefetch
+  mmu.physical_prefetch |> physical_prefetch
+  mmu.privilege <== privilege
+  mmu.mstatus <== mstatus
+  mmu.satp <== satp
+  mmu.invalidate_all <== invalidate_all
+  mmu.ordered_busy <== ordered_busy
+
+export:
+  RV5StageMmuDataPortFixture

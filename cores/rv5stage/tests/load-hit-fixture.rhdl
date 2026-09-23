@@ -7,6 +7,7 @@ import:
   "../profile.rhm" open
   "../mmu/mmu.rhdl" open
   "../memory-router.rhdl" open
+  "../data-port-arbiter.rhdl" open
   "../dcache/cache.rhdl" open
   "../dcache/protocol.rhdl" open
   "../memory.rhdl" open
@@ -36,6 +37,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   inst core(RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~mmu_mode: RV5StageMmuMode.Sv39, ~vector: vector_profile, ~vector_length: vlen, ~vector_completion_slots: vector_completion_slots), ~reset_address: 0, ~vector_translation: #true))
   inst mmu(RV5StageMmu(XLen.X64, RV5StageMmuMode.Sv39, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
   inst router(RV5StageMemoryRouter(XLen.X64, test_rv5stage_uncached_config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst data_port_arbiter(RV5StageDataPortArbiter(XLen.X64, vector_completion_slots))
   inst cache(RV5StageL1DCache(XLen.X64, RV5StageCacheConfig(32, 2), ~chi: test_rv5stage_uncached_config, ~vector_completion_slots: vector_completion_slots))
   core.interrupts <== literal(RiscvInterrupts(), 0)
   core.hart_id <== bits(0, 64)
@@ -53,8 +55,12 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   core.vector_precheck |> mmu.vector_precheck
   mmu.pipeline_lookup |> cache.pipeline_lookup
   mmu.pipeline_memory |> cache.pipeline
-  mmu.data_lookup |> cache.virtual_lookup
-  mmu.data_memory |> router.core
+  mmu.core_lookup |> data_port_arbiter.core_lookup
+  mmu.walker_lookup |> data_port_arbiter.walker_lookup
+  data_port_arbiter.lookup |> cache.virtual_lookup
+  mmu.core_memory |> data_port_arbiter.core
+  mmu.walker_memory |> data_port_arbiter.walker
+  data_port_arbiter.memory |> router.core
   router.cache |> cache.core
   router.uncached |> uncached
   mmu.privilege <== core.privilege

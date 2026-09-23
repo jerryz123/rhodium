@@ -50,6 +50,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
     unsigned: Bool(#true)
     data: ex.bits.store_data[0..xlen.width]
     writeback: RV5StageMemoryWriteback(slots).Vector(ex.bits.completion_tag)
+    origin: RV5StageDataOrigin.Core
     locality: RiscvMemoryLocality.Default
   (
     lookup_path |> filter_valid(_token => access & !misaligned & !recover)

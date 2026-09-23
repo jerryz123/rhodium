@@ -35,6 +35,7 @@ module rv5stage_access_fault_tb;
     logic unsigned_0;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
@@ -42,6 +43,7 @@ module rv5stage_access_fault_tb;
     logic access_fault;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed {

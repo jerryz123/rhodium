@@ -6,8 +6,8 @@
 This directory owns the translation boundary between the frontend's virtual fetch attempts, the execution core's data
 ports, and RV5Stage's physical memory hierarchy. It contains
 separate instruction and data TLBs, one shared Sv39 page-table walker, and the
-composition logic that correlates faults and arbitrates page-table reads onto
-the physical data path.
+composition logic that correlates faults and offers page-table reads to the
+core-first physical data-port arbiter.
 
 The [parent core guide](../README.md#memory-hierarchy) owns the wider pipeline,
 privileged-state, and memory-hierarchy contract. The
@@ -67,19 +67,21 @@ load hit, store candidate, replay, slow-service need, or page/access fault.
 WB store authorization passes through to the matching cache candidate.
 This path never starts a speculative walk or device transaction.
 
-Authorized WB accesses win DTLB contention. Walks, invalidation, and the router's
-`ordered_busy` observation replay younger pipeline requests. Pending committed
-cache stores do not block translation: L1D checks physical-byte hazards and
-actual SRAM availability. The core arbitrates FP hit/deferred-result collisions
-at WB. Demand permission checks include A and, for stores, D; the relaxed
-prefetch probe cannot authorize either operation.
+Authorized WB accesses win DTLB contention. Invalidation and the router's
+`ordered_busy` observation replay younger pipeline requests; a PTE read may
+instead contend for L1D's SRAM port, where the cache reports an array-port
+replay. Pending committed cache stores do not block translation: L1D checks
+physical-byte hazards and actual SRAM availability. The core arbitrates FP
+hit/deferred-result collisions at WB.
+Demand permission checks include A and, for stores, D; the relaxed prefetch
+probe cannot authorize either operation.
 
 [`RV5StageMmu`](mmu.rhdl) is composed between the core and physical hierarchy
-in [`rv5stage.rhdl`](../rv5stage.rhdl). The data-side output first reaches the
-[physical-memory router](../memory-router.rhdl), which selects L1D for cacheable
-memory or the uncached engine for a non-cacheable region. Consequently, the walker's
-arbitration point is the shared physical data port immediately before that
-router; a cacheable PTE read follows the ordinary L1D path.
+in [`rv5stage.rhdl`](../rv5stage.rhdl). Its separate core and walker outputs
+meet at the [data-port arbiter](../data-port-arbiter.rhdl) before the
+[physical-memory router](../memory-router.rhdl). The router selects L1D for
+cacheable memory or the uncached engine for a non-cacheable region; a cacheable
+PTE read follows the ordinary L1D path.
 
 `instruction_lookup: Decoupled(Bits(XLEN))` launches S0 virtual reads directly
 into L1I. An atomic fork couples each accepted `RV5StageFetchAccess.request`
@@ -96,8 +98,9 @@ ownership. A request transferred together with `flush` belongs to the new
 fetch epoch: it launches the virtual lookup immediately and replaces, rather
 than clears, the MMU's S1 context.
 
-For authorized fallback transactions, `data_lookup` remains a Valid early index paired with data resolution at the same
-edge; walker ownership selects the physical PTE address on both data paths.
+For authorized fallback transactions, the arbiter selects the matching
+`core_lookup` or `walker_lookup` Valid early index with the physical request.
+An unresolved core lookup may still index L1D before physical admission.
 Neither cache's S0 index depends on TLB/PMA results. A rejected or unresolved
 read cannot create a cache result or side effect. See the cache guides for
 structural admission and buffering.
@@ -127,7 +130,7 @@ flowchart LR
   SELECT --> PTW["Serialized Sv39 walker<br/>levels 2, 1, 0"]
   PTW -->|"successful refill"| ILOOKUP
   PTW -->|"successful refill"| DLOOKUP
-  PTW -->|"PTE load"| ARB["Exclusive data-port ownership"]
+  PTW -->|"PTE load"| ARB["Core-first data-port arbitration"]
 
   DLOOKUP -->|"hit / Bare"| ARB
   ARB --> ROUTER["Physical-memory router"]
@@ -210,10 +213,12 @@ address; instruction fetch and walker-generated PTE addresses remain unmasked.
    The router owns mapped/readable/writable/atomic PMA checks and the choice
    between L1D and the uncached path.
 
-The data side has no response-owner queue because its physical responses are
-ordered and non-backpressurable. While any walk is active, normal data-request
-forwarding is disabled, so a page-table response cannot be confused with a
-core data response.
+The data-port arbiter gives an offered core request priority over an offered
+PTE read. It stamps an origin bit on each accepted physical request, and the
+cache and uncached paths return that bit with the completion. Core requests may
+therefore be accepted while a PTE reply is pending. The walker issues only one
+PTE load at a time; accepted reads canceled by architectural invalidation
+must finish and be discarded before a new walk can issue another PTE load.
 
 ## Best-effort prefetch probes
 
@@ -247,31 +252,23 @@ lookup covers that complete line.
 
 ## Shared walker and L1D-side arbitration
 
-A miss may be accepted by the walker as soon as it is idle, but that does not
-immediately issue a PTE load. The MMU first observes
-`data_memory.drained && !data_memory.response.valid` in two consecutive cycles.
-This covers the physical router's cached and uncached paths and drains the
-non-backpressurable response stage that is not included in L1D's `drained`
-signal.
+The walker and translated core independently offer physical requests to a
+core-first arbiter. The MMU does not wait for the whole data path to drain
+before offering a PTE read, and an accepted read does not reserve the arbiter
+against later core requests. The physical router still enforces uncached
+ordering. The arbiter selects the corresponding early L1D index without
+depending on downstream readiness. Immediate admission faults return only to
+the selected requester;
+responses carry an explicit `Core` or `Walker` origin through the router,
+L1D, or uncached engine. The architectural writeback tag has a separate job
+and cannot identify a page-table response because ordinary core operations
+also use `Ack`.
 
-From miss acceptance through walk completion, the walker owns the physical
-data port exclusively:
-
-- ordinary data forwarding stops as soon as `walk_active` is set;
-- each PTE request waits for the two-observation quiet condition and downstream
-  readiness;
-- an accepted PTE request without an immediate access fault sets the sole
-  walker-response ownership bit;
-- the next physical data response is routed to the walker while that bit is
-  set, and otherwise to the core; and
-- `data.drained` remains false while a walk or physical data operation is
-  active. A saved fault awaiting replay does not prevent draining; it remains
-  correlated with its address until consumed or invalidated. This lets WB
-  take an interrupt or trap without waiting for a speculative retry.
-
-This is serialization at the MMU data-port boundary, not a second cache
-protocol. L1D's own blocking-miss and response rules remain in the
-[L1D guide](../dcache/README.md#core-facing-protocol).
+`data.drained` remains false while a walk or physical data operation is active.
+A saved fault awaiting replay does not prevent draining; it remains correlated
+with its address until consumed or invalidated. This lets WB take an interrupt
+or trap without waiting for a speculative retry. L1D's own blocking-miss and
+response rules remain in the [L1D guide](../dcache/README.md#core-facing-protocol).
 
 ## TLB contract
 
@@ -370,7 +367,6 @@ Deliberate limits are:
   this MMU;
 - walks are neither speculative nor concurrent, and there is no independent
   page-table-memory port or page-walk cache; and
-- a walk serializes ordinary data traffic for its full lifetime; and
 - best-effort prefetch probes do not fill a TLB or initiate a background walk.
 
 ## Event residency

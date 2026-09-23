@@ -69,6 +69,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
          access_fault: Bool(#false)
          data: bits(0, xlen.width)
          writeback: request.writeback
+         origin: request.origin
   ) |> uncached_management.ingress
   cache_requests |> gate_flow(cache_available) |> cache.request
   (

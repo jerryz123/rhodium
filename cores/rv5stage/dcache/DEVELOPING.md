@@ -99,8 +99,9 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
 
 1. Preserve ordered Decoupled requests and non-backpressurable Valid responses,
    including completion metadata for stores, atomics, and deferred writeback.
-   Carry `RV5StageMemoryWriteback` as one opaque value through retained requests
-   and replies. Only core completion consumers inspect its variants; `Ack`
+   Carry `RV5StageMemoryWriteback` and the independent `RV5StageDataOrigin`
+   through retained requests and replies. Only core completion consumers inspect
+   writeback variants; the physical data-port arbiter inspects origin; `Ack`
    still requires normal transaction completion, and vector stores retain a slot.
    Keep readiness structural even when an empty request buffer is bypassed by
    a paired virtual read and physical resolution. Queued physical requests win

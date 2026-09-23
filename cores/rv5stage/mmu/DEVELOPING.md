@@ -10,20 +10,17 @@ placement, change workflow, and focused validation.
 ## Architecture and ownership
 
 The MMU sits between virtual core requests and the physical memory hierarchy.
-It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency fetch outcomes, and temporary ownership of the shared physical data port. The parent
+It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency fetch outcomes, and separate translated-core and walker physical requests. The parent
 core owns CSR sequencing, trap priority, alignment, PMA routing, cache behavior,
 and final exception causes.
 
 Reuse the public RISC-V Sv39 adapter for PTE layout, canonicality, permissions,
-superpages, and physical-address construction. Keep translation state and
-RV5Stage arbitration here rather than moving them into the pure RISC-V model or
-the caches.
-
-The shared data-port adapter uses gated, payload-mapped request flows and a
-stateless arbiter. Ownership gates keep its sources mutually exclusive;
-arbiter priority does not replace the drain or response-owner state. Response
-branches use `Valid` filtering and mapping, and the walker asserts that a
-routed response arrives while it is waiting.
+superpages, and physical-address construction. Keep translation state in the
+MMU and core-first physical arbitration in the parent
+[`data-port-arbiter.rhdl`](../data-port-arbiter.rhdl), not in the pure RISC-V
+model or caches. The MMU tracks a pending accepted PTE through cancellation:
+an orphan reply is discarded, and a new walk cannot issue its PTE until that
+reply has returned. This is response correlation, not whole-port ownership.
 
 ## Implementation map
 
@@ -33,10 +30,12 @@ routed response arrives while it is waiting.
 | [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
 | [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and shared data-port ownership |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and separate core/PTE physical offers |
+| [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
 | [`../tests/mmu-test.rhm`](../tests/mmu-test.rhm) | Public translation types, widths, and composition boundary |
+| [`../tests/mmu-data-port-fixture.rhdl`](../tests/mmu-data-port-fixture.rhdl) | MMU plus production data-port arbiter used by the cycle-level replay fixture |
 | [`../../../cores/rv5stage/tests/circt/verilog/rv5stage-mmu-replay_tb.sv`](../../../cores/rv5stage/tests/circt/verilog/rv5stage-mmu-replay_tb.sv) | Cycle-level pulsed DTLB miss, three-level walk, translated replay, and prefetch latency, throughput, rejection, and cancellation |
 
 ## Change translation behavior
@@ -65,7 +64,7 @@ invalidate translations or cancel accepted page-table response ownership.
    The ordinary `pipeline` path registers EX load/store context before sharing
    the demand DTLB in MEM. WB requests win contention. Distinguish contention
    replay from miss/uncached slow service and precise faults. Do not gate this
-   path on `data_memory.drained`: buffered stores are resolved by physical-byte
+   path on `core_memory.drained`: buffered stores are resolved by physical-byte
    checks in L1D. `ordered_busy` separately blocks younger work behind IO.
    Forward WB authorization and readiness unchanged; WB owns squash and
    serialization. Do not reconnect drain-derived flush to store authorization.
@@ -75,13 +74,18 @@ invalidate translations or cancel accepted page-table response ownership.
    cache-return ancestry only when the cache supplied the selected outcome.
    Local faults, contention, and absent-response fallbacks retain translation
    context instead. Do not infer response ownership from matching addresses.
-4. Preserve exclusive walker ownership from miss acceptance through completion,
-   including the two-observation data-path drain and the single response-owner
-   bit. Ordinary fetch recovery detaches the instruction consumer without
-   resetting either the walker or that ownership bit. Retain successful ITLB
-   fills, but suppress fault capture for the detached consumer, including a
-   flush on the completion edge. Keep this distinct from architectural
-   invalidation and from clearing an already-latched instruction fault.
+4. Give an offered translated core WB demand priority over an offered PTE read.
+   Do not reserve the port for a future MEM-to-WB handoff or an accepted PTE
+   response. Select the matching early virtual/physical L1D lookup with each
+   physical request, independently of downstream readiness. Route immediate
+   admission faults to the granted requester and delayed completions by the
+   explicit `RV5StageDataOrigin`, not by writeback kind or address. The MMU's
+   pending-PTE bit prevents a canceled reply from satisfying a later walk.
+   Ordinary fetch recovery detaches the instruction consumer without resetting
+   the walker or an accepted PTE request. Retain successful ITLB fills, but
+   suppress fault capture for the detached consumer, including a flush on the
+   completion edge. Keep this distinct from architectural invalidation and from clearing an
+   already-latched instruction fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
    The explicit exception is a certified vector macro: `vector-window.rhdl`
@@ -139,9 +143,10 @@ The wrapper selects the persistent worktree-specific root when none is supplied.
 test limited to public translation contracts; do not add internal operation or
 state snapshots. The Verilator fixture pulses one data request, checks the three
 expected PTE addresses, and requires a later retry to use the filled DTLB while
-preserving request metadata. It also checks two-observation draining, stalled
-walker and core requests, and isolation of PTE responses from ordinary replies.
-Instruction recovery is exercised during the initial drain, stalled PTE request,
+preserving request metadata. It also checks stalled walker and core requests,
+older MEM-to-WB demand priority over an offered PTE, core admission while a
+PTE response is pending, and isolation of PTE replies from ordinary replies.
+Instruction recovery is exercised during a stalled PTE request,
 request acceptance, delayed response, response arrival, and completion. Refetch
 must reuse a successful detached fill without additional PTE traffic; detached
 faults must neither escape nor block the next walk.

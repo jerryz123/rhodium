@@ -54,7 +54,8 @@ tagged union, preserved unchanged by the cache and adapters:
 - `Vector(Bits(index_width(vector_completion_slots)))`: reserved vector completion slot, including vector stores.
 
 `Ack` does not suppress a response. Scalar stores and maintenance still complete;
-page-table reads return data to the MMU's retained walker owner. The vector
+page-table reads return data to the walker using a separate `Core`/`Walker`
+origin field carried through queued requests and replies. The vector
 pipeline owns its slot identifiers; the LSU does not interpret element positions.
 The power-of-two `vector_completion_slots` parameter is shared by the data
 protocol, cache, MMU, router, and uncached path. Payload types require it

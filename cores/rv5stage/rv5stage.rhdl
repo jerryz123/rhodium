@@ -12,6 +12,7 @@ import:
   "cache.rhdl" open
   "icache/cache.rhdl" open
   "dcache/cache.rhdl" open
+  "data-port-arbiter.rhdl" open
   "memory-router.rhdl" open
   "instruction-memory-router.rhdl" open
   "chi/uncached.rhdl" open
@@ -120,6 +121,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~vector_completion_slots: vector_completion_slots))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
   inst memory_router(RV5StageMemoryRouter(xlen, config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst data_port_arbiter(RV5StageDataPortArbiter(xlen, vector_completion_slots))
   inst uncached(RV5StageUncached(xlen, config, ~vector_completion_slots: vector_completion_slots))
   l1i.node_id <== chi_identity.instruction_node_id
   l1d.node_id <== chi_identity.data_node_id
@@ -137,7 +139,9 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   mmu.pipeline_lookup |> l1d.pipeline_lookup
   mmu.pipeline_memory |> l1d.pipeline
   mmu.instruction_lookup |> l1i.virtual_lookup
-  mmu.data_lookup |> l1d.virtual_lookup
+  mmu.core_lookup |> data_port_arbiter.core_lookup
+  mmu.walker_lookup |> data_port_arbiter.walker_lookup
+  data_port_arbiter.lookup |> l1d.virtual_lookup
   core.prefetch |> mmu.prefetch
   def physical_prefetch_request = mmu.physical_prefetch.bits.into(CachePrefetchReq(width))
   def instruction_prefetch_selected = physical_prefetch_request.operation === CachePrefetchOperation.Instruction
@@ -148,7 +152,9 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   mmu.instruction_memory |> instruction_memory_router.core
   instruction_memory_router.cache |> l1i.core
   instruction_memory_router.uncached |> uncached.instruction
-  mmu.data_memory |> memory_router.core
+  mmu.core_memory |> data_port_arbiter.core
+  mmu.walker_memory |> data_port_arbiter.walker
+  data_port_arbiter.memory |> memory_router.core
   memory_router.cache |> l1d.core
   memory_router.uncached |> uncached.core
   mmu.privilege <== core.privilege

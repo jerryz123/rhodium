@@ -11,6 +11,7 @@ module rv5stage_memory_router_tb;
     logic unsigned_0;
     logic [31:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } request_bits_t;
   typedef struct packed { logic valid; request_bits_t bits; } request_t;
@@ -19,6 +20,7 @@ module rv5stage_memory_router_tb;
     logic access_fault;
     logic [31:0] data;
     logic [8:0] writeback;
+    logic origin;
   } response_bits_t;
   typedef struct packed { logic valid; response_bits_t bits; } response_t;
   typedef struct packed { request_t request; } requester_t;
@@ -228,7 +230,7 @@ module rv5stage_memory_router_tb;
     core_in.request.valid = 1'b0;
     cache_in.response.valid = 1'b1;
     cache_in.response.bits = '{access_fault: 1'b0, data: 32'habcdef01,
-                               writeback: memory_integer(5'd7)};
+                               writeback: memory_integer(5'd7), origin:0};
     #1;
     assert (core_out.response == cache_in.response)
       else $fatal(1, "cached completion payload was not forwarded");

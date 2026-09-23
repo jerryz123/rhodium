@@ -12,6 +12,7 @@ module rv5stage_dcache_tb;
     logic unsigned_load;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } core_req_bits_t;
   typedef struct packed { logic valid; core_req_bits_t bits; } core_req_t;
@@ -22,6 +23,7 @@ module rv5stage_dcache_tb;
     logic access_fault;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
   } core_resp_bits_t;
   typedef struct packed { logic valid; core_resp_bits_t bits; } core_resp_t;
   typedef struct packed { core_req_t request; } core_in_t;
@@ -336,6 +338,7 @@ module rv5stage_dcache_tb;
                                data: data,
                                writeback: destination == 2'd2 ? memory_fp(rd, 2'd1) :
                                  (destination == 2'd0 || (destination == 2'd3 && (access == MEMORY_STORE || access == MEMORY_ZERO || access >= 7))) ? 9'b0 : memory_integer(rd),
+                               origin: 0,
                                locality: locality};
       core_in.request.valid = 1'b1;
       tick();

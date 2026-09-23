@@ -944,8 +944,8 @@ through the MMU to L1D alongside the authorized `data_access` transaction port.
 Unresolved or rejected reads have no completion or cache-state effect. Separate eight-entry fully
 associative ITLB and DTLB instances retain PTE permissions and recheck current
 privilege, `SUM`, and `MXR`. A single non-speculative walker services one miss at
-a time through the shared physical data path after older cache or uncached work
-drains; cacheable PTE reads then use L1D. A DTLB miss
+a time through a core-first physical data-port arbiter; cacheable PTE reads then
+use L1D. A core request may be admitted while a PTE response is pending. A DTLB miss
 starts that walk and returns an unaccepted request to the core, whose ordered
 replay mechanism refetches the memory instruction until the lookup completes.
 See the

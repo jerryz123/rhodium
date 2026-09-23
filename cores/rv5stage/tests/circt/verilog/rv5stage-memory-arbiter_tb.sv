@@ -2,10 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_memory_arbiter_tb;
-  typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_0; logic [63:0] data; logic [8:0] writeback; logic [2:0] locality; } request_t;
+  typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_0; logic [63:0] data; logic [8:0] writeback; logic origin; logic [2:0] locality; } request_t;
   typedef struct packed { logic valid; request_t bits; } request_flow_t;
   typedef struct packed { request_flow_t request; } data_request_t;
-  typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; } response_t;
+  typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin; } response_t;
   typedef struct packed { logic valid; response_t bits; } response_flow_t;
   typedef struct packed { logic request_ready, request_fault, request_access_fault; response_flow_t response; logic drained, reservation_valid; } data_response_t;
   typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access; logic [1:0] width; logic unsigned_0; logic [63:0] data; } lookup_t;
@@ -65,7 +65,7 @@ module rv5stage_memory_arbiter_tb;
     #1; assert(vector_out.request_ready && !scalar_out.request_ready) else $fatal(1,"vector transfer owner");
     tick(); @(negedge clock); vector_in.request.valid = 0;
     // Response ownership comes from the accepted tag, not the current arbiter winner.
-    memory_in.response = '{valid:1, bits:'{access_fault:0, data:64'h5678, writeback:memory_vector(3)}};
+    memory_in.response = '{valid:1, bits:'{access_fault:0, data:64'h5678, writeback:memory_vector(3), origin:0}};
     #1; assert(vector_out.response.valid && !scalar_out.response.valid && vector_out.response.bits.data == 'h5678) else $fatal(1,"delayed vector completion");
     memory_in.response.bits.writeback = memory_integer(9);
     #1; assert(scalar_out.response.valid && !vector_out.response.valid) else $fatal(1,"scalar completion route");

@@ -127,7 +127,8 @@ module rv5stage_ntl_tb;
           accepted <= accepted + 1;
           if (data_access_out.request.bits.access == 1) begin
             d_bits <= '{access_fault: 1'b0, data: 64'd42,
-                        writeback: data_access_out.request.bits.writeback};
+                        writeback: data_access_out.request.bits.writeback,
+                        origin: data_access_out.request.bits.origin};
             load_delay <= scenario == 13 ? 50 : 8;
           end
           if (data_access_out.request.bits.address == 520 && (scenario == 6 || scenario == 7))

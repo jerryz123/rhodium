@@ -653,6 +653,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
           unsigned: Bool(#true)
           data: bits(0, width)
           writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
+          origin: RV5StageDataOrigin.Core
           locality: RiscvMemoryLocality.Default
         RV5StageL1DLookup(xlen, vector_completion_slots):
           request: request
@@ -691,6 +692,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
                   bits(1, width),
                   bits(0, width)))
     writeback: response_request.writeback
+    origin: response_request.origin
   inject_flow(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> service_responses.ingress
 
   // A fence observes accepted or queued requests, lookup work, active refills,

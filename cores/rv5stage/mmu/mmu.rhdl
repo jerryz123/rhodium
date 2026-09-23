@@ -1,5 +1,5 @@
 #lang rhodium
-// Resolves registered fetch/load attempts and retains only translation and shared-walker ownership.
+// Resolves registered fetch/load attempts and issues separate core and page-table physical requests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -42,9 +42,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
-  interface data_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface core_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface walker_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
-  interface data_lookup(Valid(Bits(width)), ~role: producer)
+  interface core_lookup(Valid(Bits(width)), ~role: producer)
+  interface walker_lookup(Valid(Bits(width)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(width)), ~role: consumer)
   interface physical_prefetch(Valid(CachePrefetchReq(width)), ~role: producer)
   input privilege: PrivilegeMode
@@ -178,17 +180,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
   reg fault_address(Bits(64))
-  reg walker_data_quiet_previous(~init: Bool(#false))
-  reg walker_data_quiet_twice(~init: Bool(#false))
-  reg walker_memory_outstanding(~init: Bool(#false))
+  reg walker_memory_pending(~init: Bool(#false))
+  reg walker_response_expected(~init: Bool(#false))
 
-  def data_quiet = data_memory.drained & !data_memory.response.valid
   def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(load_pinned, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address))
   def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   // Translation contention and ordered IO replay without entering miss service.
   // Pending committed cache stores do not make this translation port busy.
-  def pipeline_blocked = data.request.valid ||| walk_active ||| invalidate_all ||| ordered_busy ||| (probe_selected & !load_pinned)
+  def pipeline_blocked = data.request.valid ||| invalidate_all ||| ordered_busy ||| (probe_selected & !load_pinned)
   def load_translation_hit = load_pinned ||| dtlb.hit
   def load_translation_fault = !load_pinned & dtlb.fault
   def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable)
@@ -315,21 +315,28 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     |> map_valid(result => mux(s2_local_result, result, mux(instruction_memory.response.valid, instruction_memory.response.bits, unavailable)))
     |> instruction.response
 
-  // The walker owns L1D exclusively. Its PTE request waits for two quiescent
-  // observations, which drain the cache's nonbackpressured response stage.
-  // The walker owns a separate transaction stream; do not attribute its PTE
-  // reads to a simultaneously offered or replayed scalar memory instruction.
-  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & walker_data_quiet_twice) |> trace_event("mmu/pte.request")
-  def walk_uses_data_memory = walker_memory_request.valid
-  def data_forwarding_enabled = !walk_active
-  data_lookup.valid <== walk_uses_data_memory ||| (data.request.valid & data_forwarding_enabled)
-  data_lookup.bits <== mux(walk_uses_data_memory,
-                           if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits,
-                           data_request.address)
+  // Core and PTE traffic independently offer physical requests. The outer
+  // arbiter tags each accepted transaction and returns it to its origin.
   data.request_fault <== data.request.valid & data_page_fault
-  data.request_access_fault <== data.request.valid & !data_page_fault & (
-    data_walk_access_fault ||| (data_forwarding_enabled & data_memory.request_access_fault)
+  // Local faults consume the core attempt; unresolved translations cannot
+  // issue a physical request, even while another walk is in progress.
+  def core_data_request = (
+    data.request
+      |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault))
+      |> gate_flow(data_pinned ||| !data_translation_enabled ||| dtlb.hit)
+      |> map_flow(request => request.updated(
+        ~address: if xlen == XLen.X32 | request.address | mux(data_pinned, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address)),
+        ~access: data_memory_operation
+      ))
   )
+  data.request_access_fault <== data.request.valid & !data_page_fault & (
+    data_walk_access_fault ||| (core_data_request.valid & core_memory.request_access_fault)
+  )
+  def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
+  core_lookup.valid <== data.request.valid
+  core_lookup.bits <== data_request.address
+  walker_lookup.valid <== walker_memory_request.valid
+  walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits
   def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen, vector_completion_slots)):
     byte_mask: !bits(0, width / 8)
     address: if xlen == XLen.X32 | address[0..32] | address
@@ -339,32 +346,20 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     unsigned: Bool(#true)
     data: bits(0, width)
     writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
+    origin: RV5StageDataOrigin.Walker
     locality: RiscvMemoryLocality.Default
-  // Local faults consume the core attempt; unresolved translations and walker
-  // ownership block it. Neither case may issue a physical request.
-  def core_data_request = (
-    data.request
-      |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault))
-      |> gate_flow(data_forwarding_enabled & (data_pinned ||| !data_translation_enabled ||| dtlb.hit))
-      |> map_flow(request => request.updated(
-        ~address: if xlen == XLen.X32 | request.address | mux(data_pinned, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address)),
-        ~access: data_memory_operation
-      ))
-  )
-  // The ownership gates, not arbiter priority, serialize the two sources.
-  assert(!(walker_data_request.valid & core_data_request.valid), "rv5stage_mmu_data_requests_exclusive")
-  Array(walker_data_request, core_data_request) |> arbiter() |> data_memory.request
-  walker.memory.request_access_fault <== data_memory.request_access_fault
-  def walker_memory_request_fire = walker_memory_request.fire()
-  def Array(walker_responses, core_responses) = data_memory.response |> fork_valid(2)
-  walker_responses |> filter_valid(_response => walker_memory_outstanding)
+  core_data_request |> core_memory.request
+  walker_data_request |> walker_memory.request
+  walker.memory.request_access_fault <== walker_memory.request_access_fault
+  def walker_memory_request_fire = walker_memory.request.fire()
+  walker_memory.response |> filter_valid(_response => walker_response_expected & !invalidate_all)
     |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
     |> walker.memory.response
-  core_responses |> filter_valid(_response => !walker_memory_outstanding) |> data.response
+  core_memory.response |> data.response
   // A saved fault is replay metadata, not outstanding memory work. Waiting
   // for its replay here would deadlock a WB trap/interrupt draining the LSU.
-  data.drained <== !walk_active & data_memory.drained
-  data.reservation_valid <== data_memory.reservation_valid
+  data.drained <== !walk_active & core_memory.drained
+  data.reservation_valid <== core_memory.reservation_valid
 
   def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_s1_valid & instruction_translation_enabled & latched_instruction_fault
@@ -394,19 +389,21 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   when walker_request_fire:
     walk_instruction_discarded <== Bool(#false)
-    walker_data_quiet_previous <== Bool(#false)
-    walker_data_quiet_twice <== Bool(#false)
   elsewhen walk_active:
     when discard_instruction_walk:
       walk_instruction_discarded <== Bool(#true)
-    walker_data_quiet_previous <== data_quiet
-    walker_data_quiet_twice <== data_quiet & walker_data_quiet_previous
   when invalidate_all:
-    walker_memory_outstanding <== Bool(#false)
+    walker_response_expected <== Bool(#false)
   elsewhen (walker_memory_request_fire & !walker.memory.request_access_fault):
-    walker_memory_outstanding <== Bool(#true)
-  elsewhen (data_memory.response.valid & walker_memory_outstanding):
-    walker_memory_outstanding <== Bool(#false)
+    walker_response_expected <== Bool(#true)
+  elsewhen (walker_memory.response.valid & walker_response_expected):
+    walker_response_expected <== Bool(#false)
+  when (walker_memory_request_fire & !walker.memory.request_access_fault):
+    walker_memory_pending <== Bool(#true)
+  elsewhen (walker_memory.response.valid):
+    walker_memory_pending <== Bool(#false)
+  when (walker_memory.response.valid):
+    assert(walker_memory_pending, "rv5stage_mmu_pte_response_has_accepted_request")
   assert(!(invalidate_all & vector_window.owned), "vector_page_window_survives_until_macro_drain")
   when (data.request.valid & data_pinned):
     assert(vector_window.hits[0], "vector_transaction_inside_certified_range")

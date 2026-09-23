@@ -17,10 +17,11 @@ typedef struct packed {
     logic unsigned_0;
     logic [W-1:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } dqbits_t;
   typedef struct packed { logic valid; dqbits_t bits; } dq_t;
-  typedef struct packed { logic access_fault; logic [W-1:0] data; logic [8:0] writeback; } drbits_t;
+  typedef struct packed { logic access_fault; logic [W-1:0] data; logic [8:0] writeback; logic origin; } drbits_t;
   typedef struct packed { logic valid; drbits_t bits; } dr_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dr_t response; logic drained; logic reservation_valid; } di_t;
   typedef struct packed { dq_t request; } do_t;

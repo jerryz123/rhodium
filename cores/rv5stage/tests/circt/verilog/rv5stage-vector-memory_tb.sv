@@ -21,11 +21,12 @@ module rv5stage_vector_memory_tb;
     logic unsigned_0;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } request_bits_t;
   typedef struct packed {request_bits_t request; logic device;} ureq_bits_t;
   typedef struct packed {logic valid; ureq_bits_t bits;} ureq_t;
-  typedef struct packed {logic access_fault; logic [63:0] data; logic [8:0] writeback;} response_bits_t;
+  typedef struct packed {logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin;} response_bits_t;
   typedef struct packed {logic valid; response_bits_t bits;} response_t;
   typedef struct packed {ready_t request; logic request_fault, request_access_fault; response_t response; logic drained;} uncached_in_t;
   typedef struct packed {ureq_t request;} uncached_out_t;
@@ -236,7 +237,8 @@ module rv5stage_vector_memory_tb;
       if (uncached_out.request.valid && uncached_in.request.ready) begin
         uncached_pending <= 1; uncached_delay <= 11;
         uncached_response <= '{access_fault:0, data:64'h31,
-          writeback:uncached_out.request.bits.request.writeback};
+          writeback:uncached_out.request.bits.request.writeback,
+          origin:uncached_out.request.bits.request.origin};
         if (uncached_out.request.bits.request.address == 64'ha000) begin
           assert (uncached_out.request.bits.request.access == 1 && uncached_out.request.bits.request.writeback[8:7] == 3)
             else $fatal(1, "expected vector uncached load");

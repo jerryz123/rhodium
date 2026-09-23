@@ -47,6 +47,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   reg memory_width(MemoryWidth)
   reg unsigned_load(~init: Bool(#false))
   reg writeback(RV5StageMemoryWriteback(vector_completion_slots))
+  reg data_origin(RV5StageDataOrigin, ~init: RV5StageDataOrigin.Core)
   reg owner_is_instruction(~init: Bool(#false))
   reg instruction_live(~init: Bool(#false))
   reg home_id(Bits(p.node_id_width))
@@ -186,6 +187,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     access_fault: Bool(#false)
     data: mux(data_read_valid, load_gen.value, bits(0, width))
     writeback: writeback
+    origin: data_origin
   core.drained <== idle
   chi.rsp.requester.valid <== Bool(#false)
   chi.rsp.requester.bits <== literal(CHIRspFlit(p), 0)
@@ -195,6 +197,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     memory_width <== command.width
     unsigned_load <== command.unsigned
     writeback <== command.writeback
+    data_origin <== command.origin
     owner_is_instruction <== select_instruction
     home_id <== selected_home.node_id
     request_size <== selected_size

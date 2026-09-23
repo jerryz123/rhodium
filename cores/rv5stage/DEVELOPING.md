@@ -37,6 +37,7 @@ each other; share external transaction machinery through the CHI package.
 | [`register-file.rhdl`](register-file.rhdl) | Two-read, two-write integer register bank |
 | [`vector.rhdl`](vector.rhdl) | WB macro allocation, autonomous vector execution/memory paths, and macro retirement outcomes |
 | [`memory-arbiter.rhdl`](memory-arbiter.rhdl) | Scalar/vector LSU lookup ownership, store-commit timing, transaction arbitration, and tagged response routing |
+| [`data-port-arbiter.rhdl`](data-port-arbiter.rhdl) | Core-first physical core/PTW arbitration, paired L1D index selection, and origin-tagged response routing before PMA/uncached routing |
 | [`vector/DEVELOPING.md`](vector/DEVELOPING.md) | Opt-in RV64 Zve/V WB-launched unroller, vector CSR state, flat register bank, SIMD packing, and LSU ownership |
 | [`fp/DEVELOPING.md`](fp/DEVELOPING.md) | FP payloads, register state, execution lanes, LSU bridges, and completion |
 | [`csr.rhdl`](csr.rhdl) | RV5Stage privileged-state storage and commit policy over reusable RISC-V CSR, trap, and interrupt semantics |

@@ -968,6 +968,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           RV5StageMemoryWriteback(vector_completion_slots).Integer(ex_input.bits.rd),
           RV5StageMemoryWriteback(vector_completion_slots).Ack)
     )
+    origin: RV5StageDataOrigin.Core
     locality: RiscvMemoryLocality.Default
 
   // Both ordinary operations use EX/MEM lookup. Only WB authorizes a store;

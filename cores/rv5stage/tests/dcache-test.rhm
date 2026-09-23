@@ -35,6 +35,8 @@ for (slots in [1, 2, 4, 8, 16, 256]):
     writeback.packed_width() ~is (if slots == 256 | 10 | 9)
     type_equal(protocol.RV5StageDataReq(XLen.X64, slots).field("writeback").type, writeback) ~is #true
     type_equal(protocol.RV5StageDataResp(XLen.X64, slots).field("writeback").type, writeback) ~is #true
+    type_equal(protocol.RV5StageDataReq(XLen.X64, slots).field("origin").type, protocol.RV5StageDataOrigin) ~is #true
+    type_equal(protocol.RV5StageDataResp(XLen.X64, slots).field("origin").type, protocol.RV5StageDataOrigin) ~is #true
 
 check:
   associative_cache_config.set_width ~is 3

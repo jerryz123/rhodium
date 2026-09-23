@@ -36,6 +36,7 @@ module rv5stage_mmu_replay_tb;
     logic unsigned_0;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
     logic [2:0] locality;
   } data_req_bits_t;
   typedef struct packed { logic valid; data_req_bits_t bits; } data_req_t;
@@ -43,6 +44,7 @@ module rv5stage_mmu_replay_tb;
     logic access_fault;
     logic [63:0] data;
     logic [8:0] writeback;
+    logic origin;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
@@ -143,6 +145,8 @@ module rv5stage_mmu_replay_tb;
   bit vector_phase = 0, vector_superpage = 0, vector_bad_second = 0, vector_no_dirty = 0;
   logic [63:0] vector_scalar_address = 0;
   integer vector_pte_requests = 0;
+  bit priority_phase = 0, priority_pipeline_slow = 0;
+  integer priority_core_requests = 0, priority_pte_requests = 0;
 
   logic pipeline_vector = 0;
   typedef struct packed {logic [63:0] first, last; logic store;} range_t;
@@ -153,12 +157,12 @@ module rv5stage_mmu_replay_tb;
   typedef struct packed {ready_t request; check_response_t response;} precheck_out_t;
   precheck_in_t vector_precheck_in = '0;
   precheck_out_t vector_precheck_out;
-  RV5StageMmu dut (.*);
+  RV5StageMmuDataPortFixture dut (.*);
   always #5 clock = ~clock;
 
   always_comb begin
     pipeline_memory_in.response.valid=pipeline_memory_out.request.valid;
-    pipeline_memory_in.response.bits='{outcome:PIPE_LOAD_HIT,reason:3'd0,data:64'h123456789abcdef0};
+    pipeline_memory_in.response.bits='{outcome:priority_pipeline_slow ? PIPE_SLOW : PIPE_LOAD_HIT,reason:3'd0,data:64'h123456789abcdef0};
     pipeline_memory_in.commit_ready=1;
     instruction_in = '0;
     instruction_in.flush = instruction_flush;
@@ -174,6 +178,7 @@ module rv5stage_mmu_replay_tb;
     data_in.request.bits.unsigned_0 = 1'b1;
     data_in.request.bits.data = '0;
     data_in.request.bits.writeback = memory_integer(5'd7);
+    data_in.request.bits.origin = 1'b0;
     data_in.request.bits.locality = 3'd3;
     instruction_memory_in = '0;
     instruction_memory_in.response.valid = instruction_return_valid;
@@ -185,6 +190,7 @@ module rv5stage_mmu_replay_tb;
     data_memory_in.response.bits.access_fault = 0;
     data_memory_in.response.bits.data = manual_pte_valid ? manual_pte_data : ordinary_response_valid ? 64'hfeedface_12345678 : pte_response_data;
     data_memory_in.response.bits.writeback = ordinary_response_valid ? memory_integer(5'd7) : 9'b0;
+    data_memory_in.response.bits.origin = !ordinary_response_valid;
     data_memory_in.drained = memory_idle && !pte_response_valid && !manual_pte_valid;
     data_memory_in.reservation_valid = memory_idle;
   end
@@ -220,7 +226,19 @@ module rv5stage_mmu_replay_tb;
         if (!data_request_valid)
           assert (data_lookup_out.bits == data_memory_out.request.bits.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
-        if (vector_phase) begin
+        if (priority_phase) begin
+          if (data_memory_out.request.bits.origin) begin
+            assert (priority_core_requests == 1 && priority_pte_requests == 0 &&
+                    data_memory_out.request.bits.address == 64'h1000)
+              else $fatal(1, "pending instruction PTE bypassed older core demand");
+            priority_pte_requests <= priority_pte_requests + 1;
+          end else begin
+            assert (priority_core_requests == (priority_pte_requests == 0 ? 0 : 1) &&
+                    data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
+              else $fatal(1, "older translated core demand lost data-port priority");
+            priority_core_requests <= priority_core_requests + 1;
+          end
+        end else if (vector_phase) begin
           if (data_memory_out.request.bits.writeback == 0) begin
             vector_pte_requests <= vector_pte_requests + 1;
             pte_response_valid <= 1;
@@ -493,7 +511,8 @@ module rv5stage_mmu_replay_tb;
     @(negedge clock); instruction_request_valid = 0;
     if (fault) begin
       wait (data_memory_out.request.valid);
-      assert (data_memory_out.request.bits.address == 64'h1000 && !instruction_out.response.valid)
+      assert (data_memory_out.request.bits.address == 64'h1000 &&
+              (!instruction_out.response.valid || instruction_out.response.bits.replay))
         else $fatal(1, "detached fault survived into a new fetch");
       // No PTE has been accepted for this new walk; invalidate it explicitly.
       instruction_flush = 1;
@@ -506,6 +525,57 @@ module rv5stage_mmu_replay_tb;
       assert (manual_pte_requests == ptes_before + 3 && instruction_requests_seen == fetches_before + 1)
         else $fatal(1, "refetched instruction failed to reuse the detached ITLB fill");
     end
+  endtask
+
+  task automatic check_canceled_pte_reply;
+    int accepted_before;
+    accepted_before = manual_pte_requests;
+    @(negedge clock);
+    invalidate_all = 1;
+    tick();
+    @(negedge clock);
+    invalidate_all = 0;
+    memory_ready = 0;
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock);
+    instruction_request_valid = 0;
+    wait (data_memory_out.request.valid);
+    @(negedge clock);
+    memory_ready = 1;
+    tick();
+    @(negedge clock);
+    memory_ready = 0;
+    assert (manual_pte_requests == accepted_before + 1)
+      else $fatal(1, "initial PTE was not accepted before invalidation");
+    invalidate_all = 1;
+    tick();
+    @(negedge clock);
+    invalidate_all = 0;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock);
+    instruction_request_valid = 0;
+    repeat (3) begin
+      assert (!data_memory_out.request.valid)
+        else $fatal(1, "new walk issued a PTE before the canceled reply drained");
+      tick();
+    end
+    @(negedge clock);
+    manual_pte_valid = 1;
+    manual_pte_data = LEVEL_2_POINTER;
+    tick();
+    @(negedge clock);
+    manual_pte_valid = 0;
+    wait (data_memory_out.request.valid);
+    assert (data_memory_out.request.bits.address == 64'h1000 &&
+            manual_pte_requests == accepted_before + 1)
+      else $fatal(1, "old PTE reply satisfied the new walk");
+    invalidate_all = 1; // Cancel the new, still-unaccepted offer.
+    tick();
+    @(negedge clock);
+    invalidate_all = 0;
   endtask
 
   task automatic check_prefetch(input logic valid, input logic [63:0] address = 0,
@@ -562,11 +632,12 @@ module rv5stage_mmu_replay_tb;
     @(posedge clock);
     #1 data_request_valid = 1'b0;
 
-    // A walk must drain older data work, including its nonbackpressured reply.
+    // A pending PTE may offer while older work drains; its own acceptance is
+    // still controlled by request readiness, not whole-port ownership.
     repeat (2) begin
       tick();
-      assert (!data_memory_out.request.valid && !data_out.drained)
-        else $fatal(1, "page-table request bypassed older data work");
+      assert (data_memory_out.request.valid && !data_out.drained)
+        else $fatal(1, "page-table request did not remain offered while stalled");
     end
     @(negedge clock);
     ordinary_response_valid = 1'b1;
@@ -578,11 +649,8 @@ module rv5stage_mmu_replay_tb;
     ordinary_response_valid = 1'b0;
     memory_idle = 1'b1;
     tick();
-    assert (!data_memory_out.request.valid)
-      else $fatal(1, "walker did not wait for two quiet observations");
-    tick();
     assert (data_memory_out.request.valid && data_memory_out.request.bits.address == 64'h1000)
-      else $fatal(1, "drained walker did not offer the first PTE request");
+      else $fatal(1, "walker did not retain its first PTE request");
     stalled_request = data_memory_out.request.bits;
     repeat (3) begin
       tick();
@@ -624,6 +692,83 @@ module rv5stage_mmu_replay_tb;
     tick();
     @(negedge clock);
     ordinary_response_valid = 1'b0;
+
+    // An older MEM slow request must reach WB ahead of a pending wrong-path
+    // instruction PTE read. The accepted PTE still owns its eventual reply.
+    priority_phase = 1;
+    memory_ready = 0;
+    instruction_address = 64'h5000;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock); instruction_request_valid = 0;
+    tick();
+    wait (data_memory_out.request.valid);
+    @(negedge clock);
+    priority_pipeline_slow = 1;
+    pipeline_in.request = '{valid:1'b1,bits:'{byte_mask:8'hff,address:VIRTUAL_ADDRESS,access:MEMORY_LOAD,width:MEMORY_DOUBLE,unsigned_0:1'b0,data:'0}};
+    tick();
+    @(negedge clock); memory_ready = 0;
+    #1;
+    assert (pipeline_out.response.valid && pipeline_out.response.bits.outcome == PIPE_SLOW &&
+            data_memory_out.request.valid && data_memory_out.request.bits.origin)
+      else $fatal(1, "older MEM miss was replayed while a PTE was merely offered");
+    @(negedge clock); pipeline_in = '0;
+    tick();
+    @(negedge clock);
+    data_request_valid = 1;
+    memory_ready = 1;
+    #1;
+    assert (data_memory_out.request.valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS &&
+            data_out.request.ready && data_lookup_out.bits == VIRTUAL_ADDRESS)
+      else $fatal(1, "older WB demand did not win the pending PTE read");
+    tick();
+    @(negedge clock);
+    data_request_valid = 0;
+    memory_ready = 0;
+    memory_idle = 0;
+    ordinary_response_valid = 1;
+    #1;
+    assert (data_out.response.valid && data_out.response.bits.data == 64'hfeedface_12345678 &&
+            data_memory_out.request.valid && data_memory_out.request.bits.origin)
+      else $fatal(1, "core response was confused with the pending PTE read");
+    tick();
+    @(negedge clock);
+    ordinary_response_valid = 0;
+    memory_idle = 1;
+    memory_ready = 1;
+    wait (priority_pte_requests == 1);
+    @(negedge clock);
+    memory_idle = 0;
+    data_request_valid = 1;
+    #1;
+    assert (data_out.request.ready && data_memory_out.request.valid &&
+            !data_memory_out.request.bits.origin && !data_out.response.valid)
+      else $fatal(1, "core demand could not interleave after an accepted PTE read");
+    tick();
+    @(negedge clock);
+    data_request_valid = 0;
+    manual_pte_valid = 1;
+    manual_pte_data = 0; // The wrong-path instruction walk faults.
+    #1;
+    assert (!data_out.response.valid)
+      else $fatal(1, "accepted PTE response leaked onto the core data path");
+    tick();
+    @(negedge clock);
+    manual_pte_valid = 0;
+    ordinary_response_valid = 1;
+    #1;
+    assert (data_out.response.valid && data_out.response.bits.data == 64'hfeedface_12345678)
+      else $fatal(1, "interleaved core completion was lost after the PTE reply");
+    tick();
+    @(negedge clock);
+    ordinary_response_valid = 0;
+    memory_idle = 1;
+    wait (data_out.drained);
+    assert (priority_core_requests == 2)
+      else $fatal(1, "interleaved core demands were not accepted exactly once");
+    flush_fetch();
+    priority_phase = 0;
+    priority_pipeline_slow = 0;
 
     check_load_pipeline(VIRTUAL_ADDRESS,1,PHYSICAL_ADDRESS);
     check_load_pipeline(VIRTUAL_ADDRESS+8,1,PHYSICAL_ADDRESS+8);
@@ -945,6 +1090,7 @@ module rv5stage_mmu_replay_tb;
     for (int flush_at = 0; flush_at < 6; flush_at++) finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
     finish_detached_walk(5, 1); // Redirect coincides with fault completion.
+    check_canceled_pte_reply();
     detached_walk_phase = 0;
     instruction_phase = 0;
     instruction_translation_phase = 0;
