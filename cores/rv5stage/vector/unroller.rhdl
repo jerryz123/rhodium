@@ -151,14 +151,23 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   // read, since the dependent data read is a nonstallable second read stage.
   def mask_address = (cursor >> 6)[0..index_width(vector_chunks(vlen))].zext(row_base_width)
   def uses_mask = descriptor.masked ||| descriptor.control.carry_input ||| descriptor.control.mask_select
-  def sources_ready = empty ||| (!blocked_rows[first_address] & (!second_source ||| !blocked_rows[second_address]) & (!destination_source ||| !blocked_rows[destination_address]) & (!uses_mask ||| !blocked_rows[mask_address]) & (!gather_vector ||| !blocked_rows.as_bits().or_reduce()))
-  // Only registered descriptor/cursor state drives this request. Backpressure
-  // holds the plan; a transferred tail permits replacement at the same edge.
-  read_request.valid <== occupied & !packed_memory & !all_issued & !clear & sources_ready & !memory_setup_remaining.or_reduce()
-  read_request.bits.context.instruction <== instruction
-  read_request.bits.context.minimum <== minimum
-  read_request.bits.context.slide_valid <== slide_valid
-  read_request.bits.context.beat <== RV5StageVectorBeat(vlen):
+  def read_source_blocked = vec([
+    !empty & blocked_rows[first_address],
+    !empty & second_source & blocked_rows[second_address],
+    !empty & destination_source & blocked_rows[destination_address],
+    !empty & uses_mask & blocked_rows[mask_address],
+    !empty & gather_vector & blocked_rows.as_bits().or_reduce()
+  ]).as_bits()
+  def read_sources_ready = !read_source_blocked.or_reduce()
+  def read_setup_ready = !memory_setup_remaining.or_reduce()
+  // Only registered descriptor/cursor state drives this offer. Independent
+  // setup, source, and operand-fetch acceptances hold it until launch.
+  def read_offer :: Handle = interface_link(Decoupled(ReadRequest), "read_offer")
+  read_offer.left.valid <== occupied & !packed_memory & !all_issued & !clear
+  read_offer.left.bits.context.instruction <== instruction
+  read_offer.left.bits.context.minimum <== minimum
+  read_offer.left.bits.context.slide_valid <== slide_valid
+  read_offer.left.bits.context.beat <== RV5StageVectorBeat(vlen):
     sequence: sequence
     first: cursor
     end: end
@@ -187,10 +196,28 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
         data: bits(0, 64)
         count: bits(0, 4)
         destination: cursor
-  read_request.bits.enables <== vec([!empty, !empty & second_source, !empty & destination_source]).as_bits()
-  read_request.bits.addresses <== vec([first_address, second_address, destination_address])
-  read_request.bits.mask_enable <== !empty
-  read_request.bits.mask_address <== (cursor >> 6)[0..index_width(vector_chunks(vlen))]
+  read_offer.left.bits.enables <== vec([!empty, !empty & second_source, !empty & destination_source]).as_bits()
+  read_offer.left.bits.addresses <== vec([first_address, second_address, destination_address])
+  read_offer.left.bits.mask_enable <== !empty
+  read_offer.left.bits.mask_address <== (cursor >> 6)[0..index_width(vector_chunks(vlen))]
+  def offered_read = read_offer.right |> trace_event("vector/s1.launch", ~stalls: #true, ~fields: plan):
+    packed: Bool(#false)
+    op_index(~format: "unsigned"): plan.context.beat.sequence
+    first(~format: "unsigned"): plan.context.beat.first
+    end(~format: "unsigned"): plan.context.beat.end
+    last: plan.context.beat.last
+    empty: plan.context.beat.empty
+    setup_wait: !read_setup_ready
+    first_source_wait: read_source_blocked[0].into(Bool)
+    second_source_wait: read_source_blocked[1].into(Bool)
+    destination_wait: read_source_blocked[2].into(Bool)
+    mask_wait: read_source_blocked[3].into(Bool)
+    gather_source_wait: read_source_blocked[4].into(Bool)
+    fetch_wait: !read_request.ready
+  def Array(read_plan, source_permission, setup_permission) = offered_read |> atomic_fork(3)
+  source_permission.ready <== read_sources_ready
+  setup_permission.ready <== read_setup_ready
+  read_plan |> read_request
   def launch = read_request.fire()
   def compute_tail_request = launch & beat_last & !serialized
   active <== occupied
@@ -202,7 +229,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   sequencing_done.valid <== occupied & (compute_tail_request ||| cancel.valid ||| fault ||| truncate ||| packed_done.valid ||| (authorized_event & feedback.bits.last))
   def release_macro = sequencing_done.valid
   describe_interface_retained_storage(accepted, release_macro, occupied, ~name: "macro")
-  describe_interface_contract(request, read_request, "macro-beats", ~trace_model: interface_trace_retained(~name: "macro"))
+  describe_interface_contract(request, read_offer.left, "macro-beats", ~trace_model: interface_trace_retained(~name: "macro"))
   when (feedback.valid & !cancel.valid):
     assert(serialized, "vector_feedback_only_replays_serialized_sequence")
     assert(occupied, "vector_feedback_has_active_macro")

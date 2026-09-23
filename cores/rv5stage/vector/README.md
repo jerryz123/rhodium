@@ -84,6 +84,12 @@ sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
 attempt after operand capture, and `vector/complete` records a mature or
 authorized beat's ordered result drain. Packed memory has no separate
 elementwise read plan and begins its beat trace at `vector/s2.issue`.
+The `vector/s1.launch.stall` observation records a pending read plan that could
+not launch. Its fields report all failing acceptance conditions in that cycle:
+`setup_wait`, the individual source-row and gather hazards, and aggregate
+operand-fetch `fetch_wait`. Several fields may be true at once; they are not
+priority-encoded. Idle, completed, and canceled plans do
+not generate a launch stall.
 One sequencer residency parents its launches; each elementwise issue inherits
 its exact launch occurrence, and every completion inherits its exact issue.
 Retries create fresh issue occurrences, while rejected and flushed attempts
@@ -99,9 +105,10 @@ may finish later. The shared sequencer emits one residency track for both modes.
 Launch and elementwise issue capture the macro-local operation index, exclusive
 element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
-captures destination and VRF-write enable. Backpressure observations share the
-issue track. The trace carries ownership through existing storage; it does not
-infer register-data dependencies or add per-service events. Memory attempts
+captures destination and VRF-write enable. Backpressure observations share
+their respective launch or issue tracks. The trace carries ownership through
+existing storage; it does not infer register-data dependencies or add
+per-service events. Memory attempts
 continue through the shared LSU to the single cache-owned `dcache/s1.access`
 checkpoint. `vector/memory.result` observes the existing registered decision
 one cycle after cache resolution, retaining issue and cache ancestry. It records

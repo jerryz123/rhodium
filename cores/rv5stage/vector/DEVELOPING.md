@@ -104,11 +104,15 @@ descriptor; the following cycle's read belongs to its replacement.
 Accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
 emits no launch checkpoint. The original scalar WB identity follows the existing
 admission queue into the shared checkpoint, then each schedule's retained Flow.
-The `vector/s1.launch` checkpoint on the unroller's transferred read plan
-records the first active sequencer cycle when operands are available. Operand
-fetch carries that occurrence through the VRF response and credited queue to
+The unroller offers each pending read plan independently of its address-setup
+and older-write hazards. Its internal atomic fork requires setup, source
+availability, and operand fetch to accept together, including in the standalone
+unroller fixture. The unroller-owned `vector/s1.launch` checkpoint records the
+actual transfer, while its stall companion captures setup, individual source,
+and aggregate operand-fetch readiness failures without changing launch timing.
+Operand fetch carries that occurrence through the VRF response and credited queue to
 elementwise issue. Packed memory has no equivalent elementwise read plan.
-Elementwise launch/issue/completion checkpoints remain in `pipeline.rhdl`.
+Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.
 Both paths use the stable `vector/s2.issue` and `vector/complete` labels, with a
 `packed` field distinguishing their beat geometry. Packed events additionally
 carry transport byte count, store direction, byte mask, and slot metadata.

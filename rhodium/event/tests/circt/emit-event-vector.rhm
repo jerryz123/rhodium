@@ -16,8 +16,8 @@ for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
     unless site.fields.map(fun (field): field.name).contains("packed")
     | error("expected beat geometry metadata")
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_sites {\n" ++ String.join(
-  for List (label in ["sequencer", "s1.launch", "s2.issue", "complete", "s2.issue.stall"], name in ["sequencer", "launch", "issue", "complete", "stall"]):
-    def path = execution_path
+  for List (label in ["sequencer", "s1.launch", "s1.launch.stall", "s2.issue", "complete", "s2.issue.stall"], name in ["sequencer", "launch", "launch_stall", "issue", "complete", "stall"]):
+    def path = if label == "s1.launch" || label == "s1.launch.stall" | execution_path ++ ["unroller"] | execution_path
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == ("vector/" ++ label) && traced.manifest.sites[index].instance_path == path)
     unless matches.length() == 1 | error("expected one vector trace site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",

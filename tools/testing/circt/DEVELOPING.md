@@ -88,7 +88,10 @@ public-transfer oracle tracks sequencer/issue occurrences,
 fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
-stalls, and pending reset protect vector milestones. The feedback oracle checks
+stalls, and pending reset protect vector milestones. Its launch-stall checks
+require an active sequencer parent and at least one blocked setup, source, or
+aggregate operand-fetch acceptance; transferred launches must have no blocked
+reason. The feedback oracle checks
 the exact residency end against public sequencing release: final read-plan
 transfer for ordinary compute and final authorization, fault, truncation, or
 cancellation for serialized work. Same-cycle replacement releases the old

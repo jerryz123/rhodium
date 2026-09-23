@@ -22,7 +22,10 @@ std::uint64_t cycle=0, launches=0, issues=0, completions=0, stalls=0;
 unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
 unsigned beat_launch_count=0, first_cycle_launch_count=0;
-unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0;
+unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0, launch_stall_count=0;
+constexpr std::array<const char*,7> launch_reasons={"setup_wait","first_source_wait","second_source_wait",
+  "destination_wait","mask_wait","gather_source_wait","fetch_wait"};
+std::array<unsigned,launch_reasons.size()> launch_reason_counts{};
 bool resetting=true, writes=true;
 struct Expected { Ref ref; std::optional<Ref> parent; };
 std::vector<Expected> expected;
@@ -176,9 +179,24 @@ extern "C" void vector_trace_check() {
           (graph.nodes.at(owner).end_cycle && pair.second.cycle>*graph.nodes.at(owner).end_cycle))
         fail("read plan outside sequencer residency");
       if(graph.field(ref,"packed").unsigned_value()!=0) fail("elementwise launch marked packed");
+      for(const char* reason:launch_reasons)
+        if(graph.field(ref,reason).unsigned_value()) fail("accepted read plan has a stall reason");
       if(graph.field(ref,"op_index").unsigned_value()==0 && pair.second.cycle==graph.nodes.at(owner).cycle+1)
         ++first_cycle_launch_count;
       ++beat_launch_count;
+    } else if(ref.site==vector_sites::launch_stall) {
+      const auto owner=only_parent(ref,vector_sites::sequencer);
+      if(pair.second.cycle<=graph.nodes.at(owner).cycle ||
+          (graph.nodes.at(owner).end_cycle && pair.second.cycle>*graph.nodes.at(owner).end_cycle))
+        fail("read-plan stall outside sequencer residency");
+      bool blocked=false;
+      for(std::size_t index=0;index<launch_reasons.size();++index) {
+        const bool reason=graph.field(ref,launch_reasons[index]).unsigned_value()!=0;
+        blocked|=reason;
+        launch_reason_counts[index]+=reason;
+      }
+      if(!blocked) fail("read-plan stall has no blocked acceptance");
+      ++launch_stall_count;
     } else if(ref.site==vector_sites::stall) {
       if(!offered_macro) fail("stall without issue owner");
       const auto launch=only_parent(ref,vector_sites::launch);
@@ -223,9 +241,12 @@ extern "C" void vector_trace_check() {
 }
 extern "C" void vector_trace_finish() {
   if(beat_launch_count<40 || !first_cycle_launch_count || issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
-      !late_count || !reset_pending || !no_write || !stall_count)
+      !late_count || !reset_pending || !no_write || !stall_count || !launch_stall_count)
     fail("missing retry/fault/truncation/ordered-drain/reset/stall/no-write coverage");
+  if(!launch_reason_counts[1] || !launch_reason_counts[6]) fail("missing source or fetch launch-stall coverage");
   if(!out_of_order) fail("missing out-of-order response coverage");
-  std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u stalls\n",
-      issued_count,complete_count,late_count,out_of_order,retry_count,stall_count);
+  std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u issue stalls, %u launch stalls\n",
+      issued_count,complete_count,late_count,out_of_order,retry_count,stall_count,launch_stall_count);
+  for(std::size_t index=0;index<launch_reasons.size();++index)
+    std::printf("  %s: %u\n",launch_reasons[index],launch_reason_counts[index]);
 }
