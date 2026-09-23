@@ -1,0 +1,14 @@
+#lang rhodium
+// Selects the default RV5Stage hart for the otherwise core-neutral tiled SoC.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "core-profiles.rhm".tiled_rv5stage_soc_core_profile
+  "../harts/rv5stage.rhdl".rv5stage_hart
+  "../tiled-soc/main.rhdl".tiled_soc_config
+
+def default_tiled_soc_config = tiled_soc_config(rv5stage_hart(tiled_rv5stage_soc_core_profile))
+
+export:
+  default_tiled_soc_config
+  tiled_rv5stage_soc_core_profile

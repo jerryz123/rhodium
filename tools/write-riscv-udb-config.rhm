@@ -4,7 +4,7 @@
 
 import:
   rhombus/cmdline open
-  "../socs/udb.rhm".riscv_udb_configuration
+  "../socs/products/udb.rhm".riscv_udb_configuration
 
 def arguments = current_command_line()
 unless arguments.length() == 2

@@ -3,3 +3,7 @@
 0001-return-parser-errors-as-exceptions.patch
 0002-recognize-zic64b-property.patch
 0003-recognize-supm-property.patch
+0004-notify-simif-of-icache-flush.patch
+0005-enable-fiom-with-supervisor-translation.patch
+0006-zero-unimplemented-hpm-controls.patch
+0007-separate-supervisor-interrupt-pins.patch

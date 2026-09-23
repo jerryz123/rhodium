@@ -98,13 +98,18 @@ flowchart TD
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
     Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
-    Compile --> TiledMemory["TiledRV5StageSoC memory stress<br/>independent build and execution budget"]
+    Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SingleCoreRV5StageSoC once<br/>exact-commit executable artifact"]
+    Compile --> SpikeBuild["Build SingleCoreSpikeSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
-    SimpleBuild --> Programs["SingleCoreRV5StageSoC software matrix<br/>ISA tests, benchmarks, CoreMark, and Embench-IoT"]
-    Compile --> ActBuild["Generate all ACT ELFs once"]
-    SimpleBuild --> ActRun["ACT execution<br/>four disjoint shards"]
+    SpikeBuild --> Simulation
+    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, CoreMark, and Embench-IoT"]
+    SpikeBuild --> Programs
+    Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
+    SimpleBuild --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
+    SpikeBuild --> SpikeActRun["Spike ACT execution<br/>four disjoint shards"]
     ActBuild --> ActRun
+    ActBuild --> SpikeActRun
 ```
 
 Known dependency paths can select several branches. For example, NoC, RISC-V,
@@ -120,16 +125,18 @@ budgets. The aggregate `cores-vector` selector combines its two vector leaf
 groups, while `cores` still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
 
-The stalled-memory TiledRV5StageSoC specialization runs in its own job under the same
+The stalled-memory TiledSoC specialization runs in its own job under the same
 simulation change selection. Its separate build and bounded execution cannot
 consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
-The SingleCoreRV5StageSoC software matrix independently selects ISA tests,
-benchmarks, CoreMark, Embench-IoT, and ACT. Shared SingleCoreRV5StageSoC dependencies
-(including CHI, NoC, devices, and RISC-V support) select all five; suite-only
+Both single-core software matrices independently select ISA tests, benchmarks,
+CoreMark, and Embench-IoT. The simulation job qualifies OpenSBI on both
+single-core products. Both profiles select their own ACT generation and
+four-shard execution. Shared SoC dependencies
+(including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. MiniRV5StageSoC and
-TiledRV5StageSoC remain capability-filtered smoke targets in the simulation job
+TiledSoC remain capability-filtered smoke targets in the simulation job
 and do not receive additional full-suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned

@@ -6,7 +6,7 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/noc/noc-router.rhdl") open
   lib("devices/uart/uart16550.rhdl") open
-  lib("socs/peripherals.rhdl").SoCUartInterface
+  lib("socs/platform/peripherals.rhdl").SoCUartInterface
 
 class UartTileParams(uart :: Uart16550Config,
                      router :: CHIRouterParams):

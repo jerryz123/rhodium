@@ -1,20 +1,20 @@
 #lang rhombus
-// Checks the public TiledRV5StageSoC tile-grid language, coordinates, and validation.
+// Checks the public TiledSoC tile-grid language, coordinates, and validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../tiled-rv5stage-soc/layout.rhm" open
+  "../tiled-soc/layout.rhm" open
 
 def layout = tile_grid:
   row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
-  row [rv5stage(4), transit]
-  row [rv5stage(4), transit]
+  row [hart(4), transit]
+  row [hart(4), transit]
 
 check:
   layout.width ~is 5
   layout.height ~is 4
-  layout.rv5stages.length() ~is 8
+  layout.harts.length() ~is 8
   layout.llcs.length() ~is 4
   layout.hosts.length() ~is 1
   layout.device_homes.length() ~is 1
@@ -24,15 +24,15 @@ check:
   layout.transits.length() ~is 2
   layout.memories.length() ~is 1
   layout.tile_at(4, 3) is_a MemoryTileSpec ~is #true
-  layout.tile_at(0, 0) is_a RV5StageTileSpec ~is #true
-  layout.tile_at(3, 1) is_a RV5StageTileSpec ~is #true
+  layout.tile_at(0, 0) is_a HartTileSpec ~is #true
+  layout.tile_at(3, 1) is_a HartTileSpec ~is #true
   layout.tile_at(0, 2) is_a HostTileSpec ~is #true
   layout.tile_at(1, 2) is_a DeviceHomeTileSpec ~is #true
   layout.tile_at(2, 2) is_a AclintTileSpec ~is #true
   layout.tile_at(3, 2) is_a PlicTileSpec ~is #true
   layout.tile_at(4, 2) is_a UartTileSpec ~is #true
   layout.tile_at(0, 3) is_a LLCTileSpec ~is #true
-  layout.rv5stages.map(
+  layout.harts.map(
     fun (cell): [cell.coordinate.x, cell.coordinate.y]
   ) ~is [[0, 0], [1, 0], [2, 0], [3, 0],
          [0, 1], [1, 1], [2, 1], [3, 1]]
@@ -44,37 +44,37 @@ check:
   TileGrid([
     [llc_tile, llc_tile],
     [host_tile, aclint_tile],
-    [rv5stage_tile]
+    [hart_tile]
   ]) ~throws "equal width"
   TileGrid([
     [llc_tile, llc_tile, llc_tile, transit_tile],
     [host_tile, host_tile, device_home_tile, plic_tile],
-    [aclint_tile, uart_tile, rv5stage_tile, transit_tile]
+    [aclint_tile, uart_tile, hart_tile, transit_tile]
   ]) ~throws "exactly one host"
   TileGrid([
     [llc_tile, llc_tile, transit_tile],
     [host_tile, uart_tile, plic_tile],
-    [aclint_tile, rv5stage_tile, transit_tile]
+    [aclint_tile, hart_tile, transit_tile]
   ]) ~throws "exactly one device Home"
   TileGrid([
     [llc_tile, llc_tile, transit_tile],
     [host_tile, device_home_tile, plic_tile],
-    [aclint_tile, rv5stage_tile, transit_tile]
+    [aclint_tile, hart_tile, transit_tile]
   ]) ~throws "exactly one UART"
   TileGrid([
     [llc_tile, llc_tile, transit_tile],
     [host_tile, device_home_tile, uart_tile],
-    [aclint_tile, rv5stage_tile, transit_tile]
+    [aclint_tile, hart_tile, transit_tile]
   ]) ~throws "exactly one PLIC"
 
 check:
   TileGrid([
     [llc_tile, transit_tile, transit_tile, transit_tile, transit_tile],
     [host_tile, device_home_tile, aclint_tile, plic_tile, uart_tile],
-    [rv5stage_tile, transit_tile, transit_tile, transit_tile, transit_tile]
+    [hart_tile, transit_tile, transit_tile, transit_tile, transit_tile]
   ]) ~throws "exactly one memory-channel"
   TileGrid([
     [llc_tile, memory_tile, memory_tile, transit_tile, transit_tile],
     [host_tile, device_home_tile, aclint_tile, plic_tile, uart_tile],
-    [rv5stage_tile, transit_tile, transit_tile, transit_tile, transit_tile]
+    [hart_tile, transit_tile, transit_tile, transit_tile, transit_tile]
   ]) ~throws "exactly one memory-channel"

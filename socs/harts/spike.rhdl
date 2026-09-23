@@ -1,0 +1,18 @@
+#lang rhodium
+// Adapts a Spike profile to the core-neutral SoC hart contract.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/spike/profile.rhm").SpikeConfig
+  lib("cores/spike/chi/foundation.rhdl").spike_chi_params
+  lib("cores/spike/spike.rhdl").SpikeCore
+  "implementation.rhdl".RiscvHartImplementation
+
+fun spike_hart(profile :: SpikeConfig) :: RiscvHartImplementation:
+  RiscvHartImplementation("Spike", "spike", profile, profile.hart_description, 64,
+                          spike_chi_params,
+                          fun (selected, reset_address, chi):
+                            SpikeCore(selected, ~reset_address: reset_address, ~chi: chi))
+
+export:
+  spike_hart

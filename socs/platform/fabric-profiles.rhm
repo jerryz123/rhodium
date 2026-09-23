@@ -1,0 +1,11 @@
+#lang rhombus
+// Defines the common CHI flit parameters used by Rhodium SoC fabrics.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+
+def rhodium_soc_flit = CHIFlitParams()
+
+export:
+  rhodium_soc_flit

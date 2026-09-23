@@ -207,8 +207,15 @@ def sail_config(default, udb, origin, size):
     """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
     extensions = {entry["name"]: str(entry["version"]).removeprefix("= ") for entry in udb["implemented_extensions"]}
-    if params["MXLEN"] != 64 or params["NUM_PMP_ENTRIES"] != 0:
-        raise ValueError("initial ACT adapter requires RV64 with no PMP")
+    if params["MXLEN"] != 64:
+        raise ValueError("ACT adapter requires RV64")
+    pmp_count = params["NUM_PMP_ENTRIES"]
+    pmp_usable_count = params.get("NUM_USABLE_PMP_ENTRIES", pmp_count)
+    pmp_granularity = params.get("PMP_GRANULARITY", 2)
+    if pmp_count not in (0, 16, 64) or type(pmp_granularity) is not int or pmp_granularity < 2:
+        raise ValueError("Sail PMP projection requires 0, 16, or 64 entries and at least four-byte granularity")
+    if type(pmp_usable_count) is not int or not 0 <= pmp_usable_count <= pmp_count:
+        raise ValueError("Sail PMP usable entries must fit the implemented PMP entries")
     if params["MISALIGNED_LDST"] or params["MISALIGNED_LDST_EXCEPTION_PRIORITY"] != "high":
         raise ValueError("initial ACT adapter requires high-priority misaligned load/store traps")
     if params["M_MODE_ENDIANNESS"] != "little":
@@ -231,10 +238,14 @@ def sail_config(default, udb, origin, size):
     base["E"] = False
     base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))
     base["privileged_isa_version"] = "Privileged_ISA_" + "_".join(str(extensions["Sm"]).split(".")[:2])
-    # Sail 0.14.1 defaults include H; its exception codes are reserved without H.
+    # Sail 0.14.1 defaults include H and CFI exception causes independently of
+    # whether those extensions are implemented by the selected hart.
     if "H" not in extensions:
         delegatable = base["medeleg"]["delegatable_bits"]
         delegatable["value"] = hex(int(delegatable["value"], 0) & ~((1 << 10) | (0xF << 20)))
+    if not extensions.keys() & {"Zicfilp", "Zicfiss"}:
+        delegatable = base["medeleg"]["delegatable_bits"]
+        delegatable["value"] = hex(int(delegatable["value"], 0) & ~(1 << 18))
     for prefix, field in (("HPM_COUNTER_EN", "writable_hpm_counters"),
                           ("MCOUNTENABLE_EN", "mcounteren_writable_bits"),
                           ("SCOUNTENABLE_EN", "scounteren_writable_bits")):
@@ -262,7 +273,12 @@ def sail_config(default, udb, origin, size):
     memory = default["memory"]
     memory["physaddr_bits"] = params["PHYS_ADDR_WIDTH"]
     memory["asidlen"] = params["ASID_WIDTH"]
-    memory["pmp"]["count"] = memory["pmp"]["usable_count"] = 0
+    memory["pmp"]["count"] = pmp_count
+    memory["pmp"]["usable_count"] = pmp_usable_count
+    memory["pmp"]["grain"] = pmp_granularity - 2
+    memory["pmp"]["na4_supported"] = params.get("PMP_NA4_SUPPORTED", pmp_count != 0 and pmp_granularity == 2)
+    memory["pmp"]["napot_supported"] = params.get("PMP_NAPOT_SUPPORTED", pmp_count != 0)
+    memory["pmp"]["tor_supported"] = params.get("PMP_TOR_SUPPORTED", pmp_count != 0)
     memory["misaligned"]["exceptions"]["load_store"] = {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["amo"] = {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["lrsc"] = {"Some": "AlignmentException"}
@@ -285,8 +301,12 @@ def sail_config(default, udb, origin, size):
     io["attributes"]["supports_cbo_zero"] = False
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
-    default["platform"]["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
-    validate_reservation_bounds(default["platform"]["reservation"], extensions)
+    platform = default["platform"]
+    platform["archid"] = params.get("ARCH_ID_VALUE", 0) if params.get("MARCHID_IMPLEMENTED", False) else 0
+    platform["impid"] = params.get("IMP_ID_VALUE", 0) if params.get("MIMPID_IMPLEMENTED", False) else 0
+    platform["vendorid"] = (params.get("VENDOR_ID_BANK", 0) << 7) | params.get("VENDOR_ID_OFFSET", 0)
+    platform["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
+    validate_reservation_bounds(platform["reservation"], extensions)
     return default
 
 

@@ -116,12 +116,24 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 1
     )
 
+  property attachment:
+    RiscvHartCHIAttachment(hart, instruction_node, data_node, uncached_node,
+                           instruction_home_port(~coherent: #true),
+                           instruction_home_port(~coherent: #false))
+
   constructor (config :: RiscvHartCHIConfig,
                instruction_node_id :: Nat,
                data_node_id :: Nat,
                ~uncached_node_id: uncached_node_id :: Nat = 0):
     super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
                              ~uncached_node_id: uncached_node_id))
+
+fun rv5stage_chi_params(config :: RiscvHartCHIConfig,
+                        instruction_node_id :: Nat,
+                        data_node_id :: Nat,
+                        uncached_node_id :: Nat) :: RiscvHartCHIAttachment:
+  RV5StageCHIParams(config, instruction_node_id, data_node_id,
+                    ~uncached_node_id: uncached_node_id).attachment
 
 fun rv5stage_chi_address(address :: Bits,
                          p :: CHIFlitParams) :~ Bits(p.request_address_width):
@@ -242,6 +254,7 @@ export:
   RiscvHartCHIConfig
   RiscvHartCHIParams
   RV5StageCHIParams
+  rv5stage_chi_params
   RiscvHartCHIIdentity
   rv5stage_chi_address
   rv5stage_chi_address_fits

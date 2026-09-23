@@ -5,14 +5,16 @@
 import:
   rhombus/cmdline open
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
-  "../../socs/description.rhm".RiscvSoCDescription
-  "targets.rhm".simulator_soc_description
+  "../../socs/platform/description.rhm".RiscvSoCDescription
+  "targets.rhm" open
 
 def arguments = current_command_line()
-unless arguments.length() == 2
-| error(~who: #'write_program_target, "expected a SoC name and output file")
-def name = arguments[0]
-def description :: RiscvSoCDescription = simulator_soc_description(name)
+unless arguments.length() == 2 || arguments.length() == 3
+| error(~who: #'write_program_target, "expected a SoC name and output file, or a shape, core, and output file")
+def name = if arguments.length() == 3 | arguments[0] ++ "-" ++ arguments[1] | arguments[0]
+def description :: RiscvSoCDescription = if arguments.length() == 3
+| simulator_shape_description(arguments[0], arguments[1])
+| simulator_soc_description(name)
 def compiler_target = gnu_isa_target(
   description.hart.xlen,
   description.hart.isa_profile.isa_extensions
@@ -24,6 +26,6 @@ def region_strings = for List (region in description.memory_regions):
   "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
 def regions = String.join(region_strings, ",")
 def harts = String.join(description.harts.map(fun (hart :: Nat): to_string(hart)), ",")
-filesystem.write_string(arguments[1],
+filesystem.write_string(arguments[arguments.length() - 1],
                         "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "]}\n",
                         ~exists: #'truncate)

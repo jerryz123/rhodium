@@ -4,6 +4,6 @@
 
 import:
   "../../rhodium/backend/circt.rhm" open
-  "../../socs/mini-rv5stage-soc.rhdl" as soc
+  "../../socs/products/mini-rv5stage-soc.rhdl" as soc
 
 print(emit_circt(soc.design))

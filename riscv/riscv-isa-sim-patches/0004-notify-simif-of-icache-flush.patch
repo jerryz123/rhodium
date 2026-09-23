@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH 4/4] Notify simulators when a hart flushes its instruction cache
+Purpose: Lets external cache models implement the architectural effect of FENCE.I.
+SPDX-License-Identifier: Apache-2.0
+
+diff --git a/riscv/mmu.cc b/riscv/mmu.cc
+--- a/riscv/mmu.cc
++++ b/riscv/mmu.cc
+@@ -36,6 +36,7 @@ void mmu_t::flush_icache()
+ {
+   for (size_t i = 0; i < ICACHE_ENTRIES; i++)
+     icache[i].tag = -1;
++  sim->flush_icache();
+ }
+ 
+ void mmu_t::flush_tlb()
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -21,5 +21,7 @@ public:
+   virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;
+   virtual bool mmio_store(reg_t paddr, size_t len, const uint8_t* bytes) = 0;
+   virtual bool is_debug_module_access(reg_t, size_t) { return false; }
++  // Callback for processors to invalidate simulation-owned instruction caches.
++  virtual void flush_icache() {}
+   // Callback for processors to let the simulation know they were reset.
+   virtual void proc_reset(unsigned id) = 0;

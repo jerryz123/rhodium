@@ -13,9 +13,10 @@ struct Configuration {
   std::uint64_t hart_id = 0;
   std::uint64_t reset_vector = 0;
   bool xlen_is_64 = true;
+  std::uint8_t max_vaddr_bits = 0;
   std::string isa;
   std::string privilege;
-  std::uint16_t instructions_per_cycle = 1;
+  std::uint16_t max_retired_instructions_per_cycle = 1;
   std::uint8_t pmp_regions = 16;
   std::uint16_t instruction_cache_sets = 1;
   std::uint16_t instruction_cache_ways = 1;

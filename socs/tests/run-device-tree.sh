@@ -67,6 +67,35 @@ for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   [[ "$(fdtget -t x "$fixture_dir/$name.dtb" "$plic_path" interrupts-extended)" == "${contexts[*]}" ]]
 done
 
+for name in single-core-spike-soc mini-spike-soc tiled-spike-soc; do
+  dtc -I dtb -O dts -o "$fixture_dir/$name-roundtrip.dts" "$fixture_dir/$name.dtb"
+  dtc -I dts -O dtb -o "$fixture_dir/$name-from-dts.dtb" "$fixture_dir/$name.dts"
+  fdtdump "$fixture_dir/$name.dtb" > "$fixture_dir/$name.dump" 2>&1
+  cmp "$fixture_dir/$name.dtb" "$fixture_dir/$name-from-dts.dtb"
+  case "$name" in
+    single-core-spike-soc) model='Rhodium Single-Core Spike SoC'; memory_bytes=40000000; hart_count=1 ;;
+    mini-spike-soc) model='Rhodium Mini Spike SoC'; memory_bytes=10000; hart_count=1 ;;
+    tiled-spike-soc) model='Rhodium Tiled Spike SoC'; memory_bytes=40000000; hart_count=8 ;;
+  esac
+  [[ "$(fdtget "$fixture_dir/$name.dtb" / model)" == "$model" ]]
+  [[ "$(fdtget -t x "$fixture_dir/$name.dtb" /memory@80000000 reg)" == "0 80000000 0 $memory_bytes" ]]
+  for ((hart=0; hart<hart_count; hart++)); do
+    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-base)" == "rv64i" ]]
+    [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" mmu-type)" == "riscv,sv39" ]]
+    for extension in i m a f d c zicsr zifencei zicntr; do
+      case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
+        *" $extension "*) ;;
+        *) echo "$name hart $hart DTB does not advertise $extension" >&2; exit 1 ;;
+      esac
+    done
+  done
+  for cache in i d; do
+    [[ "$(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 "$cache-cache-size")" == "16384" ]]
+    [[ "$(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 "$cache-cache-sets")" == "64" ]]
+    [[ "$(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 "$cache-cache-block-size")" == "64" ]]
+  done
+done
+
 for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zcmop "*) ;;

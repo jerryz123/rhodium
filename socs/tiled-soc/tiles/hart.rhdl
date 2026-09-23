@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements one RV5Stage compute tile around a bundled four-plane CHI router.
+// Implements one selected RISC-V hart tile around a bundled four-plane CHI router.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,51 +10,50 @@ import:
   lib("chi/noc/noc-router.rhdl") open
   lib("cores/riscv/chi-hart.rhdl") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
-  lib("cores/rv5stage/profile.rhm").RV5StageConfig
-  lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
+  "../../harts/implementation.rhdl".RiscvHartImplementation
   "../time.rhdl" open
   "../distribution.rhdl" open
 
-class RV5StageTileParams(rv5stage :: RiscvHartCHIConfig,
-                         router :: CHIRouterParams,
-                         hart_count :: PosInt,
-                         core_profile :: RV5StageConfig):
+class HartTileParams(chi_config :: RiscvHartCHIConfig,
+                     router :: CHIRouterParams,
+                     hart_count :: PosInt,
+                     hart :: RiscvHartImplementation):
   implements StableCircuitParam
 
-bundle RV5StageTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
+bundle HartTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   hart_id: Bits(64)
   chi: RiscvHartCHIIdentity(p)
 
-sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_address :: Nat):
+sync_circuit HartTile(params :: HartTileParams, ~reset_address: reset_address :: Nat):
   def router_params = params.router
-  def p = params.rv5stage.flit
+  def p = params.chi_config.flit
   def site_width = router_params.routers.req.route_decoder.site_width
   def Link = chi_noc_link_type(router_params)
 
-  input identity: RV5StageTileIdentity(p, site_width)
+  input identity: HartTileIdentity(p, site_width)
   interface interrupt_update(Decoupled(TiledHartInterrupts()), ~role: consumer)
   interface external_interrupt_update(Decoupled(TiledExternalInterrupts()), ~role: consumer)
   interface time_beat(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
   interface incoming_links[router_params.routers.physical.ingress_count](Link, ~role: destination)
   interface outgoing_links[router_params.routers.physical.egress_count](Link, ~role: source)
 
-  inst rv5stage(RV5Stage(params.core_profile, ~reset_address: reset_address, ~chi: params.rv5stage))
+  inst hart(params.hart.circuit(reset_address, params.chi_config))
   inst time_receiver(TiledTimeReceiver())
   inst interrupt_replica(StateReplica(TiledHartInterrupts(), NoTiledHartInterrupts))
   inst external_interrupt_replica(StateReplica(TiledExternalInterrupts(), NoTiledExternalInterrupts))
   inst router(CHIRouter(router_params))
 
-  rv5stage.chi_identity <== identity.chi
-  rv5stage.interrupts <== RiscvInterrupts():
+  hart.chi_identity <== identity.chi
+  hart.interrupts <== RiscvInterrupts():
     supervisor_software: Bool(#false)
     machine_software: interrupt_replica.current.machine_software
     supervisor_timer: Bool(#false)
     machine_timer: interrupt_replica.current.machine_timer
     supervisor_external: external_interrupt_replica.current.supervisor_external
     machine_external: external_interrupt_replica.current.machine_external
-  rv5stage.hart_id <== identity.hart_id
-  rv5stage.time_counter <== time_receiver.value
+  hart.hart_id <== identity.hart_id
+  hart.time_counter <== time_receiver.value
   time_beat <=> time_receiver.ingress
   interrupt_update <=> interrupt_replica.ingress
   external_interrupt_update <=> external_interrupt_replica.ingress
@@ -62,13 +61,13 @@ sync_circuit RV5StageTile(params :: RV5StageTileParams, ~reset_address: reset_ad
   def instruction_channels :: Endpoint = router.rni_local[0]
   def data_channels :: Endpoint = router.rnf_local[0]
   def device_channels :: Endpoint = router.rni_local[1]
-  rv5stage.imem <=> instruction_channels
-  rv5stage.dmem <=> data_channels
-  rv5stage.umem <=> device_channels
+  hart.imem <=> instruction_channels
+  hart.dmem <=> data_channels
+  hart.umem <=> device_channels
   router.incoming_links <=> incoming_links
   router.outgoing_links <=> outgoing_links
 
 export:
-  RV5StageTileIdentity
-  RV5StageTileParams
-  RV5StageTile
+  HartTileIdentity
+  HartTileParams
+  HartTile

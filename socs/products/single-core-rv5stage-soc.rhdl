@@ -1,0 +1,44 @@
+#lang rhodium
+// Preserves the named RV5Stage product API as a specialization of SingleCoreSoC.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("cores/rv5stage/profile.rhm") open
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_params
+  "../one-hart/system.rhdl" open
+  "../single-core-soc/main.rhdl" as generic
+  "../harts/rv5stage.rhdl".rv5stage_hart
+  "core-profiles.rhm".single_core_rv5stage_soc_core_profile
+
+fun make_single_core_rv5stage_soc_params(
+  core_profile :: RV5StageConfig = single_core_rv5stage_soc_core_profile,
+  ~llc_sets: llc_sets :: Pow2Int = 64,
+  ~llc_ways: llc_ways :: PosInt = 4
+) :~ SingleCoreSoCParams:
+  make_single_core_soc_params(
+    core_profile,
+    core_profile.hart_description,
+    RV5StageCacheLineBytes,
+    rv5stage_chi_params,
+    "Rhodium Single-Core RV5Stage SoC",
+    ["rhodium,single-core-rv5stage-soc"],
+    ~llc_sets: llc_sets,
+    ~llc_ways: llc_ways
+  )
+
+def single_core_rv5stage_soc_params = make_single_core_rv5stage_soc_params()
+
+fun SingleCoreRV5StageSoC(params :: SingleCoreSoCParams = single_core_rv5stage_soc_params):
+  def core_profile :: RV5StageConfig = params.core_profile
+  generic.SingleCoreSoC(generic.SingleCoreSoCConfig(rv5stage_hart(core_profile), params))
+
+def design = elaborate(SingleCoreRV5StageSoC())
+
+export:
+  single_core_rv5stage_soc_core_profile
+  make_single_core_rv5stage_soc_params
+  single_core_rv5stage_soc_params
+  SingleCoreRV5StageSoC
+  design

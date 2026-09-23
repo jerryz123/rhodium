@@ -1,9 +1,9 @@
 #lang rhodium
-// Re-exports the concrete compute, LLC, device, and transit TiledRV5StageSoC tiles.
+// Re-exports the concrete compute, LLC, device, and transit TiledSoC tiles.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "rv5stage.rhdl" open
+  "hart.rhdl" open
   "llc.rhdl" open
   "memory.rhdl" open
   "device-home.rhdl" open
@@ -14,9 +14,9 @@ import:
   "transit.rhdl" open
 
 export:
-  RV5StageTileIdentity
-  RV5StageTileParams
-  RV5StageTile
+  HartTileIdentity
+  HartTileParams
+  HartTile
   LLCTileIdentity
   LLCTileParams
   LLCTile

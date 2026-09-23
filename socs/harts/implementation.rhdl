@@ -1,0 +1,40 @@
+#lang rhodium
+// Defines the core-neutral hart contract consumed by SoC shapes.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("rhodium/frontend/kernel.rhm").CircuitDefinition
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("riscv/isa/hart.rhm").RiscvHartDescription
+  lib("cores/riscv/chi-hart.rhdl") open
+
+class RiscvHartImplementation(name :: NonemptyString,
+                              key :: NonemptyString,
+                              profile :: StableCircuitParam,
+                              description :: RiscvHartDescription,
+                              cache_line_bytes :: Pow2Int,
+                              chi_factory :: Function.of_arity(4),
+                              circuit_factory :: Function.of_arity(3)):
+  implements StableCircuitParam
+
+  constructor (name :: NonemptyString,
+               key :: NonemptyString,
+               profile :: StableCircuitParam,
+               description :: RiscvHartDescription,
+               cache_line_bytes :: Pow2Int,
+               chi_factory :: Function.of_arity(4),
+               circuit_factory :: Function.of_arity(3)):
+    unless profile.hart_description == description
+    | error(~who: #'RiscvHartImplementation, "hart description must match the implementation profile")
+    super(name, key, profile, description, cache_line_bytes, chi_factory, circuit_factory)
+
+  method chi_params(config :: RiscvHartCHIConfig, instruction :: Nat, data :: Nat, uncached :: Nat) :: RiscvHartCHIAttachment:
+    chi_factory(config, instruction, data, uncached)
+
+  method circuit(reset_address :: Nat, chi :: RiscvHartCHIConfig) :: CircuitDefinition:
+    circuit_factory(profile, reset_address, chi)
+
+export:
+  RiscvHartImplementation

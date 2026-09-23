@@ -1,0 +1,45 @@
+#lang rhombus
+// Checks that each SoC shape derives architecture and CHI policy from its selected core.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../products/hart-selection.rhm".soc_hart
+  "../mini-soc/main.rhdl" as mini
+  "../single-core-soc/main.rhdl" as single
+  "../tiled-soc/main.rhdl" as tiled
+
+for (core in ["rv5stage", "spike"]):
+  def mini_hart = soc_hart("mini", core)
+  def single_hart = soc_hart("single", core)
+  def tiled_hart = soc_hart("tiled", core)
+  def mini_config = mini.mini_soc_config(mini_hart)
+  def mini_fabric = mini_config.fabric
+  def single_config = single.single_core_soc_config(single_hart)
+  def single_params = single_config.params
+  def tiled_config = tiled.tiled_soc_config(tiled_hart)
+  check:
+    mini_config.description.hart == mini_hart.description ~is #true
+    single_config.description.hart == single_hart.description ~is #true
+    tiled_config.description.hart == tiled_hart.description ~is #true
+    mini_config.description.model ~is "Rhodium Mini " ++ mini_hart.name ++ " SoC"
+    single_config.description.model ~is "Rhodium Single-Core " ++ single_hart.name ++ " SoC"
+    tiled_config.description.model ~is "Rhodium Tiled " ++ tiled_hart.name ++ " SoC"
+    mini_config.description.compatible ~is ["rhodium,mini-" ++ core ++ "-soc"]
+    single_config.description.compatible ~is ["rhodium,single-core-" ++ core ++ "-soc"]
+    tiled_config.description.compatible ~is ["rhodium,tiled-" ++ core ++ "-soc"]
+    mini_config.description.memory_regions[0].size_bytes ~is 0x10000
+    single_config.description.memory_regions[0].size_bytes ~is 0x40000000
+    tiled_config.description.memory_regions[0].size_bytes ~is 0x40000000
+    mini_config.description.harts.length() ~is 1
+    single_config.description.harts.length() ~is 1
+    tiled_config.description.harts.length() ~is 8
+    mini_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
+    single_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
+    tiled_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
+    mini_fabric.hart_config.cache_line_bytes ~is mini_hart.cache_line_bytes
+    single_params.fabric.hart_config.cache_line_bytes ~is single_hart.cache_line_bytes
+    tiled_config.hart === tiled_hart ~is #true
+
+check:
+  soc_hart("unknown", "rv5stage") ~throws "unsupported SoC shape"
+  soc_hart("mini", "unknown") ~throws "unsupported core"

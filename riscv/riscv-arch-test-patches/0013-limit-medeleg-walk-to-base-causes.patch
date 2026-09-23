@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Do not require optional software-check delegation in Sm
+Purpose: Keeps the base Sm CSR walk independent of CFI-specific exception causes.
+SPDX-License-Identifier: Apache-2.0
+
+The software-check exception at cause 18 belongs to Zicfilp/Zicfiss. An Sm
+implementation without either extension may leave medeleg[18] read-only zero.
+The generic CSR walk must not require that bit to retain a write.
+
+diff --git a/generators/testgen/src/testgen/priv/extensions/Sm.py b/generators/testgen/src/testgen/priv/extensions/Sm.py
+--- a/generators/testgen/src/testgen/priv/extensions/Sm.py
++++ b/generators/testgen/src/testgen/priv/extensions/Sm.py
+@@ -608,7 +608,7 @@ def _generate_mcsr_tests(test_data: TestData, test_chunks: list) -> None:
+     csrm = [
+         (
+             "medeleg",
+-            0xDBBFE,
+-        ),  # mask off custom bits and reserved bits; instr misaligned [0] depends on ZCA_SUPPORTED so don't check it
++            0x9BBFE,
++        ),  # omit optional software-check [18]; instr misaligned [0] depends on ZCA_SUPPORTED
+         ("mideleg", 0xFFFF),  # limit to standard interrupt bits
+         ("mie", 0xFFFF),  # limit to standard interrupt bits

@@ -3,8 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../udb.rhm" open
-  "../core-profiles.rhm" open
+  "../products/udb.rhm" open
+  "../products/core-profiles.rhm" open
+  "../products/spike-core-profile.rhm".single_core_spike_soc_core_profile
+  "../platform/fabric-profiles.rhm" open
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
 
 def single_core_gnu_target = gnu_isa_target(
@@ -28,7 +30,7 @@ for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_p
     profile.isa_profile.isa_extensions.contains("zihintpause") ~is #true
     profile.isa_profile.isa_extensions.contains("zawrs") ~is #true
 
-for (name in RiscvUdbConfigurationNames):
+for (name in ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccif\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccamoa\", version: \"= 1.0.0\" }") ~is #true
@@ -58,6 +60,10 @@ for (name in ["mini-rv5stage-soc", "tiled-rv5stage-soc"]):
     check:
       riscv_udb_configuration(name).to_yaml().contains("{ name: \"" ++ extension ++ "\",") ~is #false
 
+for (name in ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]):
+  check:
+    riscv_udb_configuration(name).to_yaml().contains("  PHYS_ADDR_WIDTH: " ++ String.from_int(rhodium_soc_flit.request_address_width)) ~is #true
+
 check:
   single_core_gnu_target.march.contains("zicbom") ~is #true
   riscv_udb_configuration("single-core-rv5stage-soc").to_yaml().contains("  PMLEN: 7") ~is #true
@@ -73,8 +79,20 @@ check:
   riscv_udb_configuration("tiled-rv5stage-soc").to_yaml().contains("{ name: \"Zvkt\",") ~is #false
   riscv_udb_configuration("mini-rv5stage-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
   riscv_udb_configuration("tiled-rv5stage-soc").to_yaml().contains("{ name: \"Zvfhmin\",") ~is #false
-  RiscvUdbConfigurationNames ~is ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
+  RiscvUdbConfigurationNames ~is ["single-core-rv5stage-soc", "single-core-spike-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
   riscv_udb_configuration("single-core-rv5stage-soc").name ~is "rhodium-single-core-rv5stage-soc-rv64"
   riscv_udb_configuration("mini-rv5stage-soc").name ~is "rhodium-mini-rv5stage-soc-rv64"
   riscv_udb_configuration("tiled-rv5stage-soc").name ~is "rhodium-tiled-rv5stage-soc-rv64"
-  riscv_udb_configuration("unknown") ~throws "expected one of single-core-rv5stage-soc, mini-rv5stage-soc, tiled-rv5stage-soc"
+  riscv_udb_configuration("single-core-spike-soc").name ~is "rhodium-single-core-spike-soc-rv64"
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  NUM_PMP_ENTRIES: 16") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  NUM_USABLE_PMP_ENTRIES: 16") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  PMP_GRANULARITY: 2") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  PHYS_ADDR_WIDTH: 56") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  ARCH_ID_VALUE: 5") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("  CACHE_BLOCK_SIZE:") ~is #false
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("{ name: \"Sm\", version: \"= 1.13.0\" }") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true
+  single_core_spike_soc_core_profile.hart_description.isa_profile.isa_extensions.contains("zihpm") ~is #true
+  riscv_udb_configuration("single-core-spike-soc").to_yaml().contains("{ name: \"V\",") ~is #false
+  single_core_spike_soc_core_profile.pmp_regions ~is 16
+  riscv_udb_configuration("unknown") ~throws "expected one of single-core-rv5stage-soc, single-core-spike-soc, mini-rv5stage-soc, tiled-rv5stage-soc"

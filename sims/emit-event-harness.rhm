@@ -3,13 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "single-core-rv5stage-soc-harness.rhdl" as harness
+  "../rhodium/frontend/foundation.rhm".elaborate_with_top
+  lib("socs/products/single-core-rv5stage-soc.rhdl") as single_core
+  "single-core-soc-harness.rhdl".SoCHarness
   "../rhodium/backend/circt.rhm".emit_circt
   "../rhodium/event/main.rhm" open
 
-def traced = instrument_events(harness.elaboration, EventInstrumentationConfig(~partial: #true))
+def params = single_core.single_core_rv5stage_soc_params
+def elaboration = elaborate_with_top(SoCHarness(params, single_core.SingleCoreRV5StageSoC(params)))
+def traced = instrument_events(elaboration, EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
-def trace_clock_frequency_hz = harness.trace_clock_frequency_hz
+def trace_clock_frequency_hz = params.clocks.clock_frequency_hz
 print(emit_circt(traced.instrumented.design))
 
 export:

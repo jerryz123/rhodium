@@ -1,27 +1,27 @@
 #lang rhodium
-// Wraps TiledRV5StageSoC with FESVR, one external memory model, and a serial-pin PTY UART.
+// Wraps a selected tiled SoC with FESVR, external memory, and a serial-pin PTY UART.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("riscv/isa/xlen.rhm").XLen
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
   lib("chi/protocol/flits.rhdl").CHIReqOpcode
   lib("rhodium/std/ready-valid.rhdl") open
-  lib("socs/tiled-rv5stage-soc/main.rhdl") as tiled_rv5stage
-  lib("socs/tiled-rv5stage-soc/compile.rhdl") as compiler
+  lib("socs/tiled-soc/main.rhdl") as tiled
+  lib("socs/products/tiled-rv5stage.rhdl").default_tiled_soc_config
+  lib("socs/tiled-soc/compile.rhdl") as compiler
   lib("devices/uart/uart-dpi.rhdl").UartDPI
   lib("flow/gate.rhdl").gate_flow
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
-sync_circuit SoCHarness(soc_config :: tiled_rv5stage.TiledRV5StageSoCConfig = tiled_rv5stage.default_tiled_rv5stage_soc_config,
+sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = default_tiled_soc_config,
                         uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1,
                         ~memory_stalls: memory_stalls :: Boolean = #false):
-  def implementation = compiler.compile_tiled_rv5stage_soc(soc_config)
+  def implementation = compiler.compile_tiled_soc(soc_config)
   output exit: Bits(32)
 
-  inst requester(FesvrRequester(XLen.X64, implementation.flit, implementation.host.node, implementation.home_map, implementation.rv5stage_config.physical_map, implementation.host_services, soc_config.boot.boot_address_register))
-  inst soc(tiled_rv5stage.TiledRV5StageSoC(soc_config))
+  inst requester(FesvrRequester(soc_config.hart.description.xlen, implementation.flit, implementation.host.node, implementation.home_map, implementation.hart_config.physical_map, implementation.host_services, soc_config.boot.boot_address_register))
+  inst soc(tiled.TiledSoC(soc_config, implementation))
   inst memory(CHIDPIMemory(CHIRamConfig(implementation.flit, soc_config.memory.size_bytes, ~max_outstanding: implementation.memory.node.max_outstanding, ~max_transfer_bytes: 64), 0))
   inst uart(UartDPI(0, uart_oversample_divisor))
 

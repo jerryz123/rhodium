@@ -1,0 +1,41 @@
+#lang rhombus
+// Checks the Spike-backed single-core SoC profile, address map, and CHI attachment.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../chi/protocol/flits.rhdl" open
+  "../../chi/protocol/link.rhdl".CHINodeKind
+  "../../riscv/isa/hart.rhm".RiscvMmuType
+  "../products/single-core-spike-soc.rhdl" as soc
+
+def params = soc.single_core_spike_soc_params
+def fabric = params.fabric
+def description = params.description
+
+check:
+  params.core_profile.isa_string ~is "rv64imafdc_zicsr_zifencei_zicntr_zihpm"
+  params.core_profile.privilege_string ~is "msu"
+  description.model ~is "Rhodium Single-Core Spike SoC"
+  description.compatible ~is ["rhodium,single-core-spike-soc"]
+  description.hart === params.core_profile.hart_description ~is #true
+  description.hart.mmu_type ~is RiscvMmuType.Sv39
+  description.hart.instruction_cache.size_bytes ~is 16384
+  description.hart.data_cache.size_bytes ~is 16384
+  fabric.hart_params.instruction_node.name ~is "spike-l1i"
+  fabric.hart_params.instruction_node.kind ~is CHINodeKind.RNI
+  fabric.hart_params.data_node.name ~is "spike-l1d"
+  fabric.hart_params.data_node.kind ~is CHINodeKind.RNF
+  fabric.hart_params.uncached_node.name ~is "spike-uncached"
+  fabric.hart_params.uncached_node.kind ~is CHINodeKind.RNI
+  fabric.home_config.requester_endpoints[1].supports.req ~is [CHIReqOpcode.ReadOnce]
+  fabric.data_port.supports.req ~is [CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteBackFull]
+  fabric.home_map.entry(fabric.memory_base).home === fabric.home ~is #true
+  fabric.home_map.entry(0x10000000).home === fabric.device_home ~is #true
+  params.llc_config.sets ~is 64
+  params.llc_config.ways ~is 4
+  params.llc_config.transaction_slots ~is 2
+  params.llc_config.capacity_bytes ~is 16384
+  description.boot.rom.address_set ~is fabric.platform.bootrom.rom_params.service.address_sets[0]
+  fabric.platform.bootrom.rom_config(description).image.bytes.drop(fabric.boot.device_tree_offset) ~is (
+    description.to_device_tree().to_dtb().to_list()
+  )

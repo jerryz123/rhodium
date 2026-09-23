@@ -39,7 +39,7 @@ Use the existing owners before introducing another aggregation layer.
 
 For import-only migrations, check that declarations and RTL bodies are unchanged
 apart from namespace qualification. Run affected host contracts, device/cache
-behavioral fixtures, and MiniRV5StageSoC/SingleCoreRV5StageSoC/TiledRV5StageSoC smoke tests for consumers that
+behavioral fixtures, and MiniRV5StageSoC/SingleCoreRV5StageSoC/TiledSoC smoke tests for consumers that
 span those compositions through the persistent compiled cache. Inspect transitive imports
 when claiming narrower loading; a selective name import still loads its module.
 

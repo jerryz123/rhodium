@@ -1,0 +1,44 @@
+#lang rhodium
+// Preserves the named Spike product API as a specialization of SingleCoreSoC.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl") open
+  lib("cores/spike/profile.rhm").SpikeConfig
+  lib("cores/spike/chi/foundation.rhdl").spike_chi_params
+  "../one-hart/system.rhdl" open
+  "../single-core-soc/main.rhdl" as generic
+  "../harts/spike.rhdl".spike_hart
+  "spike-core-profile.rhm".single_core_spike_soc_core_profile
+
+fun make_single_core_spike_soc_params(
+  core_profile :: SpikeConfig = single_core_spike_soc_core_profile,
+  ~llc_sets: llc_sets :: Pow2Int = 64,
+  ~llc_ways: llc_ways :: PosInt = 4
+) :~ SingleCoreSoCParams:
+  make_single_core_soc_params(
+    core_profile,
+    core_profile.hart_description,
+    64,
+    spike_chi_params,
+    "Rhodium Single-Core Spike SoC",
+    ["rhodium,single-core-spike-soc"],
+    ~llc_sets: llc_sets,
+    ~llc_ways: llc_ways
+  )
+
+def single_core_spike_soc_params = make_single_core_spike_soc_params()
+
+fun SingleCoreSpikeSoC(params :: SingleCoreSoCParams = single_core_spike_soc_params):
+  def core_profile :: SpikeConfig = params.core_profile
+  generic.SingleCoreSoC(generic.SingleCoreSoCConfig(spike_hart(core_profile), params))
+
+def design = elaborate(SingleCoreSpikeSoC())
+
+export:
+  single_core_spike_soc_core_profile
+  make_single_core_spike_soc_params
+  single_core_spike_soc_params
+  SingleCoreSpikeSoC
+  design

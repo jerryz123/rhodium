@@ -1,0 +1,18 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Keep absent HPM counter controls read-only zero
+Purpose: Aligns zero-counter Zihpm CSR controls with the pinned Spike implementation.
+SPDX-License-Identifier: Apache-2.0
+
+This Spike revision hardwires all 29 HPM counters and event selectors to zero.
+Enabling Zihpm exposes their unprivileged aliases, but must not make their
+counter-enable or count-inhibit bits writable when no counters are implemented.
+
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -197,3 +197,3 @@ void processor_t::register_csrs()
+   }
+-  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0) | (proc->extension_enabled_const(EXT_ZIHPM) ? 0xfffffff8ULL : 0x0);
++  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0);
+   add_user_csr(CSR_MCOUNTEREN, mcounteren = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTEREN, counteren_mask, 0));

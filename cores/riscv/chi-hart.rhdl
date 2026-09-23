@@ -111,6 +111,37 @@ class RiscvHartCHIParams(config :: RiscvHartCHIConfig,
               "Home, instruction, data, and uncached NodeIDs must be distinct")
     super(config, instruction_node_id, data_node_id, uncached_node_id)
 
+// Gives SoC composition a core-neutral view of one hart's concrete CHI
+// endpoint capabilities while named cores retain their transaction policy.
+class RiscvHartCHIAttachment(hart :: RiscvHartCHIParams,
+                             instruction_node :: CHINodeParams,
+                             data_node :: CHINodeParams,
+                             uncached_node :: CHINodeParams,
+                             coherent_instruction_home_port :: CHIRequesterHomeParams,
+                             uncached_instruction_home_port :: CHIRequesterHomeParams):
+  property config: hart.config
+
+  constructor (hart :: RiscvHartCHIParams,
+               instruction_node :: CHINodeParams,
+               data_node :: CHINodeParams,
+               uncached_node :: CHINodeParams,
+               coherent_instruction_home_port :: CHIRequesterHomeParams,
+               uncached_instruction_home_port :: CHIRequesterHomeParams):
+    unless instruction_node.kind == CHINodeKind.RNI && data_node.kind == CHINodeKind.RNF && uncached_node.kind == CHINodeKind.RNI
+    | error(~who: #'RiscvHartCHIAttachment,
+            "hart attachment requires RN-I instruction/uncached endpoints and an RN-F data endpoint")
+    unless instruction_node.node_id == hart.instruction_node_id && data_node.node_id == hart.data_node_id && uncached_node.node_id == hart.uncached_node_id
+    | error(~who: #'RiscvHartCHIAttachment,
+            "hart attachment endpoints must retain their validated NodeIDs")
+    unless coherent_instruction_home_port.node_id == instruction_node.node_id && uncached_instruction_home_port.node_id == instruction_node.node_id
+    | error(~who: #'RiscvHartCHIAttachment,
+            "instruction Home projections must retain the instruction endpoint NodeID")
+    super(hart, instruction_node, data_node, uncached_node,
+          coherent_instruction_home_port, uncached_instruction_home_port)
+
+  method instruction_home_port(~coherent: coherent :: Boolean):
+    if coherent | coherent_instruction_home_port | uncached_instruction_home_port
+
 bundle RiscvHartCHIIdentity(p :: CHIFlitParams):
   instruction_node_id: Bits(p.node_id_width)
   data_node_id: Bits(p.node_id_width)
@@ -120,4 +151,5 @@ export:
   RiscvHartCHIRegion
   RiscvHartCHIConfig
   RiscvHartCHIParams
+  RiscvHartCHIAttachment
   RiscvHartCHIIdentity

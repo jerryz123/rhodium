@@ -9,8 +9,8 @@ import:
   lib("cores/rv5stage/profile.rhm").RV5StageConfig
   lib("rhodium/std/interconnect.rhdl").AddressSet
   lib("riscv/isa/xlen.rhm").XLen
-  lib("socs/boot.rhdl") open
-  lib("socs/description.rhm") open
+  lib("socs/platform/boot.rhdl") open
+  lib("socs/platform/description.rhm") open
 
 def boot = riscv_soc_boot_config()
 def flit = CHIFlitParams()

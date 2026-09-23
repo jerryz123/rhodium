@@ -4,16 +4,17 @@
 
 import:
   "../../chi/main.rhdl" open
-  "../single-core-rv5stage-soc.rhdl" as single_core
-  "../mini-rv5stage-soc.rhdl" as mini_rv5stage
-  "../tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage
-  "../tiled-rv5stage-soc/compile.rhdl" as compiler
+  "../products/single-core-rv5stage-soc.rhdl" as single_core
+  "../products/mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../tiled-soc/main.rhdl" as tiled_rv5stage
+  "../products/tiled-rv5stage.rhdl" as tiled_default
+  "../tiled-soc/compile.rhdl" as compiler
 
-def compiled = compiler.compile_tiled_rv5stage_soc(tiled_rv5stage.default_tiled_rv5stage_soc_config)
+def compiled = compiler.compile_tiled_soc(tiled_default.default_tiled_soc_config)
 def systems = [
-  [single_core.single_core_rv5stage_soc_hart_config, single_core.single_core_rv5stage_soc_params.description],
+  [single_core.single_core_rv5stage_soc_params.fabric.hart_config, single_core.single_core_rv5stage_soc_params.description],
   [mini_rv5stage.mini_rv5stage_soc_fabric_params.hart_config, mini_rv5stage.mini_rv5stage_soc_params.description],
-  [compiled.rv5stage_config, tiled_rv5stage.default_tiled_rv5stage_soc_config.description]
+  [compiled.hart_config, tiled_default.default_tiled_soc_config.description]
 ]
 
 fun address_count(mask :: Nat) :: PosInt:

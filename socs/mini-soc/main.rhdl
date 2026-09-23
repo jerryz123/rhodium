@@ -1,0 +1,78 @@
+#lang rhodium
+// Composes the compact internal-RAM platform with a selected RISC-V hart implementation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/frontend/foundation.rhm").StableCircuitParam
+  lib("chi/protocol/link.rhdl").CHINodeKind
+  lib("chi/protocol/fabric.rhdl").CHIHomeParams
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/subordinate/ram.rhdl").CHIRam
+  lib("riscv/isa/xlen.rhm").XLen
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../one-hart/system.rhdl" open
+  "../platform/endpoint-params.rhdl".soc_host_node
+  "../platform/description.rhm" open
+  "../platform/fabric-profiles.rhm".rhodium_soc_flit
+  "../platform/host-interface.rhdl".SoCHostInterface
+  "../platform/peripherals.rhdl" open
+  "../platform/boot.rhdl" open
+
+def mini_soc_memory_base = 0x80000000
+def mini_soc_memory_bytes = 0x10000
+def mini_soc_host_node = soc_host_node(1)
+def mini_soc_ram_config = CHIRamConfig(rhodium_soc_flit, mini_soc_memory_bytes, ~max_outstanding: 2, ~max_transfer_bytes: 64)
+def mini_soc_ram_params = CHIRamParams("mini-memory", 9, mini_soc_ram_config, ~base_address: mini_soc_memory_base, ~kind: CHINodeKind.SNF)
+def mini_soc_clocks = SoCClockConfig(~clock_frequency_hz: 100000000, ~timebase_frequency_hz: 100000000)
+
+class MiniSoCConfig(hart :: RiscvHartImplementation, ram :: CHIRamParams, clocks :: SoCClockConfig, boot :: SoCBootConfig):
+  implements StableCircuitParam
+
+  constructor (hart :: RiscvHartImplementation,
+               ram :: CHIRamParams = mini_soc_ram_params,
+               ~clocks: clocks :: SoCClockConfig = mini_soc_clocks,
+               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address)):
+    unless hart.description.xlen == XLen.X64
+    | error(~who: #'MiniSoCConfig, "the compact platform requires an RV64 hart")
+    super(hart, ram, clocks, boot)
+
+  property fabric :: SingleCoreSystemParams:
+    SingleCoreSystemParams(
+      ram.config.flit, ram.base_address, ram.config.size_bytes, ram.service,
+      CHIHomeParams("mini-home", 5, CHINodeKind.HNF, ~max_outstanding: 1),
+      mini_soc_host_node,
+      SoCPlatformParams(ram.config.flit, 1,
+                        CHIHomeParams("mini-device-home", 6, CHINodeKind.HNI, ~max_outstanding: 1),
+                        boot, 12, 10, 13, 11, 14),
+      hart.cache_line_bytes, hart.chi_factory
+    )
+
+  property description :: RiscvSoCDescription:
+    fabric.description("Rhodium Mini " ++ hart.name ++ " SoC", ["rhodium,mini-" ++ hart.key ++ "-soc"], hart.description, clocks)
+
+fun mini_soc_config(hart :: RiscvHartImplementation) :: MiniSoCConfig:
+  MiniSoCConfig(hart)
+
+sync_circuit MiniSoC(config :: MiniSoCConfig):
+  def fabric = config.fabric
+  interface host(SoCHostInterface(fabric.flit), ~role: soc)
+  interface uart(SoCUartInterface(), ~role: soc)
+  inst ram(CHIRam(config.ram.config))
+  populate_single_core(fabric, config.description,
+                       config.hart.circuit(fabric.boot.reset_address, fabric.hart_config),
+                       host, ram.port, uart)
+  ram.identity <== CHIRamIdentity(fabric.flit):
+    node_id: bits(config.ram.node_id, fabric.flit.node_id_width)
+    base_address: bits(config.ram.base_address, fabric.flit.request_address_width)
+
+export:
+  mini_soc_memory_base
+  mini_soc_memory_bytes
+  mini_soc_host_node
+  mini_soc_ram_config
+  mini_soc_ram_params
+  mini_soc_clocks
+  MiniSoCConfig
+  mini_soc_config
+  MiniSoC

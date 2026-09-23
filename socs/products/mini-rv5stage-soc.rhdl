@@ -1,0 +1,74 @@
+#lang rhodium
+// Preserves the named compact RV5Stage product API as a specialization of MiniSoC.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/subordinate/memory-controller.rhdl").CHIRamParams
+  lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  "../platform/description.rhm".SoCClockConfig
+  "../one-hart/system.rhdl" open
+  "../platform/boot.rhdl" open
+  "core-profiles.rhm" open
+  "../mini-soc/main.rhdl" as mini
+  "../harts/rv5stage.rhdl".rv5stage_hart
+
+def mini_rv5stage_soc_memory_base = mini.mini_soc_memory_base
+def mini_rv5stage_soc_memory_bytes = mini.mini_soc_memory_bytes
+def mini_rv5stage_soc_host_node = mini.mini_soc_host_node
+def mini_rv5stage_soc_ram_config = mini.mini_soc_ram_config
+def mini_rv5stage_soc_ram_params = mini.mini_soc_ram_params
+def mini_rv5stage_soc_l1_cache_config = mini_rv5stage_soc_core_profile.cache_geometry.instruction
+def mini_rv5stage_soc_clocks = mini.mini_soc_clocks
+
+fun mini_rv5stage_soc_system_params(ram :: CHIRamParams,
+                                    boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address),
+                                    core_profile :: RV5StageConfig = mini_rv5stage_soc_core_profile):
+  mini.MiniSoCConfig(rv5stage_hart(core_profile), ram, ~boot: boot).fabric
+
+class MiniRV5StageSoCParams(ram :: CHIRamParams,
+                            core_profile :: RV5StageConfig,
+                            clocks :: SoCClockConfig,
+                            boot :: SoCBootConfig):
+  implements StableCircuitParam
+
+  property fabric: mini_rv5stage_soc_system_params(ram, boot, core_profile)
+  property description:
+    fabric.description("Rhodium Mini RV5Stage SoC",
+                       ["rhodium,mini-rv5stage-soc"],
+                       core_profile.hart_description,
+                       clocks)
+
+  constructor (ram :: CHIRamParams,
+               ~core_profile: core_profile :: RV5StageConfig = mini_rv5stage_soc_core_profile,
+               ~clocks: clocks :: SoCClockConfig = mini_rv5stage_soc_clocks,
+               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address)):
+    unless core_profile.xlen == XLen.X64
+    | error(~who: #'MiniRV5StageSoCParams, "MiniRV5StageSoC requires an RV64 core profile")
+    super(ram, core_profile, clocks, boot)
+
+def mini_rv5stage_soc_params = MiniRV5StageSoCParams(mini_rv5stage_soc_ram_params)
+def mini_rv5stage_soc_fabric_params = mini_rv5stage_soc_params.fabric
+def mini_rv5stage_soc_home_map = mini_rv5stage_soc_fabric_params.home_map
+
+fun MiniRV5StageSoC(params :: MiniRV5StageSoCParams = mini_rv5stage_soc_params):
+  mini.MiniSoC(mini.MiniSoCConfig(rv5stage_hart(params.core_profile), params.ram, ~clocks: params.clocks, ~boot: params.boot))
+
+def design = elaborate(MiniRV5StageSoC())
+
+export:
+  mini_rv5stage_soc_memory_base
+  mini_rv5stage_soc_memory_bytes
+  mini_rv5stage_soc_fabric_params
+  mini_rv5stage_soc_home_map
+  mini_rv5stage_soc_host_node
+  mini_rv5stage_soc_ram_config
+  mini_rv5stage_soc_ram_params
+  mini_rv5stage_soc_l1_cache_config
+  mini_rv5stage_soc_core_profile
+  mini_rv5stage_soc_clocks
+  mini_rv5stage_soc_system_params
+  MiniRV5StageSoCParams
+  mini_rv5stage_soc_params
+  MiniRV5StageSoC
+  design

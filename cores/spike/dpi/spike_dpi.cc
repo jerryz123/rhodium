@@ -66,8 +66,9 @@ void store(T* target, T value) {
 extern "C" unsigned char rhodium_spike_tick(
     unsigned char reset, long long hart_id, long long reset_vector,
     long long time, char interrupts, unsigned char xlen_is_64,
+    char max_vaddr_bits,
     const svBitVecVal* isa, const svBitVecVal* privilege,
-    short instructions_per_cycle, char pmp_regions,
+    short max_retired_instructions_per_cycle, char pmp_regions,
     short instruction_cache_sets, short instruction_cache_ways,
     short data_cache_sets, short data_cache_ways,
     unsigned char address_request_ready,
@@ -137,9 +138,11 @@ extern "C" unsigned char rhodium_spike_tick(
     configuration.hart_id = static_cast<std::uint64_t>(hart_id);
     configuration.reset_vector = static_cast<std::uint64_t>(reset_vector);
     configuration.xlen_is_64 = xlen_is_64 != 0;
+    configuration.max_vaddr_bits = static_cast<std::uint8_t>(max_vaddr_bits);
     configuration.isa = packed_string(isa);
     configuration.privilege = packed_string(privilege);
-    configuration.instructions_per_cycle = static_cast<std::uint16_t>(instructions_per_cycle);
+    configuration.max_retired_instructions_per_cycle =
+        static_cast<std::uint16_t>(max_retired_instructions_per_cycle);
     configuration.pmp_regions = pmp_regions;
     configuration.instruction_cache_sets = static_cast<std::uint16_t>(instruction_cache_sets);
     configuration.instruction_cache_ways = static_cast<std::uint16_t>(instruction_cache_ways);

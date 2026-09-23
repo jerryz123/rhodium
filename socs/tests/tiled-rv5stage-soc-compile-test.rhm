@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks one-step TiledRV5StageSoC compilation into boot, placement, routing, device, and tile parameters.
+// Checks one-step TiledSoC compilation into boot, placement, routing, device, and tile parameters.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,31 +9,33 @@ import:
   "../../chi/noc/noc-authoring.rhm".CHISNConnection
   "../../cores/rv5stage/profile.rhm" as profile
   "../../riscv/isa/xlen.rhm".XLen
-  "../tiled-rv5stage-soc/main.rhdl" as tiled
-  "../tiled-rv5stage-soc/compile.rhdl" as compiler
+  "../tiled-soc/main.rhdl" as tiled
+  "../products/tiled-rv5stage.rhdl" as tiled_default
+  "../tiled-soc/compile.rhdl" as compiler
+  "../harts/rv5stage.rhdl".rv5stage_hart
 
-def compiled = compiler.compile_tiled_rv5stage_soc(tiled.default_tiled_rv5stage_soc_config)
-def description = tiled.default_tiled_rv5stage_soc_config.description
+def compiled = compiler.compile_tiled_soc(tiled_default.default_tiled_soc_config)
+def description = tiled_default.default_tiled_soc_config.description
 
 check:
-  tiled.tiled_rv5stage_soc_core_profile.multiplier ~is profile.RV5StageMultiplierKind.Pipelined
-  tiled.tiled_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
-  tiled.tiled_rv5stage_soc_core_profile.extensions.zicbop ~is #true
-  tiled.default_tiled_rv5stage_soc_config.clocks.timebase_period_cycles ~is 100
+  tiled_default.tiled_rv5stage_soc_core_profile.multiplier ~is profile.RV5StageMultiplierKind.Pipelined
+  tiled_default.tiled_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
+  tiled_default.tiled_rv5stage_soc_core_profile.extensions.zicbop ~is #true
+  tiled_default.default_tiled_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
   compiled.llcs.map(fun (llc): llc.home_params.home.max_outstanding) ~is [2, 2, 2, 2]
-  compiled.rv5stages.length() ~is 8
+  compiled.harts.length() ~is 8
   description.model ~is "Rhodium Tiled RV5Stage SoC"
   description.compatible ~is ["rhodium,tiled-rv5stage-soc"]
   description.harts ~is [0, 1, 2, 3, 4, 5, 6, 7]
-  description.hart.isa_profile.isa_extensions ~is tiled.default_tiled_rv5stage_soc_config.core_profile.isa_profile.isa_extensions
-  description.clocks === tiled.default_tiled_rv5stage_soc_config.clocks ~is #true
+  description.hart.isa_profile.isa_extensions ~is tiled_default.default_tiled_soc_config.hart.description.isa_profile.isa_extensions
+  description.clocks === tiled_default.default_tiled_soc_config.clocks ~is #true
   description.memory_regions[0].base ~is 0x80000000
   description.memory_regions[0].size_bytes ~is 0x40000000
   description.boot.rom.address_set ~is compiled.platform.bootrom.rom_params.service.address_sets[0]
   description.boot.rom.size_bytes ~is 0x2000
   compiled.platform.bootrom.rom_config(description).image.bytes.drop(
-    tiled.default_tiled_rv5stage_soc_config.boot.device_tree_offset
+    tiled_default.default_tiled_soc_config.boot.device_tree_offset
   ) ~is (
     description.to_device_tree().to_dtb().to_list()
   )
@@ -69,9 +71,9 @@ check:
   compiled.memory.service.address_sets ~is [description.memory_regions[0].address_set]
   compiled.llcs.map(fun (llc): llc.home_params.subordinate_endpoint.node_id) ~is [48, 48, 48, 48]
   compiled.llcs.length() ~is 4
-  compiled.rv5stages[0].tile_params.rv5stage === compiled.rv5stage_config ~is #true
-  compiled.rv5stages[0].tile_params.core_profile === tiled.default_tiled_rv5stage_soc_config.core_profile ~is #true
-  compiled.rv5stages[0].tile_params.hart_count ~is 8
+  compiled.harts[0].tile_params.chi_config === compiled.hart_config ~is #true
+  compiled.harts[0].tile_params.hart === tiled_default.default_tiled_soc_config.hart ~is #true
+  compiled.harts[0].tile_params.hart_count ~is 8
   compiled.llcs[0].tile_params.home === compiled.llc_config ~is #true
   compiled.llc_config.home === compiled.hnf_config ~is #true
   compiled.llc_config.addressing === compiled.address_layout ~is #true
@@ -109,8 +111,8 @@ check:
   // full architectural range without compacting away slice-selection bits.
   compiled.llcs.map(fun (llc): llc.address_set.contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
   compiled.llcs.map(fun (llc): compiled.memory.service.address_sets[0].contains(0x80000100 + llc.placement.index * 64)) ~is [#true, #true, #true, #true]
-  tiled.default_tiled_rv5stage_soc_config with (
-    core_profile = profile.RV5StageConfig(~xlen: XLen.X32)
+  tiled_default.default_tiled_soc_config with (
+    hart = rv5stage_hart(profile.RV5StageConfig(~xlen: XLen.X32))
   ) ~throws "RV64"
 
 check:
@@ -143,17 +145,17 @@ check:
   ) ~is #true
 
 check:
-  compiled.rv5stages.map(fun (rv5stage): rv5stage.chi.instruction_node_id) ~is [0, 2, 4, 6, 8, 10, 12, 14]
-  compiled.rv5stages.map(fun (rv5stage): rv5stage.chi.data_node_id) ~is [1, 3, 5, 7, 9, 11, 13, 15]
-  compiled.rv5stages.map(fun (rv5stage): rv5stage.chi.uncached_node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23]
-  compiled.rv5stages[0].tile_params.router.routers.req.router_family_plan.ingress_count ~is 4
-  compiled.rv5stages[0].tile_params.router.routers.req.router_family_plan.egress_count ~is 4
-  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals.length() ~is 1
-  compiled.rv5stages[0].tile_params.router.attachment.rni_locals.length() ~is 2
-  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
-  compiled.rv5stages[0].tile_params.router.attachment.rni_locals[1].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
-  compiled.rv5stages[0].tile_params.router.attachment.rni_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
-  compiled.rv5stages[0].tile_params.router.attachment.rnf_locals[0].req.decoder.table.cases.length() ~is 32
+  compiled.harts.map(fun (rv5stage): rv5stage.chi.hart.instruction_node_id) ~is [0, 2, 4, 6, 8, 10, 12, 14]
+  compiled.harts.map(fun (rv5stage): rv5stage.chi.hart.data_node_id) ~is [1, 3, 5, 7, 9, 11, 13, 15]
+  compiled.harts.map(fun (rv5stage): rv5stage.chi.hart.uncached_node_id) ~is [16, 17, 18, 19, 20, 21, 22, 23]
+  compiled.harts[0].tile_params.router.routers.req.router_family_plan.ingress_count ~is 4
+  compiled.harts[0].tile_params.router.routers.req.router_family_plan.egress_count ~is 4
+  compiled.harts[0].tile_params.router.attachment.rnf_locals.length() ~is 1
+  compiled.harts[0].tile_params.router.attachment.rni_locals.length() ~is 2
+  compiled.harts[0].tile_params.router.attachment.rnf_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
+  compiled.harts[0].tile_params.router.attachment.rni_locals[1].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
+  compiled.harts[0].tile_params.router.attachment.rni_locals[0].req.site_keys ~is [0, 4, 8, 12, 1, 5, 9, 13]
+  compiled.harts[0].tile_params.router.attachment.rnf_locals[0].req.decoder.table.cases.length() ~is 32
   compiled.llcs[0].tile_params.router.attachment.hnf_requester_locals.length() ~is 1
   compiled.llcs[0].tile_params.router.attachment.hnf_requester_locals[0].req.site_keys ~is [3, 7, 11, 15]
   compiled.llcs[0].tile_params.router.attachment.hnf_requester_locals[0].req.decoder.table.cases.length() ~is 4
@@ -177,7 +179,7 @@ check:
 check:
   compiled.mesh.node_bindings.length() ~is 20
   compiled.mesh.link_bindings.length() ~is 62
-  compiled.rv5stages.length() ~is 8
+  compiled.harts.length() ~is 8
   compiled.transits.length() ~is 2
   compiled.llcs.length() ~is 4
   compiled.connections.length() ~is 94
@@ -193,7 +195,7 @@ check:
   )
 
 check:
-  compiled.rv5stages.map(
+  compiled.harts.map(
     fun (instance):
       def placement = instance.placement
       [placement.index, placement.coordinate.x, placement.coordinate.y]

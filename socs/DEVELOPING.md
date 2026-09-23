@@ -35,40 +35,49 @@ Keep shared memory configuration separate from the concrete RAM import and
 leave DPI memory to the simulator. See the
 [CHI import guide](../chi/README.md#package-boundary-and-import).
 
-MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC are independent top-level compositions.
-`single-core-system.rhdl` owns `SingleCoreSystemParams` and the
-`populate_single_core` elaboration helper. Parameters derive routing, endpoint
-identities, PMA, and descriptions from each caller's memory service and platform
-parameters. The helper emits the processor, chosen Home, routers, and platform
-devices directly into the caller; it adds no hardware wrapper. MiniRV5StageSoC owns its
-RAM configuration, while SingleCoreRV5StageSoC owns an external service and LLC geometry.
+Mini, Single, and Tiled are independent host-selected SoC shapes. Each circuit
+accepts one immutable config that owns its hart binding. The contract in
+`harts/implementation.rhdl` contains no named-core import; adapters in
+`harts/rv5stage.rhdl` and `harts/spike.rhdl` supply their implementations.
+`products/hart-selection.rhm` chooses a binding for a `(shape, core)` product,
+and `products/` owns default profiles and thin named entrypoints. No shape
+imports a product or a named core. The shared `one-hart/system.rhdl` owns the
+single-router memory map, NodeIDs, external service, CHI derivation, and
+`populate_single_core` helper used by Mini and Single. That helper emits the
+selected hart with its Home, routers, and platform devices into the caller;
+it adds no hardware wrapper. Mini supplies on-chip RAM and a forwarding Home,
+while Single supplies the inclusive LLC and an external memory boundary.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
 passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
 injection/ejection queue policy; this view adds no circuit hierarchy.
-`endpoint-params.rhdl` supplies host descriptions shared with the tiled compiler;
+`platform/endpoint-params.rhdl` supplies host descriptions shared with the tiled compiler;
 exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
-parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects imports between peer SoCs and
-imports of named SoCs from shared components.
+parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects product imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
 
 ## Implementation map
 
 | Concern | Owner |
 |---|---|
-| Architectural host description and device-tree projection | [`description.rhm`](description.rhm) |
-| Concrete processor profiles and physical-address inputs shared with host generators | [`core-profiles.rhm`](core-profiles.rhm) |
-| Core-neutral catalog of concrete RISC-V UDB configurations | [`udb.rhm`](udb.rhm) |
-| Common RAM/MMIO host boundary | [`host-interface.rhdl`](host-interface.rhdl) |
-| Shared single-core parameter derivation and direct composition | [`single-core-system.rhdl`](single-core-system.rhdl) |
-| Shared host endpoint descriptions | [`endpoint-params.rhdl`](endpoint-params.rhdl) |
-| Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](peripherals.rhdl) |
-| Primary external-memory composition | [`single-core-rv5stage-soc.rhdl`](single-core-rv5stage-soc.rhdl) |
-| Compact internal-memory composition | [`mini-rv5stage-soc.rhdl`](mini-rv5stage-soc.rhdl) |
-| Tiled public entrypoint | [`tiled-rv5stage-soc/main.rhdl`](tiled-rv5stage-soc/main.rhdl) |
-| Tiled layout and authoring form | [`tiled-rv5stage-soc/layout.rhm`](tiled-rv5stage-soc/layout.rhm) |
-| Private tiled configuration compiler | [`tiled-rv5stage-soc/compile.rhdl`](tiled-rv5stage-soc/compile.rhdl) |
-| Tiled time, ACLINT, and PLIC interrupt distribution overlay | [`tiled-rv5stage-soc/distribution.rhdl`](tiled-rv5stage-soc/distribution.rhdl) |
-| Concrete tile implementations | [`tiled-rv5stage-soc/tiles/`](tiled-rv5stage-soc/tiles/) |
-| Single external memory-channel router attachment | [`tiled-rv5stage-soc/tiles/memory.rhdl`](tiled-rv5stage-soc/tiles/memory.rhdl) |
+| Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
+| RV5Stage processor profiles | [`core-profiles.rhm`](products/core-profiles.rhm) |
+| Spike processor profile | [`spike-core-profile.rhm`](products/spike-core-profile.rhm) |
+| Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
+| Concrete RISC-V UDB product configurations | [`udb.rhm`](products/udb.rhm) |
+| Common RAM/MMIO host boundary | [`host-interface.rhdl`](platform/host-interface.rhdl) |
+| One-hart fabric derivation and direct composition | [`one-hart/system.rhdl`](one-hart/system.rhdl) |
+| Neutral hart contract, concrete adapters, and product selection | [`harts/implementation.rhdl`](harts/implementation.rhdl), [`harts/rv5stage.rhdl`](harts/rv5stage.rhdl), [`harts/spike.rhdl`](harts/spike.rhdl), [`products/hart-selection.rhm`](products/hart-selection.rhm) |
+| Core-neutral Mini and Single SoC shapes | [`mini-soc/main.rhdl`](mini-soc/main.rhdl), [`single-core-soc/main.rhdl`](single-core-soc/main.rhdl) |
+| Shared host endpoint descriptions | [`endpoint-params.rhdl`](platform/endpoint-params.rhdl) |
+| Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](platform/peripherals.rhdl) |
+| RV5Stage binding for the shared single-core platform | [`single-core-rv5stage-soc.rhdl`](products/single-core-rv5stage-soc.rhdl) |
+| Spike binding for the shared single-core platform | [`single-core-spike-soc.rhdl`](products/single-core-spike-soc.rhdl) |
+| Named compact RV5Stage product | [`mini-rv5stage-soc.rhdl`](products/mini-rv5stage-soc.rhdl) |
+| Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |
+| Tiled layout and authoring form | [`tiled-soc/layout.rhm`](tiled-soc/layout.rhm) |
+| Private tiled placement model and configuration compiler | [`tiled-soc/compiled.rhdl`](tiled-soc/compiled.rhdl), [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
+| Tiled time and interrupt distribution plan and RTL | [`tiled-soc/distribution-plan.rhdl`](tiled-soc/distribution-plan.rhdl), [`tiled-soc/distribution.rhdl`](tiled-soc/distribution.rhdl) |
+| Concrete tile implementations | [`tiled-soc/tiles/`](tiled-soc/tiles/) |
+| Single external memory-channel router attachment | [`tiled-soc/tiles/memory.rhdl`](tiled-soc/tiles/memory.rhdl) |
 | Focused tests | [`tests/`](tests/) and [`Makefile`](Makefile) |
 
 ## Change a composition
@@ -110,7 +119,8 @@ Run SoC configuration and topology-compilation tests from the repository root:
 make soc-test
 ```
 
-This target also generates native DTBs for SingleCoreRV5StageSoC, MiniRV5StageSoC, and TiledRV5StageSoC,
+This target also generates native DTBs for the Mini, Single, and Tiled shapes
+with both RV5Stage and Spike harts,
 round-trips their inspection DTS through `dtc`, and checks architectural
 properties with `fdtdump` and `fdtget`. It also checks that the same native DTB
 bytes are finalized into each SoC's BootROM image. Generated artifacts remain
@@ -129,12 +139,12 @@ Keep this entrypoint in the root Makefile's compilation manifest.
 enumeration/search errors cannot silently pass the boundary audit.
 
 `tests/main-memory-test.rhm` checks Ziccif/Ziccamoa/Ziccrse memory-map preconditions in
-MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC. Cacheable regions must be coherent HN-F RAM
+MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledSoC. Cacheable regions must be coherent HN-F RAM
 with execute, read, write, and atomic permissions and idempotent reads. The
 disjoint sparse bank sets must cover all described RAM without gaps; do not
 infer coverage from only the first and last address. BootROM and device HN-I
 regions are outside these cacheable/coherent main-memory requirements.
-MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC enable Ziccrse. The core profile and UDB tests
+MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledSoC enable Ziccrse. The core profile and UDB tests
 check this selection, and `run-device-tree.sh` checks every hart's advertised
 extension list. Static PMA checks do not prove eventuality; retain the
 [complete-system qualification](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate)

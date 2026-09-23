@@ -1,0 +1,30 @@
+#lang rhombus
+// Defines the architectural and implementation profile for SingleCoreSpikeSoC.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/spike/profile.rhm").SpikeConfig
+  lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+def single_core_spike_soc_hart_description = RiscvHartDescription(
+  RiscvIsaProfile(
+    XLen.X64,
+    ["i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"],
+    [MisaExtension.I, MisaExtension.M, MisaExtension.A,
+     MisaExtension.F, MisaExtension.D, MisaExtension.C,
+     MisaExtension.S, MisaExtension.U]
+  ),
+  RiscvMmuType.Sv39,
+  RiscvCacheDescription(64, 64, 16384),
+  RiscvCacheDescription(64, 64, 16384)
+)
+
+def single_core_spike_soc_core_profile = SpikeConfig(
+  single_core_spike_soc_hart_description
+)
+
+export:
+  single_core_spike_soc_hart_description
+  single_core_spike_soc_core_profile

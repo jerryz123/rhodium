@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../description.rhm" open
+  "../platform/description.rhm" open
   "../../cores/rv5stage/profile.rhm" open
   "../../devicetree/main.rhm".DeviceTreeLabel
   "../../rhodium/std/interconnect.rhdl".AddressSet

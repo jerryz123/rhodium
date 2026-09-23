@@ -1,5 +1,5 @@
 #lang rhodium
-// Privately compiles one TiledRV5StageSoC configuration into boot, placement, fabric, and tile parameters.
+// Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,178 +22,34 @@ import:
   lib("noc/std/routing/main.rhm") open
   lib("noc/rtl/router.rhdl") open
   lib("cores/riscv/chi-hart.rhdl") open
-  lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIParams
-  lib("cores/rv5stage/profile.rhm").RV5StageCacheLineBytes
   lib("riscv/rtl/pma.rhdl") open
   lib("devices/boot/bootrom.rhdl").CHIBootROMParams
   lib("devices/interrupt/aclint.rhdl").AclintParams
   lib("devices/interrupt/plic.rhdl").PlicParams
   lib("devices/uart/uart16550.rhdl").Uart16550Params
-  "../boot.rhdl" open
-  "../peripherals.rhdl" open
-  "../endpoint-params.rhdl" open
+  "../platform/boot.rhdl" open
+  "../platform/peripherals.rhdl" open
+  "../platform/endpoint-params.rhdl" open
   "tiles/main.rhdl" open
   "layout.rhm" open
   "distribution.rhdl" open
-
-class TiledRV5StagePlacement(index :: Nat,
-                             coordinate :: MeshCoordinate,
-                             router :: NodeRef,
-                             instruction_node_id :: Nat,
-                             data_node_id :: Nat,
-                             uncached_node_id :: Nat,
-                             instruction_site :: CHIRNSite,
-                             data_site :: CHIRNSite,
-                             uncached_site :: CHIRNSite)
-
-class TiledHostPlacement(coordinate :: MeshCoordinate,
-                         router :: NodeRef,
-                         node_id :: Nat,
-                         site :: CHIRNSite)
-
-class TiledLLCPlacement(index :: Nat,
-                        coordinate :: MeshCoordinate,
-                        router :: NodeRef,
-                        home_node_id :: Nat,
-                        slice_index :: Nat,
-                        home_site :: CHIRNICNSite,
-                        subordinate_site :: CHISNICNSite)
-
-class TiledMemoryPlacement(coordinate :: MeshCoordinate,
-                           router :: NodeRef,
-                           site :: CHISNSite)
-
-class TiledDeviceHomePlacement(coordinate :: MeshCoordinate,
-                               router :: NodeRef,
-                               node_id :: Nat,
-                               requester_site :: CHIRNICNSite,
-                               subordinate_site :: CHISNICNSite)
-
-class TiledBootROMPlacement(coordinate :: MeshCoordinate,
-                            router :: NodeRef,
-                            node_id :: Nat,
-                            site :: CHISNSite)
-
-class TiledAclintPlacement(coordinate :: MeshCoordinate,
-                           router :: NodeRef,
-                           node_id :: Nat,
-                           site :: CHISNSite)
-
-class TiledPlicPlacement(coordinate :: MeshCoordinate,
-                         router :: NodeRef,
-                         node_id :: Nat,
-                         site :: CHISNSite)
-
-class TiledUartPlacement(coordinate :: MeshCoordinate,
-                         router :: NodeRef,
-                         node_id :: Nat,
-                         site :: CHISNSite)
-
-class TiledTransitPlacement(index :: Nat,
-                            coordinate :: MeshCoordinate,
-                            router :: NodeRef)
-
-class TiledChannelFamilyPlans(req :: RouterFamilyPlan,
-                              rsp :: RouterFamilyPlan,
-                              snp :: RouterFamilyPlan,
-                              dat :: RouterFamilyPlan)
-
-class RV5StageTileInstance(placement :: TiledRV5StagePlacement,
-                           chi :: RV5StageCHIParams,
-                           tile_params :: RV5StageTileParams)
-
-class LLCTileInstance(placement :: TiledLLCPlacement,
-                      home_params :: CHIHNFParams,
-                      llc_config :: CHIInclusiveHNFConfig,
-                      address_set :: AddressSet,
-                      tile_params :: LLCTileParams)
-
-class MemoryTileInstance(placement :: TiledMemoryPlacement,
-                         node :: CHINodeParams,
-                         service :: CHISubordinateServiceParams,
-                         router_params :: CHIRouterParams)
-
-class HostTileInstance(placement :: TiledHostPlacement,
-                       node :: CHINodeParams,
-                       port :: CHIICNPortParams,
-                       tile_params :: HostTileParams)
-
-class DeviceHomeTileInstance(placement :: TiledDeviceHomePlacement,
-                             home :: CHIHomeParams,
-                             home_params :: CHIHNIParams,
-                             tile_params :: DeviceHomeTileParams)
-
-class BootROMInstance(placement :: TiledBootROMPlacement,
-                      device :: CHIBootROMParams)
-
-class AclintTileInstance(placement :: TiledAclintPlacement,
-                         device :: AclintParams,
-                         tile_params :: AclintTileParams)
-
-class PlicTileInstance(placement :: TiledPlicPlacement,
-                       device :: PlicParams,
-                       tile_params :: PlicTileParams)
-
-class UartTileInstance(placement :: TiledUartPlacement,
-                       device :: Uart16550Params,
-                       tile_params :: UartTileParams)
-
-class TransitTileInstance(placement :: TiledTransitPlacement,
-                          tile_params :: TransitTileParams)
-
-class TiledRV5StageSoCImplementation(config :: TiledRV5StageSoCConfig,
-                                     mesh :: RectangularMesh,
-                                     connections :: NonemptyList.of(CHIConnection),
-                                     compilations :: CHIChannelCompilations,
-                                     families :: TiledChannelFamilyPlans,
-                                     physical_plan :: RouterFamilyPhysicalPlan,
-                                     distribution :: TiledDistributionPlan,
-                                     node_ids :: NonemptyList.of(Nat),
-                                     flit :: CHIFlitParams,
-                                     home_map :: CHIHomeMap,
-                                     rv5stage_config :: RiscvHartCHIConfig,
-                                     address_layout :: StripedAddressLayout,
-                                     hnf_config :: CHIHNFConfig,
-                                     llc_config :: CHIInclusiveHNFConfig,
-                                     platform :: SoCPlatformParams,
-                                     router_configs :: CHIRouterFamilyConfigs,
-                                     rv5stages :: NonemptyList.of(RV5StageTileInstance),
-                                     llcs :: NonemptyList.of(LLCTileInstance),
-                                     memory :: MemoryTileInstance,
-                                     host :: HostTileInstance,
-                                     device_home :: DeviceHomeTileInstance,
-                                     bootrom :: BootROMInstance,
-                                     aclint :: AclintTileInstance,
-                                     plic :: PlicTileInstance,
-                                     uart :: UartTileInstance,
-                                     transits :: List.of(TransitTileInstance)):
-  implements StableCircuitParam
-
-  property host_services:
-    (for List (entry in home_map.entries.filter(~keep: fun (entry): entry.home.kind == CHINodeKind.HNF)):
-       soc_host_memory_service(entry.home, [entry.address_set], memory.service.requests)) ++ platform.host_services
-  property width :: PosInt: config.layout.width
-  property height :: PosInt: config.layout.height
-  property snp_compilation :: CHIChannelCompilation: compilations.snp
-
-  method site_key(router :: NodeRef) :: Nat:
-    physical_plan.site_key(compilations.req.network.router_id(router))
+  "compiled.rhdl" open
 
 fun require_tiled_node_id_width(node_ids :: NonemptyList.of(Nat),
                                 flit :: CHIFlitParams):
   for (node_id in node_ids):
     unless bits.length(node_id) <= flit.node_id_width
-    | error(~who: #'compile_tiled_rv5stage_soc, "TiledRV5StageSoC NodeID does not fit the CHI flit")
+    | error(~who: #'compile_tiled_soc, "TiledSoC NodeID does not fit the CHI flit")
 
 fun require_unique_tiled_node_ids(node_ids :: NonemptyList.of(Nat)):
   for (node_id in node_ids):
     if node_ids.filter(
       ~keep: fun (candidate): candidate == node_id
     ).length() > 1
-    | error(~who: #'compile_tiled_rv5stage_soc, "TiledRV5StageSoC NodeIDs must be unique")
+    | error(~who: #'compile_tiled_soc, "TiledSoC NodeIDs must be unique")
     | #void
 
-fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5StageSoCImplementation:
+fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def flit = config.flit
   def layout = config.layout
   def ids = config.node_ids
@@ -202,16 +58,16 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
                               layout.height,
                               [VCGroup("transport", 1)])
 
-  def rv5stage_placements:
-    for List (cell in layout.rv5stages,
-              index in 0..layout.rv5stages.length()):
+  def hart_placements:
+    for List (cell in layout.harts,
+              index in 0..layout.harts.length()):
       def coordinate = cell.coordinate
       def router = mesh.node_at(coordinate.x, coordinate.y)
-      def path = NamePath(["rv5stage", to_string(index)])
-      def instruction_node_id = ids.rv5stage_coherent_base + (index * 2)
+      def path = NamePath(["hart", to_string(index)])
+      def instruction_node_id = ids.hart_coherent_base + (index * 2)
       def data_node_id = instruction_node_id + 1
-      def uncached_node_id = ids.rv5stage_uncached_base + index
-      TiledRV5StagePlacement(
+      def uncached_node_id = ids.hart_uncached_base + index
+      TiledHartPlacement(
         index,
         coordinate,
         router,
@@ -313,9 +169,9 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
       )
 
   def mutable rnf_sites = [host_placement.site]
-  for (placement in rv5stage_placements):
+  for (placement in hart_placements):
     rnf_sites := rnf_sites ++ [placement.data_site]
-  def uncached_sites = rv5stage_placements.map(fun (placement): placement.uncached_site)
+  def uncached_sites = hart_placements.map(fun (placement): placement.uncached_site)
 
   def mutable connections = []
   for (requester in rnf_sites):
@@ -323,7 +179,7 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
       connections := connections ++ [CHIRNFConnection(requester, llc_placement.home_site)]
   for (placement in llc_placements):
     connections := connections ++ [CHISNConnection(placement.subordinate_site, memory_placement.site)]
-  for (placement in rv5stage_placements):
+  for (placement in hart_placements):
     connections := connections ++ [CHIRNIConnection(placement.instruction_site, device_home_placement.requester_site)]
     for (llc_placement in llc_placements):
       connections := connections ++ [CHIRNIConnection(placement.instruction_site, llc_placement.home_site)]
@@ -355,14 +211,14 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     mesh,
     aclint_placement.router,
     plic_placement.router,
-    rv5stage_placements.map(fun (placement): placement.router)
+    hart_placements.map(fun (placement): placement.router)
   )
 
-  def node_ids = rv5stage_placements.map(
+  def node_ids = hart_placements.map(
     fun (placement): placement.instruction_node_id
-  ) ++ rv5stage_placements.map(
+  ) ++ hart_placements.map(
     fun (placement): placement.data_node_id
-  ) ++ rv5stage_placements.map(
+  ) ++ hart_placements.map(
     fun (placement): placement.uncached_node_id
   ) ++ llc_placements.map(
     fun (placement): placement.home_node_id
@@ -395,9 +251,9 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
   def platform = config.platform_for(device_home)
 
   def memory_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true, ~cache_block_zero: #true)
-  def rv5stage_config = RiscvHartCHIConfig(
+  def hart_config = RiscvHartCHIConfig(
     flit,
-    RV5StageCacheLineBytes,
+    config.hart.cache_line_bytes,
     (for List (placement in llc_placements,
                home in homes):
        RiscvHartCHIRegion(
@@ -410,25 +266,25 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
   )
   unless for any (placement in llc_placements):
     address_layout.address_set(memory.base, placement.slice_index).contains(config.boot.payload_address)
-  | error(~who: #'compile_tiled_rv5stage_soc, "BootROM payload address must lie in normal memory")
+  | error(~who: #'compile_tiled_soc, "BootROM payload address must lie in normal memory")
 
-  def rv5stage_chi_params:
-    for List (placement in rv5stage_placements):
-      RV5StageCHIParams(rv5stage_config,
-                        placement.instruction_node_id,
-                        placement.data_node_id,
-                        ~uncached_node_id: placement.uncached_node_id)
+  def hart_chi_params:
+    for List (placement in hart_placements):
+      config.hart.chi_params(hart_config,
+                             placement.instruction_node_id,
+                             placement.data_node_id,
+                             placement.uncached_node_id)
   def mutable requester_ports = [soc_host_home_port(host_node, ~coherent: #true)]
-  for (params in rv5stage_chi_params):
+  for (params in hart_chi_params):
     requester_ports := requester_ports ++ [
       params.instruction_home_port(~coherent: #true),
       params.data_node.icn_peer()
     ]
-  def uncached_ports = rv5stage_chi_params.map(
+  def uncached_ports = hart_chi_params.map(
     fun (params): params.uncached_node.icn_peer()
   )
 
-  def instruction_device_ports = rv5stage_chi_params.map(fun (params): params.instruction_home_port(~coherent: #false))
+  def instruction_device_ports = hart_chi_params.map(fun (params): params.instruction_home_port(~coherent: #false))
   def device_home_params = platform.home_params(uncached_ports ++ [soc_host_home_port(host_node, ~coherent: #false)] ++ instruction_device_ports)
 
   def memory_node = CHINodeParams(
@@ -481,16 +337,16 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     physical_plan
   )
 
-  def rv5stage_router_params = CHIRouterParams(
+  def hart_router_params = CHIRouterParams(
     flit,
     router_configs,
     compile_chi_router_attachment_plan(
       router_configs,
       adapter_plans,
       CHIRouterAttachments(
-        ~rnf_sites: (for List (placement in rv5stage_placements):
+        ~rnf_sites: (for List (placement in hart_placements):
                       [placement.data_site]),
-        ~rni_sites: (for List (placement in rv5stage_placements):
+        ~rni_sites: (for List (placement in hart_placements):
                       [placement.instruction_site, placement.uncached_site])
       )
     )
@@ -569,25 +425,25 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     )
   )
 
-  def rv5stage_tile_params = RV5StageTileParams(rv5stage_config,
-                                                rv5stage_router_params,
-                                                rv5stage_placements.length(),
-                                                config.core_profile)
+  def hart_tile_params = HartTileParams(hart_config,
+                                        hart_router_params,
+                                        hart_placements.length(),
+                                        config.hart)
   def llc_tile_params = LLCTileParams(llc_config,
                                       llc_router_params)
   def device_home_tile_params = DeviceHomeTileParams(device_home_params, device_home_router_params)
   def aclint_tile_params = AclintTileParams(platform.aclint_config, aclint_router_params)
   def plic_tile_params = PlicTileParams(platform.plic_config,
                                         plic_router_params,
-                                        rv5stage_placements.length())
+                                        hart_placements.length())
   def uart_tile_params = UartTileParams(platform.uart_config, uart_router_params)
   def host_tile_params = HostTileParams(host_router_params)
   def transit_tile_params = TransitTileParams(transit_router_params)
 
-  def rv5stages:
-    for List (placement in rv5stage_placements,
-              params in rv5stage_chi_params):
-      RV5StageTileInstance(placement, params, rv5stage_tile_params)
+  def harts:
+    for List (placement in hart_placements,
+              params in hart_chi_params):
+      HartTileInstance(placement, params, hart_tile_params)
   def llcs:
     for List (placement in llc_placements,
               home in hnf_params):
@@ -607,7 +463,7 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     for List (placement in transit_placements):
       TransitTileInstance(placement, transit_tile_params)
 
-  TiledRV5StageSoCImplementation(
+  TiledSoCImplementation(
     config,
     mesh,
     connections,
@@ -617,14 +473,14 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
     distribution,
     node_ids,
     flit,
-    rv5stage_config.home_map,
-    rv5stage_config,
+    hart_config.home_map,
+    hart_config,
     address_layout,
     hnf_config,
     llc_config,
     platform,
     router_configs,
-    rv5stages,
+    harts,
     llcs,
     memory_instance,
     host,
@@ -637,7 +493,7 @@ fun compile_tiled_rv5stage_soc(config :: TiledRV5StageSoCConfig) :: TiledRV5Stag
   )
 
 export:
-  TiledRV5StagePlacement
+  TiledHartPlacement
   TiledHostPlacement
   TiledLLCPlacement
   TiledMemoryPlacement
@@ -648,7 +504,7 @@ export:
   TiledUartPlacement
   TiledTransitPlacement
   TiledChannelFamilyPlans
-  RV5StageTileInstance
+  HartTileInstance
   LLCTileInstance
   MemoryTileInstance
   HostTileInstance
@@ -658,5 +514,5 @@ export:
   PlicTileInstance
   UartTileInstance
   TransitTileInstance
-  TiledRV5StageSoCImplementation
-  compile_tiled_rv5stage_soc
+  TiledSoCImplementation
+  compile_tiled_soc

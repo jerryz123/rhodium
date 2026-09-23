@@ -7,8 +7,16 @@
 configuration for the simulator-backed core. Its
 `hart_description` projection uses the same implementation-neutral
 [`RiscvHartDescription`](../../riscv/isa/hart.rhm) consumed by SoC and
-device-tree code. The configuration derives Spike's ISA and privilege strings,
-and separately owns instructions-per-cycle and PMP implementation parameters.
+device-tree code. The configuration derives Spike's ISA, privilege, and
+Bare/Sv39 MMU settings. It separately owns the maximum retired instructions per
+simulated cycle and PMP implementation parameters.
+`max_retired_instructions_per_cycle` defaults
+to one; increasing it accelerates cached execution while memory and coherence
+transactions can still yield the model before that maximum is reached.
+
+The default SoC specialization enables Zihpm with 29 read-only-zero HPM counters
+and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits
+are also read-only zero; only the base counter-control bits remain writable.
 
 [`spike.rhdl`](spike.rhdl) exposes the same architectural inputs and independent
 instruction, coherent-data, and uncached CHI ports used by a RISC-V hart. The
@@ -24,6 +32,11 @@ instruction-only noncoherent regions remain executable but are read through the
 uncached CHI port. Snoop service remains live while Spike is waiting on another
 transaction.
 
-This is a standalone core boundary. It is deliberately not selectable from a
-SoC yet; SoC generalization follows only after this adapter has a complete
-end-to-end harness.
+[`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
+to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and
+host interface used by the hardware implementation. The shared
+[`simulation harness`](../../sims/single-core-soc-harness.rhdl) supplies external
+CHI memory, and the Spike simulator build links its runtime. Normal FESVR ELF loading and
+`tohost`/`fromhost` termination exercise the complete SoC path. The Spike core
+and any SoC containing it remain simulation-only because the core boundary
+contains DPI calls.

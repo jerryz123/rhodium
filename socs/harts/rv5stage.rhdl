@@ -1,0 +1,18 @@
+#lang rhodium
+// Adapts an RV5Stage profile to the core-neutral SoC hart contract.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/rv5stage/profile.rhm") open
+  lib("cores/rv5stage/chi/foundation.rhdl").rv5stage_chi_params
+  lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
+  "implementation.rhdl".RiscvHartImplementation
+
+fun rv5stage_hart(profile :: RV5StageConfig) :: RiscvHartImplementation:
+  RiscvHartImplementation("RV5Stage", "rv5stage", profile, profile.hart_description, RV5StageCacheLineBytes,
+                          rv5stage_chi_params,
+                          fun (selected, reset_address, chi):
+                            RV5Stage(selected, ~reset_address: reset_address, ~chi: chi))
+
+export:
+  rv5stage_hart

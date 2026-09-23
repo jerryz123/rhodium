@@ -6,8 +6,8 @@ import:
   lib("noc/authoring/main.rhm").VCGroup
   lib("noc/std/topology/main.rhm").rectangular_mesh
   lib("flow/main.rhdl") open
-  "../tiled-rv5stage-soc/distribution.rhdl" open
-  "../tiled-rv5stage-soc/time.rhdl" open
+  "../tiled-soc/distribution.rhdl" open
+  "../tiled-soc/time.rhdl" open
 
 def DistributionHartCount = 2
 def distribution_mesh = rectangular_mesh(2, 2, [VCGroup("transport", 1)])

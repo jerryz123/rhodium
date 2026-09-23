@@ -1,0 +1,37 @@
+#lang rhodium
+// Supplies FESVR, external memory, UART, and trace boundaries to any shared single-core SoC binding.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("rhodium/frontend/kernel.rhm").CircuitDefinition
+  lib("chi/subordinate/memory-controller.rhdl") open
+  lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
+  lib("socs/one-hart/system.rhdl").SingleCoreSoCParams
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
+  "fesvr/direct-memory-htif.rhdl".FesvrRequester
+  lib("flow/event.rhdl") open
+
+sync_circuit SoCHarness(params :: SingleCoreSoCParams,
+                        soc_module :: CircuitDefinition,
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
+  output exit: Bits(32)
+
+  def fabric = params.fabric
+  inst requester(FesvrRequester(params.hart_description.xlen, fabric.flit, fabric.host_node, fabric.home_map, fabric.hart_config.physical_map, fabric.host_services, fabric.boot.boot_address_register))
+  inst soc(soc_module)
+  inst uart(UartDPI(0, uart_oversample_divisor))
+  inst memory(CHIDPIMemory(CHIRamConfig(fabric.flit, fabric.memory_bytes, ~max_outstanding: fabric.memory_port.max_outstanding, ~max_transfer_bytes: 64), 0))
+
+  requester.port <=> soc.host.memory
+  uart.uart_tx <== soc.uart.tx
+  soc.uart.rx <== uart.uart_rx
+  soc.memory.req |> trace_event("memory-request", ~payload: #true) |> trace_event("memory-accept", ~payload: #true) |> memory.port.req
+  memory.port.rsp |> trace_event("memory-response", ~payload: #true) |> trace_event("soc-response", ~payload: #true) |> soc.memory.rsp
+  soc.memory.dat <=> memory.port.dat
+  memory.identity <== CHIRamIdentity(fabric.flit):
+    node_id: bits(fabric.memory_port.node_id, fabric.flit.node_id_width)
+    base_address: bits(fabric.memory_base, fabric.flit.request_address_width)
+  exit <== requester.exit
+
+export:
+  SoCHarness

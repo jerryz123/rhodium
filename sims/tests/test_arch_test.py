@@ -43,7 +43,8 @@ def sail_default():
     return {
         "extensions": {
             "F": {"supported": False}, "D": {"supported": False},
-            "Svade": {"supported": False},
+            "Svade": {"supported": False}, "Zihpm": {"supported": False},
+            "Zicfilp": {"supported": False}, "Zicfiss": {"supported": False},
             "V": {
                 "support_level": "Disabled", "vlen_exp": 3, "elen_exp": 3,
                 "reserved_behavior": {"illegal_vtype": "IllegalVtype_SetVill",
@@ -70,7 +71,8 @@ def sail_default():
              "size": {"len": 64, "value": "0x10000000"},
              "attributes": {"mem_type": "IO", "cacheable": False, "supports_cbo_zero": True}},
         ]},
-        "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9},
+        "platform": {"reservation": {"reservation_set_size_exp": 3}, "cache_block_size_exp": 9,
+                     "archid": 0, "impid": 0, "vendorid": 0},
     }
 
 
@@ -104,6 +106,36 @@ def vector_udb():
 
 
 class ArchTestConfigTest(unittest.TestCase):
+    def test_spike_pmp_projection_preserves_entry_count_and_granularity(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        params = architecture_params(asid_width=16)
+        params.update(NUM_PMP_ENTRIES=16, NUM_USABLE_PMP_ENTRIES=16, PMP_GRANULARITY=2,
+                      PMP_NA4_SUPPORTED=True, PMP_NAPOT_SUPPORTED=True, PMP_TOR_SUPPORTED=True,
+                      MCOUNTENABLE_EN=[True] * 3 + [False] * 29,
+                      SCOUNTENABLE_EN=[True] * 3 + [False] * 29,
+                      MARCHID_IMPLEMENTED=True, ARCH_ID_VALUE=5,
+                      MIMPID_IMPLEMENTED=True, IMP_ID_VALUE=7,
+                      VENDOR_ID_BANK=2, VENDOR_ID_OFFSET=3)
+        udb = {"params": params, "implemented_extensions": [
+            {"name": "Sm", "version": "= 1.13.0"},
+            {"name": "Zihpm", "version": "= 2.0"},
+        ]}
+        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        self.assertEqual(config["memory"]["pmp"], {
+            "count": 16, "usable_count": 16, "grain": 0, "na4_supported": True,
+            "napot_supported": True, "tor_supported": True,
+        })
+        self.assertEqual(config["memory"]["asidlen"], 16)
+        self.assertEqual(config["platform"]["archid"], 5)
+        self.assertEqual(config["platform"]["impid"], 7)
+        self.assertEqual(config["platform"]["vendorid"], (2 << 7) | 3)
+        self.assertEqual(config["base"]["privileged_isa_version"], "Privileged_ISA_1_13")
+        self.assertIs(config["extensions"]["Zihpm"]["supported"], True)
+        self.assertEqual(config["base"]["writable_hpm_counters"], {"len": 32, "value": "0x0"})
+        self.assertEqual(config["base"]["mcounteren_writable_bits"], {"len": 32, "value": "0x7"})
+        self.assertEqual(config["base"]["scounteren_writable_bits"], {"len": 32, "value": "0x7"})
+        self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
+
     def test_configuration_includes_privileged_tests(self):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
         configure = importlib.util.module_from_spec(spec)
@@ -111,6 +143,17 @@ class ArchTestConfigTest(unittest.TestCase):
         config = configure.test_config("single-core-rv5stage-soc", "gcc", "objdump", "/tmp/sail", "/tmp/udb.yaml")
         self.assertIs(config["include_priv_tests"], True)
         self.assertEqual(config["udb_config"], str(Path("/tmp/udb.yaml").resolve()))
+
+    def test_software_check_delegation_requires_a_cfi_extension(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        for extension in ("Zicfilp", "Zicfiss"):
+            udb = {"params": architecture_params(), "implemented_extensions": [
+                {"name": "Sm", "version": "= 1.13.0"},
+                {"name": extension, "version": "= 1.0.0"},
+            ]}
+            with self.subTest(extension=extension):
+                config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+                self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
 
     def test_architecture_settings_come_from_core_profile(self):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
@@ -153,7 +196,7 @@ class ArchTestConfigTest(unittest.TestCase):
                 self.assertIs(config["extensions"]["Svade"]["supported"], svade)
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
-                self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0xcb3ff)
+                self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
 
     def test_vector_settings_come_from_core_profile(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))

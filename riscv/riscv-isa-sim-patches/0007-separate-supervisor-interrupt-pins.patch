@@ -1,0 +1,42 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Separate supervisor interrupt pins from writable mip state
+Purpose: Keeps external supervisor interrupt levels from erasing CSR writes.
+SPDX-License-Identifier: Apache-2.0
+
+An embedded hart may receive SSIP and STIP as external levels while software
+also writes those mip bits. Keep the external levels as a read-only overlay so
+the simulator can clear a pin without clearing software's pending state.
+
+diff --git a/riscv/csrs.h b/riscv/csrs.h
+--- a/riscv/csrs.h
++++ b/riscv/csrs.h
+@@ -394,5 +394,8 @@ class mip_csr_t: public mip_or_mie_csr_t {
+   // Does not log. Used by external things (clint) that wiggle bits in mip.
+   void backdoor_write_with_mask(const reg_t mask, const reg_t val) noexcept;
++  // External interrupt levels must not overwrite software-writable mip bits.
++  void set_external_pending_with_mask(const reg_t mask, const reg_t val) noexcept;
+  private:
+   virtual reg_t write_mask() const noexcept override;
++  reg_t external_pending = 0;
+ };
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -960,6 +960,6 @@ void mip_csr_t::write_with_mask(const reg_t mask, const reg_t val) noexcept {
+ }
+ 
+ reg_t mip_csr_t::read() const noexcept {
+-  return val | state->hvip->basic_csr_t::read() | ((state->mvien->read() & MIP_SEIP) ? 0 : (state->mvip->basic_csr_t::read() & MIP_SEIP));
++  return val | external_pending | state->hvip->basic_csr_t::read() | ((state->mvien->read() & MIP_SEIP) ? 0 : (state->mvip->basic_csr_t::read() & MIP_SEIP));
+ }
+ 
+@@ -967,4 +967,8 @@ void mip_csr_t::backdoor_write_with_mask(const reg_t mask, const reg_t val) noexcept {
+   this->val = (this->val & ~mask) | (val & mask);
+ }
+ 
++void mip_csr_t::set_external_pending_with_mask(const reg_t mask, const reg_t val) noexcept {
++  external_pending = (external_pending & ~mask) | (val & mask);
++}
++
+ reg_t mip_csr_t::write_mask() const noexcept {

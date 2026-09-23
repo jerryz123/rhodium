@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 OPENSBI_SOURCE ?= $(REPO_DIR)/riscv/opensbi
 OPENSBI_BUILD_ROOT ?= /tmp/rhodium-software
-OPENSBI_OUTPUT := $(OPENSBI_BUILD_ROOT)/$(SOC)/opensbi
+OPENSBI_OUTPUT := $(OPENSBI_BUILD_ROOT)/$(SOC_ID)/opensbi
 OPENSBI_LAYOUT := $(OPENSBI_OUTPUT)/layout.json
 OPENSBI_FDT := $(OPENSBI_OUTPUT)/platform.dtb
 OPENSBI_FIRMWARE := $(OPENSBI_OUTPUT)/fw_jump.elf
@@ -25,7 +25,7 @@ $(OPENSBI_LAYOUT): $(PROGRAM_TARGET) $(OPENSBI_SCRIPT)
 $(OPENSBI_FDT): $(OPENSBI_FDT_SCRIPT) $(SIMULATOR_SOURCES)
 	mkdir -p "$(OPENSBI_OUTPUT)"
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" \
-	  sims/opensbi/write-device-tree.rhm "$(SOC)" "$(abspath $@)"
+	  sims/opensbi/write-device-tree.rhm $(PROGRAM_TARGET_SELECTION) "$(abspath $@)"
 
 opensbi-firmware: $(OPENSBI_LAYOUT) $(OPENSBI_FDT) $(OPENSBI_SCRIPT)
 	@test -f "$(OPENSBI_SOURCE)/Makefile" || \
@@ -52,7 +52,7 @@ opensbi-run: opensbi-firmware simulator-attestation
 	  "$(OPENSBI_FIRMWARE)"
 
 opensbi-test: $(OPENSBI_SMOKE)
-	$(MAKE) opensbi-run SOC="$(SOC)" TRACE="$(TRACE)" PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
+	$(MAKE) opensbi-run SOC="$(SOC)" CORE="$(CORE)" TRACE="$(TRACE)" PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
 	  BUILD_ROOT="$(BUILD_ROOT)" PROGRAM_TARGET="$(PROGRAM_TARGET)" NEXT_STAGE="$(OPENSBI_SMOKE)" \
 	  OPENSBI_BUILD_ROOT="$(OPENSBI_BUILD_ROOT)" OPENSBI_MAX_CYCLES="$(OPENSBI_MAX_CYCLES)" \
 	  OPENSBI_LLVM="$(OPENSBI_LLVM)"

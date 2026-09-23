@@ -9,22 +9,28 @@ placement, build artifacts, bindings, and contributor validation.
 
 ## Architecture and ownership
 
-Simulation consumes a synthesizable [`socs/`](../socs/README.md) composition
-and supplies a parameterless top, coherent FESVR requester, optional
+Simulation consumes a [`socs/`](../socs/README.md) composition and supplies a
+parameterless top, coherent FESVR requester, optional
 simulation-only memory, clock/reset driver, Verilator binding, and target
 execution. Keep processor, device, CHI, NoC, and synthesizable-memory policy in
 their owning packages. Keep DPI and target-loader behavior out of SoCs.
 
+RV5Stage products contain synthesizable harts. Every Spike product contains
+the simulation-only `SpikeCore` DPI boundary while retaining the selected
+SoC shape's coherent fabric and platform contract.
+
 Import the CHI owners used by each simulator component directly. FESVR consumes
-wire, channel, service, and message contracts; the SingleCoreRV5StageSoC harness explicitly
-imports `chi/subordinate/memory-controller.rhdl` and `chi/subordinate/dpi-memory.rhdl`. Neither needs the
+wire, channel, service, and message contracts; the shared single-core harness
+explicitly imports `chi/subordinate/memory-controller.rhdl` and
+`chi/subordinate/dpi-memory.rhdl`. Neither needs the
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `SOC` selection maps to one harness module and one isolated build
-directory. The shared emitter loads only that module and every variant exports
-the same `SoCHarness` top contract. Preserve this isolation so switching
-systems cannot reuse another system's generated RTL.
+Each `(SOC, CORE)` selection has an isolated build directory. The host emitter
+selects a hart binding and specializes one of three shape-owned harnesses;
+test-only module paths remain available for focused fixtures. Every selection
+emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
+target identities so switching either axis cannot reuse another simulator.
 
 ## Implementation map
 
@@ -32,7 +38,8 @@ systems cannot reuse another system's generated RTL.
 |---|---|
 | Build graph, tools, variants, and artifacts | [`Makefile`](Makefile) |
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
-| System-specific parameterless tops | [`single-core-rv5stage-soc-harness.rhdl`](single-core-rv5stage-soc-harness.rhdl), [`mini-rv5stage-soc-harness.rhdl`](mini-rv5stage-soc-harness.rhdl), [`tiled-rv5stage-soc-harness.rhdl`](tiled-rv5stage-soc-harness.rhdl) |
+| Shared external-memory single-core execution harness | [`single-core-soc-harness.rhdl`](single-core-soc-harness.rhdl) |
+| Distinct internal-RAM and tiled harness circuits | [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
 | Direct-memory FESVR transport and CHI requester | [`fesvr/`](fesvr/) |
 | Pinned upstream FESVR and shared downstream patches | [`../riscv/riscv-isa-sim/`](../riscv/riscv-isa-sim/), [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
@@ -69,8 +76,8 @@ Validate both ordinary and `+load-through-chi` execution when changing loading.
 1. Keep the SoC instance and its hardware parameters in `socs/`; add only the
    parameterless execution wrapper and simulation-owned models here.
 2. Preserve `SoCHarness` as the common generated top so `TestDriver.v` remains
-   shared. Map the new `SOC` value to one explicit source rather than importing
-   every system and selecting in hardware.
+   shared. Select a single-core binding in the host emitter or map the new
+   `SOC` value to a harness module. Load only the selected system.
 3. Give the variant a distinct build directory and declare every source,
    binding, header, and external library needed by that harness.
 4. Keep FESVR's ELF loading and `tohost`/`fromhost` behavior in the host
@@ -96,7 +103,7 @@ reuses the ordinary MMIO regression, and checks
 exact occurrence parents through fragmented reads/writes, errors, stalls, and
 pending reset. Its service configuration lives in `tests/fesvr-mmio-fixture.rhdl`.
 
-The SingleCoreRV5StageSoC harness owns transparent external-memory checkpoints. Keep them
+The shared single-core harness owns transparent external-memory checkpoints. Keep them
 outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
 elaboration, and `materialize-event-harness.rkt` saves its matching descriptor
 and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
@@ -313,7 +320,7 @@ its page tables inside its 64-KiB RAM and uses word-aligned boundary starts;
 the compressed-enabled systems use halfword starts. The payload checks `misa.C`
 against the selected alignment, and the linker rejects out-of-RAM placement.
 
-SingleCoreRV5StageSoC and MiniRV5StageSoC use their ordinary harnesses. `tests/lrsc-tiled-rv5stage-soc-harness.rhdl` changes
+SingleCoreRV5StageSoC and MiniRV5StageSoC use their ordinary harnesses. `tests/lrsc-tiled-soc-harness.rhdl` changes
 only the production ROM's secondary-hart filter to a NOP. Every hart still
 waits for the normal FESVR post-loading entry publication. Do not replace the
 cores, Home slices, routers, translation, cache geometry, or FESVR transport
@@ -368,10 +375,15 @@ coverage.
 
 `program-test/write-target.rhm` projects the existing concrete SoC description
 to the workload adapters; do not duplicate ISA or RAM constants in Python.
-SingleCoreRV5StageSoC owns the complete supported ISA inventory, benchmarks,
-CoreMark, Embench-IoT, and ACT. MiniRV5StageSoC and TiledRV5StageSoC use
-capability-filtered ISA smoke. This coverage assignment is test policy, not
-hardware metadata; do not add a suite category to an SoC or core configuration.
+SingleCoreSpikeSoC owns the complete profile-selected ISA inventory,
+benchmarks, CoreMark, and Embench-IoT so broad software coverage uses the fast
+reference hart. Both single-core SoCs own independent ACT configurations:
+Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
+its own projection. Each Sail configuration and generated ELF inventory must
+match the implementation under test.
+MiniRV5StageSoC and TiledSoC use capability-filtered ISA smoke. This
+coverage assignment is test policy, not hardware metadata; do not add a suite
+category to an SoC or core configuration.
 `ISA_GROUPS` maps target capabilities to upstream physical-environment
 inventories, and `SMOKE_TESTS`
 selects fixed representative tests from those applicable groups. Both modes
@@ -382,9 +394,11 @@ cache key. Validate every selected ELF's physical PT_LOAD ranges (using
 including on cache reuse. Physical ISA tests have no dynamic stack; adding C
 workloads requires an explicit stack/linker contract.
 
-The simulation CI job reuses its MiniRV5StageSoC and TiledRV5StageSoC executables for
-`isa-smoke`, attempts both targets even if one fails, and uploads independent
-results. Changes to the adapter or upstream ISA sources must select that job.
+The simulation CI job reuses its downloaded SingleCoreRV5StageSoC and
+SingleCoreSpikeSoC executables for generic platform checks, and its
+MiniRV5StageSoC and TiledSoC executables for `isa-smoke`. It attempts
+both smoke targets even if one fails and uploads independent results. Changes
+to the adapter or upstream ISA sources must select that job.
 
 `program-test/run.py` owns ISA, benchmark, CoreMark, and Embench-IoT process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
@@ -402,11 +416,13 @@ summary against the full generated inventory. Never interpret an empty or partia
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.
 
-ACT generation runs once in CI, separately from the native simulator build. It
-publishes a checksum-verified archive with dereferenced ELF contents, so reference
-build paths and upstream symlinks cannot leak into consumers. Four execution jobs
-need only the native simulator, Python, and upstream runner, not Sail, Ruby, Racket,
-or a compiler. `arch-test/shard.py` takes every sorted generated ELF and partitions
+ACT generation runs once per single-core configuration in CI, separately from
+the native simulator builds. It publishes a checksum-verified archive with
+dereferenced ELF contents, so reference build paths and upstream symlinks
+cannot leak into consumers. Four execution jobs per configuration
+need only the native simulator, Python, and upstream runner, plus the pinned
+Spike shared libraries for Spike shards—not Sail, Ruby, Racket, or a compiler.
+`arch-test/shard.py` takes every sorted generated ELF and partitions
 by index modulo shard count. Its tests enforce disjoint full coverage and safe
 replacement of stale shard links. Shard inventories and results are artifacts;
 all four matrix jobs must complete to claim full execution coverage.
@@ -417,7 +433,8 @@ build prerequisites and verifies commit, platform, SoC, and binary hash before
 execution; missing artifacts must fail rather than silently build a replacement.
 `artifact.py record` is run immediately after a successful simulator build in
 the clean CI checkout. The executable uses statically linked FESVR and standard
-Ubuntu runtime libraries; all producer/consumer jobs use the same runner image.
+Ubuntu runtime libraries; Spike additionally needs its pinned shared libraries
+at the producer's runtime path. All producer/consumer jobs use the same runner image.
 
 Keep tool downloads checksum-pinned and update compiler/ACT/Sail compatibility
 together. Cache ACT reference products using generated configuration content,
@@ -444,6 +461,7 @@ Run the end-to-end execution path for each supported system with:
 
 ```sh
 make -C sims smoke SOC=single-core-rv5stage-soc
+make -C sims smoke SOC=single-core-spike-soc
 make -C sims smoke SOC=mini-rv5stage-soc
 make -C sims smoke SOC=tiled-rv5stage-soc
 make -C sims host-mmio-test SOC=single-core-rv5stage-soc
@@ -483,7 +501,7 @@ and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
-`make -C sims tiled-memory-test` builds a separate TiledRV5StageSoC harness specialization
+`make -C sims tiled-memory-test` builds a separate TiledSoC harness specialization
 with independent REQ, RSP, write-DAT, and read-DAT stalls. Its target payload
 dirty-evicts and refills a 64 KiB footprint across every LLC slice, checks the
 last architectural memory line, and exits through FESVR. Harness assertions
@@ -522,8 +540,8 @@ line coherently after the program exits:
 make -C sims zicboz-test SOC=single-core-rv5stage-soc
 ```
 
-`zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through the
-checked-in SingleCoreRV5StageSoC harness only. The payload's conflict bank is intentionally
+`zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through the RV5Stage
+specialization of the shared single-core harness only. The payload's conflict bank is intentionally
 matched to SingleCoreRV5StageSoC's 64-set, four-way L1D profile; changing that profile
 requires revisiting this test rather than silently reusing it for another SoC.
 It calibrates warm and cold accesses on the running system, then compares minima
@@ -538,5 +556,5 @@ otherwise pass. The payload selects S-mode Sv39 data
 translation through MPRV while executing in M-mode; test addresses are virtual
 aliases outside the physical RAM window, so bypassing translation cannot pass.
 It needs no supervisor runtime. Compressed and FP subcases are selected from
-`misa`. MiniRV5StageSoC and TiledRV5StageSoC may enable Zihintntl but are not covered by this
+`misa`. MiniRV5StageSoC and TiledSoC may enable Zihintntl but are not covered by this
 geometry-specific end-to-end target.

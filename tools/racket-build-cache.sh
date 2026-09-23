@@ -183,7 +183,11 @@ workspace_lock="$workspace_entry.lock"
 
 write_source_manifest() {
   git -C "$repo_dir" ls-files --cached --others --exclude-standard -- \
-    '*.rkt' '*.rhm' '*.rhdl' | LC_ALL=C sort -u
+    '*.rkt' '*.rhm' '*.rhdl' | LC_ALL=C sort -u | while IFS= read -r source; do
+      if [[ -f "$repo_dir/$source" ]]; then
+        printf '%s\n' "$source"
+      fi
+    done
 }
 
 write_content_manifest() {

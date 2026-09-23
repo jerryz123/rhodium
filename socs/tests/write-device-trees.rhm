@@ -4,9 +4,13 @@
 
 import:
   rhombus/cmdline open
-  "../single-core-rv5stage-soc.rhdl" as single_core
-  "../mini-rv5stage-soc.rhdl" as mini_rv5stage
-  "../tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage
+  "../products/single-core-rv5stage-soc.rhdl" as single_core
+  "../products/single-core-spike-soc.rhdl" as spike
+  "../products/mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../products/tiled-rv5stage.rhdl" as tiled_rv5stage
+  "../mini-soc/main.rhdl" as mini
+  "../tiled-soc/main.rhdl" as tiled
+  "../products/hart-selection.rhm".soc_hart
 
 def arguments = current_command_line()
 unless arguments.length() == 1
@@ -15,8 +19,11 @@ unless arguments.length() == 1
 def output_directory = arguments[0]
 def trees = [
   ["single-core-rv5stage-soc", single_core.single_core_rv5stage_soc_params.description.to_device_tree()],
+  ["single-core-spike-soc", spike.single_core_spike_soc_params.description.to_device_tree()],
   ["mini-rv5stage-soc", mini_rv5stage.mini_rv5stage_soc_params.description.to_device_tree()],
-  ["tiled-rv5stage-soc", tiled_rv5stage.default_tiled_rv5stage_soc_config.description.to_device_tree()]
+  ["tiled-rv5stage-soc", tiled_rv5stage.default_tiled_soc_config.description.to_device_tree()],
+  ["mini-spike-soc", mini.mini_soc_config(soc_hart("mini", "spike")).description.to_device_tree()],
+  ["tiled-spike-soc", tiled.tiled_soc_config(soc_hart("tiled", "spike")).description.to_device_tree()]
 ]
 
 for (entry in trees):

@@ -494,19 +494,19 @@ Before the progress cases, the same bench executes a self-modifying-code
 program: warm an instruction line, modify it through the core's dirty data
 cache, execute `FENCE.I`, and call the updated code.
 The [SoC qualification](../../sims/DEVELOPING.md#lrsc-system-qualification)
-adds real MiniRV5StageSoC, SingleCoreRV5StageSoC, and eight-hart TiledRV5StageSoC memory paths through normal FESVR.
+adds real MiniRV5StageSoC, SingleCoreRV5StageSoC, and eight-hart TiledSoC/RV5Stage memory paths through normal FESVR.
 The expanded qualification passed on 2026-09-08 against `d78ce435` production
 RTL: 108/108 core cases, all three FENCE.I checks, 12/12 SingleCoreRV5StageSoC placements,
-12/12 eight-hart TiledRV5StageSoC placements, and 81/81 concrete memory-map checks.
+12/12 eight-hart TiledSoC/RV5Stage placements, and 81/81 concrete memory-map checks.
 MiniRV5StageSoC subsequently passed 12/12 placements on the same date through its
 ordinary harness and forwarding HN-F/internal CHI RAM. Its compressed-disabled
 profile uses word-aligned page-boundary starts and page tables inside its
 64-KiB RAM; the six placements still cover LR.W/SC.W and LR.D/SC.D in both
-Bare and Sv39. The adapted shared payload also passed all 24 SingleCoreRV5StageSoC/TiledRV5StageSoC
+Bare and Sv39. The adapted shared payload also passed all 24 SingleCoreRV5StageSoC/TiledSoC-RV5Stage
 placements on their previously qualified simulators.
 Only qualification fixtures, payloads, build targets, and documentation
 changed; no further production RTL fix was required for this matrix.
-MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledRV5StageSoC now enable the explicit `ziccrse` profile claim;
+MiniRV5StageSoC, SingleCoreRV5StageSoC, and the TiledSoC RV5Stage configuration now enable the explicit `ziccrse` profile claim;
 generic profiles remain opt-out. Preserve the matrix as a regression
 gate when changing fetch, translation, reservations, or coherence arbitration.
 Do not enable another integration from cache-only results or treat this bounded

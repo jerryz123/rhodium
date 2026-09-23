@@ -7,8 +7,8 @@ import:
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../devices/boot/bootrom-image.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
-  "../boot.rhdl" as boot
-  "../description.rhm" open
+  "../platform/boot.rhdl" as boot
+  "../platform/description.rhm" open
   "boot-fixture.rhdl" as fixture
 
 def tiny_boot = boot.SoCBootConfig(

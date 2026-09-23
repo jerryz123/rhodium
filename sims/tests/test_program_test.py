@@ -619,7 +619,8 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary.write_bytes(b'test binary')
             subprocess.run([sys.executable, str(SCRIPTS / 'artifact.py'), 'record',
                             '--binary', str(binary), '--soc', 'single-core-rv5stage-soc'], check=True)
-            command = ['make', '-C', str(SCRIPTS.parent), 'simulator', f'PREBUILT_SIMULATOR={binary}',
+            command = ['make', '-C', str(SCRIPTS.parent), 'simulator', 'SOC=single-core-rv5stage-soc',
+                       f'PREBUILT_SIMULATOR={binary}',
                        f'PYTHON={sys.executable}', 'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false']
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
             self.assertNotEqual(subprocess.run(command + ['SOC=tiled-rv5stage-soc'], capture_output=True).returncode, 0)

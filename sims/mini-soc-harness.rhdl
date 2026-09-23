@@ -1,0 +1,24 @@
+#lang rhodium
+// Supplies FESVR and UART to the compact internal-memory SoC for either hart implementation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("socs/mini-soc/main.rhdl") open
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
+  "fesvr/direct-memory-htif.rhdl".FesvrRequester
+
+sync_circuit SoCHarness(config :: MiniSoCConfig,
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
+  output exit: Bits(32)
+  def fabric = config.fabric
+  inst requester(FesvrRequester(config.hart.description.xlen, fabric.flit, fabric.host_node, fabric.home_map, fabric.hart_config.physical_map, fabric.host_services, fabric.boot.boot_address_register))
+  inst soc(MiniSoC(config))
+  inst uart(UartDPI(0, uart_oversample_divisor))
+
+  requester.port <=> soc.host.memory
+  uart.uart_tx <== soc.uart.tx
+  soc.uart.rx <== uart.uart_rx
+  exit <== requester.exit
+
+export:
+  SoCHarness

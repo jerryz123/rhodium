@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the author-facing TiledRV5StageSoC layout, NodeIDs, boot policy, and immutable configuration.
+// Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,13 +11,13 @@ import:
   "../../rhodium/std/bits.rhdl".Pow2Int
   "../../rhodium/std/interconnect.rhdl".AddressSet
   "../../rhodium/frontend/foundation.rhm".StableCircuitParam
-  "../../cores/rv5stage/profile.rhm".RV5StageConfig
-  "../boot.rhdl" open
-  "../description.rhm" open
-  "../peripherals.rhdl".SoCPlatformParams
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../platform/boot.rhdl" open
+  "../platform/description.rhm" open
+  "../platform/peripherals.rhdl".SoCPlatformParams
 
 export:
-  RV5StageTileSpec
+  HartTileSpec
   LLCTileSpec
   MemoryTileSpec
   HostTileSpec
@@ -32,8 +32,8 @@ export:
   TiledNodeIds
   StripedMemory
   LLCGeometry
-  TiledRV5StageSoCConfig
-  rv5stage_tile
+  TiledSoCConfig
+  hart_tile
   llc_tile
   memory_tile
   host_tile
@@ -45,7 +45,7 @@ export:
   repeat_tiled_tile
   tile_grid
 
-class RV5StageTileSpec()
+class HartTileSpec()
 class LLCTileSpec()
 class MemoryTileSpec()
 class HostTileSpec()
@@ -56,9 +56,9 @@ class UartTileSpec()
 class TransitTileSpec()
 
 annot.macro 'TiledTileSpec':
-  'RV5StageTileSpec || LLCTileSpec || MemoryTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
+  'HartTileSpec || LLCTileSpec || MemoryTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
 
-def rv5stage_tile = RV5StageTileSpec()
+def hart_tile = HartTileSpec()
 def llc_tile = LLCTileSpec()
 def memory_tile = MemoryTileSpec()
 def host_tile = HostTileSpec()
@@ -90,8 +90,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
   property height :: PosInt: rows.length()
   property cells :: NonemptyList.of(TiledTileCell):
     tiled_tile_cells(rows, width, height)
-  property rv5stages:
-    cells.filter(~keep: fun (cell): cell.tile is_a RV5StageTileSpec)
+  property harts:
+    cells.filter(~keep: fun (cell): cell.tile is_a HartTileSpec)
   property llcs:
     cells.filter(~keep: fun (cell): cell.tile is_a LLCTileSpec)
   property memories:
@@ -118,15 +118,15 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
         unless tile is_a TiledTileSpec
         | error(~who: #'TileGrid, "tile-grid cells must contain tile specifications")
     def cells = tiled_tile_cells(rows, width, rows.length())
-    def rv5stage_count = cells.filter(~keep: fun (cell): cell.tile is_a RV5StageTileSpec).length()
+    def hart_count = cells.filter(~keep: fun (cell): cell.tile is_a HartTileSpec).length()
     def llc_count = cells.filter(~keep: fun (cell): cell.tile is_a LLCTileSpec).length()
     def host_count = cells.filter(~keep: fun (cell): cell.tile is_a HostTileSpec).length()
     def device_home_count = cells.filter(~keep: fun (cell): cell.tile is_a DeviceHomeTileSpec).length()
     def aclint_count = cells.filter(~keep: fun (cell): cell.tile is_a AclintTileSpec).length()
     def plic_count = cells.filter(~keep: fun (cell): cell.tile is_a PlicTileSpec).length()
     def uart_count = cells.filter(~keep: fun (cell): cell.tile is_a UartTileSpec).length()
-    unless rv5stage_count > 0
-    | error(~who: #'TileGrid, "tile grid requires at least one RV5Stage tile")
+    unless hart_count > 0
+    | error(~who: #'TileGrid, "tile grid requires at least one hart tile")
     unless llc_count > 0
     | error(~who: #'TileGrid, "tile grid requires at least one LLC tile")
     unless host_count == 1
@@ -148,8 +148,8 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     | error(~who: #'TileGrid, "tile coordinate is outside the grid")
     rows[height - y - 1][x]
 
-class TiledNodeIds(rv5stage_coherent_base :: Nat,
-                   rv5stage_uncached_base :: Nat,
+class TiledNodeIds(hart_coherent_base :: Nat,
+                   hart_uncached_base :: Nat,
                    host :: Nat,
                    llc_home_base :: Nat,
                    device_home :: Nat,
@@ -159,8 +159,8 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                    plic_subordinate :: Nat,
                    uart_subordinate :: Nat,
                    boot_address_subordinate :: Nat):
-  constructor (~rv5stage_coherent_base: rv5stage_coherent_base :: Nat,
-               ~rv5stage_uncached_base: rv5stage_uncached_base :: Nat,
+  constructor (~hart_coherent_base: hart_coherent_base :: Nat,
+               ~hart_uncached_base: hart_uncached_base :: Nat,
                ~host: host :: Nat,
                ~llc_home_base: llc_home_base :: Nat,
                ~device_home: device_home :: Nat,
@@ -170,8 +170,8 @@ class TiledNodeIds(rv5stage_coherent_base :: Nat,
                ~plic_subordinate: plic_subordinate :: Nat,
                ~uart_subordinate: uart_subordinate :: Nat,
                ~boot_address_subordinate: boot_address_subordinate :: Nat):
-    super(rv5stage_coherent_base,
-          rv5stage_uncached_base,
+    super(hart_coherent_base,
+          hart_uncached_base,
           host,
           llc_home_base,
           device_home,
@@ -206,17 +206,17 @@ class LLCGeometry(sets :: PosInt,
             "LLC set count must be a power of two of at least two")
     super(sets, ways, transaction_slots)
 
-class TiledRV5StageSoCConfig(layout :: TileGrid,
-                             node_ids :: TiledNodeIds,
-                             memory :: StripedMemory,
-                             llc :: LLCGeometry,
-                             core_profile :: RV5StageConfig,
-                             clocks :: SoCClockConfig,
-                             flit :: CHIFlitParams,
-                             boot :: SoCBootConfig):
+class TiledSoCConfig(layout :: TileGrid,
+                     node_ids :: TiledNodeIds,
+                     memory :: StripedMemory,
+                     llc :: LLCGeometry,
+                     hart :: RiscvHartImplementation,
+                     clocks :: SoCClockConfig,
+                     flit :: CHIFlitParams,
+                     boot :: SoCBootConfig):
   implements StableCircuitParam
 
-  property hart_count: layout.rv5stages.length()
+  property hart_count: layout.harts.length()
   property memory_bytes: memory.size_bytes
   property device_home:
     CHIHomeParams("tiled-device-home",
@@ -236,10 +236,10 @@ class TiledRV5StageSoCConfig(layout :: TileGrid,
   property platform: platform_for(device_home)
   property description:
     RiscvSoCDescription(
-      ~model: "Rhodium Tiled RV5Stage SoC",
-      ~compatible: ["rhodium,tiled-rv5stage-soc"],
+      ~model: "Rhodium Tiled " ++ hart.name ++ " SoC",
+      ~compatible: ["rhodium,tiled-" ++ hart.key ++ "-soc"],
       ~harts: for List (index in 0..hart_count): index,
-      ~hart: core_profile.hart_description,
+      ~hart: hart.description,
       ~clocks: clocks,
       ~memory_regions: [SoCAddressRegion(AddressSet(memory.base, memory_bytes - 1))],
       ~boot: platform.boot_description,
@@ -252,32 +252,32 @@ class TiledRV5StageSoCConfig(layout :: TileGrid,
                ~node_ids: node_ids :: TiledNodeIds,
                ~memory: memory :: StripedMemory,
                ~llc: llc :: LLCGeometry,
-               ~core_profile: core_profile :: RV5StageConfig,
+               ~hart: hart :: RiscvHartImplementation,
                ~clocks: clocks :: SoCClockConfig,
                ~flit: flit :: CHIFlitParams = CHIFlitParams(),
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):
     unless memory.stripe_bytes >= 64
-    | error(~who: #'TiledRV5StageSoCConfig,
+    | error(~who: #'TiledSoCConfig,
             "striped-memory stripes must contain a complete LLC line")
     unless tiled_power_of_two(layout.llcs.length())
-    | error(~who: #'TiledRV5StageSoCConfig,
+    | error(~who: #'TiledSoCConfig,
             "LLC count must be a power of two for striped memory")
     unless memory.size_bytes >= memory.stripe_bytes * layout.llcs.length()
-    | error(~who: #'TiledRV5StageSoCConfig, "memory must contain at least one stripe per LLC")
+    | error(~who: #'TiledSoCConfig, "memory must contain at least one stripe per LLC")
     unless llc.capacity_bytes <= memory.size_bytes / layout.llcs.length()
-    | error(~who: #'TiledRV5StageSoCConfig, "each LLC must fit within its share of memory")
-    unless core_profile.xlen.width == 64
-    | error(~who: #'TiledRV5StageSoCConfig, "TiledRV5StageSoC requires an RV64 core profile")
+    | error(~who: #'TiledSoCConfig, "each LLC must fit within its share of memory")
+    unless hart.description.xlen.width == 64
+    | error(~who: #'TiledSoCConfig, "TiledSoC requires an RV64 core profile")
     AddressSet(memory.base, memory.size_bytes - 1)
-    super(layout, node_ids, memory, llc, core_profile, clocks, flit, boot)
+    super(layout, node_ids, memory, llc, hart, clocks, flit, boot)
 
-  reconstructor (layout, node_ids, memory, llc, core_profile, clocks, flit, boot):
-    TiledRV5StageSoCConfig(
+  reconstructor (layout, node_ids, memory, llc, hart, clocks, flit, boot):
+    TiledSoCConfig(
       ~layout: layout,
       ~node_ids: node_ids,
       ~memory: memory,
       ~llc: llc,
-      ~core_profile: core_profile,
+      ~hart: hart,
       ~clocks: clocks,
       ~flit: flit,
       ~boot: boot
@@ -286,8 +286,8 @@ class TiledRV5StageSoCConfig(layout :: TileGrid,
 meta:
   fun tile_run(entry :: Syntax):
     match entry
-    | 'rv5stage': '[rv5stage_tile]'
-    | 'rv5stage($count)': 'repeat_tiled_tile(rv5stage_tile, $count)'
+    | 'hart': '[hart_tile]'
+    | 'hart($count)': 'repeat_tiled_tile(hart_tile, $count)'
     | 'llc': '[llc_tile]'
     | 'llc($count)': 'repeat_tiled_tile(llc_tile, $count)'
     | 'memory': '[memory_tile]'
@@ -305,7 +305,7 @@ meta:
     | 'transit($count)': 'repeat_tiled_tile(transit_tile, $count)'
     | ~else:
         syntax_meta.error(
-          "expected rv5stage, llc, memory, host, device_home, aclint, plic, uart, or transit tile",
+          "expected hart, llc, memory, host, device_home, aclint, plic, uart, or transit tile",
           entry
         )
 

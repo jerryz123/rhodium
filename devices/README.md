@@ -168,11 +168,11 @@ flowchart LR
 ```
 
 `SingleCoreRV5StageSoC` and `MiniRV5StageSoC` instantiate the devices through the shared
-[`SoCPlatformParams`](../socs/peripherals.rhdl); `TiledRV5StageSoC` colocates its
+[`SoCPlatformParams`](../socs/platform/peripherals.rhdl); `TiledSoC` colocates its
 BootROM and boot-address register with the device Home and places the other
-devices in dedicated [`AclintTile`](../socs/tiled-rv5stage-soc/tiles/aclint.rhdl),
-[`PlicTile`](../socs/tiled-rv5stage-soc/tiles/plic.rhdl), and
-[`UartTile`](../socs/tiled-rv5stage-soc/tiles/uart.rhdl) wrappers. Follow the
+devices in dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl),
+[`PlicTile`](../socs/tiled-soc/tiles/plic.rhdl), and
+[`UartTile`](../socs/tiled-soc/tiles/uart.rhdl) wrappers. Follow the
 [SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
 processor connections rather than duplicating those system contracts here.
 

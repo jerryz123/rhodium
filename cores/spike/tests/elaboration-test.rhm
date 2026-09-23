@@ -27,7 +27,8 @@ check:
   dpi_import.name ~is "rhodium_spike_tick"
   dpi_import.input_names ~is [
     "reset", "hart_id", "reset_vector", "time", "interrupts", "xlen_is_64",
-    "isa", "privilege", "instructions_per_cycle", "pmp_regions",
+    "max_vaddr_bits",
+    "isa", "privilege", "max_retired_instructions_per_cycle", "pmp_regions",
     "instruction_cache_sets", "instruction_cache_ways", "data_cache_sets",
     "data_cache_ways", "address_request_ready", "address_response_valid",
     "address_response_cacheable", "address_response_instruction_cacheable",

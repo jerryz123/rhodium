@@ -5,8 +5,8 @@
 import:
   rhombus/cmdline open
   "../../devicetree/main.rhm" open
-  "../../socs/description.rhm".RiscvSoCDescription
-  "../program-test/targets.rhm".simulator_soc_description
+  "../../socs/platform/description.rhm".RiscvSoCDescription
+  "../program-test/targets.rhm" open
 
 fun opensbi_device_tree(description :: RiscvSoCDescription):
   def base = description.to_device_tree()
@@ -27,10 +27,13 @@ fun opensbi_device_tree(description :: RiscvSoCDescription):
   )
 
 def arguments = current_command_line()
-unless arguments.length() == 2
-| error(~who: #'write_opensbi_device_tree, "expected a SoC name and output file")
+unless arguments.length() == 2 || arguments.length() == 3
+| error(~who: #'write_opensbi_device_tree, "expected a SoC name and output file, or a shape, core, and output file")
+def description = if arguments.length() == 3
+| simulator_shape_description(arguments[0], arguments[1])
+| simulator_soc_description(arguments[0])
 filesystem.write_bytes(
-  arguments[1],
-  opensbi_device_tree(simulator_soc_description(arguments[0])).to_dtb(),
+  arguments[arguments.length() - 1],
+  opensbi_device_tree(description).to_dtb(),
   ~exists: #'truncate
 )

@@ -3,22 +3,37 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../socs/single-core-rv5stage-soc.rhdl" as single_core
-  "../../socs/mini-rv5stage-soc.rhdl" as mini_rv5stage
-  "../../socs/tiled-rv5stage-soc/main.rhdl" as tiled_rv5stage
-  "../../socs/description.rhm".RiscvSoCDescription
+  "../../socs/products/single-core-rv5stage-soc.rhdl" as single_core
+  "../../socs/products/single-core-spike-soc.rhdl" as spike
+  "../../socs/products/mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../../socs/products/tiled-rv5stage.rhdl" as tiled_rv5stage
+  "../../socs/mini-soc/main.rhdl" as mini
+  "../../socs/single-core-soc/main.rhdl" as single
+  "../../socs/tiled-soc/main.rhdl" as tiled
+  "../../socs/products/hart-selection.rhm".soc_hart
+  "../../socs/platform/description.rhm".RiscvSoCDescription
 
-def SimulatorSoCNames = ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
+def SimulatorSoCNames = ["single-core-rv5stage-soc", "single-core-spike-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
 
 fun simulator_soc_description(name :: String) :: RiscvSoCDescription:
   match name
   | "single-core-rv5stage-soc": single_core.single_core_rv5stage_soc_params.description
+  | "single-core-spike-soc": spike.single_core_spike_soc_params.description
   | "mini-rv5stage-soc": mini_rv5stage.mini_rv5stage_soc_params.description
-  | "tiled-rv5stage-soc": tiled_rv5stage.default_tiled_rv5stage_soc_config.description
+  | "tiled-rv5stage-soc": tiled_rv5stage.default_tiled_soc_config.description
   | ~else:
       error(~who: #'simulator_soc_description,
             "unknown simulator SoC " ++ name ++ "; expected one of " ++ String.join(SimulatorSoCNames, ", "))
 
+fun simulator_shape_description(shape :: String, core :: String) :: RiscvSoCDescription:
+  def hart = soc_hart(shape, core)
+  match shape
+  | "mini": mini.mini_soc_config(hart).description
+  | "single": single.single_core_soc_config(hart).description
+  | "tiled": tiled.tiled_soc_config(hart).description
+  | ~else: error(~who: #'simulator_shape_description, "unsupported SoC shape")
+
 export:
   SimulatorSoCNames
   simulator_soc_description
+  simulator_shape_description

@@ -40,6 +40,20 @@ check_field() {
   fi
 }
 
+check_program_matrix() {
+  local path="$1"
+  shift
+  local suite soc expected='' entry
+  for suite in "$@"; do
+    for soc in single-core-rv5stage-soc single-core-spike-soc; do
+      entry="{\"soc\":\"$soc\",\"suite\":\"$suite\"}"
+      [[ -n "$expected" ]] && expected+=,
+      expected+="$entry"
+    done
+  done
+  check_field "$path" program_matrix "{\"include\":[$expected]}"
+}
+
 check_matrix_entry() {
   local path="$1"
   local field="$2"
@@ -84,18 +98,18 @@ check_no_jobs DCO
 check_no_jobs THIRD_PARTY_NOTICES.md
 check_field sims/arch-test/configure.py program_arch true
 check_field sims/arch-test/configure.py program_native false
-check_field sims/program-test/isa.mk program_matrix '{"include":[{"suite":"isa"}]}'
+check_program_matrix sims/program-test/isa.mk isa
 check_field sims/program-test/isa.mk simulation true
 check_field sims/program-test/build.py simulation true
-check_field sims/program-test/build-coremark.py program_matrix '{"include":[{"suite":"coremark"}]}'
+check_program_matrix sims/program-test/build-coremark.py coremark
 check_field sims/program-test/build-coremark.py simulation true
-check_field sims/program-test/coremark program_matrix '{"include":[{"suite":"coremark"}]}'
+check_program_matrix sims/program-test/coremark coremark
 check_field sims/program-test/coremark simulation true
-check_field sims/program-test/build-embench.py program_matrix '{"include":[{"suite":"embench"}]}'
+check_program_matrix sims/program-test/build-embench.py embench
 check_field sims/program-test/build-embench.py simulation true
-check_field sims/program-test/embench-iot program_matrix '{"include":[{"suite":"embench"}]}'
+check_program_matrix sims/program-test/embench-iot embench
 check_field sims/program-test/embench-iot simulation true
-check_field sims/program-test/embench-iot-riscv-baremetal/start.S program_matrix '{"include":[{"suite":"embench"}]}'
+check_program_matrix sims/program-test/embench-iot-riscv-baremetal/start.S embench
 check_field sims/program-test/embench-iot-riscv-baremetal/start.S simulation true
 check_field sims/program-test/write-target.rhm simulation true
 check_field sims/opensbi/build.py simulation true
@@ -104,9 +118,9 @@ check_field riscv/opensbi simulation true
 check_field riscv/opensbi programs false
 check_field riscv/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
-check_field riscv/riscv-isa-tests program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"}]}'
-for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/interrupt/aclint.rhdl socs/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
-  check_field "$path" program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"},{"suite":"embench"}]}'
+check_program_matrix riscv/riscv-isa-tests isa benchmark
+for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/interrupt/aclint.rhdl socs/products/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
+  check_program_matrix "$path" isa benchmark coremark embench
   check_field "$path" program_arch true
 done
 check_field tools/write-riscv-udb-config.rhm program_arch true
@@ -141,7 +155,7 @@ check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch host false
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch circt false
 check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch simulation false
-check_field riscv/riscv-isa-sim program_matrix '{"include":[{"suite":"isa"},{"suite":"benchmark"},{"suite":"coremark"},{"suite":"embench"}]}'
+check_program_matrix riscv/riscv-isa-sim isa benchmark coremark embench
 check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-language-test
 check_field rhodium/event/analyze.rhm simulation true
 check_field rheg/runtime/rheg.cc simulation true
@@ -251,23 +265,29 @@ check_field sram/map-memories.py simulation true
 check_field sram/circt/MemorySitePass.cpp simulation true
 check_field vlsi/sim/Makefile simulation true
 check_field vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml simulation true
-check_field sims/single-core-rv5stage-soc-harness.rhdl simulation true
+check_field sims/single-core-soc-harness.rhdl simulation true
 check_field sims/mini-rv5stage-soc-harness.rhdl simulation true
-check_field sims/tiled-rv5stage-soc-harness.rhdl simulation true
+check_field sims/tiled-soc-harness.rhdl simulation true
 check_field sims/emit-soc-harness.rhm simulation true
 check_field sims/tests/direct-memory-htif-test.rhm simulation true
 check_field socs/tests/single-core-rv5stage-soc-test.rhm simulation true
 check_matrix_entry socs/tests/single-core-rv5stage-soc-test.rhm host_matrix ci-host-socs-test
+check_field socs/tests/single-core-spike-soc-test.rhm simulation true
+check_matrix_entry socs/tests/single-core-spike-soc-test.rhm host_matrix ci-host-socs-test
 check_field socs/tests/mini-rv5stage-soc-test.rhm simulation true
 check_matrix_entry socs/tests/mini-rv5stage-soc-test.rhm host_matrix ci-host-socs-test
-check_field socs/single-core-rv5stage-soc.rhdl host true
-check_matrix_entry socs/single-core-rv5stage-soc.rhdl host_matrix ci-host-socs-test
-check_field socs/single-core-rv5stage-soc.rhdl circt true
-check_field socs/single-core-rv5stage-soc.rhdl simulation true
-check_field socs/mini-rv5stage-soc.rhdl host true
-check_matrix_entry socs/mini-rv5stage-soc.rhdl host_matrix ci-host-socs-test
-check_field socs/mini-rv5stage-soc.rhdl circt true
-check_field socs/mini-rv5stage-soc.rhdl simulation true
+check_field socs/products/single-core-rv5stage-soc.rhdl host true
+check_matrix_entry socs/products/single-core-rv5stage-soc.rhdl host_matrix ci-host-socs-test
+check_field socs/products/single-core-rv5stage-soc.rhdl circt true
+check_field socs/products/single-core-rv5stage-soc.rhdl simulation true
+check_field socs/products/single-core-spike-soc.rhdl host true
+check_matrix_entry socs/products/single-core-spike-soc.rhdl host_matrix ci-host-socs-test
+check_field socs/products/single-core-spike-soc.rhdl circt true
+check_field socs/products/single-core-spike-soc.rhdl simulation true
+check_field socs/products/mini-rv5stage-soc.rhdl host true
+check_matrix_entry socs/products/mini-rv5stage-soc.rhdl host_matrix ci-host-socs-test
+check_field socs/products/mini-rv5stage-soc.rhdl circt true
+check_field socs/products/mini-rv5stage-soc.rhdl simulation true
 check_field unrecognized/new-tool.py host true
 check_field unrecognized/new-tool.py circt true
 check_field unrecognized/new-tool.py simulation true

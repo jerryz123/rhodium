@@ -182,6 +182,16 @@ rm -f -- "$probe_source"
 "${cache_command[@]}" path >/dev/null
 [[ ! -e "$project_subtree/removed" ]]
 
+tracked_probe="$fixture_repo/tracked-probe.rhm"
+printf '#lang rhombus\n// Exercises deletion of an indexed source before it is staged.\n' > "$tracked_probe"
+git -C "$fixture_repo" add -- "$tracked_probe"
+"${cache_command[@]}" path >/dev/null
+mkdir -p "$project_subtree"
+touch "$project_subtree/removed-indexed"
+rm -f -- "$tracked_probe"
+"${cache_command[@]}" path >/dev/null
+[[ ! -e "$project_subtree/removed-indexed" ]]
+
 cat > "$dependency_source" <<'EOF'
 #lang racket/base
 ;; Supplies a value whose edit exercises dependency-directed invalidation.

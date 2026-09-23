@@ -4,7 +4,7 @@
 
 import:
   lib("rhodium/frontend/foundation.rhm").StableCircuitParam
-  lib("riscv/isa/hart.rhm").RiscvHartDescription
+  lib("riscv/isa/hart.rhm") open
   lib("riscv/isa/profile.rhm").MisaExtension
   lib("riscv/isa/xlen.rhm").XLen
 
@@ -29,6 +29,11 @@ fun spike_privilege_string(architecture :: RiscvHartDescription) :: String:
     if extensions.contains(MisaExtension.U) | "u" | ""
   )
 
+fun spike_max_vaddr_bits(mmu_type :: RiscvMmuType) :: Nat:
+  match mmu_type
+  | RiscvMmuType.Bare: 0
+  | RiscvMmuType.Sv39: 39
+
 fun pack_spike_string(value :: String) :: Nat:
   def bytes = value.utf8_bytes().to_list()
   when bytes.length() >= SpikeIsaBytes
@@ -41,12 +46,12 @@ fun pack_spike_string(value :: String) :: Nat:
   packed
 
 class SpikeConfig(architecture :: RiscvHartDescription,
-                  instructions_per_cycle :: PosInt,
+                  max_retired_instructions_per_cycle :: PosInt,
                   pmp_regions :: Nat):
   implements StableCircuitParam
 
   constructor (architecture :: RiscvHartDescription,
-               ~instructions_per_cycle: instructions_per_cycle :: PosInt = 1,
+               ~max_retired_instructions_per_cycle: max_retired_instructions_per_cycle :: PosInt = 1,
                ~pmp_regions: pmp_regions :: Nat = 16):
     unless architecture.instruction_cache.block_bytes == 64 && (
       architecture.data_cache.block_bytes == 64
@@ -55,9 +60,9 @@ class SpikeConfig(architecture :: RiscvHartDescription,
             "the initial Spike adapter requires 64-byte cache lines")
     unless pmp_regions <= 64
     | error(~who: #'SpikeConfig, "Spike supports at most 64 PMP regions")
-    unless instructions_per_cycle <= 0xffff
+    unless max_retired_instructions_per_cycle <= 0xffff
     | error(~who: #'SpikeConfig,
-            "instructions per cycle must fit the 16-bit DPI configuration field")
+            "maximum retired instructions per cycle must fit the 16-bit DPI configuration field")
     unless for all (value in [
       architecture.instruction_cache.sets,
       architecture.instruction_cache.ways,
@@ -66,7 +71,7 @@ class SpikeConfig(architecture :: RiscvHartDescription,
     ]): value <= 0xffff
     | error(~who: #'SpikeConfig,
             "cache set and way counts must fit the 16-bit DPI configuration fields")
-    super(architecture, instructions_per_cycle, pmp_regions)
+    super(architecture, max_retired_instructions_per_cycle, pmp_regions)
 
   property hart_description :: RiscvHartDescription: architecture
   property isa_string :: String: spike_isa_string(architecture)
@@ -74,6 +79,7 @@ class SpikeConfig(architecture :: RiscvHartDescription,
   property isa_bytes :: Nat: pack_spike_string(isa_string)
   property privilege_bytes :: Nat: pack_spike_string(privilege_string)
   property xlen_is_64 :: Boolean: architecture.xlen == XLen.X64
+  property max_vaddr_bits :: Nat: spike_max_vaddr_bits(architecture.mmu_type)
 
 export:
   SpikeIsaBytes

@@ -17,6 +17,7 @@ int main() {
   configuration.reset_vector = 0x1000;
   configuration.isa = "rv64ima_zicsr";
   configuration.privilege = "msu";
+  configuration.max_vaddr_bits = 39;
   configuration.instruction_cache_sets = 2;
   configuration.instruction_cache_ways = 1;
   configuration.data_cache_sets = 2;
@@ -118,4 +119,79 @@ int main() {
   inputs.snoop_response_ready = true;
   outputs = model.tick(inputs);
   assert(!outputs.snoop_response_valid);
+
+  // Spike fetches a 32-bit instruction as two halfwords when C is enabled.
+  // Uncached responses retain their position within the selected 64-bit lane.
+  Configuration uncached_configuration;
+  uncached_configuration.reset_vector = 0x1000;
+  uncached_configuration.isa = "rv64imac_zicsr";
+  uncached_configuration.privilege = "msu";
+  uncached_configuration.instruction_cache_sets = 1;
+  uncached_configuration.instruction_cache_ways = 1;
+  uncached_configuration.data_cache_sets = 1;
+  uncached_configuration.data_cache_ways = 1;
+  SpikeCoreModel uncached_model(uncached_configuration);
+  Inputs uncached_inputs;
+  std::size_t low_half_fetches = 0;
+  std::size_t high_half_fetches = 0;
+  bool trapped_to_zero = false;
+  for (std::size_t cycle = 0; cycle < 128; ++cycle) {
+    const Outputs uncached_outputs = uncached_model.tick(uncached_inputs);
+    Inputs next;
+    if (uncached_outputs.address_request_valid) {
+      trapped_to_zero |= uncached_outputs.address_request_address == 0;
+      next.address_request_ready = true;
+      next.address_response_valid = true;
+      next.address_response_instruction_cacheable = true;
+    }
+    if (uncached_outputs.uncached_request_valid) {
+      assert(uncached_outputs.uncached_request_size == 1);
+      if (uncached_outputs.uncached_request_address == 0x1000) ++low_half_fetches;
+      if (uncached_outputs.uncached_request_address == 0x1002) ++high_half_fetches;
+      next.uncached_request_ready = true;
+      next.uncached_response_valid = true;
+      next.uncached_response_data = 0x000000000000006f;
+    }
+    uncached_inputs = next;
+  }
+  assert(!trapped_to_zero);
+  assert(low_half_fetches >= 1);
+  assert(high_half_fetches >= 1);
+
+  // Spike's architectural FENCE.I flush also invalidates the external
+  // instruction cache, forcing the following instruction to refill its line.
+  Configuration fence_configuration;
+  fence_configuration.reset_vector = 0x1000;
+  fence_configuration.isa = "rv64ima_zicsr_zifencei";
+  fence_configuration.privilege = "msu";
+  fence_configuration.max_vaddr_bits = 39;
+  fence_configuration.instruction_cache_sets = 1;
+  fence_configuration.instruction_cache_ways = 1;
+  fence_configuration.data_cache_sets = 1;
+  fence_configuration.data_cache_ways = 1;
+  SpikeCoreModel fence_model(fence_configuration);
+  Inputs fence_inputs;
+  std::size_t instruction_fills = 0;
+  bool fence_trapped_to_zero = false;
+  for (std::size_t cycle = 0; cycle < 128; ++cycle) {
+    const Outputs fence_outputs = fence_model.tick(fence_inputs);
+    Inputs next;
+    if (fence_outputs.address_request_valid) {
+      fence_trapped_to_zero |= fence_outputs.address_request_address == 0;
+      next.address_request_ready = true;
+      next.address_response_valid = true;
+      next.address_response_cacheable = true;
+      next.address_response_instruction_cacheable = true;
+    }
+    if (fence_outputs.instruction_request_valid) {
+      ++instruction_fills;
+      next.instruction_request_ready = true;
+      next.instruction_response_valid = true;
+      next.instruction_response_line[0] = 0x0000100f12000073ULL;
+      next.instruction_response_line[1] = 0x0000006fULL;
+    }
+    fence_inputs = next;
+  }
+  assert(instruction_fills >= 2);
+  assert(!fence_trapped_to_zero);
 }

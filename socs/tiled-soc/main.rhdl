@@ -1,9 +1,8 @@
 #lang rhodium
-// Exposes the author-facing bootable TiledRV5StageSoC configuration and structural circuit.
+// Exposes the author-facing bootable TiledSoC configuration and structural circuit.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/noc/noc-router.rhdl") open
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/home/home-common.rhdl").CHIHNFIdentity
@@ -15,65 +14,69 @@ import:
   lib("devices/interrupt/plic.rhdl").PlicIdentity
   lib("devices/uart/uart16550.rhdl").Uart16550Identity
   "layout.rhm" open
-  "compile.rhdl".compile_tiled_rv5stage_soc
+  "compile.rhdl" open
   "distribution.rhdl" open
   "time.rhdl" open
   "tiles/main.rhdl" open
-  "../host-interface.rhdl".SoCHostInterface
-  "../peripherals.rhdl".SoCUartInterface
-  "../description.rhm".SoCClockConfig
-  "../core-profiles.rhm" open
+  "../platform/host-interface.rhdl".SoCHostInterface
+  "../platform/peripherals.rhdl".SoCUartInterface
+  "../platform/description.rhm".SoCClockConfig
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../platform/fabric-profiles.rhm".rhodium_soc_flit
 
-def default_tiled_rv5stage_soc_layout = tile_grid:
+def default_tiled_soc_layout = tile_grid:
   row [llc(4), memory]
   row [host, device_home, aclint, plic, uart]
-  row [rv5stage(4), transit]
-  row [rv5stage(4), transit]
+  row [hart(4), transit]
+  row [hart(4), transit]
 
-def tiled_rv5stage_soc_clocks = SoCClockConfig(
+def tiled_soc_clocks = SoCClockConfig(
   ~clock_frequency_hz: 100000000,
   ~timebase_frequency_hz: 1000000
 )
 
-def default_tiled_rv5stage_soc_config = TiledRV5StageSoCConfig(
-  ~layout: default_tiled_rv5stage_soc_layout,
-  ~node_ids: TiledNodeIds(
-    ~rv5stage_coherent_base: 0,
-    ~rv5stage_uncached_base: 16,
-    ~host: 24,
-    ~llc_home_base: 32,
-    ~device_home: 36,
-    ~memory: 48,
-    ~bootrom_subordinate: 54,
-    ~aclint_subordinate: 52,
-    ~plic_subordinate: 55,
-    ~uart_subordinate: 53,
-    ~boot_address_subordinate: 56
-  ),
-  ~memory: StripedMemory(
-    ~base: 0x80000000,
-    ~size_bytes: 0x40000000,
-    ~stripe_bytes: 64
-  ),
-  ~llc: LLCGeometry(
-    ~sets: 16,
-    ~ways: 4
-  ),
-  ~core_profile: tiled_rv5stage_soc_core_profile,
-  ~clocks: tiled_rv5stage_soc_clocks,
-  ~flit: CHIFlitParams(~request_address_width: DefaultRhodiumSoCRequestAddressWidth)
-)
+fun tiled_soc_config(hart :: RiscvHartImplementation) :: TiledSoCConfig:
+  TiledSoCConfig(
+    ~layout: default_tiled_soc_layout,
+    ~node_ids: TiledNodeIds(
+      ~hart_coherent_base: 0,
+      ~hart_uncached_base: 16,
+      ~host: 24,
+      ~llc_home_base: 32,
+      ~device_home: 36,
+      ~memory: 48,
+      ~bootrom_subordinate: 54,
+      ~aclint_subordinate: 52,
+      ~plic_subordinate: 55,
+      ~uart_subordinate: 53,
+      ~boot_address_subordinate: 56
+    ),
+    ~memory: StripedMemory(
+      ~base: 0x80000000,
+      ~size_bytes: 0x40000000,
+      ~stripe_bytes: 64
+    ),
+    ~llc: LLCGeometry(
+      ~sets: 16,
+      ~ways: 4
+    ),
+    ~hart: hart,
+    ~clocks: tiled_soc_clocks,
+    ~flit: rhodium_soc_flit
+  )
 
-sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_rv5stage_soc_config):
-  def implementation = compile_tiled_rv5stage_soc(config)
+sync_circuit TiledSoC(config :: TiledSoCConfig,
+                      implementation :: TiledSoCImplementation = compile_tiled_soc(config)):
+  unless implementation.config == config
+  | error(~who: #'TiledSoC, "compiled topology must belong to the selected SoC configuration")
   def p = implementation.flit
   def site_width = implementation.router_configs.req.route_decoder.site_width
   interface host(SoCHostInterface(p), ~role: soc)
   interface memory(CHISNChannels(p), ~role: icn)
   interface uart(SoCUartInterface(), ~role: soc)
 
-  def rv5stages = for InstanceArray (entry in implementation.rv5stages):
-    inst rv5stage(RV5StageTile(entry.tile_params, ~reset_address: config.boot.reset_address))
+  def harts = for InstanceArray (entry in implementation.harts):
+    inst hart(HartTile(entry.tile_params, ~reset_address: config.boot.reset_address))
   def llcs = for InstanceArray (entry in implementation.llcs):
     inst llc(LLCTile(entry.tile_params))
   def transits = for InstanceArray (entry in implementation.transits):
@@ -86,24 +89,24 @@ sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_r
   inst aclint(AclintTile(implementation.aclint.tile_params))
   inst plic(PlicTile(implementation.plic.tile_params))
   inst uart_device(UartTile(implementation.uart.tile_params))
-  def hart_count = implementation.rv5stages.length()
+  def hart_count = implementation.harts.length()
   inst distribution(TiledDistributionNetwork(implementation.distribution))
   // Platform time advances at the configured architectural timebase; each
   // resulting snapshot and each interrupt change cross the narrow platform NoC.
   inst timebase(Counter(config.clocks.timebase_period_cycles))
 
-  for (index in 0..implementation.rv5stages.length()):
-    def entry = implementation.rv5stages[index]
-    rv5stages[index].identity <== RV5StageTileIdentity(p, site_width):
+  for (index in 0..implementation.harts.length()):
+    def entry = implementation.harts[index]
+    harts[index].identity <== HartTileIdentity(p, site_width):
       site_key: bits(implementation.site_key(entry.placement.router), site_width)
       hart_id: bits(index, 64)
       chi: (RiscvHartCHIIdentity(p):
-              instruction_node_id: bits(entry.chi.instruction_node_id, p.node_id_width)
-              data_node_id: bits(entry.chi.data_node_id, p.node_id_width)
-              uncached_node_id: bits(entry.chi.uncached_node_id, p.node_id_width))
-    distribution.interrupt_egress[index] <=> rv5stages[index].interrupt_update
-    distribution.external_interrupt_egress[index] <=> rv5stages[index].external_interrupt_update
-    distribution.time_egress[index] <=> rv5stages[index].time_beat
+              instruction_node_id: bits(entry.chi.hart.instruction_node_id, p.node_id_width)
+              data_node_id: bits(entry.chi.hart.data_node_id, p.node_id_width)
+              uncached_node_id: bits(entry.chi.hart.uncached_node_id, p.node_id_width))
+    distribution.interrupt_egress[index] <=> harts[index].interrupt_update
+    distribution.external_interrupt_egress[index] <=> harts[index].external_interrupt_update
+    distribution.time_egress[index] <=> harts[index].time_beat
   for (index in 0..implementation.llcs.length()):
     def entry = implementation.llcs[index]
     llcs[index].identity <== LLCTileIdentity(p, site_width):
@@ -153,10 +156,10 @@ sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_r
   uart <=> uart_device.uart
 
   def tiles = (
-    for List (index in 0..implementation.rv5stages.length()):
-      CHIRouterEndpoints(implementation.site_key(implementation.rv5stages[index].placement.router),
-                         rv5stages[index].incoming_links,
-                         rv5stages[index].outgoing_links)
+    for List (index in 0..implementation.harts.length()):
+      CHIRouterEndpoints(implementation.site_key(implementation.harts[index].placement.router),
+                         harts[index].incoming_links,
+                         harts[index].outgoing_links)
   ) ++ (
     for List (index in 0..implementation.transits.length()):
       CHIRouterEndpoints(implementation.site_key(implementation.transits[index].placement.router),
@@ -190,7 +193,7 @@ sync_circuit TiledRV5StageSoC(config :: TiledRV5StageSoCConfig = default_tiled_r
   connect_chi_router_family(implementation.physical_plan, tiles)
 
 export:
-  RV5StageTileSpec
+  HartTileSpec
   LLCTileSpec
   MemoryTileSpec
   HostTileSpec
@@ -205,8 +208,8 @@ export:
   TiledNodeIds
   StripedMemory
   LLCGeometry
-  TiledRV5StageSoCConfig
-  rv5stage_tile
+  TiledSoCConfig
+  hart_tile
   llc_tile
   memory_tile
   host_tile
@@ -217,8 +220,7 @@ export:
   transit_tile
   repeat_tiled_tile
   tile_grid
-  default_tiled_rv5stage_soc_layout
-  tiled_rv5stage_soc_core_profile
-  tiled_rv5stage_soc_clocks
-  default_tiled_rv5stage_soc_config
-  TiledRV5StageSoC
+  default_tiled_soc_layout
+  tiled_soc_clocks
+  tiled_soc_config
+  TiledSoC

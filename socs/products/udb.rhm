@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../support/annotations.rhm".NonemptyString
-  "../riscv/udb.rhm".UdbConfiguration
-  "../cores/rv5stage/udb.rhm".rv5stage_udb_configuration
+  "../../support/annotations.rhm".NonemptyString
+  "../../riscv/udb.rhm".UdbConfiguration
+  "../../cores/rv5stage/udb.rhm".rv5stage_udb_configuration
+  "../../cores/spike/udb.rhm".spike_udb_configuration
   "core-profiles.rhm" open
+  "spike-core-profile.rhm".single_core_spike_soc_core_profile
+  "../platform/fabric-profiles.rhm" open
 
-def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
+def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "single-core-spike-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
 def SingleCoreRV5StageSoCUdbPmlen = 7
 
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
@@ -18,22 +21,28 @@ fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfigur
         single_core_rv5stage_soc_core_profile,
         "rhodium-single-core-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Single-Core RV5Stage SoC",
-        DefaultRhodiumSoCRequestAddressWidth,
+        rhodium_soc_flit.request_address_width,
         ~pmlen: SingleCoreRV5StageSoCUdbPmlen
+      )
+  | "single-core-spike-soc":
+      spike_udb_configuration(
+        single_core_spike_soc_core_profile,
+        "rhodium-single-core-spike-soc-rv64",
+        "Spike configuration instantiated by Rhodium Single-Core Spike SoC"
       )
   | "mini-rv5stage-soc":
       rv5stage_udb_configuration(
         mini_rv5stage_soc_core_profile,
         "rhodium-mini-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Mini RV5Stage SoC",
-        DefaultRhodiumSoCRequestAddressWidth
+        rhodium_soc_flit.request_address_width
       )
   | "tiled-rv5stage-soc":
       rv5stage_udb_configuration(
         tiled_rv5stage_soc_core_profile,
         "rhodium-tiled-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Tiled RV5Stage SoC",
-        DefaultRhodiumSoCRequestAddressWidth
+        rhodium_soc_flit.request_address_width
       )
   | ~else:
       error(~who: #'riscv_udb_configuration,

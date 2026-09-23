@@ -180,7 +180,9 @@ emit_jobs() {
     local variable="program_$suite"
     if [[ "${!variable}" == true ]]; then
       programs=true
-      append_matrix_entry program_matrix "{\"suite\":\"$suite\"}"
+      for soc in single-core-rv5stage-soc single-core-spike-soc; do
+        append_matrix_entry program_matrix "{\"soc\":\"$soc\",\"suite\":\"$suite\"}"
+      done
     fi
   done
   echo "programs=$programs"
@@ -198,8 +200,9 @@ emit_jobs() {
 
 classify_path() {
   local path="$1"
-  # Workloads follow the complete SingleCoreRV5StageSoC dependency closure independently
-  # of host/CIRCT grouping. More specific suite paths must precede broad roots.
+  # Native workloads and ACT cover both single-core products independently
+  # of host/CIRCT grouping. More specific
+  # suite paths must precede broad roots.
   case "$path" in
     *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tools/emacs/*) ;;
     sims/program-test/isa.mk) program_isa=true ;;

@@ -37,7 +37,7 @@ class SpikeCHIParams(hart :: RiscvHartCHIParams):
       instruction_node_id,
       CHINodeKind.RNI,
       ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadOnce],
+        ~req: [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp],
         ~rsp: [CHIRspOpcode.CompAck]
       ),
       ~supports: CHIChannelCapabilities(
@@ -81,12 +81,34 @@ class SpikeCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 1
     )
 
+  method instruction_home_port(~coherent: coherent :: Boolean):
+    CHIRequesterHomeParams(
+      instruction_node.icn_peer(),
+      ~emits: CHIChannelCapabilities(
+        ~rsp: (if coherent | SpikeAcquireResponses.response_opcodes | []),
+        ~dat: [CHIDatOpcode.CompData]),
+      ~supports: CHIChannelCapabilities(
+        ~req: [if coherent | CHIReqOpcode.ReadOnce | CHIReqOpcode.ReadNoSnp],
+        ~rsp: (if coherent | [CHIRspOpcode.CompAck] | [])))
+
+  property attachment:
+    RiscvHartCHIAttachment(hart, instruction_node, data_node, uncached_node,
+                           instruction_home_port(~coherent: #true),
+                           instruction_home_port(~coherent: #false))
+
   constructor (config :: RiscvHartCHIConfig,
                instruction_node_id :: Nat,
                data_node_id :: Nat,
                ~uncached_node_id: uncached_node_id :: Nat = 0):
     super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
                              ~uncached_node_id: uncached_node_id))
+
+fun spike_chi_params(config :: RiscvHartCHIConfig,
+                     instruction_node_id :: Nat,
+                     data_node_id :: Nat,
+                     uncached_node_id :: Nat) :: RiscvHartCHIAttachment:
+  SpikeCHIParams(config, instruction_node_id, data_node_id,
+                 ~uncached_node_id: uncached_node_id).attachment
 
 fun spike_chi_address(address :: Bits, p :: CHIFlitParams) :~ Bits(p.request_address_width):
   def width = hardware_value_type(address).packed_width()
@@ -128,7 +150,10 @@ fun spike_chi_request(p :: CHIFlitParams,
   inactive.updated(
     ~tag_op: CHITagOp.Invalid,
     ~exp_comp_ack: expect_comp_ack,
-    ~snp_attr_or_do_dwt: Bool(#true),
+    // Write data follows the ordinary Home-mediated DBID path, so DoDWT must
+    // remain clear on non-snooping writes.
+    ~snp_attr_or_do_dwt: !opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull,
+                                           CHIReqOpcode.WriteNoSnpPtl),
     ~mem_attr: attributes,
     ~pcrd_type: protocol_credit_type,
     ~order: CHIOrder.NoOrder,
@@ -184,6 +209,7 @@ export:
   RiscvHartCHIConfig
   RiscvHartCHIParams
   SpikeCHIParams
+  spike_chi_params
   RiscvHartCHIIdentity
   spike_chi_address
   spike_chi_address_fits

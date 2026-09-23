@@ -1,16 +1,48 @@
 #lang rhombus
-// Dynamically loads one selected SoC harness and emits its CIRCT input.
+// Selects a SoC binding at elaboration time and emits its simulation harness.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
   rhombus/private/dynamic_require open
+  "../rhodium/frontend/foundation.rhm".elaborate_with_top
+  "../socs/harts/implementation.rhdl".RiscvHartImplementation
 
 def arguments = current_command_line()
-unless arguments.length() == 1
-| error(~who: #'emit_soc_harness,
-        "expected exactly one harness module path")
+unless arguments.length() == 2 || arguments.length() == 1
+| error(~who: #'emit_soc_harness, "expected SoC shape and core, or a harness module path")
 
 def emit_circt = dynamic_require("rhodium/backend/circt.rhm", #'emit_circt)
-def design = dynamic_require(arguments[0], #'design)
+fun selected_hart(soc :: String, core :: String) :: RiscvHartImplementation:
+  def choose = dynamic_require("socs/products/hart-selection.rhm", #'soc_hart)
+  choose(soc, core)
+
+fun single_core_design(hart :: RiscvHartImplementation):
+  def harness = dynamic_require("sims/single-core-soc-harness.rhdl", #'SoCHarness)
+  def make_config = dynamic_require("socs/single-core-soc/main.rhdl", #'single_core_soc_config)
+  def soc = dynamic_require("socs/single-core-soc/main.rhdl", #'SingleCoreSoC)
+  def config = make_config(hart)
+  elaborate_with_top(harness(config.params, soc(config))).design
+
+fun mini_design(hart :: RiscvHartImplementation):
+  def harness = dynamic_require("sims/mini-soc-harness.rhdl", #'SoCHarness)
+  def soc_config = dynamic_require("socs/mini-soc/main.rhdl", #'mini_soc_config)
+  elaborate_with_top(harness(soc_config(hart))).design
+
+fun tiled_design(hart :: RiscvHartImplementation):
+  def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
+  def make_config = dynamic_require("socs/tiled-soc/main.rhdl", #'tiled_soc_config)
+  elaborate_with_top(harness(make_config(hart))).design
+
+fun selected_design(soc :: String, core :: String):
+  def hart = selected_hart(soc, core)
+  match soc
+  | "mini": mini_design(hart)
+  | "single": single_core_design(hart)
+  | "tiled": tiled_design(hart)
+  | ~else: error(~who: #'emit_soc_harness, "unsupported SoC shape")
+
+def design = if arguments.length() == 2
+| selected_design(arguments[0], arguments[1])
+| dynamic_require(arguments[0], #'design)
 print(emit_circt(design))

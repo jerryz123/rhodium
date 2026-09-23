@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Make FIOM writable when supervisor translation is supported
+Purpose: Preserves privileged-ISA FIOM CSR semantics in the embedded Spike hart.
+SPDX-License-Identifier: Apache-2.0
+
+FIOM may be read-only zero only when satp.MODE is always Bare. Spike supports
+supervisor translation, so expose FIOM in both machine and supervisor
+environment configuration CSR masks.
+
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -237,2 +237,3 @@ void processor_t::register_csrs()
+-  const reg_t menvcfg_mask = (proc->extension_enabled(EXT_ZICBOM) ? MENVCFG_CBCFE | MENVCFG_CBIE : 0) |
++  const reg_t menvcfg_mask = (proc->has_mmu() ? MENVCFG_FIOM : 0) |
++                            (proc->extension_enabled(EXT_ZICBOM) ? MENVCFG_CBCFE | MENVCFG_CBIE : 0) |
+                             (proc->extension_enabled(EXT_ZICBOZ) ? MENVCFG_CBZE : 0) |
+@@ -347,2 +348,3 @@ void processor_t::register_csrs()
+-  const reg_t senvcfg_mask = (proc->extension_enabled(EXT_ZICBOM) ? SENVCFG_CBCFE | SENVCFG_CBIE : 0) |
++  const reg_t senvcfg_mask = (proc->has_mmu() ? SENVCFG_FIOM : 0) |
++                            (proc->extension_enabled(EXT_ZICBOM) ? SENVCFG_CBCFE | SENVCFG_CBIE : 0) |
+                             (proc->extension_enabled(EXT_ZICBOZ) ? SENVCFG_CBZE : 0) |

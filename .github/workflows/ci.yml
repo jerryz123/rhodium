@@ -195,7 +195,7 @@ jobs:
 
   simulation:
     name: SoC simulation harnesses
-    needs: [changes, compile-racket, single-core-rv5stage-soc-build]
+    needs: [changes, compile-racket, single-core-rv5stage-soc-build, single-core-spike-soc-build]
     if: needs.changes.outputs.simulation == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -267,42 +267,59 @@ jobs:
         with:
           name: single-core-rv5stage-soc-${{ github.sha }}
           path: ${{ runner.temp }}/single-core-rv5stage-soc
+      - name: Download exact SingleCoreSpikeSoC simulator
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: single-core-spike-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-spike-soc
       - name: Restore simulator executable permission
-        run: chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-      - name: Initialize and qualify pinned OpenSBI
+        run: |
+          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
+      - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
         run: |
           make -C sims opensbi-setup
-          make -C sims opensbi-test SOC=single-core-rv5stage-soc \
-            OPENSBI_LLVM=/usr/bin \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          status=0
+          for soc in single-core-rv5stage-soc single-core-spike-soc; do
+            make -C sims opensbi-test SOC="$soc" \
+              OPENSBI_LLVM=/usr/bin \
+              PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
+          done
+          exit "$status"
       - name: Publish OpenSBI diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: opensbi-${{ github.sha }}
-          path: /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
+          path: |
+            /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
+            /tmp/rhodium-software/single-core-spike-soc/opensbi
           if-no-files-found: warn
           retention-days: 7
       - name: Build reusable SoC simulators
         run: |
           make -C sims simulator SOC=tiled-rv5stage-soc
-      - name: Execute both SoCs through standard FESVR flow
+      - name: Execute reusable single-core and tiled SoCs through standard FESVR flow
         run: |
           make -C sims smoke SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims smoke SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
           make -C sims smoke SOC=tiled-rv5stage-soc
-      - name: Verify exact host MMIO on all three SoCs
+      - name: Verify exact host MMIO on every supported SoC
         run: |
           make -C sims host-mmio-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims host-mmio-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
           make -C sims host-mmio-test SOC=mini-rv5stage-soc
           make -C sims host-mmio-test SOC=tiled-rv5stage-soc
       - name: Boot distinct ELF entries through each SoC boot register
         run: |
           make -C sims boot-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims boot-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
           make -C sims boot-test SOC=mini-rv5stage-soc
           make -C sims boot-test SOC=tiled-rv5stage-soc
       - name: Exchange binary UART traffic through each SoC PTY
         run: |
           make -C sims uart-pty-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims uart-pty-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
           make -C sims uart-pty-test SOC=mini-rv5stage-soc
           make -C sims uart-pty-test SOC=tiled-rv5stage-soc
       - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
@@ -407,7 +424,7 @@ jobs:
   single-core-rv5stage-soc-build:
     name: Build shared SingleCoreRV5StageSoC simulator
     needs: [changes, compile-racket]
-    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.programs == 'true'
+    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.program_native == 'true' || needs.changes.outputs.program_arch == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -458,10 +475,67 @@ jobs:
           if-no-files-found: error
           retention-days: 3
 
-  single-core-rv5stage-soc-programs:
-    name: SingleCoreRV5StageSoC (${{ matrix.suite }})
-    needs: [changes, compile-racket, single-core-rv5stage-soc-build]
-    if: needs.changes.outputs.program_native == 'true'
+  single-core-spike-soc-build:
+    name: Build shared SingleCoreSpikeSoC simulator
+    needs: [changes, compile-racket]
+    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.program_native == 'true' || needs.changes.outputs.program_arch == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: "${{ env.RACKET_VERSION }}"
+      - uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: "${{ env.RACKET_VERSION }}"
+          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install native build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
+      - uses: ./.github/actions/setup-verilator
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache CIRCT
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/firtool-*
+          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
+      - name: Cache Spike and FESVR
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Build, test, and attest simulator
+        run: |
+          make setup-circt
+          make -C sims setup simulator program-target SOC=single-core-spike-soc
+          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
+          test -n "$verilator_root"
+          make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
+          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver --soc single-core-spike-soc \
+            --target /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
+          ldd /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: single-core-spike-soc-${{ github.sha }}
+          path: |
+            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
+            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver.json
+            /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
+          if-no-files-found: error
+          retention-days: 3
+
+  single-core-soc-programs:
+    name: ${{ matrix.soc }} (${{ matrix.suite }})
+    needs: [changes, single-core-rv5stage-soc-build, single-core-spike-soc-build]
+    if: ${{ !cancelled() && needs.changes.outputs.program_native == 'true' }}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
@@ -482,30 +556,47 @@ jobs:
           esac
           echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-riscv-toolchain
+      - name: Install simulator runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake zlib1g-dev
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Spike and FESVR
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Restore exact Spike runtime libraries
+        run: make -C sims setup
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
+          name: ${{ matrix.soc }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ matrix.soc }}
       - name: Verify downloaded simulator
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" --soc single-core-rv5stage-soc
-          ldd "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC"
+          ldd "$RUNNER_TEMP/$SOC/VTestDriver"
       - name: Test adapter contracts
         run: make -C sims program-test-adapter-test arch-test-adapter-test
       - name: Cache program builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: /tmp/rhodium-program-tests/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'sims/program-test/build.py', 'sims/program-test/build-coremark.py', 'sims/program-test/build-embench.py', 'sims/program-test/coremark-riscv-baremetal/**', 'sims/program-test/embench-iot-riscv-baremetal/**', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
+          path: /tmp/rhodium-program-tests/${{ matrix.soc }}/${{ matrix.suite }}/build
+          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sims/program-test/build.py', 'sims/program-test/build-coremark.py', 'sims/program-test/build-embench.py', 'sims/program-test/coremark-riscv-baremetal/**', 'sims/program-test/embench-iot-riscv-baremetal/**', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
       - name: Build and run every selected workload
         env:
           SUITE: ${{ matrix.suite }}
+          SOC: ${{ matrix.soc }}
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/program-logs"
-          make -C sims "$SUITE-test" SOC=single-core-rv5stage-soc \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" \
+          make -C sims "$SUITE-test" SOC="$SOC" \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
             PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
       - name: Package completed workload ELFs
         if: always()
@@ -521,7 +612,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: single-core-rv5stage-soc-${{ matrix.suite }}-results-${{ github.sha }}
+          name: ${{ matrix.soc }}-${{ matrix.suite }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/manifest.json
@@ -532,12 +623,16 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  single-core-rv5stage-soc-arch-build:
-    name: Generate SingleCoreRV5StageSoC ACT ELFs once
+  single-core-arch-build:
+    name: Generate ${{ matrix.configuration }} ACT ELFs
     needs: [changes, compile-racket]
     if: needs.changes.outputs.program_arch == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Initialize pinned ACT sources
@@ -574,8 +669,8 @@ jobs:
       - name: Set up ACT and generate platform configuration
         id: act-config
         run: |
-          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=single-core-rv5stage-soc
-          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/single-core-rv5stage-soc/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=${{ matrix.configuration }}
+          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
       - name: Cache ACT reference products
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -587,15 +682,15 @@ jobs:
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/act"
-          make -C sims arch-test-elfs ACT_CONFIGURATION=single-core-rv5stage-soc ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
-          test -n "$(find /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs -name '*.elf' -print -quit)"
-          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs .
+          make -C sims arch-test-elfs ACT_CONFIGURATION=${{ matrix.configuration }} ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
+          test -n "$(find /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs -name '*.elf' -print -quit)"
+          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs .
           cd "$RUNNER_TEMP/act"
           sha256sum elfs.tar.gz > elfs.sha256
       - name: Publish exact-commit ACT payloads
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: single-core-rv5stage-soc-arch-elfs-${{ github.sha }}
+          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/elfs.tar.gz
             ${{ runner.temp }}/act/elfs.sha256
@@ -606,7 +701,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: single-core-rv5stage-soc-arch-generation-${{ github.sha }}
+          name: ${{ matrix.configuration }}-arch-generation-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/generation.log
             /tmp/rhodium-arch-test/configs
@@ -614,36 +709,55 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  single-core-rv5stage-soc-arch:
-    name: SingleCoreRV5StageSoC (arch ${{ matrix.shard }})
-    needs: [changes, single-core-rv5stage-soc-build, single-core-rv5stage-soc-arch-build]
+  single-core-arch:
+    name: ${{ matrix.configuration }} (arch ${{ matrix.shard }})
+    needs: [changes, single-core-rv5stage-soc-build, single-core-spike-soc-build, single-core-arch-build]
     if: needs.changes.outputs.program_arch == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
+        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
         shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Initialize upstream runner
         run: git submodule update --init riscv/riscv-arch-test
+      - name: Install Spike runtime dependencies
+        if: matrix.configuration == 'single-core-spike-soc'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
+      - name: Identify pinned Spike revision
+        if: matrix.configuration == 'single-core-spike-soc'
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache Spike runtime libraries
+        if: matrix.configuration == 'single-core-spike-soc'
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Restore pinned Spike runtime libraries
+        if: matrix.configuration == 'single-core-spike-soc'
+        run: make -C sims setup
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
+          name: ${{ matrix.configuration }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ matrix.configuration }}
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-rv5stage-soc-arch-elfs-${{ github.sha }}
+          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
           path: ${{ runner.temp }}/act
       - name: Verify and unpack shared artifacts
         run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" --soc single-core-rv5stage-soc
-          ldd "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }}
+          ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
           (cd "$RUNNER_TEMP/act" && sha256sum --check elfs.sha256)
-          mkdir -p /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs
-          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/elfs
+          mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
+          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
       - name: Test ACT adapter and partition contracts
         run: make -C sims arch-test-adapter-test
       - name: Run the complete deterministic shard
@@ -651,20 +765,20 @@ jobs:
           SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail
-          make -C sims arch-test-run ACT_CONFIGURATION=single-core-rv5stage-soc ACT_PYTHON=python3 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" \
+          make -C sims arch-test-run ACT_CONFIGURATION=${{ matrix.configuration }} ACT_PYTHON=python3 \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
             ACT_JOBS=2 ACT_SHARDS=4 ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
       - name: Publish shard results and inventory
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: single-core-rv5stage-soc-arch-${{ matrix.shard }}-results-${{ github.sha }}
+          name: ${{ matrix.configuration }}-arch-${{ matrix.shard }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/act/run.log
-            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/inventory.json
-            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/results.json
-            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/junit.xml
-            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/summary.log
-            /tmp/rhodium-arch-test/work/single-core-rv5stage-soc/single-core-rv5stage-soc/shards/${{ matrix.shard }}/logs
+            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/inventory.json
+            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/results.json
+            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/junit.xml
+            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/summary.log
+            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/logs
           if-no-files-found: warn
           retention-days: 7

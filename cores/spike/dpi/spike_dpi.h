@@ -7,8 +7,9 @@
 extern "C" unsigned char rhodium_spike_tick(
     unsigned char reset, long long hart_id, long long reset_vector,
     long long time, char interrupts, unsigned char xlen_is_64,
+    char max_vaddr_bits,
     const svBitVecVal* isa, const svBitVecVal* privilege,
-    short instructions_per_cycle, char pmp_regions,
+    short max_retired_instructions_per_cycle, char pmp_regions,
     short instruction_cache_sets, short instruction_cache_ways,
     short data_cache_sets, short data_cache_ways,
     unsigned char address_request_ready,

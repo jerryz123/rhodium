@@ -1,0 +1,53 @@
+#lang rhodium
+// Composes the external-memory single-core platform with a selected RISC-V hart implementation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm") open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+  lib("chi/protocol/channels.rhdl").CHISNChannels
+  lib("chi/home/inclusive-home.rhdl").CHIInclusiveHNF
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../one-hart/system.rhdl" open
+  "../platform/host-interface.rhdl".SoCHostInterface
+  "../platform/peripherals.rhdl".SoCUartInterface
+
+fun single_core_soc_params(hart :: RiscvHartImplementation,
+                           ~llc_sets: llc_sets :: Pow2Int = 64,
+                           ~llc_ways: llc_ways :: PosInt = 4) :: SingleCoreSoCParams:
+  make_single_core_soc_params(hart.profile, hart.description, hart.cache_line_bytes,
+                              hart.chi_factory, "Rhodium Single-Core " ++ hart.name ++ " SoC",
+                              ["rhodium,single-core-" ++ hart.key ++ "-soc"],
+                              ~llc_sets: llc_sets, ~llc_ways: llc_ways)
+
+class SingleCoreSoCConfig(hart :: RiscvHartImplementation, params :: SingleCoreSoCParams):
+  implements StableCircuitParam
+
+  constructor (hart :: RiscvHartImplementation, params :: SingleCoreSoCParams):
+    unless (params.core_profile == hart.profile) && (params.hart_description == hart.description)
+    | error(~who: #'SingleCoreSoCConfig, "SoC parameters must match the selected hart implementation")
+    super(hart, params)
+
+  property description: params.description
+
+fun single_core_soc_config(hart :: RiscvHartImplementation,
+                           ~llc_sets: llc_sets :: Pow2Int = 64,
+                           ~llc_ways: llc_ways :: PosInt = 4) :: SingleCoreSoCConfig:
+  SingleCoreSoCConfig(hart, single_core_soc_params(hart, ~llc_sets: llc_sets, ~llc_ways: llc_ways))
+
+sync_circuit SingleCoreSoC(config :: SingleCoreSoCConfig):
+  def params = config.params
+  def fabric = params.fabric
+  interface host(SoCHostInterface(fabric.flit), ~role: soc)
+  interface memory(CHISNChannels(fabric.flit), ~role: icn)
+  interface uart(SoCUartInterface(), ~role: soc)
+
+  populate_single_core(fabric, params.description,
+                       config.hart.circuit(fabric.boot.reset_address, fabric.hart_config),
+                       host, memory, uart, ~home: CHIInclusiveHNF(params.llc_config))
+
+export:
+  single_core_soc_params
+  SingleCoreSoCConfig
+  single_core_soc_config
+  SingleCoreSoC

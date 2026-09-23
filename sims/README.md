@@ -3,7 +3,7 @@
 
 # Simulation harnesses
 
-This directory turns the synthesizable [`socs/` compositions](../socs/README.md)
+This directory turns [`socs/` compositions](../socs/README.md)
 into executable simulations. It owns the parameterless generated top, FESVR
 transport, Verilator binding, simulation-only memory model, clock/reset driver,
 and executable workflows. The SoCs continue to own processor, device, CHI,
@@ -14,15 +14,20 @@ Contributors changing a harness, binding, or build rule should read
 
 ## Choose a harness
 
-| `SOC` | Selected system | Memory supplied by the harness | Default core specialization |
-| --- | --- | --- | --- |
-| `single-core-rv5stage-soc` | `SingleCoreRV5StageSoC` | `CHIDPIMemory` behind the SoC's external SN-F boundary | RV64IMAFDC plus B and Zicond; C composes Zca and Zcd |
-| `mini-rv5stage-soc` | `MiniRV5StageSoC` | None; the SoC contains its own 64 KiB `CHIRam` | Integer-only, compressed instructions disabled |
-| `tiled-rv5stage-soc` | Default 5x4 `TiledRV5StageSoC` | One `CHIDPIMemory` behind the shared external channel | Integer-only; C specializes to Zca |
+`SOC=mini|single|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
+the hart implementation. Both are host-side elaboration choices, so all six
+products have separate generated RTL and simulator artifacts. The defaults are
+`SOC=single CORE=rv5stage`.
 
-`SOC` defaults to `single-core-rv5stage-soc`. Read the [SoC comparison](../socs/README.md#choose-a-system)
-for the hardware differences, then use this guide to build or run the matching
-harness.
+| `SOC` | Memory supplied by harness | Topology |
+| --- | --- | --- |
+| `mini` | None; internal 64 KiB `CHIRam` | One hart and a forwarding Home |
+| `single` | One `CHIDPIMemory` | One hart and one inclusive LLC |
+| `tiled` | One `CHIDPIMemory` | Eight harts and four LLC slices in the default mesh |
+
+RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
+Spike uses its own RV64IMAFDC/Sv39 profile for any shape and remains
+simulation-only. The two choices do not add a runtime mux to the RTL.
 
 ## Ownership and execution boundary
 
@@ -35,7 +40,7 @@ flowchart LR
   subgraph Harness["Generated SoCHarness top - sims ownership"]
     FESVR["FesvrRequester<br/>RAM + MMIO host RN-F"]
     SoC["Selected SoC instance<br/>BootROM + hardware owned by socs/"]
-    DPIMemory["CHIDPIMemory<br/>SingleCoreRV5StageSoC and TiledRV5StageSoC"]
+    DPIMemory["CHIDPIMemory<br/>external-memory SoCs"]
     UART["UartDPI<br/>serial pins ↔ PTY"]
 
     FESVR <--> SoC
@@ -48,15 +53,16 @@ flowchart LR
   Harness -->|"exit"| Driver
 ```
 
-`TestDriver.v` generates clock and reset and
-observes the harness exit status. Each SoC has a separate parameterless harness
-that instantiates the FESVR requester and connects it to that SoC's common
-`SoCHostInterface`. Each harness connects its SoC's UART TX and RX pins to
+`TestDriver.v` generates clock and reset and observes the harness exit status.
+The emitter specializes one shared single-core harness for RV5Stage or Spike.
+It instantiates the FESVR requester and connects it to the selected SoC's
+common `SoCHostInterface`. Mini and Tiled retain shape-specific harness circuits.
+Each harness connects its SoC's UART TX and RX pins to
 the device-owned `UartDPI` PTY model. The UART interrupt remains connected to
-the SoC's PLIC. The
-SingleCoreRV5StageSoC and TiledRV5StageSoC harnesses each instantiate one `CHIDPIMemory` on their
-external normal-memory boundary. No SoC contains DPI calls or
-simulator dependencies.
+the SoC's PLIC. The Single and Tiled harnesses each instantiate one
+`CHIDPIMemory` on their external normal-memory boundary. The
+SoC composition layer adds no DPI calls or simulator harness policy; the
+simulation-only Spike core itself owns its typed DPI execution boundary.
 
 The directory owns:
 
@@ -73,42 +79,42 @@ simulator:
 
 ```sh
 make -C sims setup
-make -C sims simulator SOC=single-core-rv5stage-soc
-make -C sims simulator SOC=mini-rv5stage-soc
-make -C sims simulator SOC=tiled-rv5stage-soc
+make -C sims simulator SOC=single CORE=rv5stage
+make -C sims simulator SOC=single CORE=spike
+make -C sims simulator SOC=mini CORE=spike
+make -C sims simulator SOC=tiled CORE=rv5stage
 ```
 
 Setup requires Python 3.9+, initializes the shared
 [`riscv-isa-sim`](../riscv/riscv-isa-sim/) submodule, applies Rhodium's
-adjacent ordered patch series to a temporary source tree, and installs only
-FESVR under `.tools/`. RHEG uses the same gitlink and patch series for
+adjacent ordered patch series to a temporary source tree, and installs FESVR
+and the Spike libraries under `.tools/`. RHEG uses the same gitlink and patch series for
 instruction disassembly; neither consumer modifies the submodule checkout.
 
-`SOC` accepts `single-core-rv5stage-soc`, `mini-rv5stage-soc`, or `tiled-rv5stage-soc` and defaults to `single-core-rv5stage-soc`. The
-SingleCoreRV5StageSoC and TiledRV5StageSoC harnesses attach `CHIDPIMemory` to their exposed ready-valid SN-F
-channels as a simulation-only external memory model. MiniRV5StageSoC instead contains
-its own synthesizable `CHIRam`. Each harness has an independent artifact at
-`/tmp/rhodium-sims/<soc>/obj/VTestDriver`, so
+The Single and Tiled harnesses attach `CHIDPIMemory` to their external SN-F
+channels. Mini instead contains synthesizable `CHIRam`. Each product has an
+independent artifact at `/tmp/rhodium-sims/<soc>-<core>/obj/VTestDriver`, so
 switching configurations cannot reuse generated RTL for the other SoC. The
 shared Verilator `TestDriver` exposes only clock, reset, and exit; UART traffic
 crosses the PTY inside the harness. Set
 `BUILD_ROOT` when a different artifact root is required. Building a simulator
 does not require or embed a target program.
 
-The Makefile maps `SOC` to one harness module. A shared emitter dynamically
-loads only that module's exported `design`, so unrelated SoCs are neither
-imported nor elaborated. Every harness emits the same parameterless
-`SoCHarness` Verilog top contract, allowing `TestDriver.v` to remain shared;
-there is no Rhodium variant enum or conditional harness circuit.
+The Makefile passes `SOC` and `CORE` to the host-side emitter. The emitter
+selects one hart binding and elaborates it inside the chosen shape's harness.
+Test specializations may still provide a harness module path. Every selection emits the
+same parameterless `SoCHarness` Verilog top contract, allowing `TestDriver.v`
+to remain shared. There is no runtime variant enum or hardware selector.
 
 ## Run OpenSBI
 
 Initialize the pinned OpenSBI source and build generic `FW_JUMP` firmware for
-the selected SoC:
+either single-core SoC:
 
 ```sh
 make -C sims opensbi-setup
-make -C sims opensbi-firmware SOC=single-core-rv5stage-soc
+make -C sims opensbi-firmware SOC=single CORE=rv5stage
+make -C sims opensbi-firmware SOC=single CORE=spike
 ```
 
 The build derives the firmware, next-stage, and writable FDT addresses from the
@@ -139,7 +145,8 @@ application. The repository's tiny S-mode SBI qualification image is available
 only through:
 
 ```sh
-make -C sims opensbi-test SOC=single-core-rv5stage-soc
+make -C sims opensbi-test SOC=single CORE=rv5stage
+make -C sims opensbi-test SOC=single CORE=spike
 ```
 
 The initial qualification requires one bootable RV64 hart, IMA,
@@ -170,9 +177,9 @@ set `HTIF_ARGS=+max-cycles=...` appropriately for interactive programs.
 Test all byte values through a real external PTY client with:
 
 ```sh
-make -C sims uart-pty-test SOC=mini-rv5stage-soc
-make -C sims uart-pty-test SOC=single-core-rv5stage-soc
-make -C sims uart-pty-test SOC=tiled-rv5stage-soc
+make -C sims uart-pty-test SOC=mini CORE=rv5stage
+make -C sims uart-pty-test SOC=single CORE=rv5stage
+make -C sims uart-pty-test SOC=tiled CORE=rv5stage
 ```
 
 ## Export SingleCoreRV5StageSoC events to Perfetto
@@ -187,17 +194,17 @@ Affected occurrences carry `ancestry_unknown` in Perfetto; they are not silently
 treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
-Tracing is opt-in and currently supports `SOC=single-core-rv5stage-soc`:
+Tracing is opt-in and currently supports `SOC=single CORE=rv5stage`:
 
 ```sh
-make -C sims smoke SOC=single-core-rv5stage-soc TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
-make -C sims run SOC=single-core-rv5stage-soc TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=single-core-rv5stage-soc TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
+make -C sims smoke SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
+make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
 Open the resulting `.pftrace` in Perfetto. Traced builds live in
-`/tmp/rhodium-sims/single-core-rv5stage-soc-trace/`, separate from ordinary builds. `TRACE=0`
+`/tmp/rhodium-sims/single-rv5stage-trace/`, separate from ordinary builds. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
@@ -267,9 +274,9 @@ disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 Run any FESVR-compatible target binary through an already-built simulator:
 
 ```sh
-make -C sims run SOC=single-core-rv5stage-soc BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=mini-rv5stage-soc BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled-rv5stage-soc BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=single CORE=rv5stage BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=mini CORE=rv5stage BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled CORE=rv5stage BINARY=/absolute/path/to/program.elf
 ```
 
 `HTIF_ARGS` places optional FESVR host arguments before the target binary, and
@@ -280,7 +287,7 @@ status; the Makefile and RTL do not implement a separate binary loader.
 The Verilator binding removes the simulator-owned `+rheg-trace=`,
 `+max-cycles=`, and `+load-through-chi` options before passing arguments to FESVR.
 
-SingleCoreRV5StageSoC and TiledRV5StageSoC DPI RAMs register their native backing stores during
+SingleCoreRV5StageSoC and TiledSoC DPI RAMs register their native backing stores during
 clocked reset, before FESVR starts. Each instance's existing hardware identity
 and configuration supply its physical window; no separate memory-map declaration
 is needed. FESVR reads,
@@ -325,34 +332,42 @@ can access platform devices, including the boot-address register and UART.
 
 ## SoC software suites
 
-Run the complete supported upstream ISA selection, benchmarks, CoreMark,
-Embench-IoT, and ACT on `SingleCoreRV5StageSoC` through its FESVR-backed
-simulator:
+Run the complete profile-selected upstream ISA suite, benchmarks, CoreMark,
+Embench-IoT, configuration-exact ACT, and OpenSBI qualification on both
+single-core SoCs:
 
 ```sh
 make -C sims program-test-setup
+make -C sims opensbi-setup
 make -C sims single-core-software-test
 ```
 
-This target requires the ACT dependencies described below. The individual
-`isa-test`, `benchmark-test`, `coremark-test`, and `embench-test` targets remain
-available for focused execution. CI schedules all five complete suites
-independently so one failure does not suppress the others.
+`SOFTWARE_SOC` defaults to `single` and `SOFTWARE_CORE` defaults to
+`rv5stage spike`; set `SOFTWARE_CORE=rv5stage` or `SOFTWARE_CORE=spike` to
+select one implementation. The aggregate target requires the ACT dependencies
+described below. The individual
+`isa-test`, `benchmark-test`, `coremark-test`, and `embench-test` targets accept
+either single-core SoC and remain available for focused execution. CI schedules
+the four native suites and ACT independently for Spike and RV5Stage, and
+qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
+generated test inventory.
 
-The ISA adapter selects upstream physical-environment tests for RV64 I/M/A/F/D/C,
-Zba/Zbb/Zbs/Zicond, and Zicboz. It omits `rv64ui-p-ma_data`, which requires
-successful misaligned accesses rather than SingleCoreRV5StageSoC's traps. Virtual-environment
+The ISA adapter selects upstream physical-environment tests from the concrete
+target profile. SingleCoreSpikeSoC currently selects RV64 I/M/A/F/D/C, while
+SingleCoreRV5StageSoC additionally selects Zba/Zbb/Zbs/Zicond and Zicboz. It
+omits `rv64ui-p-ma_data`, which requires successful misaligned accesses rather
+than SingleCoreRV5StageSoC's traps. Virtual-environment
 and privileged-platform groups are outside this initial ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
 Run the smaller, single-hart ISA selections on `MiniRV5StageSoC` and
-`TiledRV5StageSoC` explicitly:
+`TiledSoC` explicitly:
 
 ```sh
 make -C sims program-test-setup
-make -C sims isa-smoke SOC=mini-rv5stage-soc
-make -C sims isa-smoke SOC=tiled-rv5stage-soc
+make -C sims isa-smoke SOC=mini CORE=rv5stage
+make -C sims isa-smoke SOC=tiled CORE=rv5stage
 ```
 
 Each command is independently runnable. CI attempts both commands even if one
@@ -360,17 +375,18 @@ fails, so one SoC cannot suppress the other's result.
 
 Selection follows each concrete SoC's core profile and covers representative
 integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
-operations, conditional zeroing, and cache zeroing where supported. TiledRV5StageSoC
+operations, conditional zeroing, and cache zeroing where supported. TiledSoC
 also runs the compressed-instruction test. Every selected ELF must fit the
 actual RAM window, including zero-filled BSS; oversized tests fail preparation
 rather than being silently skipped. These physical assembly tests use no
 runtime-allocated stack. The complete and smoke ISA selections both bind their
 manifests to the generated target description and require a matching simulator
 attestation. Smoke results and target descriptions live under
-`$PROGRAM_BUILD_ROOT/<soc>/isa-smoke/`, independently of the full SingleCoreRV5StageSoC
+`$PROGRAM_BUILD_ROOT/<soc>-<core>/isa-smoke/`, independently of the full single-core
 suites. The existing runner executes every selected test even after failures.
-TiledRV5StageSoC boots only hart 0: this is mesh-backed memory coverage, not a
-multihart coherence test. ACT and benchmarks remain SingleCoreRV5StageSoC-only.
+TiledSoC boots only hart 0: this is mesh-backed memory coverage, not a
+multihart coherence test. ACT and the complete native suites remain restricted
+to the two single-core SoCs.
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
 `multiply`, `mm`, `dhrystone`, and `spmv`. Target-native builds also select the
@@ -418,7 +434,9 @@ CI installs a checksum-pinned GCC/Newlib release via
 `bash tools/install-riscv-toolchain.sh` (x86-64 Linux); local builds accept
 `RISCV_CC=/path/to/riscv64-unknown-elf-gcc`.
 
-`PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`. Each suite writes
+`PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`; each suite
+writes beneath `<soc>-<core>/`, so parallel products cannot reuse one another's
+ELFs or results. Each suite writes
 a manifest, build log, per-test execution logs, `results.json`, and `junit.xml`.
 Benchmark builds also write `instruction-report.json`, with executable
 instruction counts, compressed counts, unknown-decoding counts, and canonical
@@ -448,9 +466,12 @@ not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 Benchmark CI checks correctness, never exact cycle counts.
 
 CI selects ISA tests, benchmarks, CoreMark smoke, Embench-IoT, and ACT on pull requests and
-pushes to `main`; manual dispatch selects all five. ACT generates its full ELF inventory once, then partitions it
-across four execution jobs. Every job consumes the same exact-commit SingleCoreRV5StageSoC
-executable. ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
+pushes to `main`; manual dispatch selects all five. The native suites consume
+one exact-commit SingleCoreSpikeSoC executable and its matching patched Spike
+runtime. ACT generates one profile-specific ELF inventory for each single-core
+SoC, then partitions each across four execution jobs that consume that SoC's
+exact-commit executable. Spike shards restore the same pinned Spike libraries
+used by their producer. ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 
@@ -464,6 +485,7 @@ Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
 ```sh
 make -C sims arch-test-setup
 make -C sims arch-test ACT_CONFIGURATION=single-core-rv5stage-soc
+make -C sims arch-test ACT_CONFIGURATION=single-core-spike-soc
 ```
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
@@ -545,31 +567,32 @@ certification. Upstream documents the framework in the
 Run the genuine execution smoke for any system:
 
 ```sh
-make -C sims smoke SOC=single-core-rv5stage-soc
-make -C sims smoke SOC=mini-rv5stage-soc
-make -C sims smoke SOC=tiled-rv5stage-soc
-make -C sims boot-test SOC=single-core-rv5stage-soc
-make -C sims boot-test SOC=mini-rv5stage-soc
-make -C sims boot-test SOC=tiled-rv5stage-soc
+make -C sims smoke SOC=single CORE=rv5stage
+make -C sims smoke SOC=single CORE=spike
+make -C sims smoke SOC=mini CORE=rv5stage
+make -C sims smoke SOC=tiled CORE=rv5stage
+make -C sims boot-test SOC=single CORE=rv5stage
+make -C sims boot-test SOC=mini CORE=rv5stage
+make -C sims boot-test SOC=tiled CORE=rv5stage
 ```
 
 `make -C sims tiled-memory-test` uses a separate stalled-memory build to check
 writebacks and refills across all LLC slices through the single external
-channel. The ordinary `SOC=tiled-rv5stage-soc` harness leaves memory channels unstalled.
+channel. The ordinary `SOC=tiled CORE=rv5stage` harness leaves memory channels unstalled.
 
 Run the LR/SC progress qualification through normal FESVR loading and coherent
 signature collection with:
 
 ```sh
-make -C sims lrsc-test SOC=single-core-rv5stage-soc
-make -C sims lrsc-test SOC=mini-rv5stage-soc
-make -C sims lrsc-test SOC=tiled-rv5stage-soc
+make -C sims lrsc-test SOC=single CORE=rv5stage
+make -C sims lrsc-test SOC=mini CORE=rv5stage
+make -C sims lrsc-test SOC=tiled CORE=rv5stage
 ```
 
 All three targets exercise word/doubleword constrained loops in Bare and Sv39
 modes, including cache-line and page crossings. MiniRV5StageSoC uses word-aligned
 instruction placements and page tables within its 64 KiB RAM; the other systems
-also exercise halfword instruction starts. TiledRV5StageSoC uses
+also exercise halfword instruction starts. TiledSoC uses
 a test-only boot ROM that releases all eight harts to contend on shared
 counters; its core and memory system are unchanged. Builds and six-value
 signatures stay under `BUILD_ROOT/lrsc-test/<soc>/`. Each execution has a
@@ -590,7 +613,7 @@ test is currently defined only for the SingleCoreRV5StageSoC profile; run it thr
 normal ELF loader and coherent HTIF path with:
 
 ```sh
-make -C sims zihintntl-test SOC=single-core-rv5stage-soc
+make -C sims zihintntl-test SOC=single CORE=rv5stage
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and

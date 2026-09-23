@@ -4,7 +4,7 @@
 
 import:
   "../../cores/rv5stage/profile.rhm".RV5StageMultiplierKind
-  "../../socs/mini-rv5stage-soc.rhdl" as soc
+  "../../socs/products/mini-rv5stage-soc.rhdl" as soc
 
 def description = soc.mini_rv5stage_soc_params.description
 

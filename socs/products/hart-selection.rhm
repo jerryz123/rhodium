@@ -1,0 +1,27 @@
+#lang rhombus
+// Selects one implementation profile for a compile-time SoC shape and core choice.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../harts/rv5stage.rhdl".rv5stage_hart
+  "../harts/spike.rhdl".spike_hart
+  "core-profiles.rhm" open
+  "spike-core-profile.rhm".single_core_spike_soc_core_profile
+
+fun soc_hart(shape :: String, core :: String) :: RiscvHartImplementation:
+  match core
+  | "spike":
+      unless shape == "mini" || shape == "single" || shape == "tiled"
+      | error(~who: #'soc_hart, "unsupported SoC shape")
+      spike_hart(single_core_spike_soc_core_profile)
+  | "rv5stage":
+      match shape
+      | "mini": rv5stage_hart(mini_rv5stage_soc_core_profile)
+      | "single": rv5stage_hart(single_core_rv5stage_soc_core_profile)
+      | "tiled": rv5stage_hart(tiled_rv5stage_soc_core_profile)
+      | ~else: error(~who: #'soc_hart, "unsupported SoC shape")
+  | ~else: error(~who: #'soc_hart, "unsupported core")
+
+export:
+  soc_hart

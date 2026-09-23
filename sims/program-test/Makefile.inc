@@ -1,4 +1,4 @@
-# Runs full SingleCoreRV5StageSoC workload suites and capability-filtered ISA smoke on concrete SoCs.
+# Runs full single-core workload suites and capability-filtered ISA smoke on concrete SoCs.
 # SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sims/program-test/coremark
@@ -11,15 +11,19 @@ PROGRAM_TIMEOUT ?= 300
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
 BENCHMARK_MODE ?= target
-SINGLE_CORE_SOC := single-core-rv5stage-soc
-SMOKE_SOCS := mini-rv5stage-soc tiled-rv5stage-soc
+NATIVE_SOFTWARE_SOCS := single single-core-rv5stage-soc single-core-spike-soc
+SOFTWARE_SOC ?= single
+SOFTWARE_CORE ?= rv5stage spike
+SMOKE_SOCS := mini tiled mini-rv5stage-soc tiled-rv5stage-soc
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
 EMBENCH_LOCAL_SCALE ?= 1
 EMBENCH_WARMUP_HEAT ?= 0
 EMBENCH_MAX_CYCLES ?= 100000000
-ISA_SMOKE_DIR := $(PROGRAM_BUILD_ROOT)/$(SOC)/isa-smoke
+PROGRAM_PRODUCT_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
+ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
+PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup embench-setup program-test-adapter-test program-target simulator-attestation
@@ -31,7 +35,7 @@ program-target: $(PROGRAM_TARGET)
 ifeq ($(PREBUILT_SIMULATOR),)
 $(PROGRAM_TARGET): $(REPO_DIR)/sims/program-test/write-target.rhm $(SIMULATOR_SOURCES)
 	mkdir -p "$(dir $(PROGRAM_TARGET))"
-	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm "$(SOC)" "$(PROGRAM_TARGET)"
+	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(PROGRAM_TARGET)"
 else
 $(PROGRAM_TARGET):
 	@echo "Prebuilt simulator target descriptor is missing: $@" >&2; exit 2
@@ -40,7 +44,7 @@ endif
 isa-smoke-config:
 	@test -n "$(filter $(SOC),$(SMOKE_SOCS))" || (echo 'ISA smoke supports SOC=$(SMOKE_SOCS)' >&2; exit 2)
 	mkdir -p "$(ISA_SMOKE_DIR)"
-	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm "$(SOC)" "$(ISA_SMOKE_DIR)/target.json"
+	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(ISA_SMOKE_DIR)/target.json"
 
 isa-smoke-elfs: isa-smoke-config
 	$(PYTHON) program-test/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
@@ -68,61 +72,63 @@ program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 
 isa-elfs: program-target
-	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'The full ISA suite supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(PROGRAM_BUILD_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --isa-selection full
 
 benchmark-elfs: program-target
-	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'The full benchmark suite supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full benchmark suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(PROGRAM_BUILD_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 coremark-elf: program-target
-	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'CoreMark supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
-	  --output "$(PROGRAM_BUILD_ROOT)/coremark" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
 
 embench-elfs: program-target
-	@test "$(SOC)" = "$(SINGLE_CORE_SOC)" || (echo 'Embench-IoT supports SOC=$(SINGLE_CORE_SOC) only' >&2; exit 2)
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) program-test/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
-	  --output "$(PROGRAM_BUILD_ROOT)/embench" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
 isa-test: isa-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/isa/manifest.json" \
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/isa/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_BUILD_ROOT)/isa/results" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/isa/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 
 simulator-attestation: simulator program-target
 	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
-	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC)" --target "$(PROGRAM_TARGET)"
+	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)" --target "$(PROGRAM_TARGET)"
 
 benchmark-test: benchmark-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/benchmark/manifest.json" \
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/benchmark/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_BUILD_ROOT)/benchmark/results" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES)
 
 coremark-test: coremark-elf simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/coremark/manifest.json" \
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_BUILD_ROOT)/coremark/results" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
 
 embench-test: embench-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_BUILD_ROOT)/embench/manifest.json" \
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/embench/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_BUILD_ROOT)/embench/results" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/embench/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(EMBENCH_MAX_CYCLES)
 
 single-core-software-test:
-	$(MAKE) isa-test SOC=$(SINGLE_CORE_SOC)
-	$(MAKE) benchmark-test SOC=$(SINGLE_CORE_SOC)
-	$(MAKE) coremark-test SOC=$(SINGLE_CORE_SOC)
-	$(MAKE) embench-test SOC=$(SINGLE_CORE_SOC)
-	$(MAKE) arch-test SOC=$(SINGLE_CORE_SOC) ACT_CONFIGURATION=$(SINGLE_CORE_SOC)
+	@status=0; for core in $(SOFTWARE_CORE); do \
+	  for suite in isa benchmark coremark embench; do \
+	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
+	  done; \
+	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ACT_CONFIGURATION="single-core-$$core-soc" || status=1; \
+	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
+	done; exit "$$status"

@@ -46,6 +46,8 @@ upstream independently:
 12. `0012-ignore-unconstrained-sc-results.patch` keeps the virtual-memory LR/SC
     exception tests focused on translation and trap behavior instead of requiring
     unconstrained SC operations to succeed.
+13. `0013-limit-medeleg-walk-to-base-causes.patch` excludes the optional CFI
+    software-check cause from the generic Sm delegation walk.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to

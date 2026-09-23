@@ -101,6 +101,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
         cfg_.isa, cfg_.priv, &cfg_, this,
         static_cast<std::uint32_t>(configuration_.hart_id), false, nullptr,
         std::cerr);
+    if (configuration_.max_vaddr_bits != 0 && configuration_.max_vaddr_bits != 39)
+      throw std::invalid_argument("Spike adapter supports only Bare and Sv39 translation");
+    processor_->set_max_vaddr_bits(configuration_.max_vaddr_bits);
+    processor_->reset();
     processor_->get_state()->pc = configuration_.reset_vector;
     harts_.emplace(static_cast<std::size_t>(configuration_.hart_id), processor_.get());
     target_.init(&Implementation::run_trampoline, this);
@@ -124,15 +128,9 @@ class SpikeCoreModel::Implementation final : public simif_t {
   bool mmio_fetch(reg_t address, std::size_t length, std::uint8_t* bytes) override {
     const AddressResponse attributes = classify(address, length, false, true);
     if (attributes.fault) return false;
-    const bool ok = attributes.cacheable && attributes.instruction_cacheable
-                        ? instruction_read(address, length, bytes)
-                        : uncached_read(address, length, attributes.device, bytes);
-    if (ok && length >= 4) {
-      std::uint32_t instruction = 0;
-      std::memcpy(&instruction, bytes, sizeof(instruction));
-      if ((instruction & 0x707fU) == 0x100fU) invalidate_instruction_cache();
-    }
-    return ok;
+    return attributes.cacheable && attributes.instruction_cacheable
+               ? instruction_read(address, length, bytes)
+               : uncached_read(address, length, attributes.device, bytes);
   }
 
   bool mmio_load(reg_t address, std::size_t length, std::uint8_t* bytes) override {
@@ -149,6 +147,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
                                 : uncached_write(address, length, attributes.device, bytes);
   }
 
+  void flush_icache() override { invalidate_instruction_cache(); }
   void proc_reset(unsigned) override {}
   const cfg_t& get_cfg() const override { return cfg_; }
   const std::map<std::size_t, processor_t*>& get_harts() const override { return harts_; }
@@ -166,7 +165,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   [[noreturn]] void run() {
     for (;;) {
-      processor_->step(configuration_.instructions_per_cycle);
+      processor_->step(configuration_.max_retired_instructions_per_cycle);
       yield();
     }
   }
@@ -220,7 +219,8 @@ class SpikeCoreModel::Implementation final : public simif_t {
   void update_architectural_inputs() {
     state_t* state = processor_->get_state();
     state->time->sync(inputs_.time);
-    constexpr reg_t mask = MIP_SSIP | MIP_MSIP | MIP_STIP | MIP_MTIP | MIP_SEIP | MIP_MEIP;
+    constexpr reg_t pin_mask = MIP_SSIP | MIP_STIP;
+    constexpr reg_t device_mask = MIP_MSIP | MIP_MTIP | MIP_SEIP | MIP_MEIP;
     reg_t pending = 0;
     if (inputs_.interrupts & (1U << 0)) pending |= MIP_SSIP;
     if (inputs_.interrupts & (1U << 1)) pending |= MIP_MSIP;
@@ -228,7 +228,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     if (inputs_.interrupts & (1U << 3)) pending |= MIP_MTIP;
     if (inputs_.interrupts & (1U << 4)) pending |= MIP_SEIP;
     if (inputs_.interrupts & (1U << 5)) pending |= MIP_MEIP;
-    state->mip->backdoor_write_with_mask(mask, pending);
+    // SSIP and STIP are also writable CSRs. Keep pin assertions separate so
+    // a low external input cannot erase software's pending interrupt state.
+    state->mip->set_external_pending_with_mask(pin_mask, pending);
+    state->mip->backdoor_write_with_mask(device_mask, pending);
   }
 
   AddressResponse classify(std::uint64_t address, std::size_t length,
@@ -421,18 +424,26 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   bool uncached_access(std::uint64_t address, std::size_t length, bool write,
                        bool device, const std::uint8_t* bytes) {
+    const std::size_t byte_offset = static_cast<std::size_t>(address & 7);
     uncached_request_address_ = address;
     uncached_request_write_ = write;
     uncached_request_size_ = size_code(length);
     uncached_request_data_ = 0;
-    uncached_request_mask_ = static_cast<std::uint8_t>((1U << length) - 1U);
+    uncached_request_mask_ = static_cast<std::uint8_t>(((1U << length) - 1U) << byte_offset);
     uncached_request_device_ = device;
-    if (write) std::memcpy(&uncached_request_data_, bytes, length);
+    if (write) {
+      std::memcpy(reinterpret_cast<std::uint8_t*>(&uncached_request_data_) + byte_offset,
+                  bytes, length);
+    }
     uncached_request_valid_ = true;
     uncached_response_waiting_ = true;
     while (uncached_request_valid_ || uncached_response_waiting_) yield();
     if (uncached_response_fault_) return false;
-    if (!write) std::memcpy(const_cast<std::uint8_t*>(bytes), &uncached_response_data_, length);
+    if (!write) {
+      std::memcpy(const_cast<std::uint8_t*>(bytes),
+                  reinterpret_cast<const std::uint8_t*>(&uncached_response_data_) + byte_offset,
+                  length);
+    }
     return true;
   }
 
