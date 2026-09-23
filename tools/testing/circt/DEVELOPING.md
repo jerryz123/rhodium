@@ -84,22 +84,21 @@ The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-ar
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
 `event-vector` instruments the production vector execution engine. Its
-public-transfer oracle tracks sequencer/issue occurrences,
+public-transfer oracle tracks sequence/issue occurrences,
 fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
-stalls, and pending reset protect vector milestones. Its launch-stall checks
-require an active sequencer parent and at least one blocked setup, source, or
-aggregate operand-fetch acceptance; transferred launches must have no blocked
-reason. The feedback oracle checks
-the exact residency end against public sequencing release: final read-plan
+stalls, and pending reset protect vector milestones. Its sequencing-stall checks
+require an active sequencer owner and at least one blocked setup, source, or
+aggregate operand-fetch acceptance; transferred plans must have no blocked
+reason. The feedback oracle checks public sequencing release: final read-plan
 transfer for ordinary compute and final authorization, fault, truncation, or
 cancellation for serialized work. Same-cycle replacement releases the old
 sequencer owner before capturing the new one; the oracle retains issue owners
 until their separate issue-completion pulses. Retry keeps its existing owner,
 and accepted results may outlive sequencing ownership.
 `rv5stage-vector-config` additionally instruments its existing real-core
-program and checks each sequencer admission against its FIFO-ordered scalar WB occurrence,
+program and checks each sequencing occurrence against its scalar WB ancestor,
 while retaining its architectural signatures and exact VRF-write scoreboard.
 `event-window` additionally checks retained multi-entry contributions through
 downstream elastic storage against a public fill/release model. `event-frontend`

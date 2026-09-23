@@ -117,7 +117,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def Array(local_completion_input, packed_completion_input) = completion |> fork_valid(2)
   def local_completion = local_completion_input |> filter_valid(event => !entry_packed[event.tag])
   packed_completion_input |> filter_valid(event => entry_packed[event.tag]) |> packed.completion
-  inst unroller(RV5StageVectorUnroller(xlen, vlen, OwnedContext()))
+  inst unroller(RV5StageVectorUnroller(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, OwnedContext()))
   inst registers(RV5StageVectorRegisterFile(vlen))
   // Configured slots reserve storage before issue for non-backpressurable responses.
@@ -156,17 +156,9 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| request.bits.descriptor.control.scan ||| request.bits.descriptor.control.compress
   available <== unroller.request.ready & !macro_valid[next_owner] & (!stateful_request ||| !operand_fetch.active)
   def admitted = request |> gate_flow(available)
-  def sequencing = admitted |> trace_event("vector/sequencer", ~residency: "sequencer", ~fields: operation):
-    pc: operation.descriptor.pc
-    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): operation.descriptor.instruction
-    vl(~format: "unsigned"): operation.descriptor.state.vl
-    vstart(~format: "unsigned"): operation.descriptor.state.vstart
-    sew(~format: "unsigned"): operation.descriptor.state.vtype[3..6]
-    lmul: operation.descriptor.state.vtype[0..3]
-    packed(~format: "bool"): packed_memory
   describe_interface_retained_storage(admitted.fire(), unroller.sequencing_done.valid, unroller.active, ~name: "sequencer")
   // The shared descriptor owner supplies both schedules and their lineage.
-  def Array(element_request, packed_request) = sequencing |> atomic_fork(2)
+  def Array(element_request, packed_request) = admitted |> atomic_fork(2)
   (
     element_request |> map_flow(operation => RV5StageVectorInstruction(xlen, OwnedContext())):
       descriptor: operation.descriptor

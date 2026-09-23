@@ -14,7 +14,7 @@ import:
 
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_core_sites {\n" ++ String.join(
-  for List (label in ["core/s5.wb", "vector/sequencer"], name in ["wb", "sequencer"]):
+  for List (label in ["core/s5.wb", "vector/s1.sequence"], name in ["wb", "sequence"]):
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
     unless matches.length() == 1 | error("expected one core/vector site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",

@@ -15,7 +15,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
-sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false):
   def Address = Bits(index_width(vector_depth(vlen)))
   def Count = Bits(index_width(vlen + 1))
   def Sequence = Bits(vector_sequence_width(vlen))
@@ -200,7 +200,9 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   read_offer.left.bits.addresses <== vec([first_address, second_address, destination_address])
   read_offer.left.bits.mask_enable <== !empty
   read_offer.left.bits.mask_address <== (cursor >> 6)[0..index_width(vector_chunks(vlen))]
-  def offered_read = read_offer.right |> trace_event("vector/s1.launch", ~stalls: #true, ~fields: plan):
+  def offered_read = read_offer.right |> trace_event("vector/s1.sequence", ~stalls: #true, ~fields: plan):
+    pc: plan.context.instruction.descriptor.pc
+    instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): plan.context.instruction.descriptor.instruction
     packed: Bool(#false)
     op_index(~format: "unsigned"): plan.context.beat.sequence
     first(~format: "unsigned"): plan.context.beat.first

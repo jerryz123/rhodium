@@ -97,21 +97,22 @@ replay, and reset with queued work.
 
 ## Event ownership
 
-`pipeline.rhdl` traces actual admission after certificate waiting with one
-`vector/sequencer` residency before the schedule fork. Its local storage scope
-uses the existing unroller occupancy and mode-specific sequencing release:
+`pipeline.rhdl` keeps the admitted descriptor's retained-storage contract
+before the schedule fork, without emitting an admission or residency event.
+The scope uses the existing unroller occupancy and mode-specific sequencing release:
 final read-plan transfer for ordinary compute, final feedback for serialized
 operations. A read transferred on the replacement edge still belongs to the old
 descriptor; the following cycle's read belongs to its replacement.
 Accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
 emits no launch checkpoint. The original scalar WB identity follows the existing
-admission queue into the shared checkpoint, then each schedule's retained Flow.
+admission queue into each schedule's retained Flow.
 The unroller offers each pending read plan independently of its address-setup
 and older-write hazards. Its internal atomic fork requires setup, source
 availability, and operand fetch to accept together, including in the standalone
-unroller fixture. The unroller-owned `vector/s1.launch` checkpoint records the
-actual transfer, while its stall companion captures setup, individual source,
-and aggregate operand-fetch readiness failures without changing launch timing.
+unroller fixture. The unroller-owned `vector/s1.sequence` checkpoint records the
+actual transfer and captures the instruction for slice naming; its stall
+companion captures setup, individual source, and aggregate operand-fetch
+readiness failures without changing launch timing.
 Operand fetch carries that occurrence through the VRF response and credited queue to
 elementwise issue. Packed memory has no equivalent elementwise read plan.
 Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.

@@ -10,14 +10,16 @@
 
 namespace {
 using rheg::Ref;
+using MacroId = std::uint64_t;
 struct Attempt { Ref ref; unsigned tag, index; bool memory, enabled; };
 struct Owner { Attempt attempt; bool done; std::uint64_t due; };
-struct IssueOwner { Ref ref; unsigned next_index=0, authorized_index=0; };
+struct IssueOwner { MacroId id; unsigned next_index=0, authorized_index=0; };
+struct MacroInfo { std::uint64_t admitted; unsigned instruction, length; };
 std::array<std::optional<Attempt>,3> pipe;
 std::deque<Owner> owners;
 std::deque<IssueOwner> issue_owners;
-std::optional<Ref> macro;
-std::optional<Ref> offered_macro;
+std::optional<MacroId> macro;
+std::optional<MacroId> offered_macro, offered_sequence_macro;
 std::uint64_t cycle=0, launches=0, issues=0, completions=0, stalls=0;
 unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
@@ -32,8 +34,10 @@ std::vector<Expected> expected;
 unsigned expected_index=0;
 bool have_issue=false;
 bool resident=false;
-std::optional<Ref> expected_issue_macro;
-std::map<Ref,std::uint64_t> releases;
+std::optional<MacroId> expected_issue_macro;
+std::map<MacroId,MacroInfo> macros;
+std::map<MacroId,std::uint64_t> releases;
+std::map<Ref,MacroId> sequence_owners;
 [[noreturn]] void fail(const char* message) {
   std::fprintf(stderr,"vector trace cycle %llu: %s\n",(unsigned long long)cycle,message);
   std::abort();
@@ -80,14 +84,15 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   resetting=reset; expected.clear(); have_issue=false; expected_issue_macro.reset();
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
-    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_macro.reset();
-    releases.clear(); resident=false;
+    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_macro.reset(); offered_sequence_macro.reset();
+    macros.clear(); releases.clear(); sequence_owners.clear(); resident=false;
     cycle=launches=issues=completions=stalls=0;
     return;
   }
-  const auto issuing_macro=issue_owners.empty() ? std::nullopt : std::optional<Ref>{issue_owners.front().ref};
+  const auto issuing_macro=issue_owners.empty() ? std::nullopt : std::optional<MacroId>{issue_owners.front().id};
   const auto issuing_index=issue_owners.empty() ? 0 : issue_owners.front().next_index;
   offered_macro=issuing_macro;
+  offered_sequence_macro=macro;
   const bool serialized=resident && ((macro_instruction&0x7f)==0x07 || (macro_instruction&0x7f)==0x27);
   if(serialized && bool(sequenced)!=bool(issue_done)) fail("serialized sequencing release changed");
   if(sequenced) {
@@ -97,9 +102,9 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   }
   if(launch) {
     if(resident) fail("macro replaced active sequencing");
-    macro=Ref{vector_sites::sequencer,launches++};
+    macro=launches++;
     resident=true;
-    expect(macro->site,macro->sequence,{});
+    macros.emplace(*macro,MacroInfo{cycle,instruction,vl});
     destination=(instruction>>7)&31; length=vl; macro_instruction=instruction;
     writes=(instruction&0x7f)!=0x27 && ((instruction>>25)&1) && vl!=0;
     issue_owners.push_back({*macro});
@@ -166,29 +171,28 @@ extern "C" void vector_trace_check() {
   auto& graph=rheg::graph();
   graph.validate();
   if(resetting) { if(!graph.nodes.empty()) fail("reset retained graph"); return; }
-  for(const auto& [ref,node]:graph.nodes) if(ref.site==vector_sites::sequencer) {
-    if(node.end_cycle.has_value()!=bool(releases.count(ref))) fail("residency open/released mismatch");
-    if(node.end_cycle && *node.end_cycle!=releases.at(ref)) fail("wrong residency release cycle");
-  }
   unsigned actual=0;
   for(const auto& pair:graph.nodes) if(pair.second.cycle==cycle) {
     const auto ref=pair.first;
-    if(ref.site==vector_sites::launch) {
-      const auto owner=only_parent(ref,vector_sites::sequencer);
-      if(pair.second.cycle<=graph.nodes.at(owner).cycle ||
-          (graph.nodes.at(owner).end_cycle && pair.second.cycle>*graph.nodes.at(owner).end_cycle))
-        fail("read plan outside sequencer residency");
-      if(graph.field(ref,"packed").unsigned_value()!=0) fail("elementwise launch marked packed");
+    if(ref.site==vector_sites::sequence || ref.site==vector_sites::sequence_stall) {
+      if(!offered_sequence_macro) fail("read plan outside active sequencer");
+      const auto owner=*offered_sequence_macro;
+      const auto& info=macros.at(owner);
+      if(cycle<=info.admitted || (releases.count(owner) && cycle>releases.at(owner)))
+        fail("read plan outside sequencer ownership");
+      if(graph.field(ref,"pc").unsigned_value()!=0x100 ||
+          graph.field(ref,"instruction").unsigned_value()!=info.instruction)
+        fail("read plan instruction snapshot");
+    }
+    if(ref.site==vector_sites::sequence) {
+      if(graph.field(ref,"packed").unsigned_value()!=0) fail("elementwise sequence marked packed");
       for(const char* reason:launch_reasons)
         if(graph.field(ref,reason).unsigned_value()) fail("accepted read plan has a stall reason");
-      if(graph.field(ref,"op_index").unsigned_value()==0 && pair.second.cycle==graph.nodes.at(owner).cycle+1)
+      sequence_owners.emplace(ref,*offered_sequence_macro);
+      if(graph.field(ref,"op_index").unsigned_value()==0 && cycle==macros.at(*offered_sequence_macro).admitted+1)
         ++first_cycle_launch_count;
       ++beat_launch_count;
-    } else if(ref.site==vector_sites::launch_stall) {
-      const auto owner=only_parent(ref,vector_sites::sequencer);
-      if(pair.second.cycle<=graph.nodes.at(owner).cycle ||
-          (graph.nodes.at(owner).end_cycle && pair.second.cycle>*graph.nodes.at(owner).end_cycle))
-        fail("read-plan stall outside sequencer residency");
+    } else if(ref.site==vector_sites::sequence_stall) {
       bool blocked=false;
       for(std::size_t index=0;index<launch_reasons.size();++index) {
         const bool reason=graph.field(ref,launch_reasons[index]).unsigned_value()!=0;
@@ -199,8 +203,9 @@ extern "C" void vector_trace_check() {
       ++launch_stall_count;
     } else if(ref.site==vector_sites::stall) {
       if(!offered_macro) fail("stall without issue owner");
-      const auto launch=only_parent(ref,vector_sites::launch);
-      if(!equal(only_parent(launch,vector_sites::sequencer),*offered_macro)) fail("stall inherited wrong sequencer");
+      const auto sequence=only_parent(ref,vector_sites::sequence);
+      if(!sequence_owners.count(sequence) || sequence_owners.at(sequence)!=*offered_macro)
+        fail("stall inherited wrong sequencing occurrence");
       ++stall_count; ++stalls;
     } else ++actual;
   }
@@ -209,20 +214,16 @@ extern "C" void vector_trace_check() {
     auto it=graph.nodes.find(event.ref);
     if(it==graph.nodes.end() || it->second.cycle!=cycle) fail("missing or mistimed occurrence");
     if(event.parent) check_parent(event.ref,*event.parent);
-    if(event.ref.site==vector_sites::sequencer) {
-      if(graph.field(event.ref,"pc").unsigned_value()!=0x100) fail("launch PC");
-      if(graph.field(event.ref,"instruction").unsigned_value()!=macro_instruction ||
-          graph.field(event.ref,"vl").unsigned_value()!=length) fail("launch snapshot");
-    } else if(event.ref.site==vector_sites::issue) {
-      const auto launch=only_parent(event.ref,vector_sites::launch);
-      if(!expected_issue_macro || !equal(only_parent(launch,vector_sites::sequencer),*expected_issue_macro))
-        fail("issue inherited the wrong sequencer launch");
-      if(graph.nodes.at(launch).cycle>=cycle ||
-          graph.field(launch,"op_index").unsigned_value()!=expected_index ||
-          graph.field(launch,"first").unsigned_value()!=graph.field(event.ref,"first").unsigned_value() ||
-          graph.field(launch,"end").unsigned_value()!=graph.field(event.ref,"end").unsigned_value() ||
-          graph.field(launch,"last").unsigned_value()!=graph.field(event.ref,"last").unsigned_value() ||
-          graph.field(launch,"empty").unsigned_value()!=graph.field(event.ref,"empty").unsigned_value())
+    if(event.ref.site==vector_sites::issue) {
+      const auto sequence=only_parent(event.ref,vector_sites::sequence);
+      if(!expected_issue_macro || !sequence_owners.count(sequence) || sequence_owners.at(sequence)!=*expected_issue_macro)
+        fail("issue inherited the wrong sequencing occurrence");
+      if(graph.nodes.at(sequence).cycle>=cycle ||
+          graph.field(sequence,"op_index").unsigned_value()!=expected_index ||
+          graph.field(sequence,"first").unsigned_value()!=graph.field(event.ref,"first").unsigned_value() ||
+          graph.field(sequence,"end").unsigned_value()!=graph.field(event.ref,"end").unsigned_value() ||
+          graph.field(sequence,"last").unsigned_value()!=graph.field(event.ref,"last").unsigned_value() ||
+          graph.field(sequence,"empty").unsigned_value()!=graph.field(event.ref,"empty").unsigned_value())
         fail("issue did not preserve its earlier read plan");
       if(!have_issue || graph.field(event.ref,"op_index").unsigned_value()!=expected_index) fail("issue operation index");
       if(graph.field(event.ref,"first").unsigned_value()!=expected_index) fail("issue element range");

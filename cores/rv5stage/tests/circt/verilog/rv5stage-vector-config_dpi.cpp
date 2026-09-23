@@ -46,37 +46,26 @@ extern "C" void vector_core_trace_finish() {
                  static_cast<unsigned long long>(following_configuration_cycle.value_or(0)));
     fail("vset added a WB gap beyond the surrounding fetch cadence");
   }
-  std::map<std::uint64_t,rheg::Ref> candidates;
-  for(const auto& pair:graph.nodes) if(pair.first.site==vector_core_sites::wb) {
-    const auto instruction=graph.field(pair.first,"instruction").unsigned_value();
-    // This program deliberately sends one illegal masked-v0 operation through
-    // WB to trap. WB arrival alone is not vector admission.
-    if((instruction&0x7f)==0x57 && ((instruction>>12)&7)!=7 && instruction!=0x00218057)
-      candidates.emplace(pair.second.cycle,pair.first);
-  }
-  std::map<std::uint64_t,rheg::Ref> sequencing;
-  for(const auto& pair:graph.nodes) if(pair.first.site==vector_core_sites::sequencer)
-    sequencing.emplace(pair.second.cycle,pair.first);
-  unsigned launches=0;
-  for(const auto& [cycle,ref]:sequencing) {
-    const auto& node=graph.nodes.at(ref);
-    if(node.ancestry_unknown) fail("sequencer has unknown WB ancestry");
-    if(!node.end_cycle || *node.end_cycle<=cycle) fail("sequencer lifetime not closed");
+  std::map<rheg::Ref,unsigned> sequenced_by_wb;
+  for(const auto& [ref,node]:graph.nodes) if(ref.site==vector_core_sites::sequence) {
+    if(node.ancestry_unknown) fail("sequence has unknown WB ancestry");
+    if(node.end_cycle) fail("sequence unexpectedly has a duration");
     unsigned parents=0;
     rheg::Ref parent{};
     for(const auto& edge:graph.edges) if(equal(edge.second,ref)) {
-      if(edge.first.site!=vector_core_sites::wb) fail("sequencer inherited a non-WB occurrence");
+      if(edge.first.site!=vector_core_sites::wb) fail("sequence inherited a non-WB occurrence");
       parent=edge.first;
       ++parents;
     }
-    if(parents!=1) fail("sequencer must have exactly one WB parent");
-    if(graph.nodes.at(parent).cycle>=cycle) fail("sequencer did not follow its WB admission");
+    if(parents!=1) fail("sequence must have exactly one WB parent");
+    if(graph.nodes.at(parent).cycle>=node.cycle) fail("sequence did not follow its WB admission");
     if(graph.field(ref,"pc").unsigned_value()!=graph.field(parent,"pc").unsigned_value() ||
         graph.field(ref,"instruction").unsigned_value()!=graph.field(parent,"instruction").unsigned_value())
-      fail("sequencer snapshot differs from WB instruction");
-    ++launches;
+      fail("sequence snapshot differs from WB instruction");
+    if(graph.field(parent,"instruction").unsigned_value()==0x00218057)
+      fail("illegal masked-v0 instruction entered the sequencer");
+    ++sequenced_by_wb[parent];
   }
-  if(launches<8) fail("insufficient sequencing coverage");
-  if(candidates.size()<=launches) fail("program did not exercise WB vector replay");
-  std::printf("Core/vector lineage passed: %u admissions from %zu WB attempts\n",launches,candidates.size());
+  if(sequenced_by_wb.size()<8) fail("insufficient sequencing coverage");
+  std::printf("Core/vector lineage passed: %zu sequenced instructions with WB ancestry\n",sequenced_by_wb.size());
 }

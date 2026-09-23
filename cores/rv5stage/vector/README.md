@@ -78,35 +78,31 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 ### Event tracing
 
 The optional event compiler observes sequencing and beat milestones:
-`vector/sequencer` spans the shared descriptor owner's lifetime after precheck,
-`vector/s1.launch` marks an accepted elementwise read plan in the first active
+`vector/s1.sequence` marks an accepted elementwise read plan in the first active
 sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
 attempt after operand capture, and `vector/complete` records a mature or
 authorized beat's ordered result drain. Packed memory has no separate
 elementwise read plan and begins its beat trace at `vector/s2.issue`.
-The `vector/s1.launch.stall` observation records a pending read plan that could
+The `vector/s1.sequence.stall` observation records a pending read plan that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
 `setup_wait`, the individual source-row and gather hazards, and aggregate
 operand-fetch `fetch_wait`. Several fields may be true at once; they are not
 priority-encoded. Idle, completed, and canceled plans do
-not generate a launch stall.
-One sequencer residency parents its launches; each elementwise issue inherits
-its exact launch occurrence, and every completion inherits its exact issue.
+not generate a sequencing stall.
+Each elementwise issue inherits its exact sequencing occurrence, and every
+completion inherits its exact issue.
 Retries create fresh issue occurrences, while rejected and flushed attempts
 have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
 
-Residency captures PC, instruction, VL, VSTART, encoded SEW/LMUL, and packed mode
-once at admission. Retry does not split its lifetime. Ordinary compute ends
-sequencing when its final read plan transfers; memory ends on its final external
-decision, while stateful compute ends on internal result maturity or cancellation.
-Resolved results
-may finish later. The shared sequencer emits one residency track for both modes.
-Launch and elementwise issue capture the macro-local operation index, exclusive
+The sequencer has no duration event. Sequencing captures PC and instruction on
+each accepted elementwise read plan; Perfetto names its slices from the decoded
+instruction. Retry creates another occurrence with the same instruction bits.
+Sequencing and elementwise issue capture the macro-local operation index, exclusive
 element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
 captures destination and VRF-write enable. Backpressure observations share
-their respective launch or issue tracks. The trace carries ownership through
+their respective sequence or issue tracks. The trace carries ownership through
 existing storage; it does not infer register-data dependencies or add
 per-service events. Memory attempts
 continue through the shared LSU to the single cache-owned `dcache/s1.access`
@@ -115,7 +111,7 @@ one cycle after cache resolution, retaining issue and cache ancestry. It records
 hits, replay, faults, and slow-request admission, but not masked-off beats.
 Arbitration/translation failures have no cache parent. Partial-mode diagnostics
 remain at unmodeled boundaries.
-The core supplies its selected ISA for residency disassembly through `~trace_isa`;
+The core supplies its selected ISA for sequencing disassembly through `~trace_isa`;
 standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction set.
 
 ### Execution ownership
