@@ -1,0 +1,67 @@
+#lang rhombus
+// Checks typed construct contracts and selection before deferred expansion.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def contract = ConstructContract(
+  [ConstructPort("a", "input", Bits(8)), ConstructPort("z", "output", Bits(8))],
+  [ConstructDependency(PortLeaf("z"), [PortLeaf("a")])], [], [], [])
+def identity = ConstructIdentity("test.identity", 1)
+def terminal = ConstructIdentity("test.terminal", 1)
+def spec = ConstructSpecialization(identity, {"width": 8}, contract)
+def occurrence = ConstructOccurrence("first", spec)
+def mutable expansions = 0
+def provider = ExpansionProvider(
+  identity,
+  fun (specialization):
+    expansions := expansions + 1
+    ConstructSpecialization(terminal, specialization.parameters, specialization.contract))
+def native = TargetLowering(identity, "test", fun (o): o.name == "first", fun (s, o): "direct:" ++ o.name)
+def generic = TargetLowering(terminal, "test", fun (o): #true, fun (s, o): "expanded:" ++ o.name)
+check:
+  resolve_construct(occurrence, "test", [provider], [native, generic]).implementation ~is "direct:first"
+  expansions ~is 0
+  resolve_construct(ConstructOccurrence("second", spec), "test", [provider], [native, generic]).implementation ~is "expanded:second"
+  expansions ~is 1
+  resolve_construct(occurrence, "test", [provider], [native, native]) ~throws "ambiguous target lowering"
+  expansions ~is 1
+  resolve_construct(occurrence, "missing", [], [native]) ~throws "unsupported construct"
+  resolve_construct(occurrence, "test", [ExpansionProvider(identity, fun (s): s)], []) ~throws "cannot make progress"
+  resolve_construct(occurrence, "test", [provider, provider], []) ~throws "ambiguous expansion"
+  verify_construct_specialization(ConstructSpecialization(identity, {"bad": MutableList[]}, contract)) ~throws "immutable"
+  verify_construct_contract(ConstructContract(contract.ports, [], [], [], [])) ~throws "missing output dependency"
+  verify_construct_contract(ConstructContract(contract.ports, [ConstructDependency(PortLeaf("a"), [])], [], [], [])) ~throws "direction"
+  verify_construct_contract(ConstructContract(contract.ports, [ConstructDependency(PortLeaf("z", [0]), [])], [], [], [])) ~throws "valid port leaf"
+  verify_construct_contract(ConstructContract(contract.ports ++ [contract.ports[0]], contract.dependencies, [], [], [])) ~throws "unique"
+
+// An aggregate summary must account for each field independently.
+def aggregate = RecordType([RecordField("x", Bits(8)), RecordField("y", Bits(8))])
+def aggregate_contract = ConstructContract(
+  [ConstructPort("in", "input", aggregate), ConstructPort("out", "output", aggregate)],
+  [ConstructDependency(PortLeaf("out", ["x"]), [PortLeaf("in", ["x"])]),
+   ConstructDependency(PortLeaf("out", ["y"]), [])], [], [], [])
+verify_construct_contract(aggregate_contract)
+check:
+  verify_construct_contract(ConstructContract(aggregate_contract.ports, aggregate_contract.dependencies.take(1), [], [], [])) ~throws "missing output dependency"
+
+// Clock/reset declarations must be complete before an implementation is selected.
+def state_contract = ConstructContract(
+  [ConstructPort("clock", "input", Clock), ConstructPort("reset", "input", Reset)],
+  [], ["clock"], [ConstructReset("reset", "clock", "synchronous", #true)],
+  [ConstructEffect("state", "state", "clock")])
+verify_construct_contract(state_contract)
+check:
+  verify_construct_contract(ConstructContract(state_contract.ports, [], [], [], [])) ~throws "missing clock"
+  verify_construct_contract(ConstructContract(state_contract.ports, [], ["clock"], [], [])) ~throws "missing reset"
+
+// Contracts cannot be changed by fallback, and parameter-changing recursion is bounded.
+def changing = ExpansionProvider(identity, fun (s): ConstructSpecialization(terminal, {}, ConstructContract(contract.ports, [ConstructDependency(PortLeaf("z"), [])], [], [], [])))
+def growing = ExpansionProvider(identity, fun (s): ConstructSpecialization(identity, {"n": s.parameters.get("n", 0) + 1}, contract))
+check:
+  resolve_construct(occurrence, "test", [changing], []) ~throws "changed the construct boundary"
+  resolve_construct(occurrence, "test", [growing], [], ~max_expansions: 2) ~throws "expansion limit"
+  verify_construct_contract(ConstructContract(contract.ports, contract.dependencies ++ contract.dependencies, [], [], [])) ~throws "duplicate output dependency"
+  verify_construct_contract(ConstructContract(contract.ports, [ConstructDependency(PortLeaf("z"), [PortLeaf("a"), PortLeaf("a")])], [], [], [])) ~throws "duplicate input dependency"
+  verify_construct_contract(ConstructContract(state_contract.ports, [], ["clock"], [ConstructReset("reset", "missing", "synchronous", #true)], [])) ~throws "declared clock"
+  verify_construct_contract(ConstructContract(state_contract.ports, [], ["clock"], [ConstructReset("reset", "clock", "unknown", #true)], [])) ~throws "reset timing"

@@ -385,3 +385,20 @@ Instrumented area/state cost and simulation overhead still need systematic
 measurement. Treat optimization or wider adapter coverage as separate work;
 the current contracts do not promise bounded overhead or traversal of unsupported
 state. Remaining public coverage limits belong in the README, not a phase ledger.
+
+The `event-queue` fixture materializes retained Queue declarations before
+instrumentation. Its existing public-transfer scoreboard checks exact ancestry
+and functional equality. Host `tests/materialized-queue-test.rhm` compares the
+complete ordinary and retained manifests; `tests/materialized-metadata-test.rhm`
+covers endpoint identity and scoped controls across the other transport models.
+Metadata rebuilding belongs to core's protocol and each declaration owner,
+not event-specific cases in materialization.
+
+The `event-pipeline` and `event-elastic` emitters also materialize retained pipe
+and map declarations before instrumentation. Their existing transfer-based
+runtime scoreboards cover fixed delays, flush cancellation, independent elastic
+stalls, repeated instances, and unannotated functional reference lanes.
+`tests/materialized-pipe-test.rhm` compares complete ordinary/retained manifests
+for fixed, flushable, and elastic pipelines. Register `PipeExpansions` and
+`MapExpansion` at this consumer boundary; event analysis still receives ordinary
+verified core IR and does not select library implementations itself.

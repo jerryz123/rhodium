@@ -279,3 +279,8 @@ export:
   named_contracts
   adapter_contract
   invalid_contract
+
+// Retained counterparts exercise trace reconstruction after deferred pipe expansion.
+def retained_pipeline = elaborate_with_top(EventPipeline(), ~constructs: #true)
+def retained_flush_pipeline = elaborate_with_top(EventPipeline(~flushable: #true), ~constructs: #true)
+export retained_pipeline retained_flush_pipeline

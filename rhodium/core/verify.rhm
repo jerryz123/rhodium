@@ -4,9 +4,11 @@
 
 import:
   rhombus/rx open
+  "../../support/annotations.rhm".AsciiIdentifier
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
+  "construct.rhm" open
   "dependencies.rhm".verify_combinational_cycles
 
 export:
@@ -79,6 +81,21 @@ fun check_operation_types(module_def :: Module,
                           operation :: Operation,
                           schema :: OperationSchema):
   match schema.type_rule
+  | "construct_apply":
+      def specialization = operation.attribute("specialization")
+      unless specialization is_a ConstructSpecialization
+      | fail_operation(operation, "construct requires a typed specialization")
+      verify_construct_specialization(specialization)
+      def inputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "input")
+      def outputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "output")
+      unless operation.operands.length() == inputs.length() && operation.results.length() == outputs.length()
+      | fail_operation(operation, "construct arity differs from its boundary")
+      for (value in operation.operands ++ operation.results, port in inputs ++ outputs):
+        unless type_equal(value.type, port.type)
+        | fail_operation(operation, "construct port type mismatch: " ++ port.name)
+      def name = operation.attribute("name")
+      unless name is_a AsciiIdentifier
+      | fail_operation(operation, "construct occurrence requires an identifier")
   | "hardware_input_port":
       unless type_well_formed(operation.results[0].type)
       | fail_operation(operation, "input port must have a well-formed HardwareType")
@@ -681,19 +698,69 @@ fun increment_count(counts :: MutableMap,
                     key :: maybe(String || Nat)):
   counts[key] := counts.get(key, 0) + 1
 
+// Validate documentation edges without interpreting extension-owned kinds.
+fun verify_semantic_nodes(module_def :: Module):
+  def seen = MutableSet.by(===){}
+  fun immutable_property(value):
+    cond
+    | value is_a String || value is_a Boolean || value is_a Int: #true
+    | value is_a List: for all (item in value): immutable_property(item)
+    | value is_a Map:
+        for all (key in value.keys()): key is_a String && immutable_property(value[key])
+    | ~else: #false
+  fun visit(node, enclosing):
+    unless node is_a SemanticNode && node.module_def === module_def
+    | fail("semantic node belongs to a different module")
+    when node in seen
+    | fail("semantic node has multiple parents")
+    seen.add(node)
+    unless node.kind != "" && immutable_property(node.description.properties)
+    | fail("semantic node requires a kind and immutable properties")
+    def operations = MutableSet.by(===){}
+    for (operation in node.operations):
+      unless operation.module_def === module_def && module_def.find_operation(operation.id) === operation
+      | fail("semantic implementation belongs to a different module")
+      when operation in operations
+      | fail("duplicate semantic implementation operation")
+      when enclosing && !(operation in enclosing)
+      | fail("semantic child implementation escapes its parent")
+      operations.add(operation)
+    for (operation in node.description.references):
+      unless operation.module_def === module_def && module_def.find_operation(operation.id) === operation
+      | fail("semantic reference belongs to a different module")
+    def names = MutableSet{}
+    for (binding in node.description.bindings):
+      when binding.name == "" || binding.name in names
+      | fail("semantic binding names must be nonempty and unique")
+      names.add(binding.name)
+      def entity = binding.entity
+      unless entity.module_def === module_def && (if entity is_a Value | module_def.owns_value(entity) | module_def.owns_place(entity))
+      | fail("semantic binding must reference a local value or root place")
+      def mutable type = entity.type
+      for (key in binding.path):
+        cond
+        | key is_a String && record_type(type) && type.field(key):
+            type := type.field(key).type
+        | key is_a Nat && vector_type(type) && key < type.length:
+            type := type.element_type
+        | ~else: fail("semantic binding has an invalid aggregate path")
+    for (child in node.children): visit(child, operations)
+  for (node in module_semantics(module_def)): visit(node, #false)
+
 fun verify_module_structure(module_def :: Module):
   def module_owned = module_def.design is_a Design && module_def.design.owns_module(module_def)
   unless module_owned
   | fail("module belongs to a different design")
   unless module_def.finished
   | fail("module " ++ module_def.name ++ " has not been finished")
+  verify_semantic_nodes(module_def)
   def instance_name_counts = MutableMap{}
   def sync_memory_name_counts = MutableMap{}
   def drive_counts = MutableMap{}
   def memory_name_counts = MutableMap{}
   for (operation in module_def.operations):
     when operation is_a Operation
-    | when operation.opcode == "rtl.instance"
+    | when operation.opcode in ["rtl.instance", "construct.apply"]
       | increment_count(instance_name_counts, operation.attribute("name", #false))
       when operation.opcode == "rtl.sync_memory"
       | increment_count(sync_memory_name_counts, operation.attribute("name", #false))
@@ -714,7 +781,7 @@ fun verify_module_structure(module_def :: Module):
     unless operation is_a Operation && operation.module_def === module_def
     | fail("operation belongs to a different module")
     def schema = check_schema(operation)
-    when operation.opcode == "rtl.instance"
+    when operation.opcode in ["rtl.instance", "construct.apply"]
     | unless instance_name_counts.get(operation.attribute("name", #false), 0) == 1
       | fail_operation(operation,
                        "instance name " ++ operation.attribute("name") ++ " is not unique")

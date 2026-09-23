@@ -1,0 +1,28 @@
+#lang rhombus
+// Checks clock inventory and explicit temporal-analysis limits for retained construct occurrences.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+  "../clocking.rhm" open
+
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("RetainedState")
+def clock = builder.input(module_def, "clock", Clock)
+def other = builder.input(module_def, "other", Clock)
+def reset = builder.input(module_def, "reset", Reset)
+def contract = ConstructContract(
+  [ConstructPort("clock", "input", Clock), ConstructPort("reset", "input", Reset)],
+  [], ["clock"], [ConstructReset("reset", "clock", "synchronous", #true)],
+  [ConstructEffect("state", "state", "clock")])
+def operation = builder.construct_apply(module_def, ConstructSpecialization(ConstructIdentity("test.state", 1), {}, contract), [clock, reset], "state")
+builder.finish(module_def)
+verify_design(design)
+def summary = summarize_module_clocking(module_def, reset)
+check:
+  summary is_a SingleClock ~is #true
+  summary.clock === clock ~is #true
+  summary.clocked_operations[0] === operation ~is #true
+  verify_single_clock(module_def, other, reset) ~throws "instead of expected clock"
+  summarize_module_temporal(module_def) ~throws "requires expanded construct implementations"

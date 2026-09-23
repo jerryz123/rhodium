@@ -121,6 +121,32 @@ fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
     | "ambient": AmbientReset(pending.reset, pending.operations)
     | "local": LocalReset(pending.reset, pending.operations)
 
+// A retained construct declares clock/reset use without materializing its state.
+fun operation_clock_uses(operation :: Operation):
+  if operation.opcode == "construct.apply"
+  | block:
+      def contract = operation.attribute("specialization").contract
+      def inputs = contract.ports.filter(~keep: fun (p): p.direction == "input")
+      fun operand(name):
+        def mutable index = 0
+        for (port in inputs, i in 0..inputs.length()):
+          when port.name == name | index := i
+        operation.operands[index]
+      def uses = MutableList[]
+      for (clock in contract.clocks):
+        def resets = contract.resets.filter(~keep: fun (r): r.clock == clock)
+        if resets.length() == 0
+        | uses.add(ClockUse(operation, canonical_wire_value(operand(clock)), #false))
+        | for (reset in resets):
+            uses.add(ClockUse(operation, canonical_wire_value(operand(clock)), operand(reset.port)))
+      uses.snapshot()
+  | block:
+      def spec = clock_operation_spec(operation.opcode)
+      if spec is_a ClockedOperationSpec
+      | [ClockUse(operation, canonical_wire_value(operation.operands[spec.clock_operand]),
+                  if spec.reset_operand is_a Nat | operation.operands[spec.reset_operand] | #false)]
+      | []
+
 fun summarize_module_clocking(module_def :: Module,
                               ambient_reset :: maybe(Value) = #false):
   unless module_def.finished
@@ -130,14 +156,7 @@ fun summarize_module_clocking(module_def :: Module,
   def mutable clock_groups = []
   def mutable clock_uses = []
   for (operation in module_def.operations):
-    def spec = clock_operation_spec(operation.opcode)
-    when spec is_a ClockedOperationSpec
-    | def clock = canonical_wire_value(operation.operands[spec.clock_operand])
-      def reset:
-        if spec.reset_operand is_a Nat
-        | operation.operands[spec.reset_operand]
-        | #false
-      def use = ClockUse(operation, clock, reset)
+    for (use in operation_clock_uses(operation)):
       clock_uses := clock_uses ++ [use]
       clock_groups := add_clock_use(clock_groups, use)
   def reset_uses = summarize_reset_uses(clock_uses, ambient_reset)
@@ -153,16 +172,9 @@ fun summary_clock_groups(summary :: ModuleClockingSummary):
   cond
   | summary is_a Combinational: []
   | summary is_a SingleClock:
-      [ClockGroup(summary.clock,
-                  summary.clocked_operations.map(
-                    fun (operation):
-                      def spec = clock_operation_spec(operation.opcode)
-                      ClockUse(operation,
-                               canonical_wire_value(operation.operands[spec.clock_operand]),
-                               if spec.reset_operand is_a Nat
-                               | operation.operands[spec.reset_operand]
-                               | #false)
-                  ))]
+      def uses = MutableList[]
+      for (operation in summary.clocked_operations): uses.append(operation_clock_uses(operation))
+      [ClockGroup(summary.clock, uses.snapshot())]
   | summary is_a MultiClock: summary.clock_groups
 
 fun verify_single_clock(module_def :: Module,
@@ -402,6 +414,8 @@ fun summarize_module_temporal(module_def :: Module):
   def mutable active_modules = []
 
   fun summarize_module(current_module :: Module):
+    when current_module.operations.find(fun (op): op.opcode == "construct.apply")
+    | error(~who: #'summarize_module_temporal, "temporal provenance requires expanded construct implementations")
     def cached = module_summaries.find(
       fun (summary): summary.module_def === current_module
     )

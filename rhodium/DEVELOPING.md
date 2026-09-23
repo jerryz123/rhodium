@@ -9,8 +9,10 @@ implementation boundaries and direct-dependency contract. For repository-wide
 development setup and workflow, see the project [`DEVELOPING.md`](../DEVELOPING.md).
 
 Rhodium has one backend-independent hardware model and several authoring
-profiles. Every frontend path elaborates into the same public core IR; frontend
-syntax is not a second IR.
+profiles. Existing frontend paths elaborate into public core module IR. Core
+also owns a retained composition level for selective implementation lowering;
+frontend syntax is not a second IR. Its staged integration is tracked in the
+[selective lowering plan](core/SELECTIVE_LOWERING_PLAN.md).
 
 ## Implementation architecture
 
@@ -61,6 +63,26 @@ internal module implementing its shared frontend forms is called the
 *foundation*. The frontend guide explains
 [profile selection and elaboration](frontend/README.md).
 
+The frontend kernel's optional semantic expansion hooks depend only on core
+`SemanticNode` records. The interface layer exports transform descriptions
+through those hooks; no simulator or backend dependency is introduced. See the
+[retention implementation guide](frontend/DEVELOPING.md#layered-semantic-retention).
+
+The frontend kernel also imports the core construct contract and leaf-path
+APIs. The foundation exports the core construct declaration records and
+`bind_core_implementation` through the public language, so libraries can supply
+portable implementations without importing compiler internals.
+
+The core construct, composition, selection, and materialization modules use
+core APIs and dependency-neutral support annotations. Composition consumes core verification and dependency
+summaries; selection consumes construct/composition contracts. Expansion and
+target-lowering providers are supplied by callers, never imported from libraries
+or simulator packages by core. `materialize.rhm` uses Builder and verification
+to produce a new owned design and source-object maps, without frontend or
+backend imports. Core `metadata.rhm` calls the remapping protocol declared in
+`ir.rhm`; interface and sync owners implement it through their existing core IR
+imports. No core dependency on frontend or event code is introduced.
+
 ## Dependency rules
 
 - Core never imports analysis, frontend, backend, or RFPL code.
@@ -86,11 +108,11 @@ internal module implementing its shared frontend forms is called the
 | Area | Responsibility | May depend directly on |
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
-| [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
+| [`core/`](core/README.md) | Types, module and retained composition IR, Builder, verification, selection, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
 | [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration and deferred frontend hardware values over the public core | Core |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, deferred frontend hardware values, and scoped payload capture | Core, including `core/capture.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
-| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
+| [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, core type and construct/composition APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
 | [`frontend/standard.rhm`](frontend/standard.rhm) | Aggregation only; defines no feature behavior | Foundation and all standard layers |
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
@@ -302,7 +324,7 @@ relative to `rhodium/`. The public facade only aggregates existing bindings.
 | `flow/broadcast.rhdl` | Exactly-once buffered `Broadcast`/`CtrlBroadcast` and configured `broadcast` | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/atomic-fork.rhdl` | Combinational all-or-none full and payload-selected `AtomicFork` variants plus control-only fanout and configured stages | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl`, `flow/reduction.rhdl` |
 | `flow/reduction.rhdl` | Shared balanced full and all-except-one Boolean reduction helper | `std/reduction.rhdl` |
-| `flow/map.rhdl` | Configured inline payload substitution with conservative `Decoupled` output and explicit stable-contract preservation | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
+| `flow/map.rhdl` | Inline and retained payload mapping with explicit captures, portable composition, and stable-contract preservation | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/map-valid.rhdl` | Configured inline payload substitution for nonbackpressured `Valid` | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/flit.rhdl` | Packet serialization, reassembly, and transfer-counted conversion among standard flit formats | `std/flit.rhdl`, `std/ready-valid.rhdl`, `std/counter.rhdl`, `flow/queue.rhdl`, `flow/ready-valid-support.rhdl` |
 | `flow/fork-valid.rhdl` | Configured inline one-to-many fanout for nonbackpressured `Valid` | `std/ready-valid.rhdl`, `flow/ready-valid-support.rhdl` |

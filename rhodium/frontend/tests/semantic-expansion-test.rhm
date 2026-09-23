@@ -1,0 +1,131 @@
+#lang rhombus/and_meta
+// Exercises layered macro expansion, scoped semantic retention, and identical hardware lowering.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/meta open
+  "../../core/main.rhm" open
+  "../kernel.rhm" as kernel
+  "../foundation.rhm".elaborate
+  "../foundation.rhm".elaborate_with_top
+  "../../../flow/tests/std-flow-chain.rhdl" as flow_fixture
+
+def mutable descriptions = 0
+def mutable expansions = 0
+expr.macro 'documented_add($left, $right)':
+  'kernel.semantic_expansion(
+     "arithmetic.add",
+     fun ():
+       expansions := expansions + 1
+       kernel.hw_add($left, $right),
+     fun (result):
+       descriptions := descriptions + 1
+       SemanticDescription([SemanticBinding("result", result)], {"arithmetic": "modular"})
+   )'
+
+def identity = kernel.new_circuit_identity("Documented")
+fun circuit():
+  fun body():
+    def a = kernel.input("a", Bits(8))
+    def b = kernel.input("b", Bits(8))
+    def out = kernel.output("out", Bits(8))
+    def result = kernel.semantic_expansion(
+      "arithmetic.double_sum",
+      fun ():
+        def sum = documented_add(a, b)
+        documented_add(sum, sum),
+      fun (result): SemanticDescription([SemanticBinding("result", result)])
+    )
+    kernel.connect(out, result)
+  kernel.build_circuit(identity, "Documented", [], body)
+
+def ordinary = elaborate_with_top(circuit())
+check:
+  expansions ~is 2
+  descriptions ~is 0
+  module_semantics(ordinary.top) ~is []
+
+def retained = elaborate_with_top(circuit(), ~semantics: #true)
+def root = module_semantics(retained.top)[0]
+check:
+  expansions ~is 4
+  descriptions ~is 2
+  root.kind ~is "arithmetic.double_sum"
+  root.children.map(fun (node): node.kind) ~is ["arithmetic.add", "arithmetic.add"]
+  root.operations.map(fun (operation): operation.opcode) ~is ["rtl.add", "rtl.add"]
+  root.children[0].operations.length() ~is 1
+  root.description.bindings[0].entity === root.operations[1].results[0] ~is #true
+  dump_ir(ordinary.design) ~is dump_ir(retained.design)
+  retained.top.add_metadata("rhodium.semantics", root) ~throws "sealed"
+
+// Reusing pre-expanded circuit code with another mode must not reuse its IR.
+def again = elaborate(circuit())
+check:
+  descriptions ~is 2
+  module_semantics(again.modules[0]) ~is []
+
+// Existing flow adapters expose core bindings without creating field projections.
+def flow_ordinary = elaborate_with_top(flow_fixture.PipeToQueueChain())
+def flow_retained = elaborate_with_top(flow_fixture.PipeToQueueChain(), ~semantics: #true)
+def queue = module_semantics(flow_retained.top).find(fun (node): node.kind == "flow.queue")
+check:
+  queue.description.properties["configuration"]["depth"] ~is 2
+  queue.description.properties["configuration"]["flow"] ~is #false
+  queue.description.references[0].opcode ~is "rtl.instance"
+  queue.description.bindings.find(fun (binding): binding.name == "in0.bits").path ~is ["bits"]
+  dump_ir(flow_ordinary.design) ~is dump_ir(flow_retained.design)
+
+// Inline mapping and multi-endpoint routing retain types and routes as well.
+def flow_variants = for List (build in [fun (): flow_fixture.RefinedMapFlowChain(), fun (): flow_fixture.StableDemuxFlowChain(), fun (): flow_fixture.ZipFlowArrowChain()]):
+  def normal = kernel.run_elaboration_with_top(build)
+  def semantic = kernel.run_elaboration_with_top(build, ~semantics: #true)
+  check:
+    module_semantics(semantic.top).length() > 0 ~is #true
+    dump_ir(normal.design) ~is dump_ir(semantic.design)
+  [normal, semantic]
+
+// Child definitions keep their own trees even when expanded inside a parent hook.
+def hierarchy_identity = kernel.new_circuit_identity("Hierarchy")
+fun hierarchy():
+  fun body():
+    def source = kernel.input("source", Bits(8))
+    def sink = kernel.output("sink", Bits(8))
+    kernel.semantic_expansion(
+      "hierarchy.pair",
+      fun ():
+        def first = kernel.inst("first", circuit())
+        def second = kernel.inst("second", circuit())
+        kernel.connect(first.input("a"), source)
+        kernel.connect(first.input("b"), source)
+        kernel.connect(second.input("a"), first.output("out"))
+        kernel.connect(second.input("b"), source)
+        kernel.connect(sink, second.output("out")),
+      fun (_): SemanticDescription([SemanticBinding("sink", sink)])
+    )
+  kernel.build_circuit(hierarchy_identity, "Hierarchy", [], body)
+
+def hierarchical = elaborate_with_top(hierarchy(), ~semantics: #true)
+def parent = module_semantics(hierarchical.top)[0]
+check:
+  hierarchical.design.modules.length() ~is 2
+  parent.children ~is []
+  parent.operations.filter(~keep: fun (op): op.opcode == "rtl.instance").length() ~is 2
+  module_semantics(hierarchical.design.modules[1]).length() ~is 1
+  dump_semantic_ir(retained.design).contains("  arithmetic.double_sum") ~is #true
+  dump_semantic_ir(retained.design).contains("    arithmetic.add") ~is #true
+
+// A semantic description cannot elaborate hardware behind the fallback's back.
+fun bad_description():
+  kernel.literal(Bits(1), 0)
+  SemanticDescription()
+fun bad_body(): kernel.record_semantics("bad", bad_description)
+fun bad_circuit(): kernel.build_circuit(kernel.new_circuit_identity("BadDescription"), "BadDescription", [], bad_body)
+check:
+  kernel.run_elaboration(bad_circuit, ~semantics: #true) ~throws "must not construct hardware"
+
+export:
+  ordinary
+  retained
+  flow_ordinary
+  flow_retained
+  flow_variants

@@ -6,6 +6,7 @@ import:
   "../../support/annotations.rhm" open
   "types.rhm" open
   "ir.rhm" open
+  "construct.rhm" open
 
 export:
   Builder
@@ -143,7 +144,7 @@ fun ensure_unique_hardware_name(module_def :: Module,
 fun ensure_unique_instance_name(module_def :: Module,
                                 name :: String,
                                 who :: Symbol):
-  when module_def.find_instance(name)
+  when module_def.find_instance(name) || module_def.operations.find(fun (op): op.opcode == "construct.apply" && op.attribute("name", #false) == name)
   | fail(who, "duplicate instance name " ++ name)
 
 fun instance_name_used(module_def :: Module, name :: String):
@@ -1890,6 +1891,40 @@ class Builder(design :: Design):
                               origin)
     for (operand in operands):
       operand.add_user(operation_id)
+    module_def.add_operation(operation)
+    operation
+
+  // Retained occurrences share the ordinary typed DFG. The semantic declaration
+  // supplies the boundary without running its portable implementation.
+  method construct_apply(module_def :: Module,
+                         specialization :: ConstructSpecialization,
+                         inputs :: List.of(Value),
+                         name :: AsciiIdentifier,
+                         location :: Location = Location(),
+                         origin :: Origin = Origin("retained construct")):
+    ensure_module_in_design(design, module_def, #'construct_apply)
+    ensure_open(module_def, #'construct_apply)
+    verify_construct_specialization(specialization)
+    ensure_unique_hardware_name(module_def, name, #'construct_apply)
+    ensure_unique_instance_name(module_def, name, #'construct_apply)
+    def input_ports = specialization.contract.ports.filter(~keep: fun (p): p.direction == "input")
+    def output_ports = specialization.contract.ports.filter(~keep: fun (p): p.direction == "output")
+    unless inputs.length() == input_ports.length()
+    | fail(#'construct_apply, "construct inputs must match the declared ports")
+    for (input in inputs, port in input_ports):
+      ensure_value_in(module_def, input, #'construct_apply)
+      unless type_equal(input.type, port.type)
+      | fail(#'construct_apply, "construct input type differs from port " ++ port.name)
+    for (port in output_ports):
+      ensure_unique_hardware_name(module_def, name ++ "." ++ port.name, #'construct_apply)
+    def id = design.fresh_id()
+    def results:
+      for List (port in output_ports):
+        Value(design.fresh_id(), name ++ "." ++ port.name, port.type, module_def, id)
+    def operation = Operation(id, "construct.apply", module_def, inputs, results, [],
+                              {"name": name, "specialization": specialization}, location, origin)
+    for (input in inputs): input.add_user(id)
+    for (result in results): module_def.add_value(result)
     module_def.add_operation(operation)
     operation
 

@@ -4,8 +4,9 @@
 # Flow library
 
 `flow/` provides reusable buffering, arbitration, routing, packet adapters,
-and typed streaming composition in ordinary `#lang rhodium`. It adds no
-compiler or core IR semantics.
+and typed streaming composition in ordinary `#lang rhodium`. Retained library
+meanings use the public construct protocol without Flow-specific compiler
+opcodes.
 
 Import the facade when composing several facilities, or a focused module
 such as `lib("flow/queue.rhdl")` for one family:
@@ -735,3 +736,50 @@ pipe, queue, fixed-priority arbitration, and chaining, and
 round-robin arbitration, demux, join, atomic fork, payload mapping, and
 broadcast. The parallel token-only family is materialized in
 [`../examples/std/ctrl-flow.rhdl`](../examples/std/ctrl-flow.rhdl).
+
+## Retained Queue semantics
+
+`Queue` and configured `queue(...)` support the frontend's
+[deferred implementation mode](../rhodium/frontend/README.md#deferred-construct-implementations).
+Their signatures retain protocol types, count, payload type, depth, pipe/flow
+options, parameter-dependent combinational dependencies, clock/reset, and state
+and assertion obligations before the pointer/storage implementation executes.
+Default elaboration retains the existing RTL implementation and tracing.
+
+`QueueConstruct` is the exported nominal declaration identity; `QueueExpansion`
+is its portable expansion provider. Register a consumer's direct implementation
+against that identity, not the diagnostic string `flow.queue`. Direct selection
+skips the provider. Portable expansion preserves state and assertion obligations,
+including both pointer counter assertions for depths greater than one.
+
+## Retained payload mapping
+
+With `~constructs: #true`, `map_flow` emits a `MapConstruct` operation carrying
+its verified payload region, explicit live capture operands, and `~stable`
+setting. Payload syntax still elaborates once to determine its typed computation.
+Valid and ready remain same-cycle pass-through signals; payload dependencies
+remain precise for individual record/vector fields. Captured signals continue
+to affect the mapped value while stalled and on invalid cycles.
+
+`flow/map.rhdl` exports `MapConstruct` and `MapExpansion`. The portable provider
+expands to a composition containing the generic payload computation and direct
+handshake connections. Consumers materializing retained designs containing both
+maps and queues should register both `MapExpansion` and `QueueExpansion`.
+The existing stable-mapping promise and protocol checks still apply; retention
+does not make a mapping with changing captures stable.
+
+## Retained pipe semantics
+
+`Pipe`, `ValidPipe`, `ValidPipeAlwaysCapture`, and `CtrlPipe`, including their
+configured forms, support deferred implementation mode. Their declarations
+preserve stage count, payload type where applicable, flush support, protocol
+ports, synchronous reset, and state obligations. Elastic pipes declare the
+combinational backward ready dependency; their outputs are registered. Valid-only
+pipe outputs have no same-cycle input dependency.
+
+`flow/pipe.rhdl` exports the corresponding `*Construct` identities and
+`*Expansion` providers. `PipeExpansions` is the list of all four portable
+providers. Add these providers when materializing a design containing retained
+pipes. Direct target selection skips the RTL body; portable expansion retains
+the existing state, payload capture policy, and trace metadata. Ordinary
+elaboration and authoring APIs are unchanged.

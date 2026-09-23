@@ -1,0 +1,56 @@
+#lang rhombus
+// Checks deferred implementation bodies in ordinary circuit DFGs and elaboration isolation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../kernel.rhm" as kernel
+  "../../core/main.rhm" open
+
+export retained ordinary
+
+def identity = ConstructIdentity("test.add", 1)
+def circuit_identity = kernel.new_circuit_identity("Adder")
+def top_identity = kernel.new_circuit_identity("Top")
+def mutable calls = 0
+fun Adder():
+  kernel.build_circuit(circuit_identity, "Adder", [],
+                       fun ():
+                         def a = kernel.input("a", Bits(8))
+                         def b = kernel.input("b", Bits(8))
+                         def z = kernel.output("z", Bits(8))
+                         def spec = kernel.construct_signature(identity, {}, fun (output): [PortLeaf("a"), PortLeaf("b")])
+                         kernel.construct_implementation(spec,
+                                                         fun ():
+                                                           calls := calls + 1
+                                                           kernel.connect(z, kernel.hw_add(a, b))))
+fun Top():
+  kernel.build_circuit(top_identity, "Top", [],
+                       fun ():
+                         def a = kernel.input("a", Bits(8))
+                         def b = kernel.input("b", Bits(8))
+                         def z = kernel.output("z", Bits(8))
+                         def child = kernel.inst("child", Adder())
+                         kernel.connect(child.input("a"), a)
+                         kernel.connect(child.input("b"), b)
+                         kernel.connect(z, child.output("z")))
+
+def retained = kernel.run_elaboration_with_top(Top, ~constructs: #true)
+check: calls ~is 0
+def ordinary = kernel.run_elaboration_with_top(Top)
+check:
+  calls ~is 1
+  retained.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply").length() ~is 1
+  ordinary.design.walk().filter(~keep: fun (op): op.opcode == "rtl.add").length() ~is 1
+  dump_ir(retained.design).contains("construct.apply @test.add:1") ~is #true
+
+fun invalid_signature():
+  kernel.build_circuit(kernel.new_circuit_identity("InvalidSignature"), "InvalidSignature", [],
+                       fun ():
+                         def a = kernel.input("a", Bits(8))
+                         def z = kernel.output("z", Bits(8))
+                         def already_expanded = kernel.hw_add(a, a)
+                         def spec = kernel.construct_signature(identity, {}, fun (output): [PortLeaf("a")])
+                         kernel.construct_implementation(spec, fun (): kernel.connect(z, already_expanded)))
+check:
+  kernel.run_elaboration(invalid_signature) ~throws "signature must precede all implementation hardware"
+  kernel.run_elaboration(invalid_signature, ~constructs: #true) ~throws "signature must precede all implementation hardware"

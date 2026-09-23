@@ -225,3 +225,50 @@ When adding or moving source, update the dependency inventory and ensure
 Compilation discovers flow transitively through the existing test and example
 entrypoints; source annotation hygiene covers the repository root. Do not add
 a second source manifest or silently drop downstream coverage.
+
+## Queue construct boundary
+
+`queue.rhdl` owns `QueueConstruct`, its signature dependency function, and
+`QueueExpansion`. Its `implementation` block contains the existing RTL and
+implementation-specific trace controls. Keep the declaration conservative and
+sound across all pipe/flow options; preserve payload dependencies on invalid
+cycles as well as accepted transfers. The portable provider maps state and
+named assertions through public core helpers exposed by the language.
+
+`tests/retained-queue-test.rhm` compares declared and actual dependencies across
+depths/options/payload shapes and checks direct/configured identity, deferred
+selection, portable effects, and per-occurrence choice with shared modules.
+Use `queue-options` and `event-queue` CIRCT fixtures for cycle-visible RTL and
+trace preservation. Native simulation and its differential suite remain with
+the consuming simulator.
+
+## Map construct boundary
+
+`map.rhdl` uses the frontend payload hook to extract one typed computation per
+mapping occurrence. It owns `MapConstruct`, the live operand and dependency
+contract, and `MapExpansion`'s scoped composition. Reuse the normalized payload
+value for both the explicit argument and the inline binder; reading an endpoint
+projection twice would incorrectly capture its containing interface instead.
+Default elaboration keeps direct assignments. Preserve invalid-use diagnostics
+and stable protocol behavior when changing this macro.
+
+Run `tests/retained-map-test.rhm`, the flow-chain/static regressions, and the
+`retained-flow-map` CIRCT/Verilator fixture. The latter materializes the canonical
+record-mapping example and changes its captured tag while stalled and invalid.
+Native differential execution belongs to the dependent simulator suite.
+
+## Pipe construct boundaries
+
+`pipe.rhdl` owns distinct nominal identities for elastic payload pipes,
+valid-only pipes, always-capture valid pipes, and control-only pipes. Shared
+signature construction declares synchronous state and the elastic backward-ready
+dependency. Declare optional flush ports before deferring the body; keep all
+register construction and implementation-specific tracing inside the body.
+The exported providers bind each portable body's state to its declared effect.
+
+Run `tests/retained-pipe-test.rhm` for skipped-body selection, actual versus
+declared dependencies, and portable materialization. Backend
+`materialize-pipe-test.rhm` compares authored module names and normalized CIRCT
+across stages, payload shapes, and flush options. Existing pipe, control-pipe,
+valid-pipe, and always-capture fixtures own observable RTL behavior and references.
+Native execution remains a separate consumer validation gate.

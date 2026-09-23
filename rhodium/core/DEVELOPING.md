@@ -129,3 +129,104 @@ worktree-specific `PLTCOMPILEDROOTS`, as described by the owning
 [test guide](../../tools/testing/README.md).
 Reserve frontend, backend, and full-suite validation for changes that actually
 cross those boundaries.
+
+## Expansion documentation
+
+`ir.rhm` owns `SemanticNode`, `SemanticDescription`, `SemanticBinding`, and
+`module_semantics`. Roots use the reserved `rhodium.semantics` metadata namespace;
+`verify.rhm` checks their structural graph links before certifying a design.
+`printer.rhm` exposes a separate semantic-tree dump so ordinary hardware text
+and naming remain stable. Extension kinds are not opcodes and cannot create
+hardware behavior. Extend their behavioral interpretation in the consuming
+package, with evidence for the exact recognized contract.
+
+Run `rhodium/core/tests/semantic-node-test.rhm` for malformed bindings, ownership,
+containment, immutable properties, and sealing, and the frontend
+`semantic-expansion-test.rhm` for macro integration and CIRCT equivalence.
+
+## Selective lowering implementation
+
+`construct.rhm` owns immutable declaration/specialization records and contract
+validation. `composition.rhm` owns scoped mixed compositions and their wiring,
+control, effect, and dependency checks. `lowering.rhm` owns consumer-local
+selection and recursive portable expansion. These modules depend only on core
+modules and Rhombus; library identities and target adapters remain external.
+`dependencies.rhm` exposes `module_dependency_summaries` so retained and expanded
+hardware use the same leaf-sensitive combinational analysis.
+
+Run `tests/construct-test.rhm` and `tests/composition-test.rhm` for the public
+protocol, selective expansion, mixed core leaves, and malformed compositions.
+Run the existing core verifier tests when changing dependency traversal. The
+[execution plan](SELECTIVE_LOWERING_PLAN.md) records the remaining frontend,
+Flow, simulator, and differential-validation gates; do not describe core-only
+protocol tests as proof of those end-to-end milestones.
+
+`construct.apply` embeds declared constructs in ordinary module DFGs. Builder,
+verification, dependency analysis, and printing own its structural integration.
+`resolve_module_constructs` traverses instance occurrences and retains a separate
+selection result for each occurrence, sharing only portable expansion bodies.
+Run `tests/construct-operation-test.rhm`, frontend construct elaboration/syntax
+coverage, and Flow retained-queue coverage when changing this boundary. CIRCT
+materialization and native execution remain separate integration gates.
+
+`materialize.rhm` consumes resolved module occurrences and compositions, imports
+portable modules, replaces retained operations with connected instances, and
+verifies the resulting independent design. It allocates endpoints before
+copying operations so legal forward references and state feedback survive.
+Its source maps support owner-defined metadata reconstruction without
+copying references across design ownership. Run `tests/materialize-test.rhm`,
+backend `materialize-queue-test.rhm`, and the `materialized-queue` CIRCT fixture
+for this transformation. Extension owners implement the remapping protocol
+described below.
+
+Materialization collapses a signature only when its sole retained operation
+consumes every same-named input and directly drives every same-named output,
+with no other hardware. Keep operation order stable when copying ordinary
+modules. Source records distinguish one-to-one operation mappings from a
+retained operation's one-to-many expansion. Backend Queue tests compare module
+names and per-module CIRCT after alpha-renaming only backend-generated SSA
+names; authored names, constants, wiring, and operation order remain checked.
+
+`metadata.rhm` reconstructs owner-defined metadata after hardware construction
+and before design verification. It caches references per source/target module
+pair, scopes child controls through the selected instance, and coalesces only
+owner-keyed duplicate declarations. The public protocol lives in `ir.rhm`; core
+never imports an extension owner. Run `tests/metadata-remap-test.rhm` and event
+materialization coverage for ownership, sealing, endpoint identity, and trace
+preservation. An explicit hardware-only option retains source metadata without
+attaching it to the copied design.
+
+## Payload region ownership
+
+`payload.rhm` owns the typed argument/capture partition and pure computation
+checks. It reuses `CoreImplementation`, whole-design verification, and public
+leaf dependency analysis; it does not introduce another expression opcode set.
+Validate all descendant modules, including unused operations, before accepting
+a region as pure. Keep frontend capture discovery and Flow transport contracts
+outside core. Run `tests/payload-test.rhm` for explicit capture coverage,
+immutability, purity, and dependency-contract rejection.
+
+`payload-record.rhm` separates the immutable region declaration and weak identity
+certificate registry from validation. This keeps construct parameter checking
+independent of the verifier/composition import chain. Only `payload.rhm`
+publishes certificates after full purity, dependency, and ownership checks;
+certification helpers are internal and are not re-exported by the public core.
+`construct.rhm` accepts certified regions as immutable parameters, and
+`lowering.rhm` compares regions by identity for expansion progress. Printer
+support exposes the body name and argument/capture split. Payload tests also
+exercise direct selection, deferred portable expansion, and materialization.
+
+`capture.rhm` owns operation-scope extraction and explicit source bindings. It
+allocates value/place maps before cloning connections, recursively copies pure
+child modules, rebuilds child output drives, and verifies the independent design.
+Preserve readable source names where possible and disambiguate against generated
+argument/capture/result names. Run `tests/capture-test.rhm` and
+`tests/capture-hierarchy-test.rhm` for ownership, open source modules, repeated
+captures, escaping writes, and aggregate dependencies through copied hierarchy.
+
+Materialization caches resolved composition definitions by their composition and
+recursively selected child implementation identities, plus any requested module
+name. This preserves definition sharing for repeated retained maps while allowing
+occurrence-specific lowering choices to produce separate variants. Sharing a
+module definition never shares the state of its instantiated occurrences. Event
+`materialized-pipe-test.rhm` checks repeated traced lanes and their module names.

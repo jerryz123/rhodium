@@ -1,0 +1,89 @@
+#lang rhombus
+// Rebuilds extension metadata using occurrence-scoped materialization source maps.
+// SPDX-License-Identifier: Apache-2.0
+
+import "ir.rhm" open
+
+export rebuild_materialized_metadata
+
+fun rebuild_materialized_metadata(sources :: List):
+  def remappings = MutableMap.by(===){}
+  fun remapping(source):
+    unless remappings.has_key(source)
+    | def cache = MutableMap.by(===){}
+      fun memoize(value, build :: Function.of_arity(0)):
+        unless cache.has_key(value) | cache[value] := build()
+        cache[value]
+      fun expanded(operation :: Operation):
+        unless operation.module_def === source.source
+        | error(~who: #'materialize_constructs, "metadata operation escapes its mapping scope")
+        if source.expansions.has_key(operation.id)
+        | source.expansions[operation.id]
+        | [source.operations[operation.id]]
+      fun child(instance :: Instance):
+        def mapped = entity(instance)
+        def child_source = sources.find(
+          fun (candidate): candidate.source === instance.module_def && candidate.module_def === mapped.module_def)
+        unless child_source
+        | error(~who: #'materialize_constructs, "metadata instance has no child source mapping")
+        remapping(child_source)
+      fun entity(value):
+        unless cache.has_key(value)
+        | cache[value] := block:
+            cond
+            | value is_a Module:
+                unless value === source.source
+                | error(~who: #'materialize_constructs, "metadata module escapes its mapping scope")
+                source.module_def
+            | value is_a Value:
+                unless value.module_def === source.source
+                | error(~who: #'materialize_constructs, "metadata value escapes its mapping scope")
+                source.values[value.id]
+            | value is_a Place:
+                unless value.module_def === source.source
+                | error(~who: #'materialize_constructs, "metadata place escapes its mapping scope")
+                if value.projected()
+                | block:
+                    def parent = entity(value.parent)
+                    def existing = parent.projected_place(value.projection_key)
+                    if existing
+                    | existing
+                    | block:
+                        def projected = Place(#false, value.name, value.type, source.module_def,
+                                              parent.owner_op_id, #false, parent, value.projection_key)
+                        parent.add_projected_place(projected)
+                        when value.driver | projected.set_driver(entity(value.driver))
+                        projected
+                | source.places[value.id]
+            | value is_a Operation:
+                def replacements = expanded(value)
+                unless replacements.length() == 1
+                | error(~who: #'materialize_constructs, "metadata must use the operation expansion map for a collapsed construct")
+                replacements[0]
+            | value is_a Instance:
+                def operation = entity(value.operation)
+                def module_def = operation.attribute("module")
+                Instance(
+                  operation, module_def,
+                  for List (port in module_def.inputs, place in operation.places): Port(port.name, "input", port.type, #false, place),
+                  for List (port in module_def.outputs, output in operation.results): Port(port.name, "output", port.type, output))
+            | value is_a ModuleMetadataPayload: value.remap_hardware(remappings[source])
+            | value is_a List: value.map(entity)
+            | value is_a Map:
+                for Map ((key, item) in value): values(key, entity(item))
+            | value == #false || value is_a String || value is_a Number || value is_a Boolean: value
+            | ~else: error(~who: #'materialize_constructs, "unsupported metadata hardware reference")
+        cache[value]
+      remappings[source] := MetadataRemapping(entity, expanded, child, memoize)
+    remappings[source]
+  def keys = MutableMap.by(===){}
+  for (source in sources):
+    unless keys.has_key(source.module_def) | keys[source.module_def] := MutableSet{}
+    def mapping = remapping(source)
+    for (entry in source.source.metadata):
+      def key = entry.payload.materialization_key()
+      def scoped_key = [entry.namespace, key]
+      unless key && scoped_key in keys[source.module_def]
+      | source.module_def.add_metadata(entry.namespace, mapping.entity(entry.payload))
+        when key | keys[source.module_def].add(scoped_key)
+  #void

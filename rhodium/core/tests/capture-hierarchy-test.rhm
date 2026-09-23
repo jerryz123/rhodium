@@ -1,0 +1,55 @@
+#lang rhombus
+// Checks pure hierarchical payload copying and aggregate dependency preservation.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def pair = RecordType([RecordField("left", Bits(8)), RecordField("right", Bits(8))])
+def design = Design()
+def builder = Builder(design)
+def child = builder.module("Transform")
+def input = builder.input(child, "input", pair)
+def bias = builder.input(child, "bias", Bits(8))
+def output = builder.output(child, "output", pair)
+def left = builder.add(child, builder.record_get(child, input, "left"), bias)
+def right = builder.record_get(child, input, "right")
+builder.drive(output, builder.record_create(child, pair, [["left", left], ["right", right]]))
+builder.finish(child)
+
+def top = builder.module("Parent")
+def argument = builder.input(top, "payload", pair)
+def capture = builder.input(top, "live", Bits(8))
+def before = top.operations
+def instance = builder.instance(top, child, "transform")
+builder.drive(instance.input("input"), argument)
+builder.drive(instance.input("bias"), capture)
+def operations = top.operations.take(top.operations.length() - before.length()).reverse()
+def extracted = capture_payload(top, operations, [argument], [instance.output("output")])
+def body = extracted.region.implementation
+check:
+  extracted.captures.length() ~is 1
+  extracted.captures[0] === capture ~is #true
+  body.module_def.design.modules.length() ~is 2
+  body.contract.dependencies.length() ~is 2
+  body.contract.dependencies.find(fun (dep): dep.output.path == ["left"]).inputs.length() ~is 2
+  body.contract.dependencies.find(fun (dep): dep.output.path == ["right"]).inputs.length() ~is 1
+  body.contract.dependencies.find(fun (dep): dep.output.path == ["right"]).inputs[0].path ~is ["right"]
+  design.sealed ~is #false
+
+def output_port = builder.output(top, "result", pair)
+builder.drive(output_port, instance.output("output"))
+builder.finish(top)
+verify_design(design)
+
+// State created inside the selected expansion cannot become a pure payload body.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("StatefulExpansion")
+  def clock = builder.input(module_def, "clock", Clock)
+  def before = module_def.operations
+  def state = builder.register(module_def, "state", Bits(8), clock)
+  builder.drive(state.next, state.current)
+  def operations = module_def.operations.take(module_def.operations.length() - before.length()).reverse()
+  check:
+    capture_payload(module_def, operations, [], [state.current]) ~throws "state or effects"

@@ -1,0 +1,285 @@
+#lang rhombus
+// Materializes selected construct implementations into an independently owned core design.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "ir.rhm" open
+  "builder.rhm".Builder
+  "construct.rhm" open
+  "composition.rhm" open
+  "lowering.rhm" open
+  "verify.rhm".verify_design
+  "metadata.rhm".rebuild_materialized_metadata
+
+export:
+  MaterializedModule
+  MaterializedDesign
+  materialize_constructs
+
+// Source maps retain provenance while metadata owners reconstruct inspection
+// records using objects owned by the materialized design.
+class MaterializedModule(source :: Module, module_def :: Module,
+                         values :: Map, places :: Map, operations :: Map,
+                         expansions :: Map = {})
+class MaterializedDesign(elaboration :: DesignElaboration,
+                         sources :: List.of(MaterializedModule))
+
+fun materialize_constructs(
+      elaboration :: DesignElaboration,
+      expansions :: List.of(ExpansionProvider),
+      ~target: target_name :: String = "rtl",
+      ~lowerings: lowerings :: List.of(TargetLowering) = [],
+      ~metadata: metadata :: Boolean = #true):
+  def resolved = resolve_module_constructs(
+    elaboration, target_name, expansions, lowerings,
+    ~lower_core: fun (body, path): body)
+  def design = Design()
+  def builder = Builder(design)
+  def sources = MutableList[]
+  def imports = MutableMap.by(===){}
+  def imported = MutableMap{}
+  def composition_modules = MutableMap{}
+  def names = MutableSet{}
+  // Portable imports cannot steal names belonging to authored module definitions.
+  for (module_def in elaboration.design.modules): names.add(module_def.name)
+  def named_sources = MutableSet.by(===){}
+  fun authored_name(module_def :: Module):
+    if module_def in named_sources
+    | fresh_name(module_def.name)
+    | block:
+        named_sources.add(module_def)
+        module_def.name
+  fun fresh_name(base):
+    def mutable name = base
+    def mutable suffix = 0
+    while name in names:
+      suffix := suffix + 1
+      name := base ++ "_" ++ to_string(suffix)
+    names.add(name)
+    name
+  fun import_dpi(original :: DpiImport):
+    unless imports.has_key(original)
+    | imports[original] := builder.dpi_import_results(
+        original.name, original.input_names, original.input_types, original.results, original.location)
+    imports[original]
+  fun import_module(original :: Module, name :: maybe(String) = #false):
+    def key = [original, name]
+    unless imported.has_key(key)
+    | def children = MutableMap{}
+      for (op in original.operations):
+        when op.opcode == "rtl.instance"
+        | children[op.id] := import_module(op.attribute("module"))
+        when op.opcode == "construct.apply"
+        | error(~who: #'materialize_constructs, "core implementation contains an unresolved construct")
+      imported[key] := copy_module(original, name || fresh_name(original.name), children)
+    imported[key]
+
+  fun copy_module(original :: Module, name :: String, children :: MutableMap):
+    def module_def = builder.module(name)
+    def ids = MutableMap{}
+    def value_map = MutableMap{}
+    def places = MutableMap{}
+    def memories = MutableMap{}
+    def operations = MutableMap{}
+    def construct_inputs = MutableMap{}
+    // Allocate every endpoint before copying expressions, without changing the
+    // source operation order. DFGs permit forward references and state feedback.
+    for (op in original.operations): ids[op.id] := design.fresh_id()
+    for (value in original.values):
+      unless value_map.has_key(value.id)
+      | def replacement = Value(design.fresh_id(), value.name, value.type, module_def, ids[value.defining_op_id])
+        value_map[value.id] := replacement
+        module_def.add_value(replacement)
+    for (place in original.places):
+      unless places.has_key(place.id)
+      | def replacement = Place(design.fresh_id(), place.name, place.type, module_def, ids[place.owner_op_id])
+        places[place.id] := replacement
+        module_def.add_place(replacement)
+    for (memory in original.memories):
+      def replacement = Memory(design.fresh_id(), memory.name, memory.depth, memory.element_type, module_def, ids[memory.defining_op_id])
+      memories[memory.id] := replacement
+      module_def.add_memory(replacement)
+    fun attribute(value):
+      cond
+      | value is_a Value: value_map[value.id]
+      | value is_a Place: places[value.id]
+      | value is_a Memory: memories[value.id]
+      | value is_a DpiImport: import_dpi(value)
+      | value is_a Module: error(~who: #'materialize_constructs, "unexpected module-valued attribute")
+      | value is_a List: value.map(attribute)
+      | value is_a Map:
+          for Map ((key, entry) in value): values(key, attribute(entry))
+      | ~else: value
+    for (op in original.operations):
+      when op.opcode == "construct.apply"
+      | def bindings = MutableMap{}
+        for (port in children[op.id].inputs):
+          def place = Place(design.fresh_id(), op.attribute("name") ++ "." ++ port.name,
+                            port.type, module_def, ids[op.id])
+          module_def.add_place(place)
+          bindings[port.name] := place
+        construct_inputs[op.id] := bindings
+    for (op in original.operations):
+      def replacement:
+        cond
+        | op.opcode == "construct.apply":
+            def child = children[op.id]
+            def outputs = op.attribute("specialization").contract.ports.filter(~keep: fun (p): p.direction == "output")
+            def output_values = MutableMap{}
+            for (port in outputs, value in op.results): output_values[port.name] := value_map[value.id]
+            Operation(ids[op.id], "rtl.instance", module_def, [],
+                      child.outputs.map(fun (port): output_values[port.name]),
+                      child.inputs.map(fun (port): construct_inputs[op.id][port.name]),
+                      {"name": op.attribute("name"), "module": child}, op.location, op.origin)
+        | op.opcode == "rtl.instance":
+            def child = children[op.id]
+            def old = op.attribute("module")
+            def input_places = MutableMap{}
+            def output_values = MutableMap{}
+            for (port in old.inputs, place in op.places): input_places[port.name] := places[place.id]
+            for (port in old.outputs, value in op.results): output_values[port.name] := value_map[value.id]
+            Operation(ids[op.id], "rtl.instance", module_def, [],
+                      child.outputs.map(fun (port): output_values[port.name]),
+                      child.inputs.map(fun (port): input_places[port.name]),
+                      {"name": op.attribute("name"), "module": child}, op.location, op.origin)
+        | ~else:
+            def operands = op.operands.map(fun (value): value_map[value.id])
+            def copied = Operation(
+              ids[op.id], op.opcode, module_def, operands,
+              op.results.map(fun (value): value_map[value.id]),
+              op.places.map(fun (place): places[place.id]),
+              attribute(op.attributes), op.location, op.origin)
+            for (operand in operands): operand.add_user(copied.id)
+            copied
+      module_def.add_operation(replacement)
+      operations[op.id] := replacement
+      when op.opcode == "construct.apply"
+      | def inputs = op.attribute("specialization").contract.ports.filter(~keep: fun (p): p.direction == "input")
+        for (port in inputs, operand in op.operands):
+          builder.drive(construct_inputs[op.id][port.name], value_map[operand.id], op.location, op.origin)
+    for (place in original.places):
+      when place.driver | places[place.id].set_driver(value_map[place.driver.id])
+    for (port in original.inputs):
+      module_def.add_input(Port(port.name, "input", port.type, value_map[port.value.id]))
+    for (port in original.outputs):
+      module_def.add_output(Port(port.name, "output", port.type, #false, places[port.place.id]))
+    builder.finish(module_def)
+    sources.add(MaterializedModule(original, module_def, value_map.snapshot(), places.snapshot(), operations.snapshot()))
+    module_def
+
+  fun implementation(body, name :: maybe(String) = #false):
+    cond
+    | body is_a CoreImplementation:
+        verify_core_implementation(body)
+        import_module(body.module_def, name)
+    | body is_a ResolvedConstruct:
+        unless body.implementation is_a CoreImplementation
+        | error(~who: #'materialize_constructs, "direct RTL lowering must return a CoreImplementation")
+        unless same_construct_contract(body.occurrence.specialization.contract, body.implementation.contract)
+        | error(~who: #'materialize_constructs, "direct RTL lowering changed the construct boundary contract")
+        implementation(body.implementation, name)
+    | body is_a ResolvedComposition:
+        def key = [implementation_key(body), name]
+        if composition_modules.has_key(key)
+        | composition_modules[key]
+        | block:
+            def composition = body.composition
+            def children = body.implementations.map(fun (child): implementation(child))
+            def module_def = builder.module(name || fresh_name(composition.name))
+            def inputs = MutableMap{}
+            def outputs = MutableMap{}
+            def instances = MutableMap.by(===){}
+            for (port in composition.contract.ports):
+              if port.direction == "input"
+              | inputs[port.name] := builder.input(module_def, port.name, port.type)
+              | outputs[port.name] := builder.output(module_def, port.name, port.type)
+            for (instance in composition.instances, child in children):
+              instances[instance] := builder.instance(module_def, child, instance.name, instance.location)
+            fun source(endpoint :: CompositionEndpoint):
+              def mutable value = if endpoint.instance | instances[endpoint.instance].output(endpoint.port) | inputs[endpoint.port]
+              for (part in endpoint.path):
+                value := if part is_a String | builder.record_get(module_def, value, part) | builder.vector_get(module_def, value, part)
+              value
+            fun sink(endpoint :: CompositionEndpoint):
+              def mutable place = if endpoint.instance | instances[endpoint.instance].input(endpoint.port) | outputs[endpoint.port]
+              for (part in endpoint.path):
+                place := if part is_a String | builder.project(place, part) | builder.project_vector(place, part)
+              place
+            for (connection in composition.connections): builder.drive(sink(connection.sink), source(connection.source))
+            def completed = builder.finish(module_def)
+            composition_modules[key] := completed
+            completed
+    | ~else: error(~who: #'materialize_constructs, "unsupported resolved implementation")
+
+  // Collapse only a complete, name-preserving signature boundary. Reordered
+  // operands, transformed outputs, extra hardware, and partial boundaries stay.
+  fun signature_only(occurrence :: ResolvedModuleOccurrence):
+    def original = occurrence.module_def
+    if occurrence.constructs.length() != 1 || occurrence.instances != []
+    | #false
+    | block:
+        def op = occurrence.constructs[0].operation
+        def ports = op.attribute("specialization").contract.ports
+        def inputs = ports.filter(~keep: fun (p): p.direction == "input")
+        def outputs = ports.filter(~keep: fun (p): p.direction == "output")
+        inputs.length() == original.inputs.length() && outputs.length() == original.outputs.length()
+          && (for all (port in inputs, value in op.operands):
+                def boundary = original.find_input(port.name)
+                boundary && boundary.value === value)
+          && (for all (port in outputs, value in op.results):
+                def boundary = original.find_output(port.name)
+                boundary && boundary.place.driver === value)
+          && (for all (operation in original.operations):
+                operation.opcode in ["rtl.input_port", "rtl.output_port", "rtl.drive", "construct.apply"])
+  fun implementation_key(body):
+    cond
+    | body is_a CoreImplementation: body.module_def
+    | body is_a ResolvedConstruct: implementation_key(body.implementation)
+    | body is_a ResolvedComposition: [body.composition, body.implementations.map(implementation_key)]
+    | ~else: body
+  fun boundary_source(original :: Module, module_def :: Module, operation :: Operation):
+    def value_map = MutableMap{}
+    def places = MutableMap{}
+    def operations = MutableMap{}
+    for (port in original.inputs):
+      def value = module_def.find_input(port.name).value
+      value_map[port.value.id] := value
+      operations[port.value.defining_op_id] := module_def.find_operation(value.defining_op_id)
+    for (port in original.outputs):
+      def place = module_def.find_output(port.name).place
+      places[port.place.id] := place
+      value_map[port.place.driver.id] := place.driver
+      operations[port.place.owner_op_id] := module_def.find_operation(place.owner_op_id)
+      def source_drive = original.operations.find(fun (op): op.opcode == "rtl.drive" && op.places[0] === port.place)
+      operations[source_drive.id] := module_def.operations.find(fun (op): op.opcode == "rtl.drive" && op.places[0] === place)
+    sources.add(MaterializedModule(
+      original, module_def, value_map.snapshot(), places.snapshot(), operations.snapshot(),
+      {operation.id: module_def.operations}))
+
+  // Equivalent resolved module variants share definitions, never occurrence state.
+  def variants = MutableMap{}
+  fun walk(occurrence :: ResolvedModuleOccurrence):
+    if signature_only(occurrence)
+    | block:
+        def retained = occurrence.constructs[0]
+        def key = [occurrence.module_def, implementation_key(retained.resolution)]
+        unless variants.has_key(key)
+        | def module_def = implementation(retained.resolution, authored_name(occurrence.module_def))
+          boundary_source(occurrence.module_def, module_def, retained.operation)
+          variants[key] := module_def
+        variants[key]
+    | block:
+        def children = MutableMap{}
+        def child_modules = occurrence.instances.map(walk)
+        def original_instances = occurrence.module_def.operations.filter(~keep: fun (op): op.opcode == "rtl.instance")
+        for (op in original_instances, child in child_modules): children[op.id] := child
+        for (retained in occurrence.constructs): children[retained.operation.id] := implementation(retained.resolution)
+        def key = [occurrence.module_def, for List (id in children.keys().sort()): [id, children[id]]]
+        unless variants.has_key(key)
+        | variants[key] := copy_module(occurrence.module_def, authored_name(occurrence.module_def), children)
+        variants[key]
+  def top = walk(resolved)
+  def result = DesignElaboration(design, top)
+  when metadata | rebuild_materialized_metadata(sources.snapshot())
+  verify_design(design)
+  MaterializedDesign(result, sources.snapshot())

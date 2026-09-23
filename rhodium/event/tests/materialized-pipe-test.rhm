@@ -1,0 +1,25 @@
+#lang rhombus
+// Compares complete event manifests after retained pipe/map expansion with ordinary elaboration.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "event-pipeline-fixture.rhdl" as pipeline
+  "event-elastic-fixture.rhdl" as elastic
+  "../../../flow/pipe.rhdl".PipeExpansions
+  "../../../flow/map.rhdl".MapExpansion
+  "../../core/main.rhm" open
+  "../main.rhm" open
+
+for (pair in [[pipeline.pipeline, pipeline.retained_pipeline],
+              [pipeline.flush_pipeline, pipeline.retained_flush_pipeline],
+              [elastic.elastic, elastic.retained_elastic]]):
+  def source :: DesignElaboration = pair[1]
+  def materialized = materialize_constructs(source, PipeExpansions ++ [MapExpansion]).elaboration
+  def ordinary = instrument_events(pair[0])
+  def retained = instrument_events(materialized)
+  def has_construct = for any (module_def in source.design.modules):
+    for any (op in module_def.operations): op.opcode == "construct.apply"
+  check:
+    has_construct ~is #true
+    event_manifest_to_json(retained.manifest) ~is event_manifest_to_json(ordinary.manifest)
+    retained.instrumented.design.sealed ~is #true

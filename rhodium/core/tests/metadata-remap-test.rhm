@@ -1,0 +1,48 @@
+#lang rhombus
+// Validates metadata reconstruction before sealing and explicit handling of unsupported owners.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+class Observation(module_def :: Module, value :: Value):
+  implements ModuleMetadataPayload
+  override method remap_hardware(mapping :: MetadataRemapping): Observation(mapping.entity(module_def), mapping.entity(value))
+
+class OpaqueNote():
+  implements ModuleMetadataPayload
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Observed")
+  def input = builder.input(module_def, "a", Bits(8))
+  def output = builder.output(module_def, "z", Bits(8))
+  builder.drive(output, input)
+  builder.finish(module_def)
+  module_def.add_metadata("test.observation", Observation(module_def, input))
+  def node = SemanticNode(module_def, "identity", SemanticDescription([SemanticBinding("input", input)]), module_def.operations)
+  module_def.add_metadata("rhodium.semantics", node)
+  def result = materialize_constructs(DesignElaboration(design, module_def), [])
+  def copied = result.elaboration.top
+  def observation = copied.metadata_for("test.observation")[0]
+  def semantic = module_semantics(copied)[0]
+  check:
+    observation.module_def === copied ~is #true
+    observation.value === copied.find_input("a").value ~is #true
+    semantic.module_def === copied ~is #true
+    semantic.description.bindings[0].entity === observation.value ~is #true
+    module_def.metadata_for("test.observation")[0].value === input ~is #true
+    copied.add_metadata("test.observation", observation) ~throws "sealed"
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Opaque")
+  module_def.add_metadata("test.opaque", OpaqueNote())
+  builder.finish(module_def)
+  def source = DesignElaboration(design, module_def)
+  check: materialize_constructs(source, []) ~throws "metadata owner must implement hardware remapping"
+  def hardware_only = materialize_constructs(source, [], ~metadata: #false)
+  check:
+    hardware_only.elaboration.top.metadata ~is []
+    hardware_only.sources[0].source.metadata.length() ~is 1

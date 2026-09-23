@@ -1,0 +1,32 @@
+#lang rhombus
+// Checks pipe signatures, skipped implementation bodies, and portable effect/dependency contracts.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "retained-pipe-fixture.rhdl" open
+  "../../rhodium/core/main.rhm" open
+  "../../rhodium/core/dependencies.rhm".module_dependency_summaries
+
+fun summary(top):
+  module_dependency_summaries([top])[0].output_leaf_dependencies.map(
+    fun (leaves): leaves.map(fun (leaf): [leaf.path, leaf.input_leaves.map(fun (input): [input.input_index, input.path])]))
+
+for (kind in ["elastic", "valid", "always", "control"]):
+  for (stages in [1, 2, 4]):
+    for (T in [Bits(8), VectorType(2, Bits(65))]):
+      for (flushable in (if kind in ["valid", "always"] | [#false, #true] | [#false])):
+        def retained = elaborate_pipe(kind, T, stages, flushable, #true)
+        def ordinary = elaborate_pipe(kind, T, stages, flushable, #false)
+        def applies = retained.top.operations.filter(~keep: fun (op): op.opcode == "construct.apply")
+        check:
+          applies.length() ~is 1
+          summary(retained.top) ~is summary(ordinary.top)
+          retained.top.operations.filter(~keep: fun (op): op.opcode == "rtl.register" || op.opcode == "rtl.register_reset").length() ~is 0
+        def spec = applies[0].attribute("specialization")
+        def forbidden = ExpansionProvider(spec.identity, fun (s): error("selected pipe body expanded"))
+        def selected = resolve_module_constructs(retained, "test", [forbidden], [TargetLowering(spec.identity, "test", fun (o): #true, fun (s, o): kind)])
+        check: selected.constructs[0].resolution.implementation ~is kind
+        def materialized = materialize_constructs(retained, PipeExpansions).elaboration
+        check:
+          summary(materialized.top) ~is summary(ordinary.top)
+          materialized.design.walk().filter(~keep: fun (op): op.opcode == "construct.apply").length() ~is 0

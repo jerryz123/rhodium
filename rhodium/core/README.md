@@ -259,7 +259,7 @@ depend on surrounding expressions or a later backend inference phase.
 
 ## Operation reference
 
-Operations use namespaced `rtl.*`, `cdc.*`, `verif.*`, and `sim.*` opcodes plus
+Operations use namespaced `rtl.*`, `construct.*`, `cdc.*`, `verif.*`, and `sim.*` opcodes plus
 the static registry in [`ops.rhm`](ops.rhm), rather than a closed node-class
 hierarchy. Each `OperationSchema` records semantic category, operand/result/
 place arity, required attributes, a verifier type rule, and a printer form.
@@ -267,6 +267,7 @@ Backend lowering choices are not part of core schemas.
 
 | Group | Core opcodes |
 |---|---|
+| Retained constructs | `construct.apply` |
 | Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
 | Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
@@ -528,3 +529,219 @@ The source ownership table moved to
 
 Contributor test selection and commands moved to
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
+
+## Retained expansion semantics
+
+A design may retain an optional tree of `SemanticNode` records per module,
+returned by `module_semantics(module_def)`. These document high-level expansion
+intent alongside the ordinary executable hardware graph. Generic consumers,
+including CIRCT emission, can ignore the tree without changing behavior.
+`dump_semantic_ir(design)` prints its hierarchy and graph bindings separately
+from `dump_ir`.
+
+Each node has an extension-owned `kind`, a `SemanticDescription`, the local
+operations emitted by its expansion, and nested expansion children. A description
+contains named `SemanticBinding` entries, immutable properties, and explicit
+references to existing local operations (such as an implementing instance).
+Bindings reference a local `Value` or root `Place` and an optional record/vector
+field path; retaining a field never creates a projection operation. Places may
+be bound before they are driven; consumers inspect their completed drivers.
+
+Verification checks module ownership, binding paths and names, immutable
+properties, operation references, tree uniqueness, and containment of child
+implementation operations. The design's existing seal also protects retained
+roots. Properties contain only strings, integers, Booleans, immutable lists,
+and immutable string-keyed maps. Hardware references belong in bindings or
+operation references, not properties.
+
+These records document semantics; structural validation does not prove a
+behavioral replacement equivalent. A consumer must recognize and validate the
+specific extension contract before specializing it. Unknown kinds retain their
+ordinary hardware implementation. Nodes do not introduce execution ordering,
+state, activation, or permission to skip observable computation.
+
+The [frontend expansion API](../frontend/README.md#retaining-expansion-semantics)
+opts into retention and supplies the generic hook used by flow descriptions.
+
+## Retained hardware constructs
+
+The public core also exposes an explicit composition level for consumers that
+need to select implementations before expanding hardware. This is executable
+structure, separate from the descriptive `SemanticNode` metadata above. The
+frontend can retain declarations as `construct.apply` operations in the same
+module DFG with `~constructs: #true`; ordinary elaboration executes the portable
+body. The [selective lowering plan](SELECTIVE_LOWERING_PLAN.md) records the
+implementation, consumer validation, and measured limitations.
+
+A library exports a nominal `ConstructIdentity(name, version)` and creates a
+`ConstructSpecialization(identity, parameters, contract)` for each parameter
+configuration. Names are diagnostic; matching uses declaration identity.
+Parameters are immutable strings, booleans, integers, hardware types, verified
+[payload regions](#payload-computation-regions), lists,
+and string-keyed maps. A `ConstructOccurrence` adds its own name and location.
+Implementations must preserve occurrence-local state even when specializations
+are shared.
+
+`ConstructContract` declares typed input/output ports, every output leaf's
+combinational input dependencies, clocks, reset timing/polarity, and named
+effects with their clocks. An empty dependency list for an output explicitly
+means independence from current inputs; omitting that output is invalid.
+Aggregate dependencies use `PortLeaf(port, path)` and remain field-sensitive.
+The library is responsible for the semantic truth of its declared contract;
+structural verification cannot establish behavioral equivalence of native code.
+
+`HardwareComposition` contains named `CompositionInstance` objects whose bodies
+are specializations, nested compositions, or `CoreImplementation` modules.
+`CompositionEndpoint` references an instance by identity, or `#false` for the
+enclosing boundary, and optionally selects an aggregate path. Connections
+require matching types and directions, exactly one driver per input/output
+sink leaf, and local references. Unused sources are permitted. The verifier
+checks internal combinational cycles and checks that boundary summaries cover
+all actual dependencies. Core module summaries come from the existing core
+dependency engine, not user-authored guesses.
+
+Composition clocks and resets must resolve to declared boundary controls with
+matching timing and polarity. `CompositionEffect` explicitly maps each child
+effect into a same-kind, same-clock boundary effect; multiple child effects can
+contribute to one boundary effect. Missing child or boundary effects are errors.
+`CoreEffectBinding` maps each clocked state/effect operation, including nested
+module occurrences, to a declared effect. Core implementation checks require
+complete mappings with matching effect kinds, clocks, and synchronous active-high
+reset associations. Controls currently resolve through direct ports, wire aliases, and reset
+casts; a cast to Clock introduces a distinct clock identity. Other derived control expressions require a richer
+contract before they can be accepted. These checks establish structural
+correspondence; behavioral equivalence still requires differential validation.
+
+`ExpansionProvider(identity, expand)` supplies a deferred portable body.
+`TargetLowering(identity, target, applicable, lower)` supplies an optional direct
+implementation. `resolve_construct` takes explicit consumer-local registration
+lists. It selects a unique applicable lowering before invoking an expansion,
+otherwise expands recursively into smaller constructs, compositions, or core
+modules. The optional `~lower_core` callback handles verified core leaves.
+The result preserves composition wiring and ordered per-instance results;
+backend code owns execution and emission. Resolution does not itself schedule
+or simulate the design.
+
+Selection receives the occurrence path, allowing different choices for two
+instances of the same specialization. No global registry or selection cache
+crosses target invocations. Portable expansion bodies are cached by immutable
+specialization identity within one resolution, while target lowering runs
+separately for each occurrence. Ambiguous choices, unsupported leaves, repeated
+non-progressing specializations, changed expansion boundary contracts, and an
+exceeded expansion-depth limit produce diagnostics. A direct lowering may
+terminate an otherwise recursive occurrence.
+
+
+### Constructs inside module DFGs
+
+`Builder.construct_apply(module, specialization, inputs, name)` creates one
+retained occurrence with ordinary Value operands/results. Operand/result order
+follows the specialization's input/output port order. Its body has not been
+expanded. Verification checks the declaration, local ownership, port types,
+arity, occurrence naming, and use-def links. Combinational cycle analysis uses
+the same complete leaf dependency contract as explicit compositions. State and
+effects belong to the occurrence even when it has no output values.
+
+`resolve_module_constructs(elaboration, target, expansions, lowerings,
+~lower_core: callback)` resolves these nodes through the module hierarchy.
+Its `ResolvedModuleOccurrence` tree preserves the original verified module,
+instance path, child occurrences, and per-operation resolutions. Shared module
+definitions do not share selection decisions or state identities. Resolution
+can return consumer-defined direct results or verified portable core bodies;
+it does not modify the original design or schedule execution.
+
+`bind_core_implementation(module, contract, effect_name)` helps library providers
+produce a verified portable `CoreImplementation`. The callback receives each
+state/effect operation and its nested instance path and selects the declared
+effect name. The helper performs complete mapping and dependency/control
+verification; it does not infer library meaning from display names.
+
+### Materializing portable implementations
+
+`materialize_constructs(elaboration, expansions, ~target: "rtl", ~lowerings: [], ~metadata: #true)`
+resolves retained occurrences and returns a `MaterializedDesign`. Its
+`elaboration` is a newly owned, verified `DesignElaboration` containing ordinary
+core operations and modules reachable from the selected top. Pass
+`result.elaboration.design` to a backend.
+Nested compositions become modules; retained operations become instances with
+named port connections. Direct lowerings for this consumer must return a
+verified `CoreImplementation` with the same boundary contract.
+
+Materialization leaves the original sealed design intact. Reused portable
+modules remain shared definitions, and occurrences retain independent state.
+DPI declarations with matching names/signatures are shared; incompatible
+signatures are rejected. Module names are deterministic and collision-free,
+with authored module names reserved before portable imports. Signature-only
+modules adopt their selected implementation under the authored name; modules
+with additional hardware or non-identity boundary connections keep their
+explicit hierarchy.
+
+`result.sources` contains `MaterializedModule` records linking each copied
+module to its source and immutable maps from source value/place/operation IDs
+to copied objects. For a collapsed signature, `expansions` maps the retained
+operation ID to the implementation's operation list; the `operations` map
+contains only references with a single corresponding operation. Both the
+signature and portable implementation have source records for the same target
+module. Materialization rebuilds metadata by default through the owner-defined
+`ModuleMetadataPayload.remap_hardware(mapping)` method. Unsupported owners
+produce an error; `~metadata: #false` explicitly requests hardware-only output
+while retaining access to source metadata through these records.
+
+`MetadataRemapping` supplies scoped `entity(value)`, `operations(operation)`
+(one-to-many expansion), `for_instance(instance)` (child-local controls), and
+`memoize(object, build)` (shared extension objects). Metadata owners must retain
+sharing when identity links annotations to endpoints. A stable
+`materialization_key()` may coalesce interchangeable declarations within one
+namespace; portable implementation metadata takes precedence over a collapsed
+signature's duplicate declaration. The default key is `#false`, retaining every
+entry. Core semantic descriptions, sync-circuit declarations, and interface/trace
+records implement this protocol.
+
+`Module.add_metadata` is allowed after hardware construction finishes and before
+verification seals the design. This lets transformation passes rebuild metadata
+once all hardware mappings exist. Attaching metadata to a sealed design remains
+an error. Materialization does not rewrite source hardware or metadata.
+
+## Payload computation regions
+
+`payload_region(module_def, arguments, captures)` builds a `PayloadRegion` from
+an ordinary pure core module. `arguments` and `captures` are disjoint lists of
+input-port names and together must cover every input. Port types define the
+argument, capture, and result types. Capture ports receive live hardware values;
+they do not hold elaboration-time snapshots. Results are the module output ports.
+
+The region's `implementation` is a `CoreImplementation` that can be connected as
+a leaf in a `HardwareComposition`. Its contract derives field-level dependencies
+from the module body. The factory verifies and seals the owning design; finish
+building that design before creating a region. `verify_payload_region` also
+checks explicitly constructed records, including their declared dependencies.
+Regions permit pure hierarchical computation and reject state, effects, control
+ports, and unexpanded constructs. Transport state and effects belong outside the
+payload computation.
+
+Flow uses these records for [retained payload mapping](../../flow/README.md#retained-payload-mapping);
+source capture discovery belongs to the frontend extension hook.
+
+Verified regions may also appear in `ConstructSpecialization.parameters`,
+including nested lists or maps. Direct lowerings receive the region before
+portable expansion and can lower its computation through the generic core path.
+Portable providers can return its `implementation` or embed that implementation
+in a larger composition. Explicitly constructed region records must pass
+`verify_payload_region` before use as parameters. Different region objects remain
+distinct during recursive expansion checks; no equivalence of arbitrary payload
+programs is inferred. IR text identifies the body module and argument/capture
+partition.
+
+`capture_payload(source, operations, arguments, results, ~name: "Payload")`
+extracts a scoped computation while its source module is still being built.
+It returns `CapturedPayload(region, arguments, captures)`: the region owns an
+independent verified design, while the binding lists refer to the original live
+hardware values. Inputs are ordered as arguments followed by captures. Repeated
+references to the same external value share a capture port. A result outside the
+selected operation scope is also captured.
+
+The selected body can contain combinational operations, complete local wires,
+and pure module instances. Child modules are copied into the independent design.
+State, external effects, resource references, and writes outside the selected
+scope fail explicitly. Finish aggregate place connections before extracting
+them. Extraction does not seal or modify the enclosing design.

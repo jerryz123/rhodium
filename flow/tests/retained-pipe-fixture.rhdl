@@ -1,0 +1,14 @@
+#lang rhodium
+// Supplies pipe families for deferred selection and portable materialization checks.
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/pipe.rhdl") open
+
+fun elaborate_pipe(kind, T, stages, flushable, retain):
+  cond
+  | kind == "elastic": elaborate_with_top(Pipe(T, stages), ~constructs: retain)
+  | kind == "valid": elaborate_with_top(ValidPipe(T, stages, ~flushable: flushable), ~constructs: retain)
+  | kind == "always": elaborate_with_top(ValidPipeAlwaysCapture(T, stages, ~flushable: flushable), ~constructs: retain)
+  | ~else: elaborate_with_top(CtrlPipe(stages), ~constructs: retain)
+
+export elaborate_pipe PipeExpansions

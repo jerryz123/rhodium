@@ -168,3 +168,69 @@ Also run:
 If a frontend change alters the core operations or types produced by existing
 programs, run the focused backend fixture that lowers that behavior as well.
 Do not infer backend correctness from host elaboration tests alone.
+
+## Layered semantic retention
+
+`kernel.rhm` owns the per-elaboration `~semantics` option and the
+`semantic_expansion` / `record_semantics` hooks. A dynamic collector retains
+nested expansion nodes only within the same module; child module definitions
+keep their own roots. No global mode or consumer import participates in macro
+expansion. Descriptions run after ordinary expansion so they bind actual core
+objects; only the retained documentation is optional.
+
+`layers/interface.rhm` uses the generic hook to export declared transform
+endpoints and configuration to core-owned records. Keep protocol-specific trace
+models in the interface layer and do not reconstruct behavior from display
+names. Field bindings use aggregate paths instead of elaborating projections.
+
+`tests/semantic-expansion-test.rhm` compares ordinary IR and emitted CIRCT in
+both modes, exercises a custom nested macro, and checks an existing flow queue.
+Run it with `core/tests/semantic-node-test.rhm` (relative to `rhodium/`) when
+changing this boundary. Existing frontend and profile suites cover the shared
+kernel and elaboration macro surface.
+
+## Deferred executable constructs
+
+The foundation's `implementation(~construct: declaration)` form captures an
+implementation thunk after ordinary signature declarations. Kernel
+`construct_signature` reads the declared core ports; `construct_implementation`
+checks the boundary and either executes the thunk or uses
+`Builder.construct_apply` to supply all declared outputs. No simulator import,
+global mode, or separately compiled macro profile participates in this choice.
+`frontend_elaboration` isolates the current module as well as its context.
+
+Run the construct-elaboration and construct-syntax tests, then frontend/profile
+coverage for this shared boundary. Flow's retained-queue test checks the real
+library declaration and provider; the backend construct-elaboration test checks
+expanded emission and unresolved-input diagnostics.
+
+The interface layer and sync support implement the core metadata remapping
+protocol. Interface endpoint identity links event annotations to transforms;
+use the mapper's memoization when rebuilding these records. Trace controls
+owned by a child must use that instance's mapping scope. Immutable protocol
+and direction descriptors remain shared. Event materialization tests cover
+these contracts without a reverse dependency on the event package.
+
+`kernel.payload_expansion` normalizes arguments before recording the operation
+scope, invokes the payload callback once, and delegates retained-mode extraction
+to core. `foundation.rhm` exports this extension hook. Test it with
+`tests/payload-expansion-test.rhm`: ordinary and retained hardware must match,
+while retained captures reference the original module's live values. Keep
+transport identities and protocol policy in their owning library.
+
+`kernel.apply_construct` adapts inline hardware operands to Builder's retained
+operation API. Its name allocation covers both ordinary and retained instances;
+keep this operation-level path separate from whole-module signature declarations.
+`foundation.rhm` exposes this hook and composition records for library providers.
+Chained retained maps exercise name disambiguation and portable composition wiring.
+
+## Functional vector updates
+
+`kernel.vector_updated` retains a single `rtl.vector_write_set` operation with
+one write port. Compare the full selector against the vector length before
+truncating its index; a disabled out-of-range write preserves the entire input.
+This keeps update semantics available to native consumers while the CIRCT
+backend uses the existing vector-write lowering. Validate `vector-update-test.rhm`,
+`vector-test.rhm`, and the `vector-update`/`vector-register-update` CIRCT fixtures
+when changing this boundary. The dependent simulator branch additionally covers
+single-element, power-of-two, wide-selector, and multiword-element cases.

@@ -303,3 +303,100 @@ Importing this function from a `.rhdl` program requires no reader, IR,
 verifier, or backend change. For frontend implementation roles, see the
 [frontend contributor guide](DEVELOPING.md); for the existing public features,
 see the [layer reference](layers/README.md).
+
+## Retaining expansion semantics
+
+Normal elaboration runs the common hardware expansion. A consumer that also
+needs high-level intent can request retained expansion nodes:
+
+```rhombus
+def elaboration = elaborate_with_top(Top(), ~semantics: #true)
+```
+
+`elaborate` accepts the same option. The option belongs to one elaboration, so
+ordinary and retaining consumers can reuse the same already-expanded Rhombus
+circuit code without sharing designs or changing specialization identity.
+
+Extension macros can expand to the kernel's
+`semantic_expansion(kind, expand, describe)` hook. `expand` is a zero-argument
+function that constructs the ordinary hardware and returns its usual result.
+`describe(result)` returns a core `SemanticDescription`. In ordinary mode the
+hook calls only `expand`. In retaining mode it also records the description,
+nested expansion nodes, and the local operations constructed by `expand`.
+Both modes execute the hardware expansion exactly once.
+
+Description callbacks must only inspect existing hardware; they must not
+construct hardware or change the design. `record_semantics(kind, describe)`
+is the equivalent hook for documenting already-constructed structures.
+These are elaboration-time hooks emitted by macros, not a second invocation of
+the Rhombus syntax expander and not a simulator dependency in the frontend.
+
+Existing `describe_interface_transform` calls retain `flow.<kind>` nodes in
+this mode. Their bindings preserve endpoint fields and types; properties record
+endpoint roles, protocol ancestry, declared routes, declared latency, and transform
+configuration. Explicit combinational transfer guards and fixed-latency flush
+controls are retained as bindings.
+An implementing instance is retained as a core operation reference. Protocol
+names and transform kinds document intent and do not alone authorize behavioral
+substitution. Detailed interface trace models remain in their owning interface
+metadata; this export does not invent acceptance equations or infer missing
+contracts.
+
+Consumers read the completed tree through the
+[core semantic-node API](../core/README.md#retained-expansion-semantics).
+CIRCT emission uses the same ordinary graph in either mode.
+
+## Deferred construct implementations
+
+A circuit can declare its signature before supplying a portable body:
+
+```rhombus
+def AddConstruct = ConstructIdentity("example.add", 1)
+circuit Add():
+  input(a, b): Bits(8)
+  output sum: Bits(8)
+  def declaration = construct_signature(
+    AddConstruct, {}, fun (output): [PortLeaf("a"), PortLeaf("b")])
+  implementation(~construct: declaration):
+    sum <== a + b
+```
+
+`construct_signature` obtains the typed ports already declared in the current
+circuit and calls the required dependency function for each output leaf. Supply
+`~clocks`, `~resets`, and `~effects` for stateful meanings; these are core
+`ConstructReset` and `ConstructEffect` records. Port and interface declarations
+may precede the implementation block; hardware computations must be inside it.
+The block must supply the implementation of the whole declared boundary.
+
+Default elaboration executes this body. `elaborate_with_top(Top(), ~constructs:
+#true)` retains `construct.apply` nodes without executing their bodies; plain
+`elaborate` accepts the same option. Interface types and frontend member
+metadata survive retention. The option is local to one elaboration and can be
+combined with `~semantics`. Ordinary Rhombus specialization still runs, and
+module specializations remain shared within that elaboration.
+
+Libraries export an `ExpansionProvider` separately from their nominal identity.
+The provider returns a lower-level construct/composition or a verified core
+implementation. `bind_core_implementation` is available through the public
+language to bind expanded RTL's effects to the declaration. Consumers use the
+[core selection API](../core/README.md#constructs-inside-module-dfgs) with their
+own registrations. Standard CIRCT emission currently consumes expanded module
+IR; it diagnoses an unresolved `construct.apply` rather than omitting it.
+
+## Payload expansion hook
+
+Library extensions can call `payload_expansion(arguments, expand)` with hardware
+arguments and a zero-argument callback returning hardware data. The callback
+executes once. The result has `value`, the ordinary hardware result, and
+`captured`, which is false during ordinary elaboration. With `~constructs: #true`,
+`captured` is a core `CapturedPayload` with an independent typed region and live
+source bindings. See the [core payload contract](../core/README.md#payload-computation-regions).
+
+This hook extracts computation; it does not insert a retained transport construct
+or change the result's wiring. A library can use
+`apply_construct(specialization, inputs, ~name: "construct")` to emit a retained
+operation and receive its result values. Inputs follow the contract's input-port
+order; names are disambiguated against existing instances and retained operations.
+The public language also exposes the core composition records for portable
+providers. Flow's [retained map](../../flow/README.md#retained-payload-mapping)
+combines these extension APIs.

@@ -7,6 +7,9 @@ import:
   "../core/ir.rhm" open
   "../core/builder.rhm" open
   "../core/verify.rhm" open
+  "../core/construct.rhm" open
+  "../core/capture.rhm" open
+  "../core/dependencies.rhm".leaf_paths
 
 export:
   StableCircuitParam
@@ -20,7 +23,14 @@ export:
   frontend_run
   run_elaboration
   run_elaboration_with_top
+  semantic_expansion
+  PayloadExpansion
+  payload_expansion
+  record_semantics
   build_circuit
+  construct_signature
+  apply_construct
+  construct_implementation
   circuit_arguments_same
   defer_circuit_finalizer
   run_circuit_finalizers
@@ -159,7 +169,9 @@ class FrontendContext(design :: Design,
                       mutable active :: Boolean = #true,
                       mutable active_circuits :: List.of(ActiveCircuit) = [],
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
-                      mutable allocated_symbols :: List.of(String) = []):
+                      mutable allocated_symbols :: List.of(String) = [],
+                      retain_semantics :: Boolean = #false,
+                      retain_constructs :: Boolean = #false):
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
     def count = allocated_symbols.filter(
@@ -174,6 +186,57 @@ Parameter.def current_context = #false
 Parameter.def current_module = #false
 Parameter.def current_conditional_branch = #false
 Parameter.def current_conditional_form = "when"
+Parameter.def current_semantic_capture = #false
+class SemanticCapture(module_def :: Module, nodes :: MutableList)
+
+// Macros expand to this two-level hook: ordinary hardware is always elaborated
+// once; the description callback runs only in a semantics-retaining session.
+fun semantic_expansion(kind :: String,
+                       expand :: Function.of_arity(0),
+                       describe :: Function.of_arity(1)):
+  def context = require_context(Location())
+  if !context.retain_semantics
+  | expand()
+  | block:
+      def module_def = require_module(Location())
+      def before = module_def.operations
+      def capture = SemanticCapture(module_def, MutableList[])
+      def result = parameterize { current_semantic_capture: capture }: expand()
+      def after = module_def.operations
+      def next_id = context.design.next_id
+      def description :: SemanticDescription = describe(result)
+      unless module_def.operations === after && context.design.next_id == next_id
+      | frontend_fail("semantic descriptions must not construct hardware")
+      // Open module collections are reverse construction order.
+      def operations = after.take(after.length() - before.length()).reverse()
+      def node = SemanticNode(module_def, kind, description, operations, capture.nodes.snapshot())
+      def parent = current_semantic_capture()
+      if parent && parent.module_def === module_def
+      | parent.nodes.add(node)
+      | module_def.add_metadata("rhodium.semantics", node)
+      result
+
+// Payload syntax elaborates once; retained mode extracts an independent pure body.
+class PayloadExpansion(value :: Value, captured :: maybe(CapturedPayload))
+
+fun payload_expansion(arguments :: List.of(HardwareEntity), expand :: Function.of_arity(0)):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  def inputs = arguments.map(fun (argument): read(argument))
+  def before = module_def.operations
+  def result = read(expand())
+  def captured:
+    if context.retain_constructs
+    | block:
+        def after = module_def.operations
+        def operations = after.take(after.length() - before.length()).reverse()
+        capture_payload(module_def, operations, inputs, [result])
+    | #false
+  PayloadExpansion(result, captured)
+
+// Existing extension declarations can retain bindings without re-expansion.
+fun record_semantics(kind :: String, describe :: Function.of_arity(0)):
+  semantic_expansion(kind, fun (): #void, fun (_): describe())
 
 class ConditionalAssignment(place :: Place, value :: Value)
 class ConditionalMemoryWrite(resource :: Memory,
@@ -358,6 +421,68 @@ fun build_circuit(identity :: CircuitIdentity,
           | specializations.add(specialization)
           | context.specializations_by_circuit[identity] := MutableList[specialization]
       module_def
+
+// Inline library constructs share the ordinary operation-level retained boundary.
+fun apply_construct(specialization :: ConstructSpecialization,
+                    inputs :: List.of(HardwareEntity),
+                    ~name: name :: String = "construct"):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  def mutable instance_name = name
+  def mutable suffix = 0
+  while module_def.operations.find(fun (op): op.opcode in ["rtl.instance", "construct.apply"] && op.attribute("name") == instance_name):
+    suffix := suffix + 1
+    instance_name := name ++ "_" ++ to_string(suffix)
+  context.builder.construct_apply(module_def, specialization, inputs.map(fun (input): read(input)), instance_name).results
+
+// The signature describes ports and effects before an implementation body executes.
+fun construct_signature(identity :: ConstructIdentity,
+                        parameters :: Map,
+                        dependencies :: Function.of_arity(1),
+                        ~clocks: clocks :: List.of(String) = [],
+                        ~resets: resets :: List.of(ConstructReset) = [],
+                        ~effects: effects :: List.of(ConstructEffect) = []):
+  def module_def = require_module(Location())
+  def ports = (module_def.inputs.reverse() ++ module_def.outputs.reverse()).map(
+    fun (port): ConstructPort(port.name, port.direction, port.type))
+  def summaries = MutableList[]
+  for (port in ports):
+    when port.direction == "output"
+    | for (path in leaf_paths(port.type)):
+        def output = PortLeaf(port.name, path)
+        summaries.add(ConstructDependency(output, dependencies(output)))
+  def specialization = ConstructSpecialization(identity, parameters,
+                                               ConstructContract(ports, summaries.snapshot(), clocks, resets, effects))
+  verify_construct_specialization(specialization)
+  specialization
+
+fun construct_implementation(specialization :: ConstructSpecialization,
+                             implementation :: Function.of_arity(0)):
+  def context = require_context(Location())
+  def module_def = require_module(Location())
+  verify_construct_specialization(specialization)
+  unless (for all (op in module_def.operations): op.opcode in ["rtl.input_port", "rtl.output_port"])
+  | frontend_fail("construct signature must precede all implementation hardware")
+  def ports = module_def.inputs ++ module_def.outputs
+  unless ports.length() == specialization.contract.ports.length()
+  | frontend_fail("construct signature differs from declared ports")
+  for (port in ports):
+    def declared = specialization.contract.ports.find(fun (p): p.name == port.name)
+    unless declared && declared.direction == port.direction && type_equal(declared.type, port.type)
+    | frontend_fail("construct signature differs from port " ++ port.name)
+  if context.retain_constructs
+  | block:
+      def inputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "input")
+      def outputs = specialization.contract.ports.filter(~keep: fun (p): p.direction == "output")
+      def mutable occurrence_name = "implementation"
+      while module_def.hardware_name_used(occurrence_name): occurrence_name := occurrence_name ++ "_"
+      def operation = context.builder.construct_apply(module_def, specialization,
+                                                      inputs.map(fun (p): module_def.find_input(p.name).value),
+                                                      occurrence_name)
+      for (port in outputs, value in operation.results):
+        context.builder.drive(module_def.find_output(port.name).place, value)
+      #void
+  | implementation()
 
 fun input(name :: AsciiIdentifier,
           type :: HardwareType,
@@ -1051,24 +1176,32 @@ fun vector_updated(entity :: HardwareEntity,
   unless type_equal(replacement_value.type, vector_value.type.element_type)
   | frontend_fail("vector update replacement must have the vector element type",
                   location)
-  def elements:
-    for List (element_index in 0..vector_value.type.length):
-      def existing = vector_get(vector_value,
-                                element_index,
-                                #false,
-                                location)
-      def key = literal(selector_value.type,
-                        element_index,
-                        #false,
-                        location)
-      def selected = hw_eq(selector_value, key, #false, location)
-      hw_mux_lookup(selected,
-                    existing,
-                    [[1, replacement_value]],
-                    #false,
-                    location,
-                    Origin("embedded vector update", to_string(element_index)))
-  vector_create(vector_value.type, elements, name, location)
+  def length = vector_value.type.length
+  def index_width = count_index_width(length)
+  unless selector_value.type.width >= index_width
+  | frontend_fail("vector update selector cannot encode every element", location)
+  // Guard the full selector before truncating it: disabled out-of-range writes
+  // preserve the source, including selectors wider than the vector index.
+  def enabled:
+    if bits.length(length) > selector_value.type.width
+    | literal(Bits(1), 1, #false, location)
+    | hw_ult(selector_value,
+             literal(selector_value.type, length, #false, location),
+             #false, location)
+  def index_value:
+    if selector_value.type.width == index_width
+    | selector_value
+    | trunc(selector_value, index_width, #false, location)
+  require_context(location).builder.vector_write_set(
+    require_module(location),
+    vector_value,
+    vector_create(VectorType(1, Bits(1)), [enabled], #false, location),
+    vector_create(VectorType(1, index_value.type), [index_value], #false, location),
+    vector_create(VectorType(1, replacement_value.type), [replacement_value], #false, location),
+    name,
+    location,
+    Origin("embedded vector update", name || "")
+  )
 
 // Carries a dynamically selected element of a direct vector register. Reads
 // remain ordinary mux selection; writes become one whole next-state update.
@@ -1721,10 +1854,10 @@ fun switch_chain(selector :: HardwareEntity,
                                "embedded switch",
                                location)
 
-fun frontend_elaboration(program :: Function.of_arity(0)):
+fun frontend_elaboration(program :: Function.of_arity(0), retain_semantics :: Boolean = #false, retain_constructs :: Boolean = #false):
   def design = Design()
-  def context = FrontendContext(design, Builder(design))
-  def top = parameterize { current_context: context }:
+  def context = FrontendContext(design, Builder(design), #true, [], MutableMap.by(===){}, [], retain_semantics, retain_constructs)
+  def top = parameterize { current_context: context, current_module: #false }:
               program()
   context.active := #false
   def top_module:
@@ -1740,8 +1873,8 @@ fun frontend_elaboration(program :: Function.of_arity(0)):
 fun frontend_run(program :: Function.of_arity(0)):
   frontend_elaboration(program).design
 
-fun run_elaboration(program :: Function.of_arity(0)):
-  frontend_run(program)
+fun run_elaboration(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false, ~constructs: constructs :: Boolean = #false):
+  frontend_elaboration(program, semantics, constructs).design
 
-fun run_elaboration_with_top(program :: Function.of_arity(0)):
-  frontend_elaboration(program)
+fun run_elaboration_with_top(program :: Function.of_arity(0), ~semantics: semantics :: Boolean = #false, ~constructs: constructs :: Boolean = #false):
+  frontend_elaboration(program, semantics, constructs)

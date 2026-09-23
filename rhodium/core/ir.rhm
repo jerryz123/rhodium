@@ -25,7 +25,12 @@ export:
   Register
   Instance
   ModuleMetadataPayload
+  MetadataRemapping
   ModuleMetadata
+  SemanticBinding
+  SemanticDescription
+  SemanticNode
+  module_semantics
   Module
   Design
   DesignElaboration
@@ -50,6 +55,12 @@ class Origin(kind :: String = "unknown",
 // Frontend-only deferred values extend the same marker without coupling core
 // to elaboration machinery.
 interface HardwareEntity
+
+// Extension owners rebuild metadata through scoped hardware and expansion maps.
+class MetadataRemapping(entity :: Function.of_arity(1),
+                        operations :: Function.of_arity(1),
+                        for_instance :: Function.of_arity(1),
+                        memoize :: Function.of_arity(2))
 
 class.together:
   class Value(id :: Nat,
@@ -252,9 +263,48 @@ class.together:
 
   // Attaches extension-owned, nonsemantic inspection data to a finished design
   // without turning the described abstraction into a hardware operation.
-  interface ModuleMetadataPayload
+  interface ModuleMetadataPayload:
+    method remap_hardware(remapping :: MetadataRemapping):
+      error(~who: #'remap_hardware, "metadata owner must implement hardware remapping")
+    // A stable key identifies duplicate signature/implementation declarations.
+    // #false preserves every entry; implementations take precedence on a key.
+    method materialization_key(): #false
 
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
+
+  // A field path retains aggregate typing without creating projection hardware.
+  class SemanticBinding(name :: String,
+                        entity :: Value || Place,
+                        path :: List.of(String || Nat) = [])
+
+  // Extension-owned documentation; a kind alone never authorizes substitution.
+  class SemanticDescription(bindings :: List.of(SemanticBinding) = [],
+                            properties :: Map = {},
+                            references :: List.of(Operation) = [])
+
+  // Nested expansion provenance over the same executable hardware graph.
+  class SemanticNode(module_def :: Module,
+                     kind :: String,
+                     description :: SemanticDescription,
+                     operations :: List.of(Operation) = [],
+                     children :: List.of(SemanticNode) = []):
+    implements ModuleMetadataPayload
+    override method remap_hardware(remapping :: MetadataRemapping):
+      fun expand(items):
+        def result = MutableList[]
+        def seen = MutableSet.by(===){}
+        for (operation in items):
+          for (mapped in remapping.operations(operation)):
+            unless mapped in seen
+            | seen.add(mapped)
+              result.add(mapped)
+        result.snapshot()
+      SemanticNode(
+        remapping.entity(module_def), kind,
+        SemanticDescription(
+          description.bindings.map(fun (binding): SemanticBinding(binding.name, remapping.entity(binding.entity), binding.path)),
+          description.properties, expand(description.references)),
+        expand(operations), children.map(remapping.entity))
 
   class Module(design :: Design,
                id :: Nat,
@@ -367,9 +417,8 @@ class.together:
 
     method add_metadata(namespace :: String, payload :: ModuleMetadataPayload):
       design.assert_mutable()
-      when _finished
-      | error(~who: #'add_metadata,
-              "cannot attach metadata to finished module " ++ name)
+      // Transformation passes may rebuild inspection metadata after hardware
+      // construction finishes, but never after successful design verification.
       def entry = ModuleMetadata(namespace, payload)
       _metadata := _metadata ++ [entry]
       entry
@@ -556,6 +605,10 @@ class.together:
 // encodings greater than or equal to depth have unspecified hardware behavior.
 fun memory_address_width(depth :: PosInt) :: PosInt:
   count_index_width(depth)
+
+// Semantic roots are module-local; instances retain ordinary hierarchy.
+fun module_semantics(module_def :: Module):
+  module_def.metadata_for("rhodium.semantics")
 
 class DesignElaboration(design :: Design, top :: Module):
   constructor (design :: Design, top :: Module):

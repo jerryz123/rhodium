@@ -427,10 +427,14 @@ class InterfaceGroup(module_def :: Module,
                      role :: String,
                      bindings :: NonemptyList.of(InterfaceBinding)):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["group", name]
 class InterfaceArrayGroup(module_def :: Module,
                           name :: String,
                           groups :: NonemptyList.of(InterfaceGroup)):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["array", name]
 
 // Describes one possible transaction route through an N-to-M interface
 // transform. Indices refer to the flattened top-level endpoint arrays.
@@ -446,11 +450,15 @@ class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: maybe(Value) = #fals
 class InterfaceElasticStage(advance :: Value, valid :: Value)
 class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage), name :: String = "data"):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["elastic", name]
 class InterfaceTraceElastic(instance :: maybe(Instance), stages :: NonemptyList.of(InterfaceElasticStage))
 
 // One transaction owner may emit repeatedly until release; outputs do not pop it.
 class InterfaceRetainedStorage(module_def :: Module, capture :: Value, release :: Value, active :: Value, name :: String):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["retained", name]
   method controls(): [capture, release, active]
 class InterfaceTraceRetained(instance :: maybe(Instance), storage :: InterfaceRetainedStorage)
 // Connects two annotated route occurrences through one retained transaction
@@ -460,6 +468,7 @@ class InterfaceTraceEdge(module_def :: Module,
                          child :: InterfaceEndpoint,
                          storage :: InterfaceRetainedStorage):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
 
 // Certifies an in-order, async-read queue using its functional storage controls.
 class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
@@ -467,6 +476,8 @@ class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
                             read_address :: Value, write_address :: Value,
                             stored_valid :: Value, bypass :: Value, name :: String = "data"):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["queue", name]
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 class InterfaceTraceQueue(instance :: maybe(Instance), storage :: InterfaceQueueStorage)
 
@@ -475,10 +486,14 @@ class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
                              selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["window", name]
   method controls(): [enqueue, release_count, count, flush] ++ selected ++ ((live ?> List) || [])
 class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage)
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["selection", name]
 class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value), pending :: Boolean = #false)
 class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
 // Zero-storage replication: every output transfers exactly when the input does.
@@ -488,6 +503,8 @@ class InterfaceTraceAtomicJoin(input_count :: PosInt)
 // One resident item, captured on acceptance, retained for independent recipients.
 class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): ["broadcast", name]
   method controls(): [accept] ++ pending
 class InterfaceTraceBufferedBroadcast(instance :: maybe(Instance), storage :: InterfaceBroadcastStorage)
 
@@ -552,6 +569,8 @@ class InterfaceTransformGroup(module_def :: Module,
                               trace_model :: maybe(InterfaceTraceModel) = #false,
                               contract_name :: maybe(String) = #false):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+  override method materialization_key(): if contract_name | ["contract", contract_name] | #false
 class InterfaceEventField(name :: String, value :: Value, encoding :: String,
                           isa :: String = "", pc :: String = "",
                           symbols :: List.of(Map) = [], label :: Boolean = #false)
@@ -603,6 +622,7 @@ class InterfaceEventGroup(module_def :: Module,
                           mutable parents :: maybe(List.of(Nat)) = #false,
                           residency :: maybe(String) = #false):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
   // Resolve after elaboration so the storage declaration may follow its input.
   method residency_storage():
     if residency
@@ -614,11 +634,63 @@ class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
                                destination :: InterfaceEndpoint):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
 class InterfaceLinkGroup(module_def :: Module,
                          name :: String,
                          left :: InterfaceEndpoint,
                          right :: InterfaceEndpoint):
   implements ModuleMetadataPayload
+  override method remap_hardware(remapping :: MetadataRemapping): remap_interface_metadata(this, remapping)
+
+// Each metadata owner reconstructs its own records; core supplies only scoped
+// hardware maps. Child trace controls use the selected instance's source map.
+fun remap_interface_metadata(value, mapping :: MetadataRemapping):
+  mapping.memoize(value, fun (): rebuild_interface_metadata(value, mapping))
+
+fun rebuild_interface_metadata(value, mapping :: MetadataRemapping):
+  fun m(item):
+    if item is_a ModuleMetadataPayload || item is_a Module || item is_a Value || item is_a Place || item is_a Instance
+    | mapping.entity(item)
+    | remap_interface_metadata(item, mapping)
+  fun child(instance): if instance | mapping.for_instance(instance) | mapping
+  cond
+  | value is_a InterfaceGroup: InterfaceGroup(m(value.module_def), value.name, value.type, value.role, value.bindings.map(m))
+  | value is_a InterfaceArrayGroup: InterfaceArrayGroup(m(value.module_def), value.name, value.groups.map(m))
+  | value is_a InterfaceBinding: InterfaceBinding(value.direction, value.port_name, m(value.entity))
+  | value is_a InterfaceEndpoint: InterfaceEndpoint(value.type, value.role, value.represented_role, value.bindings.map(m), value.view)
+  | value is_a InterfaceElasticStage: InterfaceElasticStage(m(value.advance), m(value.valid))
+  | value is_a InterfaceElasticStages: InterfaceElasticStages(m(value.module_def), value.stages.map(m), value.name)
+  | value is_a InterfaceRetainedStorage: InterfaceRetainedStorage(m(value.module_def), m(value.capture), m(value.release), m(value.active), value.name)
+  | value is_a InterfaceQueueStorage:
+      InterfaceQueueStorage(m(value.module_def), value.depth, m(value.enqueue), m(value.dequeue), m(value.read_address), m(value.write_address), m(value.stored_valid), m(value.bypass), value.name)
+  | value is_a InterfaceWindowStorage:
+      InterfaceWindowStorage(m(value.module_def), value.depth, m(value.enqueue), m(value.release_count), m(value.count), m(value.flush), value.selected.map(m), value.name, m(value.live))
+  | value is_a InterfaceSelection: InterfaceSelection(m(value.module_def), value.grants.map(m), value.name)
+  | value is_a InterfaceBroadcastStorage: InterfaceBroadcastStorage(m(value.module_def), m(value.accept), value.pending.map(m), value.name)
+  | value is_a InterfaceTraceEdge: InterfaceTraceEdge(m(value.module_def), m(value.parent), m(value.child), m(value.storage))
+  | value is_a InterfaceTraceCombinational: InterfaceTraceCombinational(m(value.guard))
+  | value is_a InterfaceTraceFixedLatency: InterfaceTraceFixedLatency(value.cycles, m(value.flush))
+  | value is_a InterfaceTraceElastic:
+      InterfaceTraceElastic(m(value.instance), value.stages.map(fun (stage): remap_interface_metadata(stage, child(value.instance))))
+  | value is_a InterfaceTraceRetained: InterfaceTraceRetained(m(value.instance), child(value.instance).entity(value.storage))
+  | value is_a InterfaceTraceQueue: InterfaceTraceQueue(m(value.instance), child(value.instance).entity(value.storage))
+  | value is_a InterfaceTraceWindow: InterfaceTraceWindow(m(value.instance), child(value.instance).entity(value.storage))
+  | value is_a InterfaceTraceSelection: InterfaceTraceSelection(m(value.instance), value.grants.map(child(value.instance).entity), value.pending)
+  | value is_a InterfaceTraceRouting: InterfaceTraceRouting(value.predicates.map(m))
+  | value is_a InterfaceTraceBufferedBroadcast: InterfaceTraceBufferedBroadcast(m(value.instance), child(value.instance).entity(value.storage))
+  | value is_a InterfaceTraceModel: InterfaceTraceModel(value.routes, m(value.dynamic))
+  | value is_a InterfaceTransformGroup:
+      InterfaceTransformGroup(m(value.module_def), value.kind, m(value.input), m(value.output), value.properties, m(value.implementation), m(value.trace_model), value.contract_name)
+  | value is_a InterfaceEventField: InterfaceEventField(value.name, m(value.value), value.encoding, value.isa, value.pc, value.symbols, value.label)
+  | value is_a InterfaceEventGroup:
+      InterfaceEventGroup(m(value.module_def), value.site_index, value.label, m(value.input), m(value.output), m(value.payload), value.location, m(value.valid), m(value.ready), value.fields.map(m), value.stalls, value.parents, value.residency)
+  | value is_a InterfaceConnectionGroup: InterfaceConnectionGroup(m(value.module_def), m(value.source), m(value.destination))
+  | value is_a InterfaceLinkGroup: InterfaceLinkGroup(m(value.module_def), value.name, m(value.left), m(value.right))
+  | value is_a List: value.map(m)
+  | value is_a Array: Array(& (for List (item in value): m(item)))
+  // Routes and atomic transport descriptors contain no hardware references.
+  | value == #false || value is_a InterfaceTraceAtomicFork || value is_a InterfaceTraceAtomicJoin: value
+  | ~else: error(~who: #'remap_interface_metadata, "unsupported interface metadata record")
 
 def interface_group_namespace = "rhodium.interface.group"
 def interface_array_group_namespace = "rhodium.interface.array-group"
@@ -2117,6 +2189,39 @@ fun describe_interface_transform(handle :: Handle,
                             implementation,
                             trace_model,
                             contract_name)
+  )
+  kernel.record_semantics(
+    "flow." ++ kind,
+    fun ():
+      def bindings = MutableList[]
+      def endpoints = MutableList[]
+      fun side(name, shape):
+        def ports = if shape is_a Array | (for List (endpoint in shape): endpoint) | [shape]
+        for (endpoint in ports, index in 0..ports.length()):
+          def prefix = name ++ to_string(index)
+          def ancestry = MutableList[]
+          def mutable protocol = endpoint.type
+          while protocol:
+            ancestry.add(protocol.name)
+            protocol := protocol.parent
+          endpoints.add([prefix, endpoint.role, ancestry.snapshot()])
+          for (binding in endpoint.bindings):
+            for (field in binding.direction.type.fields):
+              bindings.add(SemanticBinding(prefix ++ "." ++ field.name, binding.entity, [field.name]))
+      side("in", handle.left)
+      side("out", handle.right)
+      when trace_model && trace_model.dynamic is_a InterfaceTraceCombinational && trace_model.dynamic.guard
+      | bindings.add(SemanticBinding("transfer.guard", trace_model.dynamic.guard))
+      when trace_model && trace_model.fixed_latency_flush()
+      | bindings.add(SemanticBinding("transfer.flush", trace_model.fixed_latency_flush()))
+      SemanticDescription(bindings.snapshot(),
+                          {"version": 1,
+                           "configuration": properties,
+                           "latency": if trace_model | trace_model.latency_cycles() | #false,
+                           "endpoints": endpoints.snapshot(),
+                           "routes": if trace_model | trace_model.routes.map(fun (route): [route.input_index, route.output_index]) | [],
+                           "implementation": if implementation | implementation.operation.attribute("name") | #false},
+                          if implementation | [implementation.operation] | [])
   )
   handle
 

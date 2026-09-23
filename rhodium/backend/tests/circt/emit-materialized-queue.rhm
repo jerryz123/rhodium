@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits a real retained Queue after recursive portable materialization.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../core/main.rhm" open
+  "../../../../flow/tests/retained-queue-fixture.rhdl" open
+  "../../circt.rhm".emit_circt
+
+def retained = elaborate_queue(Bits(8), 3, #true, #true, #true)
+def result = materialize_constructs(retained, [QueueExpansion])
+print(emit_circt(result.elaboration.design))

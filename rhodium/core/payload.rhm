@@ -1,0 +1,64 @@
+#lang rhombus
+// Defines pure typed payload computations with explicit argument and live capture ports.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "payload-record.rhm" open
+  "ir.rhm".Module
+  "types.rhm" open
+  "ops.rhm".schema_for
+  "construct.rhm" open
+  "composition.rhm" open
+  "dependencies.rhm".module_dependency_summaries
+  "verify.rhm".verify_design
+
+export PayloadRegion payload_region verify_payload_region
+
+fun fail(message): error(~who: #'payload_region, message)
+
+fun verify_payload_region(region :: PayloadRegion):
+  def body :: CoreImplementation = region.implementation
+  verify_design(body.module_def.design)
+  def names = region.arguments ++ region.captures
+  def seen = MutableSet{}
+  for (name in names):
+    when name in seen | fail("argument and capture ports must be distinct")
+    seen.add(name)
+  unless names.length() == body.module_def.inputs.length()
+      && (for all (port in body.module_def.inputs): port.name in names)
+  | fail("every input must be an explicit argument or capture")
+  unless body.contract.clocks.length() == 0 && body.contract.resets.length() == 0 && body.contract.effects.length() == 0
+  | fail("payload computation must be pure and have no clock, reset, or effects")
+  def visited = MutableSet.by(===){}
+  fun visit(module_def):
+    unless module_def in visited
+    | visited.add(module_def)
+      for (port in module_def.inputs ++ module_def.outputs):
+        unless packable_type(port.type) && !clock_type(port.type) && !reset_type(port.type)
+        | fail("payload ports must have packed data types: " ++ port.name)
+      for (operation in module_def.operations):
+        cond
+        | operation.opcode == "rtl.instance": visit(operation.attribute("module"))
+        | operation.opcode in ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive"]: #void
+        | schema_for(operation.opcode).kind == "combinational": #void
+        | ~else: fail("payload computation contains state or effects: " ++ operation.opcode)
+  visit(body.module_def)
+  verify_core_implementation(body)
+  certify_payload_region(region)
+  #void
+
+// Derive precise public dependency leaves from the same analysis used by core verification.
+fun payload_region(module_def :: Module, arguments :: List.of(String), captures :: List.of(String)):
+  verify_design(module_def.design)
+  def ports = for List (port in module_def.inputs ++ module_def.outputs):
+    ConstructPort(port.name, port.direction, port.type)
+  def summary = module_dependency_summaries([module_def])[0]
+  def dependencies = MutableList[]
+  for (port in module_def.outputs, leaves in summary.output_leaf_dependencies):
+    for (leaf in leaves):
+      dependencies.add(ConstructDependency(
+        PortLeaf(port.name, leaf.path),
+        leaf.input_leaves.map(fun (input): PortLeaf(module_def.inputs[input.input_index].name, input.path))))
+  def region = PayloadRegion(CoreImplementation(module_def, ConstructContract(ports, dependencies.snapshot(), [], [], [])), arguments, captures)
+  verify_payload_region(region)
+  region

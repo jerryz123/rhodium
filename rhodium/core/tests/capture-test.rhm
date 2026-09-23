@@ -1,0 +1,52 @@
+#lang rhombus
+// Checks independent payload extraction, live capture bindings, and scope ownership.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("Source")
+def argument = builder.input(module_def, "payload", Bits(8))
+def capture = builder.input(module_def, "live", Bits(8))
+def before = module_def.operations
+def sum = builder.add(module_def, argument, capture)
+def doubled = builder.add(module_def, sum, capture)
+def operations = module_def.operations.take(module_def.operations.length() - before.length()).reverse()
+def extracted = capture_payload(module_def, operations, [argument], [doubled])
+check:
+  extracted.captures.length() ~is 1
+  extracted.captures[0] === capture ~is #true
+  extracted.region.arguments ~is ["argument_0"]
+  extracted.region.captures ~is ["capture_0"]
+  extracted.region.implementation.module_def.design === design ~is #false
+  extracted.region.implementation.module_def.design.sealed ~is #true
+  design.sealed ~is #false
+  extracted.region.implementation.contract.dependencies[0].inputs.map(fun (leaf): leaf.port).sort() ~is ["argument_0", "capture_0"]
+  capture_payload(module_def, operations ++ [operations[0]], [argument], [doubled]) ~throws "duplicate"
+  capture_payload(module_def, operations, [sum], [doubled]) ~throws "outside"
+
+// The enclosing design remains mutable after extraction.
+def output = builder.output(module_def, "result", Bits(8))
+builder.drive(output, doubled)
+builder.finish(module_def)
+verify_design(design)
+
+// An external result is a capture even when the scoped body has no operations.
+def identity = capture_payload(module_def, [], [argument], [capture])
+check:
+  identity.captures[0] === capture ~is #true
+  identity.region.implementation.contract.dependencies[0].inputs[0].port ~is "capture_0"
+
+// Reject writes escaping the selected computation scope.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("EscapingWrite")
+  def input = builder.input(module_def, "input", Bits(8))
+  def outside = builder.wire(module_def, "outside", Bits(8))
+  def before = module_def.operations
+  builder.drive(outside, input)
+  def operations = module_def.operations.take(module_def.operations.length() - before.length()).reverse()
+  check:
+    capture_payload(module_def, operations, [input], [input]) ~throws "outside its scope"

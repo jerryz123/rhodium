@@ -1,0 +1,141 @@
+#lang rhombus
+// Resolves retained constructs recursively before executing portable expansion bodies.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "payload-record.rhm".PayloadRegion
+  "construct.rhm" open
+  "composition.rhm" open
+  "types.rhm" open
+  "ir.rhm" open
+  "verify.rhm".verify_design
+
+export:
+  ResolvedConstruct
+  ResolvedComposition
+  resolve_construct
+  ResolvedModuleOccurrence
+  ResolvedConstructOperation
+  resolve_module_constructs
+
+class ResolvedConstruct(occurrence :: ConstructOccurrence,
+                        target :: String,
+                        implementation,
+                        expansion_path :: List.of(ConstructIdentity))
+class ResolvedComposition(composition :: HardwareComposition,
+                          implementations :: List)
+
+fun same_parameter(left, right):
+  cond
+  | left is_a PayloadRegion || right is_a PayloadRegion: left === right
+  | left is_a HardwareType && right is_a HardwareType: type_equal(left, right)
+  | left is_a List && right is_a List:
+      left.length() == right.length() && (for all (a in left, b in right): same_parameter(a, b))
+  | left is_a Map && right is_a Map:
+      left.length() == right.length() && (
+        for all ((key, value) in left):
+          right.has_key(key) && same_parameter(value, right[key]))
+  | ~else: left == right
+
+// Registrations and traversal state are consumer-local. No selection result or
+// mutable occurrence state is cached across instances or targets.
+fun resolve_construct(occurrence :: ConstructOccurrence,
+                      target :: String,
+                      expansions :: List.of(ExpansionProvider),
+                      lowerings :: List.of(TargetLowering),
+                      ~lower_core: lower_core :: maybe(Function.of_arity(2)) = #false,
+                      ~max_expansions: max_expansions :: PosInt = 256,
+                      ~instance_path: instance_path :: List.of(String) = []):
+  resolve_construct_with_cache(
+    occurrence, target, MutableMap.by(===){}, expansions, lowerings,
+    ~lower_core: lower_core, ~max_expansions: max_expansions,
+    ~instance_path: instance_path)
+
+fun resolve_construct_with_cache(
+      occurrence :: ConstructOccurrence,
+      target :: String,
+      expansion_cache :: MutableMap,
+      expansions :: List.of(ExpansionProvider),
+      lowerings :: List.of(TargetLowering),
+      ~lower_core: lower_core :: maybe(Function.of_arity(2)) = #false,
+      ~max_expansions: max_expansions :: PosInt = 256,
+      ~instance_path: instance_path :: List.of(String) = []):
+  fun diagnostic(path, visited, message):
+    error(~who: #'resolve_construct,
+          occurrence.location.describe() ++ ": " ++ String.join(path, "/") ++ ": " ++ message
+            ++ " [" ++ String.join(visited.map(fun (s): s.identity.name), " -> ") ++ "]")
+  fun resolve(body :: ConstructSpecialization || CoreImplementation || HardwareComposition, path, visited):
+    cond
+    | body is_a CoreImplementation:
+        verify_core_implementation(body)
+        unless lower_core | diagnostic(path, visited, "no core IR lowering for " ++ target)
+        lower_core(body, path)
+    | body is_a HardwareComposition:
+        verify_composition(body)
+        ResolvedComposition(
+          body,
+          for List (instance in body.instances):
+            resolve(instance.body, path ++ [instance.name], visited))
+    | ~else:
+        def specialization :: ConstructSpecialization = body
+        verify_construct_specialization(specialization)
+        def trace = visited ++ [specialization]
+        def current = ConstructOccurrence(String.join(path, "/"), specialization, occurrence.location)
+        def candidates = lowerings.filter(
+          ~keep: fun (lowering): lowering.identity === specialization.identity && lowering.target == target && lowering.applicable(current))
+        when candidates.length() > 1 | diagnostic(path, trace, "ambiguous target lowering for " ++ target)
+        if candidates.length() == 1
+        | ResolvedConstruct(current, target, candidates[0].lower(specialization, current), trace.map(fun (s): s.identity))
+        | block:
+            when visited.find(
+              fun (prior):
+                prior.identity === specialization.identity && same_parameter(prior.parameters, specialization.parameters))
+            | diagnostic(path, visited, "expansion cannot make progress at " ++ specialization.identity.name)
+            def providers = expansions.filter(~keep: fun (provider): provider.identity === specialization.identity)
+            unless providers.length() == 1
+            | diagnostic(path, trace, if providers.length() == 0 | "unsupported construct for " ++ target | "ambiguous expansion provider")
+            when visited.length() >= max_expansions | diagnostic(path, trace, "expansion limit exceeded")
+            def expanded :: ConstructSpecialization || CoreImplementation || HardwareComposition:
+              if expansion_cache.has_key(specialization)
+              | expansion_cache[specialization]
+              | block:
+                  def result = providers[0].expand(specialization)
+                  unless same_construct_contract(specialization.contract, composition_contract(result))
+                  | diagnostic(path, trace, "expansion changed the construct boundary contract")
+                  expansion_cache[specialization] := result
+                  result
+            resolve(expanded, path, trace)
+  resolve(occurrence.specialization, instance_path ++ [occurrence.name], [])
+
+class ResolvedConstructOperation(operation :: Operation, resolution)
+class.together:
+  class ResolvedModuleOccurrence(module_def :: Module,
+                                 instance_path :: List.of(String),
+                                 instances :: List.of(ResolvedModuleOccurrence),
+                                 constructs :: List.of(ResolvedConstructOperation))
+
+// Retained constructs remain embedded in ordinary module DFGs. Resolution is
+// occurrence-local even when multiple rtl.instance operations share a module.
+fun resolve_module_constructs(elaboration :: DesignElaboration,
+                              target :: String,
+                              expansions :: List.of(ExpansionProvider),
+                              lowerings :: List.of(TargetLowering),
+                              ~lower_core: lower_core :: maybe(Function.of_arity(2)) = #false):
+  verify_design(elaboration.design)
+  def expansion_cache = MutableMap.by(===){}
+  fun walk(module_def :: Module, path):
+    def instances = MutableList[]
+    def constructs = MutableList[]
+    for (operation in module_def.operations):
+      cond
+      | operation.opcode == "rtl.instance":
+          instances.add(walk(operation.attribute("module"), path ++ [operation.attribute("name")]))
+      | operation.opcode == "construct.apply":
+          def occurrence = ConstructOccurrence(operation.attribute("name"), operation.attribute("specialization"), operation.location)
+          def resolved = resolve_construct_with_cache(
+            occurrence, target, expansion_cache, expansions, lowerings,
+            ~lower_core: lower_core, ~instance_path: path)
+          constructs.add(ResolvedConstructOperation(operation, resolved))
+      | ~else: #void
+    ResolvedModuleOccurrence(module_def, path, instances.snapshot(), constructs.snapshot())
+  walk(elaboration.top, [elaboration.top.name])

@@ -1,0 +1,19 @@
+#lang rhombus
+// Compares event manifests and instrumentation across ordinary and retained Queue elaboration.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "event-queue-fixture.rhdl" as fixture
+  "../../../flow/queue.rhdl".QueueExpansion
+  "../../core/main.rhm" open
+  "../main.rhm" open
+
+// Every annotation and storage control must refer to the materialized design.
+def materialized = materialize_constructs(fixture.retained_queued, [QueueExpansion])
+def ordinary = instrument_events(fixture.queued)
+def retained = instrument_events(materialized.elaboration)
+check:
+  event_manifest_to_json(retained.manifest) ~is event_manifest_to_json(ordinary.manifest)
+  retained.manifest.sites.length() ~is ordinary.manifest.sites.length()
+  retained.manifest.dependencies.length() ~is ordinary.manifest.dependencies.length()
+  retained.instrumented.design.sealed ~is #true

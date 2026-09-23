@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "payload-record.rhm".PayloadRegion
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
@@ -10,6 +11,21 @@ import:
 export:
   dump_ir
   dump_module_ir
+  dump_semantic_ir
+
+// Stable inspection text for immutable construct parameters, including types.
+fun construct_parameter_text(value):
+  cond
+  | value is_a HardwareType: value.describe()
+  | value is_a PayloadRegion:
+      "payload_region @" ++ value.implementation.module_def.name
+        ++ "(arguments=" ++ construct_parameter_text(value.arguments)
+        ++ ", captures=" ++ construct_parameter_text(value.captures) ++ ")"
+  | value is_a Map:
+      "{" ++ String.join(value.keys().sort().map(fun (key): key ++ "=" ++ construct_parameter_text(value[key])), ", ") ++ "}"
+  | value is_a List:
+      "[" ++ String.join(value.map(construct_parameter_text), ", ") ++ "]"
+  | ~else: to_string(value)
 
 fun value_refs(value_list :: List.of(Value)):
   String.join(value_list.map(fun (value): value.ref()), ", ")
@@ -248,6 +264,13 @@ fun print_operation(operation :: Operation):
                     " to ", operation.operands[1].ref(), " stages [",
                     value_refs(operation.operands.drop(2)),
                     "] promise stable_level")
+  | "construct_apply":
+      def specialization = operation.attribute("specialization")
+      def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "
+      "    " ++ results ++ "construct.apply @" ++ specialization.identity.name
+        ++ ":" ++ to_string(specialization.identity.version) ++ " " ++ construct_parameter_text(specialization.parameters)
+        ++ " as " ++ operation.attribute("name")
+        ++ "(" ++ value_refs(operation.operands) ++ ")"
   | "instance":
       def child = operation.attribute("module")
       def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "
@@ -275,3 +298,20 @@ fun dump_module_ir(module_def :: Module):
 fun dump_ir(design :: Design):
   def imports = String.join(design.dpi_imports.map(print_dpi_import), "")
   imports ++ (if imports == "" | "" | "\n") ++ String.join(design.modules.map(dump_module_ir), "\n")
+
+// Optional expansion view; ordinary hardware dumps and backend inputs are unchanged.
+fun dump_semantic_ir(design :: Design):
+  fun print_node(node :: SemanticNode, indent :: String):
+    def bindings = node.description.bindings.map(
+      fun (binding): binding.name ++ "=" ++ binding.entity.ref() ++ to_string(binding.path)
+    )
+    def implementation = node.operations.map(fun (operation): to_string(operation.id))
+    def references = node.description.references.map(fun (operation): to_string(operation.id))
+    String.append(indent, node.kind, "(", String.join(bindings, ", "), ")",
+                  " operations [", String.join(implementation, ", "), "]",
+                  " references [", String.join(references, ", "), "]\n",
+                  String.join(node.children.map(fun (child): print_node(child, indent ++ "  ")), ""))
+  String.join(design.modules.map(
+    fun (module_def):
+      "module @" ++ module_def.name ++ "\n" ++ String.join(module_semantics(module_def).map(fun (node): print_node(node, "  ")), "")
+  ), "")

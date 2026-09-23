@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines inline payload transformation as a generic interface handle.
+// Defines payload mapping with retained typed computation and a portable composition expansion.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,15 +7,56 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+def MapConstruct = ConstructIdentity("flow.map", 1)
+
+def MapExpansion = ExpansionProvider(
+  MapConstruct,
+  fun (spec):
+    def computation = spec.parameters["payload"].implementation
+    def child = CompositionInstance("payload", computation)
+    def connections = for List (port in computation.contract.ports):
+      def boundary = CompositionEndpoint(#false, port.name)
+      def internal = CompositionEndpoint(child, port.name)
+      if port.direction == "input"
+      | CompositionConnection(boundary, internal)
+      | CompositionConnection(internal, boundary)
+    HardwareComposition(
+      "Map", spec.contract, [child], connections ++ [
+        CompositionConnection(CompositionEndpoint(#false, "input_valid"), CompositionEndpoint(#false, "output_valid")),
+        CompositionConnection(CompositionEndpoint(#false, "output_ready"), CompositionEndpoint(#false, "input_ready"))]))
+
+fun retained_map(expansion :: PayloadExpansion, valid :: Hardware.packable, ready :: Hardware.packable, stable :: Boolean):
+  def captured = expansion.captured
+  def computation = captured.region.implementation.contract
+  def contract = ConstructContract(
+    computation.ports ++ [
+      ConstructPort("input_valid", "input", hardware_value_type(valid)),
+      ConstructPort("output_ready", "input", hardware_value_type(ready)),
+      ConstructPort("output_valid", "output", hardware_value_type(valid)),
+      ConstructPort("input_ready", "output", hardware_value_type(ready))],
+    computation.dependencies ++ [
+      ConstructDependency(PortLeaf("output_valid"), [PortLeaf("input_valid")]),
+      ConstructDependency(PortLeaf("input_ready"), [PortLeaf("output_ready")])], [], [], [])
+  def spec = ConstructSpecialization(MapConstruct, {"payload": captured.region, "stable": stable}, contract)
+  apply_construct(spec, captured.arguments ++ captured.captures ++ [valid, ready], ~name: "map")
+
 // Joins two local interface links around direct combinational assignments.
 // The links are consumed as components and their outer ends become the new
 // handle's ends.
 fun finish_map_flow_handle(input_link :: Handle,
                            output_link :: Handle,
-                           mapped_bits :: Hardware.packable):
-  output_link.left.field("valid") <== input_link.right.field("valid")
-  output_link.left.field("bits") <== mapped_bits
-  input_link.right.field("ready") <== output_link.left.field("ready")
+                           expansion :: PayloadExpansion,
+                           stable :: Boolean):
+  if expansion.captured
+  | block:
+      def results = retained_map(expansion, input_link.right.field("valid"), output_link.left.field("ready"), stable)
+      output_link.left.field("bits") <== results[0]
+      output_link.left.field("valid") <== results[1]
+      input_link.right.field("ready") <== results[2]
+  | block:
+      output_link.left.field("valid") <== input_link.right.field("valid")
+      output_link.left.field("bits") <== expansion.value
+      input_link.right.field("ready") <== output_link.left.field("ready")
   describe_interface_transform(
     interface_transform(input_link, output_link),
     "map",
@@ -57,11 +98,14 @@ expr.macro
          "map_input"
        )
        def map_flow_input :: Endpoint = map_flow_input_link.right
-       def mapped_bits = flow_payload_body(
-         $payload_infos,
-         $payload,
-         map_flow_input.bits
-       ): $body
+       def map_flow_payload = map_flow_input.bits
+       def map_flow_expansion = payload_expansion(
+         [map_flow_payload],
+         fun ():
+           def mapped = flow_payload_body($payload_infos, $payload, map_flow_payload): $body
+           hardware_value_type(mapped)
+           mapped)
+       def mapped_bits = map_flow_expansion.value
        def map_flow_output_type = hardware_value_type(mapped_bits)
        def map_flow_output_protocol = if $stable | flow_protocol_with_payload(map_flow_input_protocol, map_flow_output_type) | Decoupled(map_flow_output_type)
        def map_flow_output_link = interface_link(
@@ -71,7 +115,8 @@ expr.macro
        def map_flow_handle = finish_map_flow_handle(
          map_flow_input_link,
          map_flow_output_link,
-         mapped_bits
+         map_flow_expansion,
+         $stable
        )
        finish_interface_transform(map_flow_source, map_flow_handle)'
 
@@ -121,4 +166,6 @@ immediate_callee.macro 'map_flow $tail ...':
       syntax_meta.error("invalid map_flow immediate pipeline form", '$tail ...')
 
 export:
+  MapConstruct
+  MapExpansion
   map_flow

@@ -1,0 +1,76 @@
+#lang rhombus
+// Checks semantic-node ownership, typed bindings, tree structure, and sealing.
+// SPDX-License-Identifier: Apache-2.0
+
+import "../main.rhm" open
+
+fun rejected(description, expected):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("Owner")
+  def a = builder.input(module_def, "a", RecordType([RecordField("data", VectorType(2, Bits(8)))]))
+  def node = description(design, builder, module_def, a)
+  module_def.add_metadata("rhodium.semantics", node)
+  builder.finish(module_def)
+  check: verify_design(design) ~throws expected
+
+rejected(
+  fun (design, builder, owner, a):
+    SemanticNode(owner, "test", SemanticDescription([SemanticBinding("a", a, ["data", 2])])),
+  "invalid aggregate path"
+)
+
+rejected(
+  fun (design, builder, owner, a):
+    SemanticNode(owner, "test", SemanticDescription([SemanticBinding("a", a), SemanticBinding("a", a)])),
+  "nonempty and unique"
+)
+
+rejected(
+  fun (design, builder, owner, a):
+    def other = builder.module("Other")
+    def foreign = builder.input(other, "foreign", Bits(8))
+    builder.finish(other)
+    SemanticNode(owner, "test", SemanticDescription([SemanticBinding("foreign", foreign)])),
+  "local value or root place"
+)
+
+rejected(
+  fun (design, builder, owner, a):
+    SemanticNode(owner, "test", SemanticDescription([], {"mutable": MutableList[]})),
+  "immutable properties"
+)
+
+rejected(
+  fun (design, builder, owner, a):
+    def child = SemanticNode(owner, "child", SemanticDescription())
+    SemanticNode(owner, "parent", SemanticDescription(), [], [child, child]),
+  "multiple parents"
+)
+
+rejected(
+  fun (design, builder, owner, a):
+    def operation = owner.find_operation(a.defining_op_id)
+    def child = SemanticNode(owner, "child", SemanticDescription(), [operation])
+    SemanticNode(owner, "parent", SemanticDescription(), [], [child]),
+  "escapes its parent"
+)
+
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def owner = builder.module("TypedBindings")
+  def type = RecordType([RecordField("data", VectorType(2, Bits(8)))])
+  def source = builder.input(owner, "source", type)
+  def sink = builder.output(owner, "sink", type)
+  def node = SemanticNode(owner, "transport", SemanticDescription([
+    SemanticBinding("input", source, ["data", 1]),
+    SemanticBinding("output", sink, ["data", 1])
+  ], {"version": 1}))
+  owner.add_metadata("rhodium.semantics", node)
+  builder.drive(sink, source)
+  builder.finish(owner)
+  verify_design(design)
+  check:
+    module_semantics(owner)[0] === node ~is #true
+    owner.add_metadata("rhodium.semantics", node) ~throws "sealed"

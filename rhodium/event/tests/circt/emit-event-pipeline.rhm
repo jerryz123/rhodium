@@ -6,5 +6,9 @@ import:
   "../../../../rhodium/backend/circt.rhm".emit_circt
   "../../../../rhodium/event/main.rhm".instrument_events
   "../event-pipeline-fixture.rhdl" as fixture
+  "../../../core/main.rhm".materialize_constructs
+  "../../../../flow/pipe.rhdl".PipeExpansions
+  "../../../../flow/map.rhdl".MapExpansion
 
-print(emit_circt(instrument_events(fixture.flush_pipeline).instrumented.design))
+def expanded = materialize_constructs(fixture.retained_flush_pipeline, PipeExpansions ++ [MapExpansion]).elaboration
+print(emit_circt(instrument_events(expanded).instrumented.design))

@@ -31,7 +31,7 @@ std::uint64_t node(std::uint32_t site, std::uint32_t payload,
   value.width = 8;
   value.words[0] = payload;
   if (parent >= 0)
-    expected.edges.insert({{static_cast<std::uint32_t>(parent), parent_sequence}, {site, sequence}});
+    expected.edges.insert({rheg::Ref{static_cast<std::uint32_t>(parent), parent_sequence}, rheg::Ref{site, sequence}});
   return sequence;
 }
 }
