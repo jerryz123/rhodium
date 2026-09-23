@@ -1,6 +1,7 @@
-// Checks timed RGB through real CHI transactions, SRAM row reuse, starvation, and recovery.
+// Checks CHI-to-TMDS video, SRAM row reuse, sync alignment, starvation, and recovery.
 // SPDX-License-Identifier: Apache-2.0
 module hdmi_scanout_tb;
+  `include "devices/tests/circt/verilog/tmds-reference.svh"
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
   typedef struct packed { logic valid; CHIRspFlit bits; } rsp_t;
@@ -18,9 +19,11 @@ module hdmi_scanout_tb;
   HDMIFrameReaderCommand framebuffer;
   logic enable = 1, pixel_enable = 0, pixel_valid, underflow, fetch_failed;
   HDMIVideo video;
+  logic symbol_valid;
+  TMDSSymbols symbols;
   chi_in_t chi_in;
   chi_out_t chi_out;
-  HDMIScanout dut (.*);
+  HDMIScanoutFixture dut (.*);
   always #5 clock = ~clock;
 
   CHIReqFlit pending[$];
@@ -32,6 +35,10 @@ module hdmi_scanout_tb;
   bit send_data, req_fire, dat_fire, ack_fire;
   logic [23:0] expected_rgb;
   int response_epoch, line_number;
+  bit encoded_present;
+  int blue_disparity = 0, green_disparity = 0, red_disparity = 0;
+  TMDSSymbols expected_symbols = '{default: 10'b1101010100};
+  int encoded_samples = 0;
 
   function automatic logic [23:0] color(input int frame, input int pixel);
     return {8'(frame + 32), 8'(pixel / 32 + 64), 8'(pixel % 32 + 128)};
@@ -86,8 +93,17 @@ module hdmi_scanout_tb;
       dat_fire = chi_in.dat.response.valid && chi_out.dat.response.ready;
       ack_fire = chi_out.rsp.requester.valid && chi_in.rsp.requester.ready;
       accepted = chi_out.req.bits;
+      encoded_present = pixel_valid;
+      if (encoded_present) begin
+        expected_symbols.blue = tmds_reference(video.rgb[7:0], {video.vsync, video.hsync}, video.data_enable, blue_disparity);
+        expected_symbols.green = tmds_reference(video.rgb[15:8], 0, video.data_enable, green_disparity);
+        expected_symbols.red = tmds_reference(video.rgb[23:16], 0, video.data_enable, red_disparity);
+        encoded_samples++;
+      end
       @(posedge clock);
       #1;
+      assert(symbol_valid == encoded_present && symbols == expected_symbols)
+        else $fatal(1, "scanout TMDS mapping or latency mismatch");
       if (dat_fire) begin
         retired = pending.pop_front();
         responses++;
@@ -133,7 +149,8 @@ module hdmi_scanout_tb;
     assert(checked_pixels == 8*160) else $fatal(1, "incomplete frame coverage");
     assert(requests > 40 && responses > 40 && acknowledgements > 40)
       else $fatal(1, "insufficient CHI traffic");
-    $display("HDMI scanout RGB, timing, row reuse, late completion, starvation, and recovery passed");
+    assert(encoded_samples >= 8*37*8) else $fatal(1, "incomplete TMDS frame coverage");
+    $display("HDMI scanout RGB/TMDS, timing, row reuse, late completion, starvation, and recovery passed");
     $finish;
   end
 

@@ -1,0 +1,10 @@
+#lang rhodium
+// Specializes the standalone TMDS channel for exhaustive transition verification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../tmds.rhdl".TMDSChannelEncoder
+
+def design = elaborate(TMDSChannelEncoder())
+export:
+  design

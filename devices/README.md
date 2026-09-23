@@ -28,6 +28,7 @@ SoC address map:
 | `Uart16550` | Byte-addressed UART registers, FIFOs, and interrupts | One-outstanding CHI SN-I; one-byte `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; RX/TX pins | CHI flits and FIFO depth 1--16 |
 | `HDMIFrameReader` | Ordered fixed-frame fetches with video-row markers | Retryable nonallocating CHI RN-I `ReadOnce`; irrevocable 64-byte lines | Fixed framebuffer mode, outstanding slots, and TxnID range |
 | `HDMIScanout` | SRAM-buffered fixed-cadence RGB scanout | CHI RN-I, pixel enable, RGB888, HS/VS, and data enable | Frame reader configuration and row-buffer count |
+| `TMDSChannelEncoder` / `TMDSVideoEncoder` | DVI-compatible TMDS encoding | Valid-only input samples and registered 10-bit symbols | One channel or three RGB channels |
 
 `UartDPI` and [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) are simulation-only. They
 bridge serial pins to a host pseudo-terminal (PTY); they are not a
@@ -85,7 +86,28 @@ lines. A response error or poison similarly latches `fetch_failed` and blacks
 the remaining frame. Recovery is attempted at the next vertical blank;
 status remains sticky until disable or reset. These flags describe display
 failures, separately from the frame reader's demand-based starvation status.
-MMIO control and the TMDS transmitter remain later components.
+MMIO control remains a later component.
+
+[`tmds.rhdl`](tmds.rhdl) supplies the portable TMDS encoding stage, following
+[DVI 1.0 sections 3.2.1--3.2.3](https://glenwing.github.io/docs/DVI-1.0.pdf).
+`TMDSChannelEncoder()` accepts `valid`, an eight-bit `data` value,
+`data_enable`, and two-bit `control` (C1 in bit 1, C0 in bit 0). Each valid
+sample produces a registered ten-bit `symbol` and `symbol_valid` after the
+sampling edge. It accepts one sample per cycle without backpressure.
+Active samples update running disparity; accepted blanking samples emit a
+control symbol and reset disparity. Invalid cycles hold the previous symbol
+and disparity and deassert `symbol_valid`. Synchronous reset clears valid and
+disparity and initializes the held symbol to control 00.
+
+`TMDSVideoEncoder()` accepts `pixel_valid`, RGB888, `hsync`, `vsync`, and
+`data_enable`. Connect these directly to `HDMIScanout.pixel_valid` and its
+`video` fields. The encoder adds one system-clock cycle to the scanout output.
+`symbols.blue`, `.green`, and `.red` are the three independently balanced
+TMDS lanes (physical channels 0, 1, and 2). During blanking, blue carries
+C0=HS and C1=VS; green and red carry control 00. The encoder must receive the
+blanking samples as well as active pixels. Each symbol is serialized bit 0
+first. These outputs are parallel words; a board-specific serializer and
+forwarded pixel clock are still required to drive the connector.
 
 The first physical profile is DVI-compatible video carried by TMDS through an
 HDMI connector. Audio, auxiliary data islands and infoframes, HDCP, DDC/EDID,

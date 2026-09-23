@@ -100,7 +100,7 @@ integration_fixtures=(
   chi-response-profile
   rv32i-alu rv64i-alu-integrated simd-alu load-store-rv32-word bit-manip bit-manip-rv32 cache-replacement
   credited-flow credited-monitor credited-monitor-overgrant flit-formats expand-mask runtime-alignment transfer-range
-  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
+  fesvr-mmio aclint bootrom boot-address plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds chi-foundation chi-full-flits chi-link chi-monitor chi-transaction chi-retryable-transaction chi-transaction-sn chi-coherent chi-ram chi-home chi-coherent-home chi-inclusive-home chi-read-once-home chi-read-stream chi-snp-noc chi-sn-noc chi-family-noc chi-router-composition chi-transfer-fragmenter
   rv5stage-core rv5stage-branch-prediction rv5stage-ras rv5stage-return-prediction rv5stage-instruction-buffer rv5stage-fetch-prediction rv5stage-fetch-throughput rv5stage-zcb rv5stage-mop rv5stage-wfi rv5stage-pause rv5stage-ntl rv5stage-multiply rv5stage-dcache
 )
 
@@ -756,6 +756,7 @@ direct_fixture_specs=(
   'uart-dpi|uart_dpi_tb'
   'hdmi-frame-reader|hdmi_frame_reader_tb'
   'hdmi-scanout|hdmi_scanout_tb'
+  'hdmi-tmds|hdmi_tmds_tb'
   'nested-bundle|'
   'bundle-update|bundle_update_tb'
   'aggregate-memory|'

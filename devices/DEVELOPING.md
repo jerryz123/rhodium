@@ -52,6 +52,7 @@ Rhodium logic; do not put DPI calls in a SoC.
 | 16550-style registers, FIFOs, and CHI endpoint | [`uart16550.rhdl`](uart16550.rhdl) |
 | Fixed HDMI timing, framebuffer contract, and CHI frame reader | [`hdmi.rhdl`](hdmi.rhdl) |
 | Synchronous row SRAM, pixel unpacking, video timing, and CHI scanout composition | [`hdmi-scanout.rhdl`](hdmi-scanout.rhdl) |
+| Independent TMDS channel disparity and three-channel video encoding | [`tmds.rhdl`](tmds.rhdl) |
 | Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
 | PTY ABI and host implementation | [`dpi/uart_dpi.h`](dpi/uart_dpi.h), [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) |
 | Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
@@ -90,7 +91,7 @@ To lower and simulate only the device fixtures through CIRCT and
 Verilator, run:
 
 ```sh
-FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout' \
+FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi hdmi-frame-reader hdmi-scanout hdmi-tmds' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 
@@ -104,3 +105,12 @@ a CHI response model and an independent video-position scoreboard. It checks
 SRAM bank reuse across five-row frames, RGB byte order, sync polarities,
 continuous and gapped pixel enables, deadline failure, completions delayed
 across restart, poison/errors, sticky status, and disabled black output.
+Its encoder connection also checks per-lane symbols and the added clock of
+latency across active pixels, blanking, and pixel-enable gaps.
+
+The `hdmi-tmds` fixture discovers every reachable disparity state in an
+independent integer reference model, then drives a reference prefix and all
+256 byte values from each state. It also covers all four control symbols,
+invalid-cycle state retention, reset during active data, decoding, and long
+streams. The shared test-only `tmds-reference.svh` updates disparity by
+counting transmitted bits instead of repeating the RTL's arithmetic.

@@ -1,18 +1,51 @@
 #lang rhodium
-// Exercises the complete CHI reader and SRAM scanout over a five-row miniature frame.
+// Exercises CHI reads, SRAM scanout, and TMDS symbols over a five-row miniature frame.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
   "../hdmi.rhdl" open
   "../hdmi-scanout.rhdl" open
+  "../tmds.rhdl" open
 
 def mode = HDMIFixedFramebufferMode(
   HDMIVideoTiming(100, 32, 2, 2, 1, 5, 1, 1, 1, #true, #false),
   HDMIPixelFormat.X8R8G8B8
 )
 def config = HDMIFrameReaderConfig(CHIFlitParams(~data_width: 512, ~poison: #true), mode, 3, 16)
-def design = elaborate(HDMIScanout(config))
+sync_circuit HDMIScanoutFixture():
+  input identity: HDMIFrameReaderIdentity(config.flit)
+  input framebuffer: HDMIFrameReaderCommand(config.flit)
+  input enable: Bool
+  input pixel_enable: Bool
+  interface chi(CHIRNIChannels(config.flit), ~role: node)
+  output pixel_valid: Bool
+  output video: HDMIVideo()
+  output underflow: Bool
+  output fetch_failed: Bool
+  output symbol_valid: Bool
+  output symbols: TMDSSymbols()
+  inst scanout(HDMIScanout(config))
+  inst encoder(TMDSVideoEncoder())
+  scanout.identity <== identity
+  scanout.framebuffer <== framebuffer
+  scanout.enable <== enable
+  scanout.pixel_enable <== pixel_enable
+  scanout.chi <=> chi
+  pixel_valid <== scanout.pixel_valid
+  video <== scanout.video
+  underflow <== scanout.underflow
+  fetch_failed <== scanout.fetch_failed
+  encoder.pixel_valid <== scanout.pixel_valid
+  encoder.rgb <== scanout.video.rgb
+  encoder.hsync <== scanout.video.hsync
+  encoder.vsync <== scanout.video.vsync
+  encoder.data_enable <== scanout.video.data_enable
+  symbol_valid <== encoder.symbol_valid
+  symbols <== encoder.symbols
+
+def design = elaborate(HDMIScanoutFixture())
 
 export:
   design

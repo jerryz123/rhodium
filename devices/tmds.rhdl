@@ -1,0 +1,92 @@
+#lang rhodium
+// Encodes DVI-compatible video into parallel TMDS symbols with per-channel disparity.
+// SPDX-License-Identifier: Apache-2.0
+
+bundle TMDSSymbols():
+  blue: Bits(10)
+  green: Bits(10)
+  red: Bits(10)
+
+// DVI 1.0 section 3.2.2. Symbol bit zero is transmitted first (section 3.2.3).
+// A valid input advances both the symbol register and running disparity;
+// blanking resets disparity, while invalid cycles preserve it.
+sync_circuit TMDSChannelEncoder():
+  input valid: Bool
+  input data: Bits(8)
+  input data_enable: Bool
+  input control: Bits(2)
+  output symbol_valid: Bool
+  output symbol: Bits(10)
+
+  reg disparity(~init: sint(0, 6))
+  reg encoded(~init: bits(0b1101010100, 10))
+  reg encoded_valid(~init: Bool(#false))
+
+  def ones = popcount(data)
+  def input_bits = data.as_vec(Bool)
+  def use_xnor = (ones > bits(4, 4)) ||| ((ones === bits(4, 4)) & !input_bits[0])
+  def mutable previous :: Bool = input_bits[0]
+  def mutable transitions = [previous]
+  for (index in 1..8):
+    previous := previous ^ input_bits[index] ^ use_xnor
+    transitions := transitions ++ [previous]
+  def minimized :: Bits(8) = vec(transitions).as_bits()
+  def xor_mode = !use_xnor
+  def minimized_count :: Bits(4) = popcount(minimized)
+  def minimized_ones = minimized_count.zext(6).into(SInt(6))
+  def balance = minimized_ones + minimized_ones - sint(8, 6)
+  def neutral = (disparity === sint(0, 6)) ||| (balance === sint(0, 6))
+  def same_sign = ((disparity > sint(0, 6)) & (balance > sint(0, 6))) ||| ((disparity < sint(0, 6)) & (balance < sint(0, 6)))
+  def invert = mux(neutral, !xor_mode, same_sign)
+  def payload = mux(invert, !minimized, minimized)
+  def active_symbol = invert ++ xor_mode ++ payload
+  // The two flag bits add +2, zero, or -2 to the payload disparity.
+  def flag_balance = mux(invert, mux(xor_mode, sint(2, 6), sint(0, 6)), mux(xor_mode, sint(0, 6), sint(-2, 6)))
+  def next_disparity = disparity + mux(invert, -balance, balance) + flag_balance
+  def control_symbol = mux_lookup(control, ~default: bits(0b1101010100, 10)):
+    0: bits(0b1101010100, 10)
+    1: bits(0b0010101011, 10)
+    2: bits(0b0101010100, 10)
+    3: bits(0b1010101011, 10)
+
+  encoded_valid <== valid
+  when valid:
+    encoded <== mux(data_enable, active_symbol, control_symbol)
+    disparity <== mux(data_enable, next_disparity, sint(0, 6))
+  symbol_valid <== encoded_valid
+  symbol <== encoded
+
+sync_circuit TMDSVideoEncoder():
+  input pixel_valid: Bool
+  input rgb: Bits(24)
+  input hsync: Bool
+  input vsync: Bool
+  input data_enable: Bool
+  output symbol_valid: Bool
+  output symbols: TMDSSymbols()
+
+  inst blue(TMDSChannelEncoder())
+  inst green(TMDSChannelEncoder())
+  inst red(TMDSChannelEncoder())
+  blue.valid <== pixel_valid
+  green.valid <== pixel_valid
+  red.valid <== pixel_valid
+  blue.data <== rgb[0..8]
+  green.data <== rgb[8..16]
+  red.data <== rgb[16..24]
+  blue.data_enable <== data_enable
+  green.data_enable <== data_enable
+  red.data_enable <== data_enable
+  blue.control <== vsync ++ hsync
+  green.control <== bits(0, 2)
+  red.control <== bits(0, 2)
+  symbols <== TMDSSymbols():
+    blue: blue.symbol
+    green: green.symbol
+    red: red.symbol
+  symbol_valid <== blue.symbol_valid
+
+export:
+  TMDSSymbols
+  TMDSChannelEncoder
+  TMDSVideoEncoder

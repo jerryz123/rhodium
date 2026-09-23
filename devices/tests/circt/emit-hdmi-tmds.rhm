@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the TMDS encoder for symbol, disparity, blanking, and reset verification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../tmds-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.design))
