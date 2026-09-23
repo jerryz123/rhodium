@@ -77,6 +77,10 @@ std::string parent_path(const std::string& path) {
   const auto slash = path.rfind('/');
   return slash == std::string::npos ? std::string() : path.substr(0, slash);
 }
+bool contains_scope(const std::string& parent, const std::string& child) {
+  return parent == child || (!parent.empty() && child.size() > parent.size() &&
+         child.compare(0, parent.size(), parent) == 0 && child[parent.size()] == '/');
+}
 struct Description {
   Manifest manifest;
   std::string top;
@@ -166,6 +170,34 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     display.label = group.label;
     display.group.clear();
     display_path(display, true);
+  }
+  // Equal labels in one nested hardware scope describe one visual facility.
+  // Sibling instances (for example separate harts) retain separate tracks.
+  std::vector<std::uint32_t> automatic(result.sites.size());
+  for (std::uint32_t i = 0; i < automatic.size(); ++i) automatic[i] = i;
+  const auto root = [&](std::uint32_t site) {
+    while (automatic[site] != site) site = automatic[site];
+    return site;
+  };
+  for (std::uint32_t i = 0; i < result.sites.size(); ++i) {
+    if (result.sites[i].kind == "stall" || grouped.count(i)) continue;
+    for (std::uint32_t j = 0; j < i; ++j) {
+      if (result.sites[j].kind != result.sites[i].kind ||
+          result.sites[j].label != result.sites[i].label || grouped.count(j)) continue;
+      const auto a = parent_path(result.sites[i].id);
+      const auto b = parent_path(result.sites[j].id);
+      if (contains_scope(a, b) || contains_scope(b, a))
+        automatic[root(i)] = root(j);
+    }
+  }
+  std::map<std::uint32_t, std::vector<std::uint32_t>> same_name;
+  for (std::uint32_t i = 0; i < result.sites.size(); ++i)
+    if (result.sites[i].kind != "stall" && !grouped.count(i)) same_name[root(i)].push_back(i);
+  for (const auto& [_, members] : same_name) if (members.size() > 1) {
+    const auto representative = *std::min_element(members.begin(), members.end());
+    for (auto member : members) grouped.emplace(member, representative);
+    result.grouped_tracks.insert(representative);
+    result.shared_tracks[representative] = true;
   }
   for (std::size_t i = 0; i < result.sites.size(); ++i) {
     const auto& site = result.sites[i];
@@ -521,7 +553,7 @@ struct PerfettoWriter::Impl {
     if (!interns.pending.empty()) { bytes(pkt, 12, interns.pending); interns.pending.clear(); }
     bytes(pkt, 11, fields); packet(stream, pkt);
   }
-  void flow(std::string& stream, PendingInterns& interns, Ref ref, std::uint64_t cycle, char phase, std::uint64_t id) const {
+  void flow(std::string& stream, PendingInterns& interns, Ref ref, __uint128_t cycle, char phase, std::uint64_t id) const {
     std::string fields, legacy;
     interns.reference(fields, 10, 23, InternedStrings::Name, "dependency");
     interns.reference(fields, 3, 22, InternedStrings::Category, "rhodium.flow");
@@ -589,7 +621,7 @@ struct PerfettoWriter::Impl {
       require(batch.nodes.count(ref) || known.count(ref), "residency end has no begin");
       const auto begin = batch.nodes.count(ref) ? batch.nodes.at(ref).cycle : known.at(ref).second;
       require(end > begin && end <= batch.cycle && (!watermark || end > *watermark), "invalid residency end cycle");
-      timestamp(end);
+      timestamp(static_cast<__uint128_t>(end) + 1);
       actions.push_back({ref, end, true});
     }
     std::stable_sort(actions.begin(), actions.end(), [](const Action& a, const Action& b) {
@@ -629,7 +661,7 @@ struct PerfettoWriter::Impl {
                 "residency end does not match active owner");
         std::string fields;
         integer(fields, 9, 2);
-        event(stream, interns, ref, action.cycle, fields);
+        event(stream, interns, ref, static_cast<__uint128_t>(action.cycle) + 1, fields);
         next_residencies.erase(resident);
         continue;
       }
@@ -687,12 +719,16 @@ struct PerfettoWriter::Impl {
                         description.sites[ref.site].kind == "stall" ? "stall" :
                         !selected_label.empty() ? selected_label :
                         instruction_count == 1 ? mnemonic : default_name);
-      event(stream, interns, ref, node.cycle, fields);
+      // A capture edge writes the owner register; the next sampled cycle first
+      // observes that descriptor. Keep the graph's admission cycle unchanged.
+      const auto display_cycle = static_cast<__uint128_t>(node.cycle) +
+          (description.sites[ref.site].kind == "residency" ? 1 : 0);
+      event(stream, interns, ref, display_cycle, fields);
       for (auto parent : parents[ref]) {
         const auto identity = additions.count(parent) ? additions.at(parent).first : known.at(parent).first;
-        flow(stream, interns, ref, node.cycle, 'f', identity);
+        flow(stream, interns, ref, display_cycle, 'f', identity);
       }
-      if (can_parent[ref.site]) flow(stream, interns, ref, node.cycle, 's', id);
+      if (can_parent[ref.site]) flow(stream, interns, ref, display_cycle, 's', id);
       if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref]});
       else if (description.sites[ref.site].kind == "residency") next_residencies.emplace(track, ref);
       else {

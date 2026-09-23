@@ -67,8 +67,10 @@ Captures/parents remain immutable. Parse and cross-check the manifest's residenc
 indices just as capture schemas; preserve optional ends in snapshot JSON.
 The encoder merges starts and ends in chronological order, ending old owners
 before same-cycle replacement, while retaining its same-cycle topological start
-ordering. Stage the active-owner map with the batch and reject overlap before
-output. Never infer release from child activity, absence, or finalization.
+ordering. Keep graph admission/release cycles unchanged; project both Perfetto
+residency boundaries one cycle later to show registered occupancy, including
+same-edge replacement. Stage the active-owner map with the batch and reject
+overlap before output. Never infer release from child activity, absence, or finalization.
 Open residency slices intentionally stay incomplete at export end. Test live/
 replay/gzip parity, alternate modes, old-owner descendants, malformed releases,
 and native durations/flow attachment.
@@ -121,7 +123,8 @@ inline. These limits bound dictionary memory, not whole-epoch graph retention.
 
 Use non-thread tracks under a custom design group with
 `child_ordering = LEXICOGRAPHIC`; process/thread descriptors ignore that hint.
-Disable sibling merging to keep repeated labels distinct. Parse explicit label
+Disable Perfetto's own sibling merging so only our scoped grouping combines
+tracks. Parse explicit label
 paths once while describing the manifest, rejecting empty slash-separated segments
 before output. Keep hardware-ID fallbacks flat. Deduplicate transfer-track groups
 by full prefix, allocate their UUIDs above the site/root range in lexical order,
@@ -129,9 +132,11 @@ and emit parent-first custom descriptors with lexicographic child ordering.
 Groups carry no occurrences; group/leaf name collisions must not alias UUIDs.
 Resolve observers through `track_sites`, never their own display path. Keep full
 labels in static track descriptions; track names contain only the leaf.
-Explicit `PerfettoTrackGroups` generalize this mapping without altering the
-manifest or collector: resolve exact transfer IDs first, choose the lowest site
-index as the group's stable UUID representative, then attach all companions.
+Resolve explicit `PerfettoTrackGroups` first. Among remaining sites, merge
+identical complete labels and kinds when their hardware scopes are the same or
+nested; sibling instances stay distinct. Choose the lowest site index as each
+group's stable UUID representative, then attach all companions. Neither route
+changes the manifest or collector.
 Keep display overrides separate from site labels and schemas. Group option
 order must not affect bytes; unknown or multiply assigned sites must fail before
 output. A grouped descriptor lists complete original descriptions in `sites`,
@@ -226,7 +231,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Captures | Unaligned fields, bool/signed/unsigned values, a 65-bit decimal value, malformed schemas and exact raw preservation |
 | Snapshots and timing | Binding order, missing/invalid timing, exact 64-bit JSON values, immutable copies, initial/held/empty reset epochs and exhaustion |
 | Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering; interning across batches and capacity fallback; terminal-start omission and possible-source retention |
-| Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, repeated labels without thread association, flow attachment, metadata even in empty traces and no parser errors |
+| Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, scoped same-name merging without thread association, flow attachment, metadata even in empty traces and no parser errors |
 | Stall intervals | Stable-run coalescing across batch partitions; capture, parent-set, sequence, gap, transfer and finalization boundaries; open prefixes, exact durations and UINT64_MAX; graph preservation and collapsed parent arrows |
 | Shared tracks | Exact-site grouping, alternate modes and schemas, two instances, observer-site switches with equal captures, unchanged flow endpoints, collision atomicity, invalid configurations, and live/replay/gzip/CLI parity |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |

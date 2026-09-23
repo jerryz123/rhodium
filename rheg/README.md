@@ -112,7 +112,9 @@ watermark. Payload and ancestry remain immutable. Ends and node callbacks are
 order-independent within an unsettled batch. Duplicate, orphan, mistimed, and
 non-residency ends are rejected.
 
-Perfetto emits a half-open `[capture_cycle, release_cycle)` slice. Identity and
+Perfetto emits a half-open `[capture_cycle + 1, release_cycle + 1)` slice,
+showing the cycles in which the registered owner is observable. The occurrence
+and its `cycle` argument still identify the admission edge. Identity and
 outgoing arrows remain usable after release. Explicit track groups may combine
 residency sites of alternate modes, but cannot mix residency and transfer sites;
 overlapping owners on one track are rejected. End-of-export does not invent a
@@ -308,10 +310,17 @@ postprocessor, not a parser for the optional cycle-batch JSON log. Streaming
 passes typed batches directly to the writer, without JSON serialization or a
 helper process. Streaming and replay use identical uncompressed ordering and encoding.
 
-### Explicit shared tracks
+### Shared tracks
 
-Distinct annotation sites stay on separate tracks by default, even when their
-labels match. For mutually exclusive modes of one logical facility, supply
+Sites of the same kind with the same complete label automatically share a
+Perfetto track when they belong to the same hardware instance or nested
+subinstances. This combines the ordinary and packed `vector/issue` and
+`vector/complete` sites without merging identically named sites in separate
+harts. Their graph identities, captures, and parent edges remain distinct.
+Same-cycle activity on an automatically shared track is rejected, so a common
+label asserts that these modes are exclusive.
+
+For sites in sibling instances, or to choose a different display label, supply
 `PerfettoTrackGroups` as the fifth `PerfettoWriter` argument or fourth
 `write_perfetto` argument (after compression). Each group contains a display
 `label` and at least two exact event-site IDs of the same kind (transfer or
@@ -422,9 +431,9 @@ supply the instrumentation's event-cycle count, not an unrelated harness tick.
 ## Perfetto display and queries
 
 Each transfer becomes a one-cycle slice spanning `[N, N+1)` on a track named
-with the leaf of its annotated transfer label, without a synthetic thread-ID suffix. Each
-transfer site retains a separate track even when labels repeat, unless explicitly
-listed in a [shared-track group](#explicit-shared-tracks); its stall
+with the leaf of its annotated transfer label, without a synthetic thread-ID suffix.
+Same-name sites in one nested instance scope share a
+[track](#shared-tracks); its stall
 observations share that track. These are non-thread tracks
 grouped under a custom track named for the top-level design. Explicit labels use
 `/` to create nested groups: `x/y.b/c` places track `c` under groups `x` and `y.b`.
@@ -443,7 +452,8 @@ Labels without slashes keep their previous display. Empty path segments (`/x`,
 `x/`, or `x//y`) are rejected before output; there is no escaping or path normalization.
 Only explicit labels are parsed: legacy sites without a label keep their entire
 hardware ID as a flat track name. Display groups do not imply RTL hierarchy or
-graph dependencies. Repeated complete labels alone never merge event tracks;
+graph dependencies. Repeated complete labels in separate instances remain on
+separate tracks;
 an event named `x` is distinct from the group used by `x/y`. Stall companions
 always use their transfer's track, regardless of their own label.
 Frequency and epoch are emitted once before occurrences as trace metadata,
@@ -451,7 +461,7 @@ available in SQL's `metadata` table as `cr-rheg.clock_frequency_hz` and
 `cr-rheg.epoch_id`, with exact decimal `str_value` values. Even an empty trace
 or the first flushed prefix contains these values.
 
-Without an explicit shared-track group, each event track's description is JSON containing numeric `site`, `site_id`, full `label`,
+Each unshared event track's description is JSON containing numeric `site`, `site_id`, full `label`,
 `source_location`, `payload_width`, `kind`, and, for named captures, the ordered
 `fields` layout of its transfer site. A shared track also has an `observations`
 array containing each companion's full site description, including `kind: "stall"`

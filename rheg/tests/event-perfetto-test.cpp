@@ -9,6 +9,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <tuple>
 
 using namespace rheg;
 namespace {
@@ -135,7 +136,7 @@ void hierarchical_labels(const std::string& path) {
   std::ostringstream replay; write_perfetto(replay,read_event_trace(input));
   check(live.str() == replay.str(), "hierarchy live/replay differs");
   check(live.str() == inflate_trace(zipped.str()), "hierarchy gzip differs");
-  // Parent descriptors must precede children, with disjoint UUIDs and no merging.
+  // Parent descriptors precede children; duplicate labels share one UUID.
   std::set<std::uint64_t> descriptors;
   for (const auto& packet : wire_fields(live.str())) if (packet.tag == 1)
     for (const auto& field : wire_fields(packet.bytes)) if (field.tag == 60) {
@@ -147,7 +148,7 @@ void hierarchical_labels(const std::string& path) {
       }
       check(uuid && (!parent || descriptors.count(parent)) && descriptors.insert(uuid).second && merging == 2);
     }
-  check(descriptors.size() == 14, "unexpected hierarchy descriptor count");
+  check(descriptors.size() == 13, "unexpected hierarchy descriptor count");
   std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
   std::ofstream gzip(path+".gz",std::ios::binary); gzip << zipped.str(); gzip.close(); check(bool(gzip));
   for (const auto& label : {"/x", "x/", "x//y", ""}) {
@@ -520,15 +521,19 @@ void shared_tracks(const std::string& path) {
   json << "]}"; descriptor.json = json.str(); config << "]}";
   std::istringstream options(config.str()); groups = read_perfetto_track_groups(options);
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
-  std::ostringstream live, zipped;
+  std::ostringstream live, zipped, automatic;
   PerfettoWriter writer(live,descriptor,{100000000},PerfettoCompression::None,groups);
   PerfettoWriter gzip(zipped,descriptor,{100000000},PerfettoCompression::Gzip,groups);
+  PerfettoWriter auto_writer(automatic,descriptor,{100000000});
   const auto prefix = live.str();
+  const auto auto_prefix = automatic.str();
   for (auto other : {3U,2U,4U}) {
     auto conflict = batch(0,{1,0},9);
     conflict.nodes.emplace(Ref{other,0},Node{true,0,descriptor.payload_widths[other],{{0,42}}});
     rejects([&] { writer.write(conflict); }, "multiple occurrences on a shared track");
+    rejects([&] { auto_writer.write(conflict); }, "multiple occurrences on a shared track");
     check(live.str() == prefix, "group collision wrote output");
+    check(automatic.str() == auto_prefix, "automatic group collision wrote output");
   }
   for (unsigned cycle = 0; cycle < 10; ++cycle) {
     for (unsigned core = 0; core < 2; ++core) {
@@ -540,17 +545,20 @@ void shared_tracks(const std::string& path) {
       if (s) graph.record_edge({base+(s == 6 ? 3U : s == 5 ? 1U : 0U), cycle == 8 ? 1U : 0U},ref);
     }
     const auto settled = graph.finish_cycle(cycle);
-    writer.write(settled); gzip.write(settled);
+    writer.write(settled); gzip.write(settled); auto_writer.write(settled);
     if (cycle == 3) {
       std::ofstream file(path+".prefix",std::ios::binary); file << live.str(); file.close(); check(bool(file));
     }
   }
-  writer.finish(); gzip.finish(); graph.end_stream();
+  writer.finish(); gzip.finish(); auto_writer.finish(); graph.end_stream();
   const auto snapshot = graph.snapshot();
   check(snapshot.nodes().size() == 20 && snapshot.edges().size() == 16, "grouping changed graph identity");
   std::istringstream saved(snapshot.json()); std::ostringstream replay;
   write_perfetto(replay,read_event_trace(saved),PerfettoCompression::None,groups);
   check(replay.str() == live.str() && inflate_trace(zipped.str()) == live.str(), "grouped live/replay/gzip differ");
+  std::ostringstream auto_replay;
+  write_perfetto(auto_replay,snapshot);
+  check(auto_replay.str() == automatic.str(), "automatic grouping differs between live and replay");
   check(flow_counts(live.str()) == std::make_pair(8U,12U), "grouping changed lineage");
   auto reversed = groups;
   std::reverse(reversed.begin(),reversed.end());
@@ -558,7 +566,8 @@ void shared_tracks(const std::string& path) {
   std::ostringstream reordered; write_perfetto(reordered,snapshot,PerfettoCompression::None,reversed);
   check(reordered.str() == live.str(), "track configuration order changed output");
   for (const auto& [suffix,contents] : std::vector<std::pair<std::string,std::string>>{
-         {"",live.str()},{".gz",zipped.str()},{".json",snapshot.json()},{".tracks.json",config.str()}}) {
+         {"",live.str()},{".gz",zipped.str()},{".automatic",automatic.str()},
+         {".json",snapshot.json()},{".tracks.json",config.str()}}) {
     std::ofstream file(path+suffix,std::ios::binary); file << contents; file.close(); check(bool(file));
   }
   auto invalid = [&](const PerfettoTrackGroups& options, const char* diagnostic) {
@@ -609,6 +618,22 @@ void residency(const std::string& path) {
   writer.write(graph.finish_cycle(6));
   graph.record_end({1,0},8); writer.write(graph.finish_cycle(8));
   graph.end_stream(); writer.finish();
+  std::vector<std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>> residency_boundaries;
+  for (const auto& packet : wire_fields(live.str())) if (packet.tag == 1) {
+    std::uint64_t timestamp = 0;
+    for (const auto& field : wire_fields(packet.bytes)) if (field.tag == 8) timestamp = field.value;
+    for (const auto& field : wire_fields(packet.bytes)) if (field.tag == 11) {
+      std::uint64_t type = 0, track = 0;
+      for (const auto& event_field : wire_fields(field.bytes)) {
+        if (event_field.tag == 9) type = event_field.value;
+        if (event_field.tag == 11) track = event_field.value;
+      }
+      if (track == 1 && (type == 1 || type == 2)) residency_boundaries.emplace_back(timestamp, track, type);
+    }
+  }
+  check(residency_boundaries == std::vector<std::tuple<std::uint64_t, std::uint64_t, std::uint64_t>>{
+      {10, 1, 1}, {50, 1, 2}, {50, 1, 1}, {90, 1, 2}},
+      "residency slices must show post-capture registered occupancy");
   std::istringstream input(graph.snapshot().json());
   const auto parsed = read_event_trace(input);
   std::ostringstream replay, compressed;

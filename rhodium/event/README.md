@@ -128,7 +128,8 @@ Descendants still inherit the checkpoint identity through ordinary Flow/storage.
 
 The manifest kind is `residency`. Captures and incoming edges are sampled once
 at admission; `rheg_end(site, sequence, cycle)` ends the existing occurrence,
-not a second graph node. Its half-open interval is `[capture_cycle, release_cycle)`.
+not a second graph node. The graph records those admission and release cycles;
+Perfetto displays registered occupancy over `[capture_cycle + 1, release_cycle + 1)`.
 Same-edge release/replacement closes the old owner before opening the new one.
 Retries keep the identity until the owner actually releases; cancellation belongs
 in the scope's release predicate. Reset suppresses callbacks and clears the epoch,
