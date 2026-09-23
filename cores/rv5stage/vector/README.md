@@ -582,9 +582,12 @@ The source SEW remains in the multiplier tag while the WB-owned destination
 metadata independently carries doubled EEW, address, and mask placement.
 
 Scalar and vector clients share the profile-selected multiplier and one
-iterative divider through independent round-robin request arbiters. The
-iterative multiplier retains one request; the five-stage pipelined multiplier
-advances every launched request without backpressure. Its service reserves one
+iterative divider. Vector requests have priority at the multiplier; the
+divider uses round-robin arbitration. The vector multiplier request queue
+bypasses when empty, attempting admission two cycles after sequencing when
+the multiplier has capacity. The iterative multiplier retains one request;
+the five-stage pipelined multiplier advances every launched request without
+backpressure. Its service reserves one
 of six result-buffer entries before launch and pipelines the opaque owner tag
 beside the operands. Each scalar adapter has one reserved WB request slot, so
 vector contention cannot steal an ID admission reservation. Scalar GPR

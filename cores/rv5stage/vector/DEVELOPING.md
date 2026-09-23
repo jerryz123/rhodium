@@ -330,7 +330,10 @@ also retains fractional-multiply saturation until ordered drain can update
 `../integer-execution.rhdl` owns opaque tag retention around the reusable
 iterative units; scalar adapters in
 `../multiply.rhdl` and `../divide.rhdl` own W-result and GPR destination policy.
-The core owns separate round-robin scalar/vector arbiters for each unit. Keep
+The core gives vector requests fixed priority over scalar requests at the
+shared multiplier; the divider remains round-robin. The vector multiplier
+request queue bypasses when empty, so an uncontended request attempts service
+admission in the compute-maturity cycle, two cycles after sequencing. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 

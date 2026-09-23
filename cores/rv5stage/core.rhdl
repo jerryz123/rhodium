@@ -228,9 +228,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     Vector(wb_vector_multiply_tag)
   inst wb_multiply_execution(RV5StageMultiplyService(core_profile.multiplier, width, MultiplyOwner()))
   Array(
-    wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag))),
-    wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
-  ) |> rr_arbiter() |> queue(2) |> wb_multiply_execution.request
+    wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag))),
+    wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag))) |> queue(2)
+  ) |> arbiter() |> wb_multiply_execution.request
   (
     wb_multiply_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(MultiplyOwner().Vector).into(Bool))
       |> parallel(

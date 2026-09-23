@@ -234,12 +234,16 @@ keep that register boundary between operand selection and full-width negation.
 Scalar adapters retain a one-entry request queue reserved in ID and expose
 tagged requests/results without owning an execution unit. The standalone
 wrappers compose those adapters with one service; the core instead arbitrates
-them with vector requests around one service per operation. Each arbiter feeds
-a two-entry service-request queue so execution readiness cannot flow backward
-through recovery without halving steady-state request throughput. Scalar
-queue-space reservation remains valid even if vector work wins the execution
-arbiter. Accepted arithmetic requests are never killed inside the shared
-service; scalar cancellation discards their results by ticket.
+them with vector requests around one service per operation. The multiplier
+arbitrates after the independent client queues, with vector requests taking
+priority; an empty vector queue bypasses directly to the service at compute
+maturity. A separate two-entry scalar staging queue isolates scalar execution
+readiness from recovery without putting queued scalar work ahead of vector
+requests. The divider retains its round-robin arbiter and two-entry service
+queue. Scalar queue-space reservation remains valid even if vector work wins
+the multiplier arbiter. Accepted arithmetic requests are never killed inside
+the shared service; scalar cancellation discards their results by ticket.
+Result tags retain selection and destination metadata until consumption.
 
 ## Pointer-masking ownership
 

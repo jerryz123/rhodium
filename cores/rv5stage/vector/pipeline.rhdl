@@ -313,13 +313,13 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def memory_result = memory_pipe.egress.bits
   def memory_beat = memory_result.beat
 
-  // Empty request storage bypasses directly into the shared service; occupied
-  // entries retain every accepted, nonstallable request.
+  // Empty FP and multiply request queues bypass directly into their shared
+  // services; occupied entries retain every accepted, nonstallable request.
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
   fp_authorized.egress |> fp_request
   fp_result.ready <== Bool(#true)
   // Accepted service work survives cancellation and returns through its tag.
-  inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots))
+  inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots, ~flow: #true))
   inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
   multiply_authorized.egress |> multiply_request
   divide_authorized.egress |> divide_request
