@@ -438,7 +438,8 @@ flowchart LR
     WB -->|"miss / device / mutation"| LSU["Authorized DTLB + PMA<br/>L1D or uncached transaction"]
     LSU -->|"integer load / AMO result"| COMPLETE["Deferred GPR<br/>completion arbiter"]
 
-    WB -->|"issue at WB"| MUL["Multiplier"]
+    EX -->|"pipelined profile: speculative issue"| MUL["Multiplier"]
+    WB -->|"pipelined: authorize result; iterative: issue"| MUL
     WB -->|"issue at WB"| DIV["Divider"]
     MUL --> COMPLETE
     DIV --> COMPLETE
@@ -483,7 +484,7 @@ flowchart LR
 |---|---|---:|---|
 | Fetch | Five flow-through raw packets and a core residual halfword | Yes | Frontend-owned attempts, replay, prediction, and redirect flushing |
 | Decode | ID/EX `ValidPipeAlwaysCapture` | No | Structured decode, operand capture and bypass selection, serialization, RAW/WAW hazard checks, and local execution-resource reservation |
-| Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, FP operand preparation, and structural replay |
+| Execute | EX/MEM `ValidPipeAlwaysCapture` | No | Registered-source forwarding, ALU, branch resolution, address generation, local synchronous-fault classification, speculative pipelined multiply launch, FP operand preparation, and structural replay |
 | Memory | MEM/WB `ValidPipeAlwaysCapture` | No | Parallel DTLB/cache lookup, hit-result capture, branch recovery, early fault/replay squash, and bypass |
 | Writeback | Ordered commit | At defined architectural waits | Load-hit writeback, authorized memory/FP dispatch, faults, replay, register/CSR effects, traps, fences, and deferred reservations |
 
@@ -555,7 +556,8 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | Integer ALU, branch link, immediate, and ordinary CSR result | Scalar pipeline | Ordinary WB register-file port |
 | Integer load hit | EX request, parallel MEM lookup | Normal WB register-file port and bypass |
 | Missed/busy/uncached load or atomic result | Transaction and GPR reservation accepted at WB | L1D or uncached response to the deferred completion arbiter |
-| Multiply or divide | Scalar request slot reserved in Decode; GPR reserved and request queued at WB; shared service arbitrates independently | Deferred completion arbiter |
+| Pipelined multiply | Scalar request slot reserved in Decode; tagged pure computation launched in EX; WB authorizes the result and reserves the GPR | Deferred completion arbiter after authorization; squashed results are discarded |
+| Iterative multiply or divide | Scalar request slot reserved in Decode; GPR reserved and request queued at WB; shared service arbitrates independently | Deferred completion arbiter |
 | FP result targeting an integer register | FP request and GPR reservation accepted at WB | FP completion to deferred completion arbiter |
 | FP result targeting an FP register | FP request and FPR reservation accepted at WB | FP pipeline's internal FP register-file port |
 | FP load hit | EX request, parallel MEM lookup | Scalar WB to FP load-hit port, without a deferred reservation |

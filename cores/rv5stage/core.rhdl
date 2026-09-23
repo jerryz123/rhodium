@@ -33,6 +33,7 @@ import:
   "bundles.rhdl" open
   "csr.rhdl" open
   "profile.rhm".RV5StageConfig
+  "profile.rhm".RV5StageMultiplierKind
   "profile.rhm".rv5stage_execution_half_precision
   "../../riscv/rtl/interrupt.rhdl" open
   "multiply.rhdl" open
@@ -161,7 +162,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst id_registers(RV5StageRegisterFile(xlen))
   inst ex_alu(ALU(xlen))
   inst ex_branch_resolver(BranchResolver(width))
-  inst wb_multiplier(RV5StageMultiplyScalar(xlen))
+  def wb_pipelined_multiplier = core_profile.multiplier == RV5StageMultiplierKind.Pipelined
+  inst wb_multiplier(RV5StageMultiplyScalar(xlen, ~speculative: wb_pipelined_multiplier))
   inst wb_divider(RV5StageDivideScalar(xlen))
   inst wb_scoreboard(Scoreboard(register_count))
   inst wb_fp_integer_scoreboard(Scoreboard(register_count))
@@ -341,6 +343,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_serializing_resume = fence_i_commit ||| wb_csrs.translation_flush ||| wb_csrs.pointer_masking_changed
   def wb_commit_redirect = wb_csrs.redirect.valid ||| wb_serializing_resume ||| wb_commit_replay ||| wb_vector_replay ||| wb_vector_truncate
   def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_commit_bits.exception_valid)
+  if wb_pipelined_multiplier
+  | block:
+      wb_multiplier.cancel_memory.valid <== mem_input.valid & !mem_stage_valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
+      wb_multiplier.cancel_memory.bits <== mem_input.bits.multiply_ticket
+  | #void
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
@@ -917,8 +924,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     frd: ex_input.bits.rd
     integer_operand: ex_forwarded_rs1
     rounding_mode: ex_input.bits.floating_point_rounding_mode
-  // EX only prepares operands. A missing store-read result becomes a replay;
-  // execution and all architectural effects require WB authorization.
+  // EX prepares memory/FP operands; only the pipelined multiplier may launch
+  // pure arithmetic here. A missing store-read result becomes a replay, while
+  // architectural effects still require WB authorization.
   def ex_prefetch_request = CachePrefetchReq(width):
     address: ex_memory_address
     operation: ex_input.bits.prefetch_operation
@@ -927,6 +935,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   def ex_fp_store_replay = ex_transfer & ex_fp_store & !ex_exception.valid & !ex_fp_store_response_match
   def ex_replay = ex_fp_store_replay
+  def ex_multiply_launch = ex_input |> filter_valid(_operation => ex_transfer & !ex_exception.valid & !ex_replay & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()) |> map_valid(_operation => ex_multiply_issue)
+  if wb_pipelined_multiplier
+  | block:
+      ex_multiply_launch |> wb_multiplier.issue
+  | #void
   assert(!(ex_replay & ex_exception.valid),
          "rv5stage_execute_fault_does_not_replay")
   ex_branch_resolver.request.valid <== ex_transfer & !ex_input.bits.vector_launch
@@ -1007,6 +1020,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     rd: ex_input.bits.rd
     result: mux(ex_is_vector_config, ex_vector_configuration.vl.zext(width), ex_result)
     multiply_issue: ex_multiply_issue
+    multiply_ticket: wb_multiplier.issue_ticket
     divide_issue: ex_divide_issue
     system: ex_input.bits.system
     fence: ex_input.bits.fence
@@ -1073,6 +1087,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     rd: operation.rd
     value: operation.result
     multiply_issue: operation.multiply_issue
+    multiply_ticket: operation.multiply_ticket
     divide_issue: operation.divide_issue
     system: operation.system
     fence: operation.fence
@@ -1249,16 +1264,28 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   wb_normal_write |> wb_commit_write
 
-  // Retirement authorizes issue; retained maintenance/WRS context never selects arithmetic operands.
-  (
-    wb_multiply_path
-      |> filter_valid(committed => !committed.replay & (
-          committed.writeback_source === RV5StageWritebackSelect.Multiply
-        ) & committed.write_enable & committed.rd.or_reduce())
-      |> map_valid(_committed => wb_input.bits.multiply_issue)
-  ) |> wb_multiplier.issue
-  when wb_commit_has_multiply:
-    assert(wb_multiplier.available, "rv5stage_multiplier_commit_reserved")
+  // Pipelined multiplication is pure EX work; WB authorizes its tagged result.
+  // The iterative implementation still starts only after WB retirement.
+  if wb_pipelined_multiplier
+  | block:
+      wb_multiplier.authorize.valid <== wb_commit_has_multiply
+      wb_multiplier.authorize.bits <== wb_commit_bits.multiply_ticket
+      wb_multiplier.cancel_writeback.valid <== wb_input.valid & (wb_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_input.bits.write_enable & wb_input.bits.rd.or_reduce() & !wb_commit_has_multiply
+      wb_multiplier.cancel_writeback.bits <== wb_input.bits.multiply_ticket
+  | block:
+      (
+        wb_multiply_path
+          |> filter_valid(committed => !committed.replay & (committed.writeback_source === RV5StageWritebackSelect.Multiply) & committed.write_enable & committed.rd.or_reduce())
+          |> map_valid(_committed => wb_input.bits.multiply_issue)
+      ) |> wb_multiplier.issue
+      wb_multiplier.authorize.valid <== Bool(#false)
+      wb_multiplier.authorize.bits <== bits(0, 4)
+      wb_multiplier.cancel_memory.valid <== Bool(#false)
+      wb_multiplier.cancel_memory.bits <== bits(0, 4)
+      wb_multiplier.cancel_writeback.valid <== Bool(#false)
+      wb_multiplier.cancel_writeback.bits <== bits(0, 4)
+      when wb_commit_has_multiply:
+        assert(wb_multiplier.available, "rv5stage_multiplier_commit_reserved")
   (
     wb_divide_path
       |> filter_valid(committed => !committed.replay & (

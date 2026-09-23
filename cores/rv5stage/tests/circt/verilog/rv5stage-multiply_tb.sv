@@ -1,4 +1,4 @@
-// Verifies commit-issued multiplication, deferred hazards, and independent progress.
+// Verifies EX-launched multiplication, deferred hazards, and wrong-path cancellation.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_multiply_tb;
@@ -84,6 +84,10 @@ module rv5stage_multiply_tb;
       64'h00000001_00000034: instruction_at = 32'h00b03c23; // sd x11, 24(x0)
       64'h00000001_00000038: instruction_at = 32'h02c03423; // sd x12, 40(x0)
       64'h00000001_0000003c: instruction_at = 32'h02d03823; // sd x13, 48(x0)
+      64'h00000001_00000040: instruction_at = 32'h00100713; // addi x14, x0, 1
+      64'h00000001_00000044: instruction_at = 32'h00e70463; // beq x14, x14, +8
+      64'h00000001_00000048: instruction_at = 32'h026287b3; // wrong-path mul x15, x5, x6
+      64'h00000001_00000064: instruction_at = 32'h02f03c23; // sd x15, 56(x0)
       default: instruction_at = 32'h00000013;
     endcase
   endfunction
@@ -155,7 +159,12 @@ module rv5stage_multiply_tb;
             assert (data_access_out.request.bits.address == 64'd48 &&
                     data_access_out.request.bits.data == 64'hffffffffffffffff)
               else $fatal(1, "MULHSU result was incorrect");
-            $display("RV5Stage commit-issued multiplication passed");
+          end
+          7: begin
+            assert (data_access_out.request.bits.address == 64'd56 &&
+                    data_access_out.request.bits.data == 64'd0)
+              else $fatal(1, "wrong-path MUL changed architectural state");
+            $display("RV5Stage EX-launched multiplication passed");
             $finish;
           end
           default: $fatal(1, "unexpected extra store");

@@ -222,21 +222,24 @@ inspects internal predictor state. The fetch test covers compressed branch
 ordering, continuation words, duplicate-PC occurrences, backpressure, stale-cut
 repair, and precise continuation faults.
 
-Mul/div dispatch validity comes from authorized commit, but operand payloads
-come directly from the normal WB pipeline token. Retained CMO and WRS retirement
+Pipelined scalar multiply launches pure arithmetic from EX with a ticket. MEM
+and WB cancel squashed or replayed tickets; WB authorizes surviving tickets
+when it reserves their GPR destinations. Results are discarded until their
+ticket is authorized and cannot write architectural state on a wrong path.
+Iterative multiply and divide still enqueue from authorized WB commit, with
+operand payloads from the normal WB pipeline token. Retained CMO and WRS
 contexts must not select arithmetic operands. Both reusable multiplier
 implementations capture raw operands before full-width magnitude preparation;
-keep that register boundary between WB selection and full-width negation.
-Scalar adapters reserve a one-entry request queue in ID, enqueue at WB, and
-expose tagged requests/results without owning an execution unit. The standalone
+keep that register boundary between operand selection and full-width negation.
+Scalar adapters retain a one-entry request queue reserved in ID and expose
+tagged requests/results without owning an execution unit. The standalone
 wrappers compose those adapters with one service; the core instead arbitrates
 them with vector requests around one service per operation. Each arbiter feeds
 a two-entry service-request queue so execution readiness cannot flow backward
-through WB replay into frontend recovery without halving steady-state request
-throughput. Scalar queue-space reservation remains valid even if vector work wins
-the execution arbiter.
-Accepted requests are never killed, and result tags retain all selection and
-destination metadata until consumption.
+through recovery without halving steady-state request throughput. Scalar
+queue-space reservation remains valid even if vector work wins the execution
+arbiter. Accepted arithmetic requests are never killed inside the shared
+service; scalar cancellation discards their results by ticket.
 
 ## Pointer-masking ownership
 

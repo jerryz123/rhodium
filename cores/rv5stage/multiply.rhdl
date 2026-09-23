@@ -25,22 +25,34 @@ bundle RV5StageMultiplyTag():
   rd: Bits(5)
   high_result: Bool
   word_result: Bool
+  slot: Bits(4)
 
-sync_circuit RV5StageMultiplyScalar(xlen :: XLen):
+sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: Boolean = #false):
   def width = xlen.width
   def product_width = width * 2
+  // Covers the scalar request slot, shared queues, six-result service, and pipeline flight.
+  def ticket_count = 16
 
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
+  interface authorize(Valid(Bits(4)), ~role: consumer)
+  interface cancel_memory(Valid(Bits(4)), ~role: consumer)
+  interface cancel_writeback(Valid(Bits(4)), ~role: consumer)
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
   output available: Bool
+  output issue_ticket: Bits(4)
 
   def Request = RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag())
   interface execution_request(Decoupled(Request), ~role: producer)
   interface execution_result(Irrevocable(RV5StageExecutionResult(Bits(product_width), RV5StageMultiplyTag())), ~role: consumer)
   // ID reserves this slot; only this scalar producer can occupy it before WB.
   inst authorized(Queue(Request, 1))
-
-  available <== authorized.ingress.ready
+  reg next_ticket(~init: bits(0, 4))
+  reg occupied(~init: bits(0, ticket_count).as_vec(Bool))
+  reg committed(~init: bits(0, ticket_count).as_vec(Bool))
+  issue_ticket <== next_ticket
+  available <== authorized.ingress.ready & (if speculative | !occupied[next_ticket] | Bool(#true))
+  def result_authorized = if speculative | committed[execution_result.bits.tag.slot] | Bool(#true)
+  execution_result.ready <== !result_authorized ||| completion.ready
   (
     issue |> to_decoupled() |> map_flow(issued):
       RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
@@ -49,6 +61,7 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen):
             rd: issued.rd
             high_result: issued.control.high_result
             word_result: issued.control.word_result
+            slot: if speculative | next_ticket | bits(0, 4)
         operands:
           MultiplierRequest(width):
             left: issued.left
@@ -58,18 +71,42 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen):
   authorized.egress |> execution_request
   when (issue.valid):
     assert(available, "scalar_multiply_issue_has_reserved_slot")
+  if speculative
+  | block:
+      when (issue.valid):
+        next_ticket <== next_ticket + bits(1, 4)
+      for (slot in 0..ticket_count):
+        def ticket = bits(slot, 4)
+        def launched = issue.valid & (next_ticket === ticket)
+        def completed = execution_result.fire() & (execution_result.bits.tag.slot === ticket)
+        when (launched):
+          occupied[slot] <== Bool(#true)
+        elsewhen (completed):
+          occupied[slot] <== Bool(#false)
+        when (authorize.valid & (authorize.bits === ticket)):
+          assert(occupied[slot], "scalar_multiply_authorize_has_ticket")
+          committed[slot] <== Bool(#true)
+        elsewhen (launched ||| completed):
+          committed[slot] <== Bool(#false)
+        when ((cancel_memory.valid & (cancel_memory.bits === ticket)) ||| (cancel_writeback.valid & (cancel_writeback.bits === ticket))):
+          assert(occupied[slot], "scalar_multiply_cancel_has_ticket")
+        assert(!(authorize.valid & (authorize.bits === ticket) & ((cancel_memory.valid & (cancel_memory.bits === ticket)) ||| (cancel_writeback.valid & (cancel_writeback.bits === ticket)))), "scalar_multiply_ticket_decision_unique")
+      when (execution_result.fire()):
+        assert(occupied[execution_result.bits.tag.slot], "scalar_multiply_result_has_ticket")
+  | block:
+      next_ticket <== next_ticket
+      occupied <== occupied
+      committed <== committed
 
   def product = execution_result.bits.value
   def full_result = mux(execution_result.bits.tag.high_result, product[width..product_width], product[0..width])
   def word_result_value = product[0..32].into(SInt(32)).sext(64).as_bits()
   def selected_result = if xlen == XLen.X64 | mux(execution_result.bits.tag.word_result, word_result_value, full_result) | full_result
 
-  (
-    execution_result |> map_flow(~stable: #true, _product):
-      RV5StageMultiplyCompletion(xlen):
-        rd: execution_result.bits.tag.rd
-        value: selected_result
-  ) |> completion
+  completion.valid <== execution_result.valid & result_authorized
+  completion.bits <== RV5StageMultiplyCompletion(xlen):
+    rd: execution_result.bits.tag.rd
+    value: selected_result
 
 sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
@@ -78,6 +115,12 @@ sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   inst scalar(RV5StageMultiplyScalar(xlen))
   inst execution(RV5StageMultiplyService(kind, xlen.width, RV5StageMultiplyTag()))
   issue |> scalar.issue
+  scalar.authorize.valid <== Bool(#false)
+  scalar.authorize.bits <== bits(0, 4)
+  scalar.cancel_memory.valid <== Bool(#false)
+  scalar.cancel_memory.bits <== bits(0, 4)
+  scalar.cancel_writeback.valid <== Bool(#false)
+  scalar.cancel_writeback.bits <== bits(0, 4)
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result
   scalar.completion |> completion
