@@ -28,8 +28,9 @@ admission coincident with an older final read retains its descriptor, but packed
 VRF activity and issue wait for that read's reservation to clear. The packed-memory
 schedule consumes the same accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
 descriptor FIFO so WB admission and head-only page-range certification can overlap
-the active owner. The FIFO is registered, with same-cycle full replacement and
-no empty bypass. The scalar pipeline does not reserve its space in Decode: WB
+the active owner. The FIFO has empty-queue flow-through and same-cycle full
+replacement; an idle sequencer can accept a WB descriptor on its admission edge.
+The scalar pipeline does not reserve its space in Decode: WB
 either transfers the descriptor and any floating-point scalar-result reservation
 atomically, or precisely replays the instruction with no vector-side effect.
 Integer scalar results are bounded by the completion-slot count. It is not a

@@ -168,8 +168,11 @@ returns. Memory alone retains the three-cycle decision path and tagged slow
 completions.
 
 A two-entry descriptor FIFO snapshots waiting vector macros in addition to the
-single active sequencer instruction. WB may enqueue one descriptor per cycle;
-a full FIFO can replace its departing head on that same edge. Only the head
+single active sequencer instruction. When empty, it flows an accepted WB descriptor
+directly into an idle sequencer on the same edge; the first read still uses the
+registered sequencer descriptor in the following cycle. WB may enqueue one
+descriptor per cycle; a full FIFO can replace its departing head on that same
+edge. Only the head
 can start page-range certification or enter the sequencer, and a blocked head
 does not replay through scalar fetch. WB still replays if descriptor admission
 or a required floating-point scalar-result reservation cannot succeed. Integer

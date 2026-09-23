@@ -64,7 +64,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   reg check_complete(~init: Bool(#false))
   reg certified(~init: Bool(#false))
   reg waiting_retirement(~init: Bool(#false))
-  inst instructions(Queue(RV5StageVectorDescriptor(xlen), 2, ~pipe: #true))
+  inst instructions(Queue(RV5StageVectorDescriptor(xlen), 2, ~pipe: #true, ~flow: #true))
   def can_admit = !waiting_retirement
   request |> gate_flow(can_admit) |> instructions.ingress
   def queued_descriptor = instructions.egress
