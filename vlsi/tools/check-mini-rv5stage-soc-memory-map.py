@@ -23,7 +23,7 @@ EXPECTED_SITES = {
         "instances": 32,
         "bit_utilization": 1.0,
     },
-    "rv5stage/l1d/arrays/data_storage/storage": {
+    "hart/l1d/arrays/data_storage/storage": {
         "decision": "macro",
         "source_suffix": "_256x64",
         "depth": 256,
@@ -34,15 +34,15 @@ EXPECTED_SITES = {
         "instances": 2,
         "bit_utilization": 0.5,
     },
-    "rv5stage/l1d/arrays/state_storage/storage": {
+    "hart/l1d/arrays/state_storage/storage": {
         "decision": "infer",
         "source_suffix": "_32x3",
     },
-    "rv5stage/l1d/arrays/tag_storage/storage": {
+    "hart/l1d/arrays/tag_storage/storage": {
         "decision": "infer",
         "source_suffix": "_32x53",
     },
-    "rv5stage/l1i/lines/storage": {
+    "hart/l1i/lines/storage": {
         "decision": "macro",
         "source_suffix": "_256x64",
         "depth": 256,
@@ -53,7 +53,7 @@ EXPECTED_SITES = {
         "instances": 2,
         "bit_utilization": 0.5,
     },
-    "rv5stage/l1i/tags/storage": {
+    "hart/l1i/tags/storage": {
         "decision": "infer",
         "source_suffix": "_32x53",
     },

@@ -31,6 +31,9 @@ normal memory may populate the software instruction and data caches;
 instruction-only noncoherent regions remain executable but are read through the
 uncached CHI port. Snoop service remains live while Spike is waiting on another
 transaction.
+LR/SC checks the complete RTL-owned physical-memory range for atomic support
+and the operation's read or write permission before testing reservation state.
+An SC to a faulting region therefore traps even when its reservation has failed.
 
 [`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
 to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and

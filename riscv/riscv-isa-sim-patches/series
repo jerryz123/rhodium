@@ -7,3 +7,4 @@
 0005-enable-fiom-with-supervisor-translation.patch
 0006-zero-unimplemented-hpm-controls.patch
 0007-separate-supervisor-interrupt-pins.patch
+0008-check-lrsc-physical-access.patch

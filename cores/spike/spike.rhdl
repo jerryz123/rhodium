@@ -53,6 +53,7 @@ sync_circuit SpikeCore(config :: SpikeConfig,
   spike.address.response.bits.cacheable <== classified.cacheable
   spike.address.response.bits.instruction_cacheable <== classified.instruction_cacheable
   spike.address.response.bits.device <== classified.device
+  spike.address.response.bits.atomic <== classified.atomic
   spike.address.response.bits.access_fault <== !classified.mapped ||| mux(
     spike.address.request.bits.execute,
     !classified.executable,

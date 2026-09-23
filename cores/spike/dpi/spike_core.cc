@@ -39,6 +39,7 @@ struct AddressResponse {
   bool cacheable = false;
   bool instruction_cacheable = false;
   bool device = false;
+  bool atomic = false;
   bool fault = false;
 };
 
@@ -124,6 +125,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   char* addr_to_mem(reg_t) override { return nullptr; }
   bool reservable(reg_t) override { return true; }
+  bool lrsc_accessible(reg_t address, std::size_t length, bool write) override {
+    const AddressResponse attributes = classify(address, length, write, false);
+    return !attributes.fault && attributes.atomic;
+  }
 
   bool mmio_fetch(reg_t address, std::size_t length, std::uint8_t* bytes) override {
     const AddressResponse attributes = classify(address, length, false, true);
@@ -190,6 +195,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
           inputs_.address_response_cacheable,
           inputs_.address_response_instruction_cacheable,
           inputs_.address_response_device,
+          inputs_.address_response_atomic,
           inputs_.address_response_fault};
       address_response_waiting_ = false;
     }

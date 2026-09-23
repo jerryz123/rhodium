@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Check LR/SC physical access before reservation outcome
+Purpose: Gives embedded simulators a width-aware PMA check for LR and failed SC.
+SPDX-License-Identifier: Apache-2.0
+
+An SC must pass memory permission checks even when its reservation has
+already failed. Let the platform check the complete physical access before
+Spike decides whether the reservation matches. Keep the default behavior for
+simulators that use Spike's ordinary directly-backed memory regions.
+
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -17,4 +17,6 @@ public:
+   // should return NULL for MMIO addresses
+   virtual char* addr_to_mem(reg_t paddr) = 0;
+   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
++  // LR and SC must check the full physical access before testing reservation state.
++  virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
+   // used for MMIO addresses
+diff --git a/riscv/mmu.cc b/riscv/mmu.cc
+--- a/riscv/mmu.cc
++++ b/riscv/mmu.cc
+@@ -250,7 +250,7 @@ void mmu_t::load_slow_path_intrapage(reg_t len, uint8_t* bytes, mem_access_info_t access_info)
+       refill_tlb(vaddr, paddr, (char*)host_addr, LOAD);
+   }
+ 
+-  if (access_info.flags.lr && !sim->reservable(paddr)) {
++  if (access_info.flags.lr && !sim->lrsc_accessible(paddr, len, false)) {
+     throw trap_load_access_fault(access_info.effective_virt, access_info.transformed_vaddr, 0, 0);
+   }
+ 
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -271,7 +271,7 @@ class mmu_t : public abstract_device_t {
+     if (!tlb_hit)
+       paddr = translate(generate_access_info(vaddr, STORE, {}), 1);
+ 
+-    if (sim->reservable(paddr))
++    if (sim->lrsc_accessible(paddr, size, true))
+       return load_reservation_address == paddr;
+ 
+     // SC to non-reservable region: report the PMM-masked effective vaddr.

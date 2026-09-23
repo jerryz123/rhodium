@@ -17,6 +17,7 @@ extern "C" unsigned char rhodium_spike_tick(
     unsigned char address_response_cacheable,
     unsigned char address_response_instruction_cacheable,
     unsigned char address_response_device,
+    unsigned char address_response_atomic,
     unsigned char address_response_fault,
     unsigned char instruction_request_ready,
     unsigned char instruction_response_valid,

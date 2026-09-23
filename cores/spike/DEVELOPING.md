@@ -13,6 +13,9 @@ The DPI ABI in [`dpi/spike-dpi.rhdl`](dpi/spike-dpi.rhdl) and
 result ordering synchronized. The C++ model must not infer a SoC address map;
 all physical-memory classification goes through `SpikeAddressTransactions` and
 the RTL-owned `RiscvPhysicalMemoryMap`.
+The patched Spike `lrsc_accessible` hook supplies the full access size and
+read/write direction before reservation matching; keep its physical-map
+classification and atomic support bit aligned with the typed DPI response.
 The configured MMU type also crosses this boundary; set Spike's maximum virtual
 address width before resetting its CSRs, matching standalone Spike initialization.
 The external SSIP/STIP levels overlay, rather than overwrite, Spike's

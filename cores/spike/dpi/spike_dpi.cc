@@ -76,6 +76,7 @@ extern "C" unsigned char rhodium_spike_tick(
     unsigned char address_response_cacheable,
     unsigned char address_response_instruction_cacheable,
     unsigned char address_response_device,
+    unsigned char address_response_atomic,
     unsigned char address_response_fault,
     unsigned char instruction_request_ready,
     unsigned char instruction_response_valid,
@@ -161,6 +162,7 @@ extern "C" unsigned char rhodium_spike_tick(
     inputs.address_response_cacheable = address_response_cacheable != 0;
     inputs.address_response_instruction_cacheable = address_response_instruction_cacheable != 0;
     inputs.address_response_device = address_response_device != 0;
+    inputs.address_response_atomic = address_response_atomic != 0;
     inputs.address_response_fault = address_response_fault != 0;
     inputs.instruction_request_ready = instruction_request_ready != 0;
     inputs.instruction_response_valid = instruction_response_valid != 0;

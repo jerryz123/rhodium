@@ -16,6 +16,7 @@ bundle SpikeAddressResponse():
   cacheable: Bool
   instruction_cacheable: Bool
   device: Bool
+  atomic: Bool
   access_fault: Bool
 
 interface SpikeAddressTransactions():

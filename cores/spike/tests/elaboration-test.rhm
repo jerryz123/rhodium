@@ -32,7 +32,7 @@ check:
     "instruction_cache_sets", "instruction_cache_ways", "data_cache_sets",
     "data_cache_ways", "address_request_ready", "address_response_valid",
     "address_response_cacheable", "address_response_instruction_cacheable",
-    "address_response_device", "address_response_fault", "instruction_request_ready",
+    "address_response_device", "address_response_atomic", "address_response_fault", "instruction_request_ready",
     "instruction_response_valid", "instruction_response_line", "instruction_response_fault",
     "acquire_request_ready", "acquire_response_valid", "acquire_response_line",
     "acquire_response_state", "acquire_response_pass_dirty", "acquire_response_fault",

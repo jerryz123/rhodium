@@ -31,6 +31,8 @@ The queue is ordered so each change can be reviewed and removed independently:
    bits read-only zero when Zihpm exposes aliases for zero implemented counters.
 7. `0007-separate-supervisor-interrupt-pins.patch` preserves software-writable
    supervisor pending bits when the external interrupt levels change.
+8. `0008-check-lrsc-physical-access.patch` lets embedded platforms check the
+   full LR/SC physical range and permissions before testing reservation state.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the
