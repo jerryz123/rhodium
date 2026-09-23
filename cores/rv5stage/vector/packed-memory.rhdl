@@ -23,6 +23,7 @@ hardware_enum RV5StagePackedPrepare:
   MaskDone
   Read
   ReadDone
+  Align
   Issue
 
 sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Context :: DataType, slots :: Pow2Int, ~owner_count: owner_count :: Pow2Int = 2):
@@ -51,9 +52,9 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     store: Bool
     segmented: Bool
     owner: Owner
-  bundle PreparedStore():
+  bundle StoreReadWord():
     layout: Layout()
-    data: Bits(64)
+    alignment: RV5StageVectorAlignment()
   interface launch(Valid(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   input instruction: RV5StageVectorInstruction(xlen, Context)
   input occupied: Bool
@@ -93,6 +94,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   reg store_remaining(Bits(bytes))
   reg read_row(Address)
   reg read_lane(Bits(index_width(bytes)))
+  reg read_data(Bits(64))
   reg entries(Vec(slots, Entry()))
   reg completed(~init: bits(0, slots).as_vec(Bool))
   reg data(Vec(slots, Bits(64)))
@@ -168,7 +170,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def fast_load = !store & !masked
   def fast_store = store & !masked & !segmented
   inst store_reads(ValidPipe(Layout(), 1, ~flushable: #true))
-  inst store_words(ShiftQueue(PreparedStore(), 2, ~pipe: #true, ~flushable: #true))
+  inst store_words(ShiftQueue(StoreReadWord(), 2, ~pipe: #true, ~flushable: #true))
   store_reads.flush <== clear
   store_words.flush <== clear
   def store_credit = (store_words.count + store_reads.egress.valid.as_bits().zext(2)) < bits(2, 2)
@@ -179,8 +181,8 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def offered_layout = mux(fast_load, mapped, mux(fast_store, store_words.egress.bits.layout, layout))
   def offered_mask = mux(fast_load ||| fast_store, offered_layout.live, byte_mask)
   def can_issue = occupied & (!all_issued ||| fast_store) & !clear & slot_available
-  offered.valid <== can_issue & mux(fast_store, store_words.egress.valid, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
-  store_words.egress.ready <== can_issue & fast_store & issue.ready
+  offered.valid <== can_issue & mux(fast_store, store_words.egress.valid & alignment_available, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
+  store_words.egress.ready <== can_issue & fast_store & alignment_available & issue.ready
   offered.bits <== RV5StageVectorToken(Context, slots):
     byte_mask: if bytes == 8 | offered_mask | offered_mask.zext(8)
     context: instruction.context
@@ -190,7 +192,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     memory_width: bits(if xlen == XLen.X64 | 3 | 2, 2)
     enabled: offered_mask.or_reduce()
     address: offered_layout.before.address
-    store_data: mux(fast_store, store_words.egress.bits.data, store_data)
+    store_data: mux(fast_store, aligned, store_data)
     completion_tag: slot
   active <== occupied ||| accepted_slots.as_bits().or_reduce() ||| carry_valid
   // A closed issue owner cannot add another fragment. Flush its retained
@@ -231,7 +233,9 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def target_row = entry.layout.rows[target_lane]
   def group = vec(for List (lane in 0..bytes): remaining[lane].into(Bool) & (entry.layout.rows[lane] === target_row)).as_bits()
   def rotation = (if bytes == 8 | target_lane | target_lane.zext(3)) - entry.layout.offsets[target_lane]
-  def store_alignment = (store_reads.egress.valid & !clear) ||| (occupied & !clear & (prepare === RV5StagePackedPrepare.ReadDone) & results[0].valid)
+  def fast_store_alignment = can_issue & fast_store & store_words.egress.valid & alignment_available
+  def slow_store_alignment = occupied & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
+  def store_alignment = fast_store_alignment ||| slow_store_alignment
   def load_piece = drainable & !entry.store & remaining.or_reduce() & alignment_available & !store_alignment
   def prefetched = store_reads.egress.bits
   def prefetched_lane = priority_encoder(prefetched.live)
@@ -243,12 +247,15 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
                              mux(use_first, results[0].bits[offset * 8..offset * 8 + 8], results[1].bits[offset * 8..offset * 8 + 8])).as_bits()
   alignment.valid <== load_piece ||| store_alignment
   alignment.bits <== RV5StageVectorAlignment():
-    data: mux(store_alignment, mux(fast_store, prefetched_data, results[0].bits), data[head])
-    bytes: mux(store_alignment, mux(fast_store, prefetched_rotation, store_rotation), rotation)
+    data: mux(store_alignment, mux(fast_store, store_words.egress.bits.alignment.data, read_data), data[head])
+    bytes: mux(store_alignment, mux(fast_store, store_words.egress.bits.alignment.bytes, store_rotation), rotation)
   (
-    store_reads.egress |> filter_valid(_layout => !clear) |> map_valid(value => PreparedStore()):
+    store_reads.egress |> filter_valid(_layout => !clear) |> map_valid(value => StoreReadWord()):
       layout: value
-      data: aligned
+      alignment:
+        RV5StageVectorAlignment():
+          data: prefetched_data
+          bytes: prefetched_rotation
   ) |> to_decoupled() |> store_words.ingress
   when (store_words.ingress.valid):
     assert(store_words.ingress.ready, "packed_store_read_has_queue_credit")
@@ -355,10 +362,13 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
       prepare <== mux(store & store_remaining.or_reduce(), RV5StagePackedPrepare.ReadDone, RV5StagePackedPrepare.Issue)
     elsewhen (prepare === RV5StagePackedPrepare.ReadDone):
       when (results[0].valid):
-        def mask = vec(for List (lane in 0..8): mux(if lane < bytes | store_group[lane].into(Bool) | Bool(#false), !bits(0, 8), bits(0, 8))).as_bits()
-        store_data <== masked_merge(store_data, gathered, mask)
-        store_remaining <== store_remaining & !store_group
-        prepare <== mux((store_remaining & !store_group).or_reduce(), RV5StagePackedPrepare.Read, RV5StagePackedPrepare.Issue)
+        read_data <== results[0].bits
+        prepare <== RV5StagePackedPrepare.Align
+    elsewhen (slow_store_alignment):
+      def mask = vec(for List (lane in 0..8): mux(if lane < bytes | store_group[lane].into(Bool) | Bool(#false), !bits(0, 8), bits(0, 8))).as_bits()
+      store_data <== masked_merge(store_data, gathered, mask)
+      store_remaining <== store_remaining & !store_group
+      prepare <== mux((store_remaining & !store_group).or_reduce(), RV5StagePackedPrepare.Read, RV5StagePackedPrepare.Issue)
   when split_load:
     carry_valid <== Bool(#true)
     carry_owner <== entry.owner

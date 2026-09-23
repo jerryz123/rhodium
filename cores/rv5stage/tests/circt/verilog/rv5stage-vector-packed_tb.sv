@@ -5,7 +5,7 @@ module rv5stage_vector_packed_tb;
   logic [63:0] base, vl, vstart, vtype;
   logic [2:0] nf;
   logic [1:0] eew, mode;
-  logic store, masked, request_valid=0, issue_ready=1, retry=0, slow=0;
+  logic store, masked, request_valid=0, issue_ready=1, retry=0, slow=0, alignment_available=1;
   logic [63:0] hit_data=0;
   struct packed {logic valid; RV5StageVectorCompletion bits;} response_in;
   struct packed {logic valid; VectorRegisterWrite bits;} initialize_in, written_out;
@@ -21,7 +21,7 @@ module rv5stage_vector_packed_tb;
   logic [63:0] returns [SLOTS];
   int due [SLOTS];
   int cycle=0, accepted=0, requests=0, writes=0, retired_count=0;
-  bit exercise_retry=0, did_retry=0, exercise_delay=0, exercise_stalls=0;
+  bit exercise_retry=0, did_retry=0, exercise_delay=0, exercise_stalls=0, exercise_alignment_stalls=0;
   int tests=0, max_consecutive=0, consecutive=0;
   int simultaneous_completions=0;
   bit all_masked=0;
@@ -33,6 +33,7 @@ module rv5stage_vector_packed_tb;
   endfunction
   task automatic tick;
     issue_ready = !exercise_stalls || cycle%7!=2;
+    alignment_available = !exercise_alignment_stalls || cycle%7>=3;
     retry=0; slow=0; hit_data=0; response_in='0;
     #1;
     if (!reset && attempt_out.valid) begin
@@ -96,6 +97,7 @@ module rv5stage_vector_packed_tb;
     vl=64'(length>=0 ? length : ((16<<lm)-1)>>size); vstart=64'(start);
     exercise_retry=replaying; did_retry=0; exercise_delay=delayed;
     exercise_stalls=replaying || delayed;
+    exercise_alignment_stalls=writing && (replaying || delayed);
     accepted=0; requests=0; writes=0; retired_count=0; consecutive=0; max_consecutive=0;
     for (int t=0;t<SLOTS;t++) outstanding[t]=0;
     for (int b=0;b<8192;b++) begin

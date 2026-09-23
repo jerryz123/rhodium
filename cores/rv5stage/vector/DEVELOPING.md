@@ -60,16 +60,18 @@ interleaved instruction unrolling.
 Certified contiguous macros select `packed-memory.rhdl` after the page check,
 before execution allocation. Its byte/field cursor maps aligned XLEN requests
 onto 64-bit VRF rows without an element-address multiplier. Ordinary unmasked
-stores pipeline two contributing VRF reads through a credited, replay-flushed
-queue; masked and segmented stores use the explicit row-gather schedule.
+stores pipeline two contributing VRF reads into a credited, replay-flushed
+queue that retains the unaligned words until the shared SIMD slice is free;
+masked and segmented stores retain each read response through the explicit
+row-gather alignment step.
 Loads capture raw hit/delayed data in reserved slots and align only at ordered
 drain. A completed prefix and carry suffix can update on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
 The existing `execute.rhdl` instance shares its SIMD E64 rotate slice between
-ordinary execution and packed alignment. Fixed-cycle execution/store preparation
-has priority over buffered load alignment. Ordered completion and final carry
-flush arbitrate the sole VRF write port without lossy Valid arbitration; there
-is no second barrel shifter or VRF.
+ordinary execution and packed alignment. Fixed-cycle ordinary execution has
+priority over buffered store preparation, then buffered load alignment.
+Ordered completion and final carry flush arbitrate the sole VRF write port
+without lossy Valid arbitration; there is no second barrel shifter or VRF.
 
 Packed retry restores the rejected beat's complete byte/field/address cursor,
 drops younger read preparation and reservations, and retains accepted responses
