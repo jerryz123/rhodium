@@ -6,7 +6,7 @@ import:
   "../../../rhodium/backend/circt.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../chi/main.rhdl" as chi
-  "../../../devices/uart16550.rhdl" as uart
+  "../../../devices/uart/uart16550.rhdl" as uart
 
 def design = embedded.run_elaboration(
   fun (): uart.Uart16550(uart.Uart16550Config(chi.CHIFlitParams(), 16))

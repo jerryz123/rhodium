@@ -8,7 +8,7 @@ import:
   "../../chi/protocol/params.rhdl".CHIFlitParams
   "../../chi/protocol/flits.rhdl".CHIReqOpcode
   "../../chi/protocol/link.rhdl".CHINodeKind
-  "../plic.rhdl" as plic
+  "../interrupt/plic.rhdl" as plic
   "plic-fixture.rhdl" as fixture
 
 def flit = CHIFlitParams()

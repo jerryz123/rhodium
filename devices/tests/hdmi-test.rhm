@@ -5,8 +5,8 @@
 import:
   "../../chi/protocol/params.rhdl".CHIFlitParams
   "../../rhodium/frontend/kernel.rhm" as embedded
-  "../hdmi.rhdl" open
-  "../hdmi-scanout.rhdl" open
+  "../display/hdmi.rhdl" open
+  "../display/hdmi-scanout.rhdl" open
 
 def flit = CHIFlitParams()
 def reader = HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 8, 32)

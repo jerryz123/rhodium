@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("devices/uart-dpi.rhdl").UartDPI
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
 
 def design = elaborate(UartDPI(7, 1))
 

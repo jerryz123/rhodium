@@ -9,11 +9,11 @@ import:
   lib("chi/home/home-common.rhdl").CHIHNFIdentity
   lib("rhodium/std/counter.rhdl").Counter
   lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIIdentity
-  lib("devices/bootrom.rhdl") open
-  lib("devices/boot-address.rhdl") open
-  lib("devices/aclint.rhdl").AclintIdentity
-  lib("devices/plic.rhdl").PlicIdentity
-  lib("devices/uart16550.rhdl").Uart16550Identity
+  lib("devices/boot/bootrom.rhdl") open
+  lib("devices/boot/boot-address.rhdl") open
+  lib("devices/interrupt/aclint.rhdl").AclintIdentity
+  lib("devices/interrupt/plic.rhdl").PlicIdentity
+  lib("devices/uart/uart16550.rhdl").Uart16550Identity
   "layout.rhm" open
   "compile.rhdl".compile_tiled_rv5stage_soc
   "distribution.rhdl" open

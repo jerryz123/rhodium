@@ -10,10 +10,10 @@ import:
   lib("chi/home/home.rhdl").CHIHNIParams
   lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
-  lib("devices/boot-address.rhdl") open
-  lib("devices/aclint.rhdl") open
-  lib("devices/plic.rhdl") open
-  lib("devices/uart16550.rhdl") open
+  lib("devices/boot/boot-address.rhdl") open
+  lib("devices/interrupt/aclint.rhdl") open
+  lib("devices/interrupt/plic.rhdl") open
+  lib("devices/uart/uart16550.rhdl") open
   lib("riscv/isa/interrupt.rhm").InterruptCause
   "boot.rhdl" open
   "description.rhm" open

@@ -5,7 +5,7 @@
 import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("socs/mini-rv5stage-soc.rhdl") as mini_rv5stage
-  lib("devices/uart-dpi.rhdl").UartDPI
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
 sync_circuit SoCHarness(uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):

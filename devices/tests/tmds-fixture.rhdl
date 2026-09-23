@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../tmds.rhdl".TMDSChannelEncoder
+  "../display/tmds.rhdl".TMDSChannelEncoder
 
 def design = elaborate(TMDSChannelEncoder())
 export:

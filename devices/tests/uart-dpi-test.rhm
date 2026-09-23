@@ -4,7 +4,7 @@
 
 import:
   "../../rhodium/core/main.rhm" open
-  "../uart-dpi.rhdl" as uart_dpi
+  "../uart/uart-dpi.rhdl" as uart_dpi
   "uart-dpi-fixture.rhdl" as fixture
 
 def design = fixture.design

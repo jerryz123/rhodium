@@ -5,9 +5,9 @@
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
-  "../hdmi.rhdl" open
-  "../hdmi-scanout.rhdl" open
-  "../tmds.rhdl" open
+  "../display/hdmi.rhdl" open
+  "../display/hdmi-scanout.rhdl" open
+  "../display/tmds.rhdl" open
 
 def mode = HDMIFixedFramebufferMode(
   HDMIVideoTiming(100, 32, 2, 2, 1, 5, 1, 1, 1, #true, #false),

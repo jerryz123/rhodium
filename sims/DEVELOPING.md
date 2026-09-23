@@ -37,7 +37,7 @@ systems cannot reuse another system's generated RTL.
 | Pinned upstream FESVR and shared downstream patches | [`../riscv/riscv-isa-sim/`](../riscv/riscv-isa-sim/), [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
-| PTY transport and serial conversion reused by every harness | [`../devices/uart-dpi.rhdl`](../devices/uart-dpi.rhdl), [`../devices/dpi/uart_dpi.cc`](../devices/dpi/uart_dpi.cc) |
+| PTY transport and serial conversion reused by every harness | [`../devices/uart/uart-dpi.rhdl`](../devices/uart/uart-dpi.rhdl), [`../devices/uart/dpi/uart_dpi.cc`](../devices/uart/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |

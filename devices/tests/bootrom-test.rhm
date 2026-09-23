@@ -14,8 +14,8 @@ import:
   "../../riscv/isa/xlen.rhm".XLen
   "../../riscv/isa/privileged.rhm" open
   "../../riscv/isa/zicsr.rhm" open
-  "../bootrom-image.rhm" open
-  "../bootrom.rhdl" as bootrom
+  "../boot/bootrom-image.rhm" open
+  "../boot/bootrom.rhdl" as bootrom
 
 fun image_word(image :: BootROMImage, index :: Nat):
   def mutable word = 0

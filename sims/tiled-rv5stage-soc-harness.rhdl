@@ -10,7 +10,7 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("socs/tiled-rv5stage-soc/main.rhdl") as tiled_rv5stage
   lib("socs/tiled-rv5stage-soc/compile.rhdl") as compiler
-  lib("devices/uart-dpi.rhdl").UartDPI
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
   lib("flow/gate.rhdl").gate_flow
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 

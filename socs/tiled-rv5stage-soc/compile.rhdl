@@ -25,10 +25,10 @@ import:
   lib("cores/rv5stage/chi/foundation.rhdl").RV5StageCHIParams
   lib("cores/rv5stage/profile.rhm").RV5StageCacheLineBytes
   lib("riscv/rtl/pma.rhdl") open
-  lib("devices/bootrom.rhdl").CHIBootROMParams
-  lib("devices/aclint.rhdl").AclintParams
-  lib("devices/plic.rhdl").PlicParams
-  lib("devices/uart16550.rhdl").Uart16550Params
+  lib("devices/boot/bootrom.rhdl").CHIBootROMParams
+  lib("devices/interrupt/aclint.rhdl").AclintParams
+  lib("devices/interrupt/plic.rhdl").PlicParams
+  lib("devices/uart/uart16550.rhdl").Uart16550Params
   "../boot.rhdl" open
   "../peripherals.rhdl" open
   "../endpoint-params.rhdl" open

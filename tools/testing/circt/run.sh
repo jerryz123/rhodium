@@ -461,7 +461,7 @@ verify_fixture() {
   local build_log="$test_tmp_dir/$fixture.verilator.log"
   local -a run_args=()
   local -a verilator_args=()
-  local device_dpi_source="$repo_dir/devices/dpi/${fixture//-/_}.cc"
+  local device_dpi_source="$repo_dir/devices/uart/dpi/${fixture//-/_}.cc"
   local testbench
   local test_dpi_source
   local -a dpi_sources=()

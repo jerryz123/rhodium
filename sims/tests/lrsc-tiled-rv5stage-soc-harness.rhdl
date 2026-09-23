@@ -6,7 +6,7 @@ import:
   "../tiled-rv5stage-soc-harness.rhdl".SoCHarness
   lib("socs/tiled-rv5stage-soc/main.rhdl") open
   lib("socs/boot.rhdl").SoCBootConfig
-  lib("devices/bootrom-image.rhm").BootROMImage
+  lib("devices/boot/bootrom-image.rhm").BootROMImage
 
 def base = default_tiled_rv5stage_soc_config
 unless base.hart_count == 8

@@ -30,13 +30,13 @@ SoC address map:
 | `HDMIScanout` | SRAM-buffered fixed-cadence RGB scanout | CHI RN-I, pixel enable, RGB888, HS/VS, and data enable | Frame reader configuration and row-buffer count |
 | `TMDSChannelEncoder` / `TMDSVideoEncoder` | DVI-compatible TMDS encoding | Valid-only input samples and registered 10-bit symbols | One channel or three RGB channels |
 
-`UartDPI` and [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) are simulation-only. They
+`UartDPI` and [`uart/dpi/uart_dpi.cc`](uart/dpi/uart_dpi.cc) are simulation-only. They
 bridge serial pins to a host pseudo-terminal (PTY); they are not a
 synthesizable peripheral or part of the CHI register path.
 
 ## Prepare fixed HDMI scanout
 
-[`hdmi.rhdl`](hdmi.rhdl) defines the first HDMI bring-up contract and its
+[`display/hdmi.rhdl`](display/hdmi.rhdl) defines the first HDMI bring-up contract and its
 CHI-backed frame reader. `HDMI720p60Timing` describes a 74.25 MHz,
 1280-by-720 progressive mode with 1650 total horizontal clocks, 750 total
 lines, positive synchronization pulses, and an exact 60 Hz frame rate.
@@ -54,7 +54,7 @@ and frame-end markers plus error and poison state. The reader exposes the
 stream's active, completion, starvation, and underflow state and retains a
 sticky fetch-failure flag until the next command.
 
-[`hdmi-scanout.rhdl`](hdmi-scanout.rhdl) composes the frame reader with
+[`display/hdmi-scanout.rhdl`](display/hdmi-scanout.rhdl) composes the frame reader with
 `HDMIPixelScanout(mode, ~rows: 2)`. Each of the two or more row buffers is a
 single-port synchronous SRAM containing one complete row (two rows consume
 10 KiB at 720p). A row becomes readable only after its final fetch line is
@@ -88,7 +88,7 @@ status remains sticky until disable or reset. These flags describe display
 failures, separately from the frame reader's demand-based starvation status.
 MMIO control remains a later component.
 
-[`tmds.rhdl`](tmds.rhdl) supplies the portable TMDS encoding stage, following
+[`display/tmds.rhdl`](display/tmds.rhdl) supplies the portable TMDS encoding stage, following
 [DVI 1.0 sections 3.2.1--3.2.3](https://glenwing.github.io/docs/DVI-1.0.pdf).
 `TMDSChannelEncoder()` accepts `valid`, an eight-bit `data` value,
 `data_enable`, and two-bit `control` (C1 in bit 1, C0 in bit 0). Each valid
@@ -182,7 +182,7 @@ the synthesizable UART pins to `UartDPI`; the
 
 ## Build a BootROM image
 
-[`bootrom-image.rhm`](bootrom-image.rhm) owns `BootROMImage` validation,
+[`boot/bootrom-image.rhm`](boot/bootrom-image.rhm) owns `BootROMImage` validation,
 zero-padding, and the XLEN-independent RISC-V reset-program generator. The
 default 32-byte program:
 
@@ -200,7 +200,7 @@ contract used by address maps, while `CHIBootROMConfig` combines that layout
 with an image that fits the window. Platforms own the pointed-to device-tree
 bytes, secondary-hart release protocol, and any different reset policy.
 
-[`bootrom.rhdl`](bootrom.rhdl) pads the unused portion of the configured window
+[`boot/bootrom.rhdl`](boot/bootrom.rhdl) pads the unused portion of the configured window
 with zero and returns native multi-beat data for transfers through 64 bytes.
 It is immutable: writes and unsupported, misaligned, out-of-window, or
 wrong-target requests assert rather than changing storage. The default window
@@ -209,7 +209,7 @@ platform still owns the actual reset vector and mapped occurrence.
 
 ## Integrate the boot-address register
 
-[`boot-address.rhdl`](boot-address.rhdl) implements `CHIBootAddressRegister`.
+[`boot/boot-address.rhdl`](boot/boot-address.rhdl) implements `CHIBootAddressRegister`.
 Its 4 KiB service window contains one 64-bit read/write register at offset zero:
 aligned four-byte accesses select the low or high half, and eight-byte accesses
 select the whole register. Other offsets and sizes assert. `BootAddressConfig`
@@ -239,7 +239,7 @@ The concrete SoCs use this polling trampoline and reset the register to zero.
 
 ## Integrate ACLINT
 
-[`aclint.rhdl`](aclint.rhdl) implements only the machine timer (MTIMER) and
+[`interrupt/aclint.rhdl`](interrupt/aclint.rhdl) implements only the machine timer (MTIMER) and
 machine software interrupt (MSWI) portions of ACLINT in a fixed 64 KiB window:
 
 | Offset | Register | Behavior |
@@ -260,7 +260,7 @@ provide an external interrupt controller or supervisor interrupt block.
 
 ## Integrate the PLIC
 
-[`plic.rhdl`](plic.rhdl) implements a SiFive-compatible platform-level
+[`interrupt/plic.rhdl`](interrupt/plic.rhdl) implements a SiFive-compatible platform-level
 interrupt controller in a fixed 64 MiB window. Source ID 0 is reserved;
 configured level-sensitive inputs map to IDs 1 through `source_count`. Priority
 zero disables a source, higher numeric priorities win, and equal priorities
@@ -290,12 +290,12 @@ context-to-hart privilege mapping, and reset wiring.
 
 ## Integrate the 16550-style UART
 
-[`uart.rhdl`](uart.rhdl) owns fixed-format 8-N-1 transmit and receive engines.
+[`uart/uart.rhdl`](uart/uart.rhdl) owns fixed-format 8-N-1 transmit and receive engines.
 Both consume a 16x oversample tick, and the receiver includes asynchronous
 input synchronization. After a bad stop bit it reports a framing error and
 waits for the line to return idle before accepting another frame.
 
-[`uart16550.rhdl`](uart16550.rhdl) supplies the divisor counter, two reusable
+[`uart/uart16550.rhdl`](uart/uart16550.rhdl) supplies the divisor counter, two reusable
 queues, interrupt/status logic, and this eight-byte register window:
 
 | Offset | DLAB = 0 | DLAB = 1 | Implemented behavior |
@@ -325,7 +325,7 @@ the UART interrupt through their PLIC to RV5Stage's external interrupt inputs.
 
 ## Attach the PTY UART model
 
-[`uart-dpi.rhdl`](uart-dpi.rhdl) reuses the 8-N-1 engines to deserialize a
+[`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) reuses the 8-N-1 engines to deserialize a
 device's `tx` pin and serialize PTY input onto its `rx` pin. Instantiate
 `UartDPI(model_id, oversample_divisor)`, connect `uart_tx` from the device and
 `uart_rx` back to it, and program the same divisor into `Uart16550`. Model IDs

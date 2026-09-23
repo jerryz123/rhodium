@@ -41,20 +41,24 @@ Rhodium logic; do not put DPI calls in a SoC.
 
 ## Implementation map
 
+Production sources are grouped by device family under `boot/`, `interrupt/`,
+`uart/`, and `display/`. Tests remain together under `tests/`; the UART host
+model stays beside its Rhodium adapter under `uart/dpi/`.
+
 | Area | Owning source |
 |---|---|
-| Boot image and reset trampoline | [`bootrom-image.rhm`](bootrom-image.rhm) |
-| CHI boot-address register | [`boot-address.rhdl`](boot-address.rhdl) |
-| CHI BootROM endpoint | [`bootrom.rhdl`](bootrom.rhdl) |
-| ACLINT registers, interrupts, and CHI endpoint | [`aclint.rhdl`](aclint.rhdl) |
-| PLIC priorities, gateways, contexts, and CHI endpoint | [`plic.rhdl`](plic.rhdl) |
-| 8-N-1 serial engines | [`uart.rhdl`](uart.rhdl) |
-| 16550-style registers, FIFOs, and CHI endpoint | [`uart16550.rhdl`](uart16550.rhdl) |
-| Fixed HDMI timing, framebuffer contract, and CHI frame reader | [`hdmi.rhdl`](hdmi.rhdl) |
-| Synchronous row SRAM, pixel unpacking, video timing, and CHI scanout composition | [`hdmi-scanout.rhdl`](hdmi-scanout.rhdl) |
-| Independent TMDS channel disparity and three-channel video encoding | [`tmds.rhdl`](tmds.rhdl) |
-| Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
-| PTY ABI and host implementation | [`dpi/uart_dpi.h`](dpi/uart_dpi.h), [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) |
+| Boot image and reset trampoline | [`boot/bootrom-image.rhm`](boot/bootrom-image.rhm) |
+| CHI boot-address register | [`boot/boot-address.rhdl`](boot/boot-address.rhdl) |
+| CHI BootROM endpoint | [`boot/bootrom.rhdl`](boot/bootrom.rhdl) |
+| ACLINT registers, interrupts, and CHI endpoint | [`interrupt/aclint.rhdl`](interrupt/aclint.rhdl) |
+| PLIC priorities, gateways, contexts, and CHI endpoint | [`interrupt/plic.rhdl`](interrupt/plic.rhdl) |
+| 8-N-1 serial engines | [`uart/uart.rhdl`](uart/uart.rhdl) |
+| 16550-style registers, FIFOs, and CHI endpoint | [`uart/uart16550.rhdl`](uart/uart16550.rhdl) |
+| Fixed HDMI timing, framebuffer contract, and CHI frame reader | [`display/hdmi.rhdl`](display/hdmi.rhdl) |
+| Synchronous row SRAM, pixel unpacking, video timing, and CHI scanout composition | [`display/hdmi-scanout.rhdl`](display/hdmi-scanout.rhdl) |
+| Independent TMDS channel disparity and three-channel video encoding | [`display/tmds.rhdl`](display/tmds.rhdl) |
+| Rhodium PTY adapter | [`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) |
+| PTY ABI and host implementation | [`uart/dpi/uart_dpi.h`](uart/dpi/uart_dpi.h), [`uart/dpi/uart_dpi.cc`](uart/dpi/uart_dpi.cc) |
 | Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
 | CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
 

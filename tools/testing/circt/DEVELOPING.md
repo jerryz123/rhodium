@@ -72,7 +72,7 @@ Behavioral benches live under the owning package's `tests/circt/verilog/`.
 An example fixture with a top uses `verilog/<fixture>_tb.sv`. The runner
 automatically links a matching `verilog/<fixture>_dpi.cpp`; direct emitter
 fixtures can additionally link a matching source from
-[`devices/dpi/`](../../../devices/dpi/), with hyphens
+[`devices/uart/dpi/`](../../../devices/uart/dpi/), with hyphens
 in the fixture name changed to underscores. Assertion and protocol monitors
 also have dedicated negative benches. Those checks pass only when simulation
 fails and reports the expected assertion label, so an expected failure is not
@@ -260,7 +260,7 @@ diff disappear.
 2. Declare it in the manifest; do not rely on filename discovery.
 3. Add a matching bench only when the fixture needs behavioral validation.
    A direct emitter may use a local DPI companion or the fixture-name-matched
-   source under [`devices/dpi/`](../../../devices/dpi/).
+   source under [`devices/uart/dpi/`](../../../devices/uart/dpi/).
 4. Run the fixture first in `--verify-only` mode, then add simulation if the
    change has a runtime contract.
 

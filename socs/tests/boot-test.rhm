@@ -5,7 +5,7 @@
 import:
   "../../rhodium/core/main.rhm" open
   "../../rhodium/std/interconnect.rhdl".AddressSet
-  "../../devices/bootrom-image.rhm" open
+  "../../devices/boot/bootrom-image.rhm" open
   "../../riscv/isa/xlen.rhm".XLen
   "../boot.rhdl" as boot
   "../description.rhm" open

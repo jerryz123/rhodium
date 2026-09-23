@@ -29,7 +29,7 @@ FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 FESVR_DIR := $(SIMS_DIR)/fesvr
 VERILATOR_DIR := $(SIMS_DIR)/verilator
-UART_DPI_DIR := $(REPO_DIR)/devices/dpi
+UART_DPI_DIR := $(REPO_DIR)/devices/uart/dpi
 
 CIRCT_OPT ?= $(REPO_DIR)/.tools/firtool-1.155.0/bin/circt-opt
 CIRCT_ROOT ?= $(abspath $(dir $(CIRCT_OPT))/..)

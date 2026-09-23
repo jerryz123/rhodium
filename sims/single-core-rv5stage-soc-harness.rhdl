@@ -7,7 +7,7 @@ import:
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
   lib("socs/single-core-rv5stage-soc.rhdl") as single_core
-  lib("devices/uart-dpi.rhdl").UartDPI
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
   lib("flow/event.rhdl") open
 

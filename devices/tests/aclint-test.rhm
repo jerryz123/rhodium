@@ -7,7 +7,7 @@ import:
   "../../chi/protocol/params.rhdl".CHIFlitParams
   "../../chi/protocol/flits.rhdl".CHIReqOpcode
   "../../chi/protocol/link.rhdl".CHINodeKind
-  "../aclint.rhdl" as aclint
+  "../interrupt/aclint.rhdl" as aclint
 
 def flit = CHIFlitParams()
 def config = aclint.AclintConfig(flit, 2)

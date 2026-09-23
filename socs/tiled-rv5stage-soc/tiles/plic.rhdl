@@ -7,7 +7,7 @@ import:
   lib("chi/noc/noc-router.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/state.rhdl") open
-  lib("devices/plic.rhdl") open
+  lib("devices/interrupt/plic.rhdl") open
   "../distribution.rhdl" open
 
 class PlicTileParams(plic :: PlicConfig,

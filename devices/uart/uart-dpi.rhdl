@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("devices/uart.rhdl") open
+  lib("devices/uart/uart.rhdl") open
 
 dpi_import function uart_pty_tick(
   model_id: Bits(32),

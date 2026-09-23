@@ -11,7 +11,7 @@ import:
   lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
   lib("cores/rv5stage/tests/params.rhdl").test_rv5stage_uncached_config
-  lib("devices/bootrom-image.rhm").riscv_bootrom_image
+  lib("devices/boot/bootrom-image.rhm").riscv_bootrom_image
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/rtl/pma.rhdl") open
 

@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("devices/plic.rhdl") open
+  lib("devices/interrupt/plic.rhdl") open
   lib("chi/protocol/params.rhdl").CHIFlitParams
 
 def flit = CHIFlitParams()

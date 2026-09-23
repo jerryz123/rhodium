@@ -7,7 +7,7 @@ import:
   "../../chi/protocol/params.rhdl".CHIFlitParams
   "../../chi/protocol/flits.rhdl".CHIReqOpcode
   "../../chi/protocol/link.rhdl".CHINodeKind
-  "../boot-address.rhdl" open
+  "../boot/boot-address.rhdl" open
 
 def flit = CHIFlitParams()
 def config = BootAddressConfig(flit, 0x1234567880000000)
