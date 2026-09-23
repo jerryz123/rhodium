@@ -9,6 +9,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 .PHONY: check-license-headers
 .PHONY: check-license-headers-staged
 .PHONY: test host-test host-checks support-annotation-test devicetree-test check-boundaries check-example-verilog check-parameter-annotations parameter-annotation-test racket-cache-test clean-racket-cache install-git-hooks analysis-test frontend-test std-test flow-test diagram-test backend-test formal-test formal-differential-test unit-test lop-test rfpl-test rfpl-unit-test rfpl-circt-test noc-test riscv-test device-test chi-test soc-test hardfloat-test hardfloat-host-test hardfloat-circt-test rv5stage-host-test rv5stage-test riscv-udb-config emacs-test circt-test circt-verify-test verilator-test circt-full-test verilog-golden-test update-verilog-goldens setup-circt print-racket-compile-sources ci-host-foundation-test ci-host-backend-test ci-host-models-test ci-host-protocols-test ci-host-cores-test ci-host-socs-test ci-host-hygiene-test ci-circt-language-test ci-circt-std-test ci-circt-protocols-test ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test examples examples-rhodium examples-clocking examples-std examples-noc examples-lop examples-rfpl examples-riscv examples-chi examples-cores examples-formal examples-rv5stage
+.PHONY: ci-circt-core-vector-functional-1-test ci-circt-core-vector-functional-2-test
 
 RISCV_UDB_CONFIGURATION ?= single-core-rv5stage-soc
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
@@ -238,6 +239,12 @@ ci-circt-core-vector-test:
 
 ci-circt-core-vector-functional-test:
 	bash tools/testing/circt/run.sh --group cores-vector-functional
+
+ci-circt-core-vector-functional-1-test:
+	bash tools/testing/circt/run.sh --group cores-vector-functional-1
+
+ci-circt-core-vector-functional-2-test:
+	bash tools/testing/circt/run.sh --group cores-vector-functional-2
 
 ci-circt-core-vector-configurations-test:
 	bash tools/testing/circt/run.sh --group cores-vector-configurations

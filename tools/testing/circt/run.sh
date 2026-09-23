@@ -15,7 +15,7 @@ while (( $# > 0 )); do
       fixture_group="$2"
       shift 2
       ;;
-    --verify-only|--simulate-only|--golden-only|--full|--update-goldens)
+    --list-fixtures|--verify-only|--simulate-only|--golden-only|--full|--update-goldens)
       if [[ "$mode" != run ]]; then
         echo "select at most one CIRCT test mode" >&2
         exit 2
@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-vector-functional|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -37,6 +37,10 @@ simulation_only=false
 run_direct_fixtures=true
 case "$mode" in
   run) ;;
+  --list-fixtures)
+    compare_goldens=false
+    simulate_fixtures=false
+    ;;
   --verify-only)
     compare_goldens=false
     simulate_fixtures=false
@@ -75,7 +79,7 @@ if [[ -n "$fixture_group" && ( -n "${FIXTURE:-}" || -n "${FIXTURES:-}" ) ]]; the
   exit 2
 fi
 case "$fixture_group" in
-  ""|language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-vector-functional|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl) ;;
+  ""|language|std|protocols|cores|cores-components|cores-execution|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl) ;;
   *)
     echo "unknown CIRCT fixture group: $fixture_group" >&2
     exit 2
@@ -108,25 +112,27 @@ repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
 test_tmp_dir="$(mktemp -d /tmp/rhodium-circt.XXXXXX)"
 trap 'rm -rf "$test_tmp_dir"' EXIT
 
-circt_opt="${CIRCT_OPT:-$repo_dir/.tools/firtool-1.155.0/bin/circt-opt}"
-if [[ ! -x "$circt_opt" ]]; then
-  if command -v circt-opt >/dev/null 2>&1; then
-    circt_opt="$(command -v circt-opt)"
-  else
-    echo "circt-opt not found; run 'make setup-circt' or set CIRCT_OPT" >&2
-    exit 1
+if [[ "$mode" != --list-fixtures ]]; then
+  circt_opt="${CIRCT_OPT:-$repo_dir/.tools/firtool-1.155.0/bin/circt-opt}"
+  if [[ ! -x "$circt_opt" ]]; then
+    if command -v circt-opt >/dev/null 2>&1; then
+      circt_opt="$(command -v circt-opt)"
+    else
+      echo "circt-opt not found; run 'make setup-circt' or set CIRCT_OPT" >&2
+      exit 1
+    fi
   fi
-fi
 
-golden_circt_version="firtool-1.155.0"
-circt_version="$("$circt_opt" --version | sed -n 's/^CIRCT //p')"
-if [[ "$compare_goldens" == true && "$circt_version" != "$golden_circt_version" ]]; then
-  if [[ "$mode" == --golden-only ]]; then
-    echo "Verilog goldens require CIRCT $golden_circt_version; found ${circt_version:-an unknown version}" >&2
-    exit 1
+  golden_circt_version="firtool-1.155.0"
+  circt_version="$("$circt_opt" --version | sed -n 's/^CIRCT //p')"
+  if [[ "$compare_goldens" == true && "$circt_version" != "$golden_circt_version" ]]; then
+    if [[ "$mode" == --golden-only ]]; then
+      echo "Verilog goldens require CIRCT $golden_circt_version; found ${circt_version:-an unknown version}" >&2
+      exit 1
+    fi
+    compare_goldens=false
+    echo "CIRCT ${circt_version:-version unknown}: skipping version-specific Verilog golden comparisons"
   fi
-  compare_goldens=false
-  echo "CIRCT ${circt_version:-version unknown}: skipping version-specific Verilog golden comparisons"
 fi
 
 cd "$repo_dir"
@@ -214,6 +220,13 @@ fixture_in_group() {
     return 1
   fi
 
+  if [[ "$group" == cores-vector-functional ]]; then
+    for functional_group in cores-vector-functional-1 cores-vector-functional-2; do
+      fixture_in_group "$wanted" "$functional_group" && return 0
+    done
+    return 1
+  fi
+
   for spec in "${fixture_specs[@]}"; do
     IFS='|' read -r fixture top example design_export reference_export <<< "$spec"
     if [[ "$fixture" == "$wanted" ]]; then
@@ -247,7 +260,10 @@ fixture_in_group() {
     cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
-    cores-vector-functional:rv5stage-vector-admission|cores-vector-functional:rv5stage-vector-overlap|cores-vector-functional:rv5stage-vector-packed|cores-vector-functional:event-vector|cores-vector-functional:rv5stage-vector|cores-vector-functional:rv5stage-vector-control|cores-vector-functional:rv5stage-vector-config|cores-vector-functional:rv5stage-vector-fp|cores-vector-functional:rv5stage-vector-muldiv|cores-vector-functional:rv5stage-vector-reduction|cores-vector-functional:rv5stage-vector-memory|cores-vector-functional:rv5stage-vector-unroller|cores-vector-functional:rv5stage-zvkt)
+    cores-vector-functional-1:rv5stage-vector|cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-control|cores-vector-functional-1:rv5stage-vector-config|cores-vector-functional-1:rv5stage-vector-fp|cores-vector-functional-1:rv5stage-vector-muldiv)
+      return 0
+      ;;
+    cores-vector-functional-2:rv5stage-vector-reduction|cores-vector-functional-2:rv5stage-vector-memory|cores-vector-functional-2:rv5stage-vector-packed|cores-vector-functional-2:rv5stage-vector-overlap|cores-vector-functional-2:rv5stage-vector-admission|cores-vector-functional-2:rv5stage-vector-unroller|cores-vector-functional-2:rv5stage-zvkt)
       return 0
       ;;
     cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-unroller-rv32|cores-vector-configurations:rv5stage-vector-unroller-1024)
@@ -944,7 +960,15 @@ for direct_spec in "${direct_fixture_specs[@]}"; do
   done
 done
 
-fixture_groups=(language std protocols cores-components cores-execution cores-vector-functional cores-vector-configurations cores-memory cores-cache socs rfpl)
+if [[ "$mode" == --list-fixtures ]]; then
+  for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
+    IFS='|' read -r fixture _ <<< "$spec"
+    fixture_selected "$fixture" && printf '%s\n' "$fixture"
+  done
+  exit 0
+fi
+
+fixture_groups=(language std protocols cores-components cores-execution cores-vector-functional-1 cores-vector-functional-2 cores-vector-configurations cores-memory cores-cache socs rfpl)
 for spec in "${fixture_specs[@]}" "${direct_fixture_specs[@]}"; do
   IFS='|' read -r fixture _ <<< "$spec"
   group_count=0

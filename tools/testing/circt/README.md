@@ -67,9 +67,11 @@ bash tools/testing/circt/run.sh --group std
 
 The accepted groups are `language`, `std`, `protocols`, `cores`,
 `cores-components`, `cores-execution`, `cores-vector`,
-`cores-vector-functional`, `cores-vector-configurations`, `cores-memory`,
-`cores-cache`, `socs`, and `rfpl`. The `cores-vector` group combines its two
-leaf shards, and `cores` combines the five subsystem groups. CI runs the leaf
+`cores-vector-functional`, `cores-vector-functional-1`,
+`cores-vector-functional-2`, `cores-vector-configurations`, `cores-memory`,
+`cores-cache`, `socs`, and `rfpl`. The `cores-vector-functional` group combines
+its two numbered CI shards; `cores-vector` adds the alternate-configuration
+shard, and `cores` combines the five subsystem groups. CI runs the leaf
 shards and the separately owned HardFloat suite independently so one
 heavyweight build cannot consume another owner's budget.
 A `std` selection includes both `rhodium/std` foundations and the root-level
@@ -77,6 +79,11 @@ A `std` selection includes both `rhodium/std` foundations and the root-level
 A group selects every declared fixture in that group, not just the curated
 spine. `FIXTURE`, `FIXTURES`, and `--group` are mutually exclusive selectors;
 an unknown name fails before materialization.
+
+Use `--list-fixtures` with a group or explicit fixture selection to inspect
+the manifest without CIRCT, Racket elaboration, or Verilator. For example,
+`bash tools/testing/circt/run.sh --group cores-vector-functional-1 --list-fixtures`
+prints the first functional CI shard.
 
 The main targets differ in scope and stage:
 

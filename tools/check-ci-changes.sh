@@ -71,9 +71,28 @@ check_matrix_entry() {
 check_core_circt_matrix() {
   local path="$1"
   local target
-  for target in ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-functional-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test hardfloat-circt-test; do
+  for target in ci-circt-core-components-test ci-circt-core-execution-test ci-circt-core-vector-functional-1-test ci-circt-core-vector-functional-2-test ci-circt-core-vector-configurations-test ci-circt-core-memory-test ci-circt-core-cache-test hardfloat-circt-test; do
     check_matrix_entry "$path" circt_matrix "$target"
   done
+}
+
+check_vector_functional_shards() {
+  local runner="$repo_dir/tools/testing/circt/run.sh"
+  local first second combined expected
+  first="$(bash "$runner" --group cores-vector-functional-1 --list-fixtures | sort)"
+  second="$(bash "$runner" --group cores-vector-functional-2 --list-fixtures | sort)"
+  combined="$(bash "$runner" --group cores-vector-functional --list-fixtures | sort)"
+  expected="$(printf '%s\n' \
+    rv5stage-vector event-vector rv5stage-vector-control rv5stage-vector-config \
+    rv5stage-vector-fp rv5stage-vector-muldiv rv5stage-vector-reduction \
+    rv5stage-vector-memory rv5stage-vector-packed rv5stage-vector-overlap \
+    rv5stage-vector-admission rv5stage-vector-unroller rv5stage-zvkt | sort)"
+  if [[ -z "$first" || -z "$second" \
+      || "$(printf '%s\n%s\n' "$first" "$second" | sort)" != "$expected" \
+      || "$combined" != "$expected" ]]; then
+    echo "functional vector CIRCT shards must be nonempty, disjoint, and exhaustive" >&2
+    return 1
+  fi
 }
 
 check_no_jobs() {
@@ -92,6 +111,7 @@ check_no_jobs() {
 }
 
 check_no_jobs README.md
+check_vector_functional_shards
 check_no_jobs LICENSE
 check_no_jobs NOTICE
 check_no_jobs DCO

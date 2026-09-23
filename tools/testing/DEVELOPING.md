@@ -96,7 +96,7 @@ flowchart TD
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Host["Host matrix<br/>foundation, backend, models,<br/>protocols, cores, SoCs, hygiene"]
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
-    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
+    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional 1 and 2/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
     Compile --> OpenSBI["OpenSBI qualification job<br/>both single-core SoCs"]
     Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
@@ -124,10 +124,11 @@ repository's harness and ISA-smoke flow. OpenSBI qualification uses its own job
 budget and the same exact-commit single-core simulator artifacts, so firmware
 execution cannot consume the harness job's timeout budget.
 
-Core CIRCT coverage gives scalar/frontend execution, functional vector,
-alternate vector configuration, and HardFloat independent jobs and timeout
-budgets. The aggregate `cores-vector` selector combines its two vector leaf
-groups, while `cores` still covers the five manifest-owned subsystem groups.
+Core CIRCT coverage gives scalar/frontend execution, two functional vector
+shards, alternate vector configuration, and HardFloat independent jobs and
+timeout budgets. The aggregate `cores-vector-functional` selector combines
+the two functional shards, `cores-vector` adds configurations, and `cores`
+still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
 
 The stalled-memory TiledSoC specialization runs in its own job under the same
