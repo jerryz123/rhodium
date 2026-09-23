@@ -186,8 +186,9 @@ controls and owner through VRF latency and issue backpressure, independently of
 sequencer replacement. Independent single-beat instructions can therefore read
 and issue on consecutive cycles. The completion-slot owner ring retains older
 issued work.
-Memory, scan, and compression instead retain the descriptor through final
-feedback because they carry replay or checkpointed cross-beat state. Reductions
+Memory, dependent scans, and compression instead retain the descriptor through
+final feedback because they carry replay or checkpointed cross-beat state. Index
+scans release on their final read like ordinary compute. Reductions
 release at their tail read while owner-local recurrence and completion state
 finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
@@ -473,8 +474,9 @@ The packed scan network processes up to 64 mask bits per query/prefix-mask
 beat or 8/4/2/1 elements per iota beat. One dependent scan beat is in flight;
 its carry advances only when the private result matures. Cancellation preserves
 already-written prefix results while suppressing future writes
-and unfinished scalar answers. Index needs no carry dependency and retains the
-ordinary packed issue schedule. The bank retains three general read ports plus
+and unfinished scalar answers. Index needs no carry dependency, releases the
+sequencer on its final read, and finishes issue on its final issued beat. The
+bank retains three general read ports plus
 the dedicated `v0` mask read.
 
 ## Packed integer slides

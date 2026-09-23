@@ -66,7 +66,7 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
   def compress = descriptor.control.integer & descriptor.control.compress
-  def serialized = descriptor.control.memory ||| scan ||| compress
+  def serialized = descriptor.control.memory ||| (scan & !descriptor.control.scan_control.index) ||| compress
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
   def fp_widening = descriptor.control.fp_service & descriptor.control.widening

@@ -18,8 +18,9 @@ accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
 successor, or second instruction slot inside the sequencer. The flow-through result queue permits
 consecutive issue while credits cover all nonbackpressurable responses.
-Memory retains its descriptor through the final external decision; scan and
-compression retain theirs through internal result maturity.
+Memory retains its descriptor through the final external decision; dependent
+scans and compression retain theirs through internal result maturity. Stateless
+index scans release on their final read-plan transfer like ordinary compute.
 Reductions release their descriptor at the tail read and retain recurrence in
 owner-indexed state. Stateful and packed schedules wait for older operand
 preparation to drain before admission; ordinary compute can overlap it. A packed
@@ -461,7 +462,9 @@ source masks at EEW=1 through existing ports and bounds every scan's enables
 to that beat's exclusive end. Iota uses data-width beats; queries and first-bit
 masks use 64-mask-bit beats. The parent retains scan carry separately from
 VRF write data and serializes dependent beats through result maturity. Index is
-stateless. Admission seeds carry, and maturity advances it.
+stateless: its final read releases sequencing, its final issue ends issue
+ownership, and it may enter while older operand preparation remains active.
+Admission seeds carry for dependent scans, and maturity advances it.
 Only final query results select GPR WB.
 
 The reduction fixtures also exercise all seven scans across SEW/LMUL, source

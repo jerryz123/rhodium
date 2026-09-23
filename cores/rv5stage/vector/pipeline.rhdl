@@ -153,7 +153,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def destination_registers = vector_destination_registers(xlen, vlen, request.bits.descriptor)
   // Stateful/packed schedules begin after older operand preparation drains;
   // ordinary compute may replace the sequencer while those beats remain live.
-  def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| request.bits.descriptor.control.scan ||| request.bits.descriptor.control.compress
+  def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
   available <== unroller.request.ready & !macro_valid[next_owner] & (!stateful_request ||| !operand_fetch.active)
   def admitted = request |> gate_flow(available)
   describe_interface_retained_storage(admitted.fire(), unroller.sequencing_done.valid, unroller.active, ~name: "sequencer")
@@ -195,7 +195,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       macro_load[owner] <== request.bits.descriptor.control.memory & !request.bits.descriptor.control.store
       macro_store[owner] <== request.bits.descriptor.control.memory & request.bits.descriptor.control.store
       macro_fp[owner] <== request.bits.descriptor.control.floating_point
-      macro_serial[owner] <== request.bits.descriptor.control.scan ||| request.bits.descriptor.control.compress
+      macro_serial[owner] <== (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
     elsewhen (macro_complete & (drain_owner === owner_tag)):
       macro_valid[owner] <== Bool(#false)
     elsewhen (cancel.valid & macro_valid[owner] & (!macro_issued[owner] ||| unauthorized)):
@@ -283,7 +283,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       completion_tag: tail
   )
   Array(element_issue, packed.issue) |> rr_arbiter() |> issue
-  compute_tail_issue <== element_issue.fire() & operand_fetch.issue.bits.beat.last & !(operand_fetch.issue.bits.beat.control.memory ||| operand_fetch.issue.bits.beat.control.scan ||| operand_fetch.issue.bits.beat.control.compress)
+  compute_tail_issue <== element_issue.fire() & operand_fetch.issue.bits.beat.last & !(operand_fetch.issue.bits.beat.control.memory ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
   // All routes use one persistent allocation order, including immediate ALU
   // results. No unbackpressurable write can collide with an older completion.
   (

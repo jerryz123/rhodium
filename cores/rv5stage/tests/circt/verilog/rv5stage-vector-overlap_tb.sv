@@ -20,7 +20,7 @@ module rv5stage_vector_overlap_tb;
   int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
-  bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
+  bit launch_seen, sequence_done_seen, issue_done_seen, tail_handoff_seen=0, retry_last=0, retried=0;
 
   function automatic logic [31:0] add_insn_source(input int vd, input int vs2);
     return 32'h02000057 | (32'(vs2)<<20) | (32'd4<<15) | (32'(vd)<<7);
@@ -38,12 +38,17 @@ module rv5stage_vector_overlap_tb;
   function automatic logic [31:0] reduction_insn(input int vd);
     return 32'h02002057 | (32'd8<<20) | (32'd3<<15) | (32'(vd)<<7);
   endfunction
+  function automatic logic [31:0] index_insn(input int vd);
+    return 32'(32'd20<<26 | 32'd1<<25 | 32'd17<<15 | 32'd2<<12 | 32'(vd)<<7 | 32'h57);
+  endfunction
   task automatic tick;
     #1;
     hit_data=64'h1000+attempt_out.bits.address;
     retry=retry_last && !retried && attempt_out.valid && attempt_out.bits.last;
     #1;
     launch_seen=request_valid && request_ready;
+    sequence_done_seen=sequencing_finished;
+    issue_done_seen=issue_finished;
     if (!reset) begin
       if (phase==1 && sequencing_finished && launch_seen) tail_handoff_seen=1;
       if (phase==1) begin
@@ -267,7 +272,31 @@ module rv5stage_vector_overlap_tb;
     assert(done_count==older_issue_count) else $fatal(1,"packed store successor did not overlap older compute preparation");
     drain();
     assert(phase11_attempts==2 && store_count==previous_stores+1) else $fatal(1,"compute/packed store overlap lost an attempt");
-    $display("Vector overlap passed: tail handoff, age-ordered packed issue, reductions, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
+    // Index generation has no cross-beat carry. Its two-beat tail must hand
+    // off the sequencer before the final beat reaches the issue boundary.
+    reset=1; tick(); reset=0;
+    phase=12; vl=16; vtype=0;
+    older_issue_count=done_count;
+    launch(index_insn(8),64'hc00,0);
+    instruction=add_insn(9); scalar=64'hc10; request_valid=1;
+    do tick(); while (!launch_seen);
+    assert(sequence_done_seen && !issue_done_seen) else $fatal(1,"stateless index retained the sequencer through result maturity");
+    request_valid=0;
+    drain();
+    assert(done_count==older_issue_count+2) else $fatal(1,"stateless index did not finish at final issue");
+    // Index may also enter behind an older compute beat held in operand fetch.
+    reset=1; tick(); reset=0;
+    phase=13; vl=1; vtype=24; issue_ready=0;
+    older_issue_count=done_count;
+    launch(add_insn(8),64'hd00,0);
+    tick();
+    instruction=index_insn(9); scalar=64'hd10; request_valid=1;
+    tick();
+    assert(launch_seen && !issued) else $fatal(1,"stateless index admission waited for older operand issue");
+    request_valid=0; issue_ready=1;
+    drain();
+    assert(done_count==older_issue_count+2) else $fatal(1,"stateless index admission lost issue ownership");
+    $display("Vector overlap passed: tail handoff, age-ordered packed issue, reductions, stateless index, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
     $finish;
   end
 endmodule
