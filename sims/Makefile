@@ -47,10 +47,11 @@ SOC_DPI_HEADER_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_DIR)/spike_core.
 SOC_DPI_HEADER_single := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
 SOC_DPI_HEADER_tiled := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
 SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC)) $(UART_DPI_DIR)/uart_dpi.h
+SPIKE_DPI_CPPFLAGS := -I$(SPIKE_DPI_DIR) -I$(FESVR_PREFIX)/include/riscv -iquote $(FESVR_PREFIX)/include/fesvr
 SOC_DPI_CFLAGS_single-core-rv5stage-soc := -DRHODIUM_CHI_MEMORY
-SOC_DPI_CFLAGS_single-core-spike-soc := -DRHODIUM_CHI_MEMORY -I$(SPIKE_DPI_DIR) -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr
+SOC_DPI_CFLAGS_single-core-spike-soc := -DRHODIUM_CHI_MEMORY $(SPIKE_DPI_CPPFLAGS)
 SOC_DPI_CFLAGS_tiled-rv5stage-soc := -DRHODIUM_CHI_MEMORY
-SOC_DPI_CFLAGS_mini := $(if $(filter spike,$(CORE)),-I$(SPIKE_DPI_DIR) -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr)
+SOC_DPI_CFLAGS_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_CPPFLAGS))
 SOC_DPI_CFLAGS_single := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
 SOC_DPI_CFLAGS_tiled := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
 SOC_DPI_CFLAGS := $(SOC_DPI_CFLAGS_$(SOC))
@@ -170,10 +171,10 @@ lrsc-run: $(LRSC_BINARIES) simulator
 
 .PHONY: tiled-memory-test
 tiled-memory-test:
-	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled-soc/rv5stage_tiled_memory.elf" run SOC=tiled-rv5stage-soc TRACE=0 PREBUILT_SIMULATOR= \
+	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf" run SOC=tiled-rv5stage-soc TRACE=0 PREBUILT_SIMULATOR= \
 	  BUILD_ROOT="$(BUILD_ROOT)/tiled-memory-test" \
 	  HARNESS_SELECTOR=sims/tests/tiled-rv5stage-soc-memory-harness.rhdl \
-	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled-soc/rv5stage_tiled_memory.elf" \
+	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf" \
 	  HTIF_ARGS=+max-cycles=50000000
 
 trace-smoke:
@@ -218,18 +219,17 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $(UART_DPI_DIR)/uart_dpi.cc -o $(DPI_BUILD_DIR)/uart_dpi.o
 
 spike-core-compile-check: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
 	  -c $(SPIKE_DPI_DIR)/spike_core.cc -o $(DPI_BUILD_DIR)/spike_core.o
 
 spike-dpi-compile-check: spike-core-compile-check
 	@test -n "$(VERILATOR_ROOT)" || \
 	  (echo "set VERILATOR_ROOT to the Verilator share directory" >&2; exit 1)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(SPIKE_DPI_DIR) -I$(VERILATOR_ROOT)/include/vltstd \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
 	  -c $(SPIKE_DPI_DIR)/spike_dpi.cc -o $(DPI_BUILD_DIR)/spike_dpi.o
 
 spike-core-test: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
-	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(SPIKE_DPI_DIR) \
-	  -I$(FESVR_PREFIX)/include/riscv -I$(FESVR_PREFIX)/include/fesvr \
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
 	  $(SPIKE_DPI_DIR)/spike_core.cc $(REPO_DIR)/cores/spike/tests/spike_core_test.cc \
 	  -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib \
 	  -lriscv -lfesvr -ldisasm -lsoftfloat -pthread \

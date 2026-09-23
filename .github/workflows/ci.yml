@@ -559,7 +559,7 @@ jobs:
       - name: Install simulator runtime dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install --yes build-essential cmake zlib1g-dev
+          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
       - name: Identify pinned Spike revision
         id: spike-revision
         run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
