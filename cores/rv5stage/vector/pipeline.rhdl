@@ -34,6 +34,7 @@ import:
 
 sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false):
   def tag_width = index_width(vector_completion_slots)
+  def row_frontier_width = index_width(vector_depth(vlen) + 1)
   def Owner = Bits(tag_width)
   bundle OwnedContext():
     value: Context
@@ -94,6 +95,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   reg macro_serial(Vec(vector_completion_slots, Bool))
   reg macro_destinations(Vec(vector_completion_slots, Bits(32)))
   reg macro_classified(Vec(vector_completion_slots, Bool))
+  reg macro_progressive(Vec(vector_completion_slots, Bool))
+  reg macro_row_frontier(Vec(vector_completion_slots, Bits(row_frontier_width)))
   reg macro_issued(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg macro_fault(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg next_owner(~init: bits(0, tag_width))
@@ -151,6 +154,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   scoreboard.replay.valid <== replay
   local_completion |> loads.response
   def destination_registers = vector_destination_registers(xlen, vlen, request.bits.descriptor)
+  // These schedules visit destination rows in order. Other schedules retain
+  // their whole-group intent until the final beat resolves.
+  def requested_control = request.bits.descriptor.control
+  def special_schedule = requested_control.reduction ||| requested_control.scan ||| requested_control.compress ||| requested_control.element_move ||| requested_control.whole_register_move ||| requested_control.gather
+  def special_geometry = requested_control.mask_destination ||| requested_control.mask_logic ||| requested_control.widening ||| requested_control.narrowing ||| requested_control.extension ||| requested_control.wide_vs2
+  def progressive_write = (requested_control.integer ||| requested_control.fp_service ||| requested_control.multiply_divide) & !requested_control.memory & !requested_control.scalar_destination & !requested_control.floating_scalar_destination & !special_schedule & !special_geometry
   // Stateful/packed schedules begin after older operand preparation drains;
   // ordinary compute may replace the sequencer while those beats remain live.
   def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
@@ -192,6 +201,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       macro_issued[owner] <== Bool(#false)
       macro_fault[owner] <== Bool(#false)
       macro_destinations[owner] <== destination_registers
+      macro_progressive[owner] <== progressive_write
       macro_load[owner] <== request.bits.descriptor.control.memory & !request.bits.descriptor.control.store
       macro_store[owner] <== request.bits.descriptor.control.memory & request.bits.descriptor.control.store
       macro_fp[owner] <== request.bits.descriptor.control.floating_point
@@ -209,7 +219,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def mutable foreign :: Bits(vector_depth(vlen)) = packed.foreign_rows.as_bits()
   for (owner in 0..vector_completion_slots):
     for (row in 0..vector_depth(vlen)):
-      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div vector_chunks(vlen)].into(Bool)
+      def future_row = !macro_progressive[owner] ||| (bits(row, row_frontier_width) >= macro_row_frontier[owner])
+      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div vector_chunks(vlen)].into(Bool) & future_row
       foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
   for (slot in 0..vector_completion_slots):
     def rows = mux(allocated[slot] & !entry_packed[slot] & entry_writes[slot], bits(1, vector_depth(vlen)) << entry_write_address[slot], bits(0, vector_depth(vlen)))
@@ -361,6 +372,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
   def resolution_beat = mux(compute_maturity.valid, compute_beat, memory_beat)
   def resolution_owner = mux(compute_maturity.valid, compute_owner, memory_result.owner)
+  def row_element_mask = bits(7, index_width(vlen + 1)) >> compute_beat.element_width.as_bits()
+  def row_finished = compute_beat.last ||| ((compute_beat.end & row_element_mask) === bits(0, index_width(vlen + 1)))
   // Keep each accumulator at its owner's resolved frontier. An overlapping
   // destination is written only when that owner's final result drains.
   for (owner in 0..vector_completion_slots):
@@ -369,6 +382,11 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       macro_classified[owner] <== packed_memory
     elsewhen (element_resolved & resolution_beat.last & (resolution_owner === owner_tag)):
       macro_classified[owner] <== Bool(#true)
+    when (request.fire() & (next_owner === owner_tag)):
+      macro_row_frontier[owner] <== bits(0, row_frontier_width)
+    elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & macro_progressive[owner] & row_finished):
+      assert(compute_beat.write.address.zext(row_frontier_width) >= macro_row_frontier[owner], "vector_progressive_write_rows_are_ordered")
+      macro_row_frontier[owner] <== compute_beat.write.address.zext(row_frontier_width) + bits(1, row_frontier_width)
     when (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.reduction & !compute_beat.floating_point):
       accumulators[owner] <== compute_beat.write.data
     elsewhen (drain & (entry_owner[head] === owner_tag) & head_result.reduction & head_result.floating_point):

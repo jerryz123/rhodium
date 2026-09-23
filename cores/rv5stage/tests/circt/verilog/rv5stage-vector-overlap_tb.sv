@@ -18,6 +18,7 @@ module rv5stage_vector_overlap_tb;
   int phase1_launches=0, phase1_sequences=0;
   int phase5_younger_attempts=0;
   int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0;
+  int phase14_attempts=0, phase14_older_last=0, phase14_younger=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
   bit launch_seen, sequence_done_seen, issue_done_seen, tail_handoff_seen=0, retry_last=0, retried=0;
@@ -70,6 +71,16 @@ module rv5stage_vector_overlap_tb;
         fp_tags[fp_count++]=int'(fp_request_out.bits.tag);
       end
       if (attempt_out.valid && !cancel) begin
+        if (phase==14) begin
+          if (attempt_out.bits.context_0==64'he00) begin
+            assert(phase14_attempts<2) else $fatal(1,"extra older row-progress beat");
+            if (attempt_out.bits.last) phase14_older_last=cycle;
+          end else begin
+            assert(attempt_out.bits.context_0==64'he10 && phase14_attempts==2) else $fatal(1,"row-progress consumer overtook older beats");
+            phase14_younger=cycle;
+          end
+          phase14_attempts++;
+        end
         if (phase==10) begin
           assert(phase10_attempts<2) else $fatal(1,"extra compute/packed overlap attempt");
           assert(attempt_out.bits.context_0==(phase10_attempts==0 ? 64'ha00 : 64'ha80)) else $fatal(1,"younger packed memory issued ahead of older compute");
@@ -296,7 +307,18 @@ module rv5stage_vector_overlap_tb;
     request_valid=0; issue_ready=1;
     drain();
     assert(done_count==older_issue_count+2) else $fatal(1,"stateless index admission lost issue ownership");
-    $display("Vector overlap passed: tail handoff, age-ordered packed issue, reductions, stateless index, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
+    // The older two-row compute keeps the second row pending, but its first
+    // row should stop blocking a younger read as soon as that row drains.
+    reset=1; tick(); reset=0;
+    phase=14; vl=16; vtype=0;
+    launch(add_insn(8),64'he00,0);
+    vl=8;
+    launch(add_insn_source(9,8),64'he10,0);
+    drain();
+    while(phase14_attempts<3) tick();
+    assert(phase14_attempts==3 && phase14_older_last>0 && phase14_younger>phase14_older_last) else $fatal(1,"row-progress overlap lost issue ownership");
+    assert(phase14_younger-phase14_older_last<=2) else $fatal(1,"completed producer row remained blocked by its unfinished second row");
+    $display("Vector overlap passed: row-progress dependencies, tail handoff, age-ordered packed issue, reductions, stateless index, row chaining, replay, cross-route returns, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

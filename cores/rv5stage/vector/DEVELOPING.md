@@ -60,8 +60,13 @@ slot's route, never the current descriptor's route, and no launch resets the rin
 All accepted operands are captured, so older issued instructions have no unread
 VRF sources. Older pending writes block reads by 64-bit row; `dependencies.rhdl`
 computes conservative destination groups while pending writes have not yet
-resolved to individual rows. Ordered completion and packed-carry drain preserve
-WAW order without a macro-level sequencer-admission gate. Gather's
+resolved to individual rows. For monotonic same-width elementwise compute,
+`pipeline.rhdl` advances an owner-local row frontier when the last beat for a
+row resolves. The result's exact completion slot already owns that row until
+ordered drain, so this handoff needs no speculative issue-time write address
+or operand-fetch reservation. Irregular and replayable schedules keep their
+whole-group claim until final resolution. Ordered completion and packed-carry
+drain preserve WAW order without a macro-level sequencer-admission gate. Gather's
 dependent second read waits for older writes before starting its nonstallable
 read pair. There is no renaming, out-of-order instruction selection, or
 interleaved instruction unrolling.

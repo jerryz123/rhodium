@@ -195,7 +195,10 @@ scans release on their final read like ordinary compute. Reductions
 release at their tail read while owner-local recurrence and completion state
 finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
-instruction; overlapping destination groups conservatively interlock. All
+instruction. Same-width elementwise compute releases its conservative
+destination-group claim row by row as results resolve; exact outstanding
+writes still block reads until ordered VRF drain. Irregular and replayable
+schedules retain the conservative group claim through their final result. All
 operands are captured before issue. The sequencer never alternates between
 instructions or delegates replay to a service instruction queue.
 
