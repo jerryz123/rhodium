@@ -1,0 +1,47 @@
+#lang rhombus
+// Checks the fixed 720p60 HDMI timing, framebuffer geometry, and alignment contract.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../chi/protocol/params.rhdl".CHIFlitParams
+  "../hdmi.rhdl" open
+
+def flit = CHIFlitParams()
+def reader = HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 8, 32)
+def oversized_mode = HDMIFixedFramebufferMode(
+  HDMIVideoTiming(1, 0x400000000000, 1, 1, 1, 1, 1, 1, 1, #true, #true),
+  HDMIPixelFormat.X8R8G8B8
+)
+
+check:
+  HDMI720p60Timing.pixel_clock_hz ~is 74250000
+  HDMI720p60Timing.horizontal_total ~is 1650
+  HDMI720p60Timing.vertical_total ~is 750
+  HDMI720p60Timing.frame_cycles ~is 1237500
+  HDMI720p60Timing.refresh_hz ~is 60
+  HDMI720p60Timing.horizontal_sync_positive ~is #true
+  HDMI720p60Timing.vertical_sync_positive ~is #true
+
+  HDMI720p60X8R8G8B8.pixel_format ~is HDMIPixelFormat.X8R8G8B8
+  HDMIPixelFormat.device_tree_name(HDMI720p60X8R8G8B8.pixel_format) ~is "x8r8g8b8"
+  HDMI720p60X8R8G8B8.bytes_per_pixel ~is 4
+  HDMI720p60X8R8G8B8.pitch_bytes ~is 5120
+  HDMI720p60X8R8G8B8.frame_bytes ~is 3686400
+  HDMIFetchLineBytes ~is 64
+  HDMI720p60X8R8G8B8.fetch_lines_per_row ~is 80
+  HDMI720p60X8R8G8B8.fetch_lines_per_frame ~is 57600
+  HDMI720p60X8R8G8B8.framebuffer_base_supported(0x90000000) ~is #true
+  HDMI720p60X8R8G8B8.framebuffer_base_supported(0x90000020) ~is #false
+  reader.flit ~is flit
+  reader.mode ~is HDMI720p60X8R8G8B8
+  reader.slots ~is 8
+  reader.txn_base ~is 32
+
+  HDMIVideoTiming(0, 1280, 110, 40, 220, 720, 5, 5, 20, #true, #true) ~throws "PosInt"
+  HDMIFixedFramebufferMode(
+    HDMIVideoTiming(74250000, 1279, 110, 40, 220, 720, 5, 5, 20, #true, #true),
+    HDMIPixelFormat.X8R8G8B8
+  ) ~throws "complete fetch lines"
+  HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 1025, 0) ~throws "outstanding limit"
+  HDMIFrameReaderConfig(flit, HDMI720p60X8R8G8B8, 8, 4090) ~throws "transaction-ID range"
+  HDMIFrameReaderConfig(flit, oversized_mode, 1, 0) ~throws "frame byte count"

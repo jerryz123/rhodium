@@ -26,10 +26,42 @@ SoC address map:
 | `Plic` | Prioritized external interrupt delivery | One-outstanding CHI SN-I; 32-bit `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; level-sensitive source inputs and per-context interrupt outputs | CHI flits, sources, contexts, and priority width |
 | `Uart8N1Transmitter` / `Uart8N1Receiver` | Reusable serial engines | Byte flow plus serial pins and a 16x oversample tick | Fixed 8-N-1 framing |
 | `Uart16550` | Byte-addressed UART registers, FIFOs, and interrupts | One-outstanding CHI SN-I; one-byte `ReadNoSnp`, `WriteNoSnpFull`, and `WriteNoSnpPtl`; RX/TX pins | CHI flits and FIFO depth 1--16 |
+| `HDMIFrameReader` | Ordered fixed-frame fetches with video-row markers | Retryable nonallocating CHI RN-I `ReadOnce`; irrevocable 64-byte lines | Fixed framebuffer mode, outstanding slots, and TxnID range |
 
 `UartDPI` and [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) are simulation-only. They
 bridge serial pins to a host pseudo-terminal (PTY); they are not a
 synthesizable peripheral or part of the CHI register path.
+
+## Prepare fixed HDMI scanout
+
+[`hdmi.rhdl`](hdmi.rhdl) defines the first HDMI bring-up contract and its
+CHI-backed frame reader. `HDMI720p60Timing` describes a 74.25 MHz,
+1280-by-720 progressive mode with 1650 total horizontal clocks, 750 total
+lines, positive synchronization pulses, and an exact 60 Hz frame rate.
+`HDMI720p60X8R8G8B8` combines that timing with four-byte `x8r8g8b8` pixels and
+derives a 5120-byte pitch, a 3686400-byte frame, 80 64-byte fetch lines per
+row, and 57600 fetch lines per frame.
+
+The initial contract deliberately describes a contiguous framebuffer whose
+pitch is exactly active width times bytes per pixel. Its base must be aligned
+to the 64-byte fetch line. `HDMIFrameReader` accepts one physical framebuffer
+base, PAS, and QoS value, then drives `CHIReadStream` for exactly one frame.
+Every request is a cacheable, nonallocating `ReadOnce`. Returned lines remain
+ordered despite retry and out-of-order CHI completion, and each carries row-
+and frame-end markers plus error and poison state. The reader exposes the
+stream's active, completion, starvation, and underflow state and retains a
+sticky fetch-failure flag until the next command.
+
+The frame reader is intentionally backpressured and does not attempt to be a
+fixed-rate pixel consumer. Row buffering, pixel unpacking, video timing, MMIO
+control, and the TMDS transmitter remain separate later components.
+
+The first physical profile is DVI-compatible video carried by TMDS through an
+HDMI connector. Audio, auxiliary data islands and infoframes, HDCP, DDC/EDID,
+hot-plug detection, independent display clock domains, padded pitch, and
+runtime mode selection are not part of this bring-up contract. Target-specific
+PLL, serializer, differential-output, and pin-constraint logic remains outside
+the reusable device package.
 
 ## Integrate synthesizable devices
 

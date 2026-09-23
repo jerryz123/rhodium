@@ -1,0 +1,195 @@
+#lang rhodium
+// Defines the fixed-mode HDMI contract and its CHI-backed framebuffer reader.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("support/annotations.rhm").NonemptyString
+  lib("rhodium/std/bits.rhdl") open
+  lib("rhodium/std/ready-valid.rhdl") open
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  lib("chi/protocol/flits.rhdl") open
+  lib("chi/protocol/channels.rhdl").CHIRNIChannels
+  lib("chi/transactions/read-stream.rhdl") open
+
+def HDMIFetchLineBytes = 64
+
+enum HDMIPixelFormat
+| X8R8G8B8
+
+fun HDMIPixelFormat.bytes_per_pixel(format :: HDMIPixelFormat) :: PosInt:
+  4
+
+fun HDMIPixelFormat.device_tree_name(format :: HDMIPixelFormat) :: NonemptyString:
+  "x8r8g8b8"
+
+class HDMIVideoTiming(pixel_clock_hz :: PosInt,
+                      horizontal_active :: PosInt,
+                      horizontal_front_porch :: PosInt,
+                      horizontal_sync :: PosInt,
+                      horizontal_back_porch :: PosInt,
+                      vertical_active :: PosInt,
+                      vertical_front_porch :: PosInt,
+                      vertical_sync :: PosInt,
+                      vertical_back_porch :: PosInt,
+                      horizontal_sync_positive :: Boolean,
+                      vertical_sync_positive :: Boolean):
+  implements StableCircuitParam
+
+  property horizontal_total :: PosInt:
+    horizontal_active + horizontal_front_porch + horizontal_sync + horizontal_back_porch
+  property vertical_total :: PosInt:
+    vertical_active + vertical_front_porch + vertical_sync + vertical_back_porch
+  property frame_cycles :: PosInt:
+    horizontal_total * vertical_total
+  property refresh_hz:
+    pixel_clock_hz / frame_cycles
+
+class HDMIFixedFramebufferMode(timing :: HDMIVideoTiming,
+                               pixel_format :: HDMIPixelFormat):
+  implements StableCircuitParam
+
+  property bytes_per_pixel :: PosInt:
+    HDMIPixelFormat.bytes_per_pixel(pixel_format)
+  property pitch_bytes :: PosInt: timing.horizontal_active * bytes_per_pixel
+  property frame_bytes :: PosInt: pitch_bytes * timing.vertical_active
+  property fetch_lines_per_row :: PosInt: pitch_bytes / HDMIFetchLineBytes
+  property fetch_lines_per_frame :: PosInt: frame_bytes / HDMIFetchLineBytes
+
+  constructor (timing :: HDMIVideoTiming,
+               pixel_format :: HDMIPixelFormat):
+    def pitch_bytes = timing.horizontal_active * HDMIPixelFormat.bytes_per_pixel(pixel_format)
+    unless pitch_bytes mod HDMIFetchLineBytes == 0
+    | error(~who: #'HDMIFixedFramebufferMode,
+            "contiguous framebuffer pitch must contain complete fetch lines")
+    super(timing, pixel_format)
+
+  method framebuffer_base_supported(base_address :: Nat) :: Boolean:
+    base_address mod HDMIFetchLineBytes == 0
+
+class HDMIFrameReaderConfig(flit :: CHIFlitParams,
+                            mode :: HDMIFixedFramebufferMode,
+                            slots :: PosInt,
+                            txn_base :: Nat):
+  implements StableCircuitParam
+
+  constructor (flit :: CHIFlitParams,
+               mode :: HDMIFixedFramebufferMode,
+               slots :: PosInt,
+               txn_base :: Nat):
+    unless slots <= 1024
+    | error(~who: #'HDMIFrameReaderConfig,
+            "reader slots must fit the CHI requester outstanding limit")
+    unless txn_base + slots <= 4096
+    | error(~who: #'HDMIFrameReaderConfig,
+            "reader transaction-ID range must fit the 12-bit CHI field")
+    unless bits.length(mode.frame_bytes) <= flit.request_address_width
+    | error(~who: #'HDMIFrameReaderConfig,
+            "frame byte count must fit the CHI request address width")
+    super(flit, mode, slots, txn_base)
+
+bundle HDMIFrameReaderIdentity(p :: CHIFlitParams):
+  node_id: Bits(p.node_id_width)
+  home_id: Bits(p.node_id_width)
+
+bundle HDMIFrameReaderCommand(p :: CHIFlitParams):
+  base_address: Bits(p.request_address_width)
+  pas: CHIPAS
+  qos: Bits(4)
+
+bundle HDMIFrameReaderLine():
+  data: Bits(512)
+  row_end: Bool
+  frame_end: Bool
+  error: CHIRespErr
+  poisoned: Bool
+
+sync_circuit HDMIFrameReader(config :: HDMIFrameReaderConfig):
+  def p = config.flit
+  def mode = config.mode
+  def row_index_width = index_width(mode.fetch_lines_per_row)
+
+  input identity: HDMIFrameReaderIdentity(p)
+  interface command(Decoupled(HDMIFrameReaderCommand(p)), ~role: consumer)
+  interface line(Irrevocable(HDMIFrameReaderLine()), ~role: producer)
+  interface chi(CHIRNIChannels(p), ~role: node)
+  output active: Bool
+  output done: Bool
+  output underflow: Bool
+  output starved: Bool
+  output fetch_failed: Bool
+
+  inst reader(CHIReadStream(p, config.slots, config.txn_base))
+  reg row_fetch_index(~init: bits(0, row_index_width))
+  reg failure_seen(~init: Bool(#false))
+
+  reader.node_id <== identity.node_id
+  reader.chi <=> chi
+  command.ready <== reader.command.ready
+  reader.command.valid <== command.valid
+  reader.command.bits <== CHIReadStreamCommand(p):
+    start_address: command.bits.base_address
+    byte_count: bits(mode.frame_bytes, p.request_address_width)
+    stride: bits(HDMIFetchLineBytes, p.request_address_width)
+    home_id: identity.home_id
+    pas: command.bits.pas
+    allocate: Bool(#false)
+    qos: command.bits.qos
+
+  def row_end = row_fetch_index === bits(mode.fetch_lines_per_row - 1, row_index_width)
+  line.valid <== reader.line.valid
+  line.bits <== HDMIFrameReaderLine():
+    data: reader.line.bits.data
+    row_end: row_end
+    frame_end: reader.line.bits.last
+    error: reader.line.bits.error
+    poisoned: reader.line.bits.poisoned
+  reader.line.ready <== line.ready
+
+  def command_fire = command.fire()
+  def line_fire = line.fire()
+  def line_failed = reader.line.valid & ((reader.line.bits.error =/= CHIRespErr.OK) ||| reader.line.bits.poisoned)
+  when (reader.line.valid):
+    assert(reader.line.bits.valid_bytes === bits(HDMIFetchLineBytes, 7),
+           "hdmi_frame_reader_complete_fetch_line")
+    when (reader.line.bits.last):
+      assert(row_end, "hdmi_frame_reader_complete_final_row")
+
+  when command_fire:
+    row_fetch_index <== bits(0, row_index_width)
+  elsewhen line_fire:
+    row_fetch_index <== mux(row_end, bits(0, row_index_width), row_fetch_index + bits(1, row_index_width))
+  when command_fire:
+    failure_seen <== Bool(#false)
+  elsewhen line_failed:
+    failure_seen <== Bool(#true)
+
+  active <== reader.active
+  done <== reader.done
+  underflow <== reader.underflow
+  starved <== reader.starved
+  fetch_failed <== failure_seen
+
+def HDMI720p60Timing = HDMIVideoTiming(
+  74250000,
+  1280, 110, 40, 220,
+  720, 5, 5, 20,
+  #true, #true
+)
+
+def HDMI720p60X8R8G8B8 = HDMIFixedFramebufferMode(
+  HDMI720p60Timing,
+  HDMIPixelFormat.X8R8G8B8
+)
+
+export:
+  HDMIFetchLineBytes
+  HDMIPixelFormat
+  HDMIVideoTiming
+  HDMIFixedFramebufferMode
+  HDMIFrameReaderConfig
+  HDMIFrameReaderIdentity
+  HDMIFrameReaderCommand
+  HDMIFrameReaderLine
+  HDMIFrameReader
+  HDMI720p60Timing
+  HDMI720p60X8R8G8B8

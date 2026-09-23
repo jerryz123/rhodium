@@ -50,6 +50,7 @@ Rhodium logic; do not put DPI calls in a SoC.
 | PLIC priorities, gateways, contexts, and CHI endpoint | [`plic.rhdl`](plic.rhdl) |
 | 8-N-1 serial engines | [`uart.rhdl`](uart.rhdl) |
 | 16550-style registers, FIFOs, and CHI endpoint | [`uart16550.rhdl`](uart16550.rhdl) |
+| Fixed HDMI timing, framebuffer contract, and CHI frame reader | [`hdmi.rhdl`](hdmi.rhdl) |
 | Rhodium PTY adapter | [`uart-dpi.rhdl`](uart-dpi.rhdl) |
 | PTY ABI and host implementation | [`dpi/uart_dpi.h`](dpi/uart_dpi.h), [`dpi/uart_dpi.cc`](dpi/uart_dpi.cc) |
 | Host image, configuration, parameter, and ABI checks | [`tests/`](tests/) |
@@ -88,7 +89,7 @@ To lower and simulate only the device fixtures through CIRCT and
 Verilator, run:
 
 ```sh
-FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi' \
+FIXTURES='bootrom boot-address aclint plic uart16550 uart-dpi hdmi-frame-reader' \
   bash tools/testing/circt/run.sh --simulate-only
 ```
 

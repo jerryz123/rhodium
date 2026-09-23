@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits CIRCT MLIR for the CHI-backed fixed-mode HDMI frame reader fixture.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../rhodium/backend/circt.rhm" open
+  "../hdmi-frame-reader-fixture.rhdl" as fixture
+
+print(emit_circt(fixture.hdmi_frame_reader_design))

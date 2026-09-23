@@ -1,0 +1,26 @@
+#lang rhodium
+// Elaborates a small four-fetch-line HDMI frame reader for CHI behavioral simulation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("chi/protocol/params.rhdl").CHIFlitParams
+  "../hdmi.rhdl" open
+
+def hdmi_frame_reader_flit = CHIFlitParams(~data_width: 128, ~poison: #true)
+def hdmi_frame_reader_mode = HDMIFixedFramebufferMode(
+  HDMIVideoTiming(100, 32, 1, 1, 1, 2, 1, 1, 1, #true, #true),
+  HDMIPixelFormat.X8R8G8B8
+)
+def hdmi_frame_reader_config = HDMIFrameReaderConfig(
+  hdmi_frame_reader_flit,
+  hdmi_frame_reader_mode,
+  3,
+  16
+)
+def hdmi_frame_reader_design = elaborate(HDMIFrameReader(hdmi_frame_reader_config))
+
+export:
+  hdmi_frame_reader_flit
+  hdmi_frame_reader_mode
+  hdmi_frame_reader_config
+  hdmi_frame_reader_design
