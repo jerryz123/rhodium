@@ -118,8 +118,8 @@ and older-write hazards. Its internal atomic fork requires setup, source
 availability, and operand fetch to accept together, including in the standalone
 unroller fixture. The unroller-owned `vector/s1.sequence` checkpoint records the
 actual transfer and captures the instruction for slice naming; its stall
-companion captures setup, individual source, and aggregate operand-fetch
-readiness failures without changing launch timing.
+companion captures setup, `vs2_wait`/`vs1_wait` source-row, and aggregate
+operand-fetch readiness failures without changing launch timing.
 Operand fetch carries that occurrence through the VRF response and credited queue to
 elementwise issue. Packed memory has no equivalent elementwise read plan.
 Elementwise issue/completion checkpoints remain in `pipeline.rhdl`.

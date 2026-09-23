@@ -86,6 +86,7 @@ module event_vector_tb;
     // E64 m8 makes packed integer and memory beats both singleton elements.
     vtype=27;
     run_back_to_back_compute(32'h02800457,16); // Equal-PC macros can replace sequencing ownership.
+    run_back_to_back_compute(32'h02800457,1); // The successor reads the still-pending first row.
     run_macro(32'h02800457,0); // Empty completion has no write.
     run_macro(32'h02007407,16,1); // vle64.v v8,(x0), reordered slow completions and slot wrap.
     run_macro(32'h02007407,8,1,1); // Retry preserves accepted older slots.

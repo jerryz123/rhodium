@@ -25,7 +25,7 @@ unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
 unsigned beat_launch_count=0, first_cycle_launch_count=0;
 unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0, launch_stall_count=0;
-constexpr std::array<const char*,7> launch_reasons={"setup_wait","first_source_wait","second_source_wait",
+constexpr std::array<const char*,7> launch_reasons={"setup_wait","vs2_wait","vs1_wait",
   "destination_wait","mask_wait","gather_source_wait","fetch_wait"};
 std::array<unsigned,launch_reasons.size()> launch_reason_counts{};
 bool resetting=true, writes=true;

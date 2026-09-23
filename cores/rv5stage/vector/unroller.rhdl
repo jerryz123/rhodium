@@ -210,8 +210,8 @@ sync_circuit RV5StageVectorUnroller(xlen :: XLen, vlen :: VectorLength, Context 
     last: plan.context.beat.last
     empty: plan.context.beat.empty
     setup_wait: !read_setup_ready
-    first_source_wait: read_source_blocked[0].into(Bool)
-    second_source_wait: read_source_blocked[1].into(Bool)
+    vs2_wait: read_source_blocked[0].into(Bool)
+    vs1_wait: read_source_blocked[1].into(Bool)
     destination_wait: read_source_blocked[2].into(Bool)
     mask_wait: read_source_blocked[3].into(Bool)
     gather_source_wait: read_source_blocked[4].into(Bool)

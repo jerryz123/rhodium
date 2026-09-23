@@ -85,8 +85,9 @@ authorized beat's ordered result drain. Packed memory has no separate
 elementwise read plan and begins its beat trace at `vector/s2.issue`.
 The `vector/s1.sequence.stall` observation records a pending read plan that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
-`setup_wait`, the individual source-row and gather hazards, and aggregate
-operand-fetch `fetch_wait`. Several fields may be true at once; they are not
+`setup_wait`, `vs2_wait` and `vs1_wait` for the architectural source rows,
+the destination-row and gather hazards, and operand-fetch `fetch_wait`.
+Several fields may be true at once; they are not
 priority-encoded. Idle, completed, and canceled plans do
 not generate a sequencing stall.
 Each elementwise issue inherits its exact sequencing occurrence, and every
