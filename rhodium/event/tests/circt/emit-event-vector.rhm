@@ -8,7 +8,7 @@ import:
   "../../../../rhodium/backend/circt.rhm".emit_circt
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageVectorTrace(4)), EventInstrumentationConfig(~partial: #true))
 def execution_path = traced.manifest.sites.find(fun (site): site.label == "vector/sequencer").instance_path
-for (label in ["vector/issue", "vector/complete", "vector/issue.stall"]):
+for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
   def sites = traced.manifest.sites.filter(~keep: fun (site): site.label == label)
   unless sites.length() == 2 && sites.map(fun (site): site.instance_path).contains(execution_path ++ ["packed"])
   | error("expected shared vector labels across execution paths")
@@ -16,7 +16,7 @@ for (label in ["vector/issue", "vector/complete", "vector/issue.stall"]):
     unless site.fields.map(fun (field): field.name).contains("packed")
     | error("expected beat geometry metadata")
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_sites {\n" ++ String.join(
-  for List (label in ["sequencer", "issue", "complete", "issue.stall"], name in ["sequencer", "issue", "complete", "stall"]):
+  for List (label in ["sequencer", "s1.launch", "s2.issue", "complete", "s2.issue.stall"], name in ["sequencer", "launch", "issue", "complete", "stall"]):
     def path = execution_path
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == ("vector/" ++ label) && traced.manifest.sites[index].instance_path == path)
     unless matches.length() == 1 | error("expected one vector trace site: " ++ label)

@@ -21,6 +21,7 @@ std::optional<Ref> offered_macro;
 std::uint64_t cycle=0, launches=0, issues=0, completions=0, stalls=0;
 unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
+unsigned beat_launch_count=0, first_cycle_launch_count=0;
 unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0;
 bool resetting=true, writes=true;
 struct Expected { Ref ref; std::optional<Ref> parent; };
@@ -28,6 +29,7 @@ std::vector<Expected> expected;
 unsigned expected_index=0;
 bool have_issue=false;
 bool resident=false;
+std::optional<Ref> expected_issue_macro;
 std::map<Ref,std::uint64_t> releases;
 [[noreturn]] void fail(const char* message) {
   std::fprintf(stderr,"vector trace cycle %llu: %s\n",(unsigned long long)cycle,message);
@@ -50,6 +52,15 @@ void check_parent(Ref child, Ref parent) {
     fail("missing or incomplete parent");
   }
 }
+Ref only_parent(Ref child, unsigned site) {
+  std::optional<Ref> found;
+  for(const auto& edge:rheg::graph().edges) if(equal(edge.second,child)) {
+    if(edge.first.site!=site || found) fail("wrong or multiple occurrence parents");
+    found=edge.first;
+  }
+  if(!found || rheg::graph().nodes.at(child).ancestry_unknown) fail("missing occurrence parent");
+  return *found;
+}
 }
 extern "C" void vector_trace_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
 // The response driver deliberately returns younger slots first. Ownership is
@@ -63,7 +74,7 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     unsigned vl, unsigned issue, unsigned tag, unsigned memory, unsigned enabled,
     unsigned commit, unsigned disposition, unsigned slow, unsigned response,
     unsigned response_tag, unsigned cancel, unsigned issue_done, unsigned sequenced) {
-  resetting=reset; expected.clear(); have_issue=false;
+  resetting=reset; expected.clear(); have_issue=false; expected_issue_macro.reset();
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
     pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_macro.reset();
@@ -137,7 +148,8 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     if(!issuing_macro) fail("issue without retained owner");
     incoming=Attempt{{vector_sites::issue,issues++},tag,issuing_index,bool(memory),bool(enabled)};
     issue_owners.front().next_index=issuing_index+1;
-    expect(vector_sites::issue,incoming->ref.sequence,*issuing_macro);
+    expect(vector_sites::issue,incoming->ref.sequence,{});
+    expected_issue_macro=issuing_macro;
     expected_index=incoming->index; have_issue=true; ++issued_count;
   }
   if(issue_done) {
@@ -158,9 +170,20 @@ extern "C" void vector_trace_check() {
   unsigned actual=0;
   for(const auto& pair:graph.nodes) if(pair.second.cycle==cycle) {
     const auto ref=pair.first;
-    if(ref.site==vector_sites::stall) {
+    if(ref.site==vector_sites::launch) {
+      const auto owner=only_parent(ref,vector_sites::sequencer);
+      if(pair.second.cycle<=graph.nodes.at(owner).cycle ||
+          (graph.nodes.at(owner).end_cycle && pair.second.cycle>*graph.nodes.at(owner).end_cycle))
+        fail("read plan outside sequencer residency");
+      if(graph.field(ref,"packed").unsigned_value()!=0) fail("elementwise launch marked packed");
+      if(graph.field(ref,"op_index").unsigned_value()==0 && pair.second.cycle==graph.nodes.at(owner).cycle+1)
+        ++first_cycle_launch_count;
+      ++beat_launch_count;
+    } else if(ref.site==vector_sites::stall) {
       if(!offered_macro) fail("stall without issue owner");
-      check_parent(ref,*offered_macro); ++stall_count; ++stalls;
+      const auto launch=only_parent(ref,vector_sites::launch);
+      if(!equal(only_parent(launch,vector_sites::sequencer),*offered_macro)) fail("stall inherited wrong sequencer");
+      ++stall_count; ++stalls;
     } else ++actual;
   }
   if(actual!=expected.size()) fail("wrong number of transfer occurrences");
@@ -173,6 +196,16 @@ extern "C" void vector_trace_check() {
       if(graph.field(event.ref,"instruction").unsigned_value()!=macro_instruction ||
           graph.field(event.ref,"vl").unsigned_value()!=length) fail("launch snapshot");
     } else if(event.ref.site==vector_sites::issue) {
+      const auto launch=only_parent(event.ref,vector_sites::launch);
+      if(!expected_issue_macro || !equal(only_parent(launch,vector_sites::sequencer),*expected_issue_macro))
+        fail("issue inherited the wrong sequencer launch");
+      if(graph.nodes.at(launch).cycle>=cycle ||
+          graph.field(launch,"op_index").unsigned_value()!=expected_index ||
+          graph.field(launch,"first").unsigned_value()!=graph.field(event.ref,"first").unsigned_value() ||
+          graph.field(launch,"end").unsigned_value()!=graph.field(event.ref,"end").unsigned_value() ||
+          graph.field(launch,"last").unsigned_value()!=graph.field(event.ref,"last").unsigned_value() ||
+          graph.field(launch,"empty").unsigned_value()!=graph.field(event.ref,"empty").unsigned_value())
+        fail("issue did not preserve its earlier read plan");
       if(!have_issue || graph.field(event.ref,"op_index").unsigned_value()!=expected_index) fail("issue operation index");
       if(graph.field(event.ref,"first").unsigned_value()!=expected_index) fail("issue element range");
       const auto end=length==0 ? 0 : expected_index+1;
@@ -189,7 +222,7 @@ extern "C" void vector_trace_check() {
   ++cycle;
 }
 extern "C" void vector_trace_finish() {
-  if(issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
+  if(beat_launch_count<40 || !first_cycle_launch_count || issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
       !late_count || !reset_pending || !no_write || !stall_count)
     fail("missing retry/fault/truncation/ordered-drain/reset/stall/no-write coverage");
   if(!out_of_order) fail("missing out-of-order response coverage");

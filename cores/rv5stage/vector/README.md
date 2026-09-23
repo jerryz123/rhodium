@@ -77,12 +77,15 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 
 ### Event tracing
 
-The optional event compiler observes sequencing and beat milestones, not numbered
-pipeline stages: `vector/sequencer` spans the shared descriptor owner's lifetime
-after precheck, `vector/issue` accepts one execution attempt, and
-`vector/complete` records a mature or authorized beat's ordered result drain.
-One sequencer residency parents all
-its issue occurrences; every completion inherits its exact issue occurrence.
+The optional event compiler observes sequencing and beat milestones:
+`vector/sequencer` spans the shared descriptor owner's lifetime after precheck,
+`vector/s1.launch` marks an accepted elementwise read plan in the first active
+sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
+attempt after operand capture, and `vector/complete` records a mature or
+authorized beat's ordered result drain. Packed memory has no separate
+elementwise read plan and begins its beat trace at `vector/s2.issue`.
+One sequencer residency parents its launches; each elementwise issue inherits
+its exact launch occurrence, and every completion inherits its exact issue.
 Retries create fresh issue occurrences, while rejected and flushed attempts
 have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
@@ -93,8 +96,8 @@ sequencing when its final read plan transfers; memory ends on its final external
 decision, while stateful compute ends on internal result maturity or cancellation.
 Resolved results
 may finish later. The shared sequencer emits one residency track for both modes.
-Issue captures
-the macro-local operation index, exclusive element range, and last/empty flags;
+Launch and elementwise issue capture the macro-local operation index, exclusive
+element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
 captures destination and VRF-write enable. Backpressure observations share the
 issue track. The trace carries ownership through existing storage; it does not
@@ -731,7 +734,7 @@ speculative slots but never erases accepted response ownership. Ordinary LSU
 faults are reported before acceptance, as in the scalar protocol; this does
 not introduce asynchronous ordinary-load error handling.
 
-Tracing uses `vector/issue` and `vector/complete` for both execution paths.
+Tracing uses `vector/s2.issue` and `vector/complete` for both execution paths.
 The `packed` field identifies packed transport; its events also report
 `memory_bytes`, `store`, `byte_mask`, and `slot`. A completion marks a
 micro-op/beat, not completion of the whole vector instruction.

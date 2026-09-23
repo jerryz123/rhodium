@@ -121,7 +121,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
   def offers :: Handle = interface_link(Decoupled(RV5StageVectorToken(Context, slots)))
   def offered = offers.left
-  def issued = offers.right |> trace_event("vector/issue", ~stalls: #true, ~fields: token):
+  def issued = offers.right |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: token):
     packed: Bool(#true)
     memory_bytes(~format: "unsigned"): bits(bytes, 4)
     store: store

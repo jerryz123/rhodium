@@ -232,7 +232,14 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   packed.drain_enable <== authorized_slots[head] & entry_packed[head]
   packed.alignment_available <== !ex_pipe.egress.valid
   cancel |> unroller.cancel
-  unroller.read_request |> operand_fetch.request
+  def launched = unroller.read_request |> trace_event("vector/s1.launch", ~fields: plan):
+    packed: Bool(#false)
+    op_index(~format: "unsigned"): plan.context.beat.sequence
+    first(~format: "unsigned"): plan.context.beat.first
+    end(~format: "unsigned"): plan.context.beat.end
+    last: plan.context.beat.last
+    empty: plan.context.beat.empty
+  launched |> operand_fetch.request
   operand_fetch.flush <== unroller.read_flush
   operand_fetch.begin_macro <== request.fire()
   reg read_element(~init: bits(0, 3))
@@ -265,7 +272,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   // Local attempt admission and private operand capture are one atomic transfer.
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[tail] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
-  def issued = operand_fetch.issue |> trace_event("vector/issue", ~stalls: #true, ~fields: operation):
+  def issued = operand_fetch.issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
     packed: Bool(#false)
     op_index(~format: "unsigned"): operation.beat.sequence
     first(~format: "unsigned"): operation.beat.first

@@ -314,7 +314,7 @@ helper process. Streaming and replay use identical uncompressed ordering and enc
 
 Sites of the same kind with the same complete label automatically share a
 Perfetto track when they belong to the same hardware instance or nested
-subinstances. This combines the ordinary and packed `vector/issue` and
+subinstances. This combines the ordinary and packed `vector/s2.issue` and
 `vector/complete` sites without merging identically named sites in separate
 harts. Their graph identities, captures, and parent edges remain distinct.
 Same-cycle activity on an automatically shared track is rejected, so a common
@@ -337,7 +337,7 @@ standalone converter accepts the same version-1 configuration with `--tracks`:
   "version": 1,
   "tracks": [
     {
-      "label": "vector/issue",
+      "label": "vector/s2.issue",
       "sites": [
         "SoCHarness/soc/rv5stage/core/wb_vector/execution/event:0",
         "SoCHarness/soc/rv5stage/core/wb_vector/execution/packed/event:0"
@@ -357,7 +357,7 @@ standalone converter accepts the same version-1 configuration with `--tracks`:
 These illustrative IDs must match the actual trace manifest; event indices can
 change between builds. There is no wildcard or global label-based merging.
 Name each instance's sites explicitly and use separate display paths such as
-`core0/vector/issue` and `core1/vector/issue` for multiple vector instances.
+`core0/vector/s2.issue` and `core1/vector/s2.issue` for multiple vector instances.
 Unlisted sites retain their original tracks. Unknown IDs, repeated membership,
 stall IDs, groups smaller than two sites, and empty hierarchy segments fail
 before trace output. Same-cycle collisions between any members, including

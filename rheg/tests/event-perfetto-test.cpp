@@ -482,7 +482,7 @@ void shared_tracks(const std::string& path) {
       const bool stall = s == 2 || s == 4;
       const bool packed = s == 3 || s == 6;
       const unsigned width = !s ? 0 : stall ? 8 : packed ? 17 : 9;
-      const auto label = !s ? display + "launch" : s < 5 ? "vector/issue" : "vector/complete";
+      const auto label = !s ? display + "launch" : s < 5 ? "vector/s2.issue" : "vector/complete";
       json << "{\"id\":\"" << scope << suffixes[s] << "\",\"label\":\"" << label << "\",\"payload_width\":" << width;
       if (stall) json << ",\"kind\":\"stall\",\"observation_of\":\"" << scope << suffixes[s-1] << '"';
       json << ",\"fields\":[";
@@ -593,7 +593,7 @@ void shared_tracks(const std::string& path) {
 }
 }
 void residency(const std::string& path) {
-  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Residency","sites":[{"id":"regular","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"packed","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"issue","label":"vector/issue","payload_width":0}],"dependencies":[{"parent":"regular","child":"issue"},{"parent":"packed","child":"issue"}]})",
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Residency","sites":[{"id":"regular","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"packed","label":"vector/sequencer","kind":"residency","payload_width":0},{"id":"issue","label":"vector/s2.issue","payload_width":0}],"dependencies":[{"parent":"regular","child":"issue"},{"parent":"packed","child":"issue"}]})",
       {0,0,0}, {{0,2},{1,2}}, {}, {0,1}};
   PerfettoTrackGroups groups{{"vector/sequencer", {"regular","packed"}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});

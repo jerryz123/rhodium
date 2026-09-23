@@ -14,19 +14,19 @@ WITH events AS MATERIALIZED (
 SELECT
   (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/s1.access') AND
   (SELECT count(*)>0 FROM edges WHERE src='core/s3.execute' AND dst='dcache/s1.access') AND
-  (SELECT count(*)>0 FROM edges WHERE src='vector/issue' AND dst='dcache/s1.access') AND
+  (SELECT count(*)>0 FROM edges WHERE src='vector/s2.issue' AND dst='dcache/s1.access') AND
   (SELECT count(*)=0 FROM edges WHERE dst='dcache/s1.access' AND
-    NOT ((src='core/s3.execute' AND delay=10) OR (src='vector/issue' AND delay=20))) AND
+    NOT ((src='core/s3.execute' AND delay=10) OR (src='vector/s2.issue' AND delay=20))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/s1.access' AND
     ((SELECT count(*) FROM edges WHERE child=e.id)!=1 OR
      COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false')) AND
   (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')=1) AND
   (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')=2) AND
   (SELECT count(*)=0 FROM results r WHERE
-    (SELECT count(*) FROM edges WHERE child=r.id AND src='vector/issue' AND delay=30)!=1 OR
+    (SELECT count(*) FROM edges WHERE child=r.id AND src='vector/s2.issue' AND delay=30)!=1 OR
     COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false') AND
   (SELECT count(*)=0 FROM edges WHERE dst='vector/memory.result' AND
-    NOT ((src='vector/issue' AND delay=30) OR (src='dcache/s1.access' AND delay=10))) AND
+    NOT ((src='vector/s2.issue' AND delay=30) OR (src='dcache/s1.access' AND delay=10))) AND
   (SELECT count(*)=0 FROM results r WHERE EXTRACT_ARG(arg_set_id,'debug.outcome') IN (1,2) AND
     (SELECT count(*) FROM edges WHERE child=r.id AND src='dcache/s1.access')!=1) AND
   -- The cache and caller must name the same issue occurrence, even on retries
