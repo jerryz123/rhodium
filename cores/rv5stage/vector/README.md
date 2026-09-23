@@ -722,7 +722,8 @@ responses may arrive out of order. A slot can release into the partial-row carry
 without waiting for its successor; a one-slot configuration therefore progresses.
 Execution completion waits for the last partial-row write. Accepted entries and
 the partial-row carry retain their ownership after the unroller is released.
-Younger vector instructions use row-level RAW and group-level WAW interlocks.
+Younger vector reads wait for older pending writes by row; ordered result drain
+preserves write-after-write order without blocking sequencer admission.
 The slot scoreboard distinguishes reservation, acceptance, and ordered release.
 A local replay rewinds only the unauthorized frontier,
 without refetching the macro or reissuing accepted effects. Cancellation drops

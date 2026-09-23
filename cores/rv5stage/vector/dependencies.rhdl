@@ -1,5 +1,5 @@
 #lang rhodium
-// Computes conservative architectural destination groups for vector WAW admission.
+// Computes conservative destination groups for pending vector read interlocks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

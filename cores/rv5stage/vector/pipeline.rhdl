@@ -151,13 +151,11 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   scoreboard.replay.valid <== replay
   local_completion |> loads.response
   def destination_registers = vector_destination_registers(xlen, vlen, request.bits.descriptor)
-  def busy_registers = vec(for List (register in 0..32): vec(for List (owner in 0..vector_completion_slots): macro_valid[owner] & macro_destinations[owner][register].into(Bool)).as_bits().or_reduce()).as_bits()
-  def waw = (busy_registers & destination_registers).or_reduce()
   // Stateful/packed schedules begin after older operand preparation drains;
   // ordinary compute may replace the sequencer while those beats remain live.
   def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| request.bits.descriptor.control.scan ||| request.bits.descriptor.control.compress
   available <== unroller.request.ready & !macro_valid[next_owner] & (!stateful_request ||| !operand_fetch.active)
-  def admitted = request |> gate_flow(available & !waw)
+  def admitted = request |> gate_flow(available)
   def sequencing = admitted |> trace_event("vector/sequencer", ~residency: "sequencer", ~fields: operation):
     pc: operation.descriptor.pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): operation.descriptor.instruction
@@ -213,16 +211,13 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       macro_fault[owner] <== fault ||| cancel.valid
   when macro_complete:
     drain_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_owner + bits(1, tag_width)
-  def mutable busy :: Bits(vector_depth(vlen)) = packed.busy_rows.as_bits()
   def mutable foreign :: Bits(vector_depth(vlen)) = packed.foreign_rows.as_bits()
   for (owner in 0..vector_completion_slots):
     for (row in 0..vector_depth(vlen)):
       def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div vector_chunks(vlen)].into(Bool)
-      busy := busy ||| mux(pending_row, bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
       foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
   for (slot in 0..vector_completion_slots):
     def rows = mux(allocated[slot] & !entry_packed[slot] & entry_writes[slot], bits(1, vector_depth(vlen)) << entry_write_address[slot], bits(0, vector_depth(vlen)))
-    busy := busy ||| rows
     foreign := foreign ||| mux(entry_owner[slot] =/= current_owner, rows, bits(0, vector_depth(vlen)))
   def foreign_rows :: Vec(vector_depth(vlen), Bool) = foreign.as_vec(Bool)
   unroller.blocked_rows <== foreign_rows

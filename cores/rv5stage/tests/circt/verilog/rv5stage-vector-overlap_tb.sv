@@ -16,6 +16,7 @@ module rv5stage_vector_overlap_tb;
   int cycle=0, phase=0, done_count=0, retired_count=0, fp_count=0, memory_count=0, store_count=0, reduction_retirements=0;
   int phase1_issue_count=0, phase1_last_issue=0;
   int phase1_launches=0, phase1_sequences=0;
+  int phase5_younger_attempts=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
   bit launch_seen, tail_handoff_seen=0, retry_last=0, retried=0;
@@ -62,6 +63,7 @@ module rv5stage_vector_overlap_tb;
       if (attempt_out.valid && !cancel) begin
         if (retry) retried=1;
         else if (attempt_out.bits.memory) begin
+          if (phase==5 && attempt_out.bits.address>=64'h180 && attempt_out.bits.address<64'h200) phase5_younger_attempts++;
           if (slow) memory_tags[memory_count++]=int'(attempt_out.bits.completion_tag);
           if (attempt_out.bits.context_0>=64'h300) stores[store_count++]=attempt_out.bits.store_data;
         end
@@ -168,18 +170,20 @@ module rv5stage_vector_overlap_tb;
     drain();
     assert(store_count==2 && stores[0]==64'h0123456789abcdef && stores[1]==64'hfedcba9876543210) else $fatal(1,"cross-route response ownership");
 
-    // WAW cannot replace an older outstanding destination, even with a free
-    // macro context. This also exercises allocator wrap without a per-launch reset.
+    // A younger load may sequence and issue to the same destination before the
+    // older slow responses return, but its writes must remain ordered after them.
+    // This also exercises allocator wrap without a per-launch reset.
     phase=5;
-    memory_count=0; slow=1;
+    memory_count=0; store_count=0; slow=1;
     launch(load_insn(16),64'h100,0);
     while(memory_count<2) tick();
-    instruction=load_insn(16); scalar=64'h180; request_valid=1; packed_memory=1;
-    repeat(6) begin tick(); assert(!launch_seen) else $fatal(1,"WAW admitted too early"); end
-    request_valid=0; slow=0;
+    slow=0;
+    launch(load_insn(16),64'h180,1);
+    while(phase5_younger_attempts<2) tick();
     return_memory(1,64'hbbbb); return_memory(0,64'haaaa);
-    launch(load_insn(16),64'h180,1); drain();
-    assert(!active && retired_count==8) else $fatal(1,"macro context leaked: %0d retirements",retired_count);
+    drain();
+    launch(store_insn(16),64'h480,0); drain();
+    assert(store_count==2 && stores[0]==64'h1180 && stores[1]==64'h1188 && retired_count==9) else $fatal(1,"overlapping destinations wrote out of order");
 
     // Cancellation preserves an accepted prefix even when it ends in a
     // partial VRF row rather than the descriptor's original final word.
@@ -189,10 +193,10 @@ module rv5stage_vector_overlap_tb;
     while(memory_count<1) tick();
     cancel=1; tick(); cancel=0; slow=0;
     return_memory(0,64'h0706050403020100); drain();
-    assert(retired_count==8) else $fatal(1,"canceled macro retired");
+    assert(retired_count==9) else $fatal(1,"canceled macro retired");
     vl=1; vtype=24; store_count=0;
     launch(store_insn(18),64'h400,0); drain();
-    assert(store_count==1 && stores[0][39:0]==40'h0706050403 && retired_count==9) else $fatal(1,"canceled accepted carry was lost");
+    assert(store_count==1 && stores[0][39:0]==40'h0706050403 && retired_count==10) else $fatal(1,"canceled accepted carry was lost");
     // Each returning read must keep its own SEW and immediate, even though
     // the sequencer has already captured a differently configured successor.
     phase=7; vl=2; vtype=24;
@@ -226,7 +230,7 @@ module rv5stage_vector_overlap_tb;
     assert(retired_count==reduction_retirements) else $fatal(1,"reduction retained the sequencer until retirement");
     drain();
     assert(retired_count==reduction_retirements+2) else $fatal(1,"overlapped reduction ownership leaked");
-    $display("Vector overlap passed: tail handoff, reductions, row chaining, replay, cross-route returns, WAW, slot wrap, and canceled carry");
+    $display("Vector overlap passed: tail handoff, reductions, row chaining, replay, cross-route returns, overlapping destinations, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

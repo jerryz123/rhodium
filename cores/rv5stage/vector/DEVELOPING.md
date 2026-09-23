@@ -53,7 +53,9 @@ Replay restores only the current unauthorized suffix. Result routing uses the
 slot's route, never the current descriptor's route, and no launch resets the ring.
 All accepted operands are captured, so older issued instructions have no unread
 VRF sources. Older pending writes block reads by 64-bit row; `dependencies.rhdl`
-conservatively interlocks overlapping architectural destination groups. Gather's
+computes conservative destination groups while pending writes have not yet
+resolved to individual rows. Ordered completion and packed-carry drain preserve
+WAW order without a macro-level sequencer-admission gate. Gather's
 dependent second read waits for older writes before starting its nonstallable
 read pair. There is no renaming, out-of-order instruction selection, or
 interleaved instruction unrolling.
@@ -151,8 +153,9 @@ memory/FP/muldiv fixtures as functional regressions for the affected paths.
 `rv5stage-vector-overlap` checks consecutive issue for independent single-beat
 compute macros and independently delays FP and memory responses to check
 registered read-tail replacement, FP-to-store row chaining, route changes with
-old responses outstanding, final memory-beat replay, WAW admission, persistent slot wrap,
-and a canceled packed prefix whose partial-row carry still needs writeback.
+old responses outstanding, final memory-beat replay, overlapping-destination
+admission and ordered writes, persistent slot wrap, and a canceled packed prefix
+whose partial-row carry still needs writeback.
 
 ## Implementation ownership
 
