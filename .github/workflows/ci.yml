@@ -260,8 +260,6 @@ jobs:
         run: make -C sims arch-test-adapter-test
       - name: Test program suite adapters
         run: make -C sims program-test-adapter-test
-      - name: Test OpenSBI target adapter
-        run: make -C sims opensbi-adapter-test
       - name: Download exact SingleCoreRV5StageSoC simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -276,26 +274,6 @@ jobs:
         run: |
           chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
           chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-      - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
-        run: |
-          make -C sims opensbi-setup
-          status=0
-          for soc in single-core-rv5stage-soc single-core-spike-soc; do
-            make -C sims opensbi-test SOC="$soc" \
-              OPENSBI_LLVM=/usr/bin \
-              PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
-          done
-          exit "$status"
-      - name: Publish OpenSBI diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: opensbi-${{ github.sha }}
-          path: |
-            /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
-            /tmp/rhodium-software/single-core-spike-soc/opensbi
-          if-no-files-found: warn
-          retention-days: 7
       - name: Build reusable SoC simulators
         run: |
           make -C sims simulator SOC=tiled-rv5stage-soc
@@ -362,6 +340,81 @@ jobs:
         with:
           name: soc-smoke-elfs-${{ github.sha }}
           path: /tmp/rhodium-sims/**/*.elf
+          if-no-files-found: warn
+          retention-days: 7
+
+  simulation-opensbi:
+    name: SoC OpenSBI qualification
+    needs: [changes, compile-racket, single-core-rv5stage-soc-build, single-core-spike-soc-build]
+    if: needs.changes.outputs.simulation == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Racket
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: "${{ env.RACKET_VERSION }}"
+      - name: Prepare precompiled Rhodium
+        uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: "${{ env.RACKET_VERSION }}"
+          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install native toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential clang cmake device-tree-compiler lld llvm zlib1g-dev
+      - name: Install pinned RISC-V compiler
+        uses: ./.github/actions/setup-riscv-toolchain
+      - name: Identify pinned Spike revision
+        id: spike-revision
+        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+      - name: Cache FESVR
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .tools/fesvr-*
+          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+      - name: Build pinned FESVR
+        run: make -C sims setup
+      - name: Test OpenSBI target adapter
+        run: make -C sims opensbi-adapter-test
+      - name: Download exact SingleCoreRV5StageSoC simulator
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: single-core-rv5stage-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-rv5stage-soc
+      - name: Download exact SingleCoreSpikeSoC simulator
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: single-core-spike-soc-${{ github.sha }}
+          path: ${{ runner.temp }}/single-core-spike-soc
+      - name: Restore simulator executable permission
+        run: |
+          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
+      - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
+        run: |
+          make -C sims opensbi-setup
+          status=0
+          for soc in single-core-rv5stage-soc single-core-spike-soc; do
+            make -C sims opensbi-test SOC="$soc" \
+              OPENSBI_LLVM=/usr/bin \
+              PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
+          done
+          exit "$status"
+      - name: Publish OpenSBI diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: opensbi-${{ github.sha }}
+          path: |
+            /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
+            /tmp/rhodium-software/single-core-spike-soc/opensbi
           if-no-files-found: warn
           retention-days: 7
 

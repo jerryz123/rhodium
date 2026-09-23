@@ -98,11 +98,14 @@ flowchart TD
     Compile --> Examples["Example matrix<br/>one owning example group per shard"]
     Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
     Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
+    Compile --> OpenSBI["OpenSBI qualification job<br/>both single-core SoCs"]
     Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
     Compile --> SimpleBuild["Build SingleCoreRV5StageSoC once<br/>exact-commit executable artifact"]
     Compile --> SpikeBuild["Build SingleCoreSpikeSoC once<br/>exact-commit executable artifact"]
     SimpleBuild --> Simulation
     SpikeBuild --> Simulation
+    SimpleBuild --> OpenSBI
+    SpikeBuild --> OpenSBI
     SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants, and Embench-IoT"]
     SpikeBuild --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
@@ -117,7 +120,9 @@ CHI, core, and shared standard/flow library changes also select the SoC host sha
 when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard and every external CIRCT group. The
 simulation job remains independent from backend fixtures and owns the
-repository's full harness flow.
+repository's harness and ISA-smoke flow. OpenSBI qualification uses its own job
+budget and the same exact-commit single-core simulator artifacts, so firmware
+execution cannot consume the harness job's timeout budget.
 
 Core CIRCT coverage gives scalar/frontend execution, functional vector,
 alternate vector configuration, and HardFloat independent jobs and timeout
@@ -131,8 +136,9 @@ consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
 Both single-core software matrices independently select ISA tests, benchmarks,
-both CoreMark variants, and Embench-IoT. The simulation job qualifies OpenSBI
-on both single-core products. Both profiles select their own ACT generation and
+both CoreMark variants, and Embench-IoT. The OpenSBI job tests its target adapter,
+qualifies both single-core products under the simulation change selection, and
+publishes its diagnostics. Both profiles select their own ACT generation and
 four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. MiniRV5StageSoC and
