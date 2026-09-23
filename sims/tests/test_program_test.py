@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import struct
+import tarfile
 from pathlib import Path
 import subprocess
 import sys
@@ -51,6 +52,52 @@ class ProgramTargetTest(unittest.TestCase):
             target['clock_frequency_hz'] = value
             with self.assertRaisesRegex(ValueError, 'invalid program target'):
                 self.target.validate_target(target)
+
+
+class ProgramArchiveTest(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('program_archive', SCRIPTS / 'archive.py')
+        self.archive = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.archive)
+
+    def test_packages_manifest_binaries_with_replay_paths(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest_root = root / 'suite'
+            binary_root = manifest_root / 'build' / 'key'
+            binary_root.mkdir(parents=True)
+            tests = []
+            for name in ('rv64ui-p-add', 'picojpeg.riscv'):
+                binary = binary_root / name
+                binary.write_bytes(b'\x7fELF' + name.encode())
+                tests.append(dict(name=name, elf=f'build/key/{name}',
+                                  sha256=hashlib.sha256(binary.read_bytes()).hexdigest()))
+            manifest_path = manifest_root / 'manifest.json'
+            manifest_path.write_text(json.dumps(dict(tests=tests)))
+            archive_path = root / 'artifacts' / 'suite.tar.gz'
+            self.archive.package(manifest_path, archive_path)
+            with tarfile.open(archive_path) as archive:
+                self.assertEqual(archive.getnames(),
+                                 ['manifest.json', 'build/key/picojpeg.riscv', 'build/key/rv64ui-p-add'])
+                for test in tests:
+                    payload = archive.extractfile(test['elf']).read()
+                    self.assertEqual(hashlib.sha256(payload).hexdigest(), test['sha256'])
+
+    def test_rejects_missing_corrupt_or_outside_binaries(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary = root / 'program.riscv'
+            binary.write_bytes(b'\x7fELF')
+            manifest_path = root / 'manifest.json'
+            archive_path = root / 'program.tar.gz'
+            for name, digest, message in (
+                    ('missing.riscv', hashlib.sha256(b'\x7fELF').hexdigest(), 'missing'),
+                    ('program.riscv', '0' * 64, 'checksum mismatch'),
+                    ('../program.riscv', hashlib.sha256(b'\x7fELF').hexdigest(), 'invalid')):
+                manifest_path.write_text(json.dumps(dict(tests=[dict(elf=name, sha256=digest)])))
+                with self.assertRaisesRegex(ValueError, message):
+                    self.archive.package(manifest_path, archive_path)
+                self.assertFalse(archive_path.exists())
 
 
 class CoreMarkBuildTest(unittest.TestCase):

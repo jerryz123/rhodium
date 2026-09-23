@@ -385,6 +385,15 @@ The runner requires confirmed HTIF success and executes the entire manifest,
 including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
+CI attaches each completed ISA, benchmark, CoreMark, Embench-IoT, and
+Mini/Tiled ISA-smoke workload as a compressed archive alongside its results.
+Each archive contains `manifest.json` and every selected ELF at the manifest's
+relative path, including ISA binaries without a filename extension. Extract an
+archive to an empty directory to replay the exact CI-built binaries with a
+matching simulator; the runner checks their manifest SHA-256 digests. The
+simulation job separately publishes its hand-written smoke ELFs, the tiled-memory
+job attaches its test ELF, and ACT publishes its generated ELF archive.
+
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
 `PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
 Embench-IoT use 100 million. These are safety budgets, including loading,

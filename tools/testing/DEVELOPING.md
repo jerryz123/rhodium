@@ -141,6 +141,10 @@ upload logs plus JSON/JUnit results even when execution fails. Do not add
 complete Linux run and resolve baseline failures before marking the new jobs
 required in branch protection. Platform/privileged ACT coverage limits remain
 in the [simulation guide](../../sims/README.md#architectural-certification-tests).
+The native software and ISA-smoke jobs publish manifest-selected ELF archives
+with their diagnostics; package by manifest entry rather than filename suffix,
+since upstream ISA binaries have no extension. The ordinary simulation jobs
+also attach their standalone hand-written ELFs.
 
 Recognized documentation and inert repository metadata select no functional
 test jobs. The optional Emacs integration and most of `vlsi/` have no

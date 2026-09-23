@@ -298,6 +298,15 @@ jobs:
           make -C sims isa-smoke SOC=mini-rv5stage-soc PROGRAM_JOBS=2 || status=1
           make -C sims isa-smoke SOC=tiled-rv5stage-soc PROGRAM_JOBS=2 || status=1
           exit "$status"
+      - name: Package completed ISA smoke ELFs
+        if: always()
+        run: |
+          shopt -s nullglob
+          for manifest in /tmp/rhodium-program-tests/*/isa-smoke/manifest.json; do
+            soc="$(basename "$(dirname "$(dirname "$manifest")")")"
+            python3 sims/program-test/archive.py --manifest "$manifest" \
+              --archive "$RUNNER_TEMP/isa-smoke-elfs/$soc.tar.gz"
+          done
       - name: Publish MiniRV5StageSoC and TiledRV5StageSoC ISA smoke results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -308,6 +317,15 @@ jobs:
             /tmp/rhodium-program-tests/*/isa-smoke/manifest.json
             /tmp/rhodium-program-tests/*/isa-smoke/build.log
             /tmp/rhodium-program-tests/*/isa-smoke/results
+            ${{ runner.temp }}/isa-smoke-elfs
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Publish standalone SoC smoke ELFs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: soc-smoke-elfs-${{ github.sha }}
+          path: /tmp/rhodium-sims/**/*.elf
           if-no-files-found: warn
           retention-days: 7
 
@@ -362,7 +380,9 @@ jobs:
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: tiled-memory-${{ github.sha }}
-          path: ${{ runner.temp }}/tiled-memory.log
+          path: |
+            ${{ runner.temp }}/tiled-memory.log
+            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf
           retention-days: 7
 
   single-core-rv5stage-soc-build:
@@ -468,6 +488,16 @@ jobs:
           make -C sims "$SUITE-test" SOC=single-core-rv5stage-soc \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver" \
             PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+      - name: Package completed workload ELFs
+        if: always()
+        env:
+          SUITE: ${{ matrix.suite }}
+        run: |
+          manifest="/tmp/rhodium-program-tests/$SUITE/manifest.json"
+          if [[ -f "$manifest" ]]; then
+            python3 sims/program-test/archive.py --manifest "$manifest" \
+              --archive "$RUNNER_TEMP/program-elfs/$SUITE.tar.gz"
+          fi
       - name: Publish workload results and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -479,6 +509,7 @@ jobs:
             /tmp/rhodium-program-tests/*/instruction-report.json
             /tmp/rhodium-program-tests/*/build.log
             /tmp/rhodium-program-tests/*/results
+            ${{ runner.temp }}/program-elfs
           if-no-files-found: warn
           retention-days: 7
 
