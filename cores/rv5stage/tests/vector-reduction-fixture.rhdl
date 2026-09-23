@@ -61,8 +61,8 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   def retry = tokens.egress.valid & retry_enable & (index === retry_index) & !cancel & serialized
   tokens.flush <== cancel ||| retry
   vector.cancel.valid <== cancel
-  vector.commit.valid <== tokens.egress.valid & !cancel
-  vector.commit.bits <== RV5StageVectorCommit(xlen, 8):
+  vector.decision.valid <== tokens.egress.valid & !cancel
+  vector.decision.bits <== RV5StageVectorCommit(xlen, 8):
     tag: tokens.egress.bits.completion_tag
     pc: bits(0x100, xlen.width)
     disposition: mux(retry, RV5StageVectorDisposition.Retry, RV5StageVectorDisposition.Authorized)
@@ -86,7 +86,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   request_ready <== vector.request.ready
   active <== vector.active
   issued <== vector.issue.fire()
-  committed <== vector.commit.valid & !retry
+  committed <== vector.decision.valid & !retry
   retried <== retry
   retired <== vector.retire.valid
   saturate <== vector.saturate.valid
@@ -94,7 +94,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   store_data <== tokens.egress.bits.store_data
   when (vector.request.fire()):
     index <== bits(0, index_width(vlen + 1))
-  elsewhen (vector.commit.valid & !retry):
+  elsewhen (vector.decision.valid & !retry):
     index <== index + bits(1, index_width(vlen + 1))
 
 export:

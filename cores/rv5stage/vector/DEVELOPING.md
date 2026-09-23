@@ -129,11 +129,11 @@ The ordered drained flow reaches the completion checkpoint and existing VRF
 write port. Immediate arithmetic uses the same owner storage as deferred results.
 
 `memory.rhdl` explicitly forks the lookup/context, request/decision, and
-feedback/outcome branches; the parent composition likewise forks compute
-feedback from macro outcome. These synchronous Valid forks certify existing
-replication to cache service and retirement without adding storage or changing
-their predicates, payloads, or latency. Pair the optional LSU response with the
-same-cycle lookup context before the existing decision pipe; a context-owned
+feedback/outcome branches. Ordinary compute acceptance comes from the execution
+result pipe, carrying macro context through the same replay flush as its result.
+The execution engine merges that acceptance with external memory decisions.
+Pair the optional LSU response with the same-cycle lookup context before the
+existing decision pipe; a context-owned
 fallback preserves absent responses and no join may add a wait. Observe its
 registered result as `vector/memory.result`, qualified for enabled memory beats.
 The shared cache owns `dcache/s1.access`; do not duplicate it in this adapter.
@@ -193,7 +193,10 @@ not a fault: element masking and exact first-fault semantics remain in memory
 execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.
 [`pipeline.rhdl`](pipeline.rhdl) owns the unroller/VRF/SIMD composition and shared
 service operands. An atomic fork couples local attempt admission to operand
-capture; both paths have three fixed stages and meet at local acceptance.
+capture; the three-stage result path and memory decisions meet at local
+acceptance. Any rejected local or packed decision flushes the speculative
+ordinary result and shared-service operand pipes before a younger beat can be
+accepted.
 [`memory.rhdl`](memory.rhdl) owns address/lookup, result classification, and
 transaction acceptance. Its replay flushes younger attempts and operand results,
 then restores the unroller checkpoint. It never replays an accepted transaction.

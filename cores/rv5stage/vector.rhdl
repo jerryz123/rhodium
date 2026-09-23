@@ -97,19 +97,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     data: bits(0, xlen.width)
     cause: bits(0, xlen.width)
     fault_address: bits(0, xlen.width)
-  def Array(compute, memory_issue) = execution.issue |> demux_flow(2, operation => operation.memory.as_bits())
-  memory_issue |> access.issue
-  def compute_wb = compute |> to_valid() |> valid_pipe(3)
-  def compute_accept = compute_wb |> map_valid(operation => RV5StageVectorCommit(xlen, slots)):
-    tag: operation.completion_tag
-    pc: operation.context
-    disposition: RV5StageVectorDisposition.Authorized
-    slow: Bool(#false)
-    data: bits(0, xlen.width)
-    cause: bits(0, xlen.width)
-    fault_address: bits(0, xlen.width)
-  Array(compute_accept, access.feedback) |> valid_arbiter() |> execution.commit
-  assert(!(compute_accept.valid & access.feedback.valid), "vector_macro_has_one_execution_route")
+  execution.issue |> filter_flow(operation => operation.memory) |> access.issue
+  access.feedback |> execution.decision
   access.completion |> execution.completion
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
