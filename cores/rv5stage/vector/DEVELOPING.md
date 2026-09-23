@@ -40,8 +40,10 @@ entry. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
 work; transfer to execution must not create a cycle without pending ownership.
 Do not use pending
 descriptor state to gate the older owner's issue stream, and release a page
-window only from the issue completion of the descriptor that acquired it. The
-completion-slot-sized owner ring lets accepted work outlive sequencing
+window only when the descriptor that acquired it finishes sequencing. An older
+compute descriptor can issue its final beat after the current memory descriptor
+has acquired the page window; its issue-completion pulse must not release that
+window. The completion-slot-sized owner ring lets accepted work outlive sequencing
 ownership. Persistent slots retain route and owner identity across descriptor
 replacement. Keep front admission, sequencing release, execution allocation,
 compute maturity or memory acceptance, service-result arrival, and drain distinct.
@@ -88,7 +90,8 @@ The real MMU/cache vector-memory fixture remains the integration boundary.
 `rv5stage-vector-admission` drives the production parent pipeline to check two
 waiting entries, consecutive admission, full replacement, head-only precheck
 under backpressure, both certificate results, empty bodies, tail pending flags,
-captured instruction operands, and reset with queued work.
+captured instruction operands, delayed older load responses, final packed-beat
+replay, and reset with queued work.
 
 ## Event ownership
 

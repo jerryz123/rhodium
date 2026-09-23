@@ -84,9 +84,9 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   precheck.request.valid <== queued_descriptor.valid & needs_check & !check_started
   precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))
   def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()
-  // Every accepted LSU transaction already owns its physical address. The
-  // single page window belongs to replayable issue, not delayed responses.
-  precheck.release.valid <== execution.issue_done.valid & active_precheck
+  // The page window belongs to the current sequencer, not an older compute
+  // macro whose final beat may issue after a memory descriptor replaces it.
+  precheck.release.valid <== execution.sequencing_done.valid & active_precheck
   def empty_memory = inject_flow(Valid(Bits(xlen.width)), ~valid: execution.request.fire() & queued_descriptor.bits.control.memory & footprint.empty, ~bits: queued_descriptor.bits.pc)
   def checked_memory = checked |> filter_valid(safe => safe) |> map_valid(_safe => queued_descriptor.bits.pc)
   def early_outcome = Array(empty_memory, checked_memory) |> valid_arbiter() |> map_valid(pc => RV5StageVectorCommit(xlen, slots)):

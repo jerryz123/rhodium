@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes production descriptor admission, certification, and status with a one-cycle hit responder.
+// Exposes production admission and certification with hit, replay, and delayed-memory responses.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,8 +22,13 @@ sync_circuit RV5StageVectorAdmission():
   input instruction: Bits(32)
   input(vl, vtype, scalar): Bits(64)
   input request_valid: Bool
+  input retry_last: Bool
+  input retry_address: Bits(64)
+  input slow_access: Bool
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface accesses(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
+  interface memory_requests(Valid(RV5StageDataReq(xlen, 8)), ~role: producer)
+  interface memory_responses(Valid(RV5StageDataResp(xlen, 8)), ~role: consumer)
   output(request_ready, active, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
@@ -53,18 +58,28 @@ sync_circuit RV5StageVectorAdmission():
   vector.precheck |> precheck
   def Array(observed, hit_request) = vector.pipeline.request |> fork_valid(2)
   observed |> accesses
+  reg retried(~init: Bool(#false))
+  def replay_final = retry_last & !retried & hit_request.valid & (hit_request.bits.address === retry_address)
+  when replay_final:
+    retried <== Bool(#true)
+  def hit_outcome = mux(hit_request.bits.access === RV5StageMemoryOperation.Store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
+  def response_outcome = priority_mux(~default: hit_outcome):
+    slow_access: RV5StagePipelineOutcome.Slow
+    replay_final: RV5StagePipelineOutcome.Replay
   (
     hit_request |> map_valid(request => RV5StagePipelineResult(xlen)):
-      outcome: mux(request.access === RV5StageMemoryOperation.Store, RV5StagePipelineOutcome.StoreHit, RV5StagePipelineOutcome.LoadHit)
+      outcome: response_outcome
       reason: RV5StagePipelineReason.None
       data: request.address
   ) |> valid_pipe(1) |> vector.pipeline.response
   vector.pipeline.commit_ready <== Bool(#true)
   vector.memory.request.ready <== Bool(#true)
+  memory_requests.valid <== vector.memory.request.valid
+  memory_requests.bits <== vector.memory.request.bits
   vector.memory.request_fault <== Bool(#false)
   vector.memory.request_access_fault <== Bool(#false)
-  vector.memory.response.valid <== Bool(#false)
-  vector.memory.response.bits <== dont_care(vector.memory.response.bits.type)
+  vector.memory.response.valid <== memory_responses.valid
+  vector.memory.response.bits <== memory_responses.bits
   vector.memory.drained <== Bool(#true)
   vector.memory.reservation_valid <== Bool(#false)
   vector.fp_request.ready <== Bool(#false)
