@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'build.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'build/opensbi.py'
 
 
 def target(**updates):

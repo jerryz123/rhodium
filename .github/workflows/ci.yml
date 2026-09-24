@@ -608,10 +608,10 @@ jobs:
         run: |
           make -C sims "$SUITE-setup"
           case "$SUITE" in
-            coremark|coremark_scalar) source=sims/program-test/coremark ;;
-            embench) source=sims/program-test/embench-iot ;;
-            bringup) source=sims/program-test/bringup-bench ;;
-            *) source=riscv/riscv-isa-tests ;;
+            coremark|coremark_scalar) source=sw/coremark ;;
+            embench) source=sw/embench-iot ;;
+            bringup) source=sw/bringup-bench ;;
+            *) source=sw/riscv-isa-tests ;;
           esac
           echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-riscv-toolchain
@@ -646,7 +646,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-program-tests/${{ matrix.soc }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sims/program-test/build.py', 'sims/program-test/build-coremark.py', 'sims/program-test/build-embench.py', 'sims/program-test/build-bringup-bench.py', 'sims/program-test/coremark-riscv-baremetal/**', 'sims/program-test/embench-iot-riscv-baremetal/**', 'sims/program-test/bringup-bench-riscv-baremetal/**', 'sims/program-test/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sw/build/build.py', 'sw/build/build-coremark.py', 'sw/build/build-embench.py', 'sw/build/build-bringup-bench.py', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sw/build/program_target.py', 'sims/program-test/write-target.rhm', 'sw/build/isa.mk') }}"
       - name: Build and run every selected workload
         env:
           SUITE: ${{ matrix.suite }}
@@ -705,8 +705,8 @@ jobs:
       - name: Initialize pinned ACT sources
         id: sources
         run: |
-          git submodule update --init riscv/riscv-arch-test
-          echo "revision=$(git rev-parse HEAD:riscv/riscv-arch-test)" >> "$GITHUB_OUTPUT"
+          git submodule update --init sw/riscv-arch-test
+          echo "revision=$(git rev-parse HEAD:sw/riscv-arch-test)" >> "$GITHUB_OUTPUT"
       - uses: ./.github/actions/setup-riscv-toolchain
       - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
         with:
@@ -744,7 +744,7 @@ jobs:
           path: |
             /tmp/rhodium-arch-test/work/**/build
             /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'riscv/riscv-arch-test-patches/**', 'riscv/patched_submodule.py') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/patched_submodule.py') }}"
       - name: Generate and package every selected ELF
         run: |
           set -o pipefail
@@ -790,7 +790,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Initialize upstream runner
-        run: git submodule update --init riscv/riscv-arch-test
+        run: git submodule update --init sw/riscv-arch-test
       - name: Install Spike runtime dependencies
         if: matrix.configuration == 'single-core-spike-soc'
         run: |

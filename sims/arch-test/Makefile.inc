@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 ACT_CONFIGURATION ?= single-core-rv5stage-soc
 PYTHON ?= python3
-ACT_DIR ?= $(REPO_DIR)/riscv/riscv-arch-test
+ACT_DIR ?= $(REPO_DIR)/sw/riscv-arch-test
 ACT_VENV ?= $(REPO_DIR)/.tools/act-venv
 ACT_PYTHON := $(ACT_VENV)/bin/python
 ACT_TESTGEN ?= $(ACT_VENV)/bin/testgen
@@ -13,7 +13,7 @@ ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
 ACT_WORKDIR := $(ACT_BUILD_ROOT)/work/$(ACT_CONFIGURATION)
 ACT_SOURCE_DIR := $(ACT_BUILD_ROOT)/source/riscv-arch-test
 ACT_TEST_DIR := $(ACT_BUILD_ROOT)/tests
-ACT_PATCH_SERIES ?= $(REPO_DIR)/riscv/riscv-arch-test-patches/series
+ACT_PATCH_SERIES ?= $(REPO_DIR)/sw/riscv-arch-test-patches/series
 PATCHED_SUBMODULE_TOOL ?= $(REPO_DIR)/riscv/patched_submodule.py
 ACT_BUNDLE_PATH ?= $(REPO_DIR)/.tools/act-bundle
 ACT_JOBS ?= 1

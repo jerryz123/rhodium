@@ -53,6 +53,7 @@ Choose the lowest package that owns the behavior before editing:
 | Reusable platform device | [`devices/DEVELOPING.md`](devices/DEVELOPING.md) |
 | Concrete SoC composition | [`socs/DEVELOPING.md`](socs/DEVELOPING.md) |
 | Executable simulator harness | [`sims/DEVELOPING.md`](sims/DEVELOPING.md) |
+| Target software sources, ports, patches, or ELF builders | [`sw/DEVELOPING.md`](sw/DEVELOPING.md) |
 | Reusable processor component or named core | [`cores/DEVELOPING.md`](cores/DEVELOPING.md) |
 | RV5Stage pipeline or integration | [`cores/rv5stage/DEVELOPING.md`](cores/rv5stage/DEVELOPING.md) |
 | RV5Stage instruction fetch or prediction | [`cores/rv5stage/fetch/DEVELOPING.md`](cores/rv5stage/fetch/DEVELOPING.md) |

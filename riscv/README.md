@@ -29,7 +29,7 @@ Contributors extending the model or catalogs should read
 | Serialize a concrete core description for Unified Database tooling | [UDB configuration model](#udb-configuration-model) |
 | Initialize the shared Spike disassembler and FESVR source | [Spike and FESVR](#spike-and-fesvr) |
 | Run the focused package checks | [Validation](#validation) |
-| Initialize the architectural test sources | [Architectural tests](#architectural-tests) |
+| Initialize architectural test sources | [Target software](../sw/README.md) |
 
 ## Vector geometry
 
@@ -446,28 +446,12 @@ copies; consumers never modify the submodule checkout. The same tool combines
 the gitlink revision, order, and patch contents so FESVR artifacts cannot
 survive a source or patch change.
 
-## Architectural tests
+## Target software
 
-[`riscv-isa-tests/`](riscv-isa-tests/) pins the upstream
-[`riscv-tests`](https://github.com/riscv-software-src/riscv-tests) repository.
-Initialize it and its test-environment submodule after cloning Rhodium:
-
-```sh
-git submodule update --init --recursive riscv/riscv-isa-tests
-```
-
-[`riscv-arch-test/`](riscv-arch-test/) separately pins the UDB-driven ACT4
-framework. Its adjacent
-[`riscv-arch-test-patches/`](riscv-arch-test-patches/) queue is materialized by
-the same shared helper as Spike. The
-[simulation ACT workflow](../sims/README.md#architectural-certification-tests)
-owns setup, generated configuration, reference-model execution, and the DUT
-runner. Both upstream test repositories remain pristine.
-
-The submodule supplies architectural sources and standard target environments.
-Simulator-specific selection, building, and execution belong under
-[`../sims/`](../sims/README.md); neither the pure model nor the adapter imports
-the test repository.
+Pinned RISC-V tests, architectural tests, firmware, and benchmarks are owned by
+[`sw/`](../sw/README.md). The [simulation workflows](../sims/README.md)
+select SoCs and execute their generated ELFs. Neither the pure RISC-V model nor
+its RTL adapter imports target software.
 
 ## Validation
 

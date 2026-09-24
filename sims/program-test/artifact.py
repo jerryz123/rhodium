@@ -7,7 +7,9 @@ import json
 import platform
 from pathlib import Path
 import subprocess
+import sys
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import load_target, target_fingerprint
 
 

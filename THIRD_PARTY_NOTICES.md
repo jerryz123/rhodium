@@ -20,35 +20,35 @@ The following paths are independently maintained Git submodules. Their contents
 are separate works governed by the license at each pinned upstream revision;
 the repository's Apache-2.0 license does not replace those terms:
 
-- `riscv/opensbi`
-- `riscv/riscv-arch-test`
+- `sw/opensbi`
+- `sw/riscv-arch-test`
 - `riscv/riscv-isa-sim`
-- `riscv/riscv-isa-tests`
-- `sims/program-test/coremark`
-- `sims/program-test/embench-iot`
-- `sims/program-test/bringup-bench`
+- `sw/riscv-isa-tests`
+- `sw/coremark`
+- `sw/embench-iot`
+- `sw/bringup-bench`
 - `vlsi/double_wide_openframe`
 
 CoreMark is used only from its pinned upstream checkout. Its license, result
 reporting conditions, acceptable-use terms, and trademark notice remain in
-[`sims/program-test/coremark/LICENSE.md`](sims/program-test/coremark/LICENSE.md).
+[`sw/coremark/LICENSE.md`](sw/coremark/LICENSE.md).
 Rhodium uses CoreMark as a short functional workload and does not report a
 benchmark score.
 
 Embench-IoT is used from its recorded upstream development-tree revision under
 GPL-3.0, with additional per-workload terms identified by upstream source
 headers; its license text remains in
-[`sims/program-test/embench-iot/COPYING`](sims/program-test/embench-iot/COPYING).
+[`sw/embench-iot/COPYING`](sw/embench-iot/COPYING).
 Rhodium runs it as a bounded functional suite and does not report an Embench
 performance score.
 
 Bringup-Bench is used from its pinned upstream checkout. The suite's own code
 is Apache-2.0; adapted benchmark components retain their individual upstream
 notices. The upstream license remains in
-[`sims/program-test/bringup-bench/LICENSE`](sims/program-test/bringup-bench/LICENSE).
+[`sw/bringup-bench/LICENSE`](sw/bringup-bench/LICENSE).
 Rhodium checks output hashes as a functional workload suite, not a benchmark
 score. The ordered downstream patch series in
-[`sims/program-test/bringup-bench-patches/`](sims/program-test/bringup-bench-patches/)
+[`sw/bringup-bench-patches/`](sw/bringup-bench-patches/)
 is applied only to build-local copies; the pinned submodule remains pristine.
 
 ## Spike disassembler
@@ -65,7 +65,7 @@ source remains under the University of California BSD license reproduced in
 
 OpenSBI is used unmodified from its pinned upstream checkout under its
 BSD-2-Clause license, which remains in
-[`riscv/opensbi/COPYING.BSD`](riscv/opensbi/COPYING.BSD).
+[`sw/opensbi/COPYING.BSD`](sw/opensbi/COPYING.BSD).
 
 External tools, PDK collateral, libraries, and workloads downloaded or supplied
 during setup and testing are not distributed as original Rhodium content. Their

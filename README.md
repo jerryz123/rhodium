@@ -211,7 +211,7 @@ SystemVerilog.
   [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) — running validation and
   maintaining the test architecture
 
-### Explore hardware libraries and systems
+### Explore hardware libraries, systems, and software
 
 - [`flow/README.md`](flow/README.md) — streaming buffers, arbitration, routing,
   packet adapters, and typed pipeline composition
@@ -227,6 +227,8 @@ SystemVerilog.
 - [`cores/README.md`](cores/README.md) and [`socs/README.md`](socs/README.md) —
   reusable processors and SoC composition
 - [`sims/README.md`](sims/README.md) — executable SoC simulation harnesses
+- [`sw/README.md`](sw/README.md) — pinned target software, bare-metal ports,
+  and workload builders
 
 ### Physical and development tooling
 

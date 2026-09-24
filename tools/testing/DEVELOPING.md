@@ -15,7 +15,7 @@ behavior, normally in `<package>/tests/`. Compiler tests therefore live under
 `rhodium/core/tests/`, `rhodium/analysis/tests/`,
 `rhodium/frontend/tests/`, `rhodium/backend/tests/`, and
 `rhodium/formal/tests/`; domain tests remain under `flow/tests/`, `noc/tests/`,
-`riscv/tests/`, `cores/*/tests/`, and the corresponding package directories.
+`riscv/tests/`, `sw/tests/`, `cores/*/tests/`, and the corresponding package directories.
 
 This directory owns only repository-wide test policy and reusable
 orchestration. [`run-negative.rkt`](run-negative.rkt) is a package-neutral

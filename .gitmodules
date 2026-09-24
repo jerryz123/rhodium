@@ -4,25 +4,25 @@
 [submodule "vlsi/double_wide_openframe"]
 	path = vlsi/double_wide_openframe
 	url = https://github.com/chipfoundry/double_wide_openframe.git
-[submodule "riscv/riscv-isa-tests"]
-	path = riscv/riscv-isa-tests
+[submodule "sw/riscv-isa-tests"]
+	path = sw/riscv-isa-tests
 	url = https://github.com/riscv-software-src/riscv-tests.git
-[submodule "riscv/riscv-arch-test"]
-	path = riscv/riscv-arch-test
+[submodule "sw/riscv-arch-test"]
+	path = sw/riscv-arch-test
 	url = https://github.com/riscv/riscv-arch-test.git
 	branch = act4
-[submodule "sims/program-test/coremark"]
-	path = sims/program-test/coremark
+[submodule "sw/coremark"]
+	path = sw/coremark
 	url = https://github.com/eembc/coremark.git
-[submodule "sims/program-test/embench-iot"]
-	path = sims/program-test/embench-iot
+[submodule "sw/embench-iot"]
+	path = sw/embench-iot
 	url = https://github.com/embench/embench-iot.git
 [submodule "riscv/riscv-isa-sim"]
 	path = riscv/riscv-isa-sim
 	url = https://github.com/riscv-software-src/riscv-isa-sim.git
-[submodule "riscv/opensbi"]
-	path = riscv/opensbi
+[submodule "sw/opensbi"]
+	path = sw/opensbi
 	url = https://github.com/riscv-software-src/opensbi.git
-[submodule "sims/program-test/bringup-bench"]
-	path = sims/program-test/bringup-bench
+[submodule "sw/bringup-bench"]
+	path = sw/bringup-bench
 	url = https://github.com/toddmaustin/bringup-bench.git

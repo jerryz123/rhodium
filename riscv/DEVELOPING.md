@@ -53,7 +53,6 @@ architectural state, and retirement in concrete cores. The package-local
 | Hardware materialization | [`rtl/DEVELOPING.md`](rtl/DEVELOPING.md) |
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
 | Shared patched-submodule materialization and identity | [`patched_submodule.py`](patched_submodule.py), tested by [`tests/test_patched_submodule.py`](tests/test_patched_submodule.py) |
-| Architectural-test upstream and downstream patches | [`riscv-arch-test/`](riscv-arch-test/), [`riscv-arch-test-patches/`](riscv-arch-test-patches/) |
 | Shared Spike disassembler and FESVR upstream | [`riscv-isa-sim/`](riscv-isa-sim/), with downstream changes in [`riscv-isa-sim-patches/`](riscv-isa-sim-patches/) |
 
 ## Extend the model or catalogs
@@ -86,17 +85,14 @@ omissions such as assembler-only aliases as explicit public limits. When an
 upstream specification changes, compare encodings and legality conditions
 before updating the stated version; do not infer conformance from names alone.
 
-The `riscv-isa-tests` and `riscv-arch-test` submodules supply upstream test
-sources, the `opensbi` submodule supplies upstream firmware source, and the
-`riscv-isa-sim` submodule supplies the shared Spike disassembler and FESVR
-source. They are not package dependencies. Keep the patched `riscv-arch-test`
-and `riscv-isa-sim` submodules pristine and express every downstream change
-through its adjacent ordered patch series. Both consumers use the shared
-materializer; do not add a consumer-local copy/apply implementation. OpenSBI
-is used unmodified at its pinned revision. Rebase or remove patches when
-advancing either patched gitlink, then validate the owning ACT flow or both
-RHEG export and FESVR execution. Simulator-specific selection, configuration,
-building, and execution remain owned by [`../sims/`](../sims/README.md).
+The `riscv-isa-sim` submodule supplies the shared Spike disassembler and FESVR
+source; it is a host dependency, not a pure-model dependency or target
+software. Keep it pristine and express downstream changes through its adjacent
+ordered patch series and the shared materializer. Rebase or remove patches
+when advancing the gitlink, then validate both RHEG export and FESVR execution.
+Target software upstreams and ports are owned by
+[`../sw/`](../sw/DEVELOPING.md); simulator selection and execution remain under
+[`../sims/`](../sims/DEVELOPING.md).
 
 ## Focused validation
 

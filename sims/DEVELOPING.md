@@ -47,10 +47,10 @@ target identities so switching either axis cannot reuse another simulator.
 | PTY transport and serial conversion reused by every harness | [`../devices/uart/uart-dpi.rhdl`](../devices/uart/uart-dpi.rhdl), [`../devices/uart/dpi/uart_dpi.cc`](../devices/uart/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
-| ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
-| Upstream ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
-| Ordered Bringup-Bench source fixes applied only in build-local copies | [`program-test/bringup-bench-patches/`](program-test/bringup-bench-patches/) |
-| OpenSBI target-derived firmware layout, build adapter, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
+| Target software sources, ports, patches, and ELF builders | [`../sw/`](../sw/DEVELOPING.md) |
+| SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
+| ACT platform configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
+| OpenSBI DTB projection, simulator handoff, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Add or change a harness
@@ -253,7 +253,7 @@ extend and validate the projection as newly selected suites expose gaps.
 
 `arch-test-source` copies the clean upstream checkout into the build root and
 applies the ordered series under
-[`../riscv/riscv-arch-test-patches/`](../riscv/riscv-arch-test-patches/) with
+[`../sw/riscv-arch-test-patches/`](../sw/riscv-arch-test-patches/) with
 the shared RISC-V patched-submodule materializer.
 `arch-test-tests` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
@@ -346,28 +346,28 @@ arbitrary external fabric fairness.
 
 ### Software suite and artifact maintenance
 
-`program-test/isa.mk` includes upstream build rules and selects their physical
+[`../sw/build/isa.mk`](../sw/build/isa.mk) includes upstream build rules and selects their physical
 and virtual-environment test inventories. `program-test/write-target.rhm` projects the concrete SoC
-profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
+profile through the pure RISC-V GNU adapter, while [`../sw/build/build.py`](../sw/build/build.py) owns benchmark
 selection, mode choice, compiler probing, ELF-attribute checks, and
-content-addressed ELF directories. `build-coremark.py` separately compiles the
+content-addressed ELF directories. [`../sw/build/build-coremark.py`](../sw/build/build-coremark.py) separately compiles the
 pristine CoreMark submodule with the Rhodium-owned RV64 port under
-`program-test/coremark-riscv-baremetal/`. Its `coremark_scalar` variant disables
+[`../sw/coremark-riscv-baremetal/`](../sw/coremark-riscv-baremetal/). Its `coremark_scalar` variant disables
 GCC auto-vectorization without changing CoreMark's types or CRC requirements.
 The variants have distinct manifests, cache keys, CI selection, and execution
 artifacts; neither short functional run is a CoreMark score.
-`build-embench.py` likewise compiles the recorded upstream Embench-IoT
+[`../sw/build/build-embench.py`](../sw/build/build-embench.py) likewise compiles the recorded upstream Embench-IoT
 development revision with the RV64 port under
-`program-test/embench-iot-riscv-baremetal/`, checks the complete source-directory
+[`../sw/embench-iot-riscv-baremetal/`](../sw/embench-iot-riscv-baremetal/), checks the complete source-directory
 inventory, materializes build-only copies whose local loop scale is explicit,
 and publishes one target-bound ELF per workload. Its xgboost functional profile
 must retain a bounded selection covering every class, a pinned exact-correct count,
 and strict source markers so an upstream source change fails generation instead
 of silently weakening the oracle. Record functional profiles in the manifest
 and keep full upstream datasets in performance-oriented flows.
-`build-bringup-bench.py` compiles all names from the pinned upstream `BMARKS`
+[`../sw/build/build-bringup-bench.py`](../sw/build/build-bringup-bench.py) compiles all names from the pinned upstream `BMARKS`
 inventory by default. Its RV64 port is under
-`program-test/bringup-bench-riscv-baremetal/`; the adapter builds a copy of
+[`../sw/bringup-bench-riscv-baremetal/`](../sw/bringup-bench-riscv-baremetal/); the adapter builds a copy of
 upstream's `libtarg.h` with a Rhodium target condition, leaving the submodule
 pristine. It requires a checked-in upstream hash for each workload and embeds
 that reference in the target-side output check unless a bounded source patch

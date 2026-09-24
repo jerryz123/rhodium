@@ -213,20 +213,24 @@ classify_path() {
   # suite paths must precede broad roots.
   case "$path" in
     *.md|LICENSE|LICENSE.*|NOTICE|DCO|AGENTS.md|.gitignore|.gitattributes|tools/emacs/*) ;;
-    sims/program-test/isa.mk) program_isa=true ;;
-    sims/program-test/build-coremark.py|sims/program-test/coremark-riscv-baremetal/*|sims/program-test/coremark|sims/program-test/coremark/*)
+    sw/build/isa.mk) program_isa=true ;;
+    sw/build/build-coremark.py|sw/coremark-riscv-baremetal/*|sw/coremark|sw/coremark/*)
       program_coremark=true ;;
-    sims/program-test/build-embench.py|sims/program-test/embench-iot-riscv-baremetal/*|sims/program-test/embench-iot|sims/program-test/embench-iot/*)
+    sw/build/build-embench.py|sw/embench-iot-riscv-baremetal/*|sw/embench-iot|sw/embench-iot/*)
       program_embench=true ;;
-    sims/program-test/build-bringup-bench.py|sims/program-test/bringup-bench-riscv-baremetal/*|sims/program-test/bringup-bench-patches/*|sims/program-test/bringup-bench|sims/program-test/bringup-bench/*|sims/tests/test_bringup_bench.py)
+    sw/build/build-bringup-bench.py|sw/bringup-bench-riscv-baremetal/*|sw/bringup-bench-patches/*|sw/bringup-bench|sw/bringup-bench/*|sw/tests/test_bringup_bench.py)
       program_bringup=true ;;
-    sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|tools/write-riscv-udb-config.rhm)
+    sims/arch-test/*|sims/tests/test_arch_test.py|sw/riscv-arch-test|sw/riscv-arch-test/*|sw/riscv-arch-test-patches/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
     riscv/patched_submodule.py|riscv/tests/test_patched_submodule.py|riscv/riscv-isa-sim|riscv/riscv-isa-sim/*|riscv/riscv-isa-sim-patches/*)
       mark_all_programs ;;
-    riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|sims/program-test/build.py)
+    sw/riscv-isa-tests|sw/riscv-isa-tests/*|sw/build/build.py)
       program_isa=true; program_benchmark=true ;;
-    riscv/opensbi|riscv/opensbi/*|sims/opensbi/*)
+    sw/build/program_target.py)
+      mark_all_programs ;;
+    sw/tests/test_program_build.py)
+      mark_all_programs ;;
+    sw/opensbi|sw/opensbi/*|sw/build/opensbi.py|sw/tests/test_opensbi_build.py|sims/opensbi/*)
       ;;
     rhodium/core/*|rhodium/frontend/*|rhodium/base/*|rhodium/std/*|rhodium/backend/*|rhodium/language.rhm|rhodium/main.rkt|flow/*|cores/*|riscv/*|hardfloat/*|chi/*|noc/*|devices/*|socs/*|sims/*|support/annotations.rhm|devicetree/*|tools/install-circt.sh|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
       mark_all_programs ;;
@@ -253,13 +257,13 @@ classify_path() {
     .github/workflows/ci.yml|tools/ci-changes.sh|tools/check-ci-changes.sh)
       mark_all
       ;;
-    sims/program-test/*|sims/tests/test_program_test.py|riscv/riscv-isa-tests|riscv/riscv-isa-tests/*|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
+    sims/program-test/*|sims/tests/test_program_test.py|sw/build/*|sw/coremark*|sw/embench-iot*|sw/bringup-bench*|sw/tests/test_program_build.py|sw/tests/test_bringup_bench.py|sw/riscv-isa-tests|sw/riscv-isa-tests/*|tools/install-riscv-toolchain.sh|.github/actions/setup-riscv-toolchain/*)
       simulation=true
       ;;
-    riscv/opensbi|riscv/opensbi/*|sims/opensbi/*)
+    sw/opensbi|sw/opensbi/*|sw/tests/test_opensbi_build.py|sims/opensbi/*)
       simulation=true
       ;;
-    riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|sims/arch-test/*|sims/tests/test_arch_test.py)
+    sw/riscv-arch-test|sw/riscv-arch-test/*|sw/riscv-arch-test-patches/*|sims/arch-test/*|sims/tests/test_arch_test.py)
       # These are covered by the selected software lane's adapter and workload checks.
       ;;
     riscv/patched_submodule.py|riscv/tests/test_patched_submodule.py)

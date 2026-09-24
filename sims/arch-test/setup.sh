@@ -3,7 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
-act_dir="$repo_dir/riscv/riscv-arch-test"
+act_dir="$repo_dir/sw/riscv-arch-test"
 venv_dir="${ACT_VENV:-$repo_dir/.tools/act-venv}"
 sail_dir="$repo_dir/.tools/sail-0.14.1"
 export BUNDLE_PATH="${ACT_BUNDLE_PATH:-$repo_dir/.tools/act-bundle}"
@@ -13,7 +13,7 @@ export XDG_DATA_HOME="$repo_dir/.tools/act-data"
 python="${PYTHON:-python3}"
 "$python" -c 'import sys; assert sys.version_info >= (3, 10), "ACT needs Python 3.10+; set PYTHON"'
 command -v bundle >/dev/null || { echo 'ACT needs Ruby 3.2+ and Bundler on PATH' >&2; exit 1; }
-git -C "$repo_dir" submodule update --init riscv/riscv-arch-test
+git -C "$repo_dir" submodule update --init sw/riscv-arch-test
 temp_dir="$(mktemp -d /tmp/rhodium-act-setup.XXXXXX)"
 trap 'rm -rf "$temp_dir"' EXIT
 # UDB 0.1.16's dependency installer selects CPU but not OS and downloads ELF

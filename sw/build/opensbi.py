@@ -11,7 +11,7 @@ import struct
 import subprocess
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'program-test'))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 from program_target import load_target, readelf_for  # noqa: E402
 
 

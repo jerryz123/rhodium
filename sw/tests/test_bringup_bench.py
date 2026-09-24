@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'program-test/build-bringup-bench.py'
+SCRIPT = Path(__file__).resolve().parents[1] / 'build/build-bringup-bench.py'
 
 
 def load_adapter():

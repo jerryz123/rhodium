@@ -1,13 +1,13 @@
 # Runs single-core workload suites and capability-filtered ISA smoke on concrete SoCs.
 # SPDX-License-Identifier: Apache-2.0
-RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
-COREMARK_DIR ?= $(REPO_DIR)/sims/program-test/coremark
-COREMARK_PORT_DIR ?= $(REPO_DIR)/sims/program-test/coremark-riscv-baremetal
-EMBENCH_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot
-EMBENCH_PORT_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot-riscv-baremetal
-BRINGUP_DIR ?= $(REPO_DIR)/sims/program-test/bringup-bench
-BRINGUP_PATCH_SERIES ?= $(REPO_DIR)/sims/program-test/bringup-bench-patches/series
-BRINGUP_PORT_DIR ?= $(REPO_DIR)/sims/program-test/bringup-bench-riscv-baremetal
+RISCV_TESTS_DIR ?= $(REPO_DIR)/sw/riscv-isa-tests
+COREMARK_DIR ?= $(REPO_DIR)/sw/coremark
+COREMARK_PORT_DIR ?= $(REPO_DIR)/sw/coremark-riscv-baremetal
+EMBENCH_DIR ?= $(REPO_DIR)/sw/embench-iot
+EMBENCH_PORT_DIR ?= $(REPO_DIR)/sw/embench-iot-riscv-baremetal
+BRINGUP_DIR ?= $(REPO_DIR)/sw/bringup-bench
+BRINGUP_PATCH_SERIES ?= $(REPO_DIR)/sw/bringup-bench-patches/series
+BRINGUP_PORT_DIR ?= $(REPO_DIR)/sw/bringup-bench-riscv-baremetal
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
@@ -55,7 +55,7 @@ isa-smoke-config:
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(ISA_SMOKE_DIR)/target.json"
 
 isa-smoke-elfs: isa-smoke-config
-	$(PYTHON) program-test/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(ISA_SMOKE_DIR)" --compiler "$(RISCV_CC)" --target "$(ISA_SMOKE_DIR)/target.json" \
 	  --isa-selection smoke
 
@@ -65,35 +65,36 @@ isa-smoke: isa-smoke-elfs simulator-attestation
 	  --output "$(ISA_SMOKE_DIR)/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 isa-setup benchmark-setup:
-	git -C $(REPO_DIR) submodule update --init riscv/riscv-isa-tests
+	git -C $(REPO_DIR) submodule update --init sw/riscv-isa-tests
 	git -C $(RISCV_TESTS_DIR) submodule update --init env
 
 coremark-setup:
-	git -C $(REPO_DIR) submodule update --init sims/program-test/coremark
+	git -C $(REPO_DIR) submodule update --init sw/coremark
 
 coremark_scalar-setup: coremark-setup
 
 embench-setup:
-	git -C $(REPO_DIR) submodule update --init sims/program-test/embench-iot
+	git -C $(REPO_DIR) submodule update --init sw/embench-iot
 
 bringup-setup:
-	git -C $(REPO_DIR) submodule update --init sims/program-test/bringup-bench
+	git -C $(REPO_DIR) submodule update --init sw/bringup-bench
 
 program-test-setup: isa-setup coremark-setup embench-setup bringup-setup
 
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
-	$(PYTHON) -m unittest discover -s tests -p 'test_bringup_bench.py'
+	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_program_build.py'
+	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_bringup_bench.py'
 
 isa-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --isa-selection full
 
 benchmark-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full benchmark suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
@@ -103,7 +104,7 @@ tiled-mt-benchmark-elfs: program-target
 	@set -e; for hart_count in $(TILED_MT_HART_COUNTS); do \
 	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
 	  mkdir -p "$$output"; \
-	  $(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
+	  $(PYTHON) $(REPO_DIR)/sw/build/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
 	    --output "$$output" --compiler "$(RISCV_CC)" --target "$(PROGRAM_TARGET)" \
 	    --benchmark-mode target --benchmark-selection multihart \
 	    --benchmark-hart-count "$$hart_count"; \
@@ -111,26 +112,26 @@ tiled-mt-benchmark-elfs: program-target
 
 coremark-elf: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
 
 coremark_scalar-elf: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark scalar supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)" --variant coremark_scalar
 
 embench-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
 bringup-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Bringup-Bench supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
-	$(PYTHON) program-test/build-bringup-bench.py --source "$(BRINGUP_DIR)" \
+	$(PYTHON) $(REPO_DIR)/sw/build/build-bringup-bench.py --source "$(BRINGUP_DIR)" \
 	  --patch-series "$(BRINGUP_PATCH_SERIES)" --port "$(BRINGUP_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" $(if $(BRINGUP_BENCHMARKS),--benchmarks "$(BRINGUP_BENCHMARKS)",)

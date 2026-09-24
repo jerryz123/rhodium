@@ -5,7 +5,7 @@
 
 The pinned [`../bringup-bench/`](../bringup-bench/) checkout remains pristine.
 [`series`](series) is applied to a build-local copy with the shared
-[`patched_submodule.py`](../../../riscv/patched_submodule.py) materializer.
+[`patched_submodule.py`](../../riscv/patched_submodule.py) materializer.
 The patch and upstream revision both participate in the ELF cache identity.
 
 `0001-serialize-lz77-coding-words-as-bytes.patch` replaces the upstream

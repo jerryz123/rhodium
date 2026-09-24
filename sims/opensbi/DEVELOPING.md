@@ -3,14 +3,15 @@
 
 # Developing the OpenSBI simulator integration
 
-This package owns the target-derived OpenSBI image layout, build adapter, and
-qualification payload executed by the simulator. The unmodified pinned source
-is the [`../../riscv/opensbi`](../../riscv/opensbi/) submodule. Architectural
+This package owns the simulator-specific DTB projection and qualification
+payload. The target-derived layout and firmware builder live in
+[`../../sw/build/opensbi.py`](../../sw/build/opensbi.py), and the unmodified
+pinned source is the [`../../sw/opensbi`](../../sw/opensbi/) submodule. Architectural
 memory, boot, interrupt, and device-tree descriptions remain in
 [`../../socs/`](../../socs/DEVELOPING.md),
 while ELF loading and completion remain in the simulator's FESVR transport.
 
-The [`build.py`](build.py) adapter derives its FW_JUMP addresses and minimum ISA
+The [`../../sw/build/opensbi.py`](../../sw/build/opensbi.py) adapter derives its FW_JUMP addresses and minimum ISA
 from the selected SoC target descriptor. The firmware ELF remains linked at
 zero so FESVR's standard DRAM load offset relocates it to the SoC boot address.
 [`write-device-tree.rhm`](write-device-tree.rhm) resolves the selected shape

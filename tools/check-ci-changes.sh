@@ -116,38 +116,46 @@ check_no_jobs LICENSE
 check_no_jobs NOTICE
 check_no_jobs DCO
 check_no_jobs THIRD_PARTY_NOTICES.md
+check_no_jobs sw/README.md
+check_no_jobs sw/DEVELOPING.md
 check_field sims/arch-test/configure.py program_arch true
 check_field sims/arch-test/configure.py program_native false
-check_program_matrix sims/program-test/isa.mk isa
-check_field sims/program-test/isa.mk simulation true
-check_field sims/program-test/build.py simulation true
-check_program_matrix sims/program-test/build-coremark.py coremark coremark_scalar
-check_field sims/program-test/build-coremark.py simulation true
-check_program_matrix sims/program-test/coremark coremark coremark_scalar
-check_field sims/program-test/coremark simulation true
-check_program_matrix sims/program-test/build-embench.py embench
-check_field sims/program-test/build-embench.py simulation true
-check_program_matrix sims/program-test/embench-iot embench
-check_field sims/program-test/embench-iot simulation true
-check_program_matrix sims/program-test/embench-iot-riscv-baremetal/start.S embench
-check_field sims/program-test/embench-iot-riscv-baremetal/start.S simulation true
-check_program_matrix sims/program-test/build-bringup-bench.py bringup
-check_field sims/program-test/build-bringup-bench.py simulation true
-check_program_matrix sims/program-test/bringup-bench bringup
-check_field sims/program-test/bringup-bench simulation true
-check_program_matrix sims/program-test/bringup-bench-patches/series bringup
-check_field sims/program-test/bringup-bench-patches/series simulation true
-check_program_matrix sims/program-test/bringup-bench-riscv-baremetal/start.S bringup
-check_field sims/program-test/bringup-bench-riscv-baremetal/start.S simulation true
-check_program_matrix sims/tests/test_bringup_bench.py bringup
+check_program_matrix sw/build/isa.mk isa
+check_field sw/build/isa.mk simulation true
+check_field sw/build/build.py simulation true
+check_program_matrix sw/build/program_target.py isa benchmark coremark coremark_scalar embench bringup
+check_field sw/build/program_target.py simulation true
+check_program_matrix sw/tests/test_program_build.py isa benchmark coremark coremark_scalar embench bringup
+check_field sw/tests/test_program_build.py simulation true
+check_program_matrix sw/build/build-coremark.py coremark coremark_scalar
+check_field sw/build/build-coremark.py simulation true
+check_program_matrix sw/coremark coremark coremark_scalar
+check_field sw/coremark simulation true
+check_program_matrix sw/build/build-embench.py embench
+check_field sw/build/build-embench.py simulation true
+check_program_matrix sw/embench-iot embench
+check_field sw/embench-iot simulation true
+check_program_matrix sw/embench-iot-riscv-baremetal/start.S embench
+check_field sw/embench-iot-riscv-baremetal/start.S simulation true
+check_program_matrix sw/build/build-bringup-bench.py bringup
+check_field sw/build/build-bringup-bench.py simulation true
+check_program_matrix sw/bringup-bench bringup
+check_field sw/bringup-bench simulation true
+check_program_matrix sw/bringup-bench-patches/series bringup
+check_field sw/bringup-bench-patches/series simulation true
+check_program_matrix sw/bringup-bench-riscv-baremetal/start.S bringup
+check_field sw/bringup-bench-riscv-baremetal/start.S simulation true
+check_program_matrix sw/tests/test_bringup_bench.py bringup
 check_field sims/program-test/write-target.rhm simulation true
-check_field sims/opensbi/build.py simulation true
-check_field sims/opensbi/build.py programs false
-check_field riscv/opensbi simulation true
-check_field riscv/opensbi programs false
-check_field riscv/riscv-isa-tests simulation true
+check_field sw/build/opensbi.py simulation true
+check_field sw/build/opensbi.py programs false
+check_field sw/tests/test_opensbi_build.py simulation true
+check_field sw/tests/test_opensbi_build.py programs false
+check_field sw/opensbi simulation true
+check_field sw/opensbi programs false
+check_field sw/riscv-isa-tests simulation true
 check_field sims/arch-test/configure.py simulation false
-check_program_matrix riscv/riscv-isa-tests isa benchmark
+check_program_matrix sw/riscv-isa-tests isa benchmark
 for path in cores/rv5stage/core.rhdl chi/protocol/link.rhdl noc/rtl/router.rhdl devices/interrupt/aclint.rhdl socs/products/single-core-rv5stage-soc.rhdl sims/TestDriver.v rhodium/backend/circt.rhm; do
   check_program_matrix "$path" isa benchmark coremark coremark_scalar embench bringup
   check_field "$path" program_arch true
@@ -179,11 +187,11 @@ check_matrix_entry riscv/patched_submodule.py host_matrix ci-host-models-test
 check_matrix_entry riscv/patched_submodule.py host_matrix ci-host-hygiene-test
 check_field riscv/patched_submodule.py simulation true
 check_field riscv/patched_submodule.py program_arch true
-check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_arch true
-check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_native false
-check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch host false
-check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch circt false
-check_field riscv/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch simulation false
+check_field sw/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_arch true
+check_field sw/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch program_native false
+check_field sw/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch host false
+check_field sw/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch circt false
+check_field sw/riscv-arch-test-patches/0001-generalize-canonical-vector-test-generation.patch simulation false
 check_program_matrix riscv/riscv-isa-sim isa benchmark coremark coremark_scalar embench bringup
 check_matrix_entry rheg/tests/event-collector-test.cpp circt_matrix ci-circt-language-test
 check_field rhodium/event/analyze.rhm simulation true

@@ -1,20 +1,20 @@
 # Builds OpenSBI FW_JUMP and qualifies its generic-platform handoff on a concrete SoC.
 # SPDX-License-Identifier: Apache-2.0
-OPENSBI_SOURCE ?= $(REPO_DIR)/riscv/opensbi
+OPENSBI_SOURCE ?= $(REPO_DIR)/sw/opensbi
 OPENSBI_BUILD_ROOT ?= /tmp/rhodium-software
 OPENSBI_OUTPUT := $(OPENSBI_BUILD_ROOT)/$(SOC_ID)/opensbi
 OPENSBI_LAYOUT := $(OPENSBI_OUTPUT)/layout.json
 OPENSBI_FDT := $(OPENSBI_OUTPUT)/platform.dtb
 OPENSBI_FIRMWARE := $(OPENSBI_OUTPUT)/fw_jump.elf
 OPENSBI_SMOKE := $(OPENSBI_OUTPUT)/opensbi_smoke.elf
-OPENSBI_SCRIPT := $(CURDIR)/opensbi/build.py
+OPENSBI_SCRIPT := $(REPO_DIR)/sw/build/opensbi.py
 OPENSBI_FDT_SCRIPT := $(CURDIR)/opensbi/write-device-tree.rhm
 OPENSBI_MAX_CYCLES ?= 50000000
 
 .PHONY: opensbi-setup opensbi-layout opensbi-firmware opensbi-smoke-elf opensbi-run opensbi-test opensbi-adapter-test
 
 opensbi-setup:
-	git -C $(REPO_DIR) submodule update --init riscv/opensbi
+	git -C $(REPO_DIR) submodule update --init sw/opensbi
 
 opensbi-layout: $(OPENSBI_LAYOUT)
 
@@ -58,4 +58,4 @@ opensbi-test: $(OPENSBI_SMOKE)
 	  OPENSBI_LLVM="$(OPENSBI_LLVM)"
 
 opensbi-adapter-test:
-	$(PYTHON) -m unittest discover -s opensbi/tests -p 'test_build.py'
+	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_opensbi_build.py'

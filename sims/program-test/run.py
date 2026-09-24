@@ -9,9 +9,11 @@ import os
 from pathlib import Path
 import signal
 import subprocess
+import sys
 import time
 import xml.etree.ElementTree as ET
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / 'sw/build'))
 from program_target import target_fingerprint, validate_target
 
 

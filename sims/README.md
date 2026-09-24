@@ -6,7 +6,8 @@
 This directory turns [`socs/` compositions](../socs/README.md)
 into executable simulations. It owns the parameterless generated top, FESVR
 transport, Verilator binding, simulation-only memory model, clock/reset driver,
-and executable workflows. The SoCs continue to own processor, device, CHI,
+and executable workflows. [Target software](../sw/README.md) owns pinned
+sources, ports, patches, and ELF builders. The SoCs continue to own processor, device, CHI,
 NoC, and synthesizable-memory structure.
 
 Contributors changing a harness, binding, or build rule should read
@@ -466,7 +467,7 @@ timing, normalization, and reporting methodology.
 
 `bringup-test` builds the pinned Bringup-Bench inventory for the concrete RV64
 target, one bounded ELF per workload. The pinned submodule remains pristine; the
-ordered [Bringup-Bench patch series](program-test/bringup-bench-patches/) is
+ordered [Bringup-Bench patch series](../sw/bringup-bench-patches/) is
 applied to a build-local copy and participates in the ELF cache key. Its
 bare-metal port hashes all `libtarg_putc`
 output and checks its expected hash before writing the ordinary
@@ -547,7 +548,7 @@ make -C sims arch-test ACT_CONFIGURATION=single-core-spike-soc
 ```
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
-initializes the pinned `riscv/riscv-arch-test` submodule, installs Python and
+initializes the pinned `sw/riscv-arch-test` submodule, installs Python and
 Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.14.1
 for Apple Silicon macOS or x86-64/AArch64 Linux. Normal simulator dependencies
 are still required; see [Build a simulator](#build-a-simulator).
@@ -557,7 +558,7 @@ working around the pinned UDB installer's Linux-only library download.
 `arch-test-config` only prepares and validates the Sail/platform files.
 `arch-test-source` copies the clean pinned ACT checkout into the build root and
 applies Rhodium's adjacent
-[`riscv-arch-test-patches`](../riscv/riscv-arch-test-patches/) series there.
+[`riscv-arch-test-patches`](../sw/riscv-arch-test-patches/) series there.
 `arch-test-tests` stages the
 handwritten tests from that materialized tree and runs ACT's canonical generator
 into the same build-root tree, including vector suites whose generated assembly
@@ -615,7 +616,7 @@ driver also accepts `HTIF_ARGS='+permissive +max-cycles=N +permissive-off'`
 for ordinary `run`; the permissive brackets keep FESVR from treating a
 simulator option as the ELF name.
 
-These tests complement the separate `riscv/riscv-isa-tests` (`riscv-tests`)
+These tests complement the separate `sw/riscv-isa-tests` (`riscv-tests`)
 source dependency. A passing integer run does not establish full architectural
 certification. Upstream documents the framework in the
 [ACT4 guide](https://github.com/riscv/riscv-arch-test/blob/act4/README.md).
