@@ -20,9 +20,13 @@ check:
   instrument_events(fixture.unsafe_feedback()) ~throws "uncertified fanout"
 
 def branches = instrument_events(fixture.branching)
+def joined = instrument_events(fixture.paired)
 check:
   branches.manifest.dependencies.length() ~is 8
   (for all (edge in branches.manifest.dependencies): edge.latency_cycles == #false) ~is #true
+  joined.manifest.dependencies.length() ~is 2
+  (for all (edge in joined.manifest.dependencies): edge.latency_cycles == #false) ~is #true
+  event_trace_capacity(joined.manifest.trace_plans[joined.manifest.dependencies[0].child]) ~is 2
 
 def source = EventTraceSource("seed")
 def feedback = EventTraceLink("growing-feedback")

@@ -49,6 +49,12 @@ hardware_enum RV5StageCompletionSource:
   Divide
   FpInteger
 
+// Compares the effective frontend next PC with the resolved control-flow target.
+hardware_enum RV5StageBranchPrediction:
+  NotBranch
+  Correct
+  Mispredicted
+
 bundle RV5StageDeferredCompletion(xlen :: XLen):
   write: RegisterFileWrite(xlen)
   source: RV5StageCompletionSource
@@ -137,6 +143,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
   branch_update: RV5StageBranchUpdate(xlen)
+  branch_prediction: RV5StageBranchPrediction
   raw_instruction: Bits(32)
   replay: Bool
   data_request_valid: Bool
@@ -165,6 +172,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_context: RV5StageVectorLaunchContext(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
+  branch_prediction: RV5StageBranchPrediction
   raw_instruction: Bits(32)
   replay: Bool
   load_hit: Bool
@@ -193,6 +201,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
 export:
   RV5StageBypassStage
   RV5StageCompletionSource
+  RV5StageBranchPrediction
   RV5StageDeferredCompletion
   RV5StageHazardReasons
   RV5StageOperand

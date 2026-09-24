@@ -1,4 +1,4 @@
-// Checks vector WB lineage and nonserializing vset issue timing.
+// Checks vector admission lineage independently of retirement and nonserializing vset timing.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "rv5stage-vector-config_manifest.h"
@@ -23,7 +23,7 @@ extern "C" void vector_core_trace_finish() {
   std::optional<std::uint64_t> following_configuration_cycle;
   for(const auto& pair:graph.nodes) {
     if(pair.first.site==vector_core_sites::wb) {
-      if(!writebacks.emplace(pair.second.cycle,pair.first).second) fail("multiple WB arrivals in one cycle");
+      if(!writebacks.emplace(pair.second.cycle,pair.first).second) fail("multiple retirements in one cycle");
       const auto pc=graph.field(pair.first,"pc").unsigned_value();
       if(pc==20 && !first_configuration_cycle) first_configuration_cycle=pair.second.cycle;
       if(pc==24 && !dependent_configuration_cycle) dependent_configuration_cycle=pair.second.cycle;
@@ -46,26 +46,28 @@ extern "C" void vector_core_trace_finish() {
                  static_cast<unsigned long long>(following_configuration_cycle.value_or(0)));
     fail("vset added a WB gap beyond the surrounding fetch cadence");
   }
-  std::map<rheg::Ref,unsigned> sequenced_by_wb;
+  std::map<rheg::Ref,unsigned> sequenced_by_mem;
   for(const auto& [ref,node]:graph.nodes) if(ref.site==vector_core_sites::sequence) {
-    if(node.ancestry_unknown) fail("sequence has unknown WB ancestry");
+    if(node.ancestry_unknown) fail("sequence has unknown admission ancestry");
     if(node.end_cycle) fail("sequence unexpectedly has a duration");
     unsigned parents=0;
     rheg::Ref parent{};
     for(const auto& edge:graph.edges) if(equal(edge.second,ref)) {
-      if(edge.first.site!=vector_core_sites::wb) fail("sequence inherited a non-WB occurrence");
-      parent=edge.first;
-      ++parents;
+      if(edge.first.site==vector_core_sites::mem) { parent=edge.first; ++parents; }
+      else if(edge.first.site!=vector_core_sites::ex) fail("sequence inherited an unrelated occurrence");
     }
-    if(parents!=1) fail("sequence must have exactly one WB parent");
-    if(graph.nodes.at(parent).cycle>=node.cycle) fail("sequence did not follow its WB admission");
+    if(parents!=1) fail("sequence must retain exactly one MEM parent");
+    if(graph.nodes.at(parent).cycle>=node.cycle) fail("sequence did not follow its MEM instruction");
     if(graph.field(ref,"pc").unsigned_value()!=graph.field(parent,"pc").unsigned_value() ||
         graph.field(ref,"instruction").unsigned_value()!=graph.field(parent,"instruction").unsigned_value())
-      fail("sequence snapshot differs from WB instruction");
+      fail("sequence snapshot differs from MEM instruction");
+    for(const auto& edge:graph.edges) if(equal(edge.second,ref) && edge.first.site==vector_core_sites::ex) {
+      if(!graph.edges.count({edge.first,parent})) fail("local result belongs to another MEM instruction");
+    }
     if(graph.field(parent,"instruction").unsigned_value()==0x00218057)
       fail("illegal masked-v0 instruction entered the sequencer");
-    ++sequenced_by_wb[parent];
+    ++sequenced_by_mem[parent];
   }
-  if(sequenced_by_wb.size()<8) fail("insufficient sequencing coverage");
-  std::printf("Core/vector lineage passed: %zu sequenced instructions with WB ancestry\n",sequenced_by_wb.size());
+  if(sequenced_by_mem.size()<8) fail("insufficient sequencing coverage");
+  std::printf("Core/vector lineage passed: %zu sequenced instructions with MEM ancestry\n",sequenced_by_mem.size());
 }

@@ -307,11 +307,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   inst wb_selection(GrantMerge(MemoryWriteback(xlen, vector_completion_slots), 4))
   def wb_maintenance_pending = wb_maintenance.egress.valid
   wire wb_maintenance_accepted: Bool
-  def wb_input = mem_wb_pipe.egress |> trace_valid_event("core/s5.wb", ~fields: operation):
-    pc: operation.pc
-    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
+  def wb_input = mem_wb_pipe.egress
   def Array(wb_retirement_path, wb_fp_path, wb_memory_path) = wb_input |> fork_valid(3)
-  def Array(wb_live_path, wb_maintenance_path, wb_wait_path) = wb_retirement_path |> fork_valid(3)
+  def Array(wb_live_path, wb_maintenance_path, wb_wait_path, wb_vector_retention_path) = wb_retirement_path |> fork_valid(4)
   // WRS owns its retirement context outside the feed-forward pipeline. Wake
   // levels win over timeout, including a reservation lost on entry to waiting.
   def wb_reservation_wait_pending = wb_reservation_wait.egress.valid
@@ -353,7 +351,13 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb.bits
   wire wb_commit_result: MemoryWriteback(xlen, vector_completion_slots)
   def wb_commit = wb_commit_path |> filter_valid(operation => (!operation.vector_launch ||| !operation.vector_context.control.memory) & !wb_maintenance_accepted & !wb_pending_exception_valid) |> map_valid(_operation => wb_commit_result)
-  def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_redirect_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path) = wb_commit |> fork_valid(8)
+  def Array(wb_serializing_path, wb_replay_path, wb_prefetch_path, wb_vector_redirect_path, wb_scoreboard_path, wb_register_path, wb_multiply_path, wb_divide_path, wb_trace_path) = wb_commit |> fork_valid(9)
+  // Retirement is a final observation; replay and memory consumers retain their
+  // own lineage even when this instruction does not retire.
+  def wb_retired_event = wb_trace_path |> trace_valid_event("core/s5.wb", ~when: wb_csrs.retired, ~fields: operation):
+    pc: operation.pc
+    instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
+    branch_prediction(~format: "enum"): operation.branch_prediction
   def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
@@ -727,7 +731,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true))
       wb_vector.scalar_writeback |> wb_gpr_calendar.reserve[1]
-      reg wb_vector_retirement(MemoryWriteback(xlen, vector_completion_slots))
+      inst wb_vector_retirement(OfferRegister(MemoryWriteback(xlen, vector_completion_slots)))
       def wb_vector_context = wb_offer_bits.vector_context
       def wb_vector_vd = instruction_field(riscv_fields.rd, wb_vector_context.instruction)
       wb_fp.snapshot_read_address <== instruction_field(riscv_fields.rs1, wb_vector_context.instruction)
@@ -773,15 +777,16 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
       wb_vector_launch |> filter_valid(descriptor => wb_vector_accepted & descriptor.control.integer & descriptor.control.scalar_destination & wb_vector_vd.or_reduce()) |> map_valid(_descriptor => wb_vector_vd) |> wb_vector_reserve_link.left
       wb_vector.floating_result |> wb_fp.vector_write
-      when (wb_vector_accepted & wb_vector_launch.bits.control.memory):
-        wb_vector_retirement <== wb.bits
+      assert(!wb_vector_accepted ||| wb_input.valid, "vector_admission_has_live_wb_instruction")
+      wb_vector_retention_path |> filter_valid(operation => wb_vector_accepted & operation.vector_context.control.memory) |> wb_vector_retirement.update
+      assert(!wb_vector.outcome.valid ||| wb_vector_retirement.egress.valid, "vector_outcome_has_retained_instruction")
       (
-        wb_vector.outcome |> map_valid(event => wb_vector_retirement.updated(
+        wb_vector_retirement.egress |> gate_flow(wb_vector.outcome.valid) |> to_valid() |> map_valid(operation => operation.updated(
           ~vector_launch: Bool(#false),
           ~write_enable: Bool(#false),
-          ~exception_valid: event.disposition === RV5StageVectorDisposition.Fault,
-          ~exception_cause: event.cause,
-          ~exception_value: event.fault_address
+          ~exception_valid: wb_vector.outcome.bits.disposition === RV5StageVectorDisposition.Fault,
+          ~exception_cause: wb_vector.outcome.bits.cause,
+          ~exception_value: wb_vector.outcome.bits.fault_address
         ))
       ) |> wb_vector_retirement_link.left
       wb_vector_truncate <== wb_vector.outcome.valid & (wb_vector.outcome.bits.disposition === RV5StageVectorDisposition.Truncate)
@@ -1029,13 +1034,15 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     stride: ex_vector_resolved_rs2
   def ex_ras_action = rv5stage_ras_action(ex_input.bits.instruction)
   def ex_ras_mispredicted = ex_ras_action =/= ex_input.bits.predicted_ras_action
-  def ex_redirect_valid = ((ex_resume_pc =/= ex_input.bits.predicted_next_pc) ||| ex_ras_mispredicted) & !ex_exception.valid
+  def ex_next_pc_mispredicted = ex_resume_pc =/= ex_input.bits.predicted_next_pc
+  def ex_redirect_valid = (ex_next_pc_mispredicted ||| ex_ras_mispredicted) & !ex_exception.valid
   def ex_payload = ExecuteMemory(xlen, vector_completion_slots):
     vector_launch: ex_input.bits.vector_launch
     vector_context: ex_vector_context
     pc: ex_input.bits.pc
     resume_pc: ex_resume_pc
     redirect_valid: ex_redirect_valid
+    branch_prediction: mux(!ex_input.bits.vector_launch & ex_input.bits.branch_control.enable, mux(ex_next_pc_mispredicted, RV5StageBranchPrediction.Mispredicted, RV5StageBranchPrediction.Correct), RV5StageBranchPrediction.NotBranch)
     branch_update:
       RV5StageBranchUpdate(xlen):
         pc: ex_input.bits.pc
@@ -1115,6 +1122,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     vector_context: operation.vector_context
     pc: operation.pc
     resume_pc: operation.resume_pc
+    branch_prediction: operation.branch_prediction
     raw_instruction: operation.raw_instruction
     replay: operation.replay ||| mem_cache_replay
     load_hit: mem_load_hit

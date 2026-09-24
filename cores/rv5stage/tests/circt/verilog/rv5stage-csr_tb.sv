@@ -1,4 +1,4 @@
-// Verifies RV5Stage integer/FP CSR state, traps, interrupts, and privilege returns.
+// Verifies RV5Stage integer/FP CSR state, retirement qualification, traps, and privilege returns.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_csr_tb;
   logic [1:0] cbo_operation = 0;
@@ -103,6 +103,7 @@ module rv5stage_csr_tb;
   fp_update_in_t fp_update_in;
   redirect_out_t redirect_out;
   logic interrupt_request;
+  logic retired;
   logic wfi_retired;
   logic wfi_wake;
   logic writeback_valid;
@@ -136,7 +137,7 @@ module rv5stage_csr_tb;
     reset = 1'b0;
     assert (privilege == PRIVILEGE_M && satp == 0 && mstatus == RV64_MSTATUS_FIXED && !fp_enabled && frm == 0)
       else $fatal(1, "CSR file did not reset into M mode with bare translation");
-    assert (!wfi_retired && !wfi_wake)
+    assert (!retired && !wfi_retired && !wfi_wake)
       else $fatal(1, "CSR file exposed a WFI event after reset");
   endtask
 
@@ -186,7 +187,7 @@ module rv5stage_csr_tb;
     if ((operation == CSR_SET || operation == CSR_CLEAR) && source != 0)
       commit_in.bits.instruction[19:15] = 5'd1;
     #1;
-    assert (writeback_valid && writeback_value == expected_old)
+    assert (retired && writeback_valid && writeback_value == expected_old)
       else $fatal(1, "CSR %03h returned %016h instead of %016h",
                   address, writeback_value, expected_old);
     assert (!redirect_out.valid && !translation_flush)
@@ -213,7 +214,7 @@ module rv5stage_csr_tb;
     commit_in.bits.system.csr = CSR_SET;
     commit_in.bits.csr_address = address;
     #1;
-    assert (writeback_valid && !redirect_out.valid && !translation_flush)
+    assert (retired && writeback_valid && !redirect_out.valid && !translation_flush)
       else $fatal(1, "legal CSR %03h read trapped", address);
     @(posedge clock);
     #1;
@@ -233,7 +234,7 @@ module rv5stage_csr_tb;
     commit_in.bits.csr_address = address;
     commit_in.bits.instruction[19:15] = source_specifier;
     #1;
-    assert (!writeback_valid && redirect_out.valid)
+    assert (!retired && !writeback_valid && redirect_out.valid)
       else $fatal(1, "illegal CSR %03h write intent did not trap", address);
     assert (!pointer_masking_changed) else $fatal(1, "illegal CSR access changed pointer policy");
     @(posedge clock);
@@ -306,6 +307,8 @@ module rv5stage_csr_tb;
     #1;
     assert (redirect_out.valid == expect_trap)
       else $fatal(1, "privileged operation trap decision was incorrect");
+    assert (retired == !expect_trap)
+      else $fatal(1, "retirement did not agree with privileged operation legality");
     if (expect_trap)
       assert (redirect_out.bits == 64'h100)
         else $fatal(1, "illegal privileged operation selected the wrong trap target");

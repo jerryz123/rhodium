@@ -151,9 +151,9 @@ fun validate_event_trace_feedback(plan :: EventTracePlan):
   // Visit storage inputs too: cutting one edge must not hide another cycle.
   for (node in nodes): visit(node)
   def cyclic = nodes.find(fun (node): node is_a EventTraceLink) != #false
-  def capacity = event_trace_capacity(plan)
-  when cyclic && capacity != 1
-  | error(~who: #'infer_event_manifest, "feedback currently requires single-parent lineage; insert a checkpoint after the join or window")
+  // A fixed parent set may recirculate unchanged. Joins/windows that grow it
+  // on every lap still fail the bounded-capacity fixed-point check.
+  event_trace_capacity(plan)
   cyclic
 
 // Solve slot-count equations to a least fixed point. Positive feedback through

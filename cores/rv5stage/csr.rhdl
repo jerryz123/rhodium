@@ -219,6 +219,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   interface fp_update(Valid(Bits(5)), ~role: consumer)
   interface redirect(Valid(Bits(width)), ~role: producer)
   output interrupt_request: Bool
+  output retired: Bool
   output wfi_retired: Bool
   output wfi_wake: Bool
   output writeback_valid: Bool
@@ -498,7 +499,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
                                           csr_bits(CsrId.Minstret),
                                           csr_bits(CsrId.Mcycleh),
                                           csr_bits(CsrId.Minstreth))
-  counters.retire <== commit.valid & !synchronous_trap.valid
+  retired <== commit.valid & !synchronous_trap.valid
+  counters.retire <== retired
   counters.machine_write.valid <== csr_write & machine_counter_csr
   counters.machine_write.bits <== RiscvCounterWrite(xlen):
     address: csr

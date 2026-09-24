@@ -1,0 +1,18 @@
+#lang rhombus
+// Emits the controlled prediction/retirement fixture with the production event graph and descriptor.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../retirement-trace-fixture.rhdl".RV5StageRetirementTrace
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../rhodium/backend/circt.rhm".emit_circt
+  "../../../../rhodium/event/main.rhm" open
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageRetirementTrace()), EventInstrumentationConfig(~partial: #true))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace retirement_sites {\n" ++ String.join(
+  for List (label in ["core/s5.wb", "core/s4.memory", "core/s3.execute"], name in ["wb", "mem", "ex"]):
+    def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+    unless indices.length() == 1 | error("expected one retirement trace site: " ++ label)
+    "constexpr unsigned " ++ name ++ " = " ++ to_string(indices[0]) ++ ";\n",
+  ""
+) ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

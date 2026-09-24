@@ -1,0 +1,70 @@
+#lang rhodium
+// Drives the real core's public packet and memory ports with explicit prediction and retirement cases.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../core.rhdl" open
+  "../profile.rhm" open
+  "../fetch/packet.rhdl" open
+  "../fetch/bpd/protocol.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/c.rhm" open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageRetirementTrace():
+  def profile = RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None, ~compressed: CCompressedExtensions, ~zawrs: #true, ~zicbom: #true))
+  inst core(RV5StageCore(profile, ~reset_address: 0))
+  input packet_valid: Bool
+  input pc: Bits(64)
+  input instruction: Bits(32)
+  input predicted: Bool
+  input target: Bits(64)
+  input ras: RV5StageRasAction
+  output packet_ready: Bool
+  input(data_ready, data_fault, response_valid, response_fault, reservation): Bool
+  input response_tag: RV5StageMemoryWriteback(8)
+  output data_valid: Bool
+  output data_tag: RV5StageMemoryWriteback(8)
+  output data_address: Bits(64)
+  output data_value: Bits(64)
+  core.interrupts <== literal(RiscvInterrupts(), 0)
+  core.hart_id <== bits(0, 64)
+  core.time_counter <== bits(0, 64)
+  core.packets.valid <== packet_valid
+  core.packets.bits <== RV5StageFetchPacket(XLen.X64):
+    pc: pc
+    word: instruction
+    mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))
+    page_fault: Bool(#false)
+    access_fault: Bool(#false)
+    prediction:
+      RV5StagePrediction(XLen.X64):
+        valid: predicted
+        pc: pc
+        target: target
+        compressed: instruction[0..2] =/= bits(3, 2)
+        ras_action: ras
+  packet_ready <== core.packets.ready
+  core.pipeline_access.response.valid <== Bool(#false)
+  core.pipeline_access.response.bits <== literal(RV5StagePipelineResult(XLen.X64), 0)
+  core.pipeline_access.commit_ready <== Bool(#false)
+  core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
+  core.data_access.request.ready <== data_ready
+  core.data_access.request_fault <== Bool(#false)
+  core.data_access.request_access_fault <== data_fault
+  core.data_access.drained <== Bool(#true)
+  core.data_access.reservation_valid <== reservation
+  core.data_access.response.valid <== response_valid
+  core.data_access.response.bits <== RV5StageDataResp(XLen.X64, 8):
+    access_fault: response_fault
+    data: bits(0, 64)
+    writeback: response_tag
+    origin: RV5StageDataOrigin.Core
+  data_valid <== core.data_access.request.valid
+  data_tag <== core.data_access.request.bits.writeback
+  data_address <== core.data_access.request.bits.address
+  data_value <== core.data_access.request.bits.data
+
+export RV5StageRetirementTrace

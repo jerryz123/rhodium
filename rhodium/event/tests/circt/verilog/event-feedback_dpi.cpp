@@ -1,15 +1,16 @@
-// Checks feedback lineage against a public-control FIFO model, never payload matching.
+// Checks singleton and paired feedback lineage against a public-control FIFO model.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "event-feedback_manifest.h"
+#include <array>
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
 namespace {
-struct Pending { rheg::Ref ref; unsigned payload, laps; };
+struct Pending { rheg::Ref ref; unsigned payload, laps; std::array<rheg::Ref,2> joined; };
 std::deque<Pending> queue;
 rheg::Graph expected;
-std::uint64_t cycle=0, sequences[2]{};
+std::uint64_t cycle=0, sequences[5]{};
 unsigned recirculations=0, repeated_laps=0, stalls=0, concurrent=0, full_stalls=0, pending_resets=0, completions=0;
 bool resetting=true;
 [[noreturn]] void fail(const char* message) {
@@ -19,7 +20,7 @@ bool resetting=true;
 Pending node(unsigned site, unsigned payload) {
   rheg::Ref ref{feedback_sites[site],sequences[site]++};
   expected.nodes[ref]={true,cycle,8,{{0,payload}}};
-  return {ref,payload,0};
+  return {ref,payload,0,{}};
 }
 }
 extern "C" void feedback_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
@@ -28,7 +29,8 @@ extern "C" void feedback_sample(unsigned reset, unsigned select_feedback, unsign
   resetting=reset;
   if(reset) {
     if(!queue.empty()) ++pending_resets;
-    queue.clear(); expected.clear(); cycle=0; sequences[0]=sequences[1]=0;
+    queue.clear(); expected.clear(); cycle=0;
+    for(auto& sequence:sequences) sequence=0;
     return;
   }
   const bool space=queue.size()<3;
@@ -50,8 +52,14 @@ extern "C" void feedback_sample(unsigned reset, unsigned select_feedback, unsign
     const auto parent=queue.front(); queue.pop_front();
     const auto child=node(1,out_payload);
     expected.edges.insert({parent.ref,child.ref}); ++completions;
+    const auto joined_child=node(4,out_payload);
+    for(auto joined_parent:parent.joined) expected.edges.insert({joined_parent,joined_child.ref});
   }
-  if(accept) queue.push_back(node(0,payload));
+  if(accept) {
+    auto owner=node(0,payload);
+    owner.joined={node(2,payload).ref,node(3,payload).ref};
+    queue.push_back(owner);
+  }
 }
 extern "C" void feedback_check() {
   rheg::graph().validate();
@@ -62,6 +70,6 @@ extern "C" void feedback_finish() {
   if(!queue.empty()) fail("feedback queue did not drain");
   if(!recirculations || !repeated_laps || !stalls || !concurrent || !full_stalls || !pending_resets || completions<10)
     fail("missing feedback, stall, simultaneous transfer, full, reset, or completion coverage");
-  std::printf("Feedback exact ancestry passed: %u laps, %u repeated laps, %u stalls, %u simultaneous transfers, %u full stalls, %u pending resets, %u completions\n",
+  std::printf("Singleton and paired feedback exact ancestry passed: %u laps, %u repeated laps, %u stalls, %u simultaneous transfers, %u full stalls, %u pending resets, %u completions\n",
     recirculations,repeated_laps,stalls,concurrent,full_stalls,pending_resets,completions);
 }

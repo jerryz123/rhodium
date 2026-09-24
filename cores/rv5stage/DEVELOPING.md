@@ -309,15 +309,26 @@ token validity, preserving the feed-forward datapath and cancellation timing.
 The inline retirement flows in `core.rhdl` preserve WRS-over-maintenance-over-live WB payload
 selection, even before a resident completes and while the output is invalid.
 Generic `OfferRegister` instances own pending payloads and their intrinsic
-lineage contracts. Capture comes from the original WB occurrence;
+lineage contracts. Capture comes from the original MEM/WB token;
 completion gates acceptance and releases that same owner. Keep WRS timeout/wake policy, maintenance
 completion/fault policy, and architectural commit qualification in `core.rhdl`.
 Grant selection follows pending ownership, then gates completion; arbitration
 must not fall through to younger live WB while a resident is unfinished.
 Explicit forks separate WB arrival, memory observation, FP issue, and retirement
-consumers. Core retry/serialization restarts therefore inherit live or retained
-WB ancestry without adding a retirement checkpoint. CSR trap/return and retained
+consumers. The final WB observation branches from selected commit and uses
+`csr.retired`, the same success condition as `minstret`. Replay and trapping
+tokens have no WB event; memory observations and restart flows retain their own
+MEM ancestry independently of that observation. CSR trap/return and retained
 exception redirects remain a separate unmodeled boundary.
+Vector-memory retirement likewise retains its accepted instruction in an
+`OfferRegister`, released by the existing vector outcome. That outcome supplies
+fault fields, while the stored instruction supplies the retirement ancestry.
+`RV5StageBranchPrediction` stores only the effective-next-PC comparison, computed
+in EX and carried through ExecuteMemory/MemoryWriteback and retained contexts.
+Keep RAS-action mismatch in functional recovery but out of this accuracy metric.
+The `rv5stage-retirement-trace` fixture drives public packet predictions and memory
+completion controls, checking exact retired order, compressed and indirect
+targets, same-PC reissue, squash, CSR/data traps, delayed WRS/CMO, and MEM ancestry.
 Run `event-offer-register` for retained ownership, replacement, stalls, and reset;
 use `rv5stage-core`, `rv5stage-zicbom`, `rv5stage-zawrs`, and the FP core fixtures
 for production retirement selection and completion policy, then the SingleCoreRV5StageSoC
@@ -358,8 +369,8 @@ path. Decode transfers fire only when the hazard gate admits them,
 but its checkpoint must precede `gate_flow` and follow the squash filter so
 stall observations see valid instructions while issue is blocked. Keep the
 captured Boolean reason terms aligned with `pipeline_hazard`; do not impose
-priority on simultaneous reasons. Keep WB arrival distinct
-from architectural retirement and deferred completion.
+priority on simultaneous reasons. Keep the unannotated WB arrival token distinct
+from the retirement checkpoint and deferred register completion.
 
 Keep `dcache/s1.access` inside L1D on physical lookup resolution, before the
 response/store-candidate fork. It is shared by scalar and vector requesters;
@@ -376,6 +387,8 @@ storage. Filter responses for killed contexts before the checked conversion.
 WB inherits MEM and available cache ancestry through the existing register;
 do not override its parents to discard either contribution.
 `dcache/s2.resp` observes the scalar response at WB before slow-request qualification.
+It retains those same parents independently of retirement; replay/fault responses
+must not depend on a non-fired WB checkpoint.
 Its annotation stays at the existing caller-owned capture in `core.rhdl`,
 but its display group is `dcache`; do not add a duplicate core result event.
 `vector/memory.result` observes the adapter's registered decision. Qualify

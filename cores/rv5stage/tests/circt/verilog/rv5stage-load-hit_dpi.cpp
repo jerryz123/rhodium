@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
+#include <fstream>
 #include <map>
 
 namespace {
@@ -42,7 +43,10 @@ void check_core_parent(rheg::Ref child, unsigned site, unsigned delay=0) {
     if(field(parent,name)!=field(child,name)) fail("wrong core occurrence");
 }
 }
-extern "C" void demand_init() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
+extern "C" void demand_init() {
+  rheg::graph().bind_manifest(rheg_generated::manifest());
+  rheg::graph().bind_timing({100000000});
+}
 extern "C" void demand_sample(unsigned reset, unsigned attempt, unsigned fire, unsigned cached, std::uint64_t address, unsigned txfire) {
   resetting=reset; accepted=fire; cache_accepted=cached; cache_address=address;
   tx_accepted=txfire;
@@ -82,15 +86,19 @@ extern "C" void demand_check(unsigned done) {
   }
   const rheg::Ref response{demand_sites::response,responses};
   if(graph.nodes.count(response)) {
-    check_core_parent(response,demand_sites::wb);
-    auto prior=parent_of(response);
-    auto wb_sibling=writebacks_by_parent.find(parent_of(prior,demand_sites::mem));
-    if(wb_sibling==writebacks_by_parent.end() || graph.nodes.at(wb_sibling->second).cycle!=cycle)
-      fail("memory result has no same-cycle WB parent");
-    for(const auto* name:{"pc","instruction"})
-      if(field(wb_sibling->second,name)!=field(response,name)) fail("result/WB capture mismatch");
+    check_core_parent(response,demand_sites::mem,1);
+    auto prior=parent_of(response,demand_sites::mem);
+    auto wb_sibling=writebacks_by_parent.find(prior);
+    if(field(response,"fault") || field(response,"replay")) {
+      if(wb_sibling!=writebacks_by_parent.end()) fail("failed memory attempt retired");
+    } else {
+      if(wb_sibling==writebacks_by_parent.end() || graph.nodes.at(wb_sibling->second).cycle!=cycle)
+        fail("successful memory result has no same-cycle retirement");
+      for(const auto* name:{"pc","instruction"})
+        if(field(wb_sibling->second,name)!=field(response,name)) fail("result/WB capture mismatch");
+    }
     if(field(response,"outcome")==1 || field(response,"outcome")==2) {
-      auto cache=parent_of(prior,demand_sites::access);
+      auto cache=parent_of(response,demand_sites::access);
       if(field(cache,"address")!=field(response,"address") || field(cache,"outcome")!=field(response,"outcome"))
         fail("cache hit capture mismatch");
     }
@@ -155,6 +163,10 @@ extern "C" void demand_check(unsigned done) {
     for(std::uint64_t sequence=0; sequence<refills; ++sequence)
       if(!graph.nodes.at({demand_sites::refill,sequence}).end_cycle) fail("refill did not release");
     std::printf("S4 -> refill residency -> CHI TXREQ lineage passed (12 attempts, 6 retries)\n");
+    if(const auto* path=std::getenv("RHEG_LOAD_HIT_SNAPSHOT")) {
+      std::ofstream file(path); file << graph.snapshot().json();
+      if(!file) fail("cannot write load-hit snapshot");
+    }
   }
   ++cycle;
 }

@@ -244,10 +244,23 @@ Accepted `frontend/s0.request` events start lineage, followed by registered
 or two admitted S2 packets that supply its instruction, including same-cycle
 queue bypass and retained halfwords. It records issue only when hazard and squash
 gating permit it. Raw-packet acceptance is not a separate instruction transfer.
-Execute and Memory record surviving stage transfers; WB records arrival
-at the scalar writeback stage. Inferred edges follow the one-cycle
-always-capture registers. Repeated PCs have separate
-occurrence identities; squashed tokens may have no later-stage descendant.
+Execute and Memory record surviving stage transfers; WB records successful
+architectural retirement, using the same qualification as `minstret`.
+Replayed attempts and trapping instructions do not emit WB. WRS and cache
+maintenance emit once on successful completion, retaining their original
+instruction lineage. Ordinary retirement remains one cycle after MEM; retained
+retirement may take longer. Deferred register completion is still separate.
+Repeated PCs have separate occurrence identities; squashed tokens may have no
+later-stage descendant.
+
+WB captures `branch_prediction`: `0 = NotBranch`, `1 = Correct`, or
+`2 = Mispredicted`, with the enum symbols in the track schema.
+For conditional branches, JAL, and JALR (including compressed forms), correctness
+means the effective frontend next PC matches the resolved next PC. This includes
+late frontend prediction corrections, not just the original BTB lookup. RAS-action
+repair alone does not count as a next-PC misprediction. The result travels with
+the instruction from EX; no host-side PC correlation is used. Instruction
+mnemonics remain the slice names.
 
 Decode also emits `.stall` companions on each `valid & !ready` cycle.
 Decode observes the live assembled instruction after squash

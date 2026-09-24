@@ -167,14 +167,19 @@ the common driver.
 `tests/check-core-events.sql` additionally requires Decode through WB,
 exact permitted core-stage edge families, one MEM parent per WB event even
 for memory instructions, one parent per EX/MEM event, no duplicate
-scalar children, matching RV64 PCs, and one-cycle downstream latency. Decode
+scalar children, matching RV64 PCs, and one-cycle downstream latency before WB.
+WB is successful retirement: retained WRS/CMO instructions may retire later,
+and replay/trap attempts do not emit it. Its two-bit `branch_prediction` capture
+uses the core's enum table; it compares effective predicted and resolved next PC.
+Decode
 inherits packet ancestry; the raw packet boundary is not an IF/ID transfer. It requires
 repeated decoded PCs to exercise distinct occurrences.
 PC and instruction checks use named captures, independently of core bundle layout.
 `check-frontend-events.sql` connects request, lookup, outcome, and Decode
 tracks, including selected fetch causes: preceding S0 successors, S2 replays
-or registered prediction repairs, and core redirects/retries. S0 has at most
-one selected parent; only requests reached through an unmodeled cause carry
+or registered prediction repairs, and core redirects/retries. A selected retry
+may inherit MEM and its paired LSU-result occurrence; other causes have one
+selected parent. Only requests reached through an unmodeled cause carry
 unknown ancestry. The direct `rv5stage-fetch-source` fixture checks exact
 selection and held-cursor ownership against public controls, including blocked
 restarts and replacement. Decode and its stalls have one or two retained/live, admitted S2
@@ -189,12 +194,15 @@ Memory pairs explicitly retain raw capture for their payload-equality checks.
 The D-cache stage checks in `tests/check-demand-events.sql` follow scalar EX
 into shared S1 resolution one cycle later, then the returned cache occurrence
 into WB alongside its independent MEM parent. The caller-owned
-`dcache/s2.resp` follows WB in the same cycle with matching instruction
-captures; admitted results parent S3. They also check one-cycle S3-to-S4
+`dcache/s2.resp` is a sibling of retirement, retaining the same MEM and cache
+occurrences without depending on whether WB fires. Successful ordinary scalar
+memory results have same-cycle WB siblings; rejected/faulting attempts have none.
+Admitted results parent S3. They also check one-cycle S3-to-S4
 advancement and S4 refill acceptance fields. Keep caller effective addresses
 separate from physical cache addresses; translation need not preserve their
 numeric value. Direct S4 refill
-acceptance must reach refill residency on the same cycle, then TXREQ with matching
+acceptance reaches refill residency on the same graph cycle; Perfetto displays
+the registered residency beginning one cycle later. TXREQ follows with matching
 opcode/line address; retries may produce multiple children of one residency.
 Writeback residency separately parents its requests, data, and post-eviction
 refill. Its incoming gather ancestry remains explicitly unknown.

@@ -191,8 +191,11 @@ Walk the same-cycle dependency graph separately, cutting registered storage
 edges but keeping potentially enabled bypass inputs. Check every node, including
 storage inputs, so one stateful loop cannot hide an unrelated combinational loop.
 Reference/control discovery and capacity analysis use identity-keyed visited
-sets or fixed points. Feedback retains single-parent capacity but permits
-multiple downstream checkpoints. For branching feedback, form the union of
+sets or fixed points. Feedback may retain a bounded parent set and permits
+multiple downstream checkpoints. A joined set entering a selection-only loop
+does not grow on recirculation; use the existing capacity fixed point rather
+than rejecting it merely for having multiple slots. Storage preallocation and
+selection padding use each plan's solved capacity. For branching feedback, form the union of
 child plans, resolve back references, and canonicalize checkpoint sources by
 site identity. Reverse plan inputs into consumer edges, including explicit
 child exits, then walk forward from the source once. Every multi-consumer node
@@ -377,7 +380,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-queue` | All flow/pipe modes at depths one/three, depth-five hierarchical composition, empty bypass, full replacement, pointer wraparound |
 | `event-arbiter` | Fixed/round-robin and nested selection, independent input/output buffers, changing offers under stall |
 | `event-crossbar` | Direct/configured grant routing and selection, queued input ancestry, simultaneous outputs, zero grants, changed stalled winners, full replacement, and pending reset |
-| `event-feedback` | Checkpoint-free registered laps, identical payloads, exact occurrence ancestry, full-loop stalls, simultaneous transfers, pending reset, and an uninstrumented reference lane |
+| `event-feedback` | Singleton and joined-pair checkpoint-free registered laps, identical payloads, exact occurrence ancestry, full-loop stalls, simultaneous transfers, pending reset, and an uninstrumented reference lane |
 | `event-branching` | Direct/configured 3x3 crossbar feedback, two independently buffered exits, every source-to-exit route, repeated laps, changing grants during stalls, concurrent exits, reset, and an uninstrumented reference lane |
 | `event-demux` | Invalid selectors, changing selection, independent branch buffers, simultaneous completions, nested routing and reconvergence |
 | `event-atomic-fork` | All-or-none transfers, pre/post storage, repeated hierarchy, nested/singleton replication, demux/arbiter composition and uncertified-fanout rejection |

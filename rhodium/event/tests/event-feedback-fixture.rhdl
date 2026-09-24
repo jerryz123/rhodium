@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises checkpoint-free recirculation through intrinsic queue and grant contracts.
+// Exercises singleton and joined-parent recirculation through intrinsic queue and grant contracts.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
@@ -29,21 +29,41 @@ sync_circuit EventFeedbackLane(traced :: Boolean, flow :: Boolean = #false, spli
   | route.egress[0] |> trace_event("finish", ~payload: #true) |> egress
   | route.egress[0] |> egress
 
-sync_circuit EventFeedback():
+sync_circuit EventJoinedFeedbackLane():
   interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
-  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  input select_feedback: Bool
+  input route_feedback: Bool
+  inst loop(EventFeedbackLane(#false))
+  loop.select_feedback <== select_feedback
+  loop.route_feedback <== route_feedback
+  def left = ingress[0] |> trace_event("joined.left", ~payload: #true)
+  def right = ingress[1] |> trace_event("joined.right", ~payload: #true)
+  Array(left, right) |> zip_flow(a, b => a) |> loop.ingress
+  loop.egress |> trace_event("joined.finish", ~payload: #true) |> egress
+
+sync_circuit EventFeedback():
+  interface ingress[4](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[3](Decoupled(Bits(8)), ~role: producer)
   input select_feedback: Bool
   input route_feedback: Bool
   inst traced(EventFeedbackLane(#true))
   inst reference(EventFeedbackLane(#false))
+  inst joined(EventJoinedFeedbackLane())
   for (lane in [traced, reference], index in 0..2):
     lane.select_feedback <== select_feedback
     lane.route_feedback <== route_feedback
     ingress[index] |> lane.ingress
     lane.egress |> egress[index]
+  joined.select_feedback <== select_feedback
+  joined.route_feedback <== route_feedback
+  ingress[2] |> joined.ingress[0]
+  ingress[3] |> joined.ingress[1]
+  joined.egress |> egress[2]
 
 fun feedback(~bypass: bypass :: Boolean = #false, ~split: split :: Boolean = #false):
   elaborate_with_top(EventFeedbackLane(#true, bypass, split))
+def paired = elaborate_with_top(EventJoinedFeedbackLane())
 
 // Valid wiring permits this electrical fanout, but there is deliberately no
 // replication contract authorizing both the tap and the feedback consumer.
@@ -112,6 +132,7 @@ def compared = elaborate_with_top(EventFeedback())
 def branching = elaborate_with_top(EventFeedbackCrossbar())
 export:
   feedback
+  paired
   compared
   branching
   unsafe_feedback

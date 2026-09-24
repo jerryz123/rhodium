@@ -180,6 +180,14 @@ redirect pipe and blocked cursor. Direct/compressed jumps, returns, straddling
 instructions, and held redirects retain the existing functional scoreboard.
 The same monitor checks ordinary S1-selected successors against their original
 S0 occurrence, including BTB-predicted and sequential requests.
+`rv5stage-retirement-trace` drives the real core's public fetch packets with
+explicit predictions and delayed memory responses. Its DPI scoreboard checks
+exact retired PCs/instructions/prediction fields and original MEM parents, with
+compressed branches, indirect targets, RAS-only repair, replay, squash, traps,
+and WRS/CMO retention. It can save a collector snapshot through
+`RHEG_RETIREMENT_SNAPSHOT` for native Perfetto validation.
+`rv5stage-load-hit` can similarly save its shared-cache ancestry snapshot with
+`RHEG_LOAD_HIT_SNAPSHOT`.
 Core CMO/WRS and FP/scalar regressions check the inline live/maintenance/WRS
 retirement flows, completion policy, and dispatch behavior at the core boundary.
 `event-offer-register` compares traced/untraced public outputs and exact captured

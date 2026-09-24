@@ -242,7 +242,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:rv5stage-retirement-trace|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -519,7 +519,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance ]]; then
+  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -542,7 +542,7 @@ verify_fixture() {
     # Vector atomic issue couples ready with a calendar's payload-only latency
     # lookup. Packed structs look cyclic to Verilator; leaf-level RTL verification
     # remains enabled, as do simulation assertions and convergence checks.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -746,6 +746,7 @@ fixture_specs=(
 )
 
 direct_fixture_specs=(
+  'rv5stage-retirement-trace|rv5stage_retirement_trace_tb'
   'event-instance|event_instance_tb'
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'

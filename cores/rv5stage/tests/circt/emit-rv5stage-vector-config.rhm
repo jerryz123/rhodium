@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the traced RV64V core for architectural execution and WB-to-vector ownership tests.
+// Emits the traced RV64V core for architectural retirement and vector admission ownership tests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,7 +14,7 @@ import:
 
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_length: 128), ~reset_address: 0)), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_core_sites {\n" ++ String.join(
-  for List (label in ["core/s5.wb", "vector/s1.sequence"], name in ["wb", "sequence"]):
+  for List (label in ["core/s5.wb", "core/s4.memory", "core/s3.execute", "vector/s1.sequence"], name in ["wb", "mem", "ex", "sequence"]):
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
     unless matches.length() == 1 | error("expected one core/vector site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",

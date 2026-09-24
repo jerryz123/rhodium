@@ -335,7 +335,7 @@ remain visible; it does not summarize the whole containing module. See the
 | `atomic_fork`, `fork_valid` | Replicate lineage on synchronous acceptance; downstream buffers may complete independently |
 | `broadcast` | Preserve one accepted lineage until each recipient consumes its copy; replacement cannot change old deliveries |
 | Atomic `zip_flow` | Combine all contributing input lineages |
-| Registered feedback | Carry a single parent through repeated queue/stage and grant-selected traversals to multiple exits without an internal checkpoint |
+| Registered feedback | Carry a bounded parent set through repeated queue/stage and grant-selected traversals to multiple exits without an internal checkpoint |
 
 An annotation emits one node and edges for its incoming parents, then replaces
 that lineage with its own identity. Reconvergence may repeat a parent reference;
@@ -429,7 +429,7 @@ disable runtime assertions for certified storage and selection.
   For feedback, the compiler checks branches in the finite graph, not decisions
   on different laps. Unexplained fanout remains an error; buffered branches may
   complete concurrently.
-- Feedback currently supports single-parent lineage with multiple downstream
+- Feedback supports bounded parent sets with multiple downstream
   transfer checkpoints. Every lineage cycle must cross registered storage; a live queue
   bypass does not break a cycle. Joins/windows that grow ancestry on each lap
   are rejected instead of truncating parents. Cyclic static dependencies retain
