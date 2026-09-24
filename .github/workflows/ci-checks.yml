@@ -1,0 +1,61 @@
+# Runs the selected host, example, and CIRCT checks from one capability matrix.
+# SPDX-License-Identifier: Apache-2.0
+
+name: CI checks
+
+on:
+  workflow_call:
+    inputs:
+      matrix:
+        description: JSON include matrix produced by the CI planner.
+        required: true
+        type: string
+      racket-version:
+        description: Installed Racket version.
+        required: true
+        type: string
+      rhombus-checksum:
+        description: Pinned Rhombus package checksum.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Racket
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: ${{ inputs.racket-version }}
+      - name: Restore exact Rhodium bytecode
+        uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: ${{ inputs.racket-version }}
+          rhombus-checksum: ${{ inputs.rhombus-checksum }}
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Install device-tree compiler
+        if: matrix.dtc
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes device-tree-compiler
+      - name: Install Verilator
+        if: matrix.verilator
+        uses: ./.github/actions/setup-verilator
+      - name: Install CIRCT
+        if: matrix.circt
+        uses: ./.github/actions/setup-circt
+      - name: Run ${{ matrix.target }}
+        run: make ${{ matrix.target }}

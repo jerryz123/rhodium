@@ -1,0 +1,21 @@
+# Restores and verifies Spike/FESVR host libraries from the patched submodule.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up Spike and FESVR
+description: Cache and build the simulator and host-target libraries from the pinned patched Spike tree.
+
+runs:
+  using: composite
+  steps:
+    - name: Identify pinned Spike revision
+      id: spike-revision
+      shell: bash
+      run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
+    - name: Cache Spike and FESVR
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .tools/fesvr-*
+        key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
+    - name: Install and verify Spike and FESVR
+      shell: bash
+      run: make -C sims setup

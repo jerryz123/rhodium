@@ -1,0 +1,17 @@
+# Restores and verifies the repository-pinned CIRCT toolchain for RTL checks.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up CIRCT
+description: Restore the pinned firtool cache and verify the installed toolchain.
+
+runs:
+  using: composite
+  steps:
+    - name: Cache CIRCT
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: .tools/firtool-*
+        key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
+    - name: Install and verify CIRCT
+      shell: bash
+      run: make setup-circt

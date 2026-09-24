@@ -168,6 +168,7 @@ Use aggregate targets only when the change spans their full scope:
 | `make host-checks` | Host tests, package models, protocols, cores, SoCs, and repository hygiene without the explicit example sweep |
 | `make host-test` | `host-checks` plus every non-formal example |
 | `make test` | `host-test`, the curated backend CIRCT spine, RFPL CIRCT, and HardFloat CIRCT/Verilator checks |
+| `make ci-plan-test` | Validate CI path selection, tracked executable coverage, and the stable gate contract |
 
 `make test` is the broad repository aggregate, not an exhaustive superset. It
 excludes the optional formal and Emacs suites, the full backend manifest, and

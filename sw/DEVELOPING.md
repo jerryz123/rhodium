@@ -42,7 +42,7 @@ Run the focused builder tests and simulator adapters first:
 ```sh
 python3 -m unittest discover -s sw/tests
 make -C sims program-test-adapter-test arch-test-adapter-test opensbi-adapter-test
-bash tools/check-ci-changes.sh
+make ci-plan-test
 make check-license-headers check-boundaries
 ```
 

@@ -58,10 +58,13 @@ them.
 
 ## CI ownership
 
-CI first tests and applies [`../tools/ci-changes.sh`](../../tools/ci-changes.sh).
-When it selects any downstream work, CI compiles the positive Racket entrypoint
-manifest once for reuse by the selected jobs. Pull requests and pushes classify
-the changed paths; manual dispatch selects every matrix shard.
+CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
+[`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
+by [`policy.py`](../ci/policy.py); its unit tests also reject tracked executable
+inputs that select no lane. When the plan selects any downstream work, CI
+compiles the positive Racket entrypoint manifest once for reuse by the selected
+jobs. Pull requests and pushes classify changed paths; manual dispatch selects
+every matrix shard.
 
 Local runner scripts preserve the same freshness boundary with a persistent
 compiled root owned by each worktree under `.rhodium-cache/`. The cache is keyed
@@ -86,7 +89,7 @@ bytecode artifact.
 
 ```mermaid
 flowchart TD
-    Changes["Pull request or push paths"] --> Classifier["Change classifier"]
+    Changes["Pull request or push paths"] --> Classifier["Declarative CI planner"]
     Manual["Manual dispatch"] --> All["Select every shard"]
     Unknown["Unknown path or unavailable base"] --> All
     Classifier --> Docs{"Documentation or<br/>repository metadata only?"}
@@ -94,25 +97,17 @@ flowchart TD
     Docs -->|no| Selected["Dependency-aware selection"]
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
-    Compile --> Host["Host matrix<br/>foundation, backend, models,<br/>protocols, cores, SoCs, hygiene"]
-    Compile --> Examples["Example matrix<br/>one owning example group per shard"]
-    Compile --> CIRCT["CIRCT matrix<br/>language, standard library, protocols,<br/>core components/execution/vector functional 1 and 2/vector configurations/<br/>memory/caches, HardFloat, RFPL"]
-    Compile --> Simulation["SoC simulation job<br/>SRAM, DPI, harnesses, and smoke"]
-    Compile --> OpenSBI["OpenSBI qualification job<br/>both single-core SoCs"]
-    Compile --> TiledMemory["TiledSoC memory stress<br/>independent build and execution budget"]
-    Compile --> SimpleBuild["Build SingleCoreRV5StageSoC once<br/>exact-commit executable artifact"]
-    Compile --> SpikeBuild["Build SingleCoreSpikeSoC once<br/>exact-commit executable artifact"]
-    SimpleBuild --> Simulation
-    SpikeBuild --> Simulation
-    SimpleBuild --> OpenSBI
-    SpikeBuild --> OpenSBI
-    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection"]
-    SpikeBuild --> Programs
+    Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
+    Compile --> Simulators["Reusable simulator workflow<br/>RV5Stage and Spike exact artifacts"]
+    Simulators --> Simulation["Reusable simulation workflow<br/>harnesses, ISA smoke, OpenSBI,<br/>and tiled-memory stress"]
+    Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
-    SimpleBuild --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
-    SpikeBuild --> SpikeActRun["Spike ACT execution<br/>four disjoint shards"]
+    Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
     ActBuild --> ActRun
-    ActBuild --> SpikeActRun
+    Checks --> Gate["Stable CI gate"]
+    Simulation --> Gate
+    Programs --> Gate
+    ActRun --> Gate
 ```
 
 Known dependency paths can select several branches. For example, NoC, RISC-V,
@@ -164,9 +159,14 @@ also attach their standalone hand-written ELFs.
 Recognized documentation and inert repository metadata select no functional
 test jobs. The optional Emacs integration and most of `vlsi/` have no
 functional CI lane; Rhodium sources there still receive source hygiene, while
-`vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized paths
-fail closed by selecting every job, and the classifier audit rejects tracked
-executable source that selects no job.
+`vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized
+paths fail closed by selecting every lane, and the planner tests reject tracked
+executable source that selects no lane. The root workflow owns only triggers,
+planning, the shared Racket artifact, reusable-workflow calls, and the stable
+`CI` gate. The reusable workflows separately own capability checks, simulator
+construction, simulation, and bare-metal software. Composite actions own only
+repeated toolchain setup, so test steps and their failures remain visible as
+workflow jobs.
 
 The hygiene lane runs `make check-license-headers` over the complete tracked
 source, test, script, configuration, and documentation inventory. It requires
@@ -174,9 +174,9 @@ Apache-2.0 identifiers for original Rhodium material and BSD-3-Clause
 identifiers within `hardfloat/`, while exempting exact legal texts and external
 submodule contents.
 
-When adding or moving executable source, update the classifier if its existing
-dependency rules do not select every affected owner. Test the classifier change
-directly before relying on its downstream matrix selection.
+When adding or moving executable source, update the planner if its existing
+dependency rules do not select every affected owner. Run `make ci-plan-test`
+before relying on its downstream matrix selection.
 
 ## Change workflow
 
@@ -189,8 +189,8 @@ directly before relying on its downstream matrix selection.
 4. Add external lowering or simulation coverage through the
    [CIRCT fixture workflow](circt/DEVELOPING.md) only when the change crosses
    that toolchain boundary.
-5. Confirm [`../tools/ci-changes.sh`](../../tools/ci-changes.sh) selects every
-   affected package, example, CIRCT, or simulation shard.
+5. Confirm `python3 -m tools.ci.plan --paths PATH... --pretty` selects every
+   affected package, example, CIRCT, simulation, or software lane.
 6. Run the smallest owner target first, then the broader target required by the
    changed dependency surface. The [test-running guide](README.md) lists those
    targets and their scope.

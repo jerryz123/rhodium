@@ -259,5 +259,5 @@ Use the real native importer for wire-format changes, not just a matching local
 decoder. After ABI or descriptor changes, run the
 [compiler/RTL fixtures](../rhodium/event/DEVELOPING.md#focused-validation). For
 simulator integration, run the [trace smoke](../sims/DEVELOPING.md#event-export-integration).
-Run `make check-boundaries` and `bash tools/check-ci-changes.sh` after package or
-dependency changes. Keep traces, downloaded tools, and build artifacts untracked.
+Run `make check-boundaries` and `make ci-plan-test` after package or dependency
+changes. Keep traces, downloaded tools, and build artifacts untracked.

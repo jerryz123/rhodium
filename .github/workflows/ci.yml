@@ -1,4 +1,4 @@
-# Runs dependency-sensitive Rhodium host, example, CIRCT, and simulation checks.
+# Orchestrates dependency-aware Rhodium CI through focused reusable workflows.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI
@@ -23,50 +23,44 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  changes:
-    name: Classify changes
+  plan:
+    name: Plan affected CI lanes
     runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
-      host: "${{ steps.filter.outputs.host }}"
-      host_matrix: "${{ steps.filter.outputs.host_matrix }}"
-      circt: "${{ steps.filter.outputs.circt }}"
-      circt_matrix: "${{ steps.filter.outputs.circt_matrix }}"
-      simulation: "${{ steps.filter.outputs.simulation }}"
-      programs: "${{ steps.filter.outputs.programs }}"
-      program_native: "${{ steps.filter.outputs.program_native }}"
-      program_arch: "${{ steps.filter.outputs.program_arch }}"
-      program_matrix: "${{ steps.filter.outputs.program_matrix }}"
-      examples: "${{ steps.filter.outputs.examples }}"
-      example_matrix: "${{ steps.filter.outputs.example_matrix }}"
+      plan: ${{ steps.plan.outputs.plan }}
+      racket_version: ${{ steps.plan.outputs.racket_version }}
+      rhombus_checksum: ${{ steps.plan.outputs.rhombus_checksum }}
     steps:
       - name: Check out Rhodium history
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Test change classifier
-        run: tools/check-ci-changes.sh
-      - name: Select affected jobs
-        id: filter
+      - name: Test CI policy
+        run: python3 -m unittest tools.ci.test_plan
+      - name: Select affected lanes
+        id: plan
         run: |
           if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
-            tools/ci-changes.sh --all >> "$GITHUB_OUTPUT"
+            plan="$(python3 -m tools.ci.plan --all)"
           elif [[ "$GITHUB_EVENT_NAME" == pull_request ]]; then
-            tools/ci-changes.sh \
+            plan="$(python3 -m tools.ci.plan --revisions \
               "${{ github.event.pull_request.base.sha }}" \
-              "${{ github.event.pull_request.head.sha }}" \
-              >> "$GITHUB_OUTPUT"
+              "${{ github.event.pull_request.head.sha }}")"
           else
-            tools/ci-changes.sh \
+            plan="$(python3 -m tools.ci.plan --revisions \
               "${{ github.event.before }}" \
-              "${{ github.sha }}" \
-              >> "$GITHUB_OUTPUT"
+              "${{ github.sha }}")"
           fi
+          echo "plan=$plan" >> "$GITHUB_OUTPUT"
+          echo "racket_version=$RACKET_VERSION" >> "$GITHUB_OUTPUT"
+          echo "rhombus_checksum=$RHOMBUS_CHECKSUM" >> "$GITHUB_OUTPUT"
+          python3 -m json.tool <<< "$plan"
 
   compile-racket:
     name: Compile Rhodium once
-    needs: changes
-    if: needs.changes.outputs.host == 'true' || needs.changes.outputs.examples == 'true' || needs.changes.outputs.circt == 'true' || needs.changes.outputs.simulation == 'true' || needs.changes.outputs.programs == 'true'
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).run_compile }}
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -78,12 +72,12 @@ jobs:
           architecture: x64
           distribution: full
           variant: CS
-          version: "${{ env.RACKET_VERSION }}"
+          version: ${{ env.RACKET_VERSION }}
       - name: Prepare cached Racket dependencies
         uses: ./.github/actions/setup-racket-cache
         with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
+          racket-version: ${{ env.RACKET_VERSION }}
+          rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
       - name: Compile positive CI entrypoints
         run: tools/compile-racket-sources.sh
       - name: Publish exact compiled root
@@ -95,757 +89,68 @@ jobs:
           retention-days: 3
           compression-level: 0
 
-  host:
-    name: Host (${{ matrix.name }})
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.host == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.host_matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - name: Prepare precompiled Rhodium
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install device-tree test tools
-        if: matrix.target == 'ci-host-models-test' || matrix.target == 'ci-host-socs-test'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes device-tree-compiler
-      - name: Run affected host test group
-        run: make "${{ matrix.target }}"
+  checks:
+    name: Host, example, and CIRCT checks
+    needs: [plan, compile-racket]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_checks }}
+    uses: ./.github/workflows/ci-checks.yml
+    with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).checks_matrix) }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
-  examples:
-    name: Examples (${{ matrix.name }})
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.examples == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.example_matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - name: Prepare precompiled Rhodium
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Run affected example group
-        run: make "${{ matrix.target }}"
-
-  circt:
-    name: CIRCT (${{ matrix.name }})
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.circt == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.circt_matrix) }}
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - name: Prepare precompiled Rhodium
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install Verilator
-        uses: ./.github/actions/setup-verilator
-      - name: Cache CIRCT
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/firtool-*
-          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
-      - name: Install CIRCT
-        run: make setup-circt
-      - name: Verify affected CIRCT fixture group
-        run: make "${{ matrix.target }}"
+  simulator:
+    name: Shared simulators
+    needs: [plan, compile-racket]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    uses: ./.github/workflows/ci-simulator.yml
+    with:
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   simulation:
-    name: SoC simulation harnesses
-    needs: [changes, compile-racket, single-core-rv5stage-soc-build, single-core-spike-soc-build]
-    if: needs.changes.outputs.simulation == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    name: Simulation
+    needs: [plan, compile-racket, simulator]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
+    uses: ./.github/workflows/ci-simulation.yml
+    with:
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  software:
+    name: Bare-metal software
+    needs: [plan, compile-racket, simulator]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && (fromJSON(needs.plan.outputs.plan).run_program_native || fromJSON(needs.plan.outputs.plan).run_program_arch) }}
+    uses: ./.github/workflows/ci-software.yml
+    with:
+      run-native: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
+      native-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
+      run-arch: ${{ fromJSON(needs.plan.outputs.plan).run_program_arch }}
+      racket-version: ${{ needs.plan.outputs.racket_version }}
+      rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
+
+  gate:
+    name: CI
+    needs: [plan, compile-racket, checks, simulator, simulation, software]
+    if: always()
+    runs-on: ubuntu-slim
+    timeout-minutes: 5
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - name: Prepare precompiled Rhodium
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes \
-            build-essential \
-            clang \
-            cmake \
-            device-tree-compiler \
-            lld \
-            llvm \
-            zlib1g-dev
-      - name: Install pinned RISC-V compiler
-        uses: ./.github/actions/setup-riscv-toolchain
-      - name: Install Verilator
-        uses: ./.github/actions/setup-verilator
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Build pinned FESVR
-        run: make -C sims setup
-      - name: Cache CIRCT
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/firtool-*
-          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
-      - name: Install CIRCT
-        run: make setup-circt
-      - name: Verify SRAM mapping package
-        run: make -C sram test
-      - name: Compile Verilator DPI adapter
-        run: |
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          test -n "$verilator_root"
-          make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
-      - name: Test FESVR transport
-        run: make -C sims transport-test
-      - name: Test ACT completion adapter
-        run: make -C sims arch-test-adapter-test
-      - name: Test program suite adapters
-        run: make -C sims program-test-adapter-test
-      - name: Download exact SingleCoreRV5StageSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
-      - name: Download exact SingleCoreSpikeSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: single-core-spike-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-spike-soc
-      - name: Restore simulator executable permission
-        run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-      - name: Build reusable SoC simulators
-        run: |
-          make -C sims simulator SOC=tiled-rv5stage-soc
-      - name: Execute reusable single-core and tiled SoCs through standard FESVR flow
-        run: |
-          make -C sims smoke SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims smoke SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims smoke SOC=tiled-rv5stage-soc
-      - name: Verify exact host MMIO on every supported SoC
-        run: |
-          make -C sims host-mmio-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims host-mmio-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims host-mmio-test SOC=mini-rv5stage-soc
-          make -C sims host-mmio-test SOC=tiled-rv5stage-soc
-      - name: Boot distinct ELF entries through each SoC boot register
-        run: |
-          make -C sims boot-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims boot-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims boot-test SOC=mini-rv5stage-soc
-          make -C sims boot-test SOC=tiled-rv5stage-soc
-      - name: Exchange binary UART traffic through each SoC PTY
-        run: |
-          make -C sims uart-pty-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims uart-pty-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims uart-pty-test SOC=mini-rv5stage-soc
-          make -C sims uart-pty-test SOC=tiled-rv5stage-soc
-      - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
-        run: make -C sims zihintntl-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-      - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        run: make -C vlsi/sim smoke
-      - name: Prepare upstream ISA sources
-        run: make -C sims program-test-setup
-      - name: Run small MiniRV5StageSoC and TiledRV5StageSoC software suites
-        run: |
-          status=0
-          make -C sims isa-smoke SOC=mini-rv5stage-soc PROGRAM_JOBS=2 || status=1
-          make -C sims isa-smoke SOC=tiled-rv5stage-soc PROGRAM_JOBS=2 || status=1
-          make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc PROGRAM_JOBS=1 || status=1
-          exit "$status"
-      - name: Package completed ISA smoke ELFs
-        if: always()
-        run: |
-          shopt -s nullglob
-          for manifest in /tmp/rhodium-program-tests/*/isa-smoke/manifest.json; do
-            soc="$(basename "$(dirname "$(dirname "$manifest")")")"
-            python3 sims/program-test/archive.py --manifest "$manifest" \
-              --archive "$RUNNER_TEMP/isa-smoke-elfs/$soc.tar.gz"
-          done
-      - name: Publish MiniRV5StageSoC and TiledRV5StageSoC software results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: mini-tiled-isa-smoke-${{ github.sha }}
-          path: |
-            /tmp/rhodium-program-tests/*/isa-smoke/target.json
-            /tmp/rhodium-program-tests/*/isa-smoke/manifest.json
-            /tmp/rhodium-program-tests/*/isa-smoke/build.log
-            /tmp/rhodium-program-tests/*/isa-smoke/results
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/manifest.json
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/instruction-report.json
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/build.log
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/results
-            ${{ runner.temp }}/isa-smoke-elfs
-          if-no-files-found: warn
-          retention-days: 7
-      - name: Publish standalone SoC smoke ELFs
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: soc-smoke-elfs-${{ github.sha }}
-          path: /tmp/rhodium-sims/**/*.elf
-          if-no-files-found: warn
-          retention-days: 7
-
-  simulation-opensbi:
-    name: SoC OpenSBI qualification
-    needs: [changes, compile-racket, single-core-rv5stage-soc-build, single-core-spike-soc-build]
-    if: needs.changes.outputs.simulation == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - name: Prepare precompiled Rhodium
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential clang cmake device-tree-compiler lld llvm zlib1g-dev
-      - name: Install pinned RISC-V compiler
-        uses: ./.github/actions/setup-riscv-toolchain
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Build pinned FESVR
-        run: make -C sims setup
-      - name: Test OpenSBI target adapter
-        run: make -C sims opensbi-adapter-test
-      - name: Download exact SingleCoreRV5StageSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
-      - name: Download exact SingleCoreSpikeSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: single-core-spike-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-spike-soc
-      - name: Restore simulator executable permission
-        run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-      - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
-        run: |
-          make -C sims opensbi-setup
-          status=0
-          for soc in single-core-rv5stage-soc single-core-spike-soc; do
-            make -C sims opensbi-test SOC="$soc" \
-              OPENSBI_LLVM=/usr/bin \
-              PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
-          done
-          exit "$status"
-      - name: Publish OpenSBI diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: opensbi-${{ github.sha }}
-          path: |
-            /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
-            /tmp/rhodium-software/single-core-spike-soc/opensbi
-          if-no-files-found: warn
-          retention-days: 7
-
-  tiled-memory:
-    name: TiledRV5StageSoC memory backpressure
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.simulation == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - uses: ./.github/actions/setup-riscv-toolchain
-      - uses: ./.github/actions/setup-verilator
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Cache CIRCT
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/firtool-*
-          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
-      - name: Install simulation dependencies
-        run: |
-          make -C sims setup
-          make setup-circt
-      - name: Build and stress the stalled memory channel
-        timeout-minutes: 35
-        shell: bash
-        run: make -C sims tiled-memory-test 2>&1 | tee "$RUNNER_TEMP/tiled-memory.log"
-      - name: Publish memory stress diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tiled-memory-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/tiled-memory.log
-            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf
-          retention-days: 7
-
-  single-core-rv5stage-soc-build:
-    name: Build shared SingleCoreRV5StageSoC simulator
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.program_native == 'true' || needs.changes.outputs.program_arch == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - uses: ./.github/actions/setup-verilator
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache CIRCT
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/firtool-*
-          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
-      - name: Cache FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Build and attest simulator
-        run: |
-          make setup-circt
-          make -C sims setup simulator program-target SOC=single-core-rv5stage-soc
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver --soc single-core-rv5stage-soc \
-            --target /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
-          ldd /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: |
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver.json
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
-          if-no-files-found: error
-          retention-days: 3
-
-  single-core-spike-soc-build:
-    name: Build shared SingleCoreSpikeSoC simulator
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.simulation == 'true' || needs.changes.outputs.program_native == 'true' || needs.changes.outputs.program_arch == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - uses: ./.github/actions/setup-verilator
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache CIRCT
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/firtool-*
-          key: "${{ runner.os }}-${{ runner.arch }}-circt-${{ hashFiles('tools/install-circt.sh') }}"
-      - name: Cache Spike and FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Build, test, and attest simulator
-        run: |
-          make setup-circt
-          make -C sims setup simulator program-target SOC=single-core-spike-soc
-          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
-          test -n "$verilator_root"
-          make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver --soc single-core-spike-soc \
-            --target /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
-          ldd /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
-      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: single-core-spike-soc-${{ github.sha }}
-          path: |
-            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
-            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver.json
-            /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
-          if-no-files-found: error
-          retention-days: 3
-
-  single-core-soc-programs:
-    name: ${{ matrix.soc }} (${{ matrix.suite }})
-    needs: [changes, single-core-rv5stage-soc-build, single-core-spike-soc-build]
-    if: ${{ !cancelled() && needs.changes.outputs.program_native == 'true' }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.program_matrix) }}
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize suite sources and record revisions
-        id: sources
+      - name: Verify selected workflows passed
         env:
-          SUITE: ${{ matrix.suite }}
+          PLAN: ${{ needs.plan.outputs.plan }}
+          COMPILE_RESULT: ${{ needs.compile-racket.result }}
+          CHECKS_RESULT: ${{ needs.checks.result }}
+          SIMULATOR_RESULT: ${{ needs.simulator.result }}
+          SIMULATION_RESULT: ${{ needs.simulation.result }}
+          SOFTWARE_RESULT: ${{ needs.software.result }}
         run: |
-          make -C sims "$SUITE-setup"
-          case "$SUITE" in
-            coremark|coremark_scalar) source=sw/coremark ;;
-            embench) source=sw/embench-iot ;;
-            bringup) source=sw/bringup-bench ;;
-            *) source=sw/riscv-isa-tests ;;
-          esac
-          echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/setup-riscv-toolchain
-      - name: Install simulator runtime dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - name: Identify pinned Spike revision
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache Spike and FESVR
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Restore exact Spike runtime libraries
-        run: make -C sims setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.soc }}-${{ github.sha }}
-          path: ${{ runner.temp }}/${{ matrix.soc }}
-      - name: Verify downloaded simulator
-        env:
-          SOC: ${{ matrix.soc }}
-        run: |
-          chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC"
-          ldd "$RUNNER_TEMP/$SOC/VTestDriver"
-      - name: Test adapter contracts
-        run: make -C sims program-test-adapter-test arch-test-adapter-test
-      - name: Cache program builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/rhodium-program-tests/${{ matrix.soc }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sw/build/build.py', 'sw/build/build-coremark.py', 'sw/build/build-embench.py', 'sw/build/build-bringup-bench.py', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sw/build/program_target.py', 'sims/program-test/write-target.rhm', 'sw/build/isa.mk') }}"
-      - name: Build and run every selected workload
-        env:
-          SUITE: ${{ matrix.suite }}
-          SOC: ${{ matrix.soc }}
-        run: |
-          set -o pipefail
-          status=0
-          mkdir -p "$RUNNER_TEMP/program-logs"
-          # One bounded Bringup-Bench suite; select a routine CI subset until
-          # the remaining workloads meet the SoC simulator's wall-time budget.
-          if [[ "$SUITE" == bringup ]]; then
-            export BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor
-          fi
-          make -C sims "$SUITE-test" SOC="$SOC" \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
-            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log" || status=1
-          exit "$status"
-      - name: Package completed workload ELFs
-        if: always()
-        env:
-          SUITE: ${{ matrix.suite }}
-          SOC: ${{ matrix.soc }}
-        run: |
-          manifest="/tmp/rhodium-program-tests/$SOC/$SUITE/manifest.json"
-          if [[ -f "$manifest" ]]; then
-            python3 sims/program-test/archive.py --manifest "$manifest" \
-              --archive "$RUNNER_TEMP/program-elfs/$SUITE.tar.gz"
-          fi
-      - name: Publish workload results and diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.soc }}-${{ matrix.suite }}-results-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/program-logs
-            /tmp/rhodium-program-tests/*/*/manifest.json
-            /tmp/rhodium-program-tests/*/*/instruction-report.json
-            /tmp/rhodium-program-tests/*/*/build.log
-            /tmp/rhodium-program-tests/*/*/results
-            ${{ runner.temp }}/program-elfs
-          if-no-files-found: warn
-          retention-days: 7
-
-  single-core-arch-build:
-    name: Generate ${{ matrix.configuration }} ACT ELFs
-    needs: [changes, compile-racket]
-    if: needs.changes.outputs.program_arch == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize pinned ACT sources
-        id: sources
-        run: |
-          git submodule update --init sw/riscv-arch-test
-          echo "revision=$(git rev-parse HEAD:sw/riscv-arch-test)" >> "$GITHUB_OUTPUT"
-      - uses: ./.github/actions/setup-riscv-toolchain
-      - uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: "${{ env.RACKET_VERSION }}"
-      - uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: "${{ env.RACKET_VERSION }}"
-          rhombus-checksum: "${{ env.RHOMBUS_CHECKSUM }}"
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install ACT native dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential ruby-dev bundler libgmp-dev libyaml-dev zlib1g-dev
-      - name: Cache ACT dependencies
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .tools/act-venv
-            .tools/act-bundle
-            .tools/act-cache
-            .tools/act-data
-            .tools/sail-0.14.1
-          key: "${{ runner.os }}-${{ runner.arch }}-act-${{ steps.sources.outputs.revision }}-${{ hashFiles('sims/arch-test/setup.sh') }}"
-      - name: Set up ACT and generate platform configuration
-        id: act-config
-        run: |
-          make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=${{ matrix.configuration }}
-          echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
-      - name: Cache ACT reference products
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            /tmp/rhodium-arch-test/work/**/build
-            /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/patched_submodule.py') }}"
-      - name: Generate and package every selected ELF
-        run: |
-          set -o pipefail
-          mkdir -p "$RUNNER_TEMP/act"
-          make -C sims arch-test-elfs ACT_CONFIGURATION=${{ matrix.configuration }} ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
-          test -n "$(find /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs -name '*.elf' -print -quit)"
-          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs .
-          cd "$RUNNER_TEMP/act"
-          sha256sum elfs.tar.gz > elfs.sha256
-      - name: Publish exact-commit ACT payloads
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/elfs.tar.gz
-            ${{ runner.temp }}/act/elfs.sha256
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-      - name: Publish generation diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-generation-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/generation.log
-            /tmp/rhodium-arch-test/configs
-            /tmp/rhodium-arch-test/work/**/*.log
-          if-no-files-found: warn
-          retention-days: 7
-
-  single-core-arch:
-    name: ${{ matrix.configuration }} (arch ${{ matrix.shard }})
-    needs: [changes, single-core-rv5stage-soc-build, single-core-spike-soc-build, single-core-arch-build]
-    if: needs.changes.outputs.program_arch == 'true'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
-        shard: [0, 1, 2, 3]
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize upstream runner
-        run: git submodule update --init sw/riscv-arch-test
-      - name: Install Spike runtime dependencies
-        if: matrix.configuration == 'single-core-spike-soc'
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
-      - name: Identify pinned Spike revision
-        if: matrix.configuration == 'single-core-spike-soc'
-        id: spike-revision
-        run: echo "revision=$(git ls-files --stage riscv/riscv-isa-sim | awk '{print $2}')" >> "$GITHUB_OUTPUT"
-      - name: Cache Spike runtime libraries
-        if: matrix.configuration == 'single-core-spike-soc'
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .tools/fesvr-*
-          key: "${{ runner.os }}-${{ runner.arch }}-fesvr-${{ steps.spike-revision.outputs.revision }}-${{ hashFiles('riscv/riscv-isa-sim-patches/**', 'riscv/patched_submodule.py', 'sims/fesvr/install.sh', 'sims/Makefile', 'vlsi/sim/Makefile') }}"
-      - name: Restore pinned Spike runtime libraries
-        if: matrix.configuration == 'single-core-spike-soc'
-        run: make -C sims setup
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.configuration }}-${{ github.sha }}
-          path: ${{ runner.temp }}/${{ matrix.configuration }}
-      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-elfs-${{ github.sha }}
-          path: ${{ runner.temp }}/act
-      - name: Verify and unpack shared artifacts
-        run: |
-          chmod +x "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }}
-          ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
-          (cd "$RUNNER_TEMP/act" && sha256sum --check elfs.sha256)
-          mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-          tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
-      - name: Test ACT adapter and partition contracts
-        run: make -C sims arch-test-adapter-test
-      - name: Run the complete deterministic shard
-        env:
-          SHARD: ${{ matrix.shard }}
-        run: |
-          set -o pipefail
-          make -C sims arch-test-run ACT_CONFIGURATION=${{ matrix.configuration }} ACT_PYTHON=python3 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
-            ACT_JOBS=2 ACT_SHARDS=4 ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
-      - name: Publish shard results and inventory
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: ${{ matrix.configuration }}-arch-${{ matrix.shard }}-results-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/act/run.log
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/inventory.json
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/results.json
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/junit.xml
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/summary.log
-            /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/shards/${{ matrix.shard }}/logs
-          if-no-files-found: warn
-          retention-days: 7
+          test "${{ needs.plan.result }}" = success
+          python3 -m tools.ci.gate "$PLAN" \
+            "compile=$COMPILE_RESULT" \
+            "checks=$CHECKS_RESULT" \
+            "simulator=$SIMULATOR_RESULT" \
+            "simulation=$SIMULATION_RESULT" \
+            "software=$SOFTWARE_RESULT"

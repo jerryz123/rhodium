@@ -201,7 +201,7 @@ Use the persistent worktree-specific compiled root required by
 tools/run-racket-tests.sh flow/tests/std-flow-test.rhm flow/tests/std-flow-chain-test.rhm flow/tests/std-flow-static-test.rhm
 make examples-std
 make check-boundaries
-bash tools/check-ci-changes.sh
+make ci-plan-test
 ```
 
 For cycle-visible behavior, select the relevant existing fixtures:
@@ -220,8 +220,8 @@ current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.
 Preserve example-owned Verilog references unless generated hardware changes
 intentionally; a path migration should not require new references.
 
-When adding or moving source, update the dependency inventory and ensure
-[`tools/ci-changes.sh`](../tools/ci-changes.sh) selects affected consumers.
+When adding or moving source, update the dependency inventory and ensure the
+[`tools/ci/`](../tools/ci/plan.py) policy selects affected consumers.
 Compilation discovers flow transitively through the existing test and example
 entrypoints; source annotation hygiene covers the repository root. Do not add
 a second source manifest or silently drop downstream coverage.
