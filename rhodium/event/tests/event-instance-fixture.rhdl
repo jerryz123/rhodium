@@ -1,0 +1,66 @@
+#lang rhodium
+// Exercises module-local identities inherited by repeated hardware instances.
+// SPDX-License-Identifier: Apache-2.0
+
+import lib("flow/main.rhdl") open
+
+export instances invalid
+
+sync_circuit EventInstanceLeaf():
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface egress(Valid(Bits(8)), ~role: producer)
+  ingress |> trace_valid_event("unit/request") |> valid_pipe(1) |> trace_valid_event("unit/result") |> egress
+
+sync_circuit EventInstanceLane(label :: String, width :: PosInt):
+  input identity: Bits(width)
+  trace_instance(label, identity)
+  interface ingress(Valid(Bits(8)), ~role: consumer)
+  interface egress(Valid(Bits(8)), ~role: producer)
+  inst leaf(EventInstanceLeaf())
+  ingress |> leaf.ingress
+  leaf.egress |> egress
+
+sync_circuit EventInstances():
+  input chip_id: Bits(8)
+  input hart0: Bits(8)
+  input hart1: Bits(8)
+  input bank_id: Bits(64)
+  trace_instance("chip", chip_id)
+  interface sources[3](Valid(Bits(8)), ~role: consumer)
+  interface sinks[3](Valid(Bits(8)), ~role: producer)
+  inst a(EventInstanceLane("hart", 8))
+  inst b(EventInstanceLane("hart", 8))
+  inst bank(EventInstanceLane("bank", 64))
+  a.identity <== hart0
+  b.identity <== hart1
+  bank.identity <== bank_id
+  sources[0] |> a.ingress
+  sources[1] |> b.ingress
+  sources[2] |> bank.ingress
+  a.egress |> sinks[0]
+  b.egress |> sinks[1]
+  bank.egress |> sinks[2]
+
+def instances = elaborate_with_top(EventInstances())
+
+sync_circuit EventInstanceInvalid(kind :: String):
+  input identity: Bits(8)
+  input wide: Bits(65)
+  input guard: Bool
+  interface source(Valid(Bits(8)), ~role: consumer)
+  interface sink(Valid(Bits(8)), ~role: producer)
+  inst child(EventInstanceLane("hart", 8))
+  child.identity <== identity
+  source |> child.ingress
+  child.egress |> sink
+  cond
+  | kind == "wide": trace_instance("hart", wide)
+  | kind == "name": trace_instance("bad/name", identity)
+  | kind == "conditional":
+      when guard:
+        trace_instance("hart", identity)
+  | ~else:
+      trace_instance("hart", identity)
+      trace_instance("bank", identity)
+
+fun invalid(kind): elaborate_with_top(EventInstanceInvalid(kind))

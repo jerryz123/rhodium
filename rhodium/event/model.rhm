@@ -30,6 +30,7 @@ export:
   event_trace_registered
   validate_event_trace_feedback
   EventManifest
+  EventInstance
   EventTraceGap
 
 class EventField(name :: String, type :: String, width :: PosInt,
@@ -200,12 +201,15 @@ class EventDependency(parent :: String,
 
 class EventTraceGap(site :: String, boundary :: String, reason :: String)
 
+class EventInstance(id :: String, label :: String, path :: List.of(String), value :: Value)
+
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),
                     dependencies :: List.of(EventDependency),
                     trace_plans :: Map = {},
                     gaps :: List.of(EventTraceGap) = [],
                     topology_dependencies :: maybe(List.of(EventDependency)) = #false,
-                    topology_trace_plans :: maybe(Map) = #false):
+                    topology_trace_plans :: maybe(Map) = #false,
+                    instances :: List.of(EventInstance) = []):
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

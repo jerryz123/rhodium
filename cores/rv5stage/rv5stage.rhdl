@@ -109,6 +109,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   input chi_identity: RiscvHartCHIIdentity(p)
   input interrupts: RiscvInterrupts()
   input hart_id: Bits(width)
+  trace_instance("hart", hart_id)
   input time_counter: Bits(64)
   interface imem(CHIRNIChannels(p), ~role: node)
   interface dmem(CHIRNChannels(p), ~role: node)

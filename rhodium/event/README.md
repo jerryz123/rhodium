@@ -115,6 +115,33 @@ This changes only
 the trace graph and instrumentation, never functional wiring or pipeline timing.
 Retained-state `trace_edge` and selected parents cannot both own one child's ancestry.
 
+### Instance context
+
+Use one declaration to group all descendant checkpoints by a runtime identity:
+
+```rhombus
+input hart_id: Bits(64)
+trace_instance("hart", hart_id)
+```
+
+Each module may declare one instance context. Labels are ASCII identifiers;
+identities are local unsigned `Bits` of width 1–64. Scopes nest and are inherited
+through unannotated descendants.
+No metadata is emitted for a scope with no traced descendants.
+
+The instrumented copy samples the identity on the first descendant event
+(including a stall) and emits one registration per reset epoch. The identity
+may change before that event, but must remain stable afterward until reset;
+an RTL assertion enforces this even during idle cycles. It is not a selector
+for per-transaction track routing.
+
+Perfetto groups become, for example, `hart[2]/dcache/s1.access`, retaining
+the existing event label hierarchy. Different hardware instances remain
+different tracks even when their identity values match. Instance context does
+not change event identity, add causal edges, or propagate along Flow edges:
+a shared cache belongs to its own scope, not the requesting hart's scope.
+IDs are stored once in the trace envelope, not repeated in event payloads.
+
 ### Retained-owner residency
 
 `trace_event("vector/sequencer", ~residency: "macro", ...)` creates one

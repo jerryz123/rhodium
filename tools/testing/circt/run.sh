@@ -242,7 +242,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -516,7 +516,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace ]]; then
+  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == event-instance ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -737,6 +737,7 @@ fixture_specs=(
 )
 
 direct_fixture_specs=(
+  'event-instance|event_instance_tb'
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'
   'event-window|event_window_tb'
@@ -1025,6 +1026,11 @@ done
 
 run_expected_assertion_failure assertions assertions_fail_tb \
   rhodium/backend/tests/circt/verilog/assertions_fail_tb.sv request_holds
+run_expected_assertion_failure event-instance event_instance_invalid_tb \
+  rhodium/event/tests/circt/verilog/event-instance-invalid_tb.sv __event_instance_1_stable \
+  rhodium/event/tests/circt/verilog/event-instance_tb.sv \
+  rhodium/event/tests/circt/verilog/event-instance_dpi.cpp "$repo_dir/rheg/runtime/rheg.cc" \
+  -CFLAGS "-I$test_tmp_dir -I$repo_dir/rheg/runtime"
 run_expected_assertion_failure event-parents event_parents_missing_tb \
   rhodium/event/tests/circt/verilog/event-parents-missing_tb.sv __event_parent_present_ \
   "$repo_dir/rheg/runtime/rheg.cc"

@@ -103,6 +103,74 @@ void qualified_labels(const std::string& path) {
   check(live.str() == replay.str(), "qualified label live/replay bytes differ");
   std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
+void instance_context(const std::string& path) {
+  Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Instances","sites":[
+    {"id":"a/request","label":"unit/request","payload_width":0,"fields":[]},
+    {"id":"a/result","label":"unit/result","payload_width":0,"fields":[]},
+    {"id":"b/request","label":"unit/request","payload_width":0,"fields":[]},
+    {"id":"b/result","label":"unit/result","payload_width":0,"fields":[]},
+    {"id":"a/stall","label":"unit/result.stall","kind":"stall","observation_of":"a/result","payload_width":0,"fields":[]},
+    {"id":"a/resident","label":"unit/resident","kind":"residency","payload_width":0,"fields":[]}
+  ],"dependencies":[{"parent":"a/request","child":"a/result"},{"parent":"b/request","child":"b/result"},{"parent":"a/request","child":"a/stall"},{"parent":"a/request","child":"a/resident"}],
+  "instances":[{"id":"top","label":"chip","width":8},{"id":"top/a","label":"hart","width":8},{"id":"top/b","label":"hart","width":64}],
+  "site_instances":[[0,1],[0,1],[0,2],[0,2],[0,1],[0,1]]})",
+    {0,0,0,0,0,0}, {{0,1},{2,3},{0,4},{0,5}}, {{},{},{},{},{},{}}, {5},
+    {{"top","chip",8},{"top/a","hart",8},{"top/b","hart",64}}, {{0,1},{0,1},{0,2},{0,2},{0,1},{0,1}}};
+  Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
+  std::ostringstream live, zipped;
+  PerfettoWriter writer(live,descriptor,{100000000});
+  PerfettoWriter compressed(zipped,descriptor,{100000000},PerfettoCompression::Gzip);
+  for (unsigned cycle = 0; cycle < 7; ++cycle) {
+    if (cycle == 1) {
+      graph.record_node({0,0},cycle,0); // Callback order must not matter.
+      graph.record_instance(1,7,cycle); graph.record_instance(0,3,cycle);
+      graph.record_node({5,0},cycle,0); graph.record_edge({0,0},{5,0});
+    }
+    if (cycle == 1 || cycle == 2) { graph.record_node({4,cycle-1},cycle,0); graph.record_edge({0,0},{4,cycle-1}); }
+    if (cycle == 4) { graph.record_node({1,0},cycle,0); graph.record_edge({0,0},{1,0}); }
+    if (cycle == 4) { graph.record_instance(2,7,cycle); graph.record_node({2,0},cycle,0); }
+    if (cycle == 5) { graph.record_node({3,0},cycle,0); graph.record_edge({2,0},{3,0}); graph.record_end({5,0},cycle); }
+    auto settled = graph.finish_cycle(cycle); writer.write(settled); compressed.write(settled);
+  }
+  graph.end_stream(); writer.finish(); compressed.finish();
+  const auto saved = graph.snapshot();
+  std::istringstream input(saved.json()); std::ostringstream replay;
+  write_perfetto(replay,read_event_trace(input));
+  check(live.str() == replay.str(), "instance live/replay differs");
+  check(live.str() == inflate_trace(zipped.str()), "instance gzip differs");
+  std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
+  std::ofstream json_file(path+".json"); json_file << saved.json(); json_file.close(); check(bool(json_file));
+  rejects([&] { graph.record_instance(1,7,7); }, "already bound");
+  graph.reset(true); graph.reset(false);
+  graph.record_instance(0,4,0); graph.record_instance(1,9,0); graph.record_node({0,0},0,0);
+  check(graph.snapshot().instances().at(1).value == 9 && saved.instances().at(1).value == 7);
+  graph.record_instance(2,UINT64_MAX,0); graph.record_node({2,0},0,0);
+  std::istringstream wide_json(graph.snapshot().json());
+  check(read_event_trace(wide_json).instances().at(2).value == UINT64_MAX);
+  rejects([&] { graph.record_instance(3,0,0); }, "unknown instance");
+  Graph missing; missing.bind_manifest(descriptor); missing.bind_timing({100000000});
+  missing.record_node({0,0},0,0);
+  rejects([&] { missing.snapshot(); }, "instance registration");
+  rejects([&] { missing.record_instance(0,256,0); }, "out of range");
+  missing.record_instance(0,3,1); missing.record_instance(1,7,0);
+  rejects([&] { missing.snapshot(); }, "instance registration");
+  auto invalid = descriptor; invalid.site_instances[1] = {1};
+  rejects([&] { validate_capture_schema(invalid); }, "inconsistent instance ancestry");
+  invalid = descriptor; invalid.instances.push_back({"top/c","hart",8});
+  rejects([&] { validate_capture_schema(invalid); }, "unused instance");
+  invalid = descriptor; invalid.site_instances[0] = {1,0};
+  rejects([&] { validate_capture_schema(invalid); }, "ordered ancestors");
+  std::ostringstream output; PerfettoWriter atomic(output,descriptor,{100000000});
+  const auto prefix = output.str(); auto bad = batch(0,{0,0});
+  bad.instances = {{0,{3,0}}};
+  rejects([&] { atomic.write(bad); }, "instance registration");
+  check(output.str() == prefix, "failed instance batch wrote bytes");
+  bad.instances.emplace(1,InstanceValue{7,0}); atomic.write(bad); atomic.finish();
+  std::ostringstream grouped;
+  rejects([&] { PerfettoWriter cross(grouped,descriptor,{100000000},PerfettoCompression::None,
+      {{"requests", {"a/request","b/request"}}}); }, "cannot cross instance scopes");
+  check(grouped.str().empty());
+}
 void hierarchical_labels(const std::string& path) {
   Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Hierarchy","sites":[
     {"id":"req","label":"dcache/chi.txreq","payload_width":0,"fields":[]},
@@ -683,6 +751,7 @@ int main(int argc, char** argv) {
   }
   qualified_labels(std::string(argv[1]) + "/qualified-labels.pftrace");
   hierarchical_labels(std::string(argv[1]) + "/hierarchy.pftrace");
+  instance_context(std::string(argv[1]) + "/instances.pftrace");
   {
     Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"PartialStalls","sites":[{"id":"transfer","label":"issue","payload_width":false},{"id":"stall","label":"issue.stall","payload_width":false,"kind":"stall","observation_of":"transfer"}],"dependencies":[]})", {0,0}, {}};
     Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();

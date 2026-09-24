@@ -215,7 +215,7 @@ fun instrument_events(logical :: DesignElaboration,
       when stage is_a EventTraceStage && !stage.advance && stage.instance_path.length() > 0
       | fixed_domains := fixed_domains ++ [stage.instance_path]
   for (occurrence in occurrences):
-    def traced_domain = manifest.sites.find(fun (site): site.instance_path == occurrence.path) != #false || controls.find(fun (control): control.path == occurrence.path) != #false || fixed_domains.find(fun (path): occurrence.path.length() >= path.length() && occurrence.path.take(path.length()) == path) != #false
+    def traced_domain = manifest.sites.find(fun (site): site.instance_path == occurrence.path) != #false || manifest.instances.find(fun (scope): scope.path == occurrence.path) != #false || controls.find(fun (control): control.path == occurrence.path) != #false || fixed_domains.find(fun (path): occurrence.path.length() >= path.length() && occurrence.path.take(path.length()) == path) != #false
     for (value in occurrence.original.values):
       when value.name.starts_with("__event_")
       | error(~who: #'instrument_events, "reserved instrumentation name: " ++ value.name)
@@ -254,6 +254,7 @@ fun instrument_events(logical :: DesignElaboration,
   def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
   def edge_dpi = builder.dpi_import("rheg_edge", ["child", "child_sequence", "parent", "parent_sequence"], [Bits(32), Bits(64), Bits(32), Bits(64)])
   def reset_dpi = builder.dpi_import("rheg_reset", ["active"], [Bits(1)])
+  def instance_dpi = if manifest.instances.length() > 0 | builder.dpi_import("rheg_instance", ["scope", "value", "cycle"], [Bits(32), Bits(64), Bits(64)]) | #false
   def unknown_dpi = if manifest.gaps.length() > 0 | builder.dpi_import("rheg_unknown", ["site", "sequence"], [Bits(32), Bits(64)]) | #false
 
   fun subtree_sites(occurrence :: Occurrence):
@@ -309,7 +310,8 @@ fun instrument_events(logical :: DesignElaboration,
       def cycle_available = builder.bit_not(module_def, builder.eq(module_def, cycle.current, builder.constant(module_def, Bits(64), 2 ** 64 - 1)))
       builder.assert(module_def, cycle_available, clock, reset, yes, "__event_cycle_no_wrap")
       cycle.current
-    def cycle = if local_sites.length() > 0 | cycle_counter() | #false
+    def local_instances = manifest.instances.filter(~keep: fun (scope): scope.path == occurrence.path)
+    def cycle = if local_sites.length() > 0 || local_instances.length() > 0 | cycle_counter() | #false
     when occurrence === root
     | builder.dpi_call(module_def, reset_dpi, [builder.cast(module_def, reset, Bits(1))], clock, builder.cast(module_def, reset, Bits(1)))
     def references = MutableMap{}
@@ -361,6 +363,28 @@ fun instrument_events(logical :: DesignElaboration,
       references[site.id] := builder.record_create(module_def, reference_type, [
         ["valid", fire], ["site", builder.constant(module_def, Bits(32), site_ids[site.id])], ["sequence", sequence.current]
       ])
+    // One passive subtree activity signal enables a once-per-epoch identity
+    // registration of the current module's identity.
+    when instance_dpi
+    | def mutable activity = builder.constant(module_def, Bits(1), 0)
+      for (site in local_sites): activity := builder.bit_or(module_def, activity, fires[site.id])
+      for (child in occurrence.children):
+        when child.ordinal in modified
+        | activity := builder.bit_or(module_def, activity, copied.instances[child.instance.id].output("__event_activity"))
+      builder.drive(builder.output(module_def, "__event_activity", Bits(1)), activity)
+      for (scope in local_instances):
+        def index = (for List (i in 0..manifest.instances.length()): i).find(fun (i): manifest.instances[i] === scope)
+        def name = "__event_instance_" ++ to_string(index)
+        def seen = builder.register(module_def, name ++ "_seen", Bits(1), clock, reset, builder.constant(module_def, Bits(1), 0))
+        def identity = copied.values[scope.value.id]
+        def value = if identity.type.packed_width() == 64 | identity | builder.zext(module_def, identity, 64)
+        def saved = builder.register(module_def, name ++ "_value", Bits(64), clock, reset, zero)
+        def bind = builder.bit_and(module_def, activity, builder.bit_not(module_def, seen.current))
+        builder.drive(seen.next, builder.bit_or(module_def, seen.current, activity))
+        builder.drive(saved.next, builder.mux_lookup(module_def, bind, saved.current, [[1, value]]))
+        builder.assert(module_def, builder.eq(module_def, saved.current, value), clock, reset, seen.current, name ++ "_stable")
+        builder.dpi_call(module_def, instance_dpi, [builder.constant(module_def, Bits(32), index), value, cycle], clock, builder.bit_and(module_def, active, bind))
+
     // Every reference exists before any consumer is wired. This supports
     // same-cycle parent/child events across siblings and hierarchy boundaries.
     for (child in occurrence.children):

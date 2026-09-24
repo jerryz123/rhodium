@@ -152,3 +152,4 @@ export:
   trace_valid_event
   trace_parents
   trace_edge
+  trace_instance

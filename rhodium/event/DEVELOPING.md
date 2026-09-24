@@ -39,6 +39,25 @@ add event cases to CIRCT lowering. RHEG consumes the generated descriptor and
 DPI ABI, not compiler sources. The authoritative package inventory is
 [rhodium/DEVELOPING.md](../DEVELOPING.md).
 
+## Instance context
+
+`describe_trace_instance` stores module-local identity metadata
+in the interface layer. Analysis expands declarations over hardware occurrences,
+drops scopes without traced descendants, and orders
+ancestors before children. The manifest carries scope definitions and per-site
+scope indices, independently of Flow lineage plans.
+
+Instrumentation aggregates hidden subtree activity through rebuilt occurrences.
+Each scope's declaring module samples its local identity on the first subtree
+activity, emits `rheg_instance(scope, value, cycle)`, and asserts stability until
+reset. Scope owners must share the certified trace clock/reset.
+The logical design and its functional ports/storage are unchanged.
+
+Run `event-instance-test.rhm` and the `event-instance` CIRCT fixture for nested
+scopes, reused module definitions, wide IDs, late first use,
+reset rebinding, functional timing, exact lineage, and a failing stability
+assertion. The RHEG native-import tests own viewer projection.
+
 ## Dynamic lineage plans
 
 `InterfaceTraceModel` is shared by module-local endpoint contracts and inline

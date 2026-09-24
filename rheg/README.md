@@ -96,6 +96,28 @@ not saved snapshots; never merge reset epochs by site/sequence alone.
 The occurrence-only `graph().json()` is also available. Snapshots copy the
 current epoch and require additional memory proportional to the retained graph.
 
+## Instance context
+
+Optional manifest `instances` entries define `{id, label, width}` for hardware
+scopes. `site_instances` gives each site's ordered outer-to-inner scope indices.
+An epoch's trace envelope holds registrations as
+`{"scope": 0, "value": "2", "cycle": "17"}` in its optional `instances` array.
+Values and cycles are decimal strings; scopes are numeric manifest indices.
+
+Instrumentation calls `rheg_instance(scope, value, cycle)` once per active scope
+per reset epoch. The host binds the descriptor before callbacks. Call order
+within a cycle is arbitrary; settled snapshots/batches require every event's
+contexts to have registered no later than that event. Duplicate, out-of-range,
+unknown, and already-streamed registrations are rejected. Reset permits new
+values; `clear()` preserves epoch context. These IDs are not node payloads and
+do not replace `(site, sequence)` occurrence identity.
+
+The exporter nests the existing label hierarchy under groups such as `hart[2]`
+and `bank[5]`, inheriting scope through the hardware subtree. It never merges
+distinct scopes solely because their values match. Explicit shared-track groups
+must stay within one scope chain. Old traces without instance tables retain
+their existing layout; per-transaction changing IDs are not supported.
+
 ## Residency occurrences
 
 A manifest's `residency` site represents one retained owner's lifetime, with

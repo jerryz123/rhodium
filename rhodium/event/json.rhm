@@ -59,13 +59,25 @@ fun json_dependency(dependency :: EventDependency):
   }
 
 fun event_manifest_to_json(manifest :: EventManifest):
+  def instances:
+    if manifest.instances.length() > 0
+    | {"instances": manifest.instances.map(fun (scope): {"id": scope.id, "label": scope.label, "width": scope.value.type.packed_width()}),
+       "site_instances": manifest.sites.map(fun (site): instance_indices(manifest, site))}
+    | {}
   json_value({
     "format": "rhodium-event-graph",
     "version": 1,
     "top": manifest.logical.top.name,
     "sites": manifest.sites.map(json_site),
     "dependencies": manifest.dependencies.map(json_dependency)
-  } ++ (if manifest.gaps.length() > 0 | {"gaps": manifest.gaps.map(fun (gap): {"site": gap.site, "boundary": gap.boundary, "reason": gap.reason})} | {})) ++ "\n"
+  } ++ instances ++ (if manifest.gaps.length() > 0 | {"gaps": manifest.gaps.map(fun (gap): {"site": gap.site, "boundary": gap.boundary, "reason": gap.reason})} | {})) ++ "\n"
+
+fun instance_indices(manifest :: EventManifest, site :: EventSite):
+  def indices = for List (index in 0..manifest.instances.length()): index
+  fun contains_site(index :: Nat):
+    def path = manifest.instances[index].path
+    site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path
+  indices.filter(~keep: contains_site)
 
 // Raw literals preserve JSON escaping and UTF-8 labels without interpreting
 // JSON escapes as C++ escapes. Pick a delimiter absent from the actual JSON.
@@ -98,6 +110,8 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
   def fields = manifest.sites.map(
     fun (site): "{" ++ String.join(site.fields.map(cpp_field), ",") ++ "}"
   )
+  def instances = manifest.instances.map(fun (scope): "{" ++ json_string(scope.id) ++ "," ++ json_string(scope.label) ++ "," ++ to_string(scope.value.type.packed_width()) ++ "}")
+  def site_instances = if manifest.instances.length() == 0 | [] | manifest.sites.map(fun (site): "{" ++ String.join(instance_indices(manifest, site).map(to_string), ",") ++ "}")
   def edges = manifest.dependencies.map(
     fun (edge):
       unless ids.has_key(edge.parent) && ids.has_key(edge.child)
@@ -109,5 +123,5 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     "#pragma once\n#include \"rheg.h\"\n",
     "namespace rheg_generated {\ninline rheg::Manifest manifest() {\n  return {R\"",
     tag ++ "(" ++ json ++ ")" ++ tag ++ "\", {" ++ String.join(widths, ","),
-    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}, {" ++ String.join(residencies, ",") ++ "}};\n}\n}\n"
+    "}, {" ++ String.join(edges, ",") ++ "}, {" ++ String.join(fields, ",") ++ "}, {" ++ String.join(residencies, ",") ++ "}, {" ++ String.join(instances, ",") ++ "}, {" ++ String.join(site_instances, ",") ++ "}};\n}\n}\n"
   ], "")

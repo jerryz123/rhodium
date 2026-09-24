@@ -9,6 +9,36 @@
 
 namespace rheg {
 void validate_capture_schema(const Manifest& manifest) {
+  std::set<std::string> instance_ids;
+  const auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
+  for (const auto& scope : manifest.instances)
+    if (scope.id.empty() || scope.label.empty() || !letter(scope.label.front()) ||
+        !std::all_of(scope.label.begin(), scope.label.end(), [&](char c) { return letter(c) || (c >= '0' && c <= '9'); }) ||
+        !scope.width || scope.width > 64 || !instance_ids.insert(scope.id).second)
+      throw std::runtime_error("invalid instance scope");
+  if (!manifest.instances.empty() && manifest.site_instances.size() != manifest.payload_widths.size())
+    throw std::runtime_error("instance membership site count mismatch");
+  if (!manifest.site_instances.empty() && manifest.site_instances.size() != manifest.payload_widths.size())
+    throw std::runtime_error("instance membership site count mismatch");
+  std::map<std::uint32_t, std::vector<std::uint32_t>> prefixes;
+  for (const auto& scopes : manifest.site_instances) {
+    std::set<std::uint32_t> seen;
+    std::string parent;
+    std::vector<std::uint32_t> prefix;
+    for (auto scope : scopes) {
+      if (scope >= manifest.instances.size() || !seen.insert(scope).second)
+        throw std::runtime_error("unknown or duplicate instance scope");
+      const auto& id = manifest.instances[scope].id;
+      if (!parent.empty() && (id.size() <= parent.size() || id.compare(0, parent.size() + 1, parent + "/")))
+        throw std::runtime_error("instance scopes must be ordered ancestors");
+      parent = id;
+      prefix.push_back(scope);
+      const auto [entry, inserted] = prefixes.emplace(scope, prefix);
+      if (!inserted && entry->second != prefix)
+        throw std::runtime_error("inconsistent instance ancestry");
+    }
+  }
+  if (prefixes.size() != manifest.instances.size()) throw std::runtime_error("unused instance scope");
   for (auto site : manifest.residency_sites)
     if (site >= manifest.payload_widths.size()) throw std::runtime_error("unknown residency site");
   if (manifest.fields.empty()) return; // Legacy snapshots remain readable.
@@ -141,8 +171,26 @@ void Graph::clear() {
   if (streaming_) throw std::runtime_error("end event stream before clearing graph");
   nodes.clear(); edges.clear();
 }
+void Graph::record_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle) {
+  if (!manifest_ || scope >= manifest_->instances.size()) throw std::runtime_error("unknown instance scope");
+  const auto width = manifest_->instances[scope].width;
+  if (width < 64 && value >= (std::uint64_t(1) << width)) throw std::runtime_error("instance identity out of range");
+  if (instances_.count(scope)) throw std::runtime_error("instance identity already bound in this epoch");
+  if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_) throw std::runtime_error("instance registration already streamed");
+  instances_.emplace(scope, InstanceValue{value, cycle});
+  if (streaming_) pending_instances_.emplace(scope, InstanceValue{value, cycle});
+  started_ = epoch_active_ = true;
+}
+static void validate_instances(const std::map<Ref, Node>& nodes, const Manifest* manifest,
+                               const std::map<std::uint32_t, InstanceValue>& instances) {
+  if (!manifest || manifest->site_instances.empty()) return;
+  for (const auto& [ref, node] : nodes)
+    for (auto scope : manifest->site_instances.at(ref.site))
+      if (!instances.count(scope) || instances.at(scope).cycle > node.cycle)
+        throw std::runtime_error("event precedes instance registration");
+}
 Snapshot Graph::begin_stream() {
-  if (streaming_ || !nodes.empty() || !edges.empty())
+  if (streaming_ || !nodes.empty() || !edges.empty() || !instances_.empty())
     throw std::runtime_error("event stream requires an empty graph and no active stream");
   if (!timing_) throw std::runtime_error("event stream requires bound timing");
   auto header = snapshot();
@@ -153,7 +201,7 @@ Snapshot Graph::begin_stream() {
 }
 void Graph::end_stream() {
   if (!streaming_) throw std::runtime_error("no active event stream");
-  if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty())
+  if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty() || !pending_instances_.empty())
     throw std::runtime_error("finish event cycle before ending stream");
   streaming_ = false;
   finished_cycle_.reset();
@@ -162,7 +210,10 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   if (!streaming_) throw std::runtime_error("no active event stream");
   if (finished_cycle_ && cycle <= *finished_cycle_)
     throw std::runtime_error("event stream cycle must increase");
-  CycleBatch batch{cycle, {}, pending_edges_, pending_ends_};
+  CycleBatch batch{cycle, {}, pending_edges_, pending_ends_, pending_instances_};
+  for (const auto& [scope, value] : batch.instances)
+    if (value.cycle > cycle || (finished_cycle_ && value.cycle <= *finished_cycle_))
+      throw std::runtime_error("instance outside unfinished cycle interval");
   for (const auto& ref : pending_nodes_) {
     const auto& node = nodes.at(ref);
     if (!node.present) throw std::runtime_error("incomplete event node or payload");
@@ -175,6 +226,7 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
       throw std::runtime_error("event edge child already streamed");
   // Validate only new entries, resolving older parents against retained nodes.
   validate_entries(batch.nodes, batch.edges, nodes, manifest_.get());
+  validate_instances(batch.nodes, manifest_.get(), instances_);
   for (const auto& [ref, end] : batch.ends) {
     if (!nodes.count(ref) || !nodes.at(ref).present || end <= nodes.at(ref).cycle ||
         end > cycle || (finished_cycle_ && end <= *finished_cycle_) ||
@@ -184,6 +236,7 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   pending_nodes_.clear();
   pending_edges_.clear();
   pending_ends_.clear();
+  pending_instances_.clear();
   finished_cycle_ = cycle;
   return batch;
 }
@@ -239,11 +292,24 @@ static void validate_entries(const std::map<Ref, Node>& nodes,
 }
 void Graph::validate() const {
   validate_entries(nodes, edges, nodes, manifest_.get());
+  validate_instances(nodes, manifest_.get(), instances_);
 }
 Snapshot Graph::snapshot() const {
   if (!manifest_) throw std::runtime_error("event snapshot requires a bound compiler manifest");
   validate();
   return Snapshot(*this);
+}
+static std::string instances_json(const std::map<std::uint32_t, InstanceValue>& instances) {
+  if (instances.empty()) return "";
+  std::string result = ",\"instances\":[";
+  bool comma = false;
+  for (const auto& [scope, value] : instances) {
+    if (comma) result += ',';
+    comma = true;
+    result += "{\"scope\":" + std::to_string(scope) + ",\"value\":\"" + std::to_string(value.value) +
+              "\",\"cycle\":\"" + std::to_string(value.cycle) + "\"}";
+  }
+  return result + ']';
 }
 std::string Snapshot::json() const {
   std::string metadata;
@@ -254,7 +320,7 @@ std::string Snapshot::json() const {
                "\",\"origin\":\"cycle-zero\"}";
   }
   return "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
-         manifest().json + metadata + ",\"occurrences\":" + graph_.json() + "}\n";
+         manifest().json + metadata + instances_json(instances()) + ",\"occurrences\":" + graph_.json() + "}\n";
 }
 static std::string occurrences_json(const std::map<Ref, Node>& nodes,
                                     const std::set<std::pair<Ref, Ref>>& edges) {
@@ -305,7 +371,7 @@ std::string CycleBatch::json() const {
   }
   return "{\"format\":\"rhodium-event-cycle\",\"version\":1,\"cycle\":\"" +
          std::to_string(cycle) + "\",\"occurrences\":" + occurrences +
-         (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + "}\n";
+         (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + instances_json(instances) + "}\n";
 }
 void Graph::record_end(Ref ref, std::uint64_t cycle) {
   if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
@@ -366,6 +432,7 @@ void Graph::reset(bool active) {
       ++timing_->epoch_id;
     }
     nodes.clear(); edges.clear();
+    instances_.clear(); pending_instances_.clear();
     epoch_active_ = false;
   } else {
     epoch_active_ = true;
@@ -375,6 +442,9 @@ void Graph::reset(bool active) {
 
 extern "C" void rheg_reset(std::uint8_t active) {
   rheg::graph().reset(active != 0);
+}
+extern "C" void rheg_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle) {
+  rheg::graph().record_instance(scope, value, cycle);
 }
 extern "C" void rheg_node(std::uint32_t site, std::uint64_t sequence,
                                     std::uint64_t cycle, std::uint32_t width) {

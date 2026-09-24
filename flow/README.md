@@ -126,6 +126,11 @@ host elaboration and bind the corresponding `InterfaceType`. Keep the original
 source alongside the converted protocol: endpoint and handle identity is still
 needed when the stage finishes its topology transform.
 
+`trace_instance("hart", hart_id)` assigns stable runtime identity to the current
+module's traced subtree.
+See the [instance-context contract](../rhodium/event/README.md#instance-context)
+for sampling, reset, inheritance, and Perfetto grouping.
+
 `trace_event(label)` inserts a transparent compiler-visible checkpoint on a
 `Decoupled` or `Irrevocable` payload flow. `trace_valid_event(label)` provides
 the same annotation for `Valid`. These helpers do not add state or runtime

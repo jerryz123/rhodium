@@ -1,0 +1,27 @@
+#lang rhombus
+// Checks instance context discovery, passive instrumentation, and invalid declarations.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../main.rhm" open
+  "../../backend/circt.rhm".emit_circt
+  "../../core/verify.rhm".verify_design
+  "event-instance-fixture.rhdl" as fixture
+
+def before = emit_circt(fixture.instances.design)
+def traced = instrument_events(fixture.instances)
+def manifest = traced.manifest
+check:
+  manifest.instances.map(fun (scope): scope.label) ~is ["chip", "hart", "hart", "bank"]
+  manifest.instances.map(fun (scope): scope.id) ~is ["EventInstances", "EventInstances/a", "EventInstances/b", "EventInstances/bank"]
+  manifest.sites.length() ~is 6
+  manifest.dependencies.length() ~is 3
+  emit_circt(fixture.instances.design) ~is before
+  emit_circt(traced.instrumented.design).contains("rheg_instance") ~is #true
+  verify_design(traced.instrumented.design) ~is #void
+  event_manifest_to_json(manifest).contains("site_instances") ~is #true
+  event_manifest_to_cpp(manifest).contains("\"bank\"") ~is #true
+  fixture.invalid("wide") ~throws "width 1..64"
+  fixture.invalid("name") ~throws "AsciiIdentifier"
+  fixture.invalid("duplicate") ~throws "already declared"
+  fixture.invalid("conditional") ~throws "control flow"

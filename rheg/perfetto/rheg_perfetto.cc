@@ -135,7 +135,23 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
       result.manifest.fields.push_back(std::move(captures));
     }
   }
+  if (json.contains("instances")) {
+    require(json.at("instances").is_array(), "instances must be an array");
+    for (const auto& scope : json.at("instances"))
+      result.manifest.instances.push_back({scope.at("id").get<std::string>(), scope.at("label").get<std::string>(),
+                                          static_cast<std::uint32_t>(number(scope.at("width"), 64))});
+    require(json.at("site_instances").is_array(), "site_instances must be an array");
+    for (const auto& membership : json.at("site_instances")) {
+      require(membership.is_array(), "instance membership must be an array");
+      std::vector<std::uint32_t> scopes;
+      for (const auto& scope : membership) scopes.push_back(number(scope, UINT32_MAX));
+      result.manifest.site_instances.push_back(std::move(scopes));
+    }
+  } else require(!json.contains("site_instances"), "instance membership without scopes");
   validate_capture_schema(result.manifest);
+  const auto scopes_for = [&](std::uint32_t site) {
+    return result.manifest.site_instances.empty() ? std::vector<std::uint32_t>{} : result.manifest.site_instances.at(site);
+  };
   if (json.contains("gaps")) {
     require(json.at("gaps").is_array(), "gaps must be an array");
     for (const auto& gap : json.at("gaps")) {
@@ -156,6 +172,7 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     for (const auto& id : group.sites) {
       const auto site = ids.find(id);
       require(site != ids.end(), "unknown track group site");
+      require(members.empty() || scopes_for(*members.begin()) == scopes_for(site->second), "track group cannot cross instance scopes");
       require(result.sites[site->second].kind != "stall", "track group must name event sites, not stalls");
       require(members.empty() || result.sites[*members.begin()].kind == result.sites[site->second].kind,
               "track group cannot mix residency and transfer sites");
@@ -183,7 +200,7 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     if (result.sites[i].kind == "stall" || grouped.count(i)) continue;
     for (std::uint32_t j = 0; j < i; ++j) {
       if (result.sites[j].kind != result.sites[i].kind ||
-          result.sites[j].label != result.sites[i].label || grouped.count(j)) continue;
+          result.sites[j].label != result.sites[i].label || grouped.count(j) || scopes_for(i) != scopes_for(j)) continue;
       const auto a = parent_path(result.sites[i].id);
       const auto b = parent_path(result.sites[j].id);
       if (contains_scope(a, b) || contains_scope(b, a))
@@ -206,6 +223,7 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
       auto observed = ids.find(site.observation_of);
       require(observed != ids.end() && result.sites[observed->second].kind == "transfer",
               "stall must observe a transfer site");
+      require(scopes_for(i) == scopes_for(observed->second), "stall instance scope differs from transfer");
       track = observed->second;
     }
     if (grouped.count(track)) track = grouped.at(track);
@@ -411,6 +429,8 @@ struct PerfettoWriter::Impl {
   bool failed = false;
   bool finished = false;
   std::map<std::uint32_t, Ref> residencies;
+  std::map<std::uint32_t, InstanceValue> instances;
+  std::map<std::uint32_t, std::pair<std::uint64_t, std::uint64_t>> instance_tracks;
   std::unique_ptr<GzipEncoder> gzip;
 
   Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression,
@@ -420,7 +440,9 @@ struct PerfettoWriter::Impl {
     require(description.manifest.payload_widths == manifest.payload_widths &&
             description.manifest.dependencies == manifest.dependencies &&
             description.manifest.fields == manifest.fields &&
-            description.manifest.residency_sites == manifest.residency_sites, "manifest descriptor differs from JSON");
+            description.manifest.residency_sites == manifest.residency_sites &&
+            description.manifest.instances == manifest.instances &&
+            description.manifest.site_instances == manifest.site_instances, "manifest descriptor differs from JSON");
     for (const auto& fields : manifest.fields)
       for (const auto& field : fields)
         if (field.encoding == "riscv") instructions.prepare(field.isa);
@@ -442,11 +464,17 @@ struct PerfettoWriter::Impl {
     bytes(metadata_packet, 5, metadata); packet(stream, metadata_packet);
     const std::uint64_t root_track = description.sites.size() + 1;
     // Reserve site UUIDs even for observers; groups never alias event tracks.
-    std::map<std::string, std::uint64_t> groups;
+    using GroupKey = std::pair<std::vector<std::uint32_t>, std::string>;
+    std::map<GroupKey, std::uint64_t> groups;
+    const auto scopes_for = [&](std::size_t i) {
+      return manifest.site_instances.empty() ? std::vector<std::uint32_t>{} : manifest.site_instances.at(i);
+    };
     for (std::size_t i = 0; i < description.sites.size(); ++i) {
       if (description.track_sites[i] != i) continue;
+      auto scopes = scopes_for(i);
+      for (auto prefix = scopes; !prefix.empty(); prefix.pop_back()) groups.emplace(GroupKey{prefix, ""}, 0);
       for (auto path = description.track_displays[i].group; !path.empty(); path = parent_path(path))
-        groups.emplace(path, 0);
+        groups.emplace(GroupKey{scopes, path}, 0);
     }
     auto next_track = root_track;
     for (auto& entry : groups) entry.second = ++next_track;
@@ -457,11 +485,16 @@ struct PerfettoWriter::Impl {
     integer(descriptor, 15, 2); // SIBLING_MERGE_BEHAVIOR_NONE.
     bytes(p, 60, descriptor); packet(stream, p);
     // Lexical prefix order emits parents before children, independently of site order.
-    for (const auto& [path, uuid] : groups) {
+    for (const auto& [key, uuid] : groups) {
+      const auto& [scopes, path] = key;
       const auto parent = parent_path(path);
+      auto parent_scopes = scopes;
+      if (path.empty()) parent_scopes.pop_back();
+      const auto parent_uuid = parent.empty() && parent_scopes.empty() ? root_track : groups.at({parent_scopes, parent});
       std::string group, pkt;
-      integer(group, 1, uuid); integer(group, 5, parent.empty() ? root_track : groups.at(parent));
-      bytes(group, 2, path.substr(parent.empty() ? 0 : parent.size() + 1));
+      integer(group, 1, uuid); integer(group, 5, parent_uuid);
+      bytes(group, 2, path.empty() ? manifest.instances.at(scopes.back()).label : path.substr(parent.empty() ? 0 : parent.size() + 1));
+      if (path.empty()) instance_tracks.emplace(scopes.back(), std::make_pair(uuid, parent_uuid));
       integer(group, 11, 1); integer(group, 15, 2);
       bytes(pkt, 60, group); packet(stream, pkt);
     }
@@ -470,6 +503,7 @@ struct PerfettoWriter::Impl {
                    {"source_location", description.sites[i].source},
                    {"payload_width", description.manifest.payload_widths[i]}};
       site["kind"] = description.sites[i].kind;
+      if (!manifest.site_instances.empty()) site["instances"] = manifest.site_instances[i];
       if (description.gaps.count(i)) site["ancestry_gaps"] = description.gaps.at(i);
       if (description.sites[i].kind == "stall") site["observation_of"] = description.sites[i].observation_of;
       if (!description.manifest.fields.empty()) {
@@ -493,7 +527,7 @@ struct PerfettoWriter::Impl {
       if (description.track_sites[i] != i) continue;
       std::string track, pkt;
       const auto& display = description.track_displays[i];
-      integer(track, 1, i + 1); integer(track, 5, display.group.empty() ? root_track : groups.at(display.group));
+      integer(track, 1, i + 1); integer(track, 5, display.group.empty() && scopes_for(i).empty() ? root_track : groups.at({scopes_for(i), display.group}));
       bytes(track, 2, display.track_name); integer(track, 15, 2);
       auto site = site_description(i);
       if (description.grouped_tracks.count(i)) {
@@ -578,11 +612,22 @@ struct PerfettoWriter::Impl {
     require(!failed, "Perfetto output previously failed");
     require(!finished, "Perfetto writer already finished");
     require(!watermark || batch.cycle > *watermark, "cycle watermark must increase");
+    auto next_instances = instances;
+    for (const auto& [scope, value] : batch.instances) {
+      require(scope < description.manifest.instances.size() && !next_instances.count(scope), "duplicate or unknown instance registration");
+      const auto width = description.manifest.instances[scope].width;
+      require(width == 64 || value.value < (std::uint64_t(1) << width), "instance identity out of range");
+      require(value.cycle <= batch.cycle && (!watermark || value.cycle > *watermark), "instance outside unfinished cycle interval");
+      next_instances.emplace(scope, value);
+    }
     std::map<Ref, std::set<Ref>> parents, children;
     std::map<Ref, std::size_t> indegree;
     std::set<std::pair<std::uint32_t, std::uint64_t>> occupied;
     for (const auto& [ref, node] : batch.nodes) {
       require(!known.count(ref) && ref.site < description.sites.size(), "duplicate or unknown event node");
+      if (!description.manifest.site_instances.empty())
+        for (auto scope : description.manifest.site_instances[ref.site])
+          require(next_instances.count(scope) && next_instances.at(scope).cycle <= node.cycle, "event precedes instance registration");
       const auto track = description.track_sites[ref.site];
       require(!description.shared_tracks[track] || occupied.emplace(track, node.cycle).second,
               "multiple occurrences on a shared track in one cycle");
@@ -613,8 +658,9 @@ struct PerfettoWriter::Impl {
       for (auto child : children[ref]) if (!--indegree[child]) ready.emplace(batch.nodes.at(child).cycle, child);
     }
     require(order.size() == batch.nodes.size(), "cyclic same-cycle dependencies");
-    struct Action { Ref ref; std::uint64_t cycle; bool end; };
+    struct Action { Ref ref; std::uint64_t cycle; bool end; bool instance = false; };
     std::vector<Action> actions;
+    for (const auto& [scope, value] : batch.instances) actions.push_back({{scope, 0}, value.cycle, false, true});
     for (auto ref : order) actions.push_back({ref, batch.nodes.at(ref).cycle, false});
     for (const auto& [ref, end] : batch.ends) {
       require(ref.site < description.sites.size() && description.manifest.residency_sites.count(ref.site), "end requires residency site");
@@ -626,7 +672,8 @@ struct PerfettoWriter::Impl {
     }
     std::stable_sort(actions.begin(), actions.end(), [](const Action& a, const Action& b) {
       if (a.cycle != b.cycle) return a.cycle < b.cycle;
-      return a.end && !b.end;
+      const auto rank = [](const Action& action) { return action.end ? 0 : action.instance ? 1 : 2; };
+      return rank(a) < rank(b);
     });
     std::map<Ref, std::pair<std::uint64_t, std::uint64_t>> additions;
     PendingInterns interns(strings);
@@ -653,6 +700,17 @@ struct PerfettoWriter::Impl {
                                return a.site == b.site && a.sequence == b.sequence;
                              });
         });
+      }
+      if (action.instance) {
+        const auto& scope = description.manifest.instances.at(ref.site);
+        const auto [uuid, parent] = instance_tracks.at(ref.site);
+        std::string descriptor, pkt;
+        integer(descriptor, 1, uuid); integer(descriptor, 5, parent);
+        bytes(descriptor, 2, scope.label + "[" + std::to_string(next_instances.at(ref.site).value) + "]");
+        bytes(descriptor, 14, Json{{"instance_path", scope.id}, {"label", scope.label}, {"value", std::to_string(next_instances.at(ref.site).value)}}.dump());
+        integer(descriptor, 11, 1); integer(descriptor, 15, 2);
+        bytes(pkt, 60, descriptor); packet(stream, pkt);
+        continue;
       }
       const auto track = description.track_sites[ref.site];
       if (action.end) {
@@ -741,6 +799,7 @@ struct PerfettoWriter::Impl {
     interns.commit();
     stalls.swap(next_stalls);
     residencies.swap(next_residencies);
+    instances.swap(next_instances);
     known.merge(additions); // Transfer already allocated nodes after successful I/O.
     watermark = batch.cycle;
   }
@@ -778,6 +837,11 @@ Snapshot read_event_trace(std::istream& input) {
   Graph graph;
   graph.bind_manifest(description.manifest);
   graph.bind_timing({number(timing.at("clock_frequency_hz")), number(timing.at("epoch_id"))});
+  if (json.contains("instances")) {
+    require(json.at("instances").is_array(), "instance registrations must be an array");
+    for (const auto& item : json.at("instances"))
+      graph.record_instance(number(item.at("scope"), UINT32_MAX), number(item.at("value")), number(item.at("cycle")));
+  }
   const auto& occurrences = json.at("occurrences");
   format(occurrences, "rhodium-event-occurrences");
   require(occurrences.at("nodes").is_array() && occurrences.at("edges").is_array(), "nodes/edges must be arrays");
@@ -800,6 +864,8 @@ void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoComp
                     const PerfettoTrackGroups& track_groups) {
   require(snapshot.timing().has_value(), "Perfetto export requires timing");
   CycleBatch batch{0, snapshot.nodes(), snapshot.edges()};
+  batch.instances = snapshot.instances();
+  for (const auto& [scope, value] : batch.instances) batch.cycle = std::max(batch.cycle, value.cycle);
   for (const auto& entry : batch.nodes) batch.cycle = std::max(batch.cycle, entry.second.cycle);
   for (const auto& [ref, node] : batch.nodes) if (node.end_cycle) {
     batch.ends.emplace(ref, *node.end_cycle);

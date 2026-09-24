@@ -58,6 +58,23 @@ JSON when false for legacy compatibility. The exporter validates its boolean
 JSON type, displays it only when true, and treats changes as stall-run boundaries.
 Missing-contract details are static track context, not duplicated per occurrence.
 
+## Instance registrations
+
+Instance scopes are optional typed manifest tables cross-checked against JSON.
+Validate unique scope paths, consistent ancestor chains, widths, and site
+membership. Keep registrations in epoch-owned maps, not nodes. Streaming tracks
+only pending registrations; validate dependent nodes at settlement, allowing
+arbitrary same-cycle callback order. Snapshot copies freeze registrations;
+reset clears them and `clear()` preserves them.
+
+The additive `rheg_instance` ABI records semantic hierarchy identity, not
+presentation-only payload. The compiler owns stable-after-first-use assertions.
+The exporter preallocates occurrence-qualified group UUIDs and updates scope
+descriptors at registration before their first event. Equal runtime IDs must not
+merge scopes. Include registrations in live/replay chronological ordering and
+stage them with each batch so rejected batches write no bytes or partial state.
+Test byte parity and native imported names, ancestry, and distinct track IDs.
+
 ## Residency updates
 
 Keep releases separate from node creation: `Node::end_cycle` is optional, and

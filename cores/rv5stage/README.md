@@ -234,6 +234,11 @@ The [SingleCoreRV5StageSoC trace build](../../sims/README.md#export-simplesoc-ev
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 
+The complete `RV5Stage` module supplies one inherited `hart` instance context
+from `hart_id`, so its core, frontend, cache, vector, and MMU tracks appear under
+`hart[N]` in Perfetto. The ID is sampled on first traced activity and must remain
+stable until reset. Standalone component traces need caller-supplied context.
+
 Accepted `frontend/s0.request` events start lineage, followed by registered
 `frontend/s1.lookup` and `frontend/s2.outcome` events. Decode inherits the one
 or two admitted S2 packets that supply its instruction, including same-cycle

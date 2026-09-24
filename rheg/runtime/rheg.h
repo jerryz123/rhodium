@@ -54,6 +54,14 @@ struct FieldValue {
 FieldValue capture_field(const Node& node, const Field& field);
 // Trusted compiler output, not a runtime JSON parsing API. Site indices and
 // allowed edges are generated together with the accompanying manifest JSON.
+struct InstanceScope {
+  std::string id, label;
+  std::uint32_t width;
+  bool operator==(const InstanceScope& other) const {
+    return std::tie(id, label, width) == std::tie(other.id, other.label, other.width);
+  }
+};
+struct InstanceValue { std::uint64_t value, cycle; };
 struct Manifest {
   std::string json;
   std::vector<std::uint32_t> payload_widths;
@@ -61,6 +69,8 @@ struct Manifest {
   // Empty outer table denotes a legacy manifest without named captures.
   std::vector<std::vector<Field>> fields = {};
   std::set<std::uint32_t> residency_sites = {};
+  std::vector<InstanceScope> instances = {};
+  std::vector<std::vector<std::uint32_t>> site_instances = {};
 };
 void validate_capture_schema(const Manifest& manifest);
 class Snapshot;
@@ -74,6 +84,7 @@ struct CycleBatch {
   std::map<Ref, Node> nodes;
   std::set<std::pair<Ref, Ref>> edges;
   std::map<Ref, std::uint64_t> ends = {};
+  std::map<std::uint32_t, InstanceValue> instances = {};
   std::string json() const;
 };
 struct Graph {
@@ -94,6 +105,7 @@ struct Graph {
   void record_unknown(Ref ref);
   void record_end(Ref ref, std::uint64_t cycle);
   void record_edge(Ref parent, Ref child);
+  void record_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle);
   FieldValue field(Ref ref, const std::string& name) const;
   void reset(bool active);
 private:
@@ -107,6 +119,8 @@ private:
   std::set<Ref> pending_nodes_;
   std::set<std::pair<Ref, Ref>> pending_edges_;
   std::map<Ref, std::uint64_t> pending_ends_;
+  std::map<std::uint32_t, InstanceValue> instances_;
+  std::map<std::uint32_t, InstanceValue> pending_instances_;
 };
 // Owns a validated copy: later callbacks and reset cannot change this view.
 class Snapshot {
@@ -115,6 +129,7 @@ public:
   const std::set<std::pair<Ref, Ref>>& edges() const { return graph_.edges; }
   const Manifest& manifest() const { return *graph_.manifest_; }
   const std::optional<TraceTiming>& timing() const { return graph_.timing_; }
+  const std::map<std::uint32_t, InstanceValue>& instances() const { return graph_.instances_; }
   std::string json() const;
   FieldValue field(Ref ref, const std::string& name) const { return graph_.field(ref, name); }
 private:
@@ -129,6 +144,7 @@ Graph& graph();
 
 extern "C" {
 void rheg_reset(std::uint8_t active);
+void rheg_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle);
 void rheg_unknown(std::uint32_t site, std::uint64_t sequence);
 void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle);
 void rheg_node(std::uint32_t site, std::uint64_t sequence,

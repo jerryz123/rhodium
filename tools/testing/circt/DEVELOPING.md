@@ -87,6 +87,11 @@ assertion benches, such as the RHEG collector for missing selected parents.
 The `event-runtime`, `event-pipeline`, `event-elastic`, `event-queue`, `event-arbiter`, `event-demux`, `event-atomic-fork`, `event-broadcast`, `event-join`, `event-stall`, and `event-offer` direct fixtures
 additionally link the independent RHEG collector implementation. Each local DPI companion is a transfer scoreboard,
 not a second implementation of the collector or ABI.
+`event-instance` checks nested module-local runtime identities on repeated
+module definitions, comparing graph registrations and lineage with public
+transfers. It covers pre-use identity changes, late first activity, equal IDs in
+distinct instances, 64-bit values, and reset rebinding. Its negative bench must
+fail the stability assertion when an already-bound identity changes.
 `event-vector` instruments the production vector execution engine. Its
 public-transfer oracle tracks sequence/issue occurrences,
 fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without

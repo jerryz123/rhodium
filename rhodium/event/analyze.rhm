@@ -4,8 +4,10 @@
 
 import:
   "../core/ir.rhm".DesignElaboration
+  "../core/ir.rhm".Module
   "../core/ir.rhm".Value
   "../diagram/main.rhm" open
+  "../frontend/layers/interface.rhm".module_trace_instances
   "model.rhm" open
 
 export:
@@ -522,4 +524,17 @@ fun infer_event_manifest(logical :: DesignElaboration,
       | def unknown = partial && nodes.find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
         plans[stall.id] := (if parents.length() > 0 || (unknown && pending_safe) | plans[site.id] | (if unknown | EventTraceSource(#false, site.id) | EventTraceSource(#false)))
       gaps := gaps ++ gaps.filter(~keep: fun (gap): gap.site == site.id).map(fun (gap): gap with (site = stall.id))
-  EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]), gaps, topology_dependencies, topology_trace_plans)
+  // Expand scope declarations independently of Flow: hierarchy, not causal
+  // edges, determines ownership of each module-local declaration.
+  def mutable instances = []
+  fun collect_instances(module_def :: Module, path :: List.of(String)):
+    for (scope in module_trace_instances(module_def)):
+      when sites.find(fun (site): site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path)
+      | instances := instances ++ [EventInstance(occurrence_prefix(path), scope.label, path, scope.value)]
+    for (op in module_def.operations):
+      when op.opcode == "rtl.instance"
+      | collect_instances(op.attribute("module"), path ++ [op.attribute("name")])
+  collect_instances(logical.top, [logical.top.name])
+  // Canonical ancestor-first order keeps scope indices stable.
+  instances := instances.sort(fun (a, b): a.path.length() < b.path.length() || (a.path.length() == b.path.length() && a.id < b.id))
+  EventManifest(logical, sites, dependencies, for Map (id in plans.keys()): values(id, plans[id]), gaps, topology_dependencies, topology_trace_plans, instances)

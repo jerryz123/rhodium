@@ -86,6 +86,8 @@ export:
   validate_interface_contracts
   describe_interface_event
   describe_interface_event_parents
+  describe_trace_instance
+  module_trace_instances
   interface_type_supports
   interface_link
   interface_transform
@@ -642,6 +644,22 @@ fun module_interface_array_groups(module_def :: Module):
 
 fun module_interface_transforms(module_def :: Module):
   module_def.metadata_for(interface_transform_group_namespace)
+
+// Instance context is hierarchy metadata, never transaction payload or lineage.
+class TraceInstance(label :: String, value :: Value):
+  implements ModuleMetadataPayload
+fun module_trace_instances(module_def :: Module):
+  module_def.metadata_for("rhodium.interface.trace-instance")
+fun describe_trace_instance(label :: AsciiIdentifier, identity :: HardwareEntity):
+  kernel.reject_unsupported_conditional_effect("instance context", Location(), "declare instance context outside hardware control flow")
+  def module_def = kernel.active_module()
+  when module_def.finished | error(~who: #'describe_trace_instance, "cannot annotate a finished module")
+  def value = kernel.read(identity)
+  unless value.module_def === module_def && bits_type(value.type) && scalar_width(value.type) <= 64
+  | error(~who: #'describe_trace_instance, "instance identity must be local Bits of width 1..64")
+  when module_trace_instances(module_def).length() > 0
+  | error(~who: #'describe_trace_instance, "instance context already declared")
+  module_def.add_metadata("rhodium.interface.trace-instance", TraceInstance(label, value))
 
 fun module_interface_events(module_def :: Module):
   module_def.metadata_for(interface_event_group_namespace)

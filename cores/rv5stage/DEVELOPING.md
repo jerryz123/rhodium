@@ -276,6 +276,12 @@ and transformed misalignment trap values without relying on internal nets.
 
 ## Pipeline event annotations
 
+`rv5stage.rhdl` declares `trace_instance("hart", hart_id)` once for the entire
+core/cache/MMU subtree. Keep per-event labels independent of hart identity;
+the event compiler samples the stable hardware ID and the exporter supplies
+the hierarchy group. Standalone component traces remain unscoped unless their
+caller supplies context.
+
 The Flow stage modules own their public interface trace contracts; `core.rhdl`
 does not redeclare them on instances. Keep storage certification local to its
 implementation; do not replace

@@ -12,6 +12,8 @@ if [[ -n "${NLOHMANN_JSON_INCLUDE_DIR:-}" ]]; then
   make_options+=("NLOHMANN_JSON_INCLUDE_DIR=$NLOHMANN_JSON_INCLUDE_DIR")
 fi
 make "${make_options[@]}" -j 4 test
+"$stream_test_dir/build/rheg-perfetto" "$stream_test_dir/build/instances.pftrace.json" > "$stream_test_dir/instances-replay.pftrace"
+cmp "$stream_test_dir/build/instances.pftrace" "$stream_test_dir/instances-replay.pftrace"
 "$stream_test_dir/build/rheg-perfetto" --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace"
 cmp "$stream_test_dir/build/shared-tracks.pftrace" "$stream_test_dir/shared-replay.pftrace"
 "$stream_test_dir/build/rheg-perfetto" --gzip --tracks "$stream_test_dir/build/shared-tracks.pftrace.tracks.json" "$stream_test_dir/build/shared-tracks.pftrace.json" > "$stream_test_dir/shared-replay.pftrace.gz"
@@ -43,12 +45,17 @@ assert_query() {
     exit 1
   fi
 }
+assert_query "$stream_test_dir/build/instances.pftrace" "SELECT count(*)=2 AND count(DISTINCT id)=2 AND count(DISTINCT parent_id)=1 AS ok FROM track WHERE name='hart[7]'"
+assert_query "$stream_test_dir/build/instances.pftrace" "WITH RECURSIVE paths(id,path) AS (SELECT id,name FROM track WHERE parent_id IS NULL UNION ALL SELECT t.id,p.path||'/'||t.name FROM track t JOIN paths p ON t.parent_id=p.id) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(p.path='Instances/chip[3]/hart[7]/unit/'||s.name)=4 AND min(dur)=10 AND max(dur)=10 AS ok FROM slice s JOIN paths p ON p.id=s.track_id WHERE s.name IN ('request','result')"
+assert_query "$stream_test_dir/build/instances.pftrace" "SELECT count(*)=2 AND sum(a.name='request' AND at.parent_id=bt.parent_id)=2 AS ok FROM flow f JOIN slice a ON a.id=f.slice_out JOIN slice b ON b.id=f.slice_in JOIN track at ON at.id=a.track_id JOIN track bt ON bt.id=b.track_id WHERE b.name='result'"
+assert_query "$stream_test_dir/build/instances.pftrace" "SELECT count(*)=2 AND sum(name='stall' AND dur=20)=1 AND sum(name='resident' AND dur=40)=1 AS ok FROM slice WHERE name IN ('stall','resident')"
+assert_query "$stream_test_dir/build/instances.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=2 AND min(dur)=40 AND max(dur)=40 AND max(depth)=0 AND count(DISTINCT track_id)=1 AS ok FROM slice s JOIN track t ON t.id=s.track_id WHERE t.name='sequencer'"
 assert_query "$stream_test_dir/build/residency.pftrace" "WITH expected(start,admission) AS (VALUES(10,0),(50,4)) SELECT count(*)=2 AND sum(s.ts=e.start AND CAST(EXTRACT_ARG(s.arg_set_id,'debug.cycle') AS INT)=e.admission)=2 AND max(s.ts+s.dur)=90 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON CAST(EXTRACT_ARG(s.arg_set_id,'debug.cycle') AS INT)=e.admission WHERE t.name='sequencer'"
 assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=3 AND sum(b.ts>=a.ts+a.dur)=1 AS ok FROM flow JOIN slice a ON a.id=flow.slice_out JOIN slice b ON b.id=flow.slice_in"
 assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 assert_query "$stream_test_dir/build/residency.pftrace.incomplete" "SELECT count(*)=1 AND min(dur)=-1 AS ok FROM slice"
-assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=6 AND sum(name='issue')=2 AND sum(name='complete')=2 AND sum(name='launch')=2 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NOT NULL"
+assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=6 AND sum(name='s2.issue')=2 AND sum(name='complete')=2 AND sum(name='launch')=2 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NOT NULL"
 assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 for suffix in '' .gz; do
   file="$stream_test_dir/build/shared-tracks.pftrace$suffix"
