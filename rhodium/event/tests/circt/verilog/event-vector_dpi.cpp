@@ -19,12 +19,12 @@ std::array<std::optional<Attempt>,3> pipe;
 std::deque<Owner> owners;
 std::deque<IssueOwner> issue_owners;
 std::optional<MacroId> macro;
-std::optional<MacroId> offered_macro, offered_sequence_macro;
-std::uint64_t cycle=0, launches=0, issues=0, completions=0, stalls=0;
+std::optional<MacroId> offered_sequence_macro;
+std::uint64_t cycle=0, launches=0, issues=0, completions=0;
 unsigned destination=0, length=0, macro_instruction=0;
 unsigned issued_count=0, complete_count=0, retry_count=0, fault_count=0, truncate_count=0;
 unsigned beat_launch_count=0, first_cycle_launch_count=0;
-unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, stall_count=0, launch_stall_count=0;
+unsigned late_count=0, out_of_order=0, reset_pending=0, no_write=0, launch_stall_count=0;
 constexpr std::array<const char*,7> launch_reasons={"setup_wait","vs2_wait","vs1_wait",
   "destination_wait","mask_wait","gather_source_wait","fetch_wait"};
 std::array<unsigned,launch_reasons.size()> launch_reason_counts{};
@@ -84,14 +84,13 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
   resetting=reset; expected.clear(); have_issue=false; expected_issue_macro.reset();
   if(reset) {
     if(!owners.empty() || pipe[0] || pipe[1] || pipe[2]) ++reset_pending;
-    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_macro.reset(); offered_sequence_macro.reset();
+    pipe={}; owners.clear(); issue_owners.clear(); macro.reset(); offered_sequence_macro.reset();
     macros.clear(); releases.clear(); sequence_owners.clear(); resident=false;
-    cycle=launches=issues=completions=stalls=0;
+    cycle=launches=issues=completions=0;
     return;
   }
   const auto issuing_macro=issue_owners.empty() ? std::nullopt : std::optional<MacroId>{issue_owners.front().id};
   const auto issuing_index=issue_owners.empty() ? 0 : issue_owners.front().next_index;
-  offered_macro=issuing_macro;
   offered_sequence_macro=macro;
   const bool serialized=resident && ((macro_instruction&0x7f)==0x07 || (macro_instruction&0x7f)==0x27);
   if(serialized && bool(sequenced)!=bool(issue_done)) fail("serialized sequencing release changed");
@@ -203,11 +202,7 @@ extern "C" void vector_trace_check() {
       if(!blocked) fail("read-plan stall has no blocked acceptance");
       ++launch_stall_count;
     } else if(ref.site==vector_sites::stall) {
-      if(!offered_macro) fail("stall without issue owner");
-      const auto sequence=only_parent(ref,vector_sites::sequence);
-      if(!sequence_owners.count(sequence) || sequence_owners.at(sequence)!=*offered_macro)
-        fail("stall inherited wrong sequencing occurrence");
-      ++stall_count; ++stalls;
+      fail("scheduled vector read stalled after its fixed response");
     } else ++actual;
   }
   if(actual!=expected.size()) fail("wrong number of transfer occurrences");
@@ -243,12 +238,12 @@ extern "C" void vector_trace_check() {
 }
 extern "C" void vector_trace_finish() {
   if(beat_launch_count<40 || !first_cycle_launch_count || issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
-      !late_count || !reset_pending || !no_write || !stall_count || !launch_stall_count)
-    fail("missing retry/fault/truncation/completion/reset/stall/no-write coverage");
+      !late_count || !reset_pending || !no_write || !launch_stall_count)
+    fail("missing retry/fault/truncation/completion/reset/launch-stall/no-write coverage");
   if(!launch_reason_counts[1] || !launch_reason_counts[6]) fail("missing source or fetch launch-stall coverage");
   if(!out_of_order) fail("missing out-of-order response coverage");
-  std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u issue stalls, %u launch stalls\n",
-      issued_count,complete_count,late_count,out_of_order,retry_count,stall_count,launch_stall_count);
+  std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u launch stalls\n",
+      issued_count,complete_count,late_count,out_of_order,retry_count,launch_stall_count);
   for(std::size_t index=0;index<launch_reasons.size();++index)
     std::printf("  %s: %u\n",launch_reasons[index],launch_reason_counts[index]);
 }

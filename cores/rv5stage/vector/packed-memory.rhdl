@@ -35,9 +35,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def Owner = Bits(index_width(owner_count))
   def Cursor = RV5StageVectorPackedCursor(vlen)
   def Layout = RV5StageVectorPackedLayout(xlen, vlen)
-  bundle StoreReadWord():
-    layout: Layout
-    alignment: RV5StageVectorAlignment()
   interface launch(Valid(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   input instruction: RV5StageVectorInstruction(xlen, Context)
   input(occupied, schedule_enable): Bool
@@ -56,7 +53,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   interface released(Valid(Tag), ~role: producer)
   input slot: Tag
   input head: Tag
-  input(slot_available, drain_enable, alignment_available): Bool
+  input(slot_available, schedule_slot_available, drain_enable, alignment_available): Bool
   input write_available: Bool
   input owner: Owner
   input accepted_slots: Vec(slots, Bool)
@@ -145,20 +142,16 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def fast_load = !store & !masked
   def fast_store = store & !masked & !segmented
   inst store_reads(ValidPipe(Layout, 1, ~flushable: #true))
-  inst store_words(ShiftQueue(StoreReadWord(), 2, ~pipe: #true, ~flushable: #true))
   store_reads.flush <== clear
-  store_words.flush <== clear
-  def store_credit = (store_words.count + store_reads.egress.valid.as_bits().zext(2)) < bits(2, 2)
   def mapped_sources_ready = !vec(for List (lane in 0..bytes): mapped.live[lane].into(Bool) & blocked_rows[mapped.rows[lane]]).as_bits().or_reduce()
-  def prefetch_store = scheduling & fast_store & !all_issued & !clear & mapped_sources_ready & (store_credit ||| issue.fire())
+  def prefetch_store = scheduling & fast_store & !all_issued & !clear & mapped_sources_ready & schedule_slot_available & alignment_available
   store_reads.ingress.valid <== prefetch_store
   store_reads.ingress.bits <== mapped
-  def offered_layout = mux(fast_load, mapped, mux(fast_store, store_words.egress.bits.layout, layout))
+  def offered_layout = mux(fast_load, mapped, mux(fast_store, store_reads.egress.bits, layout))
   def offered_mask = mux(fast_load ||| fast_store, offered_layout.live, byte_mask)
   def destinations_ready = !vec(for List (lane in 0..bytes): offered_layout.live[lane].into(Bool) & blocked_rows[offered_layout.rows[lane]]).as_bits().or_reduce()
   def can_issue = scheduling & (!all_issued ||| fast_store) & !clear & slot_available & (store ||| destinations_ready)
-  offered.valid <== can_issue & mux(fast_store, store_words.egress.valid & alignment_available, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
-  store_words.egress.ready <== can_issue & fast_store & alignment_available & issue.ready
+  offered.valid <== can_issue & mux(fast_store, store_reads.egress.valid & alignment_available, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
   offered.bits <== RV5StageVectorToken(Context, slots):
     byte_mask: if bytes == 8 | offered_mask | offered_mask.zext(8)
     context: instruction.context
@@ -191,16 +184,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def store_group = vec(for List (lane in 0..bytes): store_remaining[lane].into(Bool) & (layout.rows[lane] === read_row)).as_bits()
   def store_rotation = layout.offsets[read_lane] - (if bytes == 8 | read_lane | read_lane.zext(3))
 
-  def fast_store_alignment = can_issue & fast_store & store_words.egress.valid & alignment_available
-  def slow_store_alignment = scheduling & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
-  def store_alignment = fast_store_alignment ||| slow_store_alignment
-  assembly.alignment_available <== alignment_available & !store_alignment
-  assembly.aligned <== aligned
-  alignment.valid <== store_alignment ||| assembly.alignment.valid
-  def store_alignment_request = RV5StageVectorAlignment():
-    data: mux(fast_store, store_words.egress.bits.alignment.data, read_data)
-    bytes: mux(fast_store, store_words.egress.bits.alignment.bytes, store_rotation)
-  alignment.bits <== mux(store_alignment, store_alignment_request, assembly.alignment.bits)
   def prefetched = store_reads.egress.bits
   def prefetched_lane = priority_encoder(prefetched.live)
   def prefetched_rotation = prefetched.offsets[prefetched_lane] - (if bytes == 8 | prefetched_lane | prefetched_lane.zext(3))
@@ -209,16 +192,18 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
                              def lane = bits(offset, 3) - prefetched_rotation
                              def use_first = prefetched.rows[lane[0..index_width(bytes)]] === prefetched_row
                              mux(use_first, results[0].bits[offset * 8..offset * 8 + 8], results[1].bits[offset * 8..offset * 8 + 8])).as_bits()
-  (
-    store_reads.egress |> filter_valid(_layout => !clear) |> map_valid(value => StoreReadWord()):
-      layout: value
-      alignment:
-        RV5StageVectorAlignment():
-          data: prefetched_data
-          bytes: prefetched_rotation
-  ) |> to_decoupled() |> store_words.ingress
-  when (store_words.ingress.valid):
-    assert(store_words.ingress.ready, "packed_store_read_has_queue_credit")
+  def fast_store_alignment = can_issue & fast_store & store_reads.egress.valid & alignment_available
+  def slow_store_alignment = scheduling & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
+  def store_alignment = fast_store_alignment ||| slow_store_alignment
+  assembly.alignment_available <== alignment_available & !store_alignment
+  assembly.aligned <== aligned
+  alignment.valid <== store_alignment ||| assembly.alignment.valid
+  def store_alignment_request = RV5StageVectorAlignment():
+    data: mux(fast_store, prefetched_data, read_data)
+    bytes: mux(fast_store, prefetched_rotation, store_rotation)
+  alignment.bits <== mux(store_alignment, store_alignment_request, assembly.alignment.bits)
+  when (store_reads.egress.valid & !clear):
+    assert(issue.fire(), "packed_scheduled_store_read_issues_without_stall")
   def gathered_word = vec(
     for List (lane in 0..bytes):
       def index = layout.offsets[lane] - store_rotation

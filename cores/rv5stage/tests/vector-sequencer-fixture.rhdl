@@ -71,7 +71,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  sequencer.read_request |> operand_fetch.request
+  sequencer.read_request |> gate_flow(issue_ready) |> operand_fetch.request
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.begin_macro <== sequencer.request.fire()
   operand_fetch.reads <=> bank.reads
@@ -79,7 +79,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
   operand_fetch.mask_read |> bank.mask_read
   bank.mask_result |> operand_fetch.mask_result
   sequencer.cancel.valid <== cancel
-  operand_fetch.issue.ready <== issue_ready
+  operand_fetch.issue.ready <== Bool(#true)
   execute.beat <== operand_fetch.issue.bits.beat
   execute.scan_carry <== bits(0, 64)
   pipeline.ingress.valid <== operand_fetch.issue.fire()

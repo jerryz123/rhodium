@@ -27,6 +27,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   output issue_tag: Bits(index_width(slots))
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
@@ -55,7 +56,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
+  vector.issue |> to_valid() |> tokens.ingress
   def recovering = cancel ||| (tokens.egress.valid & (disposition =/= RV5StageVectorDisposition.Authorized))
   tokens.flush <== recovering
   vector.cancel.valid <== cancel

@@ -1,5 +1,5 @@
 #lang rhodium
-// Fetches and packs operands from credited captured beat controls, independent of the current sequencer.
+// Fetches and packs statically scheduled operands without a post-read result queue.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -34,13 +34,9 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   interface issue(Decoupled(MicroOp), ~role: producer)
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   input(flush, begin_macro): Bool
-  output active: Bool
-  // Reservations include in-flight reads and queued results, and survive
-  // descriptor replacement. Only issue or explicit cancellation releases them.
-  reg reserved(~init: bits(0, 2))
+  output(active, scheduled_return, suffix_pending): Bool
   inst context_pipe(ValidPipe(ReadContext, 1, ~flushable: #true))
   inst gather_pipe(ValidPipe(GatherRead(), 1, ~flushable: #true))
-  inst pending(ShiftQueue(MicroOp, 2, ~pipe: #true, ~flow: #true, ~flushable: #true))
   inst packing(RV5StageVectorOperands(vlen))
   reg compress_data(~init: bits(0, 64))
   reg compress_count(~init: bits(0, 4))
@@ -56,7 +52,6 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   reg authorized_end(~init: bits(0, index_width(vlen + 1)))
   def clear = flush
   def retry = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Retry)
-  pending.egress |> gate_flow(!clear) |> issue
   def response = context_pipe.egress
   def read_context = mux(compress_flush, compress_context, response.bits)
   def instruction = read_context.instruction
@@ -128,7 +123,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def gather_data_read = response.valid & gather_vector & !clear
   // A dependent gather read occupies port zero for one cycle. Its data
   // response can overlap the next index request without losing either context.
-  def can_read = !clear & !gather_data_read & !compress_flush & ((reserved < bits(2, 2)) ||| issue.fire())
+  def can_read = !clear & !gather_data_read & !compress_flush
   request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
   context_pipe.flush <== clear
   def launch = request.fire()
@@ -290,7 +285,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     context: context.instruction.context
     beat: mux(compress, compress_beat, operands)
   def gathered_read :: GatherRead() = gather_pipe.egress.bits
-  def gathered = gather_pipe.egress |> map_valid(_value => RV5StageVectorMicroOp(vlen, Context)):
+  def gathered = gather_pipe.egress |> filter_valid(_value => !clear) |> map_valid(_value => RV5StageVectorMicroOp(vlen, Context)):
     context: gathered_read.context
     beat: gathered_read.beat.updated(~left: mux(gathered_read.in_range, results[0].bits, bits(0, 64)))
   def flush_state = RV5StageVectorCompressState(vlen):
@@ -307,18 +302,14 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def discard_compression = begin_macro ||| (clear & !retry)
   describe_interface_retained_storage(capture_compression, compress_context_valid & (capture_compression ||| discard_compression), compress_context_valid, ~name: "compression")
   describe_interface_contract(compression_response, flushed, "compression-suffix", ~trace_model: interface_trace_retained(~name: "compression"))
-  pending.flush <== clear
   def returned = Array(direct, gathered) |> valid_arbiter() |> to_decoupled()
-  Array(returned, flushed) |> arbiter() |> pending.ingress
+  Array(returned, flushed) |> arbiter() |> issue
   def flush_enqueue = flushed.fire()
-  def reserve_event = launch ||| flush_enqueue
-  active <== reserved.or_reduce() ||| compress_flush
-  when clear:
-    reserved <== bits(0, 2)
-  elsewhen (reserve_event =/= issue.fire()):
-    reserved <== mux(reserve_event, reserved + bits(1, 2), reserved - bits(1, 2))
-  when (response.valid & !clear ||| gather_pipe.egress.valid & !clear):
-    assert(pending.ingress.ready, "vector_read_has_reserved_output_slot")
+  scheduled_return <== returned.valid
+  suffix_pending <== compress_flush
+  active <== response.valid ||| gather_pipe.egress.valid ||| compress_flush
+  when (returned.valid):
+    assert(returned.ready, "vector_scheduled_read_cannot_stall_after_response")
   when (gather_pipe.egress.valid & !clear):
     assert(gathered_read.beat.empty ||| results[0].valid, "vector_gather_data_matches_context")
   when (response.valid & !clear):

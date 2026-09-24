@@ -143,16 +143,12 @@ module rv5stage_vector_overlap_tb;
     response_in='0; fp_result_in='0; fp_request_in.ready=1;
     tick(); reset=0;
 
-    // The current registered instruction transfers its last read plan while
-    // accepting a replacement. The replacement reads only in the next cycle.
+    // Blocking scheduling holds the current descriptor before its VRF read;
+    // releasing it still permits tail replacement without an issue bubble.
     phase=1;
     vl=1; issue_ready=0;
     launch(add_insn(8),64'h0,0);
-    launch(add_insn(9),64'h10,0);
-    launch(add_insn(10),64'h20,0);
-    instruction=add_insn(11); scalar=64'h30; request_valid=1;
-    // Two credited responses fill the fetch buffer. The third descriptor's
-    // final read is blocked, so the offered fourth descriptor cannot replace it.
+    instruction=add_insn(9); scalar=64'h10; request_valid=1;
     repeat(4) begin
       tick();
       assert(!launch_seen && !sequencing_finished && !issued) else $fatal(1,"stalled final read replaced the current instruction");
@@ -160,9 +156,8 @@ module rv5stage_vector_overlap_tb;
     issue_ready=1;
     do tick(); while (!launch_seen);
     request_valid=0;
-    // Continue beyond the owner-ring depth: replacement must sustain issue,
-    // not merely empty a short burst already held in operand preparation.
-    for (int destination=12; destination<24; destination++)
+    // Continue beyond the owner-ring depth to check zero-dead-time handoff.
+    for (int destination=10; destination<24; destination++)
       // v17 reuses v9's completion slot; v18 must not see its old write metadata.
       launch(add_insn_source(destination, destination==18 ? 9 : 2),64'(destination-8)<<4,0);
     drain();
@@ -262,13 +257,11 @@ module rv5stage_vector_overlap_tb;
       launch(store_insn(rd),64'h500,0); drain();
     end
     assert(store_count==4 && stores[0]==1 && stores[1]==2 && stores[2]==3 && stores[3]==4) else $fatal(1,"read response used a replacement descriptor's SEW/immediate");
-    // Cancellation must also release owners already sequenced into operand
-    // buffering, not just the one descriptor still resident in the sequencer.
-    phase=8; issue_ready=0;
+    // Cancellation kills a scheduled read before its fixed response issues.
+    phase=8; issue_ready=1;
     launch(add_insn(20),64'h60,0);
-    launch(add_insn(21),64'h70,0);
-    launch(add_insn(22),64'h80,0);
-    cancel=1; tick(); cancel=0; issue_ready=1; drain();
+    tick();
+    issue_ready=0; cancel=1; tick(); cancel=0; issue_ready=1; drain();
     // A reduction retains only owner-local recurrence and completion state.
     // Its tail hands off the sequencer before the final result retires.
     phase=9; vl=2; vtype=24;
@@ -312,16 +305,14 @@ module rv5stage_vector_overlap_tb;
     request_valid=0;
     drain();
     assert(done_count==older_issue_count+2) else $fatal(1,"stateless index did not finish at final issue");
-    // Index may also enter behind an older compute beat held in operand fetch.
+    // Index follows the older compute without depending on a buffered read.
     reset=1; tick(); reset=0;
-    phase=13; vl=1; vtype=24; issue_ready=0;
+    phase=13; vl=1; vtype=24; issue_ready=1;
     older_issue_count=done_count;
     launch(add_insn(8),64'hd00,0);
-    tick();
     instruction=index_insn(9); scalar=64'hd10; request_valid=1;
-    tick();
-    assert(launch_seen && !issued) else $fatal(1,"stateless index admission waited for older operand issue");
-    request_valid=0; issue_ready=1;
+    do tick(); while (!launch_seen);
+    request_valid=0;
     drain();
     assert(done_count==older_issue_count+2) else $fatal(1,"stateless index admission lost issue ownership");
     // The older two-row compute keeps the second row pending, but its first
@@ -378,32 +369,30 @@ module rv5stage_vector_overlap_tb;
     request_valid=0; retry_last=0;
     drain();
     // Elementwise memory may capture the sequencer on an older compute tail
-    // read even though two older beats remain reserved in operand fetch.
+    // read while its previous beat is issuing and its final read is in flight.
     reset=1; tick(); reset=0;
-    phase=18; vl=2; vtype=24; issue_ready=0; retried=0; retry_last=1;
+    phase=18; vl=2; vtype=24; issue_ready=1; retried=0; retry_last=1;
     overlap_older_context=64'h220; overlap_memory_context=64'h230;
     overlap_older_attempts=0; overlap_memory_attempts=0;
     older_issue_count=done_count; previous_retirements=retired_count;
     launch(add_insn(8),overlap_older_context,0);
     instruction=load_insn(10); scalar=overlap_memory_context; request_valid=1;
     do tick(); while (!sequence_done_seen);
-    assert(launch_seen && !issued) else $fatal(1,"memory admission waited for older operand issue");
-    request_valid=0; issue_ready=1;
+    request_valid=0;
     drain();
     assert(retried && overlap_older_attempts==2 && overlap_memory_attempts==3 && done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"memory replay lost older prepared compute or duplicated a beat");
     retry_last=0;
-    // Gather's dependent second read must likewise enter the issue queue
-    // before the younger direct memory read, even with issue held initially.
+    // Gather's dependent second read must stay ordered before the younger
+    // direct memory read without a post-read issue queue.
     reset=1; tick(); reset=0;
-    phase=19; vl=2; vtype=24; issue_ready=0;
+    phase=19; vl=2; vtype=24; issue_ready=1;
     overlap_older_context=64'h240; overlap_memory_context=64'h250;
     overlap_older_attempts=0; overlap_memory_attempts=0;
     older_issue_count=done_count; previous_retirements=retired_count;
     launch(gather_insn(8),overlap_older_context,0);
     instruction=load_insn(10); scalar=overlap_memory_context; request_valid=1;
     do tick(); while (!sequence_done_seen);
-    assert(launch_seen && !issued) else $fatal(1,"memory admission waited for older gather issue");
-    request_valid=0; issue_ready=1;
+    request_valid=0;
     drain();
     assert(overlap_older_attempts==2 && overlap_memory_attempts==2 && done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"gather-to-memory overlap lost ordering or completion");
     $display("Vector overlap passed: direct independent completion, row RAW/WAW, tail handoff, compute-to-memory admission, packed issue, reductions, replay, slot wrap, and canceled carry");

@@ -78,15 +78,15 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 ### Event tracing
 
 The optional event compiler observes sequencing and beat milestones:
-`vector/s1.sequence` marks an accepted elementwise read request in the first active
-sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
+`vector/s1.sequence` marks an accepted elementwise read and its fixed downstream
+resource schedule, `vector/s2.issue` records the resulting nonstallable execution
 attempt after operand capture, and `vector/complete` records a mature or
 authorized beat's actual completion/writeback. Packed memory has no separate
 elementwise read request and begins its beat trace at `vector/s2.issue`.
 The `vector/s1.sequence.stall` observation records a pending read request that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
 `setup_wait`, `vs2_wait` and `vs1_wait` for the architectural source rows,
-the destination-row and gather hazards, and operand-fetch `fetch_wait`.
+the destination-row and gather hazards, and downstream resource `fetch_wait`.
 Several fields may be true at once; they are not
 priority-encoded. Idle, completed, and canceled plans do
 not generate a sequencing stall.
@@ -246,11 +246,12 @@ launch normally.
 [`RV5StageVectorOperandFetch`](operand-fetch.rhdl) owns three synchronous
 general VRF reads supplying `vs2` (or store `vs3`), `vs1`, and
 the old destination for multiply-accumulate operations; a dedicated `v0`
-shadow supplies predication concurrently. A two-slot credit
-window reserves space before every read, covering read latency and buffered
-beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
-per cycle. Setup and final drain still have latency, but independent single-beat
-macros can overlap those stages and issue on consecutive cycles.
+shadow supplies predication concurrently. The sequencer accepts a read only
+after its completion slot, execution path, and future fixed write cycle are
+available. The synchronous read response reaches execution at a fixed offset;
+there is no post-read operand queue. Gather performs a scheduled dependent
+second read. Setup and final drain retain their latency, while independent
+single-beat macros can still issue on consecutive cycles.
 
 For unit-stride and strided element memory, the sequencer captures the full
 base address and an element step. Unit-stride uses `1 << EEW`; strided forms

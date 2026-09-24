@@ -51,6 +51,8 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.slot <== tail
   engine.head <== head
   engine.slot_available <== !slots_owner.allocated[tail]
+  def next_tail = if slots == 1 | bits(0, index_width(slots)) | tail + engine.issue.valid.as_bits().zext(index_width(slots))
+  engine.schedule_slot_available <== !slots_owner.allocated[next_tail] & (Bool(slots != 1) ||| !engine.issue.valid)
   engine.accepted_slots <== slots_owner.accepted
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== alignment_available

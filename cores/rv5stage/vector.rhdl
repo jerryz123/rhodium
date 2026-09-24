@@ -54,6 +54,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output available: Bool
 
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
+  execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots))
   // Pending descriptor policy is independent of the older execution owner's
   // LSU policy, so prechecking the next macro cannot perturb active issue.

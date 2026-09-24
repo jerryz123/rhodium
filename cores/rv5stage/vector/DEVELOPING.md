@@ -18,7 +18,7 @@ lifetimes; they do not introduce additional pipeline stages.
 | Parent `../vector.rhdl` | Two-entry WB admission FIFO and head-only page certification | The head dispatches to execution |
 | `instructions.rhdl` | Instruction IDs, pending-kind summaries, destination-row intents, progressive row frontier, and store-drain barrier | Sequencing/issue is closed and all owned slots and carry have drained |
 | `sequencer.rhdl` | One descriptor, beat cursor, address setup, and authorized restart checkpoint | Final read-request transfer for ordinary compute, final feedback for serialized work |
-| `operand-fetch.rhdl` | Synchronous read credits, captured context, gather return, and compression suffix | Prepared operands transfer or unauthorized preparation is flushed |
+| `operand-fetch.rhdl` | Fixed-latency read context, gather return, packing, and compression suffix | Scheduled operand issues or unauthorized preparation is flushed |
 | `pipeline.rhdl` | Composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
 | `completion.rhdl` / `slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
 | `packed-memory.rhdl` | Packed request cursor, masks, store reads, and request preparation | Final packed acceptance, or replay restores the rejected cursor |
@@ -51,13 +51,15 @@ waiting joins during a readability change.
 There is one in-order sequencer: `sequencer.rhdl` retains exactly one accepted
 descriptor and never alternates among instructions. `operand-fetch.rhdl` is a
 separate downstream stage that owns synchronous VRF reads, response alignment,
-operand packing, dependent gather reads, compression carry, and credited result
-buffering. The sequencer advances only on a Decoupled read-request transfer. An
+operand packing, dependent gather reads, and compression carry. The sequencer
+advances only when the read, projected completion slot, downstream issue path,
+recurrence permission, and any fixed writeback reservation are admitted together.
+There is no post-read operand queue or credit window. An
 ordinary compute tail transfer releases the descriptor and may simultaneously
 accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
-successor, or second instruction slot inside the sequencer. The flow-through result queue permits
-consecutive issue while credits cover all nonbackpressurable responses.
+successor, or second instruction slot inside the sequencer. Fixed-latency read
+contexts can overlap adjacent macros and issue on consecutive cycles.
 Memory retains its descriptor through the final external decision and may accept
 its successor on the authorized final-feedback edge; dependent scans and
 compression retain theirs through internal result maturity. Stateless
@@ -65,8 +67,8 @@ index scans release on their final read-request transfer like ordinary compute.
 Reductions release their descriptor at the tail read and retain recurrence in
 owner-indexed state. Packed memory, reductions, dependent scans, and compression
 wait for older operand preparation to drain before admission. Ordinary compute
-and elementwise memory can overlap it: the ordered operand-fetch queue issues
-older prepared beats before a younger memory beat can receive replay feedback.
+and elementwise memory can overlap it: the fixed read pipeline issues older
+scheduled beats before a younger memory beat can receive replay feedback.
 A packed admission coincident with an older final read retains its descriptor, but packed
 VRF activity and issue wait for that read's reservation to clear. The packed-memory
 schedule consumes the same accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
@@ -120,17 +122,17 @@ interleaved instruction sequencing.
 
 Certified contiguous macros select `packed-memory.rhdl` after the page check,
 before execution allocation. Its byte/field cursor maps aligned XLEN requests
-onto 64-bit VRF rows without an element-address multiplier. Ordinary unmasked
-stores pipeline two contributing VRF reads into a credited, replay-flushed
-queue that retains the unaligned words until the shared SIMD slice is free;
-masked and segmented stores retain each read response through the explicit
-row-gather alignment step.
+onto 64-bit VRF rows without an element-address multiplier. Fast stores schedule
+two contributing VRF reads only when the next completion slot and shared SIMD
+alignment slice are available. The fixed response aligns and issues without a
+store-word queue. Masked and segmented stores retain the row data needed for
+their explicit multi-read assembly sequence.
 Loads capture raw hit/delayed data in reserved slots and align only at ordered
 drain. A completed prefix and carry suffix can update on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
 The existing `execute.rhdl` instance shares its SIMD E64 rotate slice between
 ordinary execution and packed alignment. Fixed-cycle ordinary execution has
-priority over buffered store preparation, then buffered load alignment.
+priority over scheduled store alignment, then buffered load alignment.
 Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
 without lossy Valid arbitration; there is no second barrel shifter or VRF.
 
@@ -166,9 +168,9 @@ availability, and operand fetch to accept together, including in the standalone
 sequencer fixture. The sequencer-owned `vector/s1.sequence` checkpoint records the
 actual transfer and captures the instruction for slice naming; its stall
 companion captures setup, `vs2_wait`/`vs1_wait` source-row, and aggregate
-operand-fetch readiness failures without changing launch timing.
-Operand fetch carries that occurrence through the VRF response and credited queue to
-elementwise issue. Packed memory has no equivalent elementwise read request.
+resource-admission failures without changing launch timing.
+Operand fetch carries that occurrence through its fixed VRF response to
+elementwise issue without a post-read stall. Packed memory has no equivalent elementwise read request.
 Elementwise issue remains in `pipeline.rhdl`; direct completion is owned by
 `completion.rhdl`.
 Both paths use the stable `vector/s2.issue` and `vector/complete` labels, with a
@@ -183,7 +185,7 @@ contract through ordered beat release. A completion denotes
 transfer into the masked row carry/write path, not raw response arrival.
 `sequencer.rhdl` declares the retained descriptor's request-to-read-request
 relation. Operand fetch carries that lineage through its fixed read-context
-pipe, optional gather pipe, and credited result queue. Compression's optional
+pipe and optional gather pipe. Compression's optional
 suffix retains its generating read context. These paths preserve lineage through
 stalls and explicit flush. Capture on macro acceptance, preserve across retry,
 and release only on the actual occupied-to-idle conditions. Never use the PC or
@@ -392,7 +394,8 @@ admission in the compute-maturity cycle, two cycles after sequencing. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 Before shared-service acceptance, fixed multiplication and FP reserve their
-actual return cycle. Private compute and memory decisions reserve at S2 issue.
+actual return cycle. Elementwise private compute and memory reads reserve their
+future write cycle at S1 sequencing; compression suffixes reserve when emitted.
 An older unrelated memory, divide, or FP operation does not block a fixed
 product merely because its metadata is at the ring head. Variable returns
 yield to occupied cycles, and packed assembly consumes only leftover cycles.
@@ -547,7 +550,7 @@ Run `rv5stage-vector-reduction` for production-pipeline tests of both scalar
 moves and ten integer reductions. It initializes and reads storage through
 public LSU transactions, folds elements with an independent model, and covers
 SEW/LMUL, masks, aliases, tails,
-empty bodies, issue stalls, result maturity, and partial cancellation.
+empty bodies, pre-read scheduling stalls, result maturity, and partial cancellation.
 The full-core `rv5stage-vector-fp` program covers all six FP reductions,
 unary classification and seven-bit reciprocal/reciprocal-square-root estimates,
 their active-element exception behavior, masking, restart, replay, and squash,
@@ -738,7 +741,7 @@ The `rv5stage-vector-sequencer` and `rv5stage-vector-sequencer-rv32` fixtures
 compose real decode/VRF/execute with a flushable result boundary. An independent
 element model checks all decoded packed integer operations, fixed-point averaging,
 saturation, rounding, and clipping across every `vxrm` mode, SEW/LMUL, partial bodies,
-mask writes, in-place operations, randomized issue stalls, result maturity,
+mask writes, in-place operations, randomized read-admission stalls, result maturity,
 and cancellation.
 Whole-register move coverage must include every NREG and SEW, independence from
 `vl` and LMUL, nonzero `vstart`, register-boundary crossing, equal source and

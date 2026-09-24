@@ -24,6 +24,7 @@ import:
   "mask.rhdl".VectorScanResult
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl".VectorMemoryMode
+  "../decode/vector-ctrl.rhdl".VectorOperandMode
   "../register-file.rhdl".RegisterFileWrite
   "../fp/register-file.rhdl".FloatingPointRegisterWrite
   "../../../riscv/isa/vector.rhm" open
@@ -75,6 +76,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input packed_memory: Bool
   input memory_drained: Bool
+  input schedule_enable: Bool
   output active: Bool
   output sequencing: Bool
   output pending: Bool
@@ -133,8 +135,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
 
   // Admission and the single registered sequencer.
   // Packed and checkpointed compute schedules wait for older operand preparation.
-  // Elementwise memory uses the ordered operand-fetch queue: older compute
-  // beats issue before a younger memory beat can reach a replay decision.
+  // Elementwise memory follows older scheduled reads: older compute beats
+  // issue before a younger memory beat can reach a replay decision.
   def stateful_request = packed_memory ||| request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
   available <== sequencer.request.ready & instructions.available & (!stateful_request ||| !operand_fetch.active)
   def admitted = request |> gate_flow(available)
@@ -169,7 +171,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   packed.occupied <== sequencer.active & current_packed
   // Admission can coincide with the older macro's final read. Retain packed
   // ownership, but defer shared VRF activity and issue until that read issues.
-  packed.schedule_enable <== !operand_fetch.active
+  packed.schedule_enable <== schedule_enable & !operand_fetch.active
   when (request.fire()):
     current_packed <== packed_memory
   sequencer.blocked_rows <== foreign_rows
@@ -179,15 +181,32 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   packed.cancel.valid <== cancel.valid & current_packed
   packed.slot <== allocate_slot
   packed.slot_available <== !allocated[allocate_slot]
+  def packed_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + packed.issue.valid.as_bits().zext(tag_width)
+  packed.schedule_slot_available <== !allocated[packed_next_slot] & (Bool(vector_completion_slots != 1) ||| !packed.issue.valid)
   packed.accepted_slots <== vec(for List (slot in 0..vector_completion_slots): authorized_slots[slot] & entry_packed[slot])
   packed.head <== drain_slot
   packed.drain_enable <== authorized_slots[drain_slot] & entry_packed[drain_slot]
   packed.alignment_available <== !ex_pipe.egress.valid
   packed.write_available <== !completions.compute_writeback
 
-  // Operand capture: fixed-latency VRF returns retain their sampled source.
+  // A read commits only after its fixed-latency consumers have been granted.
   cancel |> sequencer.cancel
-  sequencer.read_request |> operand_fetch.request
+  def s1_control = sequencer.read_request.bits.context.instruction.descriptor.control
+  def s1_owner = sequencer.read_request.bits.context.instruction.context.owner
+  def s1_gather = s1_control.integer & s1_control.gather & (s1_control.operand === VectorOperandMode.Vector)
+  def s1_service = s1_control.fp_service ||| s1_control.multiply_divide
+  def s1_local_write = !s1_service ||| s1_control.memory ||| sequencer.read_request.bits.context.instruction.descriptor.masked ||| sequencer.read_request.bits.context.beat_control.empty
+  def s1_write_delay = mux(s1_control.memory, bits(4, 4), bits(2, 4)) + s1_gather.as_bits().zext(4)
+  def s1_next_slot = if vector_completion_slots == 1 | bits(0, tag_width) | allocate_slot + operand_fetch.scheduled_return.as_bits().zext(tag_width)
+  def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
+  def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
+  def returning_control = operand_fetch.issue.bits.beat.control
+  def returning_fold = operand_fetch.scheduled_return & (((returning_control.integer ||| returning_control.fp_service) & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
+  def s1_fold_available = !fold_inflight[s1_owner] & !(returning_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
+  def s1_ready = schedule_enable & !replay & s1_slot_available & s1_fold_available & (!s1_local_write ||| writeback_calendar.probe_available)
+  def Array(s1_read, s1_scalar_reservation) = sequencer.read_request |> gate_flow(s1_ready) |> atomic_fork(2)
+  s1_read |> operand_fetch.request
+  s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.begin_macro <== request.fire()
   reg read_element(~init: bits(0, 3))
@@ -213,19 +232,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   memory_pipe.flush <== replay
 
 
-  // Issue and one-stage private execution, with the memory-only decision delay.
-  // Local attempt admission and private operand capture are one atomic transfer.
+  // Scheduled reads enter execution without another admission decision.
+  // A compression suffix has no read and is admitted when it issues.
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
-  // Fixed returns reserve the common completion/write cycle before launch.
-  // Variable services retain their output until a free cycle, not in slots.
-  def offered_beat = operand_fetch.issue.bits.beat
-  def service_beat = (offered_beat.control.fp_service ||| offered_beat.control.multiply_divide) & offered_beat.enabled.as_bits()[0].into(Bool)
-  def immediate_beat = !offered_beat.control.memory & !service_beat
-  def local_reservation_needed = immediate_beat ||| offered_beat.control.memory
-  def local_reservation_delay = mux(offered_beat.control.memory, bits(3, 4), bits(1, 4))
   writeback_calendar.probe_client <== bits(2, index_width(3))
-  writeback_calendar.probe_delay <== local_reservation_delay
+  writeback_calendar.probe_delay <== mux(operand_fetch.suffix_pending, bits(1, 4), s1_write_delay)
   def issued = operand_fetch.issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
     packed: Bool(#false)
     op_index(~format: "unsigned"): operation.beat.sequence
@@ -234,8 +246,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     last: operation.beat.last
     empty: operation.beat.empty
   def issue_owner = operand_fetch.issue.bits.context.owner
-  def Array(token, operands, scalar_reservation) = issued |> gate_flow(slot_available & !replay & !fold_inflight[issue_owner] & (!local_reservation_needed ||| writeback_calendar.probe_available)) |> atomic_fork(3)
-  scalar_reservation |> filter_flow(operation => operation.beat.control.scalar_destination) |> map_flow(_operation => bits(1, 4)) |> scalar_writeback
+  def suffix_ready = slot_available & !fold_inflight[issue_owner] & writeback_calendar.probe_available
+  def Array(token, operands) = issued |> gate_flow(!replay & (!operand_fetch.suffix_pending ||| suffix_ready)) |> atomic_fork(2)
   def element_issue = (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       byte_mask: if xlen == XLen.X64 | memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)) | memory_byte_mask(xlen, operation.beat.address[0..32], operation.beat.element_width.as_bits().into(MemoryWidth)).zext(8)
@@ -250,10 +262,13 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       completion_tag: allocate_slot
   )
   Array(element_issue, packed.issue) |> rr_arbiter() |> issue
-  // The calendar claims only the accepted element beat; its availability
-  // gates admission without participating in the atomic fork's ready loop.
-  writeback_calendar.reserve[2].valid <== element_issue.fire() & local_reservation_needed
-  writeback_calendar.reserve[2].bits <== local_reservation_delay
+  writeback_calendar.reserve[2].valid <== (operand_fetch.request.fire() & s1_local_write) ||| (element_issue.fire() & operand_fetch.suffix_pending)
+  writeback_calendar.reserve[2].bits <== mux(operand_fetch.suffix_pending, bits(1, 4), s1_write_delay)
+  when (operand_fetch.scheduled_return):
+    assert(slot_available, "vector_scheduled_read_has_completion_slot")
+    assert(!replay, "vector_replay_kills_scheduled_read")
+    assert(!fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
+    assert(element_issue.fire(), "vector_scheduled_read_issues_without_stall")
   compute_tail_issue <== element_issue.fire() & operand_fetch.issue.bits.beat.last & !(operand_fetch.issue.bits.beat.control.memory ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
   // All routes use one persistent allocation order, including immediate ALU
   // results. No unbackpressurable write can collide with an older completion.

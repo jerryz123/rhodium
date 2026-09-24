@@ -27,6 +27,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, vlen, Bits(32)))
+  vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(32), 8), 3, ~flushable: #true))
@@ -57,7 +58,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
+  vector.issue |> to_valid() |> tokens.ingress
   tokens.flush <== cancel
   compute_maturity.flush <== cancel
   compute_maturity.ingress.valid <== vector.issue.fire() & !vector.issue.bits.memory

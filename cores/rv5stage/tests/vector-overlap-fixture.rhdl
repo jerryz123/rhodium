@@ -28,6 +28,7 @@ sync_circuit RV5StageVectorOverlap():
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
@@ -56,7 +57,7 @@ sync_circuit RV5StageVectorOverlap():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   vector.packed_memory <== packed_memory
-  vector.issue |> gate_flow(issue_ready) |> to_valid() |> tokens.ingress
+  vector.issue |> to_valid() |> tokens.ingress
   def Array(observed, feedback) = tokens.egress |> fork_valid(2)
   observed |> attempt
   tokens.flush <== cancel ||| (tokens.egress.valid & retry)

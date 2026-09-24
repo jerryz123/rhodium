@@ -35,6 +35,8 @@ module rv5stage_vector_packed_tb;
   task automatic tick;
     issue_ready = !exercise_stalls || cycle%7!=2;
     alignment_available = !exercise_alignment_stalls || cycle%7>=3;
+    // A fast-store VRF read reserves its next-cycle issue and align path.
+    if (store && (mode==2 || mode==3 || (!masked && nf==0))) begin issue_ready=1; alignment_available=1; end
     write_available = !exercise_stalls || cycle%5>=2;
     retry=0; slow=0; hit_data=0; response_in='0;
     #1;
