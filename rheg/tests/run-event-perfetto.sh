@@ -56,6 +56,9 @@ assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=3 AND s
 assert_query "$stream_test_dir/build/residency.pftrace" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 assert_query "$stream_test_dir/build/residency.pftrace.incomplete" "SELECT count(*)=1 AND min(dur)=-1 AS ok FROM slice"
 assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=6 AND sum(name='s2.issue')=2 AND sum(name='complete')=2 AND sum(name='launch')=2 AS ok FROM track WHERE EXTRACT_ARG(source_arg_set_id,'description') IS NOT NULL"
+assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=2 AND count(DISTINCT parent_id)=2 AND sum(json_array_length(EXTRACT_ARG(source_arg_set_id,'description'),'$.sites')=2)=2 AS ok FROM track WHERE name='complete'"
+assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=4 AND count(DISTINCT track_id)=2 AND sum(EXTRACT_ARG(arg_set_id,'debug.packed'))=2 AND sum(dur=10)=4 AS ok FROM slice WHERE name='complete'"
+assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=4 AND sum(p.name='issue' AND pt.parent_id=ct.parent_id)=4 AS ok FROM flow f JOIN slice p ON p.id=f.slice_out JOIN slice c ON c.id=f.slice_in JOIN track pt ON pt.id=p.track_id JOIN track ct ON ct.id=c.track_id WHERE c.name='complete'"
 assert_query "$stream_test_dir/build/shared-tracks.pftrace.automatic" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 for suffix in '' .gz; do
   file="$stream_test_dir/build/shared-tracks.pftrace$suffix"

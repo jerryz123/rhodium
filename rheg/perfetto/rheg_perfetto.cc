@@ -12,6 +12,7 @@
 #include <sstream>
 #include <stdexcept>
 #include <string_view>
+#include <tuple>
 
 namespace rheg {
 namespace {
@@ -76,10 +77,6 @@ void display_path(Site& site, bool explicit_label) {
 std::string parent_path(const std::string& path) {
   const auto slash = path.rfind('/');
   return slash == std::string::npos ? std::string() : path.substr(0, slash);
-}
-bool contains_scope(const std::string& parent, const std::string& child) {
-  return parent == child || (!parent.empty() && child.size() > parent.size() &&
-         child.compare(0, parent.size(), parent) == 0 && child[parent.size()] == '/');
 }
 struct Description {
   Manifest manifest;
@@ -188,28 +185,13 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     display.group.clear();
     display_path(display, true);
   }
-  // Equal labels in one nested hardware scope describe one visual facility.
-  // Sibling instances (for example separate harts) retain separate tracks.
-  std::vector<std::uint32_t> automatic(result.sites.size());
-  for (std::uint32_t i = 0; i < automatic.size(); ++i) automatic[i] = i;
-  const auto root = [&](std::uint32_t site) {
-    while (automatic[site] != site) site = automatic[site];
-    return site;
-  };
-  for (std::uint32_t i = 0; i < result.sites.size(); ++i) {
-    if (result.sites[i].kind == "stall" || grouped.count(i)) continue;
-    for (std::uint32_t j = 0; j < i; ++j) {
-      if (result.sites[j].kind != result.sites[i].kind ||
-          result.sites[j].label != result.sites[i].label || grouped.count(j) || scopes_for(i) != scopes_for(j)) continue;
-      const auto a = parent_path(result.sites[i].id);
-      const auto b = parent_path(result.sites[j].id);
-      if (contains_scope(a, b) || contains_scope(b, a))
-        automatic[root(i)] = root(j);
-    }
-  }
-  std::map<std::uint32_t, std::vector<std::uint32_t>> same_name;
+  // Labels identify visual facilities within explicit instance scopes, regardless
+  // of the RTL hierarchy. Scope identities, not their runtime values, separate tracks.
+  using TrackKey = std::tuple<std::vector<std::uint32_t>, std::string, std::string>;
+  std::map<TrackKey, std::vector<std::uint32_t>> same_name;
   for (std::uint32_t i = 0; i < result.sites.size(); ++i)
-    if (result.sites[i].kind != "stall" && !grouped.count(i)) same_name[root(i)].push_back(i);
+    if (result.sites[i].kind != "stall" && !grouped.count(i))
+      same_name[{scopes_for(i), result.sites[i].label, result.sites[i].kind}].push_back(i);
   for (const auto& [_, members] : same_name) if (members.size() > 1) {
     const auto representative = *std::min_element(members.begin(), members.end());
     for (auto member : members) grouped.emplace(member, representative);

@@ -150,8 +150,9 @@ Groups carry no occurrences; group/leaf name collisions must not alias UUIDs.
 Resolve observers through `track_sites`, never their own display path. Keep full
 labels in static track descriptions; track names contain only the leaf.
 Resolve explicit `PerfettoTrackGroups` first. Among remaining sites, merge
-identical complete labels and kinds when their hardware scopes are the same or
-nested; sibling instances stay distinct. Choose the lowest site index as each
+identical complete labels and kinds with the same explicit instance-scope chain.
+Do not inspect RTL path containment; unscoped sites share the empty scope chain.
+Choose the lowest site index as each
 group's stable UUID representative, then attach all companions. Neither route
 changes the manifest or collector.
 Keep display overrides separate from site labels and schemas. Group option
@@ -250,7 +251,7 @@ No Python package, launcher, or RPC server participates in these tests.
 | Streaming and replay | Byte-identical output, watermarks, every flushed prefix, delayed fanout and same-cycle joins with reversed site ordering; interning across batches and capacity fallback; terminal-start omission and possible-source retention |
 | Native display | One-cycle durations, fractional periods, N+1 overflow, track hierarchy/order, scoped same-name merging without thread association, flow attachment, metadata even in empty traces and no parser errors |
 | Stall intervals | Stable-run coalescing across batch partitions; capture, parent-set, sequence, gap, transfer and finalization boundaries; open prefixes, exact durations and UINT64_MAX; graph preservation and collapsed parent arrows |
-| Shared tracks | Exact-site grouping, alternate modes and schemas, two instances, observer-site switches with equal captures, unchanged flow endpoints, collision atomicity, invalid configurations, and live/replay/gzip/CLI parity |
+| Shared tracks | Exact-site grouping, sibling-module modes and schemas, distinct explicit scopes with equal runtime IDs, unscoped grouping across module paths, observer-site switches with equal captures, unchanged flow endpoints, collision atomicity, invalid configurations, and live/replay/gzip/CLI parity |
 | Disassembly | RV32/RV64, compressed/FP/CSR instructions, PC-relative targets and wraparound, `auipc`, unknown fallbacks, explicit aliases, ordinary fields named instruction, multi-instruction fallback and live/replay parity |
 | Failure handling | Strict JSON rejection, invalid batches, poisoned output streams, nonzero converter errors and empty/malformed inputs |
 | Compression | Gzip round-trip equality, live/replay import, multi-buffer incremental output, empty traces/batches, finalization and poisoned write/footer failures |

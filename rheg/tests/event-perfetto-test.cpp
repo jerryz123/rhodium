@@ -176,7 +176,7 @@ void hierarchical_labels(const std::string& path) {
     {"id":"req","label":"dcache/chi.txreq","payload_width":0,"fields":[]},
     {"id":"dat","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
     {"id":"blocked","label":"ignored/group/stall","kind":"stall","observation_of":"dat","payload_width":0,"fields":[]},
-    {"id":"duplicate","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
+    {"id":"another/branch/duplicate","label":"dcache/chi.rxdat","payload_width":0,"fields":[]},
     {"id":"nested","label":"x/y.b/c","payload_width":0,"fields":[]},
     {"id":"collision","label":"dcache","payload_width":0,"fields":[]},
     {"id":"other","label":"other/y.b/c","payload_width":0,"fields":[]},
@@ -532,19 +532,20 @@ void stall_runs(const std::string& path) {
   std::ofstream last(path+".maximum",std::ios::binary); last << maximum.str(); last.close(); check(bool(last));
 }
 void shared_tracks(const std::string& path) {
-  // Two instances alternate modes. Stall captures deliberately match across a
-  // site change, including consecutive sequence numbers and the same parent.
+  // Two explicit scopes with equal runtime IDs alternate sibling execution modes.
+  // Stall captures match across a site change, consecutive sequences, and the same parent.
   Manifest descriptor;
   std::ostringstream json;
   json << R"({"format":"rhodium-event-graph","version":1,"top":"Modes","sites":[)";
   const std::array<std::string,7> suffixes = {"launch","execution/issue","execution/issue.stall",
-      "execution/packed/issue","execution/packed/issue.stall","execution/complete","execution/packed/complete"};
+      "execution/packed/issue","execution/packed/issue.stall","execution/completions/complete","execution/packed/assembly/complete"};
   PerfettoTrackGroups groups;
   std::ostringstream config;
   config << R"({"format":"rheg-perfetto-tracks","version":1,"tracks":[)";
   for (unsigned core = 0; core < 2; ++core) {
     const auto scope = "soc/core" + std::to_string(core) + "/vector/";
     const auto display = "core" + std::to_string(core) + "/vector/";
+    descriptor.instances.push_back({"soc/core" + std::to_string(core),"hart",8});
     for (unsigned s = 0; s < suffixes.size(); ++s) {
       if (core || s) json << ',';
       const bool stall = s == 2 || s == 4;
@@ -567,6 +568,7 @@ void shared_tracks(const std::string& path) {
       }
       json << "]}";
       descriptor.payload_widths.push_back(width); descriptor.fields.push_back(fields);
+      descriptor.site_instances.push_back({core});
     }
     for (const auto& indices : {std::pair<unsigned,unsigned>{1,3}, {5,6}}) {
       const auto label = display + (indices.first == 1 ? "issue" : "complete");
@@ -586,6 +588,16 @@ void shared_tracks(const std::string& path) {
     json << "{\"parent\":\"soc/core" << parent/7 << "/vector/" << suffixes[parent%7]
          << "\",\"child\":\"soc/core" << child/7 << "/vector/" << suffixes[child%7] << "\"}";
   }
+  json << "],\"instances\":[";
+  for (unsigned core = 0; core < descriptor.instances.size(); ++core) {
+    if (core) json << ',';
+    json << "{\"id\":\"" << descriptor.instances[core].id << "\",\"label\":\"hart\",\"width\":8}";
+  }
+  json << "],\"site_instances\":[";
+  for (unsigned site = 0; site < descriptor.site_instances.size(); ++site) {
+    if (site) json << ',';
+    json << '[' << site/7 << ']';
+  }
   json << "]}"; descriptor.json = json.str(); config << "]}";
   std::istringstream options(config.str()); groups = read_perfetto_track_groups(options);
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000}); graph.begin_stream();
@@ -597,6 +609,7 @@ void shared_tracks(const std::string& path) {
   const auto auto_prefix = automatic.str();
   for (auto other : {3U,2U,4U}) {
     auto conflict = batch(0,{1,0},9);
+    conflict.instances.emplace(0,InstanceValue{7,0});
     conflict.nodes.emplace(Ref{other,0},Node{true,0,descriptor.payload_widths[other],{{0,42}}});
     rejects([&] { writer.write(conflict); }, "multiple occurrences on a shared track");
     rejects([&] { auto_writer.write(conflict); }, "multiple occurrences on a shared track");
@@ -605,6 +618,7 @@ void shared_tracks(const std::string& path) {
   }
   for (unsigned cycle = 0; cycle < 10; ++cycle) {
     for (unsigned core = 0; core < 2; ++core) {
+      if (cycle == 0) graph.record_instance(core,7,cycle);
       const auto base = core*7;
       const unsigned s = cycle == 0 || cycle == 7 ? 0 : cycle <= 2 ? 2 : cycle <= 4 ? 4 : cycle == 5 ? 3 : cycle == 6 ? 6 : cycle == 8 ? 1 : 5;
       const Ref ref{base+s, s == 0 ? unsigned(cycle == 7) : s == 2 || s == 4 ? cycle-1 : 0};

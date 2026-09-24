@@ -335,14 +335,16 @@ helper process. Streaming and replay use identical uncompressed ordering and enc
 ### Shared tracks
 
 Sites of the same kind with the same complete label automatically share a
-Perfetto track when they belong to the same hardware instance or nested
-subinstances. This combines the ordinary and packed `vector/s2.issue` and
-`vector/complete` sites without merging identically named sites in separate
-harts. Their graph identities, captures, and parent edges remain distinct.
+Perfetto track when they have the same explicit instance-scope chain, regardless
+of their RTL module paths. This combines the ordinary and packed `vector/s2.issue`
+and `vector/complete` sites, including sibling modules. Distinct declared hart or
+bank scopes remain separate even when their runtime IDs match. Without instance
+context, matching labels and kinds share a track across the whole design.
+Their graph identities, captures, and parent edges remain distinct.
 Same-cycle activity on an automatically shared track is rejected, so a common
 label asserts that these modes are exclusive.
 
-For sites in sibling instances, or to choose a different display label, supply
+To group differently labeled sites or choose a different display label, supply
 `PerfettoTrackGroups` as the fifth `PerfettoWriter` argument or fourth
 `write_perfetto` argument (after compression). Each group contains a display
 `label` and at least two exact event-site IDs of the same kind (transfer or
@@ -454,7 +456,7 @@ supply the instrumentation's event-cycle count, not an unrelated harness tick.
 
 Each transfer becomes a one-cycle slice spanning `[N, N+1)` on a track named
 with the leaf of its annotated transfer label, without a synthetic thread-ID suffix.
-Same-name sites in one nested instance scope share a
+Same-name sites of the same kind and explicit instance-scope chain share a
 [track](#shared-tracks); its stall
 observations share that track. These are non-thread tracks
 grouped under a custom track named for the top-level design. Explicit labels use
