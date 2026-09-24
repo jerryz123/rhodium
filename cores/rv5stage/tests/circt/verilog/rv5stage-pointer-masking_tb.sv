@@ -142,7 +142,9 @@ module rv5stage_pointer_masking_tb;
           assert (data_access_out.request.bits.address == 'h108 && loads == 0) else $fatal(1, "load replay address");
           loads <= loads + 1;
           data_response.valid <= 1;
-          data_response.bits <= {1'b0, LOAD_VALUE, data_access_out.request.bits.writeback};
+          data_response.bits <= '{access_fault: 1'b0, data: LOAD_VALUE,
+                                  writeback: data_access_out.request.bits.writeback,
+                                  origin: data_access_out.request.bits.origin};
         end else begin
           assert (data_access_out.request.bits.access == 2) else $fatal(1, "unexpected memory operation");
           case (stores)
