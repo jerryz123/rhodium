@@ -17,7 +17,7 @@ module rv5stage_vector_admission_tb;
   struct packed { logic valid; RV5StagePipelineReq bits; } accesses_out;
   struct packed { logic valid; RV5StageDataReq bits; } memory_requests_out;
   struct packed { logic valid; RV5StageDataResp bits; } memory_responses_in;
-  wire request_ready, active, unrolling, certification_pending, loads_pending, stores_pending, fp_pending;
+  wire request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending;
   wire retired, outcome_valid, fp_offered;
   wire [63:0] outcome_pc;
   RV5StageVectorAdmission dut(.*);
@@ -112,7 +112,7 @@ module rv5stage_vector_admission_tb;
     clear();
     launch(move_insn(8,1),64'h1,1,24);
     #1;
-    assert(unrolling) else $fatal(1,"idle descriptor did not enter sequencer on admission edge");
+    assert(sequencing) else $fatal(1,"idle descriptor did not enter sequencer on admission edge");
     drain();
     clear();
     // One descriptor per cycle, across both queue pointers and owner-ring wrap.

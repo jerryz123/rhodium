@@ -7,7 +7,7 @@ import:
   "../vector/bundles.rhdl" open
   "../vector/csr.rhdl" open
   "../vector/operand-fetch.rhdl" open
-  "../vector/unroller.rhdl" open
+  "../vector/sequencer.rhdl" open
   "../vector/register-file.rhdl" open
   "../vector/execute.rhdl" open
   "../decode/core-ctrl.rhdl" open
@@ -19,7 +19,7 @@ import:
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
+sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar): Bits(xlen.width)
   input floating_scalar: Bits(64)
@@ -31,10 +31,10 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   output result: RV5StageVectorResultBeat(vlen)
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: vector_extensions))
   inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, vector_extensions))
-  inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(xlen.width)))
-  unroller.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
-  unroller.packed_memory <== Bool(#false)
-  unroller.packed_done.valid <== Bool(#false)
+  inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(xlen.width)))
+  sequencer.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
+  sequencer.packed_memory <== Bool(#false)
+  sequencer.packed_done.valid <== Bool(#false)
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, Bits(xlen.width)))
   inst bank(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
@@ -47,8 +47,8 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
   operation_legality.vtype <== vtype
   operation_legality.vstart <== vstart
   legal <== decode.valid & operation_legality.legal
-  unroller.request.valid <== request_valid
-  unroller.request.bits <== RV5StageVectorInstruction(xlen, Bits(xlen.width)):
+  sequencer.request.valid <== request_valid
+  sequencer.request.bits <== RV5StageVectorInstruction(xlen, Bits(xlen.width)):
     context: bits(0x100, xlen.width)
     descriptor:
       RV5StageVectorDescriptor(xlen):
@@ -71,20 +71,20 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  unroller.read_request |> operand_fetch.request
-  operand_fetch.flush <== unroller.read_flush
-  operand_fetch.begin_macro <== unroller.request.fire()
+  sequencer.read_request |> operand_fetch.request
+  operand_fetch.flush <== sequencer.read_flush
+  operand_fetch.begin_macro <== sequencer.request.fire()
   operand_fetch.reads <=> bank.reads
   bank.results <=> operand_fetch.results
   operand_fetch.mask_read |> bank.mask_read
   bank.mask_result |> operand_fetch.mask_result
-  unroller.cancel.valid <== cancel
+  sequencer.cancel.valid <== cancel
   operand_fetch.issue.ready <== issue_ready
   execute.beat <== operand_fetch.issue.bits.beat
   execute.scan_carry <== bits(0, 64)
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
-  def retained_control = unroller.retained.descriptor.control
+  def retained_control = sequencer.retained.descriptor.control
   def serialized = retained_control.integer & (retained_control.scan ||| retained_control.compress)
   def retry = pipeline.egress.valid & retry_enable & (pipeline.egress.bits.first === retry_first) & !cancel & serialized
   pipeline.flush <== cancel ||| retry
@@ -100,17 +100,17 @@ sync_circuit RV5StageVectorUnrollerFixture(xlen :: XLen, vlen :: VectorLength, v
     fault_address: bits(0, xlen.width)
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state
-  unroller.feedback.valid <== operand_fetch.feedback.valid
-  unroller.feedback.bits <== operand_fetch.feedback.bits
+  sequencer.feedback.valid <== operand_fetch.feedback.valid
+  sequencer.feedback.bits <== operand_fetch.feedback.bits
   bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())
   bank.write.bits <== mux(initialize.valid, initialize.bits, pipeline.egress.bits.write)
-  assert(!(initialize.valid & unroller.active), "vector_fixture_initialization_is_exclusive")
-  request_ready <== unroller.request.ready
-  active <== unroller.active ||| operand_fetch.active
+  assert(!(initialize.valid & sequencer.active), "vector_fixture_initialization_is_exclusive")
+  request_ready <== sequencer.request.ready
+  active <== sequencer.active ||| operand_fetch.active
   issued <== operand_fetch.issue.fire()
   committed <== authorization
   retried <== retry
   result <== pipeline.egress.bits
 
 export:
-  RV5StageVectorUnrollerFixture
+  RV5StageVectorSequencerFixture

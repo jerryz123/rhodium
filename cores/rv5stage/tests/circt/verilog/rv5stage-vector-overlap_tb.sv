@@ -183,7 +183,7 @@ module rv5stage_vector_overlap_tb;
     assert(retried && store_count==2 && stores[1]==64'h5555666677778888) else $fatal(1,"final retry lost/duplicated store");
     retry_last=0;
 
-    // A packed load tail keeps its alignment/route metadata when the unroller
+    // A packed load tail keeps its alignment/route metadata when the sequencer
     // switches to an ordinary store. Return younger data first; VRF drain and
     // store operands must still be ordered and associated with the old owner.
     phase=4;
@@ -246,7 +246,7 @@ module rv5stage_vector_overlap_tb;
     end
     assert(store_count==4 && stores[0]==1 && stores[1]==2 && stores[2]==3 && stores[3]==4) else $fatal(1,"read response used a replacement descriptor's SEW/immediate");
     // Cancellation must also release owners already sequenced into operand
-    // buffering, not just the one descriptor still resident in the unroller.
+    // buffering, not just the one descriptor still resident in the sequencer.
     phase=8; issue_ready=0;
     launch(add_insn(20),64'h60,0);
     launch(add_insn(21),64'h70,0);

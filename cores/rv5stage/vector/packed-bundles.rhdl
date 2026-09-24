@@ -1,0 +1,44 @@
+#lang rhodium
+// Defines packed transport layouts and replay checkpoints shared by preparation and load assembly.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
+
+fun vector_transport_bytes(xlen :: XLen) :: PosInt:
+  xlen.width / 8
+
+bundle RV5StageVectorPackedCursor(vlen :: VectorLength):
+  address: Bits(64)
+  element: Bits(index_width(vlen + 1))
+  field: Bits(3)
+  byte: Bits(3)
+  leading: Bits(3)
+
+bundle RV5StageVectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
+  before: RV5StageVectorPackedCursor(vlen)
+  after: RV5StageVectorPackedCursor(vlen)
+  rows: Vec(vector_transport_bytes(xlen), Bits(index_width(vector_depth(vlen))))
+  offsets: Vec(vector_transport_bytes(xlen), Bits(3))
+  elements: Vec(vector_transport_bytes(xlen), Bits(index_width(vlen + 1)))
+  live: Bits(vector_transport_bytes(xlen))
+  last: Bool
+
+bundle RV5StageVectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
+  layout: RV5StageVectorPackedLayout(xlen, vlen)
+  mask: Bits(vector_transport_bytes(xlen))
+  store: Bool
+  segmented: Bool
+  owner: Bits(index_width(owners))
+
+bundle RV5StageVectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int):
+  tag: Bits(index_width(slots))
+  entry: RV5StageVectorPackedEntry(xlen, vlen, owners)
+
+export:
+  RV5StageVectorPackedCursor
+  RV5StageVectorPackedLayout
+  RV5StageVectorPackedEntry
+  RV5StageVectorPackedReservation

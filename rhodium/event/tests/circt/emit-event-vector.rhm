@@ -13,14 +13,19 @@ def sequence_path = traced.manifest.sites.find(fun (site): site.label == "vector
 def execution_path = sequence_path.take(sequence_path.length() - 1)
 for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
   def sites = traced.manifest.sites.filter(~keep: fun (site): site.label == label)
-  unless sites.length() == 2 && sites.map(fun (site): site.instance_path).contains(execution_path ++ ["packed"])
+  def packed_path = execution_path ++ (if label == "vector/complete" | ["packed", "assembly"] | ["packed"])
+  unless sites.length() == 2 && sites.map(fun (site): site.instance_path).contains(packed_path)
   | error("expected shared vector labels across execution paths")
   for (site in sites):
     unless site.fields.map(fun (field): field.name).contains("packed")
     | error("expected beat geometry metadata")
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace vector_sites {\n" ++ String.join(
   for List (label in ["s1.sequence", "s1.sequence.stall", "s2.issue", "complete", "s2.issue.stall"], name in ["sequence", "sequence_stall", "issue", "complete", "stall"]):
-    def path = if label == "s1.sequence" || label == "s1.sequence.stall" | sequence_path | execution_path
+    def path:
+      cond
+      | label == "s1.sequence" || label == "s1.sequence.stall": sequence_path
+      | label == "complete": execution_path ++ ["completions"]
+      | ~else: execution_path
     def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == ("vector/" ++ label) && traced.manifest.sites[index].instance_path == path)
     unless matches.length() == 1 | error("expected one vector trace site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",

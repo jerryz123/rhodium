@@ -145,11 +145,22 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   last: Bool
   compress_state: RV5StageVectorCompressState(vlen)
 
-// A read plan carries its own descriptor and restart bounds across VRF latency.
+// Beat control retains only per-beat state; instruction invariants stay in the captured descriptor.
+bundle RV5StageVectorBeatControl(vlen :: VectorLength):
+  sequence: Bits(vector_sequence_width(vlen))
+  first: Bits(index_width(vlen + 1))
+  end: Bits(index_width(vlen + 1))
+  last: Bool
+  empty: Bool
+  address: Bits(64)
+  mask_enabled: Bits(64)
+  destination: Bits(5)
+
+// Capture the instruction descriptor with beat control and restart bounds across VRF latency.
 bundle RV5StageVectorReadContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   instruction: RV5StageVectorInstruction(xlen, Context)
   minimum: Bits(index_width(vlen + 1))
-  beat: RV5StageVectorBeat(vlen)
+  beat_control: RV5StageVectorBeatControl(vlen)
   slide_valid: Bits(16)
 
 bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
@@ -159,7 +170,37 @@ bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: 
   mask_enable: Bool
   mask_address: Bits(index_width(vector_chunks(vlen)))
 
+// A macro identity survives sequencing; a slot identity names one issued beat.
+bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  beat: RV5StageVectorResultBeat(vlen)
+  tag: Bits(index_width(slots))
+  owner: Bits(index_width(slots))
+  pc: Bits(xlen.width)
+
+bundle RV5StageVectorSlotAllocation(slots :: Pow2Int):
+  owner: Bits(index_width(slots))
+  packed: Bool
+
+// A drain carries the retained beat and unshifted service data for recurrences.
+bundle RV5StageVectorDrained(vlen :: VectorLength, slots :: Pow2Int):
+  beat: RV5StageVectorResultBeat(vlen)
+  owner: Bits(index_width(slots))
+  data: Bits(64)
+
+bundle RV5StageVectorSlotState(vlen :: VectorLength, slots :: Pow2Int):
+  allocated: Bool
+  accepted: Bool
+  packed: Bool
+  owner: Bits(index_width(slots))
+  write_address: Bits(index_width(vector_depth(vlen)))
+  writes: Bool
+
 export:
+  RV5StageVectorDrained
+  RV5StageVectorOwnedResult
+  RV5StageVectorSlotAllocation
+  RV5StageVectorSlotState
+  RV5StageVectorBeatControl
   RV5StageVectorReadContext
   RV5StageVectorReadRequest
   RV5StageVectorAlignment

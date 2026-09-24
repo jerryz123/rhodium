@@ -1,11 +1,12 @@
 #lang rhodium
-// Schedules the unroller's packed-memory mode and drains independently owned byte-to-VRF completions.
+// Prepares replayable packed requests and shares alignment with independently retained load assembly.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
+  "packed-bundles.rhdl" open
+  "packed-load.rhdl" open
   "register-file.rhdl" open
-  "load-response.rhdl" open
   "precheck.rhdl".vector_field_extent
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -32,28 +33,10 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def Address = Bits(index_width(vector_depth(vlen)))
   def Tag = Bits(index_width(slots))
   def Owner = Bits(index_width(owner_count))
-  bundle Cursor():
-    address: Bits(64)
-    element: Count
-    field: Bits(3)
-    byte: Bits(3)
-    leading: Bits(3)
-  bundle Layout():
-    before: Cursor()
-    after: Cursor()
-    rows: Vec(bytes, Address)
-    offsets: Vec(bytes, Bits(3))
-    elements: Vec(bytes, Count)
-    live: Bits(bytes)
-    last: Bool
-  bundle Entry():
-    layout: Layout()
-    mask: Bits(bytes)
-    store: Bool
-    segmented: Bool
-    owner: Owner
+  def Cursor = RV5StageVectorPackedCursor(vlen)
+  def Layout = RV5StageVectorPackedLayout(xlen, vlen)
   bundle StoreReadWord():
-    layout: Layout()
+    layout: Layout
     alignment: RV5StageVectorAlignment()
   interface launch(Valid(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
   input instruction: RV5StageVectorInstruction(xlen, Context)
@@ -82,11 +65,11 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   output drain_blocked: Bool
   output active: Bool
 
-  inst loads(RV5StageVectorLoadResponse(xlen, slots))
-  reg cursor(Cursor())
+  inst assembly(RV5StageVectorPackedLoad(xlen, vlen, slots, owner_count))
+  reg cursor(Cursor)
   reg all_issued(~init: Bool(#false))
   reg prepare(~init: RV5StagePackedPrepare.Map)
-  reg layout(Layout())
+  reg layout(Layout)
   reg byte_mask(Bits(bytes))
   reg low_mask(Bits(64))
   reg high_mask(Bits(64))
@@ -95,14 +78,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   reg read_row(Address)
   reg read_lane(Bits(index_width(bytes)))
   reg read_data(Bits(64))
-  reg entries(Vec(slots, Entry()))
-  reg completed(~init: bits(0, slots).as_vec(Bool))
-  reg data(Vec(slots, Bits(64)))
-  reg drain_remaining(~init: bits(0, bytes))
-  reg draining(~init: Bool(#false))
-  reg carry_valid(~init: Bool(#false))
-  reg carry(VectorRegisterWrite(vlen))
-  reg carry_owner(Owner)
   def descriptor = instruction.descriptor
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   def whole = descriptor.control.memory_mode === VectorMemoryMode.WholeRegister
@@ -131,8 +106,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     slot(~format: "unsigned"): token.completion_tag
     last: token.last
   issued |> issue
-  def wb = commit |> map_valid(event => event.tag)
-
   // Increment the logical byte/field cursor; no element-address multiplier or divider.
   def mutable element :: Bits(index_width(vlen + 1)) = cursor.element
   def mutable field :: Bits(3) = cursor.field
@@ -154,10 +127,10 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     element := element + (live & end_byte & end_field).as_bits().zext(index_width(vlen + 1))
     field := mux(live & end_byte, mux(end_field, bits(0, 3), field + bits(1, 3)), field)
     byte := mux(live, mux(end_byte, bits(0, 3), byte + bits(1, 3)), byte)
-  def mapped = Layout():
+  def mapped = RV5StageVectorPackedLayout(xlen, vlen):
     before: cursor
     after:
-      Cursor():
+      RV5StageVectorPackedCursor(vlen):
         address: cursor.address + bits(bytes, 64)
         element: element
         field: field
@@ -170,7 +143,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     last: element >= limit
   def fast_load = !store & !masked
   def fast_store = store & !masked & !segmented
-  inst store_reads(ValidPipe(Layout(), 1, ~flushable: #true))
+  inst store_reads(ValidPipe(Layout, 1, ~flushable: #true))
   inst store_words(ShiftQueue(StoreReadWord(), 2, ~pipe: #true, ~flushable: #true))
   store_reads.flush <== clear
   store_words.flush <== clear
@@ -195,16 +168,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     address: offered_layout.before.address
     store_data: mux(fast_store, aligned, store_data)
     completion_tag: slot
-  active <== occupied ||| accepted_slots.as_bits().or_reduce() ||| carry_valid
-  // A closed issue owner cannot add another fragment. Flush its retained
-  // suffix once all accepted words have drained, including a canceled prefix.
-  def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().or_reduce()
-  def flush_carry = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
-  issue_done.valid <== successful & entries[wb.bits].layout.last
-  drain_blocked <== flush_carry
-  describe_interface_retained_storage(launch.valid, issue_done.valid ||| cancel.valid, occupied, ~name: "macro")
-  describe_interface_contract(launch, offered, "packed-beats", ~trace_model: interface_trace_retained(~name: "macro"))
-
   // The mask shadow remains independent of the three general VRF read ports.
   def start_mask = layout.elements[0] >> 6
   def end_mask = layout.elements[bytes - 1] >> 6
@@ -226,18 +189,16 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   def store_group = vec(for List (lane in 0..bytes): store_remaining[lane].into(Bool) & (layout.rows[lane] === read_row)).as_bits()
   def store_rotation = layout.offsets[read_lane] - (if bytes == 8 | read_lane | read_lane.zext(3))
 
-  // Completed words drain in request order, regardless of response arrival order.
-  def entry = entries[head]
-  def drainable = drain_enable & !flush_carry & accepted_slots[head] & completed[head]
-  def remaining = mux(draining, drain_remaining, entry.mask)
-  def target_lane = priority_encoder(remaining)
-  def target_row = entry.layout.rows[target_lane]
-  def group = vec(for List (lane in 0..bytes): remaining[lane].into(Bool) & (entry.layout.rows[lane] === target_row)).as_bits()
-  def rotation = (if bytes == 8 | target_lane | target_lane.zext(3)) - entry.layout.offsets[target_lane]
   def fast_store_alignment = can_issue & fast_store & store_words.egress.valid & alignment_available
   def slow_store_alignment = scheduling & !clear & store & !fast_store & (prepare === RV5StagePackedPrepare.Align) & alignment_available
   def store_alignment = fast_store_alignment ||| slow_store_alignment
-  def load_piece = drainable & !entry.store & remaining.or_reduce() & alignment_available & !store_alignment
+  assembly.alignment_available <== alignment_available & !store_alignment
+  assembly.aligned <== aligned
+  alignment.valid <== store_alignment ||| assembly.alignment.valid
+  def store_alignment_request = RV5StageVectorAlignment():
+    data: mux(fast_store, store_words.egress.bits.alignment.data, read_data)
+    bytes: mux(fast_store, store_words.egress.bits.alignment.bytes, store_rotation)
+  alignment.bits <== mux(store_alignment, store_alignment_request, assembly.alignment.bits)
   def prefetched = store_reads.egress.bits
   def prefetched_lane = priority_encoder(prefetched.live)
   def prefetched_rotation = prefetched.offsets[prefetched_lane] - (if bytes == 8 | prefetched_lane | prefetched_lane.zext(3))
@@ -246,10 +207,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
                              def lane = bits(offset, 3) - prefetched_rotation
                              def use_first = prefetched.rows[lane[0..index_width(bytes)]] === prefetched_row
                              mux(use_first, results[0].bits[offset * 8..offset * 8 + 8], results[1].bits[offset * 8..offset * 8 + 8])).as_bits()
-  alignment.valid <== load_piece ||| store_alignment
-  alignment.bits <== RV5StageVectorAlignment():
-    data: mux(store_alignment, mux(fast_store, store_words.egress.bits.alignment.data, read_data), data[head])
-    bytes: mux(store_alignment, mux(fast_store, store_words.egress.bits.alignment.bytes, store_rotation), rotation)
   (
     store_reads.egress |> filter_valid(_layout => !clear) |> map_valid(value => StoreReadWord()):
       layout: value
@@ -266,53 +223,6 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
       mux(segmented, aligned.as_vec(Bits(8))[index], aligned[lane * 8..lane * 8 + 8])
   ).as_bits()
   def gathered = if bytes == 8 | gathered_word | gathered_word.zext(64)
-  def piece_data = vec(for List (offset in 0..8):
-                         def mutable value = bits(0, 8)
-                         for (lane in 0..bytes):
-                           def index = bits(lane, 3) - rotation
-                           value := mux(group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3)), aligned.as_vec(Bits(8))[index], value)
-                         mux(entry.segmented, value, aligned[offset * 8..offset * 8 + 8])).as_bits()
-  def piece_mask = vec(for List (offset in 0..8):
-                         def selected = vec(for List (lane in 0..bytes): group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3))).as_bits().or_reduce()
-                         mux(selected, !bits(0, 8), bits(0, 8))).as_bits()
-  def same_row = carry_valid & (carry.address === target_row)
-  def suffix = remaining & !group
-  def suffix_lane = priority_encoder(suffix)
-  def suffix_row = entry.layout.rows[suffix_lane]
-  def suffix_mask = vec(for List (offset in 0..8):
-                          def selected = vec(for List (lane in 0..bytes): suffix[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3))).as_bits().or_reduce()
-                          mux(selected, !bits(0, 8), bits(0, 8))).as_bits()
-  // One rotated word supplies both sides of a row boundary. Emit the completed
-  // prefix and retain its suffix on the same edge, sustaining one beat/cycle.
-  def split_load = load_piece & !entry.segmented & suffix.or_reduce() & (!carry_valid ||| same_row)
-  def combined = VectorRegisterWrite(vlen):
-    address: target_row
-    data: masked_merge(mux(same_row, carry.data, bits(0, 64)), piece_data, piece_mask)
-    mask: mux(same_row, carry.mask, bits(0, 64)) ||| piece_mask
-  def full_row = load_piece & !entry.segmented & combined.mask.and_reduce() & (!carry_valid ||| same_row)
-  def release_slot = drainable & (entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load)))
-  write.valid <== (load_piece & carry_valid & !same_row) ||| flush_carry ||| split_load ||| full_row
-  write.bits <== mux(split_load ||| full_row, combined, carry)
-  def accepted = wb |> filter_valid(_tag => successful)
-  def release_event = inject_flow(Valid(Tag), ~valid: release_slot, ~bits: head)
-  describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")
-  describe_interface_contract(accepted, release_event, "accepted-beats", ~trace_model: interface_trace_queue(~name: "accepted-beats"))
-  (
-    release_event |> trace_valid_event("vector/complete", ~fields: tag):
-      packed: Bool(#true)
-      memory_bytes(~format: "unsigned"): bits(bytes, 4)
-      store: entry.store
-      byte_mask: entry.mask
-      slot(~format: "unsigned"): tag
-  ) |> released
-  (
-    commit |> filter_valid(_event => successful) |> map_valid(event => RV5StageVectorMemoryAcceptance(xlen, slots)):
-      tag: wb.bits
-      pending: event.slow
-      data: event.data
-  ) |> loads.accepted
-  completion |> loads.response
-
   when (launch.valid):
     all_issued <== Bool(#false)
     prepare <== RV5StagePackedPrepare.Map
@@ -321,7 +231,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     def incoming_mask = incoming.control.memory_mode === VectorMemoryMode.Mask
     def incoming_eew = mux(incoming_mask, bits(0, 2), incoming.control.memory_data_eew)
     def origin = incoming.scalar.zext(68) + vector_field_extent(incoming.state.vstart.zext(68) << incoming_eew, mux(incoming_whole ||| incoming_mask, bits(0, 3), incoming.control.memory_nf))
-    cursor <== Cursor():
+    cursor <== RV5StageVectorPackedCursor(vlen):
       address: origin[0..64].align_down(bytes)
       // Every legal transfer has at most VLEN elements; preserve empty high-vstart bodies when narrowing.
       element: mux(incoming.state.vstart >= bits(vlen, xlen.width), bits(vlen, index_width(vlen + 1)), incoming.state.vstart[0..index_width(vlen + 1)])
@@ -329,7 +239,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
       byte: bits(0, 3)
       leading: if bytes == 8 | origin[0..3] | origin[0..2].zext(3)
   elsewhen retry:
-    cursor <== entries[wb.bits].layout.before
+    cursor <== assembly.replay_cursor
     all_issued <== Bool(#false)
     prepare <== RV5StagePackedPrepare.Map
   elsewhen (prefetch_store):
@@ -370,60 +280,33 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
       store_data <== masked_merge(store_data, gathered, mask)
       store_remaining <== store_remaining & !store_group
       prepare <== mux((store_remaining & !store_group).or_reduce(), RV5StagePackedPrepare.Read, RV5StagePackedPrepare.Issue)
-  when split_load:
-    carry_valid <== Bool(#true)
-    carry_owner <== entry.owner
-    carry <== VectorRegisterWrite(vlen):
-      address: suffix_row
-      data: aligned
-      mask: suffix_mask
-  elsewhen full_row:
-    carry_valid <== Bool(#false)
-  elsewhen (load_piece):
-    carry_valid <== Bool(#true)
-    carry_owner <== entry.owner
-    carry <== combined
-  elsewhen flush_carry:
-    carry_valid <== Bool(#false)
-  when release_slot:
-    draining <== Bool(#false)
-  elsewhen load_piece:
-    draining <== Bool(#true)
-    drain_remaining <== remaining & !group
-  for (slot in 0..slots):
-    def tag = bits(slot, index_width(slots))
-    when (issue.fire() & (issue.bits.completion_tag === tag)):
-      entries[slot] <== Entry():
+
+  assembly.reserve.valid <== issue.fire()
+  assembly.reserve.bits <== RV5StageVectorPackedReservation(xlen, vlen, slots, owner_count):
+    tag: issue.bits.completion_tag
+    entry:
+      RV5StageVectorPackedEntry(xlen, vlen, owner_count):
         layout: offered_layout
         mask: offered_mask
         store: store
         segmented: segmented
         owner: owner
-    when (loads.completed[1].valid & (loads.completed[1].bits.tag === tag)):
-      completed[slot] <== Bool(#true)
-      data[slot] <== if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64)
-    elsewhen (loads.completed[0].valid & (loads.completed[0].bits.tag === tag)):
-      completed[slot] <== Bool(#true)
-      data[slot] <== if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
-    elsewhen ((issue.fire() & (issue.bits.completion_tag === tag)) ||| (release_slot & (head === tag))):
-      completed[slot] <== Bool(#false)
-  def carry_rows = mux(carry_valid, bits(1, vector_depth(vlen)) << carry.address, bits(0, vector_depth(vlen)))
-  def mutable busy :: Bits(vector_depth(vlen)) = carry_rows
-  def mutable foreign :: Bits(vector_depth(vlen)) = mux(carry_owner =/= owner, carry_rows, bits(0, vector_depth(vlen)))
-  for (s in 0..slots):
-    def mutable rows :: Bits(vector_depth(vlen)) = bits(0, vector_depth(vlen))
-    for (lane in 0..bytes):
-      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, vector_depth(vlen)) << entries[s].layout.rows[lane], bits(0, vector_depth(vlen)))
-    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, vector_depth(vlen)))
-    busy := busy ||| owned_rows
-    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, vector_depth(vlen)))
-  busy_rows <== busy.as_vec(Bool)
-  foreign_rows <== foreign.as_vec(Bool)
-  when (commit.valid):
-    assert(wb.valid, "packed_memory_feedback_has_attempt")
-    assert(commit.bits.disposition.is_one_of(RV5StageVectorDisposition.Authorized, RV5StageVectorDisposition.Retry), "packed_memory_is_certified")
-  when (completion.valid):
-    assert(accepted_slots[completion.bits.tag] & !completed[completion.bits.tag], "packed_response_has_unique_accepted_owner")
+  commit |> assembly.commit
+  completion |> assembly.completion
+  assembly.head <== head
+  assembly.owner <== owner
+  assembly.accepted_slots <== accepted_slots
+  assembly.closed_owners <== closed_owners
+  assembly.drain_enable <== drain_enable
+  assembly.write |> write
+  assembly.released |> released
+  busy_rows <== assembly.busy_rows
+  foreign_rows <== assembly.foreign_rows
+  drain_blocked <== assembly.drain_blocked
+  active <== occupied ||| assembly.active
+  issue_done.valid <== successful & assembly.resolved_last
+  describe_interface_retained_storage(launch.valid, issue_done.valid ||| cancel.valid, occupied, ~name: "macro")
+  describe_interface_contract(launch, offered, "packed-beats", ~trace_model: interface_trace_retained(~name: "macro"))
 
 export:
   RV5StageVectorPackedMemory

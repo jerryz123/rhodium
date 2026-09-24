@@ -147,7 +147,7 @@ respect its declared delay. The declaration checks an implementation against
 the latency and initiation interval it promises, making timing compositional
 across component boundaries.
 
-The guarantee extends beyond one concrete unrolling. Filament parameters,
+The guarantee extends beyond one concrete sequencing. Filament parameters,
 constraints, generative `if`/`for`, and index-dependent
 [bundles](https://filamenthdl.com/docs/meta/loops-and-bundles.html) let timing
 relationships be expressed symbolically. The language checks allowed

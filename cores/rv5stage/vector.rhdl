@@ -48,7 +48,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output(active, unrolling, pending, stores_pending): Bool
+  output(active, sequencing, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
@@ -163,7 +163,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   queued_fp <== queued_fp + (enqueue & incoming.floating_point).as_bits().zext(2) - (dequeue & outgoing.floating_point).as_bits().zext(2)
   assert((queued_loads <= instructions.count) & (queued_stores <= instructions.count) & (queued_fp <= instructions.count), "vector_queued_kinds_match_occupancy")
   active <== execution.active ||| waiting_retirement ||| queued_descriptor.valid
-  unrolling <== execution.unrolling
+  sequencing <== execution.sequencing
   pending <== execution.pending
   stores_pending <== execution.stores_pending ||| queued_stores.or_reduce()
   certification_pending <== waiting_retirement

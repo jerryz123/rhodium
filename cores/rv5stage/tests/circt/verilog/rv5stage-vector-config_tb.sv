@@ -181,7 +181,7 @@ module rv5stage_vector_config_tb;
           7: assert (data_access_out.request.bits.data[10:9] == 3 && data_access_out.request.bits.data[63]) else $fatal(1, "vector writes did not dirty VS");
           9: begin
             assert (data_access_out.request.bits.data == 128 && scalar_during_vector)
-              else $fatal(1, "vset did not commit during vector unrolling");
+              else $fatal(1, "vset did not commit during vector sequencing");
           end
           10,12: assert (data_access_out.request.bits.data == 2 && vector_writes == 46) else $fatal(1, "illegal instruction must trap after older vector execution drains");
           11: begin

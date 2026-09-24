@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes one production unroller plus delayed memory decisions and services for overlap checks.
+// Exposes one production sequencer plus delayed memory decisions and services for overlap checks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

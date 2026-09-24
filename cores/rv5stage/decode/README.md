@@ -9,7 +9,7 @@ retain them and rely on the profile-aware legality boundary for supported
 element widths. The vector column directly selects SIMD controls and operand
 routing; scalar `vset*` effects are composed only in `core-ctrl.rhdl`. See the
 [vector contract](../vector/README.md) for WB-owned configuration, legality,
-unrolling, and execution.
+sequencing, and execution.
 
 `~zihintpause: #true` overlays the exact PAUSE word on the existing FENCE row
 in the same combined decoder. Its hint selector enables bounded throttling at

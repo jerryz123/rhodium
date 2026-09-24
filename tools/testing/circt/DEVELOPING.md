@@ -43,7 +43,7 @@ the two functional leaves to be nonempty, disjoint, and exhaustive.
 
 Alternate vector fixtures cover parameter boundaries, not a cross-product of
 every subsystem with every supported value. Keep one behavioral owner for each
-distinct risk: RV32 packed transport, RV32 unroller geometry, a single
+distinct risk: RV32 packed transport, RV32 sequencer geometry, a single
 completion slot, wide mask indexing, and gather indices above 255. The default
 functional fixtures own operation breadth. A second fixture should not rerun a
 complete operation scoreboard merely to repeat a shared completion-slot or

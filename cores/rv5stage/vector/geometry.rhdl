@@ -1,0 +1,85 @@
+#lang rhodium
+// Computes physical beat geometry and VRF operand requirements without creating another pipeline payload.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl".RV5StageVectorDescriptor
+  "../decode/vector-ctrl.rhdl" open
+  "../fp/types.rhdl".RV5StageFloatUnit
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  lib("rhodium/std/bits.rhdl") open
+
+fun vector_indexed_memory(control :: RV5StageVectorControl()) :~ Bool:
+  control.memory & control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
+
+fun vector_mask_word(control :: RV5StageVectorControl()) :~ Bool:
+  control.integer & (control.mask_logic ||| (control.scan & (control.scan_control.result =/= VectorScanResult.Elements)))
+
+fun vector_single_element(control :: RV5StageVectorControl()) :~ Bool:
+  def reduction = (control.integer ||| control.fp_service) & control.reduction
+  def gather_vector = control.integer & control.gather & (control.operand === VectorOperandMode.Vector)
+  control.memory ||| control.fp_service ||| control.multiply_divide ||| control.element_move ||| reduction ||| gather_vector
+
+fun vector_reads_destination(control :: RV5StageVectorControl()) :~ Bool:
+  (control.multiply_divide & control.multiply_accumulate) ||| (control.fp_service & (control.fp_execution.unit === RV5StageFloatUnit.FusedMultiplyAdd))
+
+fun vector_reads_second(control :: RV5StageVectorControl()) :~ Bool:
+  control.slide ||| !control.floating_point ||| control.fp_uses_vs1
+
+fun vector_data_width(control :: RV5StageVectorControl(), sew :: Bits(2)) :~ Bits(2):
+  mux(control.memory & !vector_indexed_memory(control), control.memory_data_eew, sew)
+
+fun vector_destination_width(control :: RV5StageVectorControl(), sew :: Bits(2)) :~ Bits(2):
+  def widened = control.widening & ((control.multiply_divide & control.multiply_accumulate) ||| control.fp_service)
+  sew + widened.as_bits().zext(2)
+
+fun vector_index_width(control :: RV5StageVectorControl(), sew :: Bits(2)) :~ Bits(2):
+  mux(vector_indexed_memory(control), control.memory_index_eew, mux(control.gather_index16, bits(1, 2), sew))
+
+fun vector_beat_limit(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bits(index_width(vlen + 1)):
+  def control = descriptor.control
+  // Whole-register transfers ignore vl and vtype; encoded EEW counts their elements.
+  def whole_register_memory = control.memory & (control.memory_mode === VectorMemoryMode.WholeRegister)
+  def whole_register_group_shift = mux_lookup(control.memory_nf, ~default: bits(0, 2), [[1, bits(1, 2)], [3, bits(2, 2)], [7, bits(3, 2)]])
+  def whole_register_elements = bits(vlen / 8, index_width(vlen + 1)) >> control.memory_data_eew
+  def whole_register_limit = whole_register_elements << whole_register_group_shift
+  def whole_register_move = control.integer & control.whole_register_move
+  def whole_register_move_shift = mux_lookup(control.whole_register_count, ~default: bits(0, 2), [[2, bits(1, 2)], [4, bits(2, 2)], [8, bits(3, 2)]])
+  def whole_register_move_limit = (bits(vlen / 8, index_width(vlen + 1)) >> descriptor.state.vtype[3..5]) << whole_register_move_shift
+  def mask_memory = control.memory & (control.memory_mode === VectorMemoryMode.Mask)
+  def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + bits(7, index_width(vlen + 1))) >> 3
+  // Element moves have one bookkeeping beat, not a VL-sized iteration space.
+  mux(control.element_move, bits(1, index_width(vlen + 1)), mux(whole_register_move, whole_register_move_limit, mux(whole_register_memory, whole_register_limit, mux(mask_memory, mask_memory_limit, descriptor.state.vl[0..index_width(vlen + 1)]))))
+
+fun vector_beat_lanes(vlen :: VectorLength, control :: RV5StageVectorControl(), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
+  def width_change = control.integer & (control.widening ||| control.narrowing)
+  mux(vector_mask_word(control), bits(64, index_width(vlen + 1)), mux(vector_single_element(control), bits(1, index_width(vlen + 1)), mux_lookup(sew, ~default: mux(width_change, bits(4, index_width(vlen + 1)), bits(8, index_width(vlen + 1))), [[1, mux(width_change, bits(2, index_width(vlen + 1)), bits(4, index_width(vlen + 1)))], [2, mux(width_change, bits(1, index_width(vlen + 1)), bits(2, index_width(vlen + 1)))], [3, bits(1, index_width(vlen + 1))]])))
+
+fun vector_slide_distance(xlen :: XLen, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bits(xlen.width):
+  def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
+  mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, immediate.zext(xlen.width), descriptor.scalar))
+
+fun vector_scalar_index(xlen :: XLen, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bits(64):
+  def immediate = instruction_field(riscv_fields.rs1, descriptor.instruction)
+  mux(descriptor.control.operand === VectorOperandMode.Immediate, immediate.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
+
+fun vector_aligned_first(vlen :: VectorLength, first :: Bits(index_width(vlen + 1)), sew :: Bits(2)) :~ Bits(index_width(vlen + 1)):
+  mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
+
+export:
+  vector_indexed_memory
+  vector_mask_word
+  vector_single_element
+  vector_reads_destination
+  vector_reads_second
+  vector_data_width
+  vector_destination_width
+  vector_index_width
+  vector_beat_limit
+  vector_beat_lanes
+  vector_slide_distance
+  vector_scalar_index
+  vector_aligned_first

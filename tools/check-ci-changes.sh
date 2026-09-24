@@ -86,7 +86,7 @@ check_vector_functional_shards() {
     rv5stage-vector event-vector rv5stage-vector-control rv5stage-vector-config \
     rv5stage-vector-fp rv5stage-vector-muldiv rv5stage-vector-reduction \
     rv5stage-vector-memory rv5stage-vector-packed rv5stage-vector-overlap \
-    rv5stage-vector-admission rv5stage-vector-unroller rv5stage-zvkt | sort)"
+    rv5stage-vector-admission rv5stage-vector-sequencer rv5stage-zvkt | sort)"
   if [[ -z "$first" || -z "$second" \
       || "$(printf '%s\n%s\n' "$first" "$second" | sort)" != "$expected" \
       || "$combined" != "$expected" ]]; then

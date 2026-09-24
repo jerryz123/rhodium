@@ -14,7 +14,7 @@
   write_port_t initialize_in;
   logic active, request_ready, legal, issued, committed, retried;
   result_t result;
-  RV5StageVectorUnrollerFixture dut (.*);
+  RV5StageVectorSequencerFixture dut (.*);
   always #5 clock = ~clock;
   logic [63:0] memory [DEPTH], snapshot [DEPTH];
   logic [63:0] rng = 64'h713bfd9167c282c9;
@@ -291,7 +291,7 @@
     while (active || checking) begin
       issue_ready = !random_stalls || (random_word() % 4 != 0);
       tick();
-      if (timeout++ > 4000) $fatal(1, "unroller failed to drain: op=%0d mode=%0d sew=%0d lmul=%0d vl=%0d start=%0d",op,mode,sew,lmul,count,start);
+      if (timeout++ > 4000) $fatal(1, "sequencer failed to drain: op=%0d mode=%0d sew=%0d lmul=%0d vl=%0d start=%0d",op,mode,sew,lmul,count,start);
     end
     repeat (5) tick();
     macros++;
@@ -696,6 +696,6 @@
       repeat (7) tick();
     end
     run_macro(0, 0, VLEN / 8, 0, 11, 0, 8, 8, 8, 0);
-    $display("vector unroller XLEN=%0d VLEN=%0d: %0d macros, %0d WB beats, %0d retries", XLEN, VLEN, macros, checks, retries);
+    $display("vector sequencer XLEN=%0d VLEN=%0d: %0d macros, %0d WB beats, %0d retries", XLEN, VLEN, macros, checks, retries);
     $finish;
   end

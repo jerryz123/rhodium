@@ -29,7 +29,7 @@ sync_circuit RV5StageVectorAdmission():
   interface accesses(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface memory_requests(Valid(RV5StageDataReq(xlen, 8)), ~role: producer)
   interface memory_responses(Valid(RV5StageDataResp(xlen, 8)), ~role: consumer)
-  output(request_ready, active, unrolling, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
+  output(request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, 128))
@@ -93,7 +93,7 @@ sync_circuit RV5StageVectorAdmission():
   vector.divide_result.bits <== dont_care(vector.divide_result.bits.type)
   request_ready <== vector.request.ready
   active <== vector.active
-  unrolling <== vector.unrolling
+  sequencing <== vector.sequencing
   certification_pending <== vector.certification_pending
   loads_pending <== vector.loads_pending
   stores_pending <== vector.stores_pending

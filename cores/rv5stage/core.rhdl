@@ -589,7 +589,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_fp_store = id_fp_memory & id_fp_execution_control.memory_write
   def id_fp_store_resource_hazard = id_fp_store & !id_fault & wb.valid & wb_offer_bits.fp_compute
   def id_local_resource_hazard = id_multiply_resource_hazard ||| id_divide_resource_hazard ||| id_fp_store_resource_hazard
-  // Certification releases independent scalar work before vector unrolling
+  // Certification releases independent scalar work before vector sequencing
   // finishes. Memory ordering and vector/state observers retain explicit barriers.
   // Descriptor capacity is intentionally absent: vector launches speculate
   // through ID and replay precisely if the WB sink cannot admit them.

@@ -170,7 +170,7 @@ policy without importing a concrete processor.
 
 The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for
 mask expansion/merging, `std/ready-valid.rhdl` for authorized CSR events, and
-`flow/main.rhdl` for backpressured read plans, synchronous Valid read
+`flow/main.rhdl` for backpressured read requests, synchronous Valid read
 transactions, operand-fetch context storage, and credited issue buffering. Its pure geometry
 dependency is `riscv/isa/vector.rhm`; that module imports Rhombus metadata only
 and has no Rhodium dependency. `riscv/rtl/vector.rhdl` imports public
@@ -182,23 +182,36 @@ The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocati
 compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
 `vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand/result storage,
 and accepted shared-service queues; it additionally imports named integer
-register-write and FP contracts, vector mask-scan controls, pure FP profiles,
-and public HardFloat rounding types. `vector/scoreboard.rhdl` and
+register-write and FP contracts, vector mask-scan controls, and pure FP profiles.
+`vector/slots.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
-`vector/unroller.rhdl` imports vector bundles, named decode/FP controls,
-the shared SIMD contracts, pure ISA geometry and instruction fields, the RISC-V
+`vector/sequencer.rhdl` imports vector bundles, named decode controls,
+pure ISA geometry and instruction fields, the RISC-V
 vector RTL adapter, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
-imports vector packing, the RISC-V FP unboxing adapter, and HardFloat formats;
-the sequencer does not depend on operand fetch. Their shared read-plan types
-live in `vector/bundles.rhdl`.
+imports vector packing, shared SIMD contracts, the RISC-V FP unboxing adapter, and HardFloat formats;
+the sequencer does not depend on operand fetch. Both import the inline
+`vector/geometry.rhdl` helpers for beat geometry and operand requirements. Those
+helpers import descriptor and named decode/FP types, pure ISA geometry and
+instruction fields, the instruction-field RTL adapter, and bit helpers; they
+introduce no payload or state. Their shared phase-specific types
+live in `vector/bundles.rhdl`. `vector/instructions.rhdl` imports those types,
+`vector/dependencies.rhdl`, pure XLEN/vector geometry, bit-width helpers, and
+Flow for instruction lifetime and row hazards. `vector/completion.rhdl` imports
+the slot tracker, independent load-response adapter, mul/div result adapters,
+register-write and FP contracts, pure profiles, bit helpers, and Flow for
+persistent completion ownership and architectural result streams.
 `vector/packed-memory.rhdl` imports the vector bundles and VRF contracts,
 footprint arithmetic, vector decode/ISA geometry, public bit helpers,
-and Flow. `vector/pipeline.rhdl` composes it with the existing execution engine
+and Flow. It composes `vector/packed-load.rhdl`, which imports shared
+`vector/packed-bundles.rhdl` layouts, the load-response adapter, VRF contracts,
+pure geometry, bit helpers, and Flow. Packed layouts depend only on pure
+XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the
+packed path with the existing execution engine
 and imports the reusable load/store byte-mask helper. `vector/execute.rhdl`
 imports public ready-valid types for its shared SIMD alignment client.
 `vector/dependencies.rhdl` imports vector bundles, named decode controls, and
 the pure vector/XLEN models plus the RISC-V vector RTL adapter; the execution
-pipeline consumes its architectural destination-group mask for WAW admission.
+instruction tracker consumes its destination-group mask for pending row hazards.
 `vector/memory.rhdl` imports Flow for fixed-cycle attempts and acceptance, the
 named D-cache protocols and memory operations, and RISC-V trap/pointer-masking
 adapters. `cores/rv5stage/memory-arbiter.rhdl` imports Flow for shared LSU

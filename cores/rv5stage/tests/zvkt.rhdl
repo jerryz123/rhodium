@@ -4,7 +4,7 @@
 
 import:
   "zvkt-program.rhm" open
-  "vector-unroller-fixture.rhdl" open
+  "vector-sequencer-fixture.rhdl" open
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -30,8 +30,8 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   def rs1_control = mux_lookup(probe, ~default: Bool(probes[0].control_rs1), for List (index in 0..probes.length()): [index, Bool(probes[index].control_rs1)])
   def use_sew64 = mux_lookup(probe, ~default: Bool(probes[0].sew64), for List (index in 0..probes.length()): [index, Bool(probes[index].sew64)])
   def use_v0_data = mux_lookup(probe, ~default: Bool(probes[0].v0_data), for List (index in 0..probes.length()): [index, Bool(probes[index].v0_data)])
-  inst left(RV5StageVectorUnrollerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
-  inst right(RV5StageVectorUnrollerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
+  inst left(RV5StageVectorSequencerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
+  inst right(RV5StageVectorSequencerFixture(XLen.X64, vlen, vector_extensions(VectorExtension.Zvbb)))
   left.instruction <== instruction
   left.vtype <== vtype
   left.vl <== vl

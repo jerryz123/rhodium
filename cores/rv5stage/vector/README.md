@@ -78,12 +78,12 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 ### Event tracing
 
 The optional event compiler observes sequencing and beat milestones:
-`vector/s1.sequence` marks an accepted elementwise read plan in the first active
+`vector/s1.sequence` marks an accepted elementwise read request in the first active
 sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
 attempt after operand capture, and `vector/complete` records a mature or
 authorized beat's ordered result drain. Packed memory has no separate
-elementwise read plan and begins its beat trace at `vector/s2.issue`.
-The `vector/s1.sequence.stall` observation records a pending read plan that could
+elementwise read request and begins its beat trace at `vector/s2.issue`.
+The `vector/s1.sequence.stall` observation records a pending read request that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
 `setup_wait`, `vs2_wait` and `vs1_wait` for the architectural source rows,
 the destination-row and gather hazards, and operand-fetch `fetch_wait`.
@@ -97,7 +97,7 @@ have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
 
 The sequencer has no duration event. Sequencing captures PC and instruction on
-each accepted elementwise read plan; Perfetto names its slices from the decoded
+each accepted elementwise read request; Perfetto names its slices from the decoded
 instruction. Retry creates another occurrence with the same instruction bits.
 Sequencing and elementwise issue capture the macro-local operation index, exclusive
 element range, and last/empty flags;
@@ -117,12 +117,12 @@ standalone vector pipelines default to the XLEN-appropriate IMAFDCV instruction 
 
 ### Execution ownership
 
-[`RV5StageVectorPipeline`](../vector.rhdl) contains the unroller, a separate
+[`RV5StageVectorPipeline`](../vector.rhdl) contains the sequencer, a separate
 synchronous operand-fetch stage, a vector bank with three general read ports
 and a dedicated `v0` mask shadow, packed SIMD execution, and private
 feed-forward operand/result registers.
 Its `request` accepts a legal macro snapshot only at nonspeculative WB. The
-unroller drives either the local SIMD/shared-service path or its own memory
+sequencer drives either the local SIMD/shared-service path or its own memory
 attempt pipeline. Vector micro-ops never re-enter scalar Decode, EX, MEM, or WB.
 The memory path shares the scalar LSU through a fixed-cycle lookup arbiter and
 a separate transaction arbiter; returned union tags retain response ownership.
@@ -143,7 +143,7 @@ element-wise path. In particular, a conservative check of a masked-off page
 must not create an architectural exception.
 
 After certification, independent scalar work can execute and retire while
-the vector unroller remains active. Vector/state observers, fences, translation
+the vector sequencer remains active. Vector/state observers, fences, translation
 changes, and trap/interrupt entry wait for drain. Younger scalar stores wait
 for vector loads or stores; younger scalar loads wait for vector stores.
 Deferred scalar destinations retain their GPR/FPR scoreboard reservations.
@@ -151,7 +151,7 @@ Younger scalar FP work also waits for outstanding vector FP state updates.
 
 The outcome register separates LSU admission from scalar WB selection. Internal retries
 do not retire the macro or restart scalar fetch. Rejection flushes younger
-unaccepted vector stages and restores the unroller's accepted checkpoint.
+unaccepted vector stages and restores the sequencer's accepted checkpoint.
 Accepted requests, their destination metadata, and their responses survive.
 A younger scalar redirect cannot cancel an allocated macro.
 A saturating or clipping beat reports saturation when its private compute result
@@ -161,7 +161,7 @@ the same edge taking priority. The integrated core updates architectural vector
 retirement state from scalar WB for compute and from `retire: Pulse` for memory
 certification or successful conservative acceptance. `execution_done: Pulse`
 reports completed execution. `active` includes accepted memory completion
-ownership; `unrolling` reports the separate registered-sequencer lifetime.
+ownership; `sequencing` reports the separate registered-sequencer lifetime.
 Local compute results mature one cycle after issue and may drain on that same
 edge when they own the ordered head. FP, multiply, and divide requests enter
 their shared services on that edge and complete when their tagged result
@@ -183,7 +183,7 @@ FP/CSR observers cannot overlook a queued instruction. An uncertified memory
 macro blocks younger admission until its retirement outcome; accepting a
 younger descriptor cannot overwrite the head's certificate. Pending certification
 never gates beats from the older active macro. Ordinary compute can accept its queued successor on the same edge that
-its final read plan transfers. Every read plan comes from the registered current
+its final read request transfers. Every read request comes from the registered current
 instruction: the replacement's first read occurs in the following cycle, never
 from an incoming or speculative descriptor. Operand fetch retains each plan's
 controls and owner through VRF latency and issue backpressure, independently of
@@ -217,7 +217,7 @@ compositions must select the same count on their data interfaces and engines.
 is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
-[`RV5StageVectorUnroller`](unroller.rhdl) retains one macro descriptor and its
+[`RV5StageVectorSequencer`](sequencer.rhdl) retains one macro descriptor and its
 scalar/configuration snapshot. The original macro crosses ID/EX, EX/MEM, and
 MEM/WB without executing scalar side effects. EX forwarding resolves its scalar
 base and stride into a per-occurrence context carried beside the launch token;
@@ -236,7 +236,7 @@ beats even when issue stalls. Once filled, it supplies one packed 64-bit beat
 per cycle. Setup and final drain still have latency, but independent single-beat
 macros can overlap those stages and issue on consecutive cycles.
 
-For unit-stride and strided element memory, the unroller captures the full
+For unit-stride and strided element memory, the sequencer captures the full
 base address and an element step. Unit-stride uses `1 << EEW`; strided forms
 use the sign-extended `rs2` value, including negative and zero strides. The
 sequencer initializes at the base and advances once for each skipped `vstart`
@@ -291,7 +291,7 @@ RVV's implementation-defined partial-segment behavior.
 Whole-register `vl1/2/4/8re8/16/32/64.v` and `vs1/2/4/8r.v` transfers use the
 same singleton LSU path. Their effective length is `NREG * VLEN / EEW`,
 independent of `vl` and `vtype`; `vstart` still identifies the next encoded-EEW
-element. The unroller walks one continuous register group, so its existing
+element. The sequencer walks one continuous register group, so its existing
 64-bit VRF row address naturally crosses register boundaries without another
 datapath. Decode enforces NREG alignment and rejects register wrap past `v31`.
 The fixed-unmasked forms leave `vl` and `vtype` unchanged, and precise faults
@@ -327,14 +327,14 @@ The vector pipeline's private execution stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its fixed-latency
 result maturity transfers ownership to the ordered completion backend without
 an external authorization round trip. An exclusive end position advances even for
-masked-off elements. Ordinary compute releases the unroller at its final read
+masked-off elements. Ordinary compute releases the sequencer at its final read
 transfer; serialized compute releases it at result maturity. Neither
 releases pending result ownership. Architectural retirement follows the certification/outcome
 contract above; interrupt entry waits for all macro contexts to drain.
 A zero-length body or `vstart >= vl` emits one empty
 completion beat, with no register write.
 
-For serialized compute at the low-level unroller boundary, ordered internal
+For serialized compute at the low-level sequencer boundary, ordered internal
 maturity feedback advances cross-beat state and releases the next beat. Memory
 keeps separate issued and authorized positions: retry flushes pending reads and
 attempts, restarts at the authorized frontier, and preserves accepted writes and
@@ -359,7 +359,7 @@ representable through EMUL=8. A narrow vector source may overlap only the
 architectural high part of the destination. The wide `vs2` group may equal the
 destination group; misalignment and partial overlap trap before any VRF read.
 
-One unroller beat produces one 64-bit destination row. Narrow-source forms
+One sequencer beat produces one 64-bit destination row. Narrow-source forms
 reread the same source row for its lower and upper halves. Wide-source forms
 advance the `vs2` row every beat while the narrow source still selects the
 corresponding half. Each destination-width beat matures independently without
@@ -407,14 +407,14 @@ aligned register group through the same 64-bit packed datapath. Their effective
 length is `NREG * VLEN / SEW`, independent of `vl` and LMUL but still dependent
 on a legal `vtype`; `vstart` identifies the first SEW-wide element to copy.
 Decode rejects misaligned or wrapping source and destination groups. Equal
-source and destination groups are a legal no-op. The unroller naturally crosses
+source and destination groups are a legal no-op. The sequencer naturally crosses
 VRF row and register boundaries, preserves the pre-`vstart` prefix, and keeps
 the ordinary result-maturity, cancellation, and `v0`-shadow rules.
 
 `vmandn.mm`, `vmand.mm`, `vmor.mm`, `vmxor.mm`, `vmorn.mm`, `vmnand.mm`,
 `vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand
 names one register independent of LMUL. They are always unmasked, may write
-`v0`, and support in-place source/destination overlap. The unroller processes
+`v0`, and support in-place source/destination overlap. The sequencer processes
 up to 64 mask bits per beat through the existing logic datapath and VRF write
 port; it does not expand mask bits into SEW-sized data elements.
 
@@ -546,7 +546,7 @@ tail-policy choice. Nonzero `vstart` traps. Destination and data-source groups
 must be aligned and disjoint; the single-register selection mask must be
 disjoint from both data groups, including when VL is zero.
 
-The unroller reads the data and selection-mask chunks through general ports.
+The sequencer reads the data and selection-mask chunks through general ports.
 [`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
 owning architectural state. A retained suffix joins the next compacted word;
 each issued beat carries its post-beat suffix, element count, and destination
@@ -641,7 +641,7 @@ copies the seed exactly without raising flags. At `vl=0`, the destination is
 unchanged. Width-changing conversion at SEW64 is illegal because this profile
 does not provide 128-bit elements.
 
-The unroller reads one element from each vector source through general ports;
+The sequencer reads one element from each vector source through general ports;
 fused operations additionally read old `vd`, while square root and `.vf` leave
 `vs1` free. The dedicated `v0` shadow supplies predication. A `.vf` instruction
 waits for its scalar FPR producer in Decode and snapshots the forwarded
@@ -739,7 +739,7 @@ slots in request order. Raw data is buffered before alignment, so delayed
 responses may arrive out of order. A slot can release into the partial-row carry
 without waiting for its successor; a one-slot configuration therefore progresses.
 Execution completion waits for the last partial-row write. Accepted entries and
-the partial-row carry retain their ownership after the unroller is released.
+the partial-row carry retain their ownership after the sequencer is released.
 Younger vector reads wait for older pending writes by row; ordered result drain
 preserves write-after-write order without blocking sequencer admission.
 The slot scoreboard distinguishes reservation, acceptance, and ordered release.
@@ -757,7 +757,7 @@ micro-op/beat, not completion of the whole vector instruction.
 A fault records its element in `vstart`, stops younger elements, and waits for
 older accepted data/VRF work before entering the precise trap at the macro PC.
 Successful certification clears `vstart` early; conservative execution clears
-it on final completion. Independent scalar work may pass certified unrolling
+it on final completion. Independent scalar work may pass certified sequencing
 as well as a vector load's completion tail, but scalar stores and vector/CSR
 state observers retain their ordering barriers. Younger scalar loads and stores wait for an older vector
 store's ordered LSU drain. Interrupt entry waits for vector completion.

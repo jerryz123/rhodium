@@ -3,8 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../vector/packed-memory.rhdl" open
-  "../vector/unroller.rhdl" open
-  "../vector/scoreboard.rhdl" open
+  "../vector/sequencer.rhdl" open
+  "../vector/slots.rhdl" open
   "../vector/bundles.rhdl" open
   "../vector/register-file.rhdl" open
   "../vector/execute.rhdl" open
@@ -32,22 +32,22 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   output token: RV5StageVectorToken(Bits(64), slots)
   interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
   inst engine(RV5StageVectorPackedMemory(xlen, vlen, Bits(64), slots))
-  inst unroller(RV5StageVectorUnroller(xlen, vlen, Bits(64)))
-  unroller.packed_memory <== Bool(#true)
-  engine.issue_done |> unroller.packed_done
-  engine.occupied <== unroller.active
+  inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(64)))
+  sequencer.packed_memory <== Bool(#true)
+  engine.issue_done |> sequencer.packed_done
+  engine.occupied <== sequencer.active
   engine.schedule_enable <== Bool(#true)
-  engine.closed_owners <== vec([!unroller.active, Bool(#true)])
+  engine.closed_owners <== vec([!sequencer.active, Bool(#true)])
   engine.cancel.valid <== Bool(#false)
-  engine.instruction <== unroller.retained
-  unroller.cancel.valid <== Bool(#false)
-  unroller.feedback.valid <== Bool(#false)
-  unroller.feedback.bits <== dont_care(unroller.feedback.bits.type)
-  unroller.read_request.ready <== Bool(#false)
-  unroller.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
+  engine.instruction <== sequencer.retained
+  sequencer.cancel.valid <== Bool(#false)
+  sequencer.feedback.valid <== Bool(#false)
+  sequencer.feedback.bits <== dont_care(sequencer.feedback.bits.type)
+  sequencer.read_request.ready <== Bool(#false)
+  sequencer.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
   reg tail(~init: bits(0, index_width(slots)))
   reg head(~init: bits(0, index_width(slots)))
-  inst slots_owner(RV5StageVectorScoreboard(slots))
+  inst slots_owner(RV5StageVectorSlots(slots))
   engine.slot <== tail
   engine.head <== head
   engine.slot_available <== !slots_owner.allocated[tail]
@@ -86,7 +86,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
   def Array(descriptor, packed_launch) = launches.right |> atomic_fork(2)
-  descriptor |> unroller.request
+  descriptor |> sequencer.request
   packed_launch |> to_valid() |> engine.launch
   engine.issue |> gate_flow(issue_ready) |> to_valid() |> attempts.ingress
   attempts.egress |> attempt

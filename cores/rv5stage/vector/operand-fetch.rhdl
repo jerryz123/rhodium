@@ -1,12 +1,12 @@
 #lang rhodium
-// Fetches and packs operands from credited registered beat plans, independent of the current sequencer.
+// Fetches and packs operands from credited captured beat controls, independent of the current sequencer.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
+  "geometry.rhdl" open
   "packing.rhdl" open
   "../decode/vector-ctrl.rhdl" open
-  "../fp/types.rhdl".RV5StageFloatUnit
   "../../simd-alu.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -61,76 +61,62 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def read_context = mux(compress_flush, compress_context, response.bits)
   def instruction = read_context.instruction
   def minimum = read_context.minimum
-  def read_beat = read_context.beat
+  def beat_control = read_context.beat_control
   def descriptor = instruction.descriptor
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   def vs1 = instruction_field(riscv_fields.rs1, descriptor.instruction)
   def vs2 = instruction_field(riscv_fields.rs2, descriptor.instruction)
+  // Instruction-derived geometry is combinational, not another pipeline payload.
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
-  def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
-  def mask_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.Mask)
-  def indexed_memory = descriptor.control.memory & descriptor.control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
-  def memory_data_eew = mux(indexed_memory, geometry.sew, descriptor.control.memory_data_eew)
-  def sew = mux(descriptor.control.memory, memory_data_eew, geometry.sew)
-  def element_move = descriptor.control.element_move
-  def whole_register_move = descriptor.control.integer & descriptor.control.whole_register_move
-  def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
-  def scan = descriptor.control.integer & descriptor.control.scan
-  def scan_word = scan & (descriptor.control.scan_control.result =/= VectorScanResult.Elements)
-  def slide = descriptor.control.slide
+  def sew = vector_data_width(descriptor.control, geometry.sew)
+  def mask_word = vector_mask_word(descriptor.control)
+  def format = mux(mask_word, SimdElementWidth.E64, sew.into(SimdElementWidth))
+  def limit = vector_beat_limit(xlen, vlen, descriptor)
+  def lanes = vector_beat_lanes(vlen, descriptor.control, sew)
+  def slide_distance = vector_slide_distance(xlen, descriptor)
+  def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
+  def destination_width = vector_destination_width(descriptor.control, sew)
+  def index_sew = vector_index_width(descriptor.control, sew)
   def gather = descriptor.control.integer & descriptor.control.gather
   def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
-  def compress = descriptor.control.integer & descriptor.control.compress
+  def scalar_index = vector_scalar_index(xlen, descriptor)
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
-  def fp_widening = descriptor.control.fp_service & descriptor.control.widening
-  def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
-  def extension = descriptor.control.integer & descriptor.control.extension
   def width_change = widening ||| narrowing
-  def singleton = descriptor.control.memory ||| descriptor.control.fp_service ||| descriptor.control.multiply_divide ||| element_move ||| reduction ||| gather_vector
+  def whole_register_move = descriptor.control.integer & descriptor.control.whole_register_move
+  def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
+  def extension = descriptor.control.integer & descriptor.control.extension
+  def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
+  def second_source = vector_reads_second(descriptor.control)
+  def indexed_memory = vector_indexed_memory(descriptor.control)
+  def slide = descriptor.control.slide
+  def scan = descriptor.control.integer & descriptor.control.scan
+  def singleton = vector_single_element(descriptor.control)
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
-  def mask_word = mask_logic ||| scan_word
+  def compress = descriptor.control.integer & descriptor.control.compress
+  def destination_source = vector_reads_destination(descriptor.control)
+  def fp_narrowing = descriptor.control.fp_service & descriptor.control.narrowing
+  def fp_widening = descriptor.control.fp_service & descriptor.control.widening
   def mask_select = descriptor.control.mask_select
   def carry_input = descriptor.control.integer & descriptor.control.carry_input
-  def format = mux(mask_word, SimdElementWidth.E64, sew.into(SimdElementWidth))
-  // Whole-register transfers count encoded-EEW elements across NREG registers;
-  // they deliberately ignore the active vl and vtype geometry.
-  def whole_register_group_shift = mux_lookup(descriptor.control.memory_nf, ~default: bits(0, 2), [[1, bits(1, 2)], [3, bits(2, 2)], [7, bits(3, 2)]])
-  def whole_register_elements = bits(vlen / 8, index_width(vlen + 1)) >> descriptor.control.memory_data_eew
-  def whole_register_limit = whole_register_elements << whole_register_group_shift
-  def whole_register_move_shift = mux_lookup(descriptor.control.whole_register_count, ~default: bits(0, 2), [[2, bits(1, 2)], [4, bits(2, 2)], [8, bits(3, 2)]])
-  def whole_register_move_limit = (bits(vlen / 8, index_width(vlen + 1)) >> geometry.sew) << whole_register_move_shift
-  def mask_memory_limit = (descriptor.state.vl[0..index_width(vlen + 1)] + bits(7, index_width(vlen + 1))) >> 3
-  // Element moves have one bookkeeping beat, not a VL-sized iteration space.
-  def limit = mux(element_move, bits(1, index_width(vlen + 1)), mux(whole_register_move, whole_register_move_limit, mux(whole_register_memory, whole_register_limit, mux(mask_memory, mask_memory_limit, descriptor.state.vl[0..index_width(vlen + 1)]))))
-  def lanes = mux(mask_word, bits(64, index_width(vlen + 1)), mux(singleton, bits(1, index_width(vlen + 1)), mux_lookup(format, ~default: mux(width_change, bits(4, index_width(vlen + 1)), bits(8, index_width(vlen + 1))), [[SimdElementWidth.E16, mux(width_change, bits(2, index_width(vlen + 1)), bits(4, index_width(vlen + 1)))], [SimdElementWidth.E32, mux(width_change, bits(1, index_width(vlen + 1)), bits(2, index_width(vlen + 1)))], [SimdElementWidth.E64, bits(1, index_width(vlen + 1))]])))
-  fun aligned_first(first :: Bits(index_width(vlen + 1)), sew :: Bits(2)):
-    mux_lookup(sew, ~default: first.align_down(8), [[1, first.align_down(4)], [2, first.align_down(2)], [3, first]])
   // A vector gather's second read owns port zero in the index-response cycle.
   // The next index read can overlap the preceding data response, not its read.
-  def multiply_accumulate = descriptor.control.multiply_divide & descriptor.control.multiply_accumulate
-  def fp_fused = descriptor.control.fp_service & (descriptor.control.fp_execution.unit === RV5StageFloatUnit.FusedMultiplyAdd)
-  def destination_source = multiply_accumulate ||| fp_fused
-  def second_source = slide ||| !descriptor.control.floating_point ||| descriptor.control.fp_uses_vs1
   def floating_scalar_operand = descriptor.control.floating_point & (descriptor.control.operand === VectorOperandMode.FloatingScalar)
   def fp_service_scalar_operand = descriptor.control.fp_service & floating_scalar_operand
   def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.floating_scalar, [[1, riscv_unbox(FloatFormat.F16, 64, descriptor.floating_scalar).as_bits().zext(64)], [2, riscv_unbox(FloatFormat.F32, 64, descriptor.floating_scalar).as_bits().zext(64)]])
   def floating_scalar = mux(descriptor.control.fp_service, descriptor.floating_scalar, checked_floating_scalar)
-  def destination_width = sew + ((descriptor.control.widening & multiply_accumulate) ||| fp_widening).as_bits().zext(2)
+  def fp_source_width = (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
+  def fp_result_width = (sew + fp_widening.as_bits().zext(2)).into(SimdElementWidth)
   def row_base_width = index_width(vector_depth(vlen))
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
-  def slide_distance = mux(descriptor.control.slide_one, bits(1, xlen.width), mux(descriptor.control.operand === VectorOperandMode.Immediate, vs1.zext(xlen.width), descriptor.scalar))
-  def slide_delta = mux(descriptor.control.slide_up, -slide_distance.zext(xlen.width + 2), slide_distance.zext(xlen.width + 2))
   // Every destination cursor is chunk-aligned, including a restarted chunk,
   // so this byte offset is constant throughout the retained macro.
   def slide_offset = (slide_delta[0..3] << sew)
   def slide_base = vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
-  def index_sew = mux(indexed_memory, descriptor.control.memory_index_eew, mux(descriptor.control.gather_index16, bits(1, 2), sew))
-  def scalar_index = mux(descriptor.control.operand === VectorOperandMode.Immediate, vs1.zext(64), if xlen == XLen.X64 | descriptor.scalar | descriptor.scalar.zext(64))
-  def read_destination_chunk = read_beat.first >> (bits(3, 2) - destination_width)
+  def read_destination_chunk = beat_control.first >> (bits(3, 2) - destination_width)
   def extension_part = mux_lookup(descriptor.control.extension_ratio, ~default: read_destination_chunk[0].as_bits().zext(3), [[SimdExtensionRatio.By4, read_destination_chunk[0..2].zext(3)], [SimdExtensionRatio.By8, read_destination_chunk[0..3]]])
-  def index_shift = (read_beat.first[0..3] << index_sew) ++ bits(0, 3)
+  def index_shift = (beat_control.first[0..3] << index_sew) ++ bits(0, 3)
   def index_word = results[1].bits >> index_shift
   def vector_index = mux_lookup(index_sew, ~default: index_word[0..8].zext(64), [[1, index_word[0..16].zext(64)], [2, index_word[0..32].zext(64)], [3, index_word]])
   def gather_index = mux(gather_vector, vector_index, scalar_index)
@@ -138,15 +124,15 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def gather_address = slide_base + mux(gather_in_range, (gather_index >> (bits(3, 2) - sew))[0..row_base_width], bits(0, row_base_width))
   // Rotate the selected source element directly into its destination slot;
   // scalar gathers rotate to slot zero, then use width-selected replication.
-  def gather_offset = (gather_index[0..3] << sew) - mux(gather_vector, read_beat.first[0..3] << sew, bits(0, 3))
+  def gather_offset = (gather_index[0..3] << sew) - mux(gather_vector, beat_control.first[0..3] << sew, bits(0, 3))
   def gather_data_read = response.valid & gather_vector & !clear
   // A dependent gather read occupies port zero for one cycle. Its data
   // response can overlap the next index request without losing either context.
   def can_read = !clear & !gather_data_read & !compress_flush & ((reserved < bits(2, 2)) ||| issue.fire())
-  request |> gate_flow(can_read) |> to_valid() |> map_valid(plan => plan.context) |> context_pipe.ingress
+  request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
   context_pipe.flush <== clear
   def launch = request.fire()
-  reads[0].valid <== (launch & request.bits.enables[0].into(Bool)) ||| (gather_data_read & !read_beat.empty)
+  reads[0].valid <== (launch & request.bits.enables[0].into(Bool)) ||| (gather_data_read & !beat_control.empty)
   reads[0].bits <== mux(gather_data_read, gather_address, request.bits.addresses[0])
   for (port in 1..3):
     reads[port].valid <== launch & request.bits.enables[port].into(Bool)
@@ -154,8 +140,8 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   mask_read.valid <== launch & request.bits.mask_enable
   mask_read.bits <== request.bits.mask_address
   packing.control <== VectorPackingControl(vlen):
-    element_width: read_beat.element_width
-    first_element: mux(width_change, aligned_first(read_beat.first, sew), read_beat.first)
+    element_width: format
+    first_element: mux(width_change, vector_aligned_first(vlen, beat_control.first, sew), beat_control.first)
     vl: limit
     vstart: minimum
     vlmax: mux(whole_register_move, limit, geometry.vlmax)
@@ -168,7 +154,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     extension_ratio: descriptor.control.extension_ratio
     extension_signed: descriptor.control.extension_signed
     extension_part: extension_part
-    upper_half: width_change & (read_beat.first =/= aligned_first(read_beat.first, sew))
+    upper_half: width_change & (beat_control.first =/= vector_aligned_first(vlen, beat_control.first, sew))
     left_wide: wide_vs2
     left_signed: descriptor.control.left_signed
     right_signed: descriptor.control.right_signed
@@ -184,48 +170,63 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
                            def valid = mux(high, response.bits.slide_valid[byte + 8], response.bits.slide_valid[byte]).into(Bool)
                            def source = mux(valid, mux(high, results[1].bits[byte * 8..byte * 8 + 8], results[0].bits[byte * 8..byte * 8 + 8]), bits(0, 8))
                            def destination_byte = bits(byte, 3) - slide_offset
-                           def destination_element = read_beat.first + (destination_byte >> sew).zext(index_width(vlen + 1))
+                           def destination_element = beat_control.first + (destination_byte >> sew).zext(index_width(vlen + 1))
                            def insert = descriptor.control.slide_one & (destination_element === mux(descriptor.control.slide_up, bits(0, index_width(vlen + 1)), limit - bits(1, index_width(vlen + 1))))
                            def scalar_byte = mux_lookup(sew, ~default: packing.scalar[0..8], for List (format in 1..4): [format, packing.scalar[(byte mod (2 ** format)) * 8..(byte mod (2 ** format)) * 8 + 8]])
                            mux(insert, scalar_byte, source)).as_bits()
   def slide_enabled = vec(for List (lane in 0..8):
-                            !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((read_beat.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
-  def memory_shift_width = mux(descriptor.control.fp_service, read_beat.fp_source_width.into(Bits(2)), sew)
-  def memory_shift = ((read_beat.first[0..3] << memory_shift_width) ++ bits(0, 3))
-  def first_shift_width = mux(descriptor.control.fp_service & descriptor.control.wide_vs2, read_beat.fp_result_width.into(Bits(2)), memory_shift_width)
-  def first_shift = ((read_beat.first[0..3] << first_shift_width) ++ bits(0, 3))
-  def indexed_address = read_beat.address + vector_index
-  def destination_shift = ((read_beat.first[0..3] << destination_width) ++ bits(0, 3))
-  def memory_enabled = !read_beat.empty & (!descriptor.masked ||| (mask_result.bits >> read_beat.first[0..6])[0].into(Bool))
-  def operands = read_beat.updated(
-    ~address: mux(indexed_memory, indexed_address, read_beat.address),
-    ~left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> read_beat.first[0..6], mux(singleton, results[0].bits >> first_shift, packing.operands.left)))),
-    ~right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(fp_service_scalar_operand, floating_scalar, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right))))),
-    ~destination_data: results[2].bits >> destination_shift,
-    ~carry_in: mux(carry_input, (mask_result.bits >> read_beat.first[0..6])[0..8], bits(0, 8)).into(Mask(8)),
-    ~select_right: mux(mask_select, (mask_result.bits >> read_beat.first[0..6])[0..8], mux(extension ||| whole_register_move, bits(0, 8), !bits(0, 8))).into(Mask(8)),
-    ~mask_enabled: read_beat.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> read_beat.first[0..6], !bits(0, 64)),
-    ~destination_first: packing.operands.first_element,
-    ~element_width: packing.operands.element_width,
+                            !descriptor.control.slide_up ||| descriptor.control.slide_one ||| ((beat_control.first.zext(xlen.width + 2) + bits(lane, xlen.width + 2)) >= slide_distance.zext(xlen.width + 2))).as_bits()
+  def memory_shift_width = mux(descriptor.control.fp_service, fp_source_width.into(Bits(2)), sew)
+  def memory_shift = ((beat_control.first[0..3] << memory_shift_width) ++ bits(0, 3))
+  def first_shift_width = mux(descriptor.control.fp_service & descriptor.control.wide_vs2, fp_result_width.into(Bits(2)), memory_shift_width)
+  def first_shift = ((beat_control.first[0..3] << first_shift_width) ++ bits(0, 3))
+  def indexed_address = beat_control.address + vector_index
+  def destination_shift = ((beat_control.first[0..3] << destination_width) ++ bits(0, 3))
+  def memory_enabled = !beat_control.empty & (!descriptor.masked ||| (mask_result.bits >> beat_control.first[0..6])[0].into(Bool))
+  def operands = RV5StageVectorBeat(vlen):
+    address: mux(indexed_memory, indexed_address, beat_control.address)
+    left: mux(gather, mux(gather_in_range, results[0].bits, bits(0, 64)), mux(slide, slide_source, mux(scan, results[0].bits >> beat_control.first[0..6], mux(singleton, results[0].bits >> first_shift, packing.operands.left))))
+    right: mux(gather, (gather_offset ++ bits(0, 3)).zext(64), mux(slide, (slide_offset ++ bits(0, 3)).zext(64), mux(mask_logic ||| reduction, results[1].bits, mux(fp_service_scalar_operand, floating_scalar, mux(singleton & (descriptor.control.operand === VectorOperandMode.Vector), results[1].bits >> memory_shift, packing.operands.right)))))
+    destination_data: results[2].bits >> destination_shift
+    carry_in: mux(carry_input, (mask_result.bits >> beat_control.first[0..6])[0..8], bits(0, 8)).into(Mask(8))
+    select_right: mux(mask_select, (mask_result.bits >> beat_control.first[0..6])[0..8], mux(extension ||| whole_register_move, bits(0, 8), !bits(0, 8))).into(Mask(8))
+    mask_enabled: beat_control.mask_enabled & mux(scan & descriptor.masked, mask_result.bits >> beat_control.first[0..6], !bits(0, 64))
+    destination_first: packing.operands.first_element
+    element_width: packing.operands.element_width
     // One physical 64-bit logic lane computes the word; mask_enabled controls
     // its 64 independently writable architectural elements at the result port.
-    ~enabled: mux(mask_logic, read_beat.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), (mux(read_beat.empty, bits(0, 8), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, 8))).into(Mask(8))))
-  )
+    enabled: mux(mask_logic, beat_control.mask_enabled.or_reduce().as_bits().zext(8).into(Mask(8)), mux(singleton, memory_enabled.as_bits().zext(8).into(Mask(8)), (mux(beat_control.empty, bits(0, 8), packing.operands.enabled.as_bits()) & mux(slide, slide_enabled, !bits(0, 8))).into(Mask(8))))
+    sequence: beat_control.sequence
+    first: beat_control.first
+    end: beat_control.end
+    last: beat_control.last
+    empty: beat_control.empty
+    fp_source_width: fp_source_width
+    fp_result_width: fp_result_width
+    rounding_mode: descriptor.state.vxrm.into(SimdRoundingMode)
+    fp_rounding_mode: descriptor.rounding_mode
+    control: descriptor.control
+    destination: beat_control.destination
+    compress_state:
+      RV5StageVectorCompressState(vlen):
+        data: bits(0, 64)
+        count: bits(0, 4)
+        destination: beat_control.first
   inst compactor(SimdCompress())
-  def compress_mask = results[1].bits >> read_beat.first[0..6]
+  def compress_mask = results[1].bits >> beat_control.first[0..6]
   def compress_selected = vec(for List (lane in 0..8):
-                                def position = read_beat.first.zext(index_width(vlen + 1) + 1) + bits(lane, index_width(vlen + 1) + 1)
-                                (!read_beat.empty & (bits(lane, index_width(vlen + 1)) < lanes) & (position < read_beat.end.zext(index_width(vlen + 1) + 1)) & compress_mask[lane].into(Bool)).as_bits()).into(Mask(8))
+                                def position = beat_control.first.zext(index_width(vlen + 1) + 1) + bits(lane, index_width(vlen + 1) + 1)
+                                (!beat_control.empty & (bits(lane, index_width(vlen + 1)) < lanes) & (position < beat_control.end.zext(index_width(vlen + 1) + 1)) & compress_mask[lane].into(Bool)).as_bits()).into(Mask(8))
   compactor.data <== results[0].bits
-  compactor.element_width <== read_beat.element_width
+  compactor.element_width <== format
   compactor.selected <== compress_selected
-  def append_shift = mux_lookup(read_beat.element_width, ~default: compress_count.zext(7) << 3, [[SimdElementWidth.E16, compress_count.zext(7) << 4], [SimdElementWidth.E32, compress_count.zext(7) << 5], [SimdElementWidth.E64, compress_count.zext(7) << 6]])
+  def append_shift = mux_lookup(format, ~default: compress_count.zext(7) << 3, [[SimdElementWidth.E16, compress_count.zext(7) << 4], [SimdElementWidth.E32, compress_count.zext(7) << 5], [SimdElementWidth.E64, compress_count.zext(7) << 6]])
   def combined = compress_data.zext(128) ||| (compactor.compressed.data.zext(128) << append_shift)
   def total_count = compress_count.zext(5) + compactor.compressed.count.zext(5)
   def lane_count = lanes[0..5]
   def compress_full = total_count >= lane_count
   def remainder_count = mux(compress_full, total_count - lane_count, total_count)[0..4]
-  def source_final = read_beat.end === limit
+  def source_final = beat_control.end === limit
   def needs_flush = source_final & compress_full & remainder_count.or_reduce()
   def emitted_count = mux(compress_full, lane_count, mux(source_final, total_count, bits(0, 5)))[0..4]
   def emits_write = compress_full ||| (source_final & total_count.or_reduce())
@@ -233,7 +234,12 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     data: mux(source_final & !needs_flush, bits(0, 64), mux(compress_full, combined[64..128], combined[0..64]))
     count: mux(source_final & !needs_flush, bits(0, 4), remainder_count)
     destination: compress_destination + emitted_count.zext(index_width(vlen + 1))
-  def compress_beat = read_beat.updated(
+  def compress_beat = operands.updated(
+    ~address: beat_control.address,
+    ~destination_data: bits(0, 64),
+    ~carry_in: bits(0, 8).into(Mask(8)),
+    ~mask_enabled: beat_control.mask_enabled,
+    ~element_width: format,
     ~destination_first: compress_destination,
     ~last: source_final & !needs_flush,
     ~empty: !emits_write,
@@ -316,8 +322,8 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   when (gather_pipe.egress.valid & !clear):
     assert(gathered_read.beat.empty ||| results[0].valid, "vector_gather_data_matches_context")
   when (response.valid & !clear):
-    assert(read_beat.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
-    assert(singleton ||| mask_word ||| read_beat.empty ||| packing.legal, "vector_packed_read_is_legal")
+    assert(beat_control.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
+    assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
   when discard_compression:
     compress_context_valid <== Bool(#false)
   elsewhen capture_compression:
@@ -338,7 +344,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     compress_data <== authorized_compress_data
     compress_count <== authorized_compress_count
     compress_destination <== authorized_compress_destination
-    compress_flush <== compress_context_valid & compress_context.beat.last & (authorized_end === compress_context.beat.end) & authorized_compress_count.or_reduce()
+    compress_flush <== compress_context_valid & compress_context.beat_control.last & (authorized_end === compress_context.beat_control.end) & authorized_compress_count.or_reduce()
     flush_sequence <== authorized_sequence
   elsewhen (clear ||| begin_macro):
     compress_data <== bits(0, 64)
@@ -347,7 +353,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     compress_flush <== Bool(#false)
   elsewhen (response.valid & compress):
     compress_context <== response.bits
-    flush_sequence <== read_beat.sequence + bits(1, vector_sequence_width(vlen))
+    flush_sequence <== beat_control.sequence + bits(1, vector_sequence_width(vlen))
     compress_data <== post_compress_state.data
     compress_count <== post_compress_state.count
     compress_destination <== post_compress_state.destination

@@ -6,7 +6,7 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorScoreboard(slots :: Pow2Int):
+sync_circuit RV5StageVectorSlots(slots :: Pow2Int):
   def Tag = Bits(index_width(slots))
   interface reserve(Valid(Tag), ~role: consumer)
   interface accept(Valid(Tag), ~role: consumer)
@@ -38,4 +38,4 @@ sync_circuit RV5StageVectorScoreboard(slots :: Pow2Int):
       owners[slot] <== Bool(#false)
 
 export:
-  RV5StageVectorScoreboard
+  RV5StageVectorSlots

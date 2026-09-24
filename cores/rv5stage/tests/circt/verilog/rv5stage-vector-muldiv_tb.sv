@@ -337,7 +337,7 @@ module rv5stage_vector_muldiv_tb;
       vset(sew,0,3); emit('h0083d073); vec('h27, 24, 8, 16, 0, 2);
       signature('h008,address,0); address += 8;
     end
-    // Narrow-source widening uses the ordinary Decode/unroller/WB path and
+    // Narrow-source widening uses the ordinary Decode/sequencer/WB path and
     // stores through doubled EEW/EMUL. A taken branch must squash a younger op.
     for (int sew = 0; sew < 3; sew++) begin
       width = 8 << sew;
@@ -421,7 +421,7 @@ module rv5stage_vector_muldiv_tb;
       end
     end
     // Exercise the new cheap operations through Decode and real WB, not just
-    // the standalone unroller. Older branches must squash each new family.
+    // the standalone sequencer. Older branches must squash each new family.
     for (int sew = 0; sew < 4; sew++) begin
       width = 8 << sew; mask = '1 >> (64-width);
       vset(sew,16,3);

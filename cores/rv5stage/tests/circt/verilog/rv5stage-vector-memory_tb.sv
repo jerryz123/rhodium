@@ -59,7 +59,7 @@ module rv5stage_vector_memory_tb;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0, redirected_tail = 0;
   int certified_overlap = 0;
-  logic vector_unrolling, vector_certifying, scalar_overlap_lookup = 0;
+  logic vector_sequencing, vector_certifying, scalar_overlap_lookup = 0;
   int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
@@ -192,7 +192,7 @@ module rv5stage_vector_memory_tb;
         instruction_word <= program_words[int'(instruction_out.request.bits.address / 4) % 4096];
       end
       if (load_hit) begin
-        if (scalar_overlap_lookup && vector_unrolling && !vector_certifying) certified_overlap <= certified_overlap + 1;
+        if (scalar_overlap_lookup && vector_sequencing && !vector_certifying) certified_overlap <= certified_overlap + 1;
         if (returning && line_address == 64'h1540) overlapping_hits <= overlapping_hits + 1;
         hits <= hits + 1;
         warm_run <= warm_run + 1;
@@ -267,7 +267,7 @@ module rv5stage_vector_memory_tb;
           end
         end
       end
-      assert (cycles < 80000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d expected_pc=%h fetch=%h hits=%0d unrolling=%0b certifying=%0b", signatures,expected_count,expected_pc[signatures],instruction_out.request.bits.address,hits,vector_unrolling,vector_certifying);
+      assert (cycles < 80000) else $fatal(1, "vector memory timeout: signatures=%0d/%0d expected_pc=%h fetch=%h hits=%0d sequencing=%0b certifying=%0b", signatures,expected_count,expected_pc[signatures],instruction_out.request.bits.address,hits,vector_sequencing,vector_certifying);
     end
   end
 
@@ -296,7 +296,7 @@ module rv5stage_vector_memory_tb;
       end
       emit(vmem(0,sew,8,8));
       if (sew == 3) begin
-        // A warm scalar hit must proceed during certified vector unrolling,
+        // A warm scalar hit must proceed during certified vector sequencing,
         // not merely after the macro's last attempt was authorized.
         emit({12'b0,5'd10,3'b011,5'd7,7'h03});
       end
@@ -619,10 +619,10 @@ module rv5stage_vector_memory_tb;
 endmodule
 
 // Observe the public macro lifetime rather than generated internal registers.
-module vector_memory_lifetime_observer(input logic unrolling, certification_pending);
+module vector_memory_lifetime_observer(input logic sequencing, certification_pending);
   always_comb begin
-    rv5stage_vector_memory_tb.vector_unrolling = unrolling;
+    rv5stage_vector_memory_tb.vector_sequencing = sequencing;
     rv5stage_vector_memory_tb.vector_certifying = certification_pending;
   end
 endmodule
-bind RV5StageVectorPipeline vector_memory_lifetime_observer lifetime_observer(.unrolling(unrolling), .certification_pending(certification_pending));
+bind RV5StageVectorPipeline vector_memory_lifetime_observer lifetime_observer(.sequencing(sequencing), .certification_pending(certification_pending));

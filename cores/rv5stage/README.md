@@ -22,7 +22,7 @@ a flat 64-bit register bank with three general reads and a dedicated `v0` mask
 shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One macro travels through the scalar pipeline
 as a side-effect-free launch token, then WB starts a separate
-[`vector.rhdl`](vector.rhdl) pipeline containing the unroller,
+[`vector.rhdl`](vector.rhdl) pipeline containing the sequencer,
 SIMD datapath, and vector bank. The allocated macro unrolls autonomously through
 local feed-forward execution and memory stages; scalar stages do not carry its
 micro-ops. Compute, including owner-scoped reductions, hands the sole sequencer
@@ -192,7 +192,7 @@ data operands. The guarantee includes data in masked-off, pre-`vstart`, and tail
 elements. `vl`, `vtype`, the execution mask, immediates, and the specification's
 explicit gather/slide index operands remain control inputs and may affect
 latency. The packed integer datapath is combinational; multiply uses the same
-profile-selected fixed-latency service qualified by Zkt; the unroller schedules
+profile-selected fixed-latency service qualified by Zkt; the sequencer schedules
 from decoded metadata and architectural vector control rather than result data.
 
 The contract covers only the instructions named by Zvkt. In particular, vector
@@ -455,7 +455,7 @@ flowchart LR
     FP -->|"integer result"| COMPLETE
     FP --> FPR["FP register file"]
 
-    WB -->|"allocate vector macro"| VECTOR["Vector engine<br/>unroller + SIMD + VRF<br/>memory + completion scoreboard"]
+    WB -->|"allocate vector macro"| VECTOR["Vector engine<br/>sequencer + SIMD + VRF<br/>memory + completion scoreboard"]
     VECTOR -->|"local memory lookup"| HIT
     VECTOR -->|"accepted memory transaction"| LSU
     LSU -->|"tagged vector response"| VECTOR
