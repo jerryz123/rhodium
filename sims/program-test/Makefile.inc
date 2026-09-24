@@ -17,8 +17,8 @@ BENCHMARK_MODE ?= target
 NATIVE_SOFTWARE_SOCS := single single-core-rv5stage-soc single-core-spike-soc
 SOFTWARE_SOC ?= single
 SOFTWARE_CORE ?= rv5stage spike
-SMOKE_SOCS := mini tiled mini-rv5stage-soc tiled-rv5stage-soc
-TILED_MT_SOCS := tiled tiled-rv5stage-soc
+SMOKE_SOCS := mini tiled mini-rv5stage-soc mini-spike-soc tiled-rv5stage-soc tiled-spike-soc
+TILED_MT_SOCS := tiled tiled-rv5stage-soc tiled-spike-soc
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
@@ -99,8 +99,8 @@ benchmark-elfs: program-target
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 tiled-mt-benchmark-elfs: program-target
-	@test "$(CORE)" = rv5stage && test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
-	  (echo 'Multihart benchmarks require the tiled RV5Stage SoC' >&2; exit 2)
+	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	  (echo 'Multihart benchmarks require a tiled SoC' >&2; exit 2)
 	@set -e; for hart_count in $(TILED_MT_HART_COUNTS); do \
 	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
 	  mkdir -p "$$output"; \

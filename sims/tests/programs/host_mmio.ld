@@ -1,4 +1,4 @@
-/* Keeps device ELF segments exact-sized so FESVR must preserve their MMIO widths. */
+/* Keeps SoC device ELF segments exact-sized so FESVR preserves their MMIO widths. */
 /* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)

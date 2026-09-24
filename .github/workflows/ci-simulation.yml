@@ -1,4 +1,4 @@
-# Runs SoC integration, OpenSBI qualification, and tiled-memory simulation.
+# Runs each SoC product independently plus OpenSBI and stalled-memory qualification.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI simulation
@@ -14,13 +14,20 @@ on:
         description: Pinned Rhombus package checksum.
         required: true
         type: string
+      matrix:
+        description: Six-product simulation matrix selected by the CI planner.
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
   integration:
-    name: SoC simulation harnesses
+    name: ${{ matrix.soc }} harness and smoke
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -52,89 +59,90 @@ jobs:
       - name: Install FESVR
         uses: ./.github/actions/setup-fesvr
       - name: Verify SRAM mapping package
+        if: matrix.soc == 'mini-rv5stage-soc'
         run: make -C sram test
       - name: Compile Verilator DPI adapter
+        if: matrix.soc == 'single-core-rv5stage-soc'
         run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
       - name: Test host adapters
+        if: matrix.soc == 'single-core-rv5stage-soc'
         run: make -C sims transport-test arch-test-adapter-test program-test-adapter-test
-      - name: Download exact SingleCoreRV5StageSoC simulator
+      - name: Download exact product simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
-      - name: Download exact SingleCoreSpikeSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: single-core-spike-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-spike-soc
-      - name: Restore simulator executable permission
+          name: ${{ matrix.soc }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ matrix.soc }}
+      - name: Verify exact product and target descriptor
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-      - name: Build reusable TiledRV5StageSoC simulator
-        run: make -C sims simulator SOC=tiled-rv5stage-soc
-      - name: Execute reusable single-core and tiled SoCs through standard FESVR flow
+          chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" \
+            --soc "$SOC" --target "$RUNNER_TEMP/$SOC/program-target.json"
+      - name: Exercise FESVR, boot register, MMIO, and UART
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
-          make -C sims smoke SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims smoke SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims smoke SOC=tiled-rv5stage-soc
-      - name: Verify exact host MMIO on every supported SoC
-        run: |
-          make -C sims host-mmio-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims host-mmio-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims host-mmio-test SOC=mini-rv5stage-soc
-          make -C sims host-mmio-test SOC=tiled-rv5stage-soc
-      - name: Boot distinct ELF entries through each SoC boot register
-        run: |
-          make -C sims boot-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims boot-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims boot-test SOC=mini-rv5stage-soc
-          make -C sims boot-test SOC=tiled-rv5stage-soc
-      - name: Exchange binary UART traffic through each SoC PTY
-        run: |
-          make -C sims uart-pty-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims uart-pty-test SOC=single-core-spike-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
-          make -C sims uart-pty-test SOC=mini-rv5stage-soc
-          make -C sims uart-pty-test SOC=tiled-rv5stage-soc
+          simulator="$RUNNER_TEMP/$SOC/VTestDriver"
+          make -C sims smoke SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
+          make -C sims host-mmio-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
+          make -C sims boot-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
+          make -C sims uart-pty-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
       - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
+        if: matrix.soc == 'single-core-rv5stage-soc'
         run: make -C sims zihintntl-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+      - name: Qualify RV5Stage atomics and cache-block zeroing
+        if: matrix.soc == 'single-core-rv5stage-soc'
+        run: |
+          simulator="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+          make -C sims lrsc-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$simulator"
+          make -C sims zicboz-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$simulator"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
+        if: matrix.soc == 'mini-rv5stage-soc'
         run: make -C vlsi/sim smoke
       - name: Prepare upstream ISA sources
-        run: make -C sims program-test-setup
-      - name: Run small MiniRV5StageSoC and TiledRV5StageSoC software suites
+        if: matrix.shape != 'single'
+        run: make -C sims isa-setup
+      - name: Run capability-filtered ISA smoke
+        if: matrix.shape != 'single'
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
-          status=0
-          make -C sims isa-smoke SOC=mini-rv5stage-soc PROGRAM_JOBS=2 || status=1
-          make -C sims isa-smoke SOC=tiled-rv5stage-soc PROGRAM_JOBS=2 || status=1
-          make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc PROGRAM_JOBS=1 || status=1
-          exit "$status"
+          make -C sims isa-smoke SOC="$SOC" PROGRAM_JOBS=2 \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
+      - name: Run 2-, 4-, and 8-hart benchmarks
+        # Tiled Spike remains manually runnable until its full manifests fit a CI budget.
+        if: matrix.soc == 'tiled-rv5stage-soc'
+        env:
+          SOC: ${{ matrix.soc }}
+        run: |
+          make -C sims tiled-mt-benchmark-test SOC="$SOC" PROGRAM_JOBS=1 \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
       - name: Package completed ISA smoke ELFs
-        if: always()
+        if: always() && matrix.shape != 'single'
         run: |
-          shopt -s nullglob
-          for manifest in /tmp/rhodium-program-tests/*/isa-smoke/manifest.json; do
-            soc="$(basename "$(dirname "$(dirname "$manifest")")")"
+          manifest="/tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/manifest.json"
+          if [[ -f "$manifest" ]]; then
             python3 sims/program-test/archive.py --manifest "$manifest" \
-              --archive "$RUNNER_TEMP/isa-smoke-elfs/$soc.tar.gz"
-          done
-      - name: Publish MiniRV5StageSoC and TiledRV5StageSoC software results
-        if: always()
+              --archive "$RUNNER_TEMP/isa-smoke-elfs/${{ matrix.soc }}.tar.gz"
+          fi
+      - name: Publish product smoke and multihart results
+        if: always() && matrix.shape != 'single'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: mini-tiled-isa-smoke-${{ github.sha }}
+          name: ${{ matrix.soc }}-isa-smoke-${{ github.sha }}
           path: |
-            /tmp/rhodium-program-tests/*/isa-smoke/target.json
-            /tmp/rhodium-program-tests/*/isa-smoke/manifest.json
-            /tmp/rhodium-program-tests/*/isa-smoke/build.log
-            /tmp/rhodium-program-tests/*/isa-smoke/results
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/manifest.json
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/instruction-report.json
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/build.log
-            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/results
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/target.json
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/manifest.json
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/build.log
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/results
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/mt-benchmark/*-harts/manifest.json
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/mt-benchmark/*-harts/instruction-report.json
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/mt-benchmark/*-harts/build.log
+            /tmp/rhodium-program-tests/${{ matrix.soc }}/mt-benchmark/*-harts/results
             ${{ runner.temp }}/isa-smoke-elfs
           if-no-files-found: warn
           retention-days: 7
@@ -142,8 +150,8 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: soc-smoke-elfs-${{ github.sha }}
-          path: /tmp/rhodium-sims/**/*.elf
+          name: ${{ matrix.soc }}-smoke-elfs-${{ github.sha }}
+          path: /tmp/rhodium-sims/${{ matrix.soc }}/*.elf
           if-no-files-found: warn
           retention-days: 7
 
@@ -255,5 +263,5 @@ jobs:
           name: tiled-memory-${{ github.sha }}
           path: |
             ${{ runner.temp }}/tiled-memory.log
-            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf
+            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf
           retention-days: 7

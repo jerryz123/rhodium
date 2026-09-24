@@ -116,6 +116,21 @@ def materialize_multihart_source(source, destination, hart_count, benchmarks):
     crt.write_text(text.replace(marker,
                                 '  # Rhodium build overlay selects the target hart count\n'
                                 f'  li a1, {hart_count}\n'))
+    syscalls = generated / 'common/syscalls.c'
+    source_text = syscalls.read_text()
+    exit_marker = 'void exit(int code)\n{\n  tohost_exit(code);\n}\n'
+    if source_text.count(exit_marker) != 1:
+        raise ValueError('upstream multihart exit runtime changed')
+    collective_exit = (f'static volatile int rhodium_exit_count;\n'
+                       'static volatile int rhodium_exit_error;\n\n'
+                       'void exit(int code)\n{\n'
+                       '  if (code)\n'
+                       '    __atomic_store_n(&rhodium_exit_error, code, __ATOMIC_RELEASE);\n'
+                       '  int completed = __atomic_add_fetch(&rhodium_exit_count, 1, __ATOMIC_ACQ_REL);\n'
+                       f'  if (completed == {hart_count})\n'
+                       '    tohost_exit(__atomic_load_n(&rhodium_exit_error, __ATOMIC_ACQUIRE));\n'
+                       '  while (1);\n}\n')
+    syscalls.write_text(source_text.replace(exit_marker, collective_exit))
     return generated
 
 
@@ -261,7 +276,7 @@ def main():
                     required = ', '.join(sorted(MULTIHART_BENCHMARK_REQUIREMENTS[benchmark]))
                     exclusions[benchmark] = f'Requires target extensions: {required}.'
         else:
-            exclusions = {'mt-*': 'Covered by the TiledRV5StageSoC multihart benchmark selection.',
+            exclusions = {'mt-*': 'Covered by the tiled SoC multihart benchmark selection.',
                           'pmp': 'Requires PMP.'}
             if args.benchmark_mode != 'target' or 'v' not in target['extensions']:
                 exclusions['vec-*'] = 'Requires target-native V compilation.'

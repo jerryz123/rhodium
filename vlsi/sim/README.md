@@ -139,7 +139,7 @@ all generated files stay under `vlsi/build/sim/mini-rv5stage-soc/sky130/`:
 | --- | --- |
 | Elaboration and selection | `soc-harness.mlir`, `soc-harness-mapped.mlir`, `memory-sites.json` |
 | Mapping and RTL | `memory-wrappers.sv`, `memory-manifest.json`, `SoCHarness.sv` |
-| Simulation | `obj/VTestDriver`, plus `rv5stage_smoke.elf` for `smoke` |
+| Simulation | `obj/VTestDriver`, plus `smoke.elf` for `smoke` |
 
 Stamp files in the same directory track successful mapping stages. These are
 build products, not checked-in inputs.

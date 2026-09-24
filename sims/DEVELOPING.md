@@ -26,7 +26,10 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE)` selection has an isolated build directory. The host emitter
+Each `(SOC, CORE)` selection has an isolated build directory. CI names all six
+products explicitly and publishes one exact-commit simulator and target
+descriptor per product. Software-only changes build just the two Single products;
+simulation changes build all six. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
@@ -310,7 +313,7 @@ current coverage limits.
 
 `make -C sims lrsc-test SOC=single-core-rv5stage-soc`, `SOC=mini-rv5stage-soc`, and `SOC=tiled-rv5stage-soc` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
-`tests/programs/rv5stage_lrsc.S` runs six constrained-loop placements, covering
+`tests/programs/lrsc.S` runs six constrained-loop placements, covering
 LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
 loop contains sixteen contiguous instructions including its retry branch.
 Setup, barriers, function returns, signatures, and HTIF exit are outside the
@@ -404,14 +407,16 @@ reference hart. Both single-core SoCs own independent ACT configurations:
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-MiniRV5StageSoC and TiledSoC use capability-filtered ISA smoke. TiledRV5StageSoC
-additionally owns the focused upstream multihart benchmark selection. The
+Both Mini and both Tiled products use capability-filtered ISA smoke. Both
+Tiled products additionally own the focused upstream multihart benchmark selection. The
 adapter materializes a private build-tree view of the pinned benchmark sources
 for each supported two-, four-, or eight-hart run, changes only the copied
-`common/crt.S` hart-count constant, and records the selected boot subset in each
+`common/crt.S` hart-count constant and `common/syscalls.c` exit aggregation,
+and records the selected boot subset in each
 test's manifest entry while retaining the complete physical target for simulator
-attestation. Keep the source submodule pristine and make the exact upstream
-marker fail closed when its runtime changes. This
+attestation. Success requires all selected harts to reach `exit`, while any
+nonzero exit is reported as failure. Keep the source submodule pristine and
+make both exact upstream markers fail closed when their runtimes change. This
 coverage assignment is test policy, not hardware metadata; do not add a suite
 category to an SoC or core configuration.
 `ISA_GROUPS` maps target ISA extensions to upstream groups; full selection also
@@ -427,12 +432,13 @@ upstream virtual environment owns its own stack and page tables. Keep its
 fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
-The simulation CI job reuses its downloaded SingleCoreRV5StageSoC and
-SingleCoreSpikeSoC executables for generic platform checks, and its
-MiniRV5StageSoC and TiledSoC executables for `isa-smoke`. It then runs the
-focused multihart benchmarks on the tiled executable.
-It attempts all three selections even if one fails and uploads their independent
-results. Changes to the adapter or upstream ISA sources must select that job.
+The simulation CI matrix downloads and verifies one exact-commit simulator and
+target descriptor per product. Every product runs platform checks, both Mini
+and Tiled profiles run `isa-smoke`, and Tiled RV5Stage runs multihart
+benchmarks. Tiled Spike has the same local multihart target but stays out of
+the required CI step until all three hart counts complete within a justified
+runtime budget. The matrix disables fail-fast and uploads independent results.
+Changes to the adapter or upstream ISA sources must select that job.
 
 `program-test/run.py` owns ISA, benchmark, CoreMark, Embench-IoT, and Bringup-Bench process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
@@ -581,7 +587,7 @@ line coherently after the program exits:
 make -C sims zicboz-test SOC=single-core-rv5stage-soc
 ```
 
-`zihintntl-test` runs `tests/programs/rv5stage_zihintntl.S` through the RV5Stage
+`zihintntl-test` runs `tests/programs/zihintntl.S` through the RV5Stage
 specialization of the shared single-core harness only. The payload's conflict bank is intentionally
 matched to SingleCoreRV5StageSoC's 64-set, four-way L1D profile; changing that profile
 requires revisiting this test rather than silently reusing it for another SoC.

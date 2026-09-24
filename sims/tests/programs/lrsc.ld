@@ -1,4 +1,4 @@
-/* Places constrained loops and shared state, with Sv39 tables bounded by the selected SoC's RAM. */
+/* Places LR/SC loops and shared state, with Sv39 tables bounded by the selected SoC's RAM. */
 /* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)

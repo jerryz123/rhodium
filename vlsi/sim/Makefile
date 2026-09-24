@@ -54,7 +54,7 @@ MAPPING_STAMP := $(BUILD_DIR)/memory-map.stamp
 SOC_VERILOG := $(BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(BUILD_DIR)/obj
 SIMULATOR_BINARY := $(SOC_OBJECT_DIR)/VTestDriver
-SMOKE_BINARY := $(BUILD_DIR)/rv5stage_smoke.elf
+SMOKE_BINARY := $(BUILD_DIR)/smoke.elf
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
 .PHONY: all setup mapping mapped-rtl simulator run smoke
@@ -154,7 +154,7 @@ $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
 		-CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -std=c++20" \
 		-LDFLAGS "$(FESVR_LIBRARY) -pthread"
 
-$(SMOKE_BINARY): $(SIMS_DIR)/tests/programs/rv5stage_smoke.S \
-		$(SIMS_DIR)/tests/programs/rv5stage_smoke.ld | $(BUILD_DIR)
+$(SMOKE_BINARY): $(SIMS_DIR)/tests/programs/smoke.S \
+		$(SIMS_DIR)/tests/programs/smoke.ld | $(BUILD_DIR)
 	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
-		-Wl,--build-id=none -Wl,-T,$(SIMS_DIR)/tests/programs/rv5stage_smoke.ld $< -o $@
+		-Wl,--build-id=none -Wl,-T,$(SIMS_DIR)/tests/programs/smoke.ld $< -o $@

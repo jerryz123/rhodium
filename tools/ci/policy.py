@@ -68,3 +68,11 @@ CIRCT_CORE_CHECKS = frozenset(
 )
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup")
 SINGLE_CORE_SOCS = ("single-core-rv5stage-soc", "single-core-spike-soc")
+SIMULATOR_PRODUCTS = (
+    ("mini-rv5stage-soc", "mini", "rv5stage"),
+    ("mini-spike-soc", "mini", "spike"),
+    ("single-core-rv5stage-soc", "single", "rv5stage"),
+    ("single-core-spike-soc", "single", "spike"),
+    ("tiled-rv5stage-soc", "tiled", "rv5stage"),
+    ("tiled-spike-soc", "tiled", "spike"),
+)

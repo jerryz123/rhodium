@@ -1,4 +1,4 @@
-// Checks translated NTL load non-allocation and dirty-data preservation through real SoC/FESVR execution.
+// Checks Zihintntl load non-allocation and dirty-data preservation through SoC/FESVR execution.
 // SPDX-License-Identifier: Apache-2.0
 .option norvc
 

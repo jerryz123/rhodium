@@ -1,4 +1,4 @@
-// Checks BootROM handoff, the boot register, and UART-to-PLIC claim/completion through HTIF.
+// Checks SoC BootROM handoff, the boot register, and UART-to-PLIC claim/completion through HTIF.
 // SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start

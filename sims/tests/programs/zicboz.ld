@@ -1,4 +1,4 @@
-/* Places block-zero code, its coherent signature, and HTIF mailboxes in separate cache blocks. */
+/* Places Zicboz code, its coherent signature, and HTIF mailboxes in separate cache blocks. */
 /* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)

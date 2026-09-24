@@ -98,14 +98,16 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>RV5Stage and Spike exact artifacts"]
-    Simulators --> Simulation["Reusable simulation workflow<br/>harnesses, ISA smoke, OpenSBI,<br/>and tiled-memory stress"]
+    Compile --> Simulators["Reusable simulator workflow<br/>six exact products for simulation;<br/>two Single products for software only"]
+    Simulators --> Simulation["Per-product simulation jobs<br/>harness checks and Mini/Tiled ISA smoke;<br/>Tiled RV5Stage multihart suite"]
+    Simulators --> Qualification["OpenSBI and RV5Stage<br/>stalled-memory jobs"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
+    Qualification --> Gate
     Programs --> Gate
     ActRun --> Gate
 ```
@@ -138,9 +140,11 @@ qualifies both single-core products under the simulation change selection, and
 publishes its diagnostics. Both profiles select their own ACT generation and
 four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
-adapter/source changes select the owning lane. MiniRV5StageSoC and
-TiledSoC remain capability-filtered smoke targets in the simulation job
-and do not receive additional full-suite matrices. ACT configuration
+adapter/source changes select the owning lane. Both Mini and both Tiled
+products receive capability-filtered ISA smoke; Tiled RV5Stage runs the
+two-, four-, and eight-hart benchmark manifests in CI, while Tiled Spike's
+locally runnable equivalent awaits runtime qualification. None receives the full
+single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing

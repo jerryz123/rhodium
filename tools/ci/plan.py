@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SINGLE_CORE_SOCS
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS
 
 
 def matches(path, *patterns):
@@ -76,6 +76,14 @@ class Selection:
             return
         elif matches(path, ".github/workflows/*", ".github/actions/*", "tools/ci/*"):
             self.all()
+        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py",
+                     "sw/build/build-coremark.py", "sw/build/build-embench.py",
+                     "sw/build/build-bringup-bench.py", "sw/coremark", "sw/coremark/*",
+                     "sw/coremark-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*",
+                     "sw/embench-iot-riscv-baremetal/*", "sw/bringup-bench",
+                     "sw/bringup-bench/*", "sw/bringup-bench-riscv-baremetal/*",
+                     "sw/bringup-bench-patches/*", "sw/tests/test_bringup_bench.py"):
+            pass
         elif matches(path, "sims/program-test/*", "sims/tests/test_program_test.py", "sw/build/*", "sw/coremark*", "sw/embench-iot*", "sw/bringup-bench*", "sw/tests/test_program_build.py", "sw/tests/test_bringup_bench.py", "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "tools/install-riscv-toolchain.sh"):
             self.simulation = True
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
@@ -198,12 +206,18 @@ class Selection:
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch
+        products = (SIMULATOR_PRODUCTS if self.simulation else
+                    tuple(product for product in SIMULATOR_PRODUCTS if product[0] in SINGLE_CORE_SOCS))
         return {
             "run_compile": run_checks or run_simulator,
             "run_checks": run_checks,
             "checks_matrix": matrix,
             "run_simulator": run_simulator,
+            "simulator_matrix": {"include": [dict(soc=soc, shape=shape, core=core)
+                                             for soc, shape, core in products]} if run_simulator else {"include": []},
             "run_simulation": self.simulation,
+            "simulation_matrix": {"include": [dict(soc=soc, shape=shape, core=core)
+                                            for soc, shape, core in SIMULATOR_PRODUCTS]} if self.simulation else {"include": []},
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,

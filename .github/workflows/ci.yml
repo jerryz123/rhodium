@@ -105,6 +105,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
     uses: ./.github/workflows/ci-simulator.yml
     with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).simulator_matrix) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
@@ -114,6 +115,7 @@ jobs:
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
     uses: ./.github/workflows/ci-simulation.yml
     with:
+      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).simulation_matrix) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
-from .policy import CHECKS, NATIVE_SUITES, SINGLE_CORE_SOCS
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -63,6 +63,25 @@ class PlanTest(unittest.TestCase):
         plan = self.plan("sw/build/build-coremark.py")
         expected = [(soc, suite) for suite in ("coremark", "coremark_scalar") for soc in SINGLE_CORE_SOCS]
         self.assertEqual(program_entries(plan), expected)
+
+    def test_simulation_builds_and_runs_all_six_shape_core_products(self):
+        plan = self.plan("sims/Makefile")
+        expected = [dict(soc=soc, shape=shape, core=core)
+                    for soc, shape, core in SIMULATOR_PRODUCTS]
+        self.assertEqual(plan["simulator_matrix"]["include"], expected)
+        self.assertEqual(plan["simulation_matrix"]["include"], expected)
+        self.assertEqual({entry["soc"] for entry in expected},
+                         {"mini-rv5stage-soc", "mini-spike-soc", "single-core-rv5stage-soc",
+                          "single-core-spike-soc", "tiled-rv5stage-soc", "tiled-spike-soc"})
+
+    def test_software_only_builds_only_existing_single_core_products(self):
+        for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                self.assertEqual([entry["soc"] for entry in plan["simulator_matrix"]["include"]],
+                                 list(SINGLE_CORE_SOCS))
+                self.assertEqual(plan["simulation_matrix"]["include"], [])
+                self.assertFalse(plan["run_simulation"])
 
     def test_shared_program_build_inputs_select_every_suite(self):
         for path in ("sw/build/program_target.py", "sw/tests/test_program_build.py"):
@@ -216,6 +235,23 @@ class PlanTest(unittest.TestCase):
                 self.assertIn(f'echo "{variable}=${variable}" >> "$GITHUB_ENV"', verify_step)
         self.assertIn("tools/racket-artifact.sh verify", verify_step)
         self.assertIn('echo "RHODIUM_PRECOMPILED=1" >> "$GITHUB_ENV"', verify_step)
+
+    def test_product_workflows_follow_shape_policy(self):
+        root = (REPO / ".github/workflows/ci.yml").read_text()
+        build = (REPO / ".github/workflows/ci-simulator.yml").read_text()
+        simulation = (REPO / ".github/workflows/ci-simulation.yml").read_text()
+        software = (REPO / ".github/workflows/ci-software.yml").read_text()
+        self.assertIn(".simulator_matrix", root)
+        self.assertIn(".simulation_matrix", root)
+        self.assertIn("matrix: ${{ fromJSON(inputs.matrix) }}", build)
+        self.assertIn("matrix: ${{ fromJSON(inputs.matrix) }}", simulation)
+        self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", build)
+        self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", simulation)
+        self.assertIn("if: matrix.shape != 'single'", simulation)
+        self.assertIn("if: matrix.soc == 'tiled-rv5stage-soc'", simulation)
+        self.assertIn("if: matrix.soc == 'single-core-rv5stage-soc'", simulation)
+        self.assertIn("tiled-memory-test", simulation)
+        self.assertIn("configuration: [single-core-rv5stage-soc, single-core-spike-soc]", software)
 
 
 if __name__ == "__main__":

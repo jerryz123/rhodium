@@ -1,4 +1,4 @@
-// Checks every block-zero address offset and exposes the final block to coherent FESVR signature reads.
+// Checks Zicboz block-zero offsets and exposes the final block to coherent FESVR signature reads.
 // SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start

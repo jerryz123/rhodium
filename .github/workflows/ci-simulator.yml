@@ -1,4 +1,4 @@
-# Builds and attests both shared single-core simulator artifacts once.
+# Builds and attests the selected SoC/core simulator products for exact-commit reuse.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI simulator
@@ -14,62 +14,22 @@ on:
         description: Pinned Rhombus package checksum.
         required: true
         type: string
+      matrix:
+        description: Product matrix selected by the CI planner.
+        required: true
+        type: string
 
 permissions:
   contents: read
 
 jobs:
-  rv5stage:
-    name: Build shared SingleCoreRV5StageSoC simulator
+  build:
+    name: Build ${{ matrix.soc }} simulator
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(inputs.matrix) }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: ${{ inputs.racket-version }}
-      - name: Restore exact Rhodium bytecode
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: ${{ inputs.racket-version }}
-          rhombus-checksum: ${{ inputs.rhombus-checksum }}
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - name: Install Verilator
-        uses: ./.github/actions/setup-verilator
-      - name: Install CIRCT
-        uses: ./.github/actions/setup-circt
-      - name: Install FESVR
-        uses: ./.github/actions/setup-fesvr
-      - name: Build and attest simulator
-        run: |
-          make -C sims simulator program-target SOC=single-core-rv5stage-soc
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver --soc single-core-rv5stage-soc \
-            --target /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
-          ldd /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
-      - name: Publish exact simulator
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: |
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/VTestDriver.json
-            /tmp/rhodium-sims/single-core-rv5stage-soc/obj/program-target.json
-          if-no-files-found: error
-          retention-days: 3
-
-  spike:
-    name: Build shared SingleCoreSpikeSoC simulator
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -96,22 +56,28 @@ jobs:
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
-      - name: Build, test, and attest simulator
+      - name: Build and attest simulator
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
-          make -C sims simulator program-target SOC=single-core-spike-soc
+          make -C sims simulator program-target SOC="$SOC"
+          python3 sims/program-test/artifact.py record \
+            --binary "/tmp/rhodium-sims/$SOC/obj/VTestDriver" --soc "$SOC" \
+            --target "/tmp/rhodium-sims/$SOC/obj/program-target.json"
+          ldd "/tmp/rhodium-sims/$SOC/obj/VTestDriver"
+      - name: Test Spike DPI integration
+        if: matrix.core == 'spike'
+        run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
-          python3 sims/program-test/artifact.py record --binary /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver --soc single-core-spike-soc \
-            --target /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
-          ldd /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
-      - name: Publish exact simulator
+      - name: Publish exact simulator and target descriptor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: single-core-spike-soc-${{ github.sha }}
+          name: ${{ matrix.soc }}-${{ github.sha }}
           path: |
-            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver
-            /tmp/rhodium-sims/single-core-spike-soc/obj/VTestDriver.json
-            /tmp/rhodium-sims/single-core-spike-soc/obj/program-target.json
+            /tmp/rhodium-sims/${{ matrix.soc }}/obj/VTestDriver
+            /tmp/rhodium-sims/${{ matrix.soc }}/obj/VTestDriver.json
+            /tmp/rhodium-sims/${{ matrix.soc }}/obj/program-target.json
           if-no-files-found: error
           retention-days: 3

@@ -27,7 +27,9 @@ CIRCT_OPT ?= $(REPO_DIR)/.tools/firtool-1.155.0/bin/circt-opt
 HARNESS_SELECTOR_single-core-rv5stage-soc := single rv5stage
 HARNESS_SELECTOR_single-core-spike-soc := single spike
 HARNESS_SELECTOR_mini-rv5stage-soc := mini rv5stage
+HARNESS_SELECTOR_mini-spike-soc := mini spike
 HARNESS_SELECTOR_tiled-rv5stage-soc := tiled rv5stage
+HARNESS_SELECTOR_tiled-spike-soc := tiled spike
 HARNESS_SELECTOR_mini := mini $(CORE)
 HARNESS_SELECTOR_single := single $(CORE)
 HARNESS_SELECTOR_tiled := tiled $(CORE)
@@ -36,6 +38,8 @@ HARNESS_EMITTER := $(REPO_DIR)/sims/emit-soc-harness.rhm
 SOC_DPI_SOURCE_single-core-rv5stage-soc := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc $(CHI_DPI_DIR)/chi_memory.cc
 SOC_DPI_SOURCE_single-core-spike-soc := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc
 SOC_DPI_SOURCE_tiled-rv5stage-soc := $(SOC_DPI_SOURCE_single-core-rv5stage-soc)
+SOC_DPI_SOURCE_mini-spike-soc := $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc
+SOC_DPI_SOURCE_tiled-spike-soc := $(SOC_DPI_SOURCE_single-core-spike-soc)
 SOC_DPI_SOURCE_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc)
 SOC_DPI_SOURCE_single := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SOC_DPI_SOURCE_mini)
 SOC_DPI_SOURCE_tiled := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SOC_DPI_SOURCE_mini)
@@ -43,6 +47,8 @@ SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC)) $(UART_DPI_DIR)/uart_dpi.cc
 SOC_DPI_HEADER_single-core-rv5stage-soc := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h $(CHI_DPI_DIR)/chi_memory.h $(VERILATOR_DIR)/chi_image_memory.h
 SOC_DPI_HEADER_single-core-spike-soc := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h
 SOC_DPI_HEADER_tiled-rv5stage-soc := $(SOC_DPI_HEADER_single-core-rv5stage-soc)
+SOC_DPI_HEADER_mini-spike-soc := $(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h
+SOC_DPI_HEADER_tiled-spike-soc := $(SOC_DPI_HEADER_single-core-spike-soc)
 SOC_DPI_HEADER_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h)
 SOC_DPI_HEADER_single := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
 SOC_DPI_HEADER_tiled := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
@@ -51,17 +57,23 @@ SPIKE_DPI_CPPFLAGS := -I$(SPIKE_DPI_DIR) -I$(FESVR_PREFIX)/include/riscv -iquote
 SOC_DPI_CFLAGS_single-core-rv5stage-soc := -DRHODIUM_CHI_MEMORY
 SOC_DPI_CFLAGS_single-core-spike-soc := -DRHODIUM_CHI_MEMORY $(SPIKE_DPI_CPPFLAGS)
 SOC_DPI_CFLAGS_tiled-rv5stage-soc := -DRHODIUM_CHI_MEMORY
+SOC_DPI_CFLAGS_mini-spike-soc := $(SPIKE_DPI_CPPFLAGS)
+SOC_DPI_CFLAGS_tiled-spike-soc := $(SOC_DPI_CFLAGS_single-core-spike-soc)
 SOC_DPI_CFLAGS_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_CPPFLAGS))
 SOC_DPI_CFLAGS_single := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
 SOC_DPI_CFLAGS_tiled := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
 SOC_DPI_CFLAGS := $(SOC_DPI_CFLAGS_$(SOC))
 SOC_DPI_DEPENDENCY_single-core-spike-soc = $(SPIKE_LIBRARY)
+SOC_DPI_DEPENDENCY_mini-spike-soc = $(SPIKE_LIBRARY)
+SOC_DPI_DEPENDENCY_tiled-spike-soc = $(SPIKE_LIBRARY)
 SOC_DPI_DEPENDENCY_mini = $(if $(filter spike,$(CORE)),$(SPIKE_LIBRARY))
 SOC_DPI_DEPENDENCY_single = $(SOC_DPI_DEPENDENCY_mini)
 SOC_DPI_DEPENDENCY_tiled = $(SOC_DPI_DEPENDENCY_mini)
 SOC_DPI_DEPENDENCY = $(SOC_DPI_DEPENDENCY_$(SOC))
 SOC_DPI_LDFLAGS_single-core-spike-soc := -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib -lriscv -ldisasm -lsoftfloat
 SOC_DPI_LDFLAGS_mini := $(if $(filter spike,$(CORE)),$(SOC_DPI_LDFLAGS_single-core-spike-soc))
+SOC_DPI_LDFLAGS_mini-spike-soc := $(SOC_DPI_LDFLAGS_single-core-spike-soc)
+SOC_DPI_LDFLAGS_tiled-spike-soc := $(SOC_DPI_LDFLAGS_single-core-spike-soc)
 SOC_DPI_LDFLAGS_single := $(SOC_DPI_LDFLAGS_mini)
 SOC_DPI_LDFLAGS_tiled := $(SOC_DPI_LDFLAGS_mini)
 SOC_DPI_LDFLAGS := $(SOC_DPI_LDFLAGS_$(SOC))
@@ -101,17 +113,19 @@ SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
 SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
-SMOKE_BINARY := $(SOC_BUILD_DIR)/rv5stage_smoke.elf
-UART_PTY_BINARY := $(SOC_BUILD_DIR)/rv5stage_uart_pty.elf
-TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/rv5stage_tiled_memory.elf
-BOOT_BINARIES := $(SOC_BUILD_DIR)/rv5stage_boot_2000.elf $(SOC_BUILD_DIR)/rv5stage_boot_3000.elf
-HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/rv5stage_host_mmio.elf
-HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_host_mmio.signature
-ZICBOZ_BINARY := $(SOC_BUILD_DIR)/rv5stage_zicboz.elf
-ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zicboz.signature
-ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/rv5stage_zihintntl.elf
-ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zihintntl.signature
-LRSC_BINARIES := $(SOC_BUILD_DIR)/rv5stage_lrsc_0.elf $(SOC_BUILD_DIR)/rv5stage_lrsc_1.elf
+SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
+SMOKE_MARCH := $(if $(filter 1,$(TRACE)),rv64ic_zicsr,rv64i_zicsr)
+SMOKE_CPPFLAGS := $(if $(filter 1,$(TRACE)),-DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1)
+UART_PTY_BINARY := $(SOC_BUILD_DIR)/uart_pty.elf
+TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/tiled_memory.elf
+BOOT_BINARIES := $(SOC_BUILD_DIR)/boot_2000.elf $(SOC_BUILD_DIR)/boot_3000.elf
+HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/host_mmio.elf
+HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/host_mmio.signature
+ZICBOZ_BINARY := $(SOC_BUILD_DIR)/zicboz.elf
+ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/zicboz.signature
+ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/zihintntl.elf
+ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/zihintntl.signature
+LRSC_BINARIES := $(SOC_BUILD_DIR)/lrsc_0.elf $(SOC_BUILD_DIR)/lrsc_1.elf
 LRSC_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),8,1)
 LRSC_BOOT_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),+boot-harts=0-7,)
 LRSC_IALIGN := $(if $(filter mini mini-rv5stage-soc,$(SOC)),4,2)
@@ -156,14 +170,14 @@ uart-pty-test: $(UART_PTY_BINARY) simulator
 .PHONY: lrsc-test lrsc-run
 lrsc-test:
 	@test "$(CORE)" = rv5stage && test -n "$(filter $(SOC),mini single tiled mini-rv5stage-soc single-core-rv5stage-soc tiled-rv5stage-soc)"
-	$(MAKE) lrsc-run SOC=$(SOC) TRACE=0 PREBUILT_SIMULATOR= \
+	$(MAKE) lrsc-run SOC=$(SOC) TRACE=0 PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
 	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test"
 
 lrsc-run: $(LRSC_BINARIES) simulator
 	@status=0; for mode in 0 1; do \
 	  echo "LR/SC qualification: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
 	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
-	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/rv5stage_lrsc_$$mode.elf" && \
+	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/lrsc_$$mode.elf" && \
 	    awk -v expected="$(if $(filter tiled tiled-rv5stage-soc,$(SOC)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
 	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
 	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
@@ -171,10 +185,10 @@ lrsc-run: $(LRSC_BINARIES) simulator
 
 .PHONY: tiled-memory-test
 tiled-memory-test:
-	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf" run SOC=tiled-rv5stage-soc TRACE=0 PREBUILT_SIMULATOR= \
+	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf" run SOC=tiled-rv5stage-soc TRACE=0 PREBUILT_SIMULATOR= \
 	  BUILD_ROOT="$(BUILD_ROOT)/tiled-memory-test" \
-	  HARNESS_SELECTOR=sims/tests/tiled-rv5stage-soc-memory-harness.rhdl \
-	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/rv5stage_tiled_memory.elf" \
+	  HARNESS_SELECTOR=sims/tests/tiled-memory-harness.rhdl \
+	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf" \
 	  HTIF_ARGS=+max-cycles=50000000
 
 trace-smoke:
@@ -182,7 +196,7 @@ trace-smoke:
 	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
 	$(MAKE) smoke SOC=single CORE=rv5stage TRACE=1
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-trace.sh "$(TRACE_FILE)"
-	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/single-rv5stage-trace/obj/VTestDriver" "$(BUILD_ROOT)/single-rv5stage-trace/rv5stage_smoke.elf"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/single-rv5stage-trace/obj/VTestDriver" "$(BUILD_ROOT)/single-rv5stage-trace/smoke.elf"
 
 boot-test: $(BOOT_BINARIES) simulator
 	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
@@ -349,40 +363,39 @@ $(SIMULATOR_BINARY):
 	@echo "Prebuilt simulator is missing: $@" >&2; exit 2
 endif
 
-$(SMOKE_BINARY): tests/programs/rv5stage_smoke.S \
-                 tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64ic_zicsr -mabi=lp64 -nostdlib -nostartfiles \
-	  -DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1 \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+$(SMOKE_BINARY): tests/programs/smoke.S \
+                 tests/programs/smoke.ld $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=$(SMOKE_MARCH) -mabi=lp64 -nostdlib -nostartfiles $(SMOKE_CPPFLAGS) \
+	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(UART_PTY_BINARY): tests/programs/rv5stage_uart_pty.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+$(UART_PTY_BINARY): tests/programs/uart_pty.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(TILED_MEMORY_BINARY): tests/programs/rv5stage_tiled_memory.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+$(TILED_MEMORY_BINARY): tests/programs/tiled_memory.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(SOC_BUILD_DIR)/rv5stage_lrsc_%.elf: tests/programs/rv5stage_lrsc.S tests/programs/rv5stage_lrsc.ld | $(SOC_BUILD_DIR)
+$(SOC_BUILD_DIR)/lrsc_%.elf: tests/programs/lrsc.S tests/programs/lrsc.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64ia_zicsr_zifencei -mabi=lp64 -nostdlib -nostartfiles \
 	  -DLRSC_HARTS=$(LRSC_HARTS) -DLRSC_TRANSLATED=$* \
 	  -DLRSC_IALIGN=$(LRSC_IALIGN) -DLRSC_PAGE_TABLE_BASE=$(LRSC_PAGE_TABLE_BASE) \
 	  -Wl,--defsym,lrsc_page_tables=$(LRSC_PAGE_TABLE_BASE),--defsym,lrsc_memory_limit=$(LRSC_MEMORY_LIMIT) \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_lrsc.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/lrsc.ld $< -o $@
 
-$(HOST_MMIO_BINARY): tests/programs/rv5stage_host_mmio.S tests/programs/rv5stage_host_mmio.ld | $(SOC_BUILD_DIR)
+$(HOST_MMIO_BINARY): tests/programs/host_mmio.S tests/programs/host_mmio.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_host_mmio.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/host_mmio.ld $< -o $@
 
-$(SOC_BUILD_DIR)/rv5stage_boot_%.elf: tests/programs/rv5stage_smoke.S tests/programs/rv5stage_smoke.ld | $(SOC_BUILD_DIR)
+$(SOC_BUILD_DIR)/boot_%.elf: tests/programs/smoke.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,--defsym,payload_entry=0x8000$* \
-	  -Wl,-T,tests/programs/rv5stage_smoke.ld $< -o $@
+	  -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(ZICBOZ_BINARY): tests/programs/rv5stage_zicboz.S tests/programs/rv5stage_zicboz.ld | $(SOC_BUILD_DIR)
+$(ZICBOZ_BINARY): tests/programs/zicboz.S tests/programs/zicboz.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_zicboz.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/zicboz.ld $< -o $@
 
-$(ZIHINTNTL_BINARY): tests/programs/rv5stage_zihintntl.S tests/programs/rv5stage_zihintntl.ld | $(SOC_BUILD_DIR)
+$(ZIHINTNTL_BINARY): tests/programs/zihintntl.S tests/programs/zihintntl.ld | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64im_zicsr_zicntr -mabi=lp64 -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/rv5stage_zihintntl.ld $< -o $@
+	  -Wl,--build-id=none -Wl,-T,tests/programs/zihintntl.ld $< -o $@

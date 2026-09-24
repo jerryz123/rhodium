@@ -86,6 +86,12 @@ make -C sims simulator SOC=mini CORE=spike
 make -C sims simulator SOC=tiled CORE=rv5stage
 ```
 
+CI uses the six canonical product names `mini-rv5stage-soc`, `mini-spike-soc`,
+`single-core-rv5stage-soc`, `single-core-spike-soc`, `tiled-rv5stage-soc`, and
+`tiled-spike-soc`. Each has its own target descriptor, simulator attestation,
+and build directory. The `SOC`/`CORE` selectors above remain available locally;
+the existing Single artifact names stay stable for software and ACT consumers.
+
 Setup requires Python 3.9+, initializes the shared
 [`riscv-isa-sim`](../riscv/riscv-isa-sim/) submodule, applies Rhodium's
 adjacent ordered patch series to a temporary source tree, and installs FESVR
@@ -94,7 +100,7 @@ instruction disassembly; neither consumer modifies the submodule checkout.
 
 The Single and Tiled harnesses attach `CHIDPIMemory` to their external SN-F
 channels. Mini instead contains synthesizable `CHIRam`. Each product has an
-independent artifact at `/tmp/rhodium-sims/<soc>-<core>/obj/VTestDriver`, so
+independent artifact at `/tmp/rhodium-sims/<product>/obj/VTestDriver`, so
 switching configurations cannot reuse generated RTL for the other SoC. The
 shared Verilator `TestDriver` exposes only clock, reset, and exit; UART traffic
 crosses the PTY inside the harness. Set
@@ -377,24 +383,30 @@ traps. Privileged-platform groups remain outside this ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
-Run the smaller, single-hart ISA selections on `MiniRV5StageSoC` and
-`TiledSoC` explicitly:
+Run the smaller, single-hart ISA selections on either core in Mini or Tiled:
 
 ```sh
 make -C sims program-test-setup
 make -C sims isa-smoke SOC=mini CORE=rv5stage
+make -C sims isa-smoke SOC=mini CORE=spike
 make -C sims isa-smoke SOC=tiled CORE=rv5stage
+make -C sims isa-smoke SOC=tiled CORE=spike
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks in two-,
-four-, and eight-hart configurations on TiledRV5StageSoC:
+four-, and eight-hart configurations on either Tiled product:
 
 ```sh
 make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc
+make -C sims tiled-mt-benchmark-test SOC=tiled-spike-soc
 ```
 
-Each command is independently runnable. CI attempts all three commands even if one
-fails, so one SoC cannot suppress the other's result.
+Each command is independently runnable. CI gives each product its own job, so
+one slow or failing Tiled run cannot suppress another product's result.
+The Tiled Spike multihart target is available locally, but its full benchmark
+manifests are not yet a required CI step: local two-hart vector-add and memcpy
+runs exceeded the current 300-second per-test budget. The Tiled RV5Stage
+multihart step remains enabled in CI while the Spike runtime budget is qualified.
 
 Selection follows each concrete SoC's core profile and covers representative
 integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
@@ -406,13 +418,15 @@ runtime-allocated stack; virtual-environment tests bring their own upstream
 page-table, stack, and trap runtime. The complete and smoke ISA selections both bind their
 manifests to the generated target description and require a matching simulator
 attestation. Smoke results and target descriptions live under
-`$PROGRAM_BUILD_ROOT/<soc>-<core>/isa-smoke/`, independently of the full single-core
+`$PROGRAM_BUILD_ROOT/<product>/isa-smoke/`, independently of the full single-core
 suites. The existing runner executes every selected test even after failures.
 ISA smoke still boots only hart 0. The separate tiled multihart selection builds
 each workload for two, four, and eight workers and boots harts 0–1, 0–3,
-or 0–7 for `mt-vvadd`, `mt-matmul`, and `mt-memcpy`. Any remaining physical
+or 0–7 for the workloads selected by the target's extensions. Any remaining physical
 harts stay parked. These counts divide the upstream matrix benchmark's 16 rows
 evenly while exercising shared barriers and data through the coherent mesh.
+The private build overlay reports a successful HTIF exit only after every
+selected hart reaches its exit; a nonzero exit from any hart fails the run.
 ACT and the complete native suites remain restricted to the two single-core
 SoCs.
 
@@ -634,6 +648,10 @@ make -C sims boot-test SOC=single CORE=rv5stage
 make -C sims boot-test SOC=mini CORE=rv5stage
 make -C sims boot-test SOC=tiled CORE=rv5stage
 ```
+
+The ordinary smoke payload uses RV64I and Zicsr so it also runs on Mini's
+non-compressed RV5Stage profile. The supported traced SingleCoreRV5StageSoC
+build adds one compressed instruction for its disassembly check.
 
 `make -C sims tiled-memory-test` uses a separate stalled-memory build to check
 writebacks and refills across all LLC slices through the single external

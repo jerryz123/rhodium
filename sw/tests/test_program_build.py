@@ -327,15 +327,22 @@ class ProgramBuildTest(unittest.TestCase):
             common.mkdir(parents=True)
             original = 'before\n  # for now, assume only 1 core\n  li a1, 1\nafter\n'
             (common / 'crt.S').write_text(original)
+            original_exit = 'before\nvoid exit(int code)\n{\n  tohost_exit(code);\n}\nafter\n'
+            (common / 'syscalls.c').write_text(original_exit)
             for benchmark in self.builder.MULTIHART_BENCHMARKS:
                 (source / 'benchmarks' / benchmark).mkdir()
             self.assertEqual((common / 'crt.S').read_text(), original)
+            self.assertEqual((common / 'syscalls.c').read_text(), original_exit)
             for hart_count in (2, 4, 8):
                 with self.subTest(hart_count=hart_count):
                     generated = self.builder.materialize_multihart_source(
                         source, root / f'generated-{hart_count}', hart_count,
                         self.builder.MULTIHART_BENCHMARKS)
                     self.assertIn(f'li a1, {hart_count}', (generated / 'common/crt.S').read_text())
+                    self.assertIn(f'if (completed == {hart_count})',
+                                  (generated / 'common/syscalls.c').read_text())
+                    self.assertIn('rhodium_exit_error', (generated / 'common/syscalls.c').read_text())
+                    self.assertEqual((common / 'syscalls.c').read_text(), original_exit)
                     self.assertEqual((generated.parent / 'env').resolve(), (source / 'env').resolve())
                     for benchmark in self.builder.MULTIHART_BENCHMARKS:
                         self.assertEqual((generated / benchmark).resolve(),
@@ -549,6 +556,8 @@ class ProgramBuildTest(unittest.TestCase):
             common.mkdir(parents=True)
             (common / 'crt.S').write_text(
                 'before\n  # for now, assume only 1 core\n  li a1, 1\nafter\n')
+            (common / 'syscalls.c').write_text(
+                'before\nvoid exit(int code)\n{\n  tohost_exit(code);\n}\nafter\n')
             (common / 'test.ld').touch()
             for benchmark in builder.MULTIHART_BENCHMARKS:
                 (source / 'benchmarks' / benchmark).mkdir()
@@ -599,6 +608,8 @@ class ProgramBuildTest(unittest.TestCase):
                                            if argument.startswith('src_dir='))
                     generated = Path(source_argument.removeprefix('src_dir='))
                     self.assertIn(f'li a1, {hart_count}', (generated / 'common/crt.S').read_text())
+                    self.assertIn(f'if (completed == {hart_count})',
+                                  (generated / 'common/syscalls.c').read_text())
                     manifest = json.loads((output / 'manifest.json').read_text())
                     self.assertEqual(manifest['benchmark_selection'], 'multihart')
                     self.assertEqual(manifest['benchmark_hart_count'], hart_count)
