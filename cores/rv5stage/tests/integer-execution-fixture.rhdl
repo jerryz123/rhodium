@@ -1,12 +1,14 @@
 #lang rhodium
-// Exposes tagged integer services for independent retention and backpressure checks.
+// Exposes elastic integer services and a directly launched scalar multiply pipeline.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../integer-execution.rhdl" open
+  "../multiply.rhdl" open
   "../profile.rhm".RV5StageMultiplierKind
   "../../multiplier.rhdl" open
   "../../divider.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageIntegerExecutionFixture():
@@ -14,12 +16,24 @@ sync_circuit RV5StageIntegerExecutionFixture():
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(128), Bits(8))), ~role: producer)
   interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(64), Bits(8))), ~role: consumer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(64), Bits(8))), ~role: producer)
+  interface scalar_issue(Valid(RV5StageMultiplyIssue(XLen.X64)), ~role: consumer)
+  interface scalar_authorize(Valid(Bits(5)), ~role: consumer)
+  interface scalar_completion(Irrevocable(RV5StageMultiplyCompletion(XLen.X64)), ~role: producer)
+  output scalar_available: Bool
   inst multiply(RV5StageMultiplyService(RV5StageMultiplierKind.Pipelined, 64, Bits(8)))
   inst divide(RV5StageDivideService(64, Bits(8)))
   multiply_request |> multiply.request
   multiply.result |> multiply_result
   divide_request |> divide.request
   divide.result |> divide_result
+  inst scalar(RV5StageMultiplyScalar(XLen.X64, ~speculative: #true))
+  inst fixed(RV5StageMultiplyService(RV5StageMultiplierKind.Pipelined, 64, RV5StageMultiplyTag(), ~scheduled_writeback: #true))
+  scalar_issue |> scalar.issue
+  scalar_authorize |> scalar.authorize
+  scalar.execution_request |> fixed.request
+  fixed.result |> scalar.execution_result
+  scalar.completion |> scalar_completion
+  scalar_available <== scalar.available
 
 export:
   RV5StageIntegerExecutionFixture

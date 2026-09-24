@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits CIRCT MLIR for RV5Stage's commit-issued multiplication fixture.
+// Emits traced EX multiplication for exact dependency and consecutive-launch timing checks.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,15 @@ import:
   "../../../../riscv/isa/xlen.rhm" open
   "../../../../cores/rv5stage/tests/core-fixture.rhdl" as core
   "../../../../cores/rv5stage/profile.rhm" open
+  "../../../../rhodium/event/main.rhm" open
 
-def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~multiplier: RV5StageMultiplierKind.Pipelined), ~reset_address: 0x100000000))
-print(emit_circt(design))
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): core.RV5StageCoreFixture(RV5StageConfig(~xlen: XLen.X64, ~multiplier: RV5StageMultiplierKind.Pipelined), ~reset_address: 0x100000000)), EventInstrumentationConfig(~partial: #true))
+def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace multiply_sites {\n" ++ String.join(
+  for List (label in ["core/s2.decode", "core/s3.execute"], name in ["decode", "execute"]):
+    def matches = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
+    unless matches.length() == 1 | error("expected one multiply timing site: " ++ label)
+    "constexpr unsigned " ++ name ++ " = " ++ to_string(matches[0]) ++ ";\n",
+  ""
+) ++ "}\n"
+export event_manifest_cpp
+print(emit_circt(traced.instrumented.design))

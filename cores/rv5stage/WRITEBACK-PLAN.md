@@ -12,8 +12,9 @@ opportunity. Already-issued fixed operations always keep their reservation.
 ## Implementation sequence
 
 1. Add a named-core write-cycle calendar and directed collision/reset tests.
-   Integrate the shared multiplier and GPR completion path; preserve speculative
-   scalar ticket authorization and vector-first multiplier launch arbitration.
+   Integrate the shared multiplier and GPR completion path. Admit pipelined
+   scalar multiplication in ID with a promised EX launch and GPR return cycle;
+   carry WB authorization alongside fixed-latency arithmetic.
 2. Replace the vector ordered compute-data drain with direct scheduled writes.
    Preserve metadata lifetimes and memory ordering. Add row-level WAW protection
    alongside existing RAW protection, and prove that older operand reads cannot
@@ -30,7 +31,8 @@ opportunity. Already-issued fixed operations always keep their reservation.
 
 ## Invariants
 
-- A launch and all its fixed resource reservations happen atomically.
+- Admission and all fixed resource reservations happen atomically. Scalar ID
+  may book the next EX cycle; that grant cannot be revoked by service arbitration.
 - Latency includes every stage between launch and the architectural write.
 - Fixed results never wait; variable results cannot displace fixed writes.
 - Unrelated destinations may complete out of order. RAW/WAW/WAR, certification,
@@ -47,7 +49,17 @@ write-cycle calendars, direct vector completion, row-level WAW protection, and
 producer-held variable results. Standalone services retain their elastic mode
 for clients that do not provide the scheduled-write timing contract.
 
-Focused RTL simulation passes:
+The direct EX-admission refinement passes the focused multiply, tagged integer
+service, base core, RV64D WB authorization, and shared scalar/vector regressions. The trace checks five
+cycles from multiply EX to dependent ID, four consecutive independent launches,
+and a canceled/retried launch. The scalar adapter checks 47 authorized five-cycle
+returns and 16 canceled launches across reset. Shared vector execution checks
+5,083 stores over 76,438 cycles after rebasing onto the updated vector reduction
+schedule.
+
+The broader scheduled-writeback validation below predates this refinement;
+its full-SoC and CoreMark runs have not been repeated for direct EX admission.
+Earlier focused RTL simulation passed:
 
 - Calendar: 224 reservations, 392 collisions, 63 simultaneous grants, pause and reset.
 - Scalar multiply: dependency, independent progress, and wrong-path cancellation.

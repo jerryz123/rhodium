@@ -192,8 +192,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.time_counter <== time_counter
   def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
   inst wb_gpr_calendar(RV5StageWritebackCalendar(3, 8))
-  wb_gpr_calendar.probe_client <== bits(0, index_width(3))
-  wb_gpr_calendar.probe_delay <== bits(1, 4)
+  // WB services reserve before younger ID admissions; WB readiness must not
+  // depend on an instruction whose admission depends on WB cancellation.
+  wb_gpr_calendar.probe_client <== bits(2, index_width(3))
+  wb_gpr_calendar.probe_delay <== bits(PipelinedMultiplierStages + 1, 4)
   wire wb_fp_fixed_integer_return: Bool
   def wb_vector_fp_tag = Bits(index_width(vector_completion_slots))
   def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))
@@ -213,9 +215,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
         wb_vector_fp_request_link.right |> map_flow(request => fp_request_with_tag(xlen, effective_fp_profile, wb_vector_fp_tag, FpOwner(), request, FpOwner().Vector(request.tag)))
       ) |> rr_arbiter() |> atomic_fork(2)
       fp_launch |> wb_fp_execution.request
-      fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Scalar).into(Bool) & (operation.control.registers.destination === RV5StageFloatDestination.Integer) & (operation.control.execution.unit =/= RV5StageFloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> wb_gpr_calendar.reserve[1]
+      fp_reservation |> filter_flow(operation => operation.tag.is(FpOwner().Scalar).into(Bool) & (operation.control.registers.destination === RV5StageFloatDestination.Integer) & (operation.control.execution.unit =/= RV5StageFloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> wb_gpr_calendar.reserve[0]
       reg integer_returns(~init: bits(0, 2))
-      integer_returns <== wb_gpr_calendar.reserve[1].fire().as_bits() ++ integer_returns[1..2]
+      integer_returns <== wb_gpr_calendar.reserve[0].fire().as_bits() ++ integer_returns[1..2]
       wb_fp_fixed_integer_return <== integer_returns[0].into(Bool)
       (
         wb_fp_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(FpOwner().Vector).into(Bool))
@@ -225,8 +227,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
              )
       ) <=> Array(wb_fp.execution_result, wb_vector_fp_result_link.left)
   | block:
-      wb_gpr_calendar.reserve[1].valid <== Bool(#false)
-      wb_gpr_calendar.reserve[1].bits <== bits(2, 4)
+      wb_gpr_calendar.reserve[0].valid <== Bool(#false)
+      wb_gpr_calendar.reserve[0].bits <== bits(2, 4)
       wb_fp_fixed_integer_return <== Bool(#false)
       wb_vector_fp_request_link.right.ready <== Bool(#false)
       wb_vector_fp_result_link.left.valid <== Bool(#false)
@@ -240,12 +242,32 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     Scalar(RV5StageMultiplyTag())
     Vector(wb_vector_multiply_tag)
   inst wb_multiply_execution(RV5StageMultiplyService(core_profile.multiplier, width, MultiplyOwner(), ~scheduled_writeback: #true))
-  def Array(wb_multiply_launch, wb_multiply_reservation) = Array(
-    wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag))),
-    wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag))) |> queue(2)
-  ) |> arbiter() |> atomic_fork(2)
-  wb_multiply_launch |> wb_multiply_execution.request
-  wb_multiply_reservation |> filter_flow(request => Bool(wb_pipelined_multiplier) & request.tag.is(MultiplyOwner().Scalar).into(Bool)) |> map_flow(_request => bits(PipelinedMultiplierStages, 4)) |> wb_gpr_calendar.reserve[0]
+  def wb_scalar_multiply_request = wb_multiplier.execution_request |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), RV5StageMultiplyTag(), MultiplyOwner(), request, MultiplyOwner().Scalar(request.tag)))
+  def wb_vector_multiply_request = wb_vector_multiply_request_link.right |> map_flow(request => integer_request_with_tag(MultiplierRequest(width), wb_vector_multiply_tag, MultiplyOwner(), request, MultiplyOwner().Vector(request.tag)))
+  wire id_multiply_admitted: Bool
+  wire id_multiply_available: Bool
+  if wb_pipelined_multiplier
+  | block:
+      // ID books the next launch and its return together. Only control is
+      // retained here; EX operands enter the arithmetic pipeline directly.
+      reg ex_multiply_reserved(~init: Bool(#false))
+      reg id_multiply_vector_turn(~init: Bool(#false))
+      ex_multiply_reserved <== id_multiply_admitted
+      def id_vector_multiply_waiting = wb_vector_multiply_request.valid & !fire(wb_vector_multiply_request)
+      id_multiply_available <== wb_gpr_calendar.probe_available & !(id_multiply_vector_turn & id_vector_multiply_waiting)
+      when (!wb_vector_multiply_request.valid ||| fire(wb_vector_multiply_request)):
+        id_multiply_vector_turn <== Bool(#false)
+      elsewhen id_multiply_admitted:
+        id_multiply_vector_turn <== Bool(#true)
+      inst ex_multiply_selection(GrantMerge(RV5StageExecutionRequest(MultiplierRequest(width), MultiplyOwner()), 2))
+      ex_multiply_selection.grants <== vec([ex_multiply_reserved, !ex_multiply_reserved]).into(MaybeOneHot(2))
+      Array(wb_scalar_multiply_request, wb_vector_multiply_request) <=> ex_multiply_selection.ingress
+      ex_multiply_selection.egress |> wb_multiply_execution.request
+      when (wb_scalar_multiply_request.valid):
+        assert(ex_multiply_reserved, "scalar_multiply_has_ex_reservation")
+  | block:
+      id_multiply_available <== Bool(#true)
+      Array(wb_vector_multiply_request, wb_scalar_multiply_request |> queue(2)) |> arbiter() |> wb_multiply_execution.request
   (
     wb_multiply_execution.result |> demux_flow(2, ~stable: #true, result => result.tag.is(MultiplyOwner().Vector).into(Bool))
       |> parallel(
@@ -361,11 +383,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_serializing_resume = fence_i_commit ||| wb_csrs.translation_flush ||| wb_csrs.pointer_masking_changed
   def wb_commit_redirect = wb_csrs.redirect.valid ||| wb_serializing_resume ||| wb_commit_replay ||| wb_vector_replay ||| wb_vector_truncate
   def mem_stage_valid = mem_input.valid & !wb_commit_redirect & !wb_pending_exception_valid & !(wb_commit_valid & wb_commit_bits.exception_valid)
-  if wb_pipelined_multiplier
-  | block:
-      wb_multiplier.cancel_memory.valid <== mem_input.valid & !mem_stage_valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
-      wb_multiplier.cancel_memory.bits <== mem_input.bits.multiply_ticket
-  | #void
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
@@ -591,7 +608,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_mem_has_multiply = mem_input.valid & (mem_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & mem_input.bits.writeback_enable & mem_input.bits.rd.or_reduce()
   def wb_commit_has_multiply = wb_commit_valid & (wb_commit_bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_commit_bits.write_enable & wb_commit_bits.rd.or_reduce()
   def id_multiply_resource_hazard = id_needs_multiplier & !id_fault & (
-    !wb_multiplier.available ||| id_ex_has_multiply ||| id_mem_has_multiply ||| wb_commit_has_multiply
+    if wb_pipelined_multiplier | !id_multiply_available | !wb_multiplier.available ||| id_ex_has_multiply ||| id_mem_has_multiply ||| wb_commit_has_multiply
   )
   def id_needs_divider = (id_control.writeback.source === RV5StageWritebackSelect.Divide) & id_control.writeback.enable & id_rd.or_reduce()
   def id_ex_has_divide = ex_input.valid & (ex_input.bits.writeback_source === RV5StageWritebackSelect.Divide) & ex_input.bits.writeback_enable & ex_input.bits.rd.or_reduce()
@@ -701,11 +718,15 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           operand_rs2: id_operand(id_rs2, id_registers.read_data_2)
           rd: id_rd
           frs3: id_frs3
-  id_operation |> to_valid() |> id_ex_pipe.ingress
+  def Array(id_execute, id_multiply_admission) = id_operation |> to_valid() |> fork_valid(2)
+  id_execute |> id_ex_pipe.ingress
+  def id_multiply_reservation = id_multiply_admission |> filter_valid(_operation => Bool(wb_pipelined_multiplier) & id_needs_multiplier & !id_fault)
+  id_multiply_admitted <== id_multiply_reservation.valid
+  id_multiply_reservation |> map_valid(_operation => bits(PipelinedMultiplierStages + 1, 4)) |> to_decoupled() |> wb_gpr_calendar.reserve[2]
   if vector_enabled
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true))
-      wb_vector.scalar_writeback |> wb_gpr_calendar.reserve[2]
+      wb_vector.scalar_writeback |> wb_gpr_calendar.reserve[1]
       reg wb_vector_retirement(MemoryWriteback(xlen, vector_completion_slots))
       def wb_vector_context = wb_offer_bits.vector_context
       def wb_vector_vd = instruction_field(riscv_fields.rd, wb_vector_context.instruction)
@@ -773,8 +794,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       assert(!wb_vector_replay ||| !wb_vector.request.fire(), "rv5stage_wb_vector_replay_has_no_admission")
   | block:
       wb_vector_retirement_link.left.valid <== Bool(#false)
-      wb_gpr_calendar.reserve[2].valid <== Bool(#false)
-      wb_gpr_calendar.reserve[2].bits <== bits(1, 4)
+      wb_gpr_calendar.reserve[1].valid <== Bool(#false)
+      wb_gpr_calendar.reserve[1].bits <== bits(1, 4)
       wb_vector_retirement_link.left.bits <== dont_care(MemoryWriteback(xlen, vector_completion_slots))
       wb_vector_truncate <== Bool(#false)
       memory_ports.vector.request.valid <== Bool(#false)
@@ -1038,7 +1059,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     rd: ex_input.bits.rd
     result: mux(ex_is_vector_config, ex_vector_configuration.vl.zext(width), ex_result)
     multiply_issue: ex_multiply_issue
-    multiply_ticket: wb_multiplier.issue_ticket
     divide_issue: ex_divide_issue
     system: ex_input.bits.system
     fence: ex_input.bits.fence
@@ -1109,7 +1129,6 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     rd: operation.rd
     value: operation.result
     multiply_issue: operation.multiply_issue
-    multiply_ticket: operation.multiply_ticket
     divide_issue: operation.divide_issue
     system: operation.system
     fence: operation.fence
@@ -1286,14 +1305,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   )
   wb_normal_write |> wb_commit_write
 
-  // Pipelined multiplication is pure EX work; WB authorizes its tagged result.
+  // Pipelined multiplication is pure EX work; WB authorizes its aligned result.
   // The iterative implementation still starts only after WB retirement.
   if wb_pipelined_multiplier
   | block:
       wb_multiplier.authorize.valid <== wb_commit_has_multiply
-      wb_multiplier.authorize.bits <== wb_commit_bits.multiply_ticket
-      wb_multiplier.cancel_writeback.valid <== wb_input.valid & (wb_input.bits.writeback_source === RV5StageWritebackSelect.Multiply) & wb_input.bits.write_enable & wb_input.bits.rd.or_reduce() & !wb_commit_has_multiply
-      wb_multiplier.cancel_writeback.bits <== wb_input.bits.multiply_ticket
+      wb_multiplier.authorize.bits <== wb_commit_bits.rd
   | block:
       (
         wb_multiply_path
@@ -1301,11 +1318,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           |> map_valid(_committed => wb_input.bits.multiply_issue)
       ) |> wb_multiplier.issue
       wb_multiplier.authorize.valid <== Bool(#false)
-      wb_multiplier.authorize.bits <== bits(0, 4)
-      wb_multiplier.cancel_memory.valid <== Bool(#false)
-      wb_multiplier.cancel_memory.bits <== bits(0, 4)
-      wb_multiplier.cancel_writeback.valid <== Bool(#false)
-      wb_multiplier.cancel_writeback.bits <== bits(0, 4)
+      wb_multiplier.authorize.bits <== bits(0, 5)
       when wb_commit_has_multiply:
         assert(wb_multiplier.available, "rv5stage_multiplier_commit_reserved")
   (

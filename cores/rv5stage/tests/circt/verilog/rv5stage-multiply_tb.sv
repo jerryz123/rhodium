@@ -1,7 +1,9 @@
-// Verifies EX-launched multiplication, deferred hazards, and wrong-path cancellation.
+// Verifies direct EX multiplication, consecutive launches, five-cycle dependencies, and replay cancellation.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_multiply_tb;
+  import "DPI-C" function void multiply_trace_bind();
+  import "DPI-C" function void multiply_trace_finish();
   typedef struct packed {
     logic supervisor_software;
     logic machine_software;
@@ -62,7 +64,8 @@ module rv5stage_multiply_tb;
   logic instruction_response_valid;
   logic [31:0] instruction_response_bits;
   logic [8:0] cycles;
-  logic [2:0] stores_seen;
+  logic [3:0] stores_seen;
+  logic rejected_store = 0;
   localparam logic [3:0] MEMORY_STORE = 4'd2;
 
   RV5StageCoreFixture dut (.pipeline_access_in('0), .pipeline_access_out(), .prefetch_out(), .*);
@@ -90,17 +93,23 @@ module rv5stage_multiply_tb;
       64'h00000001_00000044: instruction_at = 32'h00e70463; // beq x14, x14, +8
       64'h00000001_00000048: instruction_at = 32'h026287b3; // wrong-path mul x15, x5, x6
       64'h00000001_00000064: instruction_at = 32'h02f03c23; // sd x15, 56(x0)
+      64'h00000001_00000068: instruction_at = 32'h026288b3; // mul x17, x5, x6
+      64'h00000001_0000006c: instruction_at = 32'h00888933; // add x18, x17, x8
+      64'h00000001_00000070: instruction_at = 32'h05203023; // sd x18, 64(x0)
+      64'h00000001_00000074: instruction_at = 32'h04803423; // sd x8, 72(x0), replay once
+      64'h00000001_00000078: instruction_at = 32'h026289b3; // mul x19, x5, x6, killed in MEM then retried
+      64'h00000001_0000007c: instruction_at = 32'h05303823; // sd x19, 80(x0)
       default: instruction_at = 32'h00000013;
     endcase
   endfunction
 
   always_comb begin
-    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid || instruction_access_out.response.ready;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     instruction_access_in.response.bits.page_fault = 1'b0;
     instruction_access_in.response.bits.access_fault = 1'b0;
-    data_access_in.request.ready = 1'b1;
+    data_access_in.request.ready = rejected_store || data_access_out.request.bits.address != 64'd72;
     data_access_in.request_fault = 1'b0;
     data_access_in.request_access_fault = 1'b0;
     data_access_in.response = '0;
@@ -114,8 +123,10 @@ module rv5stage_multiply_tb;
       instruction_response_bits <= '0;
       cycles <= '0;
       stores_seen <= '0;
+      rejected_store <= 0;
     end else begin
       cycles <= cycles + 1'b1;
+      if (data_access_out.request.valid && !data_access_in.request.ready) rejected_store <= 1;
       if (instruction_access_out.flush || (instruction_response_valid && instruction_access_out.response.ready))
         instruction_response_valid <= 1'b0;
       if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
@@ -166,7 +177,20 @@ module rv5stage_multiply_tb;
             assert (data_access_out.request.bits.address == 64'd56 &&
                     data_access_out.request.bits.data == 64'd0)
               else $fatal(1, "wrong-path MUL changed architectural state");
-            $display("RV5Stage EX-launched multiplication passed");
+          end
+          8: begin
+            assert(data_access_out.request.bits.address == 64'd64 && data_access_out.request.bits.data == 64'hffffffffffffffdf)
+              else $fatal(1, "immediate multiply consumer read stale data");
+          end
+          9: begin
+            assert(rejected_store && data_access_out.request.bits.address == 64'd72 && data_access_out.request.bits.data == 64'd9)
+              else $fatal(1, "replayed store did not commit exactly once");
+          end
+          10: begin
+            assert(data_access_out.request.bits.address == 64'd80 && data_access_out.request.bits.data == 64'hffffffffffffffd6)
+              else $fatal(1, "multiply after older replay lost its owner");
+            multiply_trace_finish();
+            $display("RV5Stage direct EX multiplication passed");
             $finish;
           end
           default: $fatal(1, "unexpected extra store");
@@ -178,6 +202,7 @@ module rv5stage_multiply_tb;
   end
 
   initial begin
+    multiply_trace_bind();
     interrupts = '0;
 
     repeat (2) @(posedge clock);

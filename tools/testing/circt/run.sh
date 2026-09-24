@@ -519,7 +519,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == event-instance ]]; then
+  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -542,7 +542,7 @@ verify_fixture() {
     # Vector atomic issue couples ready with a calendar's payload-only latency
     # lookup. Packed structs look cyclic to Verilator; leaf-level RTL verification
     # remains enabled, as do simulation assertions and convergence checks.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then

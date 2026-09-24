@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts the selected reusable multiplier to RV5Stage's deferred-writeback protocol.
+// Aligns scalar multiply authorization with fixed execution or buffered iterative dispatch.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -25,78 +25,58 @@ bundle RV5StageMultiplyTag():
   rd: Bits(5)
   high_result: Bool
   word_result: Bool
-  slot: Bits(4)
 
 sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: Boolean = #false):
   def width = xlen.width
   def product_width = width * 2
-  // Covers scalar operand staging, shared-service flight, and standalone elasticity.
-  def ticket_count = 16
-
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
-  interface authorize(Valid(Bits(4)), ~role: consumer)
-  interface cancel_memory(Valid(Bits(4)), ~role: consumer)
-  interface cancel_writeback(Valid(Bits(4)), ~role: consumer)
+  interface authorize(Valid(Bits(5)), ~role: consumer)
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)
   output available: Bool
-  output issue_ticket: Bits(4)
 
   def Request = RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag())
   interface execution_request(Decoupled(Request), ~role: producer)
   interface execution_result(Irrevocable(RV5StageExecutionResult(Bits(product_width), RV5StageMultiplyTag())), ~role: consumer)
-  // ID reserves this slot; only this scalar producer can occupy it before WB.
-  inst authorized(Queue(Request, 1))
-  reg next_ticket(~init: bits(0, 4))
-  reg occupied(~init: bits(0, ticket_count).as_vec(Bool))
-  reg committed(~init: bits(0, ticket_count).as_vec(Bool))
-  issue_ticket <== next_ticket
-  available <== authorized.ingress.ready & (if speculative | !occupied[next_ticket] | Bool(#true))
-  def result_authorized = if speculative | committed[execution_result.bits.tag.slot] | Bool(#true)
+  wire result_authorized: Bool
   execution_result.ready <== !result_authorized ||| completion.ready
-  (
-    issue |> to_decoupled() |> map_flow(issued):
-      RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
-        tag:
-          RV5StageMultiplyTag():
-            rd: issued.rd
-            high_result: issued.control.high_result
-            word_result: issued.control.word_result
-            slot: if speculative | next_ticket | bits(0, 4)
-        operands:
-          MultiplierRequest(width):
-            left: issued.left
-            right: issued.right
-            mode: issued.control.mode
-  ) |> authorized.ingress
-  authorized.egress |> execution_request
-  when (issue.valid):
-    assert(available, "scalar_multiply_issue_has_reserved_slot")
+  def Array(operand_issue, authorization_issue) = issue |> fork_valid(2)
+  def request = operand_issue |> map_valid(issued):
+    RV5StageExecutionRequest(MultiplierRequest(width), RV5StageMultiplyTag()):
+      tag:
+        RV5StageMultiplyTag():
+          rd: issued.rd
+          high_result: issued.control.high_result
+          word_result: issued.control.word_result
+      operands:
+        MultiplierRequest(width):
+          left: issued.left
+          right: issued.right
+          mode: issued.control.mode
   if speculative
   | block:
+      // Admission promises this EX launch. WB decides its architectural fate
+      // two cycles later; the decision travels the remaining arithmetic stages.
+      request |> to_decoupled() |> execution_request
+      available <== Bool(#true)
+      def at_writeback = authorization_issue |> map_valid(issued => issued.rd) |> valid_pipe(2)
+      def authorized_result = authorize |> valid_pipe(PipelinedMultiplierStages - 2)
+      result_authorized <== authorized_result.valid
       when (issue.valid):
-        next_ticket <== next_ticket + bits(1, 4)
-      for (slot in 0..ticket_count):
-        def ticket = bits(slot, 4)
-        def launched = issue.valid & (next_ticket === ticket)
-        def completed = execution_result.fire() & (execution_result.bits.tag.slot === ticket)
-        when (launched):
-          occupied[slot] <== Bool(#true)
-        elsewhen (completed):
-          occupied[slot] <== Bool(#false)
-        when (authorize.valid & (authorize.bits === ticket)):
-          assert(occupied[slot], "scalar_multiply_authorize_has_ticket")
-          committed[slot] <== Bool(#true)
-        elsewhen (launched ||| completed):
-          committed[slot] <== Bool(#false)
-        when ((cancel_memory.valid & (cancel_memory.bits === ticket)) ||| (cancel_writeback.valid & (cancel_writeback.bits === ticket))):
-          assert(occupied[slot], "scalar_multiply_cancel_has_ticket")
-        assert(!(authorize.valid & (authorize.bits === ticket) & ((cancel_memory.valid & (cancel_memory.bits === ticket)) ||| (cancel_writeback.valid & (cancel_writeback.bits === ticket)))), "scalar_multiply_ticket_decision_unique")
-      when (execution_result.fire()):
-        assert(occupied[execution_result.bits.tag.slot], "scalar_multiply_result_has_ticket")
+        assert(execution_request.ready, "scalar_multiply_launch_is_immediate")
+      when (authorize.valid):
+        assert(at_writeback.valid & (at_writeback.bits === authorize.bits), "scalar_multiply_authorization_is_wb_aligned")
+      when (authorized_result.valid):
+        assert(execution_result.valid & (execution_result.bits.tag.rd === authorized_result.bits), "scalar_multiply_return_is_scheduled")
+        assert(completion.ready, "scalar_multiply_return_has_write_port")
   | block:
-      next_ticket <== next_ticket
-      occupied <== occupied
-      committed <== committed
+      // Iterative work is already committed and may wait for the shared unit.
+      inst authorized(Queue(Request, 1))
+      request |> to_decoupled() |> authorized.ingress
+      authorized.egress |> execution_request
+      available <== authorized.ingress.ready
+      result_authorized <== Bool(#true)
+      when (issue.valid):
+        assert(available, "scalar_multiply_issue_has_reserved_slot")
 
   def product = execution_result.bits.value
   def full_result = mux(execution_result.bits.tag.high_result, product[width..product_width], product[0..width])
@@ -116,11 +96,7 @@ sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   inst execution(RV5StageMultiplyService(kind, xlen.width, RV5StageMultiplyTag()))
   issue |> scalar.issue
   scalar.authorize.valid <== Bool(#false)
-  scalar.authorize.bits <== bits(0, 4)
-  scalar.cancel_memory.valid <== Bool(#false)
-  scalar.cancel_memory.bits <== bits(0, 4)
-  scalar.cancel_writeback.valid <== Bool(#false)
-  scalar.cancel_writeback.bits <== bits(0, 4)
+  scalar.authorize.bits <== bits(0, 5)
   scalar.execution_request |> execution.request
   execution.result |> scalar.execution_result
   scalar.completion |> completion

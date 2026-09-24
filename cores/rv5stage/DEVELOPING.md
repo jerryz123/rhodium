@@ -223,37 +223,45 @@ inspects internal predictor state. The fetch test covers compressed branch
 ordering, continuation words, duplicate-PC occurrences, backpressure, stale-cut
 repair, and precise continuation faults.
 
-Pipelined scalar multiply launches pure arithmetic from EX with a ticket. MEM
-and WB cancel squashed or replayed tickets; WB authorizes surviving tickets
-when it reserves their GPR destinations. Results are discarded until their
-ticket is authorized and cannot write architectural state on a wrong path.
+Pipelined scalar multiply reserves the following EX launch and its GPR return
+cycle atomically at ID admission. The GPR delay is multiplier latency plus the
+ID/EX boundary. EX sends operands directly into the five-stage multiplier;
+there are no scalar request queues. A registered launch grant prevents vector
+work from displacing an admitted scalar. A waiting vector request gets a turn
+by withholding new scalar admissions, never by delaying a promised launch.
+Independent scalar multiplies may enter EX on consecutive cycles.
+WB authorizes a surviving scalar multiply two cycles after EX, while reserving
+its architectural GPR destination in the scoreboard. Delay this authorization
+through the remaining arithmetic stages and discard results without it. Timing
+identifies the scalar owner, so no ticket allocator or cancellation table is
+needed. Pipeline recovery must not flush authorization for committed older work.
 Iterative multiply and divide still enqueue from authorized WB commit, with
 operand payloads from the normal WB pipeline token. Retained CMO and WRS
-contexts must not select arithmetic operands. Both reusable multiplier
-implementations capture raw operands before full-width magnitude preparation;
-keep that register boundary between operand selection and full-width negation.
-Scalar adapters retain a one-entry request queue reserved in ID and expose
-tagged requests/results without owning an execution unit. The standalone
-wrappers compose those adapters with one service; the core instead arbitrates
-them with vector requests around one service per operation. The multiplier
-arbitrates after the independent client queues, with vector requests taking
-priority; an empty vector queue bypasses directly to the service at compute
-maturity. A separate two-entry scalar staging queue isolates scalar execution
-readiness from recovery without putting queued scalar work ahead of vector
-requests. The divider retains its round-robin arbiter and two-entry service
-queue. Scalar queue-space reservation remains valid even if vector work wins
-the multiplier arbiter. Accepted arithmetic requests are never killed inside
-the shared service; scalar cancellation discards their results by ticket.
-Result tags retain selection and destination metadata until consumption.
+contexts must not select arithmetic operands. Their scalar adapters retain a
+one-entry request queue reserved in ID; the iterative multiplier also retains
+its scalar staging queue and vector-first arbiter. The divider retains its
+round-robin arbiter and two-entry service queue. Standalone elastic wrappers
+remain available for callers that do not promise immediate result consumption.
+The vector multiplier request queue retains operands from accepted feed-forward
+beats during shared-service contention and bypasses when empty. Result tags
+retain selection and destination metadata until consumption.
 
 `writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
 reserves the deferred GPR port for pipelined multiplication, fixed FP integer
 returns, and vector-to-integer movement before launching each fixed operation.
 The vector composition independently reserves the VRF port. Shared-service
-launch and every applicable reservation are one atomic transfer. A variable
+launch and every applicable reservation are one atomic transfer for vector/FP
+work. Scalar pipelined multiply instead books its fixed future launch and GPR
+return at ID admission; a squashed grant may expire unused. Same-cycle WB
+reservations precede ID admission, so younger work cannot feed back into older
+WB readiness. A variable
 response waits at its producer; an aged waiter pauses new reservations, without
 revoking already-issued work. See [the migration plan](WRITEBACK-PLAN.md) for
-the invariants and current validation status.
+the invariants and current validation status. The `rv5stage-multiply` trace
+checks five cycles from producer EX to dependent ID admission and consecutive
+independent launches. `rv5stage-integer-execution` checks exact five-cycle
+returns, WB authorization, cancellation, and reset through the production scalar
+adapter; `rv5stage-vector-muldiv` covers shared scalar/vector execution.
 
 ## Pointer-masking ownership
 
