@@ -491,10 +491,13 @@ snapshot captured by an earlier micro-op or an indexed read port for merging.
 
 Element moves use a one-token schedule independent of VL; insertion separately
 checks its architectural empty-body condition. Reduction rows use singleton
-source reads and a fixed seed address. The parent pipeline gates each owner's
-reduction issue until that owner's preceding beat matures, substitutes the
-owner's accumulator for subsequent seeds at EX, and updates integer reductions
-only at maturity. The tail read hands off the sequencer; its completion
+source reads and a fixed seed address. Integer reductions may sequence one beat
+per cycle: a read issues in the following cycle, and its result matures before
+the next beat consumes that owner's accumulator at EX. The parent substitutes
+the owner accumulator for subsequent seeds at EX and updates it only at
+maturity. Keep FP reductions and dependent scans behind their owner-local
+feedback gate; do not use that gate for fixed-latency integer reductions.
+The tail read hands off the sequencer; its completion
 slot and owner-scoped recurrence state retain the older macro independently.
 Floating-point reductions retain their owner-local gate until an active fold
 drains from the shared FP service, then advance that owner's accumulator from

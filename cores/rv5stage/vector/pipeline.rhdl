@@ -119,7 +119,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, OwnedContext()))
   inst registers(RV5StageVectorRegisterFile(vlen))
-  reg fold_inflight(~init: bits(0, vector_completion_slots).as_vec(Bool))
+  reg serial_fold_inflight(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg accumulators(Vec(vector_completion_slots, Bits(64)))
   reg scan_carries(Vec(vector_completion_slots, Bits(64)))
   def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === RV5StageVectorDisposition.Retry)
@@ -201,9 +201,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def s1_fault_only_first = s1_control.memory & (s1_control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def s1_slot_available = !allocated[s1_next_slot] & (Bool(vector_completion_slots != 1) ||| !operand_fetch.scheduled_return) & (!s1_fault_only_first ||| (!allocated.as_bits().or_reduce() & !operand_fetch.scheduled_return))
   def returning_control = operand_fetch.issue.bits.beat.control
-  def returning_fold = operand_fetch.scheduled_return & (((returning_control.integer ||| returning_control.fp_service) & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
-  def s1_fold_available = !fold_inflight[s1_owner] & !(returning_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
-  def s1_ready = schedule_enable & !replay & s1_slot_available & s1_fold_available & (!s1_local_write ||| writeback_calendar.probe_available)
+  // Consecutive integer reduction reads are safe: their results mature before
+  // the following beat consumes the owner accumulator at EX. FP folds and
+  // dependent scans still wait for their variable or serialized feedback.
+  def returning_serial_fold = operand_fetch.scheduled_return & ((returning_control.fp_service & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
+  def s1_serial_fold_available = !serial_fold_inflight[s1_owner] & !(returning_serial_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
+  def s1_ready = schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & (!s1_local_write ||| writeback_calendar.probe_available)
   def Array(s1_read, s1_scalar_reservation) = sequencer.read_request |> gate_flow(s1_ready) |> atomic_fork(2)
   s1_read |> operand_fetch.request
   s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
@@ -246,7 +249,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     last: operation.beat.last
     empty: operation.beat.empty
   def issue_owner = operand_fetch.issue.bits.context.owner
-  def suffix_ready = slot_available & !fold_inflight[issue_owner] & writeback_calendar.probe_available
+  def suffix_ready = slot_available & !serial_fold_inflight[issue_owner] & writeback_calendar.probe_available
   def Array(token, operands) = issued |> gate_flow(!replay & (!operand_fetch.suffix_pending ||| suffix_ready)) |> atomic_fork(2)
   def element_issue = (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
@@ -267,7 +270,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   when (operand_fetch.scheduled_return):
     assert(slot_available, "vector_scheduled_read_has_completion_slot")
     assert(!replay, "vector_replay_kills_scheduled_read")
-    assert(!fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
+    assert(!serial_fold_inflight[issue_owner], "vector_scheduled_read_has_recurrence_capacity")
     assert(element_issue.fire(), "vector_scheduled_read_issues_without_stall")
   compute_tail_issue <== element_issue.fire() & operand_fetch.issue.bits.beat.last & !(operand_fetch.issue.bits.beat.control.memory ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
   // All routes use one persistent allocation order, including immediate ALU
@@ -346,10 +349,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, 64), bits(0, 64))
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
       scan_carries[owner] <== compute_beat.scan_carry
-    when ((request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag)) ||| ((retry ||| fault ||| truncating) & (feedback_owner === owner_tag)) ||| (compute_maturity.valid & (compute_owner === owner_tag) & (!compute_beat.floating_point & compute_beat.reduction ||| compute_beat.scan)) ||| (drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction)):
-      fold_inflight[owner] <== Bool(#false)
-    elsewhen (element_issue.fire() & (issue_owner === owner_tag) & (((operand_fetch.issue.bits.beat.control.integer ||| operand_fetch.issue.bits.beat.control.fp_service) & operand_fetch.issue.bits.beat.control.reduction) ||| (operand_fetch.issue.bits.beat.control.integer & operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index))):
-      fold_inflight[owner] <== Bool(#true)
+    when ((request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag)) ||| ((retry ||| fault ||| truncating) & (feedback_owner === owner_tag)) ||| (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan) ||| (drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction)):
+      serial_fold_inflight[owner] <== Bool(#false)
+    elsewhen (element_issue.fire() & (issue_owner === owner_tag) & ((operand_fetch.issue.bits.beat.control.fp_service & operand_fetch.issue.bits.beat.control.reduction) ||| (operand_fetch.issue.bits.beat.control.integer & operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index))):
+      serial_fold_inflight[owner] <== Bool(#true)
 
   // Replay feedback restores only the unauthorized suffix.
   fault_start.valid <== fault

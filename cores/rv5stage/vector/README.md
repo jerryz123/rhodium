@@ -465,9 +465,12 @@ each narrow source element, and reject SEW64. Their wide scalar operands retain
 EMUL=1; a widening seed cannot alias the narrow source group because that would
 read one register at two EEWs.
 
-This first implementation reuses the SIMD ALU with one reduction element per
-owner in flight. Its accumulator advances when its private result matures, and the
-non-replayable compute path carries owner and completion tag with every result.
+This implementation reuses the SIMD ALU. Integer reduction beats can sequence
+on consecutive cycles when downstream resources are available: each beat
+consumes the owner accumulator at EX after the preceding beat has matured.
+The accumulator advances at private result maturity, and the non-replayable
+compute path carries owner and completion tag with every result. FP reductions
+remain serialized through their shared-service result.
 The tail hands the sequencer to a younger macro while the older completion slot
 retains its final result. Cancellation cannot expose a partial reduction in the
 VRF. This is not a packed-per-cycle reduction tree;

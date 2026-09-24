@@ -17,6 +17,8 @@
   logic [63:0] rng = 64'h651b3c5defab7809, scalar_expected;
   int mode = 0, regno = 0, cycles = 0, checks = 0, macros = 0;
   int retired_count, resolved_count, scalar_count, saturate_count;
+  bit dense_reduction = 0;
+  int dense_last_issue, dense_issues;
   function automatic logic [63:0] random_word();
     rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng;
   endfunction
@@ -45,6 +47,12 @@
   task automatic tick;
     #1;
     if (!reset) begin
+      if (dense_reduction && issued) begin
+        if (dense_issues != 0) assert (cycles == dense_last_issue + 1)
+          else $fatal(1,"integer reduction issue gap after cycle %0d",dense_last_issue);
+        dense_last_issue = cycles;
+        dense_issues++;
+      end
       if (memory_committed) begin
         resolved_count++;
         if (mode == 2) begin
@@ -69,15 +77,18 @@
     cycles++;
     if (cycles > 1500000) $fatal(1,"pipeline timeout");
   endtask
-  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int kill_after = -1);
+  task automatic run(input logic [31:0] insn, input int sew, lm, length, start = 0, input int kill_after = -1,
+                     input bit dense_issue = 0);
     int timeout;
     instruction = insn; vtype = (XLEN'(sew)<<3)|XLEN'(lm); vl = XLEN'(length); vstart = XLEN'(start);
     retired_count = 0; resolved_count = 0; scalar_count = 0; timeout = 0;
+    dense_reduction = dense_issue; dense_issues = 0; dense_last_issue = -1;
+    if (dense_issue) issue_ready = 1;
     request_valid = 1;
     while (!request_ready) tick();
     tick(); request_valid = 0;
     while (active) begin
-      issue_ready = (random_word() & 3) != 0;
+      issue_ready = dense_issue || ((random_word() & 3) != 0);
       tick();
       if (kill_after >= 0 && resolved_count >= kill_after && active) begin
         cancel = 1; tick(); cancel = 0; break;
@@ -85,6 +96,9 @@
       timeout++; if (timeout > 20000) $fatal(1,"macro stuck insn=%h wb=%0d",insn,wb_index);
     end
     repeat (5) tick();
+    if (dense_issue) assert (dense_issues == length)
+      else $fatal(1,"integer reduction issued %0d beats, expected %0d",dense_issues,length);
+    dense_reduction = 0;
     assert (retired_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"macro retirement count %0d",retired_count);
     if (mode == 3) assert (scalar_count == (kill_after < 0 ? 1 : 0)) else $fatal(1,"scalar write count");
     issue_ready = 1; macros++;
@@ -316,7 +330,7 @@
             for (int i=0;i<length;i++)
               if (scenario==0 || element(0,i,1)!=0) acc=fold(op,width,acc,element(8,i,width));
             mode=0;
-            run(vec(op,dest,8,3,2,scenario!=0),sew,lm,length);
+            run(vec(op,dest,8,3,2,scenario!=0),sew,lm,length,0,-1,sew==3 && lm==1 && op==0 && scenario==0);
             model[dest][0]=(model[dest][0]&~mask)|(acc&mask);
             check_reg(dest);
           end
