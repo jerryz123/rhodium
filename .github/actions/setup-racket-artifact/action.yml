@@ -30,6 +30,11 @@ runs:
         path: ${{ runner.temp }}/rhodium-compiled
     - name: Verify compiled root
       shell: bash
+      env:
+        RACKET_VERSION: ${{ inputs.racket-version }}
+        RHOMBUS_CHECKSUM: ${{ inputs.rhombus-checksum }}
       run: |
         tools/racket-artifact.sh verify
+        echo "RACKET_VERSION=$RACKET_VERSION" >> "$GITHUB_ENV"
+        echo "RHOMBUS_CHECKSUM=$RHOMBUS_CHECKSUM" >> "$GITHUB_ENV"
         echo "RHODIUM_PRECOMPILED=1" >> "$GITHUB_ENV"

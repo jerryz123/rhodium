@@ -207,6 +207,16 @@ class PlanTest(unittest.TestCase):
                 self.assertIn(f"uses: ./.github/workflows/{workflow}", root)
         self.assertNotIn("ci-changes.sh", root)
 
+    def test_precompiled_racket_versions_reach_test_steps(self):
+        action = (REPO / ".github/actions/setup-racket-artifact/action.yml").read_text()
+        verify_step = action.split("    - name: Verify compiled root\n", 1)[1]
+        for variable, input_name in (("RACKET_VERSION", "racket-version"), ("RHOMBUS_CHECKSUM", "rhombus-checksum")):
+            with self.subTest(variable=variable):
+                self.assertIn(f"{variable}: ${{{{ inputs.{input_name} }}}}", verify_step)
+                self.assertIn(f'echo "{variable}=${variable}" >> "$GITHUB_ENV"', verify_step)
+        self.assertIn("tools/racket-artifact.sh verify", verify_step)
+        self.assertIn('echo "RHODIUM_PRECOMPILED=1" >> "$GITHUB_ENV"', verify_step)
+
 
 if __name__ == "__main__":
     unittest.main()
