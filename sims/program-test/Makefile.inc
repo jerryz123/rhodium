@@ -1,4 +1,4 @@
-# Runs single-core workload suites and capability-filtered ISA smoke on concrete SoCs.
+# Builds and runs target-bound software suites, including tiled multihart litmus tests.
 # SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/sw/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sw/coremark
@@ -8,6 +8,10 @@ EMBENCH_PORT_DIR ?= $(REPO_DIR)/sw/embench-iot-riscv-baremetal
 BRINGUP_DIR ?= $(REPO_DIR)/sw/bringup-bench
 BRINGUP_PATCH_SERIES ?= $(REPO_DIR)/sw/bringup-bench-patches/series
 BRINGUP_PORT_DIR ?= $(REPO_DIR)/sw/bringup-bench-riscv-baremetal
+LITMUS_DIR ?= $(REPO_DIR)/sw/litmus-tests-riscv
+LITMUS_PORT_DIR ?= $(REPO_DIR)/sw/litmus-riscv-baremetal
+LITMUS7 ?=
+LITMUS7_LIBDIR ?=
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
@@ -27,9 +31,23 @@ EMBENCH_WARMUP_HEAT ?= 0
 EMBENCH_MAX_CYCLES ?= 100000000
 BRINGUP_MAX_CYCLES ?= 100000000
 BRINGUP_BENCHMARKS ?=
+LITMUS_CASES ?= all
+LITMUS_RUNS ?= 10
+LITMUS_MAX_CYCLES ?= 20000000
+LITMUS_SMOKE_RUNS ?= 1
+LITMUS_FULL_RUNS ?= 1
+LITMUS_SMOKE_TIMEOUT ?= 300
+LITMUS_FULL_TIMEOUT ?= 600
+LITMUS_PROFILE_MAX_CYCLES ?= 2000000
+LITMUS_FULL_SHARD_INDEX ?= 0
+LITMUS_FULL_SHARD_COUNT ?= 1
 PROGRAM_PRODUCT_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
 ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
 TILED_MT_BENCHMARK_DIR := $(PROGRAM_PRODUCT_ROOT)/mt-benchmark
+LITMUS_BUILD_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus
+LITMUS_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-smoke
+LITMUS_FULL_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-full
+LITMUS_GENERATOR_ARGS := --litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)")
 TILED_MT_HART_COUNTS := 2 4 8
 PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
@@ -38,6 +56,7 @@ PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 .PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
+.PHONY: litmus-setup litmus-elfs litmus-test litmus-smoke-elfs litmus-smoke-test litmus-full-elfs litmus-full-run litmus-full-test litmus-full-report
 program-target: $(PROGRAM_TARGET)
 
 ifeq ($(PREBUILT_SIMULATOR),)
@@ -79,12 +98,16 @@ embench-setup:
 bringup-setup:
 	git -C $(REPO_DIR) submodule update --init sw/bringup-bench
 
-program-test-setup: isa-setup coremark-setup embench-setup bringup-setup
+litmus-setup: isa-setup
+	git -C $(REPO_DIR) submodule update --init sw/litmus-tests-riscv
+
+program-test-setup: isa-setup coremark-setup embench-setup bringup-setup litmus-setup
 
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_program_build.py'
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_bringup_bench.py'
+	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_litmus_build.py'
 
 isa-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
@@ -109,6 +132,28 @@ tiled-mt-benchmark-elfs: program-target
 	    --benchmark-mode target --benchmark-selection multihart \
 	    --benchmark-hart-count "$$hart_count"; \
 	done
+
+litmus-elfs: program-target
+	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
+	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
+	  --runtime "$(LITMUS_PORT_DIR)" --riscv-tests "$(RISCV_TESTS_DIR)" \
+	  --output "$(LITMUS_BUILD_DIR)" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" --runs $(LITMUS_RUNS) --tests "$(LITMUS_CASES)" \
+	  $(if $(LITMUS7),--litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)"))
+
+litmus-smoke-elfs litmus-full-elfs: program-target
+	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
+	@test -n "$(LITMUS7)" || \
+	  (echo 'Litmus profiles require an explicit pinned LITMUS7 executable' >&2; exit 2)
+	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
+	  --runtime "$(LITMUS_PORT_DIR)" --riscv-tests "$(RISCV_TESTS_DIR)" \
+	  --output "$(if $(filter litmus-smoke-elfs,$@),$(LITMUS_SMOKE_DIR),$(LITMUS_FULL_DIR))" \
+	  --compiler "$(RISCV_CC)" --target "$(PROGRAM_TARGET)" \
+	  --runs $(if $(filter litmus-smoke-elfs,$@),$(LITMUS_SMOKE_RUNS),$(LITMUS_FULL_RUNS)) \
+	  $(if $(filter litmus-smoke-elfs,$@),--tests-file "$(LITMUS_PORT_DIR)/smoke-cases.txt",--tests all --keep-going) \
+	  $(LITMUS_GENERATOR_ARGS)
 
 coremark-elf: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
@@ -160,6 +205,36 @@ tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation
 	    --output "$$output/results" --jobs $(PROGRAM_JOBS) \
 	    --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \
 	done; exit $$status
+
+litmus-test: litmus-elfs simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(LITMUS_BUILD_DIR)/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(LITMUS_BUILD_DIR)/results" --jobs $(PROGRAM_JOBS) \
+	  --timeout $(PROGRAM_TIMEOUT) --max-cycles $(LITMUS_MAX_CYCLES)
+
+litmus-smoke-test: litmus-smoke-elfs simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(LITMUS_SMOKE_DIR)/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(LITMUS_SMOKE_DIR)/results" --jobs $(PROGRAM_JOBS) \
+	  --timeout $(LITMUS_SMOKE_TIMEOUT) --max-cycles $(LITMUS_PROFILE_MAX_CYCLES)
+
+litmus-full-test: litmus-full-elfs
+	$(MAKE) litmus-full-run
+
+litmus-full-run: simulator-attestation
+	@test -f "$(LITMUS_FULL_DIR)/manifest.json" || \
+	  (echo 'Build litmus-full-elfs before running a full shard' >&2; exit 2)
+	$(PYTHON) program-test/run.py --manifest "$(LITMUS_FULL_DIR)/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(LITMUS_FULL_DIR)/results/shard-$(LITMUS_FULL_SHARD_INDEX)-of-$(LITMUS_FULL_SHARD_COUNT)" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(LITMUS_FULL_TIMEOUT) \
+	  --max-cycles $(LITMUS_PROFILE_MAX_CYCLES) --shard-index $(LITMUS_FULL_SHARD_INDEX) \
+	  --shard-count $(LITMUS_FULL_SHARD_COUNT) --resume
+
+litmus-full-report:
+	$(PYTHON) program-test/report-shards.py --manifest "$(LITMUS_FULL_DIR)/manifest.json" \
+	  --results-dir "$(LITMUS_FULL_DIR)/results" --shard-count $(LITMUS_FULL_SHARD_COUNT) \
+	  --output "$(LITMUS_FULL_DIR)/full-summary.json"
 
 coremark-test: coremark-elf simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark/manifest.json" \

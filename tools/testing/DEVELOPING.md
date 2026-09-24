@@ -100,6 +100,7 @@ flowchart TD
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
     Compile --> Simulators["Reusable simulator workflow<br/>six exact products for simulation;<br/>two Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>harness checks and Mini/Tiled ISA smoke;<br/>Tiled RV5Stage multihart suite"]
+    Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["OpenSBI and RV5Stage<br/>stalled-memory jobs"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
@@ -107,6 +108,7 @@ flowchart TD
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
+    LitmusSmoke --> Gate
     Qualification --> Gate
     Programs --> Gate
     ActRun --> Gate
@@ -116,10 +118,14 @@ Known dependency paths can select several branches. For example, NoC, RISC-V,
 CHI, core, and shared standard/flow library changes also select the SoC host shard
 when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard and every external CIRCT group. The
-simulation job remains independent from backend fixtures and owns the
+simulation workflow remains independent from backend fixtures and owns the
 repository's harness and ISA-smoke flow. OpenSBI qualification uses its own job
 budget and the same exact-commit single-core simulator artifacts, so firmware
 execution cannot consume the harness job's timeout budget.
+The tiled litmus smoke matrix in that workflow has one job per core and runs the same bounded,
+model-checked litmus7 selection on each; it retains build logs, manifests,
+and runner results even on failure. Its full inventory is manual only and has
+no CI job or schedule. Do not remove smoke cases because they expose a failure.
 
 Core CIRCT coverage gives scalar/frontend execution, two functional vector
 shards, alternate vector configuration, and HardFloat independent jobs and

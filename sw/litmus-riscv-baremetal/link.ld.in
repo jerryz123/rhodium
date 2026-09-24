@@ -1,0 +1,47 @@
+/* Places multihart litmus code, shared data, and HTIF mailboxes in target RAM. */
+/* SPDX-License-Identifier: Apache-2.0 */
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+
+MEMORY
+{
+  ram (rwx) : ORIGIN = @RAM_ORIGIN@, LENGTH = @RAM_LENGTH@
+}
+
+PHDRS
+{
+  text PT_LOAD FLAGS(5);
+  data PT_LOAD FLAGS(6);
+}
+
+SECTIONS
+{
+  . = ORIGIN(ram);
+  .text.init : { KEEP(*(.text.init)) } > ram :text
+  .text : { *(.text .text.*) } > ram :text
+  .rodata : { *(.rodata .rodata.*) } > ram :text
+  . = ALIGN(0x1000);
+  .tohost : { KEEP(*(.tohost)) } > ram :data
+  .data : { *(.data .data.*) } > ram :data
+  .sdata :
+  {
+    __global_pointer$ = . + 0x800;
+    *(.srodata .srodata.*)
+    *(.sdata .sdata.*)
+  } > ram :data
+  . = ALIGN(8);
+  .bss : { *(.sbss .sbss.*) *(.bss .bss.*) *(COMMON) } > ram :data
+  .tdata :
+  {
+    _tdata_begin = .;
+    *(.tdata .tdata.*)
+    _tdata_end = .;
+  } > ram :data
+  .tbss :
+  {
+    *(.tbss .tbss.*)
+    _tbss_end = .;
+  } > ram :data
+  _end = .;
+  ASSERT(_end + @STACK_BYTES@ < ORIGIN(ram) + LENGTH(ram), "Litmus image leaves no hart stacks")
+}

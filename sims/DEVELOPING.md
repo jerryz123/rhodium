@@ -52,6 +52,7 @@ target identities so switching either axis cannot reuse another simulator.
 | Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
 | Target software sources, ports, patches, and ELF builders | [`../sw/`](../sw/DEVELOPING.md) |
 | SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
+| Bare-metal litmus ELF generation and pinned model states | [`../sw/`](../sw/DEVELOPING.md) |
 | ACT platform configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | OpenSBI DTB projection, simulator handoff, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
@@ -108,8 +109,9 @@ exact occurrence parents through fragmented reads/writes, errors, stalls, and
 pending reset. Its service configuration lives in `tests/fesvr-mmio-fixture.rhdl`.
 
 The shared single-core harness owns transparent external-memory checkpoints. Keep them
-outside synthesizable SoC code. `emit-event-harness.rhm` instruments one
-elaboration, and `materialize-event-harness.rkt` saves its matching descriptor
+outside synthesizable SoC code. `emit-soc-harness.rhm` selects the same SoC
+elaboration for ordinary and event-instrumented builds;
+`materialize-event-harness.rkt` saves the traced build's matching descriptor
 and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
 logic in this adapter. The adapter selects gzip only for a `.gz` output suffix and calls
@@ -439,6 +441,18 @@ benchmarks. Tiled Spike has the same local multihart target but stays out of
 the required CI step until all three hart counts complete within a justified
 runtime budget. The matrix disables fail-fast and uploads independent results.
 Changes to the adapter or upstream ISA sources must select that job.
+
+The separate tiled-litmus smoke CI matrix builds both Spike and RV5Stage tiled
+simulators and runs the same checked-in, litmus7-generated case selection on
+each. It never runs the full profile. The full profile is manual: build its
+ELFs once, then run disjoint name-sorted shards with separate output paths.
+`program-test/run.py` checkpoints completed cases atomically after each result,
+so an interrupted shard can resume only with identical manifest, simulator,
+limits, and shard identity. A partial result retains pending names and must not
+count as full-suite success. The runner kills active simulator process groups
+on SIGINT or SIGTERM and distinguishes wall from cycle timeouts.
+`program-test/report-shards.py` verifies complete, disjoint coverage and a
+shared run fingerprint before reporting the full profile; it never runs in CI.
 
 `program-test/run.py` owns ISA, benchmark, CoreMark, Embench-IoT, and Bringup-Bench process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs

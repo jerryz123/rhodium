@@ -98,6 +98,15 @@ class PlanTest(unittest.TestCase):
                 self.assertFalse(plan["run_program_native"])
                 self.assertFalse(plan["run_program_arch"])
 
+    def test_litmus_sources_select_simulation_without_single_core_programs(self):
+        for path in ("sw/build/build-litmus.py", "sw/litmus-riscv-baremetal/smoke-cases.txt",
+                     "sw/litmus-tests-riscv", "sw/tests/test_litmus_build.py"):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                self.assertTrue(plan["run_simulation"])
+                self.assertFalse(plan["run_program_native"])
+                self.assertFalse(plan["run_program_arch"])
+
     def test_hardware_changes_select_every_software_suite(self):
         for path in ("cores/rv5stage/core.rhdl", "chi/protocol/link.rhdl", "noc/rtl/router.rhdl", "devices/aclint.rhdl", "socs/single-core-rv5stage-soc.rhdl", "sims/TestDriver.v", "rhodium/backend/circt.rhm"):
             with self.subTest(path=path):
@@ -249,6 +258,11 @@ class PlanTest(unittest.TestCase):
         self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", simulation)
         self.assertIn("if: matrix.shape != 'single'", simulation)
         self.assertIn("if: matrix.soc == 'tiled-rv5stage-soc'", simulation)
+        self.assertIn("tiled-litmus-smoke:", simulation)
+        self.assertIn("{soc: tiled-rv5stage-soc, core: rv5stage}", simulation)
+        self.assertIn("{soc: tiled-spike-soc, core: spike}", simulation)
+        self.assertIn("litmus-smoke-test", simulation)
+        self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'single-core-rv5stage-soc'", simulation)
         self.assertIn("tiled-memory-test", simulation)
         self.assertIn("configuration: [single-core-rv5stage-soc, single-core-spike-soc]", software)

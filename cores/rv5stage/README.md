@@ -229,8 +229,8 @@ resident-line preservation, and outer-cache limits.
 
 The core carries metadata-only checkpoints named `core/s2.decode`,
 `core/s3.execute`, `core/s4.memory`, and `core/s5.wb`. Ordinary elaboration does not add
-counters or DPI calls; the optional event compiler instruments a separate design.
-The [SingleCoreRV5StageSoC trace build](../../sims/README.md#export-simplesoc-events-to-perfetto)
+counters or DPI calls; `TRACE=1` instruments the selected SoC elaboration.
+The [RV5Stage SoC trace mode](../../sims/README.md#export-rv5stage-soc-events-to-perfetto)
 includes these sites automatically. Stage-number prefixes keep their names in
 pipeline order when sorted lexicographically.
 

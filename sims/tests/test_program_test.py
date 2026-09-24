@@ -3,11 +3,13 @@
 import hashlib
 import importlib.util
 import json
+import os
 import tarfile
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
@@ -69,7 +71,7 @@ class ProgramArchiveTest(unittest.TestCase):
                 self.assertFalse(archive_path.exists())
 class ProgramRunnerTest(unittest.TestCase):
     def run_suite(self, bodies, timeout=3, corrupt=False, target=None, matching_metadata=True,
-                  contracts=None):
+                  contracts=None, runner_args=None):
         self.directory = tempfile.TemporaryDirectory(prefix='rhodium-program-test-')
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
@@ -103,7 +105,9 @@ class ProgramRunnerTest(unittest.TestCase):
                                                 target_fingerprint=fingerprint if matching_metadata else 'wrong',
                                                 sha256=hashlib.sha256(simulator.read_bytes()).hexdigest())))
             command += ['--simulator-metadata', str(metadata)]
+        command += runner_args or []
         manifest.write_text(json.dumps(manifest_data))
+        self.command = command
         process = subprocess.run(command,
                                  capture_output=True, text=True)
         summary = root / 'results/results.json'
@@ -119,6 +123,8 @@ class ProgramRunnerTest(unittest.TestCase):
         self.assertNotEqual(process.returncode, 0)
         self.assertEqual(results['summary'], dict(passed=1, failed=2, timeout=1, error=0))
         self.assertEqual(len(results['tests']), 4)
+        self.assertEqual(next(test['reason'] for test in results['tests']
+                              if test['name'] == 'cycle-timeout'), 'cycle-timeout')
 
     def test_success_and_junit(self):
         process, results = self.run_suite({'pass': "print('SoC harness simulation passed')"})
@@ -149,10 +155,33 @@ class ProgramRunnerTest(unittest.TestCase):
         self.assertIn('missing output', reasons['missing'])
         self.assertIn('forbidden output', reasons['forbidden'])
 
+    def test_litmus_histogram_is_checked_against_pinned_model(self):
+        bodies = {
+            'allowed': "print('Test allowed Allowed\\nHistogram (1 states)\\n    10:>1:x5=0; [x]=1;\\nSoC harness simulation passed')",
+            'forbidden': "print('Test forbidden Allowed\\nHistogram (1 states)\\n    10*>1:x5=1; [x]=1;\\nSoC harness simulation passed')",
+            'empty': "print('Test empty Allowed\\nHistogram (0 states)\\nSoC harness simulation passed')",
+            'truncated': "print('Test truncated Allowed\\nHistogram (2 states)\\n    10:>1:x5=0; [x]=1;\\nSoC harness simulation passed')",
+        }
+        contract = dict(litmus_allowed_states=['1:x5=0; x=1;'], litmus_min_samples=10)
+        process, results = self.run_suite(bodies, contracts={name: contract for name in bodies})
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(results['summary'], dict(passed=1, failed=3, timeout=0, error=0))
+        reasons = {result['name']: result.get('reason', '') for result in results['tests']}
+        self.assertIn('forbidden by pinned Herd model', reasons['forbidden'])
+        self.assertIn('empty litmus histogram', reasons['empty'])
+        self.assertIn('malformed litmus histogram', reasons['truncated'])
+        process, results = self.run_suite(
+            {'invalid': "print('SoC harness simulation passed')"},
+            contracts={'invalid': dict(litmus_allowed_states=['1:x5=0;'],
+                                       litmus_min_samples=0)})
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(results['summary']['error'], 1)
+
     def test_wall_timeout(self):
         process, results = self.run_suite({'hang': 'import time; time.sleep(30)'}, timeout=0.1)
         self.assertNotEqual(process.returncode, 0)
         self.assertEqual(results['summary']['timeout'], 1)
+        self.assertEqual(results['tests'][0]['reason'], 'wall-timeout')
 
     def test_changed_elf_is_error(self):
         process, results = self.run_suite({'changed': 'pass'}, corrupt=True)
@@ -188,6 +217,105 @@ class ProgramRunnerTest(unittest.TestCase):
                 contracts={'invalid': dict(harts=harts)})
             self.assertNotEqual(process.returncode, 0)
             self.assertIsNone(results)
+
+    def test_shards_are_disjoint_and_cover_every_case(self):
+        bodies = {f'case-{index}': "print('SoC harness simulation passed')" for index in range(5)}
+        selected = []
+        for index in range(2):
+            process, results = self.run_suite(bodies, runner_args=['--shard-index', str(index),
+                                                                     '--shard-count', '2'])
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertTrue(results['complete'])
+            self.assertEqual(results['pending'], [])
+            selected += [test['name'] for test in results['tests']]
+        self.assertEqual(sorted(selected), sorted(bodies))
+        process, results = self.run_suite(bodies, runner_args=['--shard-index', '2',
+                                                                 '--shard-count', '2'])
+        self.assertNotEqual(process.returncode, 0)
+        self.assertIsNone(results)
+
+    def test_resume_reuses_only_identical_completed_run(self):
+        body = "marker = Path(args[3]).with_suffix('.ran'); assert not marker.exists(); marker.touch(); print('SoC harness simulation passed')"
+        process, results = self.run_suite({'once': body})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertTrue(results['complete'])
+        resumed = subprocess.run(self.command + ['--resume'], capture_output=True, text=True)
+        self.assertEqual(resumed.returncode, 0, resumed.stderr)
+        self.assertEqual(json.loads((Path(self.directory.name) / 'results/results.json').read_text())['summary']['passed'], 1)
+        changed = subprocess.run(self.command + ['--resume', '--timeout', '7'], capture_output=True, text=True)
+        self.assertNotEqual(changed.returncode, 0)
+        self.assertIn('different run identity', changed.stderr)
+
+    def test_interruption_preserves_partial_results_and_stops_simulator(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            simulator = root / 'simulator'
+            simulator.write_text(f'#!{sys.executable}\nimport os, sys, time\n'
+                                 "from pathlib import Path\n"
+                                 "body = Path(sys.argv[-1]).read_text()\nexec(body)\n")
+            simulator.chmod(0o755)
+            tests = []
+            for name, body in [('a-fast', "print('SoC harness simulation passed')"),
+                               ('b-slow', f"Path({str(root / 'child.pid')!r}).write_text(str(os.getpid())); time.sleep(30)")]:
+                elf = root / name
+                elf.write_text(body)
+                tests.append(dict(name=name, elf=name, sha256=hashlib.sha256(elf.read_bytes()).hexdigest()))
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps(dict(suite='test', tests=tests)))
+            output = root / 'results'
+            process = subprocess.Popen([sys.executable, str(SCRIPTS / 'run.py'), '--manifest', str(manifest),
+                                        '--simulator', str(simulator), '--output', str(output),
+                                        '--jobs', '1', '--timeout', '35'], stdout=subprocess.PIPE,
+                                       stderr=subprocess.PIPE, text=True)
+            try:
+                for _ in range(100):
+                    if (root / 'child.pid').exists():
+                        break
+                    time.sleep(0.05)
+                self.assertTrue((root / 'child.pid').exists())
+                process.terminate()
+                process.communicate(timeout=5)
+                self.assertEqual(process.returncode, 130)
+                partial = json.loads((output / 'results.json').read_text())
+                self.assertFalse(partial['complete'])
+                self.assertEqual(partial['summary']['passed'], 1)
+                self.assertEqual(partial['pending'], ['b-slow'])
+                with self.assertRaises(ProcessLookupError):
+                    os.kill(int((root / 'child.pid').read_text()), 0)
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.communicate()
+
+
+class ProgramShardReportTest(unittest.TestCase):
+    def test_report_requires_complete_matching_shards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps(dict(tests=[dict(name=name) for name in ('a', 'b', 'c')],
+                                                build_failures=[])))
+            digest = hashlib.sha256(manifest.read_bytes()).hexdigest()
+            for index, names in enumerate((('a', 'c'), ('b',))):
+                shard = root / f'results/shard-{index}-of-2'
+                shard.mkdir(parents=True)
+                shard.joinpath('results.json').write_text(json.dumps(dict(
+                    complete=True, pending=[], shard_index=index, shard_count=2,
+                    manifest_sha256=digest, run_fingerprint='a' * 64, build_failures=[],
+                    tests=[dict(name=name, status='passed') for name in names],
+                    summary=dict(passed=len(names), failed=0, timeout=0, error=0))))
+            command = [sys.executable, str(SCRIPTS / 'report-shards.py'), '--manifest', str(manifest),
+                       '--results-dir', str(root / 'results'), '--shard-count', '2',
+                       '--output', str(root / 'summary.json')]
+            process = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(process.returncode, 0, process.stderr)
+            self.assertEqual(json.loads((root / 'summary.json').read_text())['reported_cases'], 3)
+            second = root / 'results/shard-1-of-2/results.json'
+            data = json.loads(second.read_text())
+            data['run_fingerprint'] = 'b' * 64
+            second.write_text(json.dumps(data))
+            self.assertNotEqual(subprocess.run(command, capture_output=True).returncode, 0)
+            self.assertFalse(json.loads((root / 'summary.json').read_text())['complete'])
 
 
 class SimulatorArtifactTest(unittest.TestCase):

@@ -1,48 +1,81 @@
 #lang rhombus
-// Selects a SoC binding at elaboration time and emits its simulation harness.
+// Selects a SoC harness and optionally instruments that same elaboration for events.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
   rhombus/private/dynamic_require open
+  "../rhodium/core/ir.rhm".DesignElaboration
+  "../rhodium/event/instrument.rhm".EventInstrumentedElaboration
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
   "../socs/harts/implementation.rhdl".RiscvHartImplementation
 
 def arguments = current_command_line()
-unless arguments.length() == 2 || arguments.length() == 1
-| error(~who: #'emit_soc_harness, "expected SoC shape and core, or a harness module path")
+def tracing = arguments.length() == 3 && arguments[0] == "--trace"
+unless arguments.length() == 2 || arguments.length() == 1 || tracing
+| error(~who: #'emit_soc_harness, "expected SoC shape and core, a harness path, or --trace shape core")
+def shape = if tracing | arguments[1] | arguments[0]
+def core = if arguments.length() == 1 | "" | arguments[arguments.length() - 1]
+when tracing && (core != "rv5stage" || !(shape == "single" || shape == "tiled"))
+| error(~who: #'emit_soc_harness, "tracing supports single or tiled RV5Stage only")
 
 def emit_circt = dynamic_require("rhodium/backend/circt.rhm", #'emit_circt)
 fun selected_hart(soc :: String, core :: String) :: RiscvHartImplementation:
   def choose = dynamic_require("socs/products/hart-selection.rhm", #'soc_hart)
   choose(soc, core)
 
-fun single_core_design(hart :: RiscvHartImplementation):
+fun single_core_elaboration(hart :: RiscvHartImplementation):
   def harness = dynamic_require("sims/single-core-soc-harness.rhdl", #'SoCHarness)
   def make_config = dynamic_require("socs/single-core-soc/main.rhdl", #'single_core_soc_config)
   def soc = dynamic_require("socs/single-core-soc/main.rhdl", #'SingleCoreSoC)
   def config = make_config(hart)
-  elaborate_with_top(harness(config.params, soc(config))).design
+  elaborate_with_top(harness(config.params, soc(config)))
 
-fun mini_design(hart :: RiscvHartImplementation):
+fun mini_elaboration(hart :: RiscvHartImplementation):
   def harness = dynamic_require("sims/mini-soc-harness.rhdl", #'SoCHarness)
   def soc_config = dynamic_require("socs/mini-soc/main.rhdl", #'mini_soc_config)
-  elaborate_with_top(harness(soc_config(hart))).design
+  elaborate_with_top(harness(soc_config(hart)))
 
-fun tiled_design(hart :: RiscvHartImplementation):
+fun tiled_elaboration(hart :: RiscvHartImplementation):
   def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
   def make_config = dynamic_require("socs/tiled-soc/main.rhdl", #'tiled_soc_config)
-  elaborate_with_top(harness(make_config(hart))).design
+  elaborate_with_top(harness(make_config(hart)))
 
-fun selected_design(soc :: String, core :: String):
+fun selected_elaboration(soc :: String, core :: String):
   def hart = selected_hart(soc, core)
   match soc
-  | "mini": mini_design(hart)
-  | "single": single_core_design(hart)
-  | "tiled": tiled_design(hart)
+  | "mini": mini_elaboration(hart)
+  | "single": single_core_elaboration(hart)
+  | "tiled": tiled_elaboration(hart)
   | ~else: error(~who: #'emit_soc_harness, "unsupported SoC shape")
 
-def design = if arguments.length() == 2
-| selected_design(arguments[0], arguments[1])
-| dynamic_require(arguments[0], #'design)
+fun traced_elaboration(elaboration :: DesignElaboration):
+  def instrument = dynamic_require("rhodium/event/main.rhm", #'instrument_events)
+  def config = dynamic_require("rhodium/event/main.rhm", #'EventInstrumentationConfig)
+  instrument(elaboration, config(~partial: #true))
+
+fun trace_manifest(traced :: EventInstrumentedElaboration):
+  def convert = dynamic_require("rhodium/event/main.rhm", #'event_manifest_to_cpp)
+  convert(traced.manifest)
+
+fun selected_trace_frequency(soc :: String) :: Int:
+  match soc
+  | "single":
+      def params = dynamic_require("socs/products/single-core-rv5stage-soc.rhdl", #'single_core_rv5stage_soc_params)
+      params.clocks.clock_frequency_hz
+  | "tiled":
+      def config = dynamic_require("socs/products/tiled-rv5stage.rhdl", #'default_tiled_soc_config)
+      config.clocks.clock_frequency_hz
+  | ~else: error(~who: #'emit_soc_harness, "tracing supports single or tiled RV5Stage only")
+
+def elaboration = if arguments.length() == 1 | #false | selected_elaboration(shape, core)
+def traced = if tracing | traced_elaboration(elaboration) | #false
+def event_manifest_cpp = if tracing | trace_manifest(traced) | ""
+def trace_clock_frequency_hz = if tracing | selected_trace_frequency(shape) | 0
+def ordinary_design = if arguments.length() == 1 | dynamic_require(arguments[0], #'design) | elaboration.design
+def design = if tracing | traced.instrumented.design | ordinary_design
 print(emit_circt(design))
+
+export:
+  event_manifest_cpp
+  trace_clock_frequency_hz

@@ -26,3 +26,6 @@
 [submodule "sw/bringup-bench"]
 	path = sw/bringup-bench
 	url = https://github.com/toddmaustin/bringup-bench.git
+[submodule "sw/litmus-tests-riscv"]
+	path = sw/litmus-tests-riscv
+	url = https://github.com/litmus-tests/litmus-tests-riscv.git

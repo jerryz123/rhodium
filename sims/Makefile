@@ -85,10 +85,11 @@ SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
 SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC)$(if $(filter mini single tiled,$(SOC)),-$(CORE))
 SOC_ID := $(SOC)$(if $(filter mini single tiled,$(SOC)),-$(CORE))
 ifeq ($(TRACE),1)
-ifneq ($(SOC)-$(CORE),single-rv5stage)
-ifneq ($(SOC),single-core-rv5stage-soc)
-$(error TRACE=1 currently supports SOC=single CORE=rv5stage only)
+ifneq ($(filter $(word 1,$(HARNESS_SELECTOR)),single tiled),$(word 1,$(HARNESS_SELECTOR)))
+$(error TRACE=1 supports single or tiled RV5Stage SoCs only)
 endif
+ifneq ($(word 2,$(HARNESS_SELECTOR)),rv5stage)
+$(error TRACE=1 supports single or tiled RV5Stage SoCs only)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-trace
 TRACE_HEADER := $(SOC_BUILD_DIR)/soc_events.h
@@ -308,7 +309,7 @@ $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile | $(SOC_
 	  (echo "unsupported SOC '$(SOC)'; expected mini, single, or tiled" >&2; exit 2)
 ifeq ($(TRACE),1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  sims/materialize-event-harness.rkt $(TRACE_HEADER) > $(SOC_MLIR)
+	  sims/materialize-event-harness.rkt $(TRACE_HEADER) $(HARNESS_SELECTOR) > $(SOC_MLIR)
 else
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  $(HARNESS_EMITTER) $(HARNESS_SELECTOR) > $(SOC_MLIR)
@@ -318,7 +319,7 @@ ifeq ($(TRACE),1)
 $(SOC_MLIR): $(CURDIR)/materialize-event-harness.rkt
 $(TRACE_HEADER): $(SOC_MLIR)
 	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  sims/materialize-event-harness.rkt $@ > $(SOC_MLIR))
+	  sims/materialize-event-harness.rkt $@ $(HARNESS_SELECTOR) > $(SOC_MLIR))
 
 $(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/* $(REPO_DIR)/riscv/riscv-isa-sim-patches/*.patch) $(REPO_DIR)/riscv/riscv-isa-sim-patches/series $(PATCHED_SUBMODULE_TOOL)
 	$(MAKE) -C $(REPO_DIR)/rheg/perfetto BUILD_DIR=$(TRACE_BUILD_DIR) PYTHON=$(PYTHON) CXX=$(CXX) \

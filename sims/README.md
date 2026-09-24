@@ -189,7 +189,7 @@ make -C sims uart-pty-test SOC=single CORE=rv5stage
 make -C sims uart-pty-test SOC=tiled CORE=rv5stage
 ```
 
-## Export SingleCoreRV5StageSoC events to Perfetto
+## Export RV5Stage SoC events to Perfetto
 
 Expanded end-to-end ancestry is still under integration. See the current
 [SingleCoreRV5StageSoC tracing limit](../chi/home/README.md#inclusive-home-event-tracing)
@@ -201,17 +201,23 @@ Affected occurrences carry `ancestry_unknown` in Perfetto; they are not silently
 treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
-Tracing is opt-in and currently supports `SOC=single CORE=rv5stage`:
+Tracing is opt-in on the normal simulator and run targets. It supports
+`SOC=single CORE=rv5stage` and `SOC=tiled CORE=rv5stage`:
 
 ```sh
 make -C sims smoke SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
 make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
+  BINARY=/absolute/path/to/multihart.elf \
+  HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
 Open the resulting `.pftrace` in Perfetto. Traced builds live in
-`/tmp/rhodium-sims/single-rv5stage-trace/`, separate from ordinary builds. `TRACE=0`
+`/tmp/rhodium-sims/<soc>-rv5stage-trace/`, separate from ordinary builds. The
+trace flag instruments the same selected SoC elaboration used by `TRACE=0`;
+it does not select a different hardware configuration. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
@@ -429,6 +435,59 @@ The private build overlay reports a successful HTIF exit only after every
 selected hart reaches its exit; a nonzero exit from any hart fails the run.
 ACT and the complete native suites remain restricted to the two single-core
 SoCs.
+
+Run the same model-checked litmus7 path in either eight-hart tiled composition.
+Smoke selects a fixed nine-case subset for CI; full selects every case supported
+by the target's ISA and hart count (3,443 at the current upstream pin). Each
+case boots only the two to four harts it needs:
+
+```sh
+make -C sims litmus-setup
+make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+make -C sims litmus-smoke-test SOC=tiled CORE=spike \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
+make -C sims litmus-full-test SOC=tiled CORE=rv5stage \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
+  LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
+make -C sims litmus-full-test SOC=tiled CORE=spike \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
+  LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
+```
+
+The builder consumes the generated target descriptor, emits separate ELFs and
+a target-bound manifest under `$PROGRAM_BUILD_ROOT/tiled-<core>/litmus-smoke/`
+or `litmus-full/`, and checks reported histograms against the pinned upstream
+Herd RVWMO result log. `LITMUS_SMOKE_RUNS` and `LITMUS_FULL_RUNS` each default
+to one sample per case; increase them when the extra simulated time is useful.
+The explicit `LITMUS7` executable is required. CI builds herdtools7 from
+commit `7a64d9d8480ae02d9065b2778b4f2d473c6595ae`; local runs should use
+the same revision for comparable results. No tool is downloaded by the Make
+targets. The full profile is manual only; CI runs smoke for both cores.
+
+For parallel full execution, run `litmus-full-elfs` once, then invoke
+`litmus-full-run` for shard indexes `0` through `LITMUS_FULL_SHARD_COUNT-1`
+with the same count and different indexes; `litmus-full-test` combines the
+build with one shard run. After all shards finish, run
+`make -C sims litmus-full-report SOC=tiled CORE=<core>
+LITMUS_FULL_SHARD_COUNT=8`; it fails if any shard is missing, mismatched, or
+contains a failure. Shards partition the entire supported inventory.
+Each shard writes atomic `results.json` checkpoints under
+`litmus-full/results/shard-<index>-of-<count>/`; rerunning an interrupted shard
+resumes completed cases only when the manifest, simulator, and run limits are
+identical. Use a new `PROGRAM_BUILD_ROOT` after changing any of those inputs.
+The result distinguishes build failures, model-forbidden observations, cycle
+limits, and wall-timeouts. A partial checkpoint has `complete: false` and a
+nonempty `pending` list; only complete shards count toward full coverage.
+No forbidden observation is a bounded test result, not a proof of memory-model
+compliance or of observing every allowed outcome.
+
+The previous branch-free 84-case adapter remains available separately for
+adapter debugging and explicit subsets:
+
+```sh
+make -C sims litmus-test SOC=tiled CORE=spike LITMUS_CASES=MP,LB+ctrls
+```
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
 `multiply`, `mm`, `dhrystone`, and `spmv`. Target-native builds also select the

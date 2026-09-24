@@ -27,6 +27,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `sw/coremark`
 - `sw/embench-iot`
 - `sw/bringup-bench`
+- `sw/litmus-tests-riscv`
 - `vlsi/double_wide_openframe`
 
 CoreMark is used only from its pinned upstream checkout. Its license, result
@@ -50,6 +51,16 @@ Rhodium checks output hashes as a functional workload suite, not a benchmark
 score. The ordered downstream patch series in
 [`sw/bringup-bench-patches/`](sw/bringup-bench-patches/)
 is applied only to build-local copies; the pinned submodule remains pristine.
+
+The RISC-V litmus corpus and its precomputed Herd result log are used from the
+pinned upstream checkout under BSD-2-Clause. Its license remains in
+[`sw/litmus-tests-riscv/LICENCE`](sw/litmus-tests-riscv/LICENCE). The
+Rhodium-owned bare-metal runtime and builder are separate Apache-2.0 files.
+The optional litmus7 path compiles generated C and helper sources from an
+externally supplied herdtools7 installation. Those generated sources identify
+themselves as CeCILL-B-licensed; distributing their compiled ELFs requires
+preserving the applicable herdtools7 license and notices. The generator and
+its generated sources are not checked into Rhodium.
 
 ## Spike disassembler
 

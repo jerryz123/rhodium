@@ -1,14 +1,16 @@
 #lang racket/base
-;; Emits instrumented RTL input and matching runtime metadata from one elaboration.
+;; Saves event metadata beside RTL emitted by the normal SoC harness selector.
 ;; SPDX-License-Identifier: Apache-2.0
 (require racket/file racket/runtime-path)
-(define-runtime-path emitter "emit-event-harness.rhm")
+(define-runtime-path emitter "emit-soc-harness.rhm")
 (define args (current-command-line-arguments))
-(unless (= (vector-length args) 1)
-  (error 'event-harness "expected output header path"))
-(dynamic-require emitter #f)
-(define manifest (dynamic-require emitter 'event_manifest_cpp))
-(define frequency (dynamic-require emitter 'trace_clock_frequency_hz))
+(unless (= (vector-length args) 3)
+  (error 'event-harness "expected output header path, SoC shape, and core"))
+(define-values (manifest frequency)
+  (parameterize ([current-command-line-arguments (vector "--trace" (vector-ref args 1) (vector-ref args 2))])
+    (dynamic-require emitter #f)
+    (values (dynamic-require emitter 'event_manifest_cpp)
+            (dynamic-require emitter 'trace_clock_frequency_hz))))
 (unless (and (exact-positive-integer? frequency) (< frequency (expt 2 64)))
   (error 'event-harness "clock frequency must fit a positive uint64"))
 (display-to-file

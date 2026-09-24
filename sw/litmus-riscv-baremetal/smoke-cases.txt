@@ -1,0 +1,14 @@
+# Names a bounded, model-checked litmus7 selection for tiled Spike and RV5Stage CI.
+# SPDX-License-Identifier: Apache-2.0
+# Two-hart load/store, dependency, fence, AMO, and acquire coverage.
+MP
+SB
+LB+ctrls
+MP+fence.rw.rw+amoswap-rfi-addr
+MP+po+poaqaq+NEW
+# Three- and four-hart ordering coverage.
+WRC+addrs
+IRIW+addrs
+# Preserve two observed Spike forbidden-outcome reproducers as regressions.
+2+2W+fence.rw.rwspx+fence.rw.rwsxp
+CoRW2+fence.rw.rwspx+X
