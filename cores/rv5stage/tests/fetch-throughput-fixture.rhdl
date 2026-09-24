@@ -68,6 +68,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.prefetch.valid <== Bool(#false)
   mmu.prefetch.bits <== literal(CachePrefetchReq(64), 0)
   mmu.data.request.valid <== Bool(#false)
+  mmu.data.response.ready <== Bool(#true)
   mmu.pipeline.request.valid <== Bool(#false)
   mmu.pipeline.commit <== Bool(#false)
   mmu.pipeline.request.bits <== literal(RV5StagePipelineReq(XLen.X64), 0)

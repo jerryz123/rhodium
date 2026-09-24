@@ -23,10 +23,10 @@ module rv5stage_memory_router_tb;
     logic origin;
   } response_bits_t;
   typedef struct packed { logic valid; response_bits_t bits; } response_t;
-  typedef struct packed { request_t request; } requester_t;
+  typedef struct packed { request_t request; ready_t response; } requester_t;
   typedef struct packed { request_bits_t request; logic device; } uncached_request_bits_t;
   typedef struct packed { logic valid; uncached_request_bits_t bits; } uncached_request_t;
-  typedef struct packed { uncached_request_t request; } uncached_requester_t;
+  typedef struct packed { uncached_request_t request; ready_t response; } uncached_requester_t;
   typedef struct packed {
     ready_t request;
     logic request_fault;
@@ -101,6 +101,7 @@ module rv5stage_memory_router_tb;
 
   initial begin
     core_in = '0;
+    core_in.response.ready = 1'b1;
     cache_in = '0;
     uncached_in = '0;
     tick();
@@ -170,11 +171,18 @@ module rv5stage_memory_router_tb;
       check_request(32'h6001, 4'(operation), 0, 0, 1);
     end
     check_request(32'h5001, 4'd8, 0, 0, 0);
+    core_in.response.ready = 1'b0;
     clock = 1; #1; clock = 0;
     core_in.request.valid = 0;
     #1;
     assert (core_out.response.valid && !core_out.response.bits.access_fault && !cache_out.request.valid && !uncached_out.request.valid)
       else $fatal(1, "uncached maintenance failed its registered no-IO completion");
+    repeat (3) begin
+      tick();
+      assert (core_out.response.valid && !core_out.drained)
+        else $fatal(1, "uncached maintenance completion was lost under backpressure");
+    end
+    core_in.response.ready = 1'b1;
     clock = 1; #1; clock = 0;
     core_in.request.valid = 1;
 

@@ -21,13 +21,14 @@ sync_circuit RV5StageVectorOverlap():
   input instruction: Bits(32)
   input(vl, vtype, scalar, hit_data): Bits(64)
   input(request_valid, packed_memory, retry, slow, cancel, issue_ready): Bool
-  interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
+  interface response(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Bits(3))), ~role: producer)
-  interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
+  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Bits(3))), ~role: consumer)
   interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
   output(request_ready, active, issued, issue_finished, sequencing_finished, retired): Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.scalar_writeback.ready <== Bool(#true)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
   vector.request.valid <== request_valid

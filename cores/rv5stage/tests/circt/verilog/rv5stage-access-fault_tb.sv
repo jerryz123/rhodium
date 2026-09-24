@@ -53,7 +53,7 @@ module rv5stage_access_fault_tb;
     data_resp_t response;
     logic drained; logic reservation_valid;
   } data_in_t;
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
 
   localparam logic [3:0] MEMORY_STORE = 4'd2;
 

@@ -20,6 +20,7 @@ def design = embedded.run_elaboration(
 def cache = design.modules.find(fun (module_def): module_def.name == "RV5StageL1DCache")
 def data_access_type = protocol.RV5StageDataAccess(XLen.X64, 8)
 def data_request_member = data_access_type.members.find(fun (member): member.name == "request")
+def data_response_member = data_access_type.members.find(fun (member): member.name == "response")
 def rv32_design = embedded.run_elaboration(
   fun (): l1d.RV5StageL1DCache(XLen.X32, cache_config, ~chi: config, ~service_queue_depth: 1)
 )
@@ -44,6 +45,7 @@ check:
   associative_cache_config.line_count ~is 16
   associative_cache_config.capacity_bytes ~is 1024
   data_request_member.type.name ~is "Decoupled"
+  data_response_member.type.name ~is "Decoupled"
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("data").type.width ~is 64
   cache.find_input("core_in").type.field("request").type.field("bits").type.field("address").type.width ~is 64
   cache.find_input("prefetch_in").type.field("bits").type.field("address").type.width ~is 64

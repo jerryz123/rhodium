@@ -4,10 +4,10 @@
 module rv5stage_memory_arbiter_tb;
   typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access, atomic; logic [1:0] width; logic unsigned_0; logic [63:0] data; logic [8:0] writeback; logic origin; logic [2:0] locality; } request_t;
   typedef struct packed { logic valid; request_t bits; } request_flow_t;
-  typedef struct packed { request_flow_t request; } data_request_t;
+  typedef struct packed { request_flow_t request; struct packed { logic ready; } response; } data_request_t;
   typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin; } response_t;
   typedef struct packed { logic valid; response_t bits; } response_flow_t;
-  typedef struct packed { logic request_ready, request_fault, request_access_fault; response_flow_t response; logic drained, reservation_valid; } data_response_t;
+  typedef struct packed { struct packed { logic ready; } request; logic request_fault, request_access_fault; response_flow_t response; logic drained, reservation_valid; } data_response_t;
   typedef struct packed { logic [7:0] byte_mask; logic [63:0] address; logic [3:0] access; logic [1:0] width; logic unsigned_0; logic [63:0] data; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
   typedef struct packed { lookup_flow_t request; logic commit; } pipeline_request_t;
@@ -26,6 +26,7 @@ module rv5stage_memory_arbiter_tb;
   endtask
   initial begin
     scalar_in = '0; vector_in = '0; memory_in = '0;
+    scalar_in.response.ready = 1; vector_in.response.ready = 1;
     scalar_pipeline_in = '0; vector_pipeline_in = '0; pipeline_in = '0;
     tick(); tick(); @(negedge clock); reset = 0;
 
@@ -57,18 +58,23 @@ module rv5stage_memory_arbiter_tb;
 
     scalar_in.request = '{valid:1, bits:'0}; scalar_in.request.bits.address = 'h300;
     vector_in.request = '{valid:1, bits:'0}; vector_in.request.bits.address = 'h400;
-    memory_in.request_ready = 0; memory_in.request_fault = 1;
-    #1; assert(memory_out.request.valid && memory_out.request.bits.address == 'h300 && scalar_out.request_fault && !vector_out.request_fault && !vector_out.request_ready) else $fatal(1,"stalled scalar fault owner");
+    memory_in.request.ready = 0; memory_in.request_fault = 1;
+    #1; assert(memory_out.request.valid && memory_out.request.bits.address == 'h300 && scalar_out.request_fault && !vector_out.request_fault && !vector_out.request.ready) else $fatal(1,"stalled scalar fault owner");
     scalar_in.request.valid = 0; memory_in.request_fault = 0; memory_in.request_access_fault = 1;
     #1; assert(memory_out.request.bits.address == 'h400 && vector_out.request_access_fault && !scalar_out.request_access_fault) else $fatal(1,"vector fault owner");
-    memory_in.request_access_fault = 0; memory_in.request_ready = 1;
-    #1; assert(vector_out.request_ready && !scalar_out.request_ready) else $fatal(1,"vector transfer owner");
+    memory_in.request_access_fault = 0; memory_in.request.ready = 1;
+    #1; assert(vector_out.request.ready && !scalar_out.request.ready) else $fatal(1,"vector transfer owner");
     tick(); @(negedge clock); vector_in.request.valid = 0;
     // Response ownership comes from the accepted tag, not the current arbiter winner.
     memory_in.response = '{valid:1, bits:'{access_fault:0, data:64'h5678, writeback:memory_vector(3), origin:0}};
     #1; assert(vector_out.response.valid && !scalar_out.response.valid && vector_out.response.bits.data == 'h5678) else $fatal(1,"delayed vector completion");
     memory_in.response.bits.writeback = memory_integer(9);
     #1; assert(scalar_out.response.valid && !vector_out.response.valid) else $fatal(1,"scalar completion route");
+    scalar_in.response.ready = 0;
+    #1; assert(!memory_out.response.ready && scalar_out.response.valid) else $fatal(1,"scalar completion backpressure");
+    memory_in.response.bits.writeback = memory_vector(3);
+    #1; assert(memory_out.response.ready && vector_out.response.valid) else $fatal(1,"vector completion accepts independently");
+    scalar_in.response.ready = 1;
     memory_in.drained = 1; memory_in.reservation_valid = 1;
     #1; assert(scalar_out.drained && vector_out.drained && scalar_out.reservation_valid && vector_out.reservation_valid) else $fatal(1,"memory status");
     $display("Scalar/vector LSU arbitration, replay, commit ownership, and response routing passed");

@@ -123,11 +123,12 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // S3 retains its request if older S4 work takes the arrays. Its returned
   // data is discarded and reread before retry, including across snoop service.
   inst s3_lookup(Pipe(RV5StageL1DLookup(xlen, vector_completion_slots), 1))
-  inst s4_result(ValidPipeAlwaysCapture(RV5StageL1DResolved(xlen, way_width, vector_completion_slots), 1))
+  inst s4_result(Pipe(RV5StageL1DResolved(xlen, way_width, vector_completion_slots), 1))
   reg s3_read_valid(~init: Bool(#false))
-  // The slow-service response register isolates its SRAM result path.
-  // The core-aligned hit path bypasses it; neither response is backpressured.
-  inst service_responses(ValidPipe(RV5StageDataResp(xlen, vector_completion_slots), 1))
+  // Retain a slow completion until its downstream writeback path accepts it.
+  // Registered-only input capacity keeps response backpressure out of request
+  // admission and the core's translation-flush ready path.
+  inst service_responses(Queue(RV5StageDataResp(xlen, vector_completion_slots), 2))
 
   // Persistent cache and engine state spans transactions, not core stages.
   reg valid_lines(~init: vec(
@@ -311,7 +312,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
          pas: CHIPAS.Secure
          context: request
   ) |> maintenance.command
-  def maintenance_done = maintenance.completion |> to_valid()
+  def maintenance_done = maintenance.completion |> gate_flow(service_responses.ingress.ready) |> to_valid()
   def maintenance_complete = maintenance_done.valid
   def prefetch_request = prefetch.bits.into(CachePrefetchReq(width))
   def prefetch_valid = prefetch.valid & prefetch_request.operation.is_one_of(CachePrefetchOperation.Read, CachePrefetchOperation.Write)
@@ -347,14 +348,14 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   wire s4_refill_accepted: Bool
   wire s4_refill_opcode: CHIReqOpcode
   wire s4_refill_address: Bits(width)
-  def s4_observed = s4_result.egress |> trace_valid_event("dcache/s4.resolve", ~fields: result):
+  def s4_observed = s4_result.egress |> trace_event("dcache/s4.resolve", ~fields: result):
     address: s4_context.request.address
     prefetch: s4_context.prefetch
     hit: result.hit
     refill_accepted: s4_refill_accepted
     refill_opcode(~format: "enum"): s4_refill_opcode
     refill_address: s4_refill_address
-  def s4_path = s4_observed |> to_decoupled()
+  def s4_path = s4_observed
   def s4_request :: RV5StageDataReq(xlen, vector_completion_slots) = s4_context.request
   def s4_prefetch = s4_context.prefetch
   def s4_prefetch_write = s4_context.prefetch_write
@@ -399,7 +400,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def Array(s4_refill_path, s4_eviction_path) = (
     s4_transaction_path |> demux_flow(2, _result => s4_dirty_victim.as_bits())
   )
-  def s4_local = s4_hit_path |> to_valid()
+  def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
   fun transaction_context(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots),
                           allocation :: Bool,
                           install :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots):
@@ -466,7 +467,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   // ReadClean returns a clean copy, which CHI permits us to silently discard.
   // A bypass consumes the acknowledged transaction buffer without touching
   // arrays, replacement state, or any resident line's reservation.
-  refill.completion.ready <== mux(refill_context.install, refill_installing & refill_install_final, refill_can_complete)
+  refill.completion.ready <== mux(refill_context.install, refill_installing & refill_install_final, refill_can_complete) & (refill_context.prefetch ||| service_responses.ingress.ready)
   def complete_refill = refill.completion.fire()
   def install_refill = complete_refill & refill_context.install
   when complete_refill:
@@ -482,21 +483,21 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def refill_tag = refill_request.address[(offset_width + set_width)..width]
   def refill_word_index = refill_request.address[word_offset_width..offset_width]
   def refill_words = refill.completion.bits.line.as_bits().as_vec(Bits(width))
-  def service_load_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(refill.completion.valid, refill_request, s4_request)
+  def service_load_request :: RV5StageDataReq(xlen, vector_completion_slots) = mux(complete_refill, refill_request, s4_request)
   def service_load_unsigned = mux(service_load_request.access === RV5StageMemoryOperation.Load, service_load_request.unsigned, Bool(#false))
   def refilled_word = refill_words[refill_word_index]
   service_load_gen.address <== service_load_request.address
-  service_load_gen.data <== mux(refill.completion.valid, refilled_word, s4_word)
+  service_load_gen.data <== mux(complete_refill, refilled_word, s4_word)
   service_load_gen.width <== service_load_request.width
   service_load_gen.unsigned_load <== service_load_unsigned
   def refill_mutation = refill.completion.valid & !refill_prefetch & refill_access.needs_unique()
   def local_mutation = s4_mutation & s4_owned_mutation
   def local_mutation_capture = local_mutation & s4_local.valid
-  def local_mutation_commit = pending_mutation_valid
   def pending_mutation_access = pending_mutation_request.access
   // Owned hits keep the SRAM until the complete block is zero. No new CHI
   // transaction is held up by this bounded interval; snoops resume afterward.
   def pending_zero = pending_mutation_access.is_cache_block_zero()
+  def local_mutation_commit = pending_mutation_valid & (!pending_zero ||| (pending_zero_index =/= bits(words_per_line - 1, word_index_width)) ||| service_responses.ingress.ready)
   def local_mutation_complete = local_mutation_commit & (!pending_zero ||| (pending_zero_index === bits(words_per_line - 1, word_index_width)))
   local_atomic_alu.old_value <== pending_mutation_old_value
   local_atomic_alu.operand <== pending_mutation_request.data
@@ -577,9 +578,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
 
   // S4 owns the backing engines for the next cycle. An older miss or mutation
   // prevents S3 advancement; the retained S3 request rereads after that work.
-  def s3_can_advance = !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !s4_needs_refill & !local_mutation
-  // Gating retains blocked requests; only admitted reads become Valid events.
-  // Payload mapping remains unconditional at the always-captured S4 boundary.
+  def s3_can_advance = s4_result.ingress.ready & !maintenance_active & refill.command.ready & writeback.command.ready & gather_idle & !refill_installing & !pending_mutation_valid & !snoop_pending & !s4_needs_refill & !local_mutation
+  // Gating retains blocked requests; only admitted reads enter the elastic S4
+  // result register. A stalled request is reread when S4 has capacity.
   def s3_observed = s3_lookup.egress |> trace_event("dcache/s3.lookup", ~stalls: #true, ~fields: lookup):
     address: lookup.request.address
     prefetch: lookup.prefetch
@@ -587,8 +588,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   (
     s3_observed
       |> gate_flow(s3_can_advance & s3_read_valid)
-      |> to_valid()
-      |> map_valid(request => RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
+      |> map_flow(request => RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
         lookup: request
         hit: s3_hit_way.valid
         hit_way: s3_hit_way.index
@@ -599,8 +599,6 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         victim_state: arrays.states.response.bits[s3_allocation_way]
         victim_address: concat(arrays.tags.response.bits[s3_allocation_way], s3_set, bits(0, offset_width))
   ) |> s4_result.ingress
-  when (s4_result.egress.valid):
-    assert(s4_path.ready, "l1d_s4_capacity_reserved")
   for (left in 0..ways):
     for (right in (left + 1)..ways):
       when (s3_lookup.egress.fire()):
@@ -693,7 +691,9 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
                   bits(0, width)))
     writeback: response_request.writeback
     origin: response_request.origin
-  inject_flow(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> service_responses.ingress
+  inject_flow(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
+  when produces_response:
+    assert(service_responses.ingress.ready, "l1d_slow_response_capacity")
 
   // A fence observes accepted or queued requests, lookup work, active refills,
   // and the backing store buffer. Same-cycle acceptance is included so no

@@ -60,15 +60,17 @@ Keep transaction-spanning state under its engine name, such as `miss_*`,
 
 Use flow chains for channel arbitration, Valid payload transformation, and
 engine-generated offers. Preserve fixed-priority input order and unconditional
-payload capture at `ValidPipeAlwaysCapture` boundaries. Shared scheduler grants
-are combinational wires, not additional pipeline stages. Keep SRAM owner
-priorities, store authorization, and engine state transitions explicit; do not
-replace non-backpressurable completion selection with a dropping Valid arbiter.
+payload capture at remaining `ValidPipeAlwaysCapture` boundaries. Shared
+scheduler grants are combinational wires, not additional pipeline stages. Keep
+SRAM owner priorities, store authorization, and engine state transitions
+explicit; retain slow completions until the selected response sink accepts them.
 
 S4 hit/refill/eviction branches carry the complete resolved bundle; build
 transaction commands and capture mutation/gather state from the consuming
-branch's payload. Terminate accepted work as same-cycle Valid events where
-the FSM cannot backpressure it further. S2 maps demands and hints into lookup
+branch's payload. The S4 result and slow-service response registers are elastic;
+the latter has registered-only input capacity to break the downstream-ready
+path through request admission. Do not turn stalled transfers into repeated
+completion events. S2 maps demands and hints into lookup
 flows with demand-first arbitration. Drop hints unless they can win and enter
 S3 immediately, before `to_decoupled()` checks acceptance; never buffer them.
 Keep early virtual SRAM indexing independent of that token arbitration and
@@ -97,7 +99,7 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
 
 ### Behavioral invariants
 
-1. Preserve ordered Decoupled requests and non-backpressurable Valid responses,
+1. Preserve ordered Decoupled requests and backpressurable slow responses,
    including completion metadata for stores, atomics, and deferred writeback.
    Carry `RV5StageMemoryWriteback` and the independent `RV5StageDataOrigin`
    through retained requests and replies. Only core completion consumers inspect
@@ -124,7 +126,7 @@ parent [trace guide](../DEVELOPING.md#pipeline-event-annotations).
    committed entry's way to be replaced or downgraded before its drain.
    For authorized transactions,
    S3 owns array reads, tag comparison, and word/state selection; its result
-   crosses `ValidPipeAlwaysCapture` before S4 checks permissions and launches
+   crosses an elastic `Pipe` before S4 checks permissions and launches
    transactions. Reserve S4 capacity before advancing S3. Retain and reread
    younger S3 requests blocked by older S4 work or snoops; never retain their
    stale array results across mutation, refill, or coherence service. Include

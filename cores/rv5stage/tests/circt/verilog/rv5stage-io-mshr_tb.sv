@@ -14,6 +14,7 @@ module rv5stage_io_mshr_tb;
   } instruction_out_t;
   typedef struct packed {
     struct packed { logic valid; RV5StageDataReq bits; } request;
+    struct packed { logic ready; } response;
   } data_requester_t;
   typedef struct packed {
     struct packed { logic ready; } request;
@@ -68,7 +69,7 @@ module rv5stage_io_mshr_tb;
     end else begin
       if (core_in.request.valid && core_out.request.ready && !core_out.request_access_fault)
         accepted++;
-      if (core_out.response.valid) completed++;
+      if (core_out.response.valid && core_in.response.ready) completed++;
       if (chi_out.req.valid && chi_in.req.ready) begin
         requests++;
         outstanding++;
@@ -178,10 +179,20 @@ module rv5stage_io_mshr_tb;
     tick();
     instruction_in.flush = 0;
     read_data(128'h0000000000000000_8000000000000000);
+    core_in.response.ready = 0;
     #1;
     assert (core_out.response.valid && core_out.response.bits.data == 64'h80000000 &&
             core_out.response.bits.writeback == expected_writeback && !core_out.drained)
       else $fatal(1, "load completion lost retained width, signedness, or destination metadata");
+    repeat (3) begin
+      assert (!chi_out.dat.response.ready && completed == initial_completed)
+        else $fatal(1, "stalled IO load completion was consumed early");
+      tick();
+      #1;
+      assert (core_out.response.valid && core_out.response.bits.data == 64'h80000000)
+        else $fatal(1, "stalled IO load completion changed payload");
+    end
+    core_in.response.ready = 1;
     tick();
     chi_in.dat.response.valid = 0;
     repeat (4) tick();
@@ -192,6 +203,7 @@ module rv5stage_io_mshr_tb;
 
   initial begin
     core_in = '0;
+    core_in.response.ready = 1'b1;
     cache_in = '0;
     instruction_in = '0;
     chi_in = '0;
@@ -274,6 +286,7 @@ module rv5stage_io_mshr_tb;
     tick();
     reset = 1;
     core_in = '0;
+    core_in.response.ready = 1'b1;
     tick();
     reset = 0;
     repeat (4) tick();

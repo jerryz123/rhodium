@@ -6,6 +6,7 @@ module rv5stage_vector_overlap_tb;
   logic [63:0] vl=2, vtype=24, scalar=0, hit_data=0;
   logic request_valid=0, packed_memory=0, retry=0, slow=0, cancel=0, issue_ready=1;
   struct packed { logic valid; RV5StageVectorCompletion bits; } response_in;
+  struct packed { logic ready; } response_out;
   struct packed { logic ready; } fp_request_in;
   struct packed { logic valid; RV5StageFpExecutionRequest bits; } fp_request_out;
   struct packed { logic valid; RV5StageFpExecutionResult bits; } fp_result_in;
@@ -121,6 +122,7 @@ module rv5stage_vector_overlap_tb;
   endtask
   task automatic return_memory(input int index, input logic [63:0] value);
     response_in.valid=1; response_in.bits.tag=3'(memory_tags[index]); response_in.bits.data=value;
+    #1; while (!response_out.ready) begin tick(); #1; end
     tick(); response_in='0;
   endtask
   initial begin
@@ -201,8 +203,8 @@ module rv5stage_vector_overlap_tb;
     drain();
     assert(store_count==2 && stores[0]==64'h0123456789abcdef && stores[1]==64'hfedcba9876543210) else $fatal(1,"cross-route response ownership");
 
-    // A younger load may sequence and issue to the same destination before the
-    // older slow responses return, but its writes must remain ordered after them.
+    // A younger load may enter the sequencer, but cannot issue a conflicting
+    // destination row until the older response has written that row.
     // This also exercises allocator wrap without a per-launch reset.
     phase=5;
     memory_count=0; store_count=0; slow=1;
@@ -210,7 +212,8 @@ module rv5stage_vector_overlap_tb;
     while(memory_count<2) tick();
     slow=0;
     launch(load_insn(16),64'h180,1);
-    while(phase5_younger_attempts<2) tick();
+    repeat(5) tick();
+    assert(phase5_younger_attempts==0) else $fatal(1,"packed load bypassed older destination writes");
     return_memory(1,64'hbbbb); return_memory(0,64'haaaa);
     drain();
     launch(store_insn(16),64'h480,0); drain();
@@ -318,7 +321,26 @@ module rv5stage_vector_overlap_tb;
     while(phase14_attempts<3) tick();
     assert(phase14_attempts==3 && phase14_older_last>0 && phase14_younger>phase14_older_last) else $fatal(1,"row-progress overlap lost issue ownership");
     assert(phase14_younger-phase14_older_last<=2) else $fatal(1,"completed producer row remained blocked by its unfinished second row");
-    $display("Vector overlap passed: row-progress dependencies, tail handoff, age-ordered packed issue, reductions, stateless index, row chaining, replay, cross-route returns, slot wrap, and canceled carry");
+    // A delayed FP result must not hold an unrelated local result behind it.
+    // Conversely, a younger writer of the same row must wait for that result.
+    reset=1; tick(); reset=0;
+    phase=15; vl=1; vtype=24; fp_count=0; store_count=0;
+    launch(32'h02001057 | (32'd8<<20) | (32'd10<<15) | (32'd12<<7),64'hf00,0);
+    while(fp_count<1) tick();
+    launch(index_insn(14),64'hf10,0);
+    repeat(8) tick();
+    launch(store_insn(14),64'hf40,0);
+    while(store_count<1) tick();
+    assert(active && stores[0]==0) else $fatal(1,"unrelated result waited for older FP completion");
+    older_issue_count=done_count;
+    launch(index_insn(12),64'hf20,0);
+    repeat(8) tick();
+    assert(done_count==older_issue_count) else $fatal(1,"younger write passed an older pending destination row");
+    return_fp(0,64'h1111222233334444);
+    drain();
+    launch(store_insn(12),64'hf80,0); drain();
+    assert(store_count==2 && stores[1]==0) else $fatal(1,"older late FP result overwrote younger data");
+    $display("Vector overlap passed: direct independent completion, row RAW/WAW, tail handoff, packed issue, reductions, replay, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

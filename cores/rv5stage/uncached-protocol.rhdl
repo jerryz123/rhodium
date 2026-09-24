@@ -42,7 +42,7 @@ interface RV5StageUncachedDataAccess(xlen :: XLen, vector_completion_slots :: Po
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Valid(RV5StageDataResp(xlen, vector_completion_slots))
+    response: Decoupled(RV5StageDataResp(xlen, vector_completion_slots))
     drained: Bool
 
 export:

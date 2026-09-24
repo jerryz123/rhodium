@@ -9,6 +9,7 @@ module rv5stage_uncached_tb;
   } instruction_in_t;
   typedef struct packed {
     struct packed { logic valid; RV5StageUncachedDataReq bits; } request;
+    struct packed { logic ready; } response;
   } core_in_t;
   typedef struct packed {
     struct packed { logic ready; } req;
@@ -77,6 +78,7 @@ module rv5stage_uncached_tb;
   initial begin
     instruction_in = '0;
     core_in = '0;
+    core_in.response.ready = 1'b1;
     chi_in = '0;
     tick();
     reset = 1'b0;

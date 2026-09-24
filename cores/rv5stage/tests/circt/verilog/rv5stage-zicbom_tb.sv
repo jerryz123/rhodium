@@ -9,7 +9,7 @@ module rv5stage_zicbom_tb;
   typedef struct packed { logic valid; RV5StageDataReq bits; } dreq_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } dresp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
-  typedef struct packed { dreq_t request; } dout_t;
+  typedef struct packed { dreq_t request; ready_t response; } dout_t;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0;
   RiscvInterrupts interrupts;

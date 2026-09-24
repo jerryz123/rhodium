@@ -4,7 +4,7 @@
 # RV5Stage floating point
 
 RV5Stage's optional floating-point subsystem provides architectural FP
-register state, fixed-latency arithmetic, buffered division and square root,
+register state, fixed-latency arithmetic, retained division and square root,
 load/store integration, destination tracking, and completion arbitration. The
 core supports RV32F or RV64D, with optional Zfhmin, Zfh, and Zfa behavior.
 
@@ -13,7 +13,7 @@ core supports RV32F or RV64D, with optional Zfhmin, Zfh, and Zfa behavior.
 [`RV5StageFpExecutionService`](execute.rhdl) accepts explicit FP operands,
 an integer operand, decoded controls, an immediate index, a resolved rounding
 mode, and a caller-selected `Tag` type. Its `Decoupled` request transfers
-authorize execution; its `Irrevocable` result holds the unchanged tag, FP and
+authorize execution; its default `Irrevocable` result holds the unchanged tag, FP and
 integer result lanes, exception flags, and a flag-update qualifier until consumed.
 The selected operation determines which result lane is meaningful. Control
 register-use/destination fields select numeric conversion direction; they do
@@ -29,18 +29,19 @@ execution. The packed vector caller boxes narrow elements on entry and
 extract the selected element width on return. The service does not resolve
 dynamic rounding modes, accumulate architectural flags, or interpret tags.
 
-Fixed execution accepts one request per cycle when completion credit is
-available, with a two-cycle nonstallable result delay followed by reserved
-buffering. This preserves the existing combinational datapath and does not
-claim a physically balanced two-stage arithmetic implementation. Divide/sqrt
-has independent buffered format lanes.
-Completion arbitration is round-robin, including between format lanes, so
-continuous fixed work cannot starve a ready divide/sqrt result. Results may
-complete out of request order; callers must route them by their retained tags.
-The fixed and divide/sqrt response buffers arbitrate directly onto the result;
-there is no redundant post-arbitration queue. Backpressure is lossless, but a
-stalled output can eventually fill the source buffers and stop other callers.
-Progress requires downstream consumers to drain.
+Fixed execution has a two-cycle nonstallable result delay. This preserves the
+combinational datapath and does not claim a physically balanced two-stage
+arithmetic implementation. With `~scheduled_writeback: #true`, the caller must
+reserve the destination write cycle before request acceptance. Fixed results
+write immediately without a result queue and take priority over variable
+results. The scheduled output is `Decoupled`, allowing a fixed result to
+preempt an unaccepted variable offer. The service pauses new fixed launches for
+an aged variable waiter; integrated calendars likewise pause new reservations
+when a destination has a persistently blocked variable response. The default standalone mode instead
+reserves fixed-response storage and arbitrates fairly onto an `Irrevocable`
+output. Divide/sqrt retains one operation's terminal arithmetic state and tag
+until accepted, rather than copying results into a completion queue.
+Results may complete out of request order; callers route their retained tags.
 
 The service has no architectural cancellation input: accepted work survives
 younger redirects. Synchronous reset discards pending work and results.
@@ -52,7 +53,7 @@ the service itself owns no client count or client-specific scheduling policy.
 
 The enabled and disabled implementations expose the same architectural ports.
 The enabled pipeline accepts non-speculative compute work through a
-`Decoupled` issue input and retains results through an `Irrevocable` completion
+`Decoupled` issue input and forwards results through a `Decoupled` completion
 output. It also provides a `Decoupled` load-reservation input, a `Valid` load
 completion, a separate WB `Valid` load-hit input, one-cycle `Valid` store request/response pulses, a `Valid`
 architectural-state update, the FPR busy mask, and a drained indicator. The

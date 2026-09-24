@@ -39,7 +39,7 @@ completion slots, precise element restart, and fault-only-first VL truncation. T
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with locally accepted operands and
-ordered VRF/flag completion. RV64 vectors also share the profile-selected
+scheduled VRF writes and completion-time flag updates. RV64 vectors also share the profile-selected
 integer multiplier and iterative divider for SEW8/16/32/64 `.vv` and `.vx`
 operations, with independent arbitration and reserved completion ownership.
 `VectorProfile` selects
@@ -568,9 +568,11 @@ this boundary does not introduce a reorder buffer or precise late bus faults.
 | FP load hit | EX request, parallel MEM lookup | Scalar WB to FP load-hit port, without a deferred reservation |
 | Deferred FP load | Transaction and FPR reservation accepted at WB | Memory response to FP pipeline's load-completion port |
 
-The fixed-priority deferred arbiter gives integer memory responses priority
-because they cannot be backpressured. Multiplier, divider, and FP integer
-responses remain stable until selected. Its output drives the second integer
+Fixed-latency multiply, FP integer, and vector scalar returns reserve the
+deferred write cycle before execution. Variable responses wait at their
+producer and arbitrate round-robin in unreserved cycles. A persistently blocked
+variable response pauses new reservations until it can make progress;
+already-issued fixed results keep their promised cycle. This path drives the second integer
 register-file write port and clears the corresponding scoreboard entry. The
 ordinary WB result uses the other write port. WAW gating prevents both ports
 from targeting the same register in one cycle, and a WB-aligned cache hit can

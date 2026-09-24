@@ -5,7 +5,7 @@ module rv5stage_dcache_rv32_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } response_t;
-  typedef struct packed { request_t request; } core_in_t;
+  typedef struct packed { request_t request; ready_t response; } core_in_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } core_out_t;
   typedef struct packed { logic valid; CachePrefetchReq bits; } prefetch_t;
   typedef struct packed { logic valid; CHIReqFlit bits; } req_t;
@@ -85,6 +85,7 @@ module rv5stage_dcache_rv32_tb;
 
   initial begin
     core_in = '0;
+    core_in.response.ready = 1'b1;
     prefetch_in = '0;
     chi_in = '0;
     repeat (2) tick();

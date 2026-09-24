@@ -44,7 +44,7 @@ module rv5stage_vector_fp_tb;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
 
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
 
   logic clock = 0, reset = 1;
   interrupts_t interrupts = '0;
@@ -540,7 +540,7 @@ module rv5stage_vector_fp_tb;
     if (!reset) begin
       cycles <= cycles + 1;
       if (data_access_out.request.valid) reject_request <= data_access_in.request.ready;
-      if (load_delay != 0) load_delay <= load_delay - 1;
+      if (load_delay > 1 || (load_delay == 1 && data_access_out.response.ready)) load_delay <= load_delay - 1;
       if (instruction_access_out.flush || (response_valid && instruction_access_out.response.ready)) response_valid <= 0;
       if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
         response_valid <= 1;

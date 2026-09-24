@@ -5,6 +5,7 @@
 import:
   "bundles.rhdl" open
   "geometry.rhdl" open
+  "dependencies.rhdl".vector_destination_registers
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
@@ -127,6 +128,15 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
   def second_address = mux(compress, (vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
   def destination_address = (vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
+  // Writes may now finish independently of older unrelated instructions.
+  // Preserve WAW order at the physical destination row before capturing reads.
+  def writing = !scalar_destination & !(descriptor.control.memory & descriptor.control.store) & !empty
+  def write_width = sew + ((descriptor.control.integer ||| descriptor.control.multiply_divide ||| descriptor.control.fp_service) & descriptor.control.widening & !reduction).as_bits().zext(2)
+  def write_chunk = mux(reduction ||| element_move, bits(0, index_width(vlen + 1)), mux(descriptor.control.mask_destination ||| mask_logic, cursor >> 6, cursor >> (bits(3, 2) - write_width)))
+  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << index_width(vector_chunks(vlen))) + write_chunk[0..row_base_width]
+  def destination_group = vector_destination_registers(xlen, vlen, descriptor)
+  def compressed_write_wait = vec(for List (row in 0..vector_depth(vlen)): blocked_rows[row] & destination_group[row div vector_chunks(vlen)].into(Bool)).as_bits().or_reduce()
+  def write_wait = writing & mux(compress, compressed_write_wait, blocked_rows[write_address])
   // Older macros have captured every operand before this descriptor starts.
   // Only their pending writes can block us; this macro's own writes cannot.
   // Indexed gathers conservatively wait for older writes before their index
@@ -136,7 +146,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def read_source_blocked = vec([
     !empty & blocked_rows[first_address],
     !empty & second_source & blocked_rows[second_address],
-    !empty & destination_source & blocked_rows[destination_address],
+    (!empty & destination_source & blocked_rows[destination_address]) ||| write_wait,
     !empty & uses_mask & blocked_rows[mask_address],
     !empty & gather_vector & blocked_rows.as_bits().or_reduce()
   ]).as_bits()

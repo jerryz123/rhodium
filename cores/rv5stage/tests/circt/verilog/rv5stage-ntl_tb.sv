@@ -10,7 +10,7 @@ module rv5stage_ntl_tb;
   typedef struct packed { logic valid; RV5StageDataReq bits; } dreq_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } dresp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
-  typedef struct packed { dreq_t request; } dout_t;
+  typedef struct packed { dreq_t request; ready_t response; } dout_t;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0, mstatus, satp;
   logic [1:0] privilege;
@@ -105,7 +105,7 @@ module rv5stage_ntl_tb;
         i_word <= instruction_at(instruction_access_out.request.bits.address);
         if (instruction_access_out.request.bits.address == 64) hint_fetched <= 1;
       end
-      d_valid <= 0;
+      if (d_valid && data_access_out.response.ready) d_valid <= 0;
       if (load_delay > 0) begin
         load_delay <= load_delay - 1;
         if (load_delay == 1) d_valid <= 1;

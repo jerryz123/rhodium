@@ -24,7 +24,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false):
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
   def MultiplyTag = RV5StageVectorMultiplyTag(slots)
@@ -35,7 +35,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface precheck(RV5StageVectorPrecheck(), ~role: requester)
   interface fp_request(Decoupled(RV5StageFpExecutionRequest(xlen, fp_profile, Tag)), ~role: producer)
-  interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
+  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, fp_profile, Tag)), ~role: consumer)
   interface multiply_request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(xlen.width), MultiplyTag)), ~role: producer)
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), MultiplyTag)), ~role: consumer)
   interface divide_request(Decoupled(RV5StageExecutionRequest(DividerRequest(xlen.width), DivideTag)), ~role: producer)
@@ -47,12 +47,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   interface execution_done(Pulse(), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output(active, sequencing, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
 
-  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa))
+  inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
   inst access(RV5StageVectorMemory(xlen, slots))
   // Pending descriptor policy is independent of the older execution owner's
   // LSU policy, so prechecking the next macro cannot perturb active issue.
@@ -148,6 +149,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   execution.retire |> execution_done
   execution.saturate |> saturate
   execution.scalar_result |> scalar_result
+  execution.scalar_writeback |> scalar_writeback
   execution.floating_result |> floating_result
   // Summaries cover both waiting entries, including a non-head FP or memory
   // descriptor. Transfer into execution moves ownership without a status gap.

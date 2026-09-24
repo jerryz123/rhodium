@@ -114,26 +114,20 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
     for(auto& owner:owners) if(owner.attempt.tag==response_tag) {
       if(owner.done) fail("duplicate response");
       if(&owner!=&owners.front()) ++out_of_order;
+      expect(vector_sites::complete,completions++,owner.attempt.ref);
+      ++late_count; ++complete_count;
       owner.done=true; found=true; break;
     }
     if(!found) fail("response without an accepted slot");
   }
-  // The ordered head bypasses completion storage when its response arrives;
-  // an older already-complete head drains on the same edge as before.
-  bool drained=false;
-  if(!owners.empty() && owners.front().done) {
-    expect(vector_sites::complete,completions++,owners.front().attempt.ref);
-    owners.pop_front(); ++late_count; ++complete_count; drained=true;
-  }
+  // Completion follows the public transfer, not ordered metadata reclamation.
+  while(!owners.empty() && owners.front().done) owners.pop_front();
   // Non-memory compute becomes durable directly from the one-stage private
-  // execute path. It either drains at the ordered head or waits there behind
-  // the single write already selected for this cycle.
+  // execute path, on the cycle reserved before issue.
   if(pipe[0] && !pipe[0]->memory) {
-    owners.push_back({*pipe[0],true,cycle});
-    if(!drained && owners.size()==1) {
-      expect(vector_sites::complete,completions++,pipe[0]->ref);
-      owners.pop_front(); ++complete_count; drained=true;
-    }
+    if(response) fail("slow response collided with fixed compute write");
+    expect(vector_sites::complete,completions++,pipe[0]->ref);
+    ++complete_count;
   }
   if(bool(pipe[2])!=bool(commit || (cancel && pipe[2]))) fail("feedback latency changed");
   if(commit) {
@@ -142,7 +136,14 @@ extern "C" void vector_trace_sample(unsigned reset, unsigned launch, unsigned in
       if(disposition!=0) fail("compute received a memory disposition");
     } else if(disposition==0) {
       for(const auto& owner:owners) if(owner.attempt.tag==pipe[2]->tag) fail("live slot reused");
-      owners.push_back({*pipe[2],!pipe[2]->memory || !slow || !pipe[2]->enabled,cycle+10+(3-pipe[2]->tag)*3});
+      const bool immediate=!slow || !pipe[2]->enabled;
+      owners.push_back({*pipe[2],immediate,cycle+10+(3-pipe[2]->tag)*3});
+      if(immediate) {
+        if(response) fail("slow response collided with fixed memory write");
+        expect(vector_sites::complete,completions++,pipe[2]->ref);
+        ++complete_count;
+      }
+      while(!owners.empty() && owners.front().done) owners.pop_front();
       if(!issue_owners.empty()) issue_owners.front().authorized_index=pipe[2]->index+1;
     } else if(disposition==1) {
       if(issue_owners.empty()) fail("retry without issue owner");
@@ -243,7 +244,7 @@ extern "C" void vector_trace_check() {
 extern "C" void vector_trace_finish() {
   if(beat_launch_count<40 || !first_cycle_launch_count || issued_count<40 || complete_count<30 || !retry_count || !fault_count || !truncate_count ||
       !late_count || !reset_pending || !no_write || !stall_count || !launch_stall_count)
-    fail("missing retry/fault/truncation/ordered-drain/reset/stall/no-write coverage");
+    fail("missing retry/fault/truncation/completion/reset/stall/no-write coverage");
   if(!launch_reason_counts[1] || !launch_reason_counts[6]) fail("missing source or fetch launch-stall coverage");
   if(!out_of_order) fail("missing out-of-order response coverage");
   std::printf("Vector lineage passed: %u issues, %u completions, %u delayed, %u out-of-order responses, %u retries, %u issue stalls, %u launch stalls\n",

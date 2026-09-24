@@ -23,7 +23,7 @@ module rv5stage_return_prediction_tb;
   typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin; } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault, request_access_fault; data_resp_t response; logic drained, reservation_valid; } data_in_t;
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
   instruction_in_t instruction_in[2];
   instruction_out_t instruction_out[2];
   data_in_t data_in[2];

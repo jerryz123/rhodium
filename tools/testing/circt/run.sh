@@ -260,6 +260,9 @@ fixture_in_group() {
     cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
+    cores-execution:rv5stage-writeback)
+      return 0
+      ;;
     cores-vector-functional-1:rv5stage-vector|cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-control|cores-vector-functional-1:rv5stage-vector-config|cores-vector-functional-1:rv5stage-vector-fp|cores-vector-functional-1:rv5stage-vector-muldiv)
       return 0
       ;;
@@ -533,7 +536,13 @@ verify_fixture() {
     # without disabling assertions or runtime convergence checks.
     # Instrumented occurrences use top-derived names, so these fixtures
     # cannot be recognized by the original frontend module name.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config ]] || grep -Eq '^module RV5StageFrontend[ (_]' "$verilog"; then
+    # The data router's packed bidirectional response carries ready back
+    # through a selected IO-MSHR input; Verilator flags the whole struct as a
+    # loop even though valid is independent of ready on every leaf.
+    # Vector atomic issue couples ready with a calendar's payload-only latency
+    # lookup. Packed structs look cyclic to Verilator; leaf-level RTL verification
+    # remains enabled, as do simulation assertions and convergence checks.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then
@@ -854,6 +863,7 @@ direct_fixture_specs=(
   'rv5stage-fp-register-file|rv5stage_fp_register_file_tb'
   'rv5stage-fp-pipeline|rv5stage_fp_pipeline_tb'
   'rv5stage-fp-service|rv5stage_fp_service_tb'
+  'rv5stage-fp-scheduled|rv5stage_fp_service_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'rv5stage-csr|rv5stage_csr_tb'
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'
@@ -895,6 +905,7 @@ direct_fixture_specs=(
   'rv5stage-io-boot|rv5stage_io_boot_tb'
   'rv5stage-multiply|rv5stage_multiply_tb'
   'rv5stage-integer-execution|rv5stage_integer_execution_tb'
+  'rv5stage-writeback|rv5stage_writeback_tb'
   'rv5stage-divide|rv5stage_divide_tb'
   'rv5stage-icache|rv5stage_icache_tb'
   'rv5stage-icache-coherence|rv5stage_icache_coherence_tb'

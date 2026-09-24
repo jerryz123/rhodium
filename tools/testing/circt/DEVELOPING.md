@@ -94,7 +94,7 @@ distinct instances, 64-bit values, and reset rebinding. Its negative bench must
 fail the stability assertion when an already-bound identity changes.
 `event-vector` instruments the production vector execution engine. Its
 public-transfer oracle tracks sequence/issue occurrences,
-fixed-cycle feedback, accepted slots, tagged returns, and ordered drain without
+fixed-cycle feedback, accepted slots, tagged returns, and direct completion without
 reading generated metadata state. Equal-PC macros, retries after a prefix,
 fault/truncation, slot reuse, out-of-order returns, empty/store completions,
 stalls, and pending reset protect vector milestones. Its sequencing-stall checks

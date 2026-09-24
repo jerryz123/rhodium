@@ -33,6 +33,7 @@ sync_circuit RV5StageVectorAdmission():
   output outcome_pc: Bits(64)
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, 128))
+  vector.scalar_writeback.ready <== Bool(#true)
   decode.instruction <== instruction
   vector.request.valid <== request_valid
   vector.request.bits <== RV5StageVectorDescriptor(xlen):

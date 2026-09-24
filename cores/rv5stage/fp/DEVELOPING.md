@@ -28,8 +28,8 @@ import `types.rhdl` only to preserve FP precision metadata.
 | [`bundles.rhdl`](bundles.rhdl) | Scalar issue/completion/LSU payloads and opaque-tag operand requests/results |
 | [`register-file.rhdl`](register-file.rhdl) | Three-read, two-write architectural FP register bank with same-cycle write forwarding |
 | [`datapath.rhdl`](datapath.rhdl) | Fixed-latency F, D, optional half-precision, and Zfa execution |
-| [`div-sqrt.rhdl`](div-sqrt.rhdl) | Buffered HardFloat division and square-root lanes |
-| [`execute.rhdl`](execute.rhdl) | Operand-only execution service, profile specialization, reserved buffering, and fair completion arbitration |
+| [`div-sqrt.rhdl`](div-sqrt.rhdl) | HardFloat division and square root retaining terminal arithmetic state until accepted |
+| [`execute.rhdl`](execute.rhdl) | Operand-only service with scheduled fixed returns or a standalone elastic adapter |
 | [`pipeline.rhdl`](pipeline.rhdl) | Scalar register state, scoreboard, service tag adaptation, LSU bridges, and architectural completion |
 
 Keep `types.rhdl` dependency-light because scalar/vector decode and memory paths import it.
@@ -62,6 +62,17 @@ host elaboration so disabled formats and units do not become runtime hardware.
    combinational feedback.
    Keep the standalone adapter-plus-service composition for independent users.
 
+The core selects `~scheduled_writeback: #true`: fixed operations return exactly
+two cycles after service acceptance and must write that cycle. The common
+result is Decoupled so an unaccepted variable result cannot lock out an arriving
+fixed result. The caller reserves the destination port before service launch.
+The service stops admitting fixed work after seven cycles of a blocked variable
+result, drains already-launched fixed work, and lets the variable result advance.
+The default standalone service retains fixed-response credits and an Irrevocable
+output for callers without a write schedule. Divide/square-root wrappers allow
+one active variable operation, hold its tag and terminal-valid state, and do not
+launch another operation until its arithmetic result is accepted.
+
 ## Focused validation
 
 From the repository root, run the host owners through the persistent cache:
@@ -82,7 +93,8 @@ modules or changing dependency direction. The backend fixture
 [`DEVELOPING.md`](../../../tools/testing/circt/DEVELOPING.md) owns runner modes and
 artifact policy.
 
-For shared execution changes, select `rv5stage-fp-service` together with
+For shared execution changes, select `rv5stage-fp-service` and
+`rv5stage-fp-scheduled` together with
 `rv5stage-fp-pipeline`, `rv5stage-core-rv32f`, and `rv5stage-core-rv64d`.
 The two-client fixture in `../tests/fp-service-fixture.rhdl` uses ordinary Flow
 arbitration and owner-tag routing around one service. Its independent SV

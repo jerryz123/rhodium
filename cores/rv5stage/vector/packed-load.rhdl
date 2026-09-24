@@ -27,6 +27,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   input head: Tag
   input owner: Owner
   input(drain_enable, alignment_available): Bool
+  input write_available: Bool
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
   output(busy_rows, foreign_rows): Vec(vector_depth(vlen), Bool)
@@ -47,14 +48,15 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   // A closed issue owner cannot add another fragment. Flush its retained
   // suffix once all accepted words have drained, including a canceled prefix.
   def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().or_reduce()
-  def flush_carry = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
+  def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
+  def flush_carry = carry_pending & write_available
   resolved_last <== entries[wb.bits].layout.last
   replay_cursor <== entries[wb.bits].layout.before
-  drain_blocked <== flush_carry
+  drain_blocked <== carry_pending
 
   // Completed words drain in request order, regardless of response arrival order.
   def entry = entries[head]
-  def drainable = drain_enable & !flush_carry & accepted_slots[head] & completed[head]
+  def drainable = drain_enable & !carry_pending & write_available & accepted_slots[head] & completed[head]
   def remaining = mux(draining, drain_remaining, entry.mask)
   def target_lane = priority_encoder(remaining)
   def target_row = entry.layout.rows[target_lane]

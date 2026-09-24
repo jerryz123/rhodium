@@ -28,7 +28,7 @@ typedef struct packed {
 } dresp_bits_t;
 typedef struct packed { logic valid; dresp_bits_t bits; } dresp_t;
 typedef struct packed { ready_t request; logic request_fault, request_access_fault; dresp_t response; logic drained; logic reservation_valid; } din_t;
-typedef struct packed { dreq_t request; } dout_t;
+typedef struct packed { dreq_t request; ready_t response; } dout_t;
 logic clock = 0, reset = 1;
 logic [63:0] time_counter = 0;
 logic [XLEN-1:0] hart_id = 0, mstatus, satp;
@@ -133,7 +133,7 @@ always_ff @(posedge clock) begin
       instruction_word <= instruction_at(instruction_access_out.request.address);
       if (instruction_access_out.flush) restart_accepts <= restart_accepts + 1;
     end
-    if (response_delay != 0) response_delay <= response_delay - 1;
+    if (response_delay > 1 || (response_delay == 1 && data_access_out.response.ready)) response_delay <= response_delay - 1;
     if (prefetch_out.valid) begin
       assert(scenario == 0 && accepted == 1 && prefetches == 0 && prefetch_out.address == 'h500 && prefetch_out.operation == 2) else $fatal(1, "prefetch escaped WB authorization or replayed after acceptance");
       prefetches <= prefetches + 1;

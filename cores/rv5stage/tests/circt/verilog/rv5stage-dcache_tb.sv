@@ -26,7 +26,7 @@ module rv5stage_dcache_tb;
     logic origin;
   } core_resp_bits_t;
   typedef struct packed { logic valid; core_resp_bits_t bits; } core_resp_t;
-  typedef struct packed { core_req_t request; } core_in_t;
+  typedef struct packed { core_req_t request; ready_t response; } core_in_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; core_resp_t response; logic drained; logic reservation_valid; } core_out_t;
 
   typedef struct packed { logic valid; CHIReqFlit bits; } req_forward_t;
@@ -239,6 +239,7 @@ module rv5stage_dcache_tb;
 
   task automatic prepare_hit_under_miss;
     reset=1; core_in='0; pipeline_in='0; pipeline_lookup_in='0; chi_in='0; prefetch_in='0;
+    core_in.response.ready = 1'b1;
     tx_req_pending=0; tx_rsp_pending=0; tx_dat_pending=0;
     repeat(2) tick(); reset=0; grant_req_credit(); grant_rsp_credit(); grant_dat_credit();
     // Two ways in set zero plus an independent warm line in set one.
@@ -627,6 +628,7 @@ module rv5stage_dcache_tb;
 
   initial begin
     core_in = '0;
+    core_in.response.ready = 1'b1;
     prefetch_in = '0;
     chi_in = '0;
     repeat (2) tick();
@@ -706,8 +708,15 @@ module rv5stage_dcache_tb;
     send_response(RETRY_ACK, 12'd0, 12'd0, 4'd6);
     grant_req_credit();
     accept_request(READ_CLEAN, ADDRESS, 12'd0, 6'd6, 1'b0, 4'd6);
+    core_in.response.ready = 1'b0;
     return_line(ADDRESS, LINE, 3'b001);
     accept_comp_ack();
+    repeat (3) begin
+      tick();
+      assert (!core_out.drained)
+        else $fatal(1, "stalled refill lost its slow completion");
+    end
+    core_in.response.ready = 1'b1;
     expect_core_response(64'h88776655_44332211, WRITEBACK_INTEGER_KIND, 5'd3);
     expect_core_response(64'h88776655_44332211, WRITEBACK_INTEGER_KIND, 5'd4);
     expect_core_response(64'h01234567_89abcdef, WRITEBACK_INTEGER_KIND, 5'd5);

@@ -57,6 +57,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   input slot: Tag
   input head: Tag
   input(slot_available, drain_enable, alignment_available): Bool
+  input write_available: Bool
   input owner: Owner
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
@@ -154,7 +155,8 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   store_reads.ingress.bits <== mapped
   def offered_layout = mux(fast_load, mapped, mux(fast_store, store_words.egress.bits.layout, layout))
   def offered_mask = mux(fast_load ||| fast_store, offered_layout.live, byte_mask)
-  def can_issue = scheduling & (!all_issued ||| fast_store) & !clear & slot_available
+  def destinations_ready = !vec(for List (lane in 0..bytes): offered_layout.live[lane].into(Bool) & blocked_rows[offered_layout.rows[lane]]).as_bits().or_reduce()
+  def can_issue = scheduling & (!all_issued ||| fast_store) & !clear & slot_available & (store ||| destinations_ready)
   offered.valid <== can_issue & mux(fast_store, store_words.egress.valid & alignment_available, fast_load ||| (prepare === RV5StagePackedPrepare.Issue))
   store_words.egress.ready <== can_issue & fast_store & alignment_available & issue.ready
   offered.bits <== RV5StageVectorToken(Context, slots):
@@ -298,6 +300,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   assembly.accepted_slots <== accepted_slots
   assembly.closed_owners <== closed_owners
   assembly.drain_enable <== drain_enable
+  assembly.write_available <== write_available
   assembly.write |> write
   assembly.released |> released
   busy_rows <== assembly.busy_rows

@@ -104,7 +104,7 @@ interface RV5StageDataAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
   responder -> requester:
     request_fault: Bool
     request_access_fault: Bool
-    response: Valid(RV5StageDataResp(xlen, vector_completion_slots))
+    response: Decoupled(RV5StageDataResp(xlen, vector_completion_slots))
     drained: Bool
     reservation_valid: Bool
 

@@ -44,7 +44,7 @@ module rv5stage_pause_tb;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
 
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
   logic clock = 0, reset = 1;
   interrupts_t interrupts;
   instruction_in_t instruction_access_in;
@@ -115,7 +115,7 @@ module rv5stage_pause_tb;
     data_access_in = '0;
     data_access_in.request.ready = 1;
     data_access_in.drained = !load_pending;
-    data_access_in.response.valid = load_pending && load_age == (scenario == 8 ? 12 : 120);
+    data_access_in.response.valid = load_pending && load_age >= (scenario == 8 ? 12 : 120);
     data_access_in.response.bits.writeback = memory_integer(5'd20);
     data_access_in.response.bits.data = 64'h1234;
   end
@@ -137,7 +137,7 @@ module rv5stage_pause_tb;
       end
       if (load_pending) begin
         load_age <= load_age + 1;
-        if (data_access_in.response.valid) load_pending <= 0;
+        if (data_access_in.response.valid && data_access_out.response.ready) load_pending <= 0;
       end
       if (data_access_out.request.valid) begin
         if (data_access_out.request.bits.access == 1) begin

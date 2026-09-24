@@ -5,7 +5,7 @@ module rv5stage_icache_coherence_tb;
   typedef struct packed { logic valid; logic [63:0] bits; } lookup_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } host_req_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } host_resp_t;
-  typedef struct packed { host_req_t request; } host_in_t;
+  typedef struct packed { host_req_t request; ready_t response; } host_in_t;
   typedef struct packed { ready_t request; logic request_fault, request_access_fault; host_resp_t response; logic drained, reservation_valid; } host_out_t;
   typedef struct packed { logic valid; logic [63:0] bits; } fetch_req_t;
   typedef struct packed { logic [31:0] word; logic page_fault, access_fault; } instruction_t;
@@ -84,7 +84,7 @@ module rv5stage_icache_coherence_tb;
     fetch_in.invalidate_all = 0;
   endtask
   initial begin
-    host_in = '0; fetch_in = '0; virtual_lookup_in = '0;
+    host_in = '0; host_in.response.ready = 1; fetch_in = '0; virtual_lookup_in = '0;
     repeat (2) tick(); reset = 0;
     // Backing RAM still contains its old value: the instruction read must intervene on L1D.
     access(1, 'h4000, 64'h00000013_00100293);

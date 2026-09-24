@@ -19,7 +19,7 @@ Contributors changing the L1D implementation should read
 | Organization | Non-aliasing VIPT, set-associative, write-back, write-allocate; one outstanding miss with independent load hits and same-line authorized waiters |
 | Geometry | Power-of-two sets from 2 through 64, positive ways, fixed 64-byte lines; see [shared geometry](../README.md#memory-hierarchy) |
 | Core throughput | One uncontended load hit per cycle; owned store hits retire into four committed entries |
-| Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow transactions with `Valid` responses |
+| Core protocol | EX/MEM lookup and WB store authorization; ordered `Decoupled` slow requests and backpressurable slow responses |
 | Coherence states | Invalid, SharedClean, UniqueClean, and UniqueDirty |
 | Allocation | Lowest invalid way, otherwise per-set tree PLRU |
 | CHI traffic | `ReadClean`, `ReadUnique`, retryable `WriteBackFull` with `CopyBackWriteData`, nonallocating `WriteUniquePtl`, cache-block maintenance, `CompAck`, `SnpResp`, and dirty `SnpRespData` |
@@ -73,6 +73,9 @@ The MEM result explicitly distinguishes `LoadHit`, `StoreHit`, `Replay`, `Slow`,
 `Replay` repeats the ordinary pipeline; SRAM contention or a byte hazard never
 turns an otherwise warm hit into a slow transaction. Only misses, ownership
 acquisition, translation misses, and non-cacheable operations use slow service.
+The separate slow response is `Decoupled`: the cache or RN-I retains a
+completion until its consumer asserts `ready`. Stalling this return never
+changes the fixed-latency `RV5StagePipelineAccess` hit response.
 
 Lookup cannot allocate or mutate anything. An owned store retains a one-cycle
 physical address/way/data/mask candidate. WB asserts `commit` only for the live,
@@ -153,12 +156,12 @@ Prefetch requests use `Default`.
 | Requester → cache | `request: Decoupled(RV5StageDataReq)` | Permitted physical XLEN byte address; scalar or cache-block operation; atomic function; scalar width; load signedness; XLEN source data; opaque writeback union; locality |
 | MMU → cache | `virtual_lookup: Valid(Bits(XLEN))` | Early virtual byte address, paired with a permitted physical request at the same edge; no backpressure |
 | MMU → cache | `prefetch: Valid(CachePrefetchReq)` | Best-effort aligned physical read/write hint; no acceptance or completion |
-| Cache → requester | `response: Valid(RV5StageDataResp)` | Ordered completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged writeback union |
+| Cache → requester | `response: Decoupled(RV5StageDataResp)` | Ordered, backpressurable completion with `access_fault`, XLEN load/atomic/SC result, and the unchanged writeback union |
 | Cache → requester | `request_fault`, `request_access_fault` | Always false in this physical cache; translation and PMA routing own architectural faults |
 | Cache → requester | `drained` | Combinational quiescence observation used by architectural serialization |
 
 The authorized request is `Decoupled`; an unaccepted WB attempt may be withdrawn
-and replayed. Responses cannot be backpressured. Loads and atomics
+and replayed. Slow responses remain pending until accepted. Loads and atomics
 return normalized XLEN values; an RV64 word AMO result is sign extended.
 Successful SC returns zero and failed SC returns one. Slow-path stores also
 produce an ordered completion response, but its data and destination metadata
@@ -225,7 +228,7 @@ flowchart LR
   Resolved -->|load hit| Load["LoadGen"]
   Resolved -->|owned store / SC / AMO| Pending["Registered mutation<br/>request + way + old value"]
   Pending --> Mutate["StoreGen + atomic ALU<br/>byte-lane update"]
-  Load --> Response["One-stage ValidPipe<br/>ordered response"]
+  Load --> Response["Two-entry response Queue<br/>ordered Decoupled response"]
   Mutate --> Arrays["Tag, state, and data arrays"]
   Mutate --> Response
 
@@ -263,12 +266,14 @@ physical request bypasses the queue into the lookup pipeline at the read edge.
 Otherwise, accepted physical requests enter the queue and later index using
 their unchanged page-offset bits. Queued requests always precede fresh demands.
 A one-stage `Pipe` retains S3 request context alongside the synchronous SRAM
-lookup. Tag comparison and word/state selection feed an always-captured S4
-result register. S4 checks access ownership and LR/SC reservation, chooses
-eviction or refill, and produces hit responses. Consecutive load hits still
-advance every cycle; an uncontended hit responds two edges after its array-read
-edge, through S4 and the transaction response `ValidPipe`. Ordinary pipeline
-hits bypass these transaction registers as described above.
+lookup. Tag comparison and word/state selection feed an elastic S4 result
+register. S4 checks access ownership and LR/SC reservation, chooses eviction
+or refill, and produces hit responses. Consecutive uncontended load hits can
+still advance every cycle; an uncontended hit responds two edges after its
+array-read edge, through S4 and the transaction response register. Its
+two-entry queue retains a stalled completion, with input readiness determined
+only by registered occupancy. Ordinary pipeline hits bypass these transaction
+registers as described above.
 
 S0/S1/S2 align with EX/MEM/WB; S3 and S4 extend the cache's authorized
 processing path, not the CPU pipeline. Queueing and rereads can delay these
@@ -361,7 +366,7 @@ and block younger lookup until Home completion. Even a local miss is sent to
 Home so other coherent caches are included. Snoop service remains independent
 through retries and completion waits; it also handles the issuing cache's copy.
 
-Every operation returns one non-backpressurable response. Its `access_fault`
+Every operation returns one backpressurable slow response. Its `access_fault`
 field reports a non-OK CHI completion; the parent retains architectural context
 to classify and retire or trap. Translation and PMA checks remain parent-owned.
 

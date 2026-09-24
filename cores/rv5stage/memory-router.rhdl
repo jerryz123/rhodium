@@ -22,7 +22,9 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   interface cache(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface uncached(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)
   output ordered_busy: Bool
-  inst uncached_management(ValidPipe(RV5StageDataResp(xlen, vector_completion_slots), 1))
+  // Input capacity must not depend on the same-cycle response sink: request
+  // admission can otherwise feed back through the core's flush ready path.
+  inst uncached_management(Queue(RV5StageDataResp(xlen, vector_completion_slots), 1))
 
   inst io_mshr(RV5StageIOMSHR(xlen, ~vector_completion_slots: vector_completion_slots))
   io_mshr.memory |> uncached
@@ -64,8 +66,8 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
   // The static physical map forbids cached copies of these regions. After
   // permission checks and older traffic drain, maintenance needs no device IO.
   (
-    management_requests |> gate_flow(cache.drained & io_mshr.core.request.ready)
-      |> to_valid() |> map_valid(request => RV5StageDataResp(xlen, vector_completion_slots)):
+    management_requests |> gate_flow(cache.drained & io_mshr.core.request.ready & uncached_management.ingress.ready)
+      |> map_flow(request => RV5StageDataResp(xlen, vector_completion_slots)):
          access_fault: Bool(#false)
          data: bits(0, xlen.width)
          writeback: request.writeback
@@ -89,7 +91,7 @@ sync_circuit RV5StageMemoryRouter(xlen :: XLen,
     io_mshr.core.request_access_fault,
     cache.request_access_fault
   )))
-  Array(uncached_management.egress, io_mshr.core.response, cache.response) |> valid_arbiter() |> core.response
+  Array(uncached_management.egress, io_mshr.core.response, cache.response) |> arbiter() |> core.response
   core.drained <== cache.drained & io_mshr.core.drained & !uncached_management.egress.valid & !management_requests.fire()
   core.reservation_valid <== cache.reservation_valid
   assert(!(cache.response.valid & io_mshr.core.response.valid),

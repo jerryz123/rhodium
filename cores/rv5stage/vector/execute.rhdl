@@ -123,6 +123,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     mask_destination: fp_mask_destination
     fp_result: beat.control.fp_result
     multiply_divide: beat.control.multiply_divide
+    multiply_execute: beat.control.multiply_divide & beat.enabled.as_bits()[0].into(Bool)
     divide: beat.control.divide
     multiply_accumulate: multiply_accumulate
     multiply_subtract: multiply_accumulate & beat.control.multiply_subtract

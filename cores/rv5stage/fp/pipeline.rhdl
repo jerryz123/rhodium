@@ -58,7 +58,7 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   def Issue = RV5StageFpIssue(xlen, profile, Context)
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
   interface issue(Decoupled(Issue), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
+  interface completion(Decoupled(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
   interface load_hit(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
@@ -101,7 +101,7 @@ sync_circuit RV5StageFpScalar(
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
 
   interface issue(Decoupled(Issue), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
+  interface completion(Decoupled(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
   interface load_hit(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
@@ -124,7 +124,7 @@ sync_circuit RV5StageFpScalar(
     one_hot(index).into(Mask(register_count))
 
   interface execution_request(Decoupled(RV5StageFpExecutionRequest(xlen, profile, RV5StageFpScalarTag(Context))), ~role: producer)
-  interface execution_result(Irrevocable(RV5StageFpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
+  interface execution_result(Decoupled(RV5StageFpExecutionResult(xlen, profile, RV5StageFpScalarTag(Context))), ~role: consumer)
   (
     execution_result |> map_flow(~stable: #true, completed):
       RV5StageFpCompletion(xlen, profile, Context):
@@ -334,7 +334,7 @@ sync_circuit RV5StageFpPipeline(xlen :: XLen, profile :: FloatingPointProfile, C
   def Issue = RV5StageFpIssue(xlen, profile, Context)
   def Completion = RV5StageFpCompletion(xlen, profile, Context)
   interface issue(Decoupled(Issue), ~role: consumer)
-  interface completion(Irrevocable(Completion), ~role: producer)
+  interface completion(Decoupled(Completion), ~role: producer)
   interface load_reserve(Decoupled(RV5StageFpLoadReservation(Context)), ~role: consumer)
   interface load_completion(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)
   interface load_hit(Valid(RV5StageFpLoadCompletion(Context)), ~role: consumer)

@@ -1,12 +1,11 @@
 #lang rhodium
-// Owns persistent beat slots, independent response capture, head bypass, and ordered vector writeback.
+// Writes scheduled or accepted variable results directly and reclaims ownership metadata in order.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
   "slots.rhdl" open
-  "load-response.rhdl" open
   "muldiv.rhdl" open
   "../integer-execution.rhdl" open
   "../../simd-alu.rhdl".SimdElementWidth
@@ -21,7 +20,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int):
+sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int, ~fixed_multiply: fixed_multiply :: Boolean = #false):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
   def SlotId = Bits(tag_width)
@@ -31,12 +30,13 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   interface compute_maturity(Valid(Result), ~role: consumer)
   interface memory_attempt(Valid(Result), ~role: consumer)
   interface decision(Valid(RV5StageVectorCommit(xlen, vector_completion_slots)), ~role: consumer)
-  interface response(Valid(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface response(Decoupled(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
   interface packed_accept(Valid(SlotId), ~role: consumer)
   interface packed_release(Pulse(), ~role: consumer)
   interface replay(Pulse(), ~role: consumer)
-  input drain_blocked: Bool
-  interface fp_result(Irrevocable(RV5StageFpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
+  input(reserved_write, fixed_fp_return): Bool
+  output compute_writeback: Bool
+  interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorMultiplyTag(vector_completion_slots))), ~role: consumer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorDivideTag(vector_completion_slots))), ~role: consumer)
   interface drained(Valid(RV5StageVectorDrained(vlen, vector_completion_slots)), ~role: producer)
@@ -47,30 +47,22 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   output state: Vec(vector_completion_slots, RV5StageVectorSlotState(vlen, vector_completion_slots))
   output(allocate_slot, accept_slot, drain_slot): SlotId
-  fp_result.ready <== Bool(#true)
-  multiply_result.ready <== Bool(#true)
-  divide_result.ready <== Bool(#true)
   // Persistent ownership and allocation/acceptance/drain frontiers.
   reg entry_packed(Vec(vector_completion_slots, Bool))
   reg entry_owner(Vec(vector_completion_slots, InstructionId))
   reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(vector_depth(vlen)))))
   reg entry_writes(Vec(vector_completion_slots, Bool))
-  // Configured slots reserve storage before issue for non-backpressurable responses.
+  // Slots retain ownership before issue, not completed result payloads.
   // Tags identify these slots; scalar rd never encodes vector element position.
   inst slots(RV5StageVectorSlots(vector_completion_slots))
-  inst loads(RV5StageVectorLoadResponse(xlen, vector_completion_slots))
   def allocated = slots.allocated
   def authorized_slots = slots.accepted
   reg completed(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg entries(Vec(vector_completion_slots, RV5StageVectorResultBeat(vlen)))
-  reg completion_flags(Vec(vector_completion_slots, Bits(5)))
-  reg completion_data(Vec(vector_completion_slots, Bits(64)))
-  reg completion_saturated(~init: bits(0, vector_completion_slots).as_vec(Bool))
   reg drain_cursor(~init: bits(0, index_width(vector_completion_slots)))
   reg allocate_cursor(~init: bits(0, index_width(vector_completion_slots)))
   reg accept_cursor(~init: bits(0, index_width(vector_completion_slots)))
   replay |> slots.replay
-  response |> loads.response
   def memory_accepted = decision.valid & (decision.bits.disposition === RV5StageVectorDisposition.Authorized)
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
@@ -81,36 +73,87 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   def resolution_tag = mux(compute_maturity.valid, compute_tag, memory_result.tag)
   def resolution_beat = mux(compute_maturity.valid, compute_beat, memory_beat)
 
-  // Independent arrivals share formatting with the same-cycle head bypass.
-  def stored_result = entries[drain_cursor]
-  def delayed_load_at_head = loads.completed[1].valid & (loads.completed[1].bits.tag === drain_cursor)
-  def immediate_load_at_head = loads.completed[0].valid & (loads.completed[0].bits.tag === drain_cursor)
-  def fp_at_head = fp_result.fire() & (fp_result.bits.tag === drain_cursor)
+  // Completion order is independent of metadata reclamation. Slow loads wait
+  // at their producer; a hit owns the cycle reserved before its lookup.
   def multiply_entry = entries[multiply_result.bits.tag.slot]
   def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
-  def multiply_at_head = multiply_result.fire() & (multiply_result.bits.tag.slot === drain_cursor)
-  def divide_at_head = divide_result.fire() & (divide_result.bits.tag.slot === drain_cursor)
-  def arriving_at_head = delayed_load_at_head ||| immediate_load_at_head ||| fp_at_head ||| multiply_at_head ||| divide_at_head
-  def direct_head_completion = !completed[drain_cursor] & arriving_at_head
   def fp_arrival_data = mux(entries[fp_result.bits.tag].mask_destination, fp_result.bits.integer_value[0].as_bits().zext(64), mux(entries[fp_result.bits.tag].fp_result === VectorFloatResult.Integer, if xlen == XLen.X64 | fp_result.bits.integer_value | fp_result.bits.integer_value.zext(64), if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)))
-  def delayed_load_data = if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64)
-  def immediate_load_data = if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
-  def arriving_head_data = priority_mux(~default: vector_divide_value(xlen, vector_completion_slots, divide_result.bits)):
-    delayed_load_at_head: delayed_load_data
-    immediate_load_at_head: immediate_load_data
-    fp_at_head: fp_arrival_data
-    multiply_at_head: multiply_completion.data
-  def compute_completes_now = mux(compute_beat.floating_point, !compute_beat.fp_execute, mux(compute_beat.multiply_divide, !compute_beat.write.mask.or_reduce(), Bool(#true)))
-  def compute_at_head = compute_maturity.valid & compute_completes_now & (compute_tag === drain_cursor)
-  def head_result = mux(compute_at_head, compute_beat, stored_result)
-  def drain = (authorized_slots[drain_cursor] ||| compute_at_head) & !entry_packed[drain_cursor] & (completed[drain_cursor] ||| direct_head_completion ||| compute_at_head) & !drain_blocked
-  def drained_data = mux(compute_at_head, compute_beat.write.data, mux(direct_head_completion, arriving_head_data, completion_data[drain_cursor]))
-  def drained_flags = mux(fp_at_head & direct_head_completion, mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5)), completion_flags[drain_cursor])
-  def drained_saturated = mux(multiply_at_head & direct_head_completion, multiply_completion.saturated, completion_saturated[drain_cursor])
+  def compute_completes_now = !compute_beat.fp_execute & !compute_beat.multiply_execute
+  bundle Writeback():
+    tag: SlotId
+    beat: RV5StageVectorResultBeat(vlen)
+    owner: InstructionId
+    data: Bits(64)
+    flags: Bits(5)
+    saturated: Bool
+  def local_result = compute_maturity |> filter_valid(_result => compute_completes_now) |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: result.beat
+    owner: result.owner
+    data: result.beat.write.data
+    flags: bits(0, 5)
+    saturated: result.beat.saturated
+  def hit_valid = memory_accepted & !decision.bits.slow
+  def multiplication = multiply_result |> gate_flow(!local_result.valid & !hit_valid & (Bool(fixed_multiply) ||| !reserved_write)) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag.slot
+    beat: entries[result.tag.slot]
+    owner: entry_owner[result.tag.slot]
+    data: multiply_completion.data
+    flags: bits(0, 5)
+    saturated: multiply_completion.saturated
+  def floating = fp_result |> gate_flow(!local_result.valid & !hit_valid & !multiplication.valid & (fixed_fp_return ||| !reserved_write)) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entries[result.tag]
+    owner: entry_owner[result.tag]
+    data: fp_arrival_data
+    flags: mux(result.exception_flags_valid, result.exception_flags, bits(0, 5))
+    saturated: Bool(#false)
+  def division = divide_result |> gate_flow(!local_result.valid & !hit_valid & !multiplication.valid & !floating.valid & !reserved_write) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag.slot
+    beat: entries[result.tag.slot]
+    owner: entry_owner[result.tag.slot]
+    data: vector_divide_value(xlen, vector_completion_slots, result)
+    flags: bits(0, 5)
+    saturated: Bool(#false)
+  def compute_arrival = local_result.valid ||| multiplication.valid ||| floating.valid ||| division.valid
+  def hit_result = memory_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: result.beat
+    owner: result.owner
+    data: if xlen == XLen.X64 | decision.bits.data | decision.bits.data.zext(64)
+    flags: bits(0, 5)
+    saturated: Bool(#false)
+  def slow_result = response |> gate_flow(!compute_arrival & !hit_valid) |> to_valid() |> map_valid(result => Writeback()):
+    tag: result.tag
+    beat: entries[result.tag]
+    owner: entry_owner[result.tag]
+    data: if xlen == XLen.X64 | result.data | result.data.zext(64)
+    flags: bits(0, 5)
+    saturated: Bool(#false)
+  compute_writeback <== compute_arrival ||| hit_valid ||| slow_result.valid
+  def accepted_memory = memory_attempt |> filter_valid(_result => memory_accepted & decision.bits.slow)
+  // Each memory slot retains an occurrence, not result data. Distinct slots may
+  // return out of order, so describe their individual retained lifetimes.
+  def memory_results = for Array (slot in 0..vector_completion_slots):
+    def tag = bits(slot, tag_width)
+    def capture = accepted_memory |> filter_valid(operation => operation.tag === tag)
+    def returned = inject_flow(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
+    def name = "memory-result-" ++ to_string(slot)
+    describe_interface_retained_storage(capture.valid, returned.valid, authorized_slots[slot] & entries[slot].memory & !completed[slot], ~name: name)
+    describe_interface_contract(capture, returned, name, ~trace_model: interface_trace_retained(~name: name))
+    returned
+  def memory_writeback = memory_results |> valid_arbiter()
+  def writeback = Array(local_result, multiplication, floating, division, hit_result, memory_writeback) |> valid_arbiter()
+  def finished = writeback |> trace_valid_event("vector/complete", ~fields: operation):
+    packed: Bool(#false)
+    destination(~format: "unsigned"): operation.beat.destination
+    write_enabled: operation.beat.write.mask.or_reduce()
+  def finishing_head = finished.valid & (finished.bits.tag === drain_cursor)
+  def drain = !entry_packed[drain_cursor] & ((authorized_slots[drain_cursor] & completed[drain_cursor]) ||| finishing_head)
 
 
   // Each accepted slot completes at most once, regardless of response order.
-  when (response.valid):
+  when (response.fire()):
     assert(authorized_slots[response.bits.tag], "vector_response_has_authorized_owner")
     assert(!completed[response.bits.tag], "vector_response_completes_once")
   when (fp_result.fire()):
@@ -135,26 +178,13 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
            data: if xlen == XLen.X32 | mux(result.beat.element_width === SimdElementWidth.E16, (!bits(0, 16)) ++ result.beat.write.data[0..16], result.beat.write.data[0..32]) | mux_lookup(result.beat.element_width, ~default: result.beat.write.data, [[SimdElementWidth.E16, (!bits(0, 48)) ++ result.beat.write.data[0..16]], [SimdElementWidth.E32, (!bits(0, 32)) ++ result.beat.write.data[0..32]]])
   ) |> floating_result
 
-  // Ordered architectural effects retain the existing completion trace contract.
-  def drain_write = head_result.write.updated(~data: mux(head_result.memory ||| head_result.floating_point ||| head_result.multiply_divide, drained_data << head_result.shift, head_result.write.data))
-  // Resolution and drain are ordered even when service results arrive out of
-  // order. Trace the real entry writes/head reads, not response tag equality.
-  def accepted_compute_result = compute_maturity |> map_valid(result => result.beat)
-  def accepted_memory_result = memory_attempt |> filter_valid(_result => memory_accepted) |> map_valid(result => result.beat)
-  def accepted_results = Array(accepted_compute_result, accepted_memory_result) |> valid_arbiter()
-  def drained_result = inject_flow(Valid(RV5StageVectorResultBeat(vlen)), ~valid: drain, ~bits: head_result.updated(~write: drain_write))
-  describe_interface_queue_storage(vector_completion_slots, element_resolved & !compute_at_head, drain & !compute_at_head, drain_cursor, resolution_tag, authorized_slots[drain_cursor], compute_at_head, ~name: "accepted-results")
-  describe_interface_contract(accepted_results, drained_result, "accepted-results", ~trace_model: interface_trace_queue(~name: "accepted-results"))
-  def finished = drained_result |> trace_valid_event("vector/complete", ~fields: operation):
-    packed: Bool(#false)
-    destination(~format: "unsigned"): operation.destination
-    write_enabled: operation.write.mask.or_reduce()
-  def element_write = finished |> filter_valid(operation => operation.write.mask.or_reduce()) |> map_valid(operation => operation.write)
+  def element_write = finished |> filter_valid(operation => operation.beat.write.mask.or_reduce()) |> map_valid(operation):
+    def beat = operation.beat
+    beat.write.updated(~data: mux(beat.memory ||| beat.floating_point ||| beat.multiply_divide, operation.data << beat.shift, beat.write.data))
   element_write |> write
-  fp_update.valid <== drain & head_result.fp_execute
-  fp_update.bits <== drained_flags
-  saturate.valid <== (compute_maturity.valid & compute_beat.saturated) ||| (drain & drained_saturated)
-  def element_reserved = (reserve.valid & !reserve.bits.packed)
+  fp_update.valid <== finished.valid & finished.bits.beat.fp_execute
+  fp_update.bits <== finished.bits.flags
+  saturate.valid <== finished.valid & finished.bits.saturated
   slots.reserve.valid <== reserve.valid
   slots.reserve.bits <== allocate_cursor
   def durable = element_resolved ||| packed_accept.valid
@@ -163,13 +193,6 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   slots.accept.bits <== durable_tag
   slots.release.valid <== drain ||| packed_release.valid
   slots.release.bits <== drain_cursor
-  (
-    decision |> filter_valid(event => event.disposition === RV5StageVectorDisposition.Authorized)
-      |> map_valid(event => RV5StageVectorMemoryAcceptance(xlen, vector_completion_slots)):
-           tag: decision.bits.tag
-           pending: event.slow
-           data: event.data
-  ) |> loads.accepted
   when (slots.release.valid):
     drain_cursor <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_cursor + bits(1, tag_width)
   when durable:
@@ -179,8 +202,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     allocate_cursor <== mux(durable, if vector_completion_slots == 1 | bits(0, tag_width) | durable_tag + bits(1, tag_width), accept_cursor)
   elsewhen (reserve.valid):
     allocate_cursor <== if vector_completion_slots == 1 | bits(0, tag_width) | allocate_cursor + bits(1, tag_width)
-  // Independent slots absorb a hit and a delayed response on the same edge;
-  // the single VRF write port drains them strictly in architectural order.
+  // Writes release hazards immediately; metadata reclamation remains ordered.
   for (slot in 0..vector_completion_slots):
     def tag = bits(slot, tag_width)
     def resolving = element_resolved & (resolution_tag === tag)
@@ -189,48 +211,24 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
       entry_owner[slot] <== reserve.bits.owner
       entry_packed[slot] <== reserve.bits.packed
     when resolving:
-      entries[slot] <== resolution_beat
+      // Only service metadata/operands and memory routing outlive execution.
+      when (resolution_beat.memory ||| resolution_beat.fp_execute ||| resolution_beat.multiply_divide):
+        entries[slot] <== resolution_beat
       entry_write_address[slot] <== resolution_beat.write.address
       entry_writes[slot] <== resolution_beat.write.mask.or_reduce()
     elsewhen (reserve.valid & (allocate_cursor === tag)):
       entry_writes[slot] <== Bool(#false)
-    when (fp_result.fire() & (fp_result.bits.tag === tag)):
-      completion_flags[slot] <== mux(fp_result.bits.exception_flags_valid, fp_result.bits.exception_flags, bits(0, 5))
-    elsewhen resolving:
-      completion_flags[slot] <== bits(0, 5)
-    when (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
-      completion_saturated[slot] <== multiply_completion.saturated
-    elsewhen (releasing ||| resolving ||| (element_reserved & (allocate_cursor === tag))):
-      completion_saturated[slot] <== Bool(#false)
     // A result for the ordered drain_cursor can drain immediately; do not leave a
     // completed bit behind after releasing its owner on the same edge.
-    when releasing:
+    when (releasing ||| (reserve.valid & (allocate_cursor === tag))):
       completed[slot] <== Bool(#false)
-    elsewhen (loads.completed[1].valid & (loads.completed[1].bits.tag === tag)):
+    elsewhen (finished.valid & (finished.bits.tag === tag)):
       completed[slot] <== Bool(#true)
-      completion_data[slot] <== if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64)
-    elsewhen (loads.completed[0].valid & (loads.completed[0].bits.tag === tag)):
-      completed[slot] <== Bool(#true)
-      completion_data[slot] <== if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
-    elsewhen (fp_result.fire() & (fp_result.bits.tag === tag)):
-      completed[slot] <== Bool(#true)
-      completion_data[slot] <== fp_arrival_data
-    elsewhen (multiply_result.fire() & (multiply_result.bits.tag.slot === tag)):
-      completed[slot] <== Bool(#true)
-      completion_data[slot] <== multiply_completion.data
-    elsewhen (divide_result.fire() & (divide_result.bits.tag.slot === tag)):
-      completed[slot] <== Bool(#true)
-      completion_data[slot] <== vector_divide_value(xlen, vector_completion_slots, divide_result.bits)
-    elsewhen (element_reserved & (allocate_cursor === tag)):
-      completed[slot] <== Bool(#false)
-    elsewhen resolving:
-      completed[slot] <== mux(resolution_beat.floating_point, !resolution_beat.fp_execute, mux(resolution_beat.multiply_divide, !resolution_beat.write.mask.or_reduce(), !resolution_beat.memory ||| !decision.bits.slow))
-      completion_data[slot] <== mux(resolution_beat.reduction ||| !resolution_beat.memory, resolution_beat.write.data, if xlen == XLen.X64 | decision.bits.data | decision.bits.data.zext(64))
-  drained.valid <== drain
+  drained.valid <== finished.valid
   drained.bits <== RV5StageVectorDrained(vlen, vector_completion_slots):
-    beat: head_result
-    owner: entry_owner[drain_cursor]
-    data: drained_data
+    beat: finished.bits.beat
+    owner: finished.bits.owner
+    data: finished.bits.data
   allocate_slot <== allocate_cursor
   drain_slot <== drain_cursor
   accept_slot <== accept_cursor
@@ -241,6 +239,6 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
                    packed: entry_packed[s]
                    owner: entry_owner[s]
                    write_address: entry_write_address[s]
-                   writes: entry_writes[s])
+                   writes: entry_writes[s] & !completed[s])
 
 export RV5StageVectorCompletionUnit

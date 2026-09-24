@@ -12,6 +12,8 @@ import:
   "fp.rhdl" open
   "muldiv.rhdl" open
   "../integer-execution.rhdl" open
+  "../writeback-calendar.rhdl" open
+  "../decode/fp-ctrl.rhdl".RV5StageFloatUnit
   "../../load-store.rhdl" open
   "../../multiplier.rhdl" open
   "../../divider.rhdl" open
@@ -28,7 +30,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false):
+sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
   def SlotId = Bits(tag_width)
@@ -46,7 +48,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def FpRequest = RV5StageFpExecutionRequest(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   def FpResult = RV5StageFpExecutionResult(xlen, fp_profile, Bits(index_width(vector_completion_slots)))
   interface fp_request(Decoupled(FpRequest), ~role: producer)
-  interface fp_result(Irrevocable(FpResult), ~role: consumer)
+  interface fp_result(Decoupled(FpResult), ~role: consumer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   def MultiplyTag = RV5StageVectorMultiplyTag(vector_completion_slots)
   def DivideTag = RV5StageVectorDivideTag(vector_completion_slots)
@@ -61,7 +63,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   interface cancel(Pulse(), ~role: consumer)
   // Only memory attempts require an external retry, fault, or authorization decision.
   interface decision(Valid(RV5StageVectorCommit(xlen, vector_completion_slots)), ~role: consumer)
-  interface completion(Valid(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
+  interface completion(Decoupled(RV5StageVectorCompletion(xlen, vector_completion_slots)), ~role: consumer)
   interface fault_start(Valid(Bits(xlen.width)), ~role: producer)
   interface truncate(Valid(Bits(xlen.width)), ~role: producer)
   interface retire(Pulse(), ~role: producer)
@@ -69,6 +71,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   interface sequencing_done(Pulse(), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
+  interface scalar_writeback(Decoupled(Bits(4)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
   input packed_memory: Bool
   input memory_drained: Bool
@@ -88,7 +91,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def current_owner = instructions.sequencing_id
   def foreign_rows = instructions.blocked_rows
   reg current_packed(~init: Bool(#false))
-  inst completions(RV5StageVectorCompletionUnit(xlen, vlen, vector_completion_slots))
+  inst completions(RV5StageVectorCompletionUnit(xlen, vlen, vector_completion_slots, ~fixed_multiply: multiply_latency != #false))
+  inst writeback_calendar(RV5StageWritebackCalendar(3, 8))
   def allocated = vec(for List (s in 0..vector_completion_slots): completions.state[s].allocated)
   def authorized_slots = vec(for List (s in 0..vector_completion_slots): completions.state[s].accepted)
   def entry_owner = vec(for List (s in 0..vector_completion_slots): completions.state[s].owner)
@@ -108,9 +112,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def Array(element_decision_input, packed_decision_input) = decision |> fork_valid(2)
   def element_memory_decision = element_decision_input |> filter_valid(_event => !feedback_packed)
   packed_decision_input |> filter_valid(_event => feedback_packed) |> packed.commit
-  def Array(local_completion_input, packed_completion_input) = completion |> fork_valid(2)
-  def local_completion = local_completion_input |> filter_valid(event => !entry_packed[event.tag])
-  packed_completion_input |> filter_valid(event => entry_packed[event.tag]) |> packed.completion
+  def Array(local_completion, packed_completion_input) = completion |> demux_flow(2, event => entry_packed[event.tag])
+  packed_completion_input |> to_valid() |> packed.completion
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, OwnedContext()))
   inst registers(RV5StageVectorRegisterFile(vlen))
@@ -179,6 +182,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   packed.head <== drain_slot
   packed.drain_enable <== authorized_slots[drain_slot] & entry_packed[drain_slot]
   packed.alignment_available <== !ex_pipe.egress.valid
+  packed.write_available <== !completions.compute_writeback
 
   // Operand capture: fixed-latency VRF returns retain their sampled source.
   cancel |> sequencer.cancel
@@ -212,6 +216,11 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   // Local attempt admission and private operand capture are one atomic transfer.
   def fault_only_first = operand_fetch.issue.bits.beat.control.memory & (operand_fetch.issue.bits.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst)
   def slot_available = !allocated[allocate_slot] & (!fault_only_first ||| !allocated.as_bits().or_reduce())
+  // Fixed returns reserve the common completion/write cycle before launch.
+  // Variable services retain their output until a free cycle, not in slots.
+  def offered_beat = operand_fetch.issue.bits.beat
+  def service_beat = (offered_beat.control.fp_service ||| offered_beat.control.multiply_divide) & offered_beat.enabled.as_bits()[0].into(Bool)
+  def immediate_beat = !offered_beat.control.memory & !service_beat
   def issued = operand_fetch.issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
     packed: Bool(#false)
     op_index(~format: "unsigned"): operation.beat.sequence
@@ -220,7 +229,9 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     last: operation.beat.last
     empty: operation.beat.empty
   def issue_owner = operand_fetch.issue.bits.context.owner
-  def Array(token, operands) = issued |> gate_flow(slot_available & !replay & !fold_inflight[issue_owner]) |> atomic_fork(2)
+  def Array(token, operands, scalar_reservation, local_reservation) = issued |> gate_flow(slot_available & !replay & !fold_inflight[issue_owner]) |> atomic_fork(4)
+  scalar_reservation |> filter_flow(operation => operation.beat.control.scalar_destination) |> map_flow(_operation => bits(1, 4)) |> scalar_writeback
+  local_reservation |> filter_flow(operation => immediate_beat ||| operation.beat.control.memory) |> map_flow(operation => mux(operation.beat.control.memory, bits(3, 4), bits(1, 4))) |> writeback_calendar.reserve[2]
   def element_issue = (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       byte_mask: if xlen == XLen.X64 | memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)) | memory_byte_mask(xlen, operation.beat.address[0..32], operation.beat.element_width.as_bits().into(MemoryWidth)).zext(8)
@@ -267,20 +278,28 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   // Empty FP and multiply request queues bypass directly into their shared
   // services; occupied entries retain every accepted, nonstallable request.
   inst fp_authorized(Queue(FpRequest, vector_completion_slots, ~flow: #true))
-  fp_authorized.egress |> fp_request
+  def Array(fp_launch, fp_reservation) = fp_authorized.egress |> atomic_fork(2)
+  fp_launch |> fp_request
+  fp_reservation |> filter_flow(operation => Bool(fixed_fp) & (operation.control.execution.unit =/= RV5StageFloatUnit.DivideSquareRoot)) |> map_flow(_operation => bits(2, 4)) |> writeback_calendar.reserve[1]
+  reg fp_returns(~init: bits(0, 2))
+  fp_returns <== writeback_calendar.reserve[1].fire().as_bits() ++ fp_returns[1..2]
+  completions.fixed_fp_return <== fp_returns[0].into(Bool)
+  completions.reserved_write <== writeback_calendar.occupied[0].into(Bool)
   fp_result |> completions.fp_result
   // Accepted service work survives cancellation and returns through its tag.
   inst multiply_authorized(Queue(MultiplyRequest, vector_completion_slots, ~flow: #true))
   inst divide_authorized(Queue(DivideRequest, vector_completion_slots))
-  multiply_authorized.egress |> multiply_request
+  def Array(multiply_launch, multiply_reservation) = multiply_authorized.egress |> atomic_fork(2)
+  multiply_launch |> multiply_request
+  multiply_reservation |> filter_flow(_operation => Bool(multiply_latency != #false)) |> map_flow(_operation => bits(if multiply_latency | multiply_latency | 1, 4)) |> writeback_calendar.reserve[0]
   divide_authorized.egress |> divide_request
   multiply_result |> completions.multiply_result
   divide_result |> completions.divide_result
   compute_maturity |> filter_valid(result => result.beat.fp_execute) |> map_valid(result => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> fp_authorized.ingress
   when (fp_authorized.ingress.valid):
     assert(fp_authorized.ingress.ready, "vector_fp_execute_has_reserved_request_space")
-  compute_maturity |> filter_valid(result => result.beat.multiply_divide & !result.beat.divide & result.beat.write.mask.or_reduce()) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
-  compute_maturity |> filter_valid(result => result.beat.multiply_divide & result.beat.divide & result.beat.write.mask.or_reduce()) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
+  compute_maturity |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
+  compute_maturity |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
   when (multiply_authorized.ingress.valid):
     assert(multiply_authorized.ingress.ready, "vector_multiply_execute_has_reserved_request_space")
   when (divide_authorized.ingress.valid):
@@ -352,8 +371,14 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   memory_pipe.egress |> completions.memory_attempt
   element_memory_decision |> completions.decision
   local_completion |> completions.response
+  def variable_waiting = (completion.valid & !completion.ready) ||| (divide_result.valid & !divide_result.ready) ||| (Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready) ||| (!fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready)
+  reg variable_age(~init: bits(0, 3))
+  when (!variable_waiting):
+    variable_age <== bits(0, 3)
+  elsewhen (!variable_age.and_reduce()):
+    variable_age <== variable_age + bits(1, 3)
+  writeback_calendar.pause <== variable_age.and_reduce()
   completions.replay.valid <== replay
-  completions.drain_blocked <== packed.drain_blocked
   completions.packed_release.valid <== packed.released.valid
   completions.reserve.valid <== issue.fire()
   completions.reserve.bits <== RV5StageVectorSlotAllocation(vector_completion_slots):

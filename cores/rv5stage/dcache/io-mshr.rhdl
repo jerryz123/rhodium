@@ -42,7 +42,7 @@ sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_compl
     state <== RV5StageIOMSHRState.Queued
   elsewhen (memory.request.fire()):
     state <== RV5StageIOMSHRState.Active
-  elsewhen (memory.response.valid):
+  elsewhen (memory.response.fire()):
     state <== RV5StageIOMSHRState.Idle
 
   // An accepted operation is irrevocable. The engine cannot report a late

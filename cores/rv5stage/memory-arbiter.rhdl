@@ -25,9 +25,9 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   scalar.request_access_fault <== memory.request_access_fault & !selected_vector
   vector.request_fault <== memory.request_fault & selected_vector
   vector.request_access_fault <== memory.request_access_fault & selected_vector
-  def Array(scalar_responses, vector_responses) = memory.response |> fork_valid(2)
-  scalar_responses |> filter_valid(response => !response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)) |> scalar.response
-  vector_responses |> filter_valid(response => response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)) |> vector.response
+  def Array(scalar_responses, vector_responses) = memory.response |> demux_flow(2, response => response.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool).as_bits())
+  scalar_responses |> scalar.response
+  vector_responses |> vector.response
   scalar.drained <== memory.drained
   vector.drained <== memory.drained
   scalar.reservation_valid <== memory.reservation_valid

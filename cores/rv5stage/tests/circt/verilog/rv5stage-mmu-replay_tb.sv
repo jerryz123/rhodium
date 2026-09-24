@@ -49,7 +49,7 @@ module rv5stage_mmu_replay_tb;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
   typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
-  typedef struct packed { data_req_t request; } data_in_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_in_t;
   typedef struct packed {
     ready_t request;
     logic request_fault;
@@ -73,7 +73,7 @@ module rv5stage_mmu_replay_tb;
     data_resp_t response;
     logic drained; logic reservation_valid;
   } data_memory_in_t;
-  typedef struct packed { data_req_t request; } data_memory_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_memory_out_t;
 
   localparam logic [1:0] PRIVILEGE_U = 2'd0;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
@@ -169,6 +169,7 @@ module rv5stage_mmu_replay_tb;
     instruction_in.request.valid = instruction_request_valid;
     instruction_in.request.bits.address = instruction_address;
     data_in.request.valid = data_request_valid;
+    data_in.response.ready = 1'b1;
     data_in.request.bits.address = (page_fault_phase ? FAULT_VIRTUAL_ADDRESS : VIRTUAL_ADDRESS) + (zero_request || management_operation != 0 ? 64'd63 : 64'd0);
     if (vector_phase) data_in.request.bits.address = vector_scalar_address;
     data_in.request.bits.access = management_operation != 0 ? management_operation : zero_request ? 4'd6 : 4'(MEMORY_LOAD);
@@ -203,7 +204,7 @@ module rv5stage_mmu_replay_tb;
       translated_request_seen <= 1'b0;
       page_fault_pte_seen <= 1'b0;
     end else begin
-      pte_response_valid <= 1'b0;
+      if (data_memory_out.response.ready && !ordinary_response_valid && !manual_pte_valid) pte_response_valid <= 1'b0;
       assert (data_out.reservation_valid == data_memory_in.reservation_valid)
         else $fatal(1, "MMU did not forward reservation status");
       if (data_out.response.valid)

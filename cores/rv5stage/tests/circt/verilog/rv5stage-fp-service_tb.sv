@@ -1,6 +1,11 @@
 // Checks two-client FP service throughput, arithmetic, opaque tags, stalls, fairness, and reset.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_fp_service_tb;
+`ifdef RHODIUM_FP_SCHEDULED
+  localparam bit scheduled = 1;
+`else
+  localparam bit scheduled = 0;
+`endif
   typedef RV5StageFpExecutionRequest request_t;
   // Describe the public client result, independently of internal tag specializations.
   typedef struct packed {
@@ -21,6 +26,7 @@ module rv5stage_fp_service_tb;
 
   bit pending[2][256];
   request_t accepted[2][256];
+  int accepted_cycle[2][256];
   result_port_t held[2];
   bit stalled[2];
   int sent[2], received[2], cycles, consecutive, best_run, last_client;
@@ -116,6 +122,8 @@ module rv5stage_fp_service_tb;
     bit flags_valid, integer_result;
     int op;
     assert(pending[client][value.tag]) else $fatal(1, "unsolicited, duplicate, or misrouted result client=%0d tag=%0d", client, value.tag);
+    if (scheduled && accepted[client][value.tag].control.execution.unit != 4'd4)
+      assert(cycles == accepted_cycle[client][value.tag] + 2) else $fatal(1, "fixed result missed its reserved write cycle");
     expected = 64'h4008000000000000;
     flags = 0;
     flags_valid = 1;
@@ -165,6 +173,7 @@ module rv5stage_fp_service_tb;
         assert(!pending[client][offers[client].bits.tag]);
         pending[client][offers[client].bits.tag] = 1;
         accepted[client][offers[client].bits.tag] = offers[client].bits;
+        accepted_cycle[client][offers[client].bits.tag] = cycles;
         sent[client]++;
       end
       if (offers[client].valid && !ready[client]) blocked_offers++;
@@ -205,8 +214,8 @@ module rv5stage_fp_service_tb;
       first_in.bits = operation(0, sent[0], fixed_only);
       second_in.valid = sent[1] < count;
       second_in.bits = operation(1, sent[1], fixed_only);
-      first_result_in.ready = fixed_only || (cycles > 30 && cycles % 17 < 11);
-      second_result_in.ready = fixed_only || (cycles > 45 && cycles % 19 < 10);
+      first_result_in.ready = scheduled || fixed_only || (cycles > 30 && cycles % 17 < 11);
+      second_result_in.ready = scheduled || fixed_only || (cycles > 45 && cycles % 19 < 10);
       @(posedge clock);
       sample();
       @(negedge clock);
@@ -236,7 +245,7 @@ module rv5stage_fp_service_tb;
     assert(division_seen && fixed_before_division > 0);
     clear_epoch();
     run_batch(96, 0);
-    assert(division_seen && fixed_before_division > 0 && held_cycles > 20 && blocked_offers > 20 && overlap_cycles > 0)
+    assert(division_seen && fixed_before_division > 0 && (scheduled || held_cycles > 20) && blocked_offers > 20 && overlap_cycles > 0)
       else $fatal(1, "missing overlap/backpressure/reordering coverage");
 
     // Reset while one variable-latency request and buffered fixed work are owned.
@@ -245,11 +254,11 @@ module rv5stage_fp_service_tb;
     for (int n = 0; n < 12; n++) begin
       first_in.valid = sent[0] == 0;
       first_in.bits = operation(0, 0, 0);
-      second_in.valid = sent[1] < 4;
+      second_in.valid = !scheduled && sent[1] < 4;
       second_in.bits = operation(1, sent[1], 1);
       @(posedge clock); sample(); @(negedge clock);
     end
-    assert(sent[0] == 1 && sent[1] > 0 && received[0] == 0 && received[1] == 0);
+    assert(sent[0] == 1 && (scheduled || sent[1] > 0) && received[0] == 0 && received[1] == 0);
     clear_epoch();
     first_result_in.ready = 1; second_result_in.ready = 1;
     repeat (100) begin

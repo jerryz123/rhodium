@@ -1,5 +1,5 @@
 #lang rhombus
-// Verifies core one-hot mux construction, printing, aggregate typing, and rejection.
+// Verifies one-hot mux construction, aggregate leaf dependencies, printing, and rejection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -78,3 +78,28 @@ block:
 
   check:
     verify_design(design) ~throws "choice count must equal selector width"
+
+for (feedback in ["independent", "same-field", "selector"]):
+  def design = Design()
+  def builder = Builder(design)
+  def pair_type = RecordType([RecordField("left", Bits(2)), RecordField("right", Bits(2))])
+  def child = builder.module("SelectedPair")
+  def selector = builder.input(child, "selector", Bits(2))
+  def a = builder.input(child, "a", pair_type)
+  def b = builder.input(child, "b", pair_type)
+  def output = builder.output(child, "output", pair_type)
+  builder.drive(output, builder.onehot_mux(child, selector, [a, b]))
+  builder.finish(child)
+  def top = builder.module("SelectedPairFeedback")
+  def instance = builder.instance(top, child, "u")
+  def zero = builder.constant(top, Bits(2), 0)
+  def select = builder.input(top, "select", Bits(2))
+  def left = builder.record_get(top, instance.output("output"), "left")
+  builder.drive(instance.input("selector"), if feedback == "selector" | left | select)
+  for (name in ["a", "b"]):
+    builder.drive(builder.project(instance.input(name), "left"), if feedback == "same-field" | left | zero)
+    builder.drive(builder.project(instance.input(name), "right"), if feedback == "independent" | left | zero)
+  builder.finish(top)
+  if feedback == "independent"
+  | check: verify_design(design) ~is #void
+  | check: verify_design(design) ~throws "combinational cycle"

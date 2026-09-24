@@ -43,7 +43,7 @@ module rv5stage_multiply_tb;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -95,7 +95,7 @@ module rv5stage_multiply_tb;
   endfunction
 
   always_comb begin
-    instruction_access_in.request.ready = !instruction_response_valid;
+    instruction_access_in.request.ready = instruction_access_out.flush || !instruction_response_valid;
     instruction_access_in.response.valid = instruction_response_valid;
     instruction_access_in.response.bits.word = instruction_response_bits;
     instruction_access_in.response.bits.page_fault = 1'b0;
@@ -116,7 +116,7 @@ module rv5stage_multiply_tb;
       stores_seen <= '0;
     end else begin
       cycles <= cycles + 1'b1;
-      if (instruction_response_valid && instruction_access_out.response.ready)
+      if (instruction_access_out.flush || (instruction_response_valid && instruction_access_out.response.ready))
         instruction_response_valid <= 1'b0;
       if (instruction_access_out.request.valid && instruction_access_in.request.ready) begin
         instruction_response_valid <= 1'b1;
@@ -186,6 +186,6 @@ module rv5stage_multiply_tb;
     @(posedge clock);
     #1;
     repeat (600) @(posedge clock);
-    $fatal(1, "core did not complete the multiply scenario");
+    $fatal(1, "core did not complete the multiply scenario: stores=%0d fetch=%h", stores_seen, instruction_access_out.request.bits.address);
   end
 endmodule

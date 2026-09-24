@@ -352,7 +352,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   walker_data_request |> walker_memory.request
   walker.memory.request_access_fault <== walker_memory.request_access_fault
   def walker_memory_request_fire = walker_memory.request.fire()
-  walker_memory.response |> filter_valid(_response => walker_response_expected & !invalidate_all)
+  walker_memory.response |> filter_flow(_response => walker_response_expected & !invalidate_all) |> to_valid()
     |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
     |> walker.memory.response
   core_memory.response |> data.response
@@ -396,11 +396,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     walker_response_expected <== Bool(#false)
   elsewhen (walker_memory_request_fire & !walker.memory.request_access_fault):
     walker_response_expected <== Bool(#true)
-  elsewhen (walker_memory.response.valid & walker_response_expected):
+  elsewhen (walker_memory.response.fire() & walker_response_expected):
     walker_response_expected <== Bool(#false)
   when (walker_memory_request_fire & !walker.memory.request_access_fault):
     walker_memory_pending <== Bool(#true)
-  elsewhen (walker_memory.response.valid):
+  elsewhen (walker_memory.response.fire()):
     walker_memory_pending <== Bool(#false)
   when (walker_memory.response.valid):
     assert(walker_memory_pending, "rv5stage_mmu_pte_response_has_accepted_request")

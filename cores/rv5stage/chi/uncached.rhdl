@@ -130,7 +130,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   def response_expected = (dbid_expected & (
     incoming_response.opcode === CHIRspOpcode.DBIDResp
   )) ||| (completion_expected & (incoming_response.opcode === CHIRspOpcode.Comp))
-  chi.rsp.response.ready <== !response_ordinary ||| response_expected
+  chi.rsp.response.ready <== !response_ordinary ||| (response_expected & (!completion_expected ||| (zero_active & !zero_last) ||| core.response.ready))
   def response_fire = chi.rsp.response.fire() & response_ordinary
   def dbid_fire = response_fire & dbid_expected
   def completion_fire = response_fire & completion_expected
@@ -166,7 +166,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   chi.dat.response.ready <== !data_ordinary ||| (read_expected & mux(
     owner_is_instruction,
     !instruction_live ||| instruction.response.ready,
-    Bool(#true)
+    core.response.ready
   ))
   def read_fire = chi.dat.response.fire() & data_ordinary
   def data_read_valid = chi.dat.response.valid & data_ordinary & read_expected & !owner_is_instruction
@@ -182,7 +182,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     page_fault: Bool(#false)
     access_fault: Bool(#false)
 
-  core.response.valid <== data_read_valid ||| (completion_fire & (!zero_active ||| zero_last))
+  core.response.valid <== data_read_valid ||| (chi.rsp.response.valid & response_ordinary & response_expected & completion_expected & (!zero_active ||| zero_last))
   core.response.bits <== RV5StageDataResp(xlen, vector_completion_slots):
     access_fault: Bool(#false)
     data: mux(data_read_valid, load_gen.value, bits(0, width))

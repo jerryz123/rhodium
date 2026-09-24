@@ -31,7 +31,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
   interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
-  interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: producer)
+  interface completion(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: producer)
   input store: Bool
   input pointer_masking: PointerMaskControl()
   wire recover: Bool
@@ -123,7 +123,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
   feedback_path |> feedback
   outcome_path |> filter_valid(event => (event.disposition =/= RV5StageVectorDisposition.Retry) & (token.last ||| fault)) |> outcome
   (
-    memory.response |> map_valid(response => RV5StageVectorCompletion(xlen, slots)):
+    memory.response |> map_flow(response => RV5StageVectorCompletion(xlen, slots)):
       tag: response.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
       data: response.data
   ) |> completion

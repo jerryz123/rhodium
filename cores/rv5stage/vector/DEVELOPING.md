@@ -20,7 +20,7 @@ lifetimes; they do not introduce additional pipeline stages.
 | `sequencer.rhdl` | One descriptor, beat cursor, address setup, and authorized restart checkpoint | Final read-request transfer for ordinary compute, final feedback for serialized work |
 | `operand-fetch.rhdl` | Synchronous read credits, captured context, gather return, and compression suffix | Prepared operands transfer or unauthorized preparation is flushed |
 | `pipeline.rhdl` | Composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
-| `completion.rhdl` / `slots.rhdl` | Shared slot allocation/acceptance/drain order, result capture, head bypass, and ordinary writeback | The ordered head drains; replay drops only unaccepted slots |
+| `completion.rhdl` / `slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
 | `packed-memory.rhdl` | Packed request cursor, masks, store reads, and request preparation | Final packed acceptance, or replay restores the rejected cursor |
 | `packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
 
@@ -41,7 +41,7 @@ response through the current sequencing ID. The completion owner publishes a
 read-only slot snapshot for routing and hazards; it alone mutates slot state.
 
 Keep these events distinct: WB admission, sequencing release, final issue,
-irreversible acceptance, service-result arrival, ordered drain, and architectural
+irreversible acceptance, direct result write, ordered metadata reclamation, and architectural
 retirement. An instruction can release sequencing while its completion slots
 remain live. Independent nonstallable completion lanes must remain independent:
 do not merge simultaneous responses with a lossy Valid arbiter. Flow connections
@@ -103,10 +103,12 @@ computes conservative destination groups while pending writes have not yet
 resolved to individual rows. For monotonic same-width elementwise compute,
 `instructions.rhdl` advances an owner-local row frontier when the last beat for a
 row resolves. The result's exact completion slot already owns that row until
-ordered drain, so this handoff needs no speculative issue-time write address
+its actual write, so this handoff needs no speculative issue-time write address
 or operand-fetch reservation. Irregular and replayable schedules keep their
-whole-group claim until final resolution. Ordered completion and packed-carry
-drain preserve WAW order without a macro-level sequencer-admission gate. Gather's
+whole-group claim until final resolution. The sequencer checks the next
+destination row as well as source rows, and packed loads check their mapped
+destination rows before issue. These checks preserve WAW order without a
+macro-level sequencer-admission gate. Gather's
 dependent second read waits for older writes before starting its nonstallable
 read pair. There is no renaming, out-of-order instruction selection, or
 interleaved instruction sequencing.
@@ -124,7 +126,7 @@ Segment mapping remains explicit byte routing, separate from the rotator.
 The existing `execute.rhdl` instance shares its SIMD E64 rotate slice between
 ordinary execution and packed alignment. Fixed-cycle ordinary execution has
 priority over buffered store preparation, then buffered load alignment.
-Ordered completion and final carry flush arbitrate the sole VRF write port
+Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
 without lossy Valid arbitration; there is no second barrel shifter or VRF.
 
 Packed retry restores the rejected beat's complete byte/field/address cursor,
@@ -162,7 +164,7 @@ companion captures setup, `vs2_wait`/`vs1_wait` source-row, and aggregate
 operand-fetch readiness failures without changing launch timing.
 Operand fetch carries that occurrence through the VRF response and credited queue to
 elementwise issue. Packed memory has no equivalent elementwise read request.
-Elementwise issue remains in `pipeline.rhdl`; ordered completion is owned by
+Elementwise issue remains in `pipeline.rhdl`; direct completion is owned by
 `completion.rhdl`.
 Both paths use the stable `vector/s2.issue` and `vector/complete` labels, with a
 `packed` field distinguishing their beat geometry. Packed events additionally
@@ -183,20 +185,17 @@ and release only on the actual occupied-to-idle conditions. Never use the PC or
 the replayable operation index as an occurrence identity.
 
 Every ordinary local-compute completion follows the one-stage private execute
-path. A mature result at the ordered head bypasses the result-entry array; a
-result blocked by an older slot is retained under its execute tag. FP,
-multiply, and divide requests enter their reserved queues from that same
-execute boundary, while memory retains its delayed decision alignment.
-Memory and shared-service results use the same ordered backend after their
-separate acceptance or arrival.
-These accepted entries have FIFO ownership despite out-of-order result arrival,
-so the existing queue-storage contract carries their issue references using
-the original write/read controls. Speculative reservations are not captures;
-retry does not clear accepted owners. No trace model is asserted for arbitrary
-indexed response traversal. There is deliberately no response-arrival event.
-The ordered drained flow reaches the completion checkpoint and existing VRF
-write port. Immediate arithmetic reserves the same ordered owner slot as
-deferred results and becomes durable at its private execute boundary.
+path and writes on its reserved cycle. FP and multiply reserve at shared-service
+acceptance; variable services and ordinary slow loads retain their response
+until an unreserved write opportunity. Memory hits reserve the fixed decision
+cycle. Completed result data is not retained in the slot ring: only routing,
+ownership, pending write rows, and multiply addends outlive execution.
+Metadata is reclaimed in allocation order independently of actual write order.
+Slow-memory trace ownership is retained per slot, allowing tagged returns in
+any order; compute and service lineage follows the actual producing path.
+Speculative reservations are not captures, and retry preserves accepted owners.
+The completion checkpoint denotes actual completion/writeback, not metadata
+reclamation. Packed assembly keeps its separate ordered transport storage.
 
 `memory.rhdl` explicitly forks the lookup/context, request/decision, and
 feedback/outcome branches. The private execute boundary supplies compute
@@ -208,7 +207,7 @@ registered result as `vector/memory.result`, qualified for enabled memory beats.
 The shared cache owns `dcache/s1.access`; do not duplicate it in this adapter.
 
 Run `event-vector` for exact public-transfer lineage,
-retries, fault/truncation, no-write completions, stalled issue, ordered drain,
+retries, fault/truncation, no-write completions, stalled issue, direct completion,
 slot reuse, and pending reset. The multi-slot case returns younger responses
 first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vector
 memory/FP/muldiv fixtures as functional regressions for the affected paths.
@@ -216,7 +215,8 @@ memory/FP/muldiv fixtures as functional regressions for the affected paths.
 compute macros and independently delays FP and memory responses to check
 registered read-tail replacement, FP-to-store row chaining, route changes with
 old responses outstanding, final memory-beat replay, overlapping-destination
-admission and ordered writes, persistent slot wrap, and a canceled packed prefix
+admission and row-level write ordering, independent completion ahead of a held
+FP result, persistent slot wrap, and a canceled packed prefix
 whose partial-row carry still needs writeback.
 
 ## Implementation ownership
@@ -249,7 +249,7 @@ survives ordinary sequencer replacement; it never selects or retains a successor
 instruction. `pipeline.rhdl` attaches an owner to each ordinary read request,
 allocates completion slots from that carried owner, and routes VRF returns by
 the sampled read-port owner, not the current descriptor. Sequencing release,
-final issue, and ordered drain are separate events.
+final issue, direct result write, and ordered metadata reclamation are separate events.
 `execute.rhdl` is combinational:
 it adapts the beat to the shared SIMD unit and packs its result, not a separate
 pipeline stage. The parent [`vector.rhdl`](../vector.rhdl) composes the execution
@@ -270,13 +270,14 @@ accepted results and service requests retain their ownership.
 [`memory.rhdl`](memory.rhdl) owns address/lookup, result classification, and
 transaction acceptance. Its replay flushes younger attempts and operand results,
 then restores the sequencer checkpoint. It never replays an accepted transaction.
-[`completion.rhdl`](completion.rhdl) owns result storage and ordered ordinary
-writeback. Its [`slots.rhdl`](slots.rhdl) separates reserved slots from accepted
+[`completion.rhdl`](completion.rhdl) owns direct writeback and ordered ownership
+reclamation. Its [`slots.rhdl`](slots.rhdl) separates reserved slots from accepted
 owners: replay releases only the former. Register-row hazards belong to
 [`instructions.rhdl`](instructions.rhdl), not the slot tracker.
 [`load-response.rhdl`](load-response.rhdl)
-keeps immediate hits and delayed responses independent, so both can complete
-on one edge before the shared ordered VRF write port drains them.
+keeps packed hits and delayed responses independent for genuine byte assembly.
+Ordinary hits own their reserved write cycle; delayed ordinary responses wait
+at the memory producer until that port is free.
 
 Configuration commits in order at WB through `core.rhdl`, but is not a global
 vector-drain fence. EX computes configuration from the newest older in-flight
@@ -312,12 +313,12 @@ accepted completion ownership.
 Younger scalar exceptions are retained until all active macro contexts drain,
 not merely the currently occupied completion slots. Interrupts and vector/state observers wait for both; scalar memory admission
 uses the asymmetric barriers documented in the README.
-Scalar vector results join the buffered deferred GPR completion arbiter and
+Scalar vector results join the scheduled deferred GPR completion arbiter and
 reserve their destination at WB allocation; do not merge a late result with
 normal scalar WB using a lossy Valid selector. FPR results keep their existing
 reservation path. Keep vector FP/CSR observers behind pending flag updates.
-The deferred GPR queue remains part of core macro ownership until its entry
-writes back; another macro cannot overrun the single queued scalar result.
+The vector issue fork reserves its one-cycle GPR write atomically with issue;
+there is no queued completed scalar result.
 Keep every public `VectorProfile` claim coupled to its ELEN/FP legality, implied
 Zve closure, selected VLEN, UDB parameters, and SoC architectural description.
 Only full V may set `misa.V`.
@@ -338,7 +339,7 @@ FP. Dynamic FP rounding is part of each admitted descriptor and issued beat;
 the engine queues operands directly from the private execute stage.
 Fused operations reuse the third general VRF read for old `vd`; comparisons
 retain a mask-destination bit beside their completion slot and write the shared
-`v0` shadow through the sole ordered VRF write port. Vector-scalar FP checks the
+`v0` shadow through the sole scheduled VRF write port. Vector-scalar FP checks the
 FPR scoreboard in Decode, selects the scalar source on the FP adapter's first
 read port at WB launch, and retains the forwarded 64-bit value in the admitted
 descriptor. It must not consume a general VRF read port. Do not add vector-only
@@ -373,9 +374,8 @@ ordinary low/high/widened selection and `vsmul` rounding mode. Widening result
 placement comes from the accepted result beat rather than changing source SEW
 in that tag. For multiply-accumulate, the third general VRF read captures old
 `vd`; the accepted completion entry retains the selected addend and add/subtract
-policy rather than widening the shared multiplier tag. The completion slot
-also retains fractional-multiply saturation until ordered drain can update
-`vxsat`.
+policy rather than widening the shared multiplier tag. Fractional-multiply
+saturation updates `vxsat` on the scheduled product return.
 `../integer-execution.rhdl` owns opaque tag retention around the reusable
 iterative units; scalar adapters in
 `../multiply.rhdl` and `../divide.rhdl` own W-result and GPR destination policy.
@@ -385,6 +385,12 @@ request queue bypasses when empty, so an uncontended request attempts service
 admission in the compute-maturity cycle, two cycles after sequencing. Keep
 the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
+Before shared-service acceptance, fixed multiplication and FP reserve their
+actual return cycle. Private compute and memory decisions reserve at S2 issue.
+An older unrelated memory, divide, or FP operation does not block a fixed
+product merely because its metadata is at the ring head. Variable returns
+yield to occupied cycles, and packed assembly consumes only leftover cycles.
+The integrated multiplier and FP services do not retain completed fixed data.
 
 Run `rv5stage-vector-muldiv` for all 39
 encodings, supported source/result widths, every `vxrm` mode, fractional LMUL,
@@ -425,14 +431,15 @@ scalar base and reread the current element's index for each field. Warm-up
 skips one whole segment per addition for nonindexed forms. Destination/source field groups start at
 `vd/vs3 + field * ceil(EMUL)`. A persistent ring, independent of the macro-local
 operation sequence or architectural element, selects completion slots and
-ordered drain. Several fields and outstanding macros cannot alias a live slot.
+ordered metadata reclamation. Several fields and outstanding macros cannot alias a live slot.
 On retry, restore the unauthorized allocation frontier alongside the operation
 sequence, element, field, and address checkpoints. Fault
 reporting remains element-granular because architectural `vstart` counts whole
 segments.
 The private pipeline retains destination mask/shift and element range; the
-profile's power-of-two `vector_completion_slots` reserved slots absorb hit and slow completions independently before ordered
-VRF drain. Reserve on issue, accept at the local outcome, and clear only unaccepted
+profile's power-of-two `vector_completion_slots` retain destination ownership
+until actual writeback, followed by ordered reclamation. Reserve on issue,
+accept at the local outcome, and clear only unaccepted
 slots on retry/cancel. Retry flushes younger vector attempt/result stages without
 redirecting fetch to the macro PC. Faults update `vstart` and keep accepted
 response ownership alive through precise-trap draining.
@@ -718,7 +725,7 @@ This exercises the production vector pipeline's separate compute-maturity and
 memory-decision alignment and last-beat feedback through the scalar core, not a
 replacement execution model. Two full LMUL=8 streams require sixteen
 consecutive VRF writes each, with exact row/data/mask checks across private
-execute, ordered completion, and in-place reuse.
+execute, scheduled completion, and in-place reuse.
 The signature-memory model rejects each store once, then retains readiness
 until acceptance, exercising replay without periodic readiness/retry phase lock.
 The `rv5stage-vector-sequencer` and `rv5stage-vector-sequencer-rv32` fixtures

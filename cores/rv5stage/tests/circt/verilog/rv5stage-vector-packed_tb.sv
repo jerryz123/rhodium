@@ -1,4 +1,4 @@
-// Checks packed memory byte geometry, shared rotation, sparse masks, replay, and reordered completions.
+// Checks packed memory geometry, rotation, replay, reordered completions, and write-port contention.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_packed_tb;
   logic clock=0, reset=1;
@@ -6,6 +6,7 @@ module rv5stage_vector_packed_tb;
   logic [2:0] nf;
   logic [1:0] eew, mode;
   logic store, masked, request_valid=0, issue_ready=1, retry=0, slow=0, alignment_available=1;
+  logic write_available=1;
   logic [63:0] hit_data=0;
   struct packed {logic valid; RV5StageVectorCompletion bits;} response_in;
   struct packed {logic valid; VectorRegisterWrite bits;} initialize_in, written_out;
@@ -34,6 +35,7 @@ module rv5stage_vector_packed_tb;
   task automatic tick;
     issue_ready = !exercise_stalls || cycle%7!=2;
     alignment_available = !exercise_alignment_stalls || cycle%7>=3;
+    write_available = !exercise_stalls || cycle%5>=2;
     retry=0; slow=0; hit_data=0; response_in='0;
     #1;
     if (!reset && attempt_out.valid) begin
@@ -77,6 +79,7 @@ module rv5stage_vector_packed_tb;
       end
       if (written_out.valid) begin
         int row;
+        assert(write_available) else $fatal(1,"packed result stole a reserved write cycle");
         row=int'(written_out.bits.address);
         bank[row]=(bank[row]&~written_out.bits.mask)|(written_out.bits.data&written_out.bits.mask);
         writes++;

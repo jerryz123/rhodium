@@ -1,0 +1,26 @@
+#lang rhodium
+// Schedules future execution write-port cycles without retaining result payloads.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageWritebackCalendar(clients :: PosInt, latency :: PosInt):
+  interface reserve[clients](Decoupled(Bits(index_width(latency + 1))), ~role: consumer)
+  input pause: Bool
+  output occupied: Bits(latency)
+  reg pending(~init: bits(0, latency))
+  def mutable claimed :: Bits(latency + 1) = pending.zext(latency + 1)
+  // Earlier clients have priority only over new reservations, never an issued
+  // operation. Bit zero is the current write cycle; requests name future cycles.
+  for (client in 0..clients):
+    def delay = reserve[client].bits
+    def selection = bits(1, latency + 1) << delay
+    reserve[client].ready <== !pause & !(claimed & selection).or_reduce()
+    when (reserve[client].valid):
+      assert((delay > bits(0, index_width(latency + 1))) & (delay <= bits(latency, index_width(latency + 1))), "writeback_reservation_latency_in_range")
+    claimed := claimed ||| mux(reserve[client].fire(), selection, bits(0, latency + 1))
+  pending <== (claimed >> 1)[0..latency]
+  occupied <== pending
+
+export RV5StageWritebackCalendar

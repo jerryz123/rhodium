@@ -4,7 +4,7 @@ module rv5stage_lrsc_core_progress_tb;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic valid; RV5StageDataReq bits; } request_t;
   typedef struct packed { logic valid; RV5StageDataResp bits; } response_t;
-  typedef struct packed { request_t request; } host_in_t;
+  typedef struct packed { request_t request; ready_t response; } host_in_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } host_out_t;
   logic clock = 0, reset = 1, run = 0;
   host_in_t host_in;
@@ -128,6 +128,7 @@ module rv5stage_lrsc_core_progress_tb;
     logic [63:0] rival_value;
     bit done;
     host_in = '0;
+    host_in.response.ready = 1;
     // Warm a function in L1I, patch it through the core's write-back D-cache,
     // execute FENCE.I, and call it again. Only the new instruction returns 2.
     reset = 1; run = 0; tick(); tick(); reset = 0; tick();

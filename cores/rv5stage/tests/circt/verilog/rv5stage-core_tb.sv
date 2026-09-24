@@ -43,7 +43,7 @@ module rv5stage_core_tb;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
@@ -200,7 +200,7 @@ module rv5stage_core_tb;
         rejected_first_load <= 1'b1;
       end
 
-      if (data_response_valid) begin
+      if (data_response_valid && data_access_out.response.ready) begin
         data_response_valid <= 1'b0;
         if (data_response_rd == 5'd5) begin
           first_response_sent <= 1'b1;

@@ -25,9 +25,9 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   core.request_access_fault <== memory.request_access_fault & !selected_walker
   walker.request_fault <== memory.request_fault & selected_walker
   walker.request_access_fault <== memory.request_access_fault & selected_walker
-  def Array(core_responses, walker_responses) = memory.response |> fork_valid(2)
-  core_responses |> filter_valid(response => response.origin === RV5StageDataOrigin.Core) |> core.response
-  walker_responses |> filter_valid(response => response.origin === RV5StageDataOrigin.Walker) |> walker.response
+  def Array(core_responses, walker_responses) = memory.response |> demux_flow(2, response => (response.origin === RV5StageDataOrigin.Walker).as_bits())
+  core_responses |> core.response
+  walker_responses |> walker.response
   core.drained <== memory.drained
   walker.drained <== memory.drained
   core.reservation_valid <== memory.reservation_valid

@@ -30,7 +30,7 @@ bundle RV5StageMultiplyTag():
 sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: Boolean = #false):
   def width = xlen.width
   def product_width = width * 2
-  // Covers the scalar request slot, shared queues, six-result service, and pipeline flight.
+  // Covers scalar operand staging, shared-service flight, and standalone elasticity.
   def ticket_count = 16
 
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)

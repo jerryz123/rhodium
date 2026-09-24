@@ -160,7 +160,7 @@ fun visit_present_operation_dependencies(
           for (port_index in 0..ports_type.length):
             add_operand(operands[3],
                         [port_index] ++ path.drop(1))
-      | opcode == "rtl.mux_lookup":
+      | opcode == "rtl.mux_lookup" || opcode == "rtl.onehot_mux":
           add_whole(operands[0])
           for (operand in operands.drop(1)):
             add_operand(operand, path)

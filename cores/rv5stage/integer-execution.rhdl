@@ -40,17 +40,14 @@ sync_circuit RV5StageIterativeMultiplyService(width :: PosInt, Tag :: DataType):
       value: value
   ) |> result
 
-sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType):
+sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType, ~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   def capacity = PipelinedMultiplierStages + 1
   def count_width = index_width(capacity + 1)
   def Result = RV5StageExecutionResult(Bits(width * 2), Tag)
   interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(Result), ~role: producer)
   inst execution(PipelinedMultiplier(width))
-  inst completed(Queue(Result, capacity))
-  reg outstanding(~init: bits(0, count_width))
-  completed.egress |> result
-  def capacity_available = (outstanding =/= bits(capacity, count_width)) ||| result.fire()
+  wire capacity_available: Bool
   def launched = request |> gate_flow(capacity_available) |> to_valid()
   def Array(operand_path, owner_path) = launched |> fork_valid(2)
   operand_path |> map_valid(operation => operation.operands) |> execution.request
@@ -59,17 +56,33 @@ sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType):
     RV5StageExecutionResult(Bits(width * 2), Tag):
       tag: owner.bits
       value: value
-  completion |> to_decoupled() |> completed.ingress
   assert(execution.response.valid === owner.valid)
-  when (launched.valid & !result.fire()):
-    outstanding <== outstanding + bits(1, count_width)
-  elsewhen (result.fire() & !launched.valid):
-    outstanding <== outstanding - bits(1, count_width)
+  if scheduled_writeback
+  | block:
+      // The caller reserves the physical destination before accepting launch.
+      // The Irrevocable response never stalls in this stronger timing contract.
+      capacity_available <== Bool(#true)
+      result.valid <== completion.valid
+      result.bits <== completion.bits
+      assert(!result.valid ||| result.ready, "scheduled_multiply_writes_on_return")
+      describe_interface_contract(completion, result, "data", ~kind: "scheduled-writeback", ~trace_model: interface_trace_combinational())
+  | block:
+      // Standalone clients with arbitrary sink backpressure use the elastic
+      // adapter. The integrated core selects scheduled writeback instead.
+      inst completed(Queue(Result, capacity))
+      reg outstanding(~init: bits(0, count_width))
+      completed.egress |> result
+      completion |> to_decoupled() |> completed.ingress
+      capacity_available <== (outstanding =/= bits(capacity, count_width)) ||| result.fire()
+      when (launched.valid & !result.fire()):
+        outstanding <== outstanding + bits(1, count_width)
+      elsewhen (result.fire() & !launched.valid):
+        outstanding <== outstanding - bits(1, count_width)
 
-sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: PosInt, Tag :: DataType):
+sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: PosInt, Tag :: DataType, ~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
-  def Service = if kind == RV5StageMultiplierKind.Iterative | RV5StageIterativeMultiplyService(width, Tag) | RV5StagePipelinedMultiplyService(width, Tag)
+  def Service = if kind == RV5StageMultiplierKind.Iterative | RV5StageIterativeMultiplyService(width, Tag) | RV5StagePipelinedMultiplyService(width, Tag, ~scheduled_writeback: scheduled_writeback)
   inst selected(Service)
   request |> selected.request
   selected.result |> result

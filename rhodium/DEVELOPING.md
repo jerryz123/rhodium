@@ -180,12 +180,13 @@ and the named vector mask-scan controls. `vector/mask.rhdl` imports public
 `std/bits.rhdl` for bit reversal and first-set counting; it has no decode dependency.
 The parent `cores/rv5stage/vector.rhdl` imports `flow/main.rhdl` for WB allocation,
 compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
-`vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand/result storage,
-and accepted shared-service queues; it additionally imports named integer
+`vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand storage,
+and accepted shared-service request queues; it additionally imports the named
+writeback calendar, integer
 register-write and FP contracts, vector mask-scan controls, and pure FP profiles.
 `vector/slots.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
-`vector/sequencer.rhdl` imports vector bundles, named decode controls,
+`vector/sequencer.rhdl` imports vector bundles, destination-group dependency helpers, named decode controls,
 pure ISA geometry and instruction fields, the RISC-V
 vector RTL adapter, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
 imports vector packing, shared SIMD contracts, the RISC-V FP unboxing adapter, and HardFloat formats;
@@ -197,7 +198,7 @@ introduce no payload or state. Their shared phase-specific types
 live in `vector/bundles.rhdl`. `vector/instructions.rhdl` imports those types,
 `vector/dependencies.rhdl`, pure XLEN/vector geometry, bit-width helpers, and
 Flow for instruction lifetime and row hazards. `vector/completion.rhdl` imports
-the slot tracker, independent load-response adapter, mul/div result adapters,
+the slot tracker, mul/div result adapters,
 register-write and FP contracts, pure profiles, bit helpers, and Flow for
 persistent completion ownership and architectural result streams.
 `vector/packed-memory.rhdl` imports the vector bundles and VRF contracts,
@@ -240,12 +241,12 @@ the core uses Flow arbitration and stable demultiplexing to share those services
 `std/bits.rhdl` for `Pow2Int`, without depending on sibling decode columns.
 
 `cores/rv5stage/fp/execute.rhdl` directly imports `flow/main.rhdl` for
-operand routing, reserved fixed-latency completion buffering, round-robin
-completion arbitration, and output retention. The scalar `fp/pipeline.rhdl`
+operand routing, scheduled fixed-latency returns, standalone elastic completion
+buffering, and completion arbitration. The scalar `fp/pipeline.rhdl`
 imports that service, `flow/main.rhdl`, `std/bits.rhdl`, and
 `std/scoreboard.rhdl`; FPR state and architectural destinations stay in this
 wrapper. `fp/div-sqrt.rhdl` directly imports `std/ready-valid.rhdl` and Flow's
-`rr-arbiter`, `completion-queue`, `demux`, `gate`, and `queue` modules. No FP
+`rr-arbiter`, `demux`, and `gate` modules. No FP
 implementation depends on the vector package or on test/backend code.
 `cores/rv5stage/core.rhdl` directly imports the FP execution service and
 HardFloat rounding types to compose scalar and vector operand clients around

@@ -8,7 +8,7 @@ module event_vector_tb;
   logic request_valid=0, issue_ready=1, cancel=0, slow=0, response_valid=0;
   logic [1:0] disposition=0;
   logic [TAG_BITS-1:0] response_tag=0;
-  wire request_ready, active, issued, committed, issue_done, enabled, memory, sequenced;
+  wire request_ready, active, issued, committed, issue_done, enabled, memory, sequenced, response_ready;
   wire [TAG_BITS-1:0] issue_tag;
   RV5StageVectorTrace dut(.*);
   always #5 clock=~clock;
@@ -25,7 +25,7 @@ module event_vector_tb;
     sampled_commit=committed;
     vector_trace_sample(32'(reset),32'(sampled_launch),instruction,32'(vl),32'(issued),
       32'(issue_tag),32'(memory),32'(enabled),32'(committed),32'(disposition),32'(slow),
-      32'(response_valid),32'(response_tag),32'(cancel),32'(issue_done),32'(sequenced));
+      32'(response_valid && response_ready),32'(response_tag),32'(cancel),32'(issue_done),32'(sequenced));
     #1; vector_trace_check();
     @(negedge clock);
   endtask

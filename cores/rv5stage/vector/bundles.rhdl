@@ -103,6 +103,7 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   mask_destination: Bool
   fp_result: VectorFloatResult
   multiply_divide: Bool
+  multiply_execute: Bool
   divide: Bool
   multiply_accumulate: Bool
   multiply_subtract: Bool

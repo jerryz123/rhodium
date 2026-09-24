@@ -246,6 +246,15 @@ the multiplier arbiter. Accepted arithmetic requests are never killed inside
 the shared service; scalar cancellation discards their results by ticket.
 Result tags retain selection and destination metadata until consumption.
 
+`writeback-calendar.rhdl` owns future physical write-cycle reservations. The core
+reserves the deferred GPR port for pipelined multiplication, fixed FP integer
+returns, and vector-to-integer movement before launching each fixed operation.
+The vector composition independently reserves the VRF port. Shared-service
+launch and every applicable reservation are one atomic transfer. A variable
+response waits at its producer; an aged waiter pauses new reservations, without
+revoking already-issued work. See [the migration plan](WRITEBACK-PLAN.md) for
+the invariants and current validation status.
+
 ## Pointer-masking ownership
 
 The opt-in RV64 Ssnpm path uses reusable policy and address helpers from

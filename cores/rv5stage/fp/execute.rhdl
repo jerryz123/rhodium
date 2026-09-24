@@ -1,5 +1,5 @@
 #lang rhodium
-// Shares operand-level FP execution and retained results without architectural register ownership.
+// Shares operand-level FP execution with scheduled fixed writes or an elastic standalone adapter.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -44,7 +44,8 @@ sync_circuit RV5StageFpExecutionService(
   profile :: FloatingPointProfile,
   Tag :: DataType,
   ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
-  ~zfa: zfa_enabled :: Boolean = #false
+  ~zfa: zfa_enabled :: Boolean = #false,
+  ~scheduled_writeback: scheduled_writeback :: Boolean = #false
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   unless floating_point_supports_f(profile)
@@ -52,7 +53,7 @@ sync_circuit RV5StageFpExecutionService(
   def ExecutionRequest = RV5StageFpExecutionRequest(xlen, profile, Tag)
   def Result = RV5StageFpExecutionResult(xlen, profile, Tag)
   interface request(Decoupled(ExecutionRequest), ~role: consumer)
-  interface result(Irrevocable(Result), ~role: producer)
+  interface result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
 
   def FixedModule = cond
   | !half_precision_supports_zfhmin(half_precision):
@@ -68,23 +69,33 @@ sync_circuit RV5StageFpExecutionService(
   | ~else: RV5StageFpDivSqrtDHalf(xlen, Tag)
   inst fixed(FixedModule)
   inst div_sqrt(DivSqrtModule)
-  inst fixed_responses(CompletionQueue(ExecutionRequest, Result, 4))
-  fixed.request <== fixed_responses.issue.bits
-  fixed_responses.issue |> map_valid(_request => fixed.completion)
-    |> valid_pipe(2)
-    |> fixed_responses.completion
-
-  inst completion_merge(RV5StageFpCompletionArbiter(Result))
-  fixed_responses.response |> completion_merge.ingress[0]
-  div_sqrt.completion |> completion_merge.ingress[1]
-  completion_merge.egress |> result
-
-  // Admission reserves completion space before launching nonstallable work.
-  // Callers arbitrate authorized operands and retain their own destination state.
   def Array(fixed_request, division_request) = (
     request |> demux_flow(2, issued => issued.control.execution.unit === RV5StageFloatUnit.DivideSquareRoot)
   )
-  fixed_request |> fixed_responses.request
+  if scheduled_writeback
+  | block:
+      reg variable_age(~init: bits(0, 3))
+      fixed.request <== fixed_request.bits
+      // Stop new launches long enough for an older variable result to drain;
+      // fixed work already in flight still writes on its reserved cycle.
+      def fixed_completion = fixed_request |> gate_flow(!variable_age.and_reduce()) |> to_valid() |> map_valid(_request => fixed.completion) |> valid_pipe(2)
+      // Variable work stays in its lane. Never lock the common result mux
+      // against an already-reserved fixed return arriving next cycle.
+      Array(fixed_completion |> to_decoupled(), div_sqrt.completion) |> arbiter() |> result
+      assert(!fixed_completion.valid ||| result.ready, "scheduled_fp_writes_on_return")
+      when (!div_sqrt.completion.valid ||| div_sqrt.completion.ready):
+        variable_age <== bits(0, 3)
+      elsewhen (!variable_age.and_reduce()):
+        variable_age <== variable_age + bits(1, 3)
+  | block:
+      inst fixed_responses(CompletionQueue(ExecutionRequest, Result, 4))
+      fixed.request <== fixed_responses.issue.bits
+      fixed_responses.issue |> map_valid(_request => fixed.completion) |> valid_pipe(2) |> fixed_responses.completion
+      inst completion_merge(RV5StageFpCompletionArbiter(Result))
+      fixed_responses.response |> completion_merge.ingress[0]
+      div_sqrt.completion |> completion_merge.ingress[1]
+      completion_merge.egress |> result
+      fixed_request |> fixed_responses.request
   division_request |> div_sqrt.request
   when (request.valid):
     assert(request.bits.control.execution.unit =/= RV5StageFloatUnit.Memory, "rv5stage_fp_execution_requires_compute")

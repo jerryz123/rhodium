@@ -81,7 +81,7 @@ The optional event compiler observes sequencing and beat milestones:
 `vector/s1.sequence` marks an accepted elementwise read request in the first active
 sequencer cycle when sources are ready, `vector/s2.issue` accepts an execution
 attempt after operand capture, and `vector/complete` records a mature or
-authorized beat's ordered result drain. Packed memory has no separate
+authorized beat's actual completion/writeback. Packed memory has no separate
 elementwise read request and begins its beat trace at `vector/s2.issue`.
 The `vector/s1.sequence.stall` observation records a pending read request that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
@@ -162,11 +162,19 @@ retirement state from scalar WB for compute and from `retire: Pulse` for memory
 certification or successful conservative acceptance. `execution_done: Pulse`
 reports completed execution. `active` includes accepted memory completion
 ownership; `sequencing` reports the separate registered-sequencer lifetime.
-Local compute results mature one cycle after issue and may drain on that same
-edge when they own the ordered head. FP, multiply, and divide requests enter
+Local compute results write one cycle after issue on their reserved cycle,
+independently of older unrelated slots. FP, multiply, and divide requests enter
 their shared services on that edge and complete when their tagged result
 returns. Memory alone retains the three-cycle decision path and tagged slow
 completions.
+
+Standalone compositions leave `~multiply_latency` false and `~fixed_fp` false
+when their external services can return on arbitrary cycles. Integrated fixed
+services declare the multiplier's request-to-result latency and the FP service's
+two-cycle contract; request acceptance then includes the VRF reservation.
+`scalar_writeback` offers a one-cycle reservation that must be accepted along
+with any beat producing an integer scalar result. Its consumer must guarantee
+the corresponding `scalar_result` write, not queue that completed value.
 
 A two-entry descriptor FIFO snapshots waiting vector macros in addition to the
 single active sequencer instruction. When empty, it flows an accepted WB descriptor
@@ -177,7 +185,7 @@ edge. Only the head
 can start page-range certification or enter the sequencer, and a blocked head
 does not replay through scalar fetch. WB still replays if descriptor admission
 or a required floating-point scalar-result reservation cannot succeed. Integer
-scalar results use completion-slot-bounded buffering. There is no out-of-order
+scalar results reserve the deferred GPR write cycle before issue. There is no out-of-order
 instruction selection. Pending status includes both waiting entries, so scalar ordering and
 FP/CSR observers cannot overlook a queued instruction. An uncertified memory
 macro blocks younger admission until its retirement outcome; accepting a
@@ -198,7 +206,7 @@ finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
 instruction. Same-width elementwise compute releases its conservative
 destination-group claim row by row as results resolve; exact outstanding
-writes still block reads until ordered VRF drain. Irregular and replayable
+writes still block reads and younger writes until actual VRF writeback. Irregular and replayable
 schedules retain the conservative group claim through their final result. All
 operands are captured before issue. The sequencer never alternates between
 instructions or delegates replay to a service instruction queue.
@@ -208,7 +216,7 @@ window independently of VLEN; `n` must be a positive power of two and defaults
 to eight. Standalone `RV5StageVectorPipeline` accepts the same keyword.
 Storage depth and tag width derive from this count, with a one-bit zero index
 for a single slot. Slots are reserved before issue and released only after
-ordered completion drain; a smaller window can reduce memory throughput.
+ordered metadata reclamation after writeback; a smaller window can reduce memory throughput.
 The integrated core propagates the count through every LSU adapter. Standalone
 compositions must select the same count on their data interfaces and engines.
 
@@ -325,7 +333,7 @@ destination group.
 
 The vector pipeline's private execution stage uses
 [`RV5StageVectorExecute`](execute.rhdl) and the shared SIMD ALU. Its fixed-latency
-result maturity transfers ownership to the ordered completion backend without
+result maturity completes on the reserved write cycle without
 an external authorization round trip. An exclusive end position advances even for
 masked-off elements. Ordinary compute releases the sequencer at its final read
 transfer; serialized compute releases it at result maturity. Neither
@@ -591,19 +599,22 @@ divider uses round-robin arbitration. The vector multiplier request queue
 bypasses when empty, attempting admission two cycles after sequencing when
 the multiplier has capacity. The iterative multiplier retains one request;
 the five-stage pipelined multiplier advances every launched request without
-backpressure. Its service reserves one
-of six result-buffer entries before launch and pipelines the opaque owner tag
-beside the operands. Each scalar adapter has one reserved WB request slot, so
+backpressure. The integrated service reserves its destination write cycle
+before launch and pipelines the opaque owner tag beside the operands, without
+completed-result storage. The standalone elastic adapter retains result credits
+for callers without a schedule. Each scalar adapter has one reserved WB request slot, so
 vector contention cannot steal an ID admission reservation. Scalar GPR
 completion still uses the ordinary deferred writeback arbiter.
 
 Vector elements reserve completion slots before issue. Local results mature and
 FP, multiply, or divide requests enter their request queues directly from the
-private execute stage. They drain through the single masked VRF write port in
-element order. Backpressure stops earlier issue; MEM/WB remains feed-forward.
+private execute stage. Fixed operations reserve the single masked VRF write
+port before launch; variable services hold their response until an available
+cycle. Independent results can write out of order. Row-level RAW/WAW checks
+preserve dependencies. Backpressure stops earlier issue; MEM/WB remains feed-forward.
 Cancellation discards only speculative work, never accepted requests or their
 response ownership. The multiply completion tag retains the `vsmul` rounding
-mode and result selection; its slot retains saturation until ordered drain, when
+mode and result selection; its result reports saturation at actual writeback, when
 `vxsat` is pulsed exactly once. Masked and empty elements complete without
 execution.
 These iterative services do not promise one element per cycle. RV32 vector
@@ -658,7 +669,7 @@ operations retain singleton execution. Each FP request carries per-operand
 precision so a widening operation can combine a wide `vs2` or old `vd` with a
 narrow vector or scalar source without inventing a vector-only arithmetic lane.
 With `Zvfhmin` or `Zvfh`, the same adapter NaN-boxes F16 elements into the
-shared FP service and carries Half/Single precision through ordered vector
+shared FP service and carries Half/Single precision through tagged vector
 completion. Full `Zvfh` also selects exact 8- and 16-bit integer converter
 widths and promotes widening half arithmetic into the shared FP32 lane.
 Active elements queue for execution only when their private operands mature.
@@ -692,9 +703,10 @@ into the vector descriptor.
 Each vector element reserves a completion slot before issue. A bounded
 locally accepted request queue absorbs service backpressure and bypasses an
 empty queue directly into the shared service, while slot exhaustion stops
-earlier issue, keeping MEM/WB feed-forward. Results can return out of order;
-an arriving result for the ordered head drains immediately, while other results
-remain buffered for element-order masked VRF writes and exception-flag updates.
+earlier issue, keeping MEM/WB feed-forward. Fixed operations reserve their
+two-cycle write opportunity atomically with service acceptance. Variable
+results wait at the arithmetic producer. Results write directly, with
+completion-time exception-flag updates; slot metadata is reclaimed separately.
 Scalar and vector flag updates on the same cycle are ORed together.
 
 Cancellation discards speculative slots and private pipeline validity, but
@@ -740,8 +752,8 @@ responses may arrive out of order. A slot can release into the partial-row carry
 without waiting for its successor; a one-slot configuration therefore progresses.
 Execution completion waits for the last partial-row write. Accepted entries and
 the partial-row carry retain their ownership after the sequencer is released.
-Younger vector reads wait for older pending writes by row; ordered result drain
-preserves write-after-write order without blocking sequencer admission.
+Younger vector reads and writes wait for older pending writes by row,
+without blocking sequencer admission itself.
 The slot scoreboard distinguishes reservation, acceptance, and ordered release.
 A local replay rewinds only the unauthorized frontier,
 without refetching the macro or reissuing accepted effects. Cancellation drops

@@ -9,7 +9,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageFpServiceFixture():
+sync_circuit RV5StageFpServiceFixture(~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   def xlen = XLen.X64
   def profile = FloatingPointProfile.D
   def Request = RV5StageFpExecutionRequest(xlen, profile, Bits(8))
@@ -19,8 +19,8 @@ sync_circuit RV5StageFpServiceFixture():
     token: Bits(8)
   interface first(Decoupled(Request), ~role: consumer)
   interface second(Decoupled(Request), ~role: consumer)
-  interface first_result(Irrevocable(Result), ~role: producer)
-  interface second_result(Irrevocable(Result), ~role: producer)
+  interface first_result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
+  interface second_result(if scheduled_writeback | Decoupled(Result) | Irrevocable(Result), ~role: producer)
 
   fun tagged_request(client :: Boolean):
     map_flow(issued):
@@ -48,7 +48,7 @@ sync_circuit RV5StageFpServiceFixture():
         exception_flags: completed.exception_flags
         exception_flags_valid: completed.exception_flags_valid
 
-  inst execution(RV5StageFpExecutionService(xlen, profile, Owner()))
+  inst execution(RV5StageFpExecutionService(xlen, profile, Owner(), ~scheduled_writeback: scheduled_writeback))
   Array(first |> tagged_request(#false), second |> tagged_request(#true))
     |> rr_arbiter()
     |> execution.request

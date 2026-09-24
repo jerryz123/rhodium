@@ -25,7 +25,7 @@ module rv5stage_load_hit_tb;
   typedef struct packed {logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin;} response_bits_t;
   typedef struct packed {logic valid; response_bits_t bits;} response_t;
   typedef struct packed {ready_t request; logic request_fault, request_access_fault; response_t response; logic drained;} uncached_in_t;
-  typedef struct packed {ureq_t request;} uncached_out_t;
+  typedef struct packed {ureq_t request; ready_t response;} uncached_out_t;
   typedef struct packed {logic valid; CHIReqFlit bits;} req_t;
   typedef struct packed {logic valid; CHIRspFlit bits;} rsp_t;
   typedef struct packed {logic valid; CHIDatFlit bits;} dat_t;

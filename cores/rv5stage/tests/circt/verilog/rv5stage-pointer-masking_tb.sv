@@ -23,7 +23,7 @@ module rv5stage_pointer_masking_tb;
   typedef struct packed { logic access_fault; logic [63:0] data; logic [8:0] writeback; logic origin; } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; data_resp_t response; logic drained; logic reservation_valid; } data_in_t;
-  typedef struct packed { data_req_t request; } data_out_t;
+  typedef struct packed { data_req_t request; ready_t response; } data_out_t;
   typedef struct packed { logic valid; logic [63:0] address; logic [1:0] operation; } prefetch_t;
   logic clock = 0, reset = 1;
   logic [63:0] time_counter = 0, hart_id = 0;
@@ -130,7 +130,7 @@ module rv5stage_pointer_masking_tb;
         assert (instruction_access_out.request.address < 'h2000) else $fatal(1, "fetch address changed");
         instruction_response <= {1'b1, instruction_at(instruction_access_out.request.address), 2'b0};
       end
-      data_response.valid <= 0;
+      if (data_response.valid && data_access_out.response.ready) data_response.valid <= 0;
       if (prefetch_out.valid) begin
         assert (prefetch_out.address == 'h180 && prefetch_out.operation == 2'(prefetches + 1))
           else $fatal(1, "explicit prefetch pointer was not normalized");

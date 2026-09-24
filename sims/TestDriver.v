@@ -17,6 +17,9 @@ module TestDriver;
     .clock(clock),
     .reset(reset),
     .exit(exit)
+`ifdef RHEG_TRACE
+    , .__event_activity()
+`endif
   );
 
   always #1 clock = ~clock;

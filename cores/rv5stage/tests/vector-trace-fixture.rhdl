@@ -23,9 +23,11 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   input disposition: RV5StageVectorDisposition
   input response_tag: Bits(index_width(slots))
   output(request_ready, active, issued, committed, issue_done, enabled, memory, sequenced): Bool
+  output response_ready: Bool
   output issue_tag: Bits(index_width(slots))
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, 128, Bits(64), ~vector_completion_slots: slots))
+  vector.scalar_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
   inst tokens(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
   decode.instruction <== instruction
@@ -71,6 +73,7 @@ sync_circuit RV5StageVectorTrace(slots :: Pow2Int):
   vector.completion.bits <== RV5StageVectorCompletion(xlen, slots):
     tag: response_tag
     data: bits(0, 64)
+  response_ready <== vector.completion.ready
   vector.memory_drained <== Bool(#true)
   vector.fp_request.ready <== Bool(#false)
   vector.fp_result.valid <== Bool(#false)

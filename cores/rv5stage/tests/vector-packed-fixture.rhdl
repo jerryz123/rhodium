@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes always-enabled certified beat scheduling, real VRF storage, and shared SIMD alignment.
+// Exposes certified beat scheduling, contended VRF writes, and shared SIMD alignment.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../vector/packed-memory.rhdl" open
@@ -23,7 +23,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   input nf: Bits(3)
   input eew: Bits(2)
   input mode: VectorMemoryMode
-  input(store, masked, request_valid, issue_ready, retry, slow, alignment_available): Bool
+  input(store, masked, request_valid, issue_ready, retry, slow, alignment_available, write_available): Bool
   input hit_data: Bits(64)
   interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
   interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
@@ -54,6 +54,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.accepted_slots <== slots_owner.accepted
   engine.drain_enable <== Bool(#true)
   engine.alignment_available <== alignment_available
+  engine.write_available <== write_available
   engine.owner <== bits(0, 1)
   engine.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
   inst registers(RV5StageVectorRegisterFile(vlen))
