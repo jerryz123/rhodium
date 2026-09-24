@@ -132,9 +132,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def replay = cancel.valid ||| (decision.valid & (decision.bits.disposition =/= RV5StageVectorDisposition.Authorized))
 
   // Admission and the single registered sequencer.
-  // Stateful/packed schedules begin after older operand preparation drains;
-  // ordinary compute may replace the sequencer while those beats remain live.
-  def stateful_request = packed_memory ||| request.bits.descriptor.control.memory ||| request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
+  // Packed and checkpointed compute schedules wait for older operand preparation.
+  // Elementwise memory uses the ordered operand-fetch queue: older compute
+  // beats issue before a younger memory beat can reach a replay decision.
+  def stateful_request = packed_memory ||| request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.scan & !request.bits.descriptor.control.scan_control.index) ||| request.bits.descriptor.control.compress
   available <== sequencer.request.ready & instructions.available & (!stateful_request ||| !operand_fetch.active)
   def admitted = request |> gate_flow(available)
   describe_interface_retained_storage(admitted.fire(), sequencer.sequencing_done.valid, sequencer.active, ~name: "sequencer")

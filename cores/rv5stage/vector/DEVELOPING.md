@@ -58,13 +58,16 @@ accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
 successor, or second instruction slot inside the sequencer. The flow-through result queue permits
 consecutive issue while credits cover all nonbackpressurable responses.
-Memory retains its descriptor through the final external decision; dependent
-scans and compression retain theirs through internal result maturity. Stateless
+Memory retains its descriptor through the final external decision and may accept
+its successor on the authorized final-feedback edge; dependent scans and
+compression retain theirs through internal result maturity. Stateless
 index scans release on their final read-request transfer like ordinary compute.
 Reductions release their descriptor at the tail read and retain recurrence in
-owner-indexed state. Stateful and packed schedules wait for older operand
-preparation to drain before admission; ordinary compute can overlap it. A packed
-admission coincident with an older final read retains its descriptor, but packed
+owner-indexed state. Packed memory, reductions, dependent scans, and compression
+wait for older operand preparation to drain before admission. Ordinary compute
+and elementwise memory can overlap it: the ordered operand-fetch queue issues
+older prepared beats before a younger memory beat can receive replay feedback.
+A packed admission coincident with an older final read retains its descriptor, but packed
 VRF activity and issue wait for that read's reservation to clear. The packed-memory
 schedule consumes the same accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
 descriptor FIFO so WB admission and head-only page-range certification can overlap
@@ -78,9 +81,11 @@ bank of per-service instruction queues. Check-started, check-complete, and
 certificate state belong to the FIFO head and reset on dispatch, never on tail
 enqueue. Compute heads dispatch without a preparation cycle. Memory heads wait
 for their one precheck response when eligible; false selects elementwise fallback.
-Empty memory retires at dispatch without acquiring a page window. The existing
-uncertified-memory retirement barrier starts at enqueue, including for a tail
-entry. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
+Empty memory retires at dispatch without acquiring a page window. The scalar
+certification barrier starts at enqueue, including for a tail entry, and clears
+on an early certificate or final successful elementwise authorization. It is
+separate from the vector-admission barrier, which remains until the registered
+retirement outcome. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
 work; transfer to execution must not create a cycle without pending ownership.
 Do not use pending
 descriptor state to gate the older owner's issue stream, and release a page
@@ -213,9 +218,10 @@ first. Keep `rv5stage-vector-reduction`, `rv5stage-vector-config`, and the vecto
 memory/FP/muldiv fixtures as functional regressions for the affected paths.
 `rv5stage-vector-overlap` checks consecutive issue for independent single-beat
 compute macros and independently delays FP and memory responses to check
-registered read-tail replacement, FP-to-store row chaining, route changes with
-old responses outstanding, final memory-beat replay, overlapping-destination
-admission and row-level write ordering, independent completion ahead of a held
+registered read-tail and authorized memory-tail replacement, compute-to-memory
+admission with older prepared beats, FP-to-store row chaining, route changes
+with old responses outstanding, final memory-beat replay,
+overlapping-destination admission and row-level write ordering, independent completion ahead of a held
 FP result, persistent slot wrap, and a canceled packed prefix
 whose partial-row carry still needs writeback.
 

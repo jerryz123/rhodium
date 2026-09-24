@@ -18,8 +18,10 @@ module rv5stage_vector_overlap_tb;
   int phase1_issue_count=0, phase1_last_issue=0;
   int phase1_launches=0, phase1_sequences=0;
   int phase5_younger_attempts=0;
-  int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0;
+  int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0, previous_retirements=0;
   int phase14_attempts=0, phase14_older_last=0, phase14_younger=0;
+  int overlap_older_attempts=0, overlap_memory_attempts=0;
+  logic [63:0] overlap_older_context=0, overlap_memory_context=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
   bit launch_seen, sequence_done_seen, issue_done_seen, tail_handoff_seen=0, retry_last=0, retried=0;
@@ -43,10 +45,13 @@ module rv5stage_vector_overlap_tb;
   function automatic logic [31:0] index_insn(input int vd);
     return 32'(32'd20<<26 | 32'd1<<25 | 32'd17<<15 | 32'd2<<12 | 32'(vd)<<7 | 32'h57);
   endfunction
+  function automatic logic [31:0] gather_insn(input int vd);
+    return 32'(32'd12<<26 | 32'd1<<25 | 32'd2<<20 | 32'd3<<15 | 32'(vd)<<7 | 32'h57);
+  endfunction
   task automatic tick;
     #1;
     hit_data=64'h1000+attempt_out.bits.address;
-    retry=retry_last && !retried && attempt_out.valid && attempt_out.bits.last;
+    retry=retry_last && !retried && attempt_out.valid && attempt_out.bits.memory && attempt_out.bits.last;
     #1;
     launch_seen=request_valid && request_ready;
     sequence_done_seen=sequencing_finished;
@@ -91,6 +96,15 @@ module rv5stage_vector_overlap_tb;
           assert(phase11_attempts<2) else $fatal(1,"extra compute/packed store overlap attempt");
           assert(attempt_out.bits.context_0==(phase11_attempts==0 ? 64'hb00 : 64'hb80)) else $fatal(1,"younger packed store issued ahead of older compute");
           phase11_attempts++;
+        end
+        if (phase==18 || phase==19) begin
+          if (attempt_out.bits.context_0==overlap_older_context) begin
+            assert(!attempt_out.bits.memory && overlap_memory_attempts==0 && overlap_older_attempts<2) else $fatal(1,"older compute was lost or overtaken by memory");
+            overlap_older_attempts++;
+          end else begin
+            assert(attempt_out.bits.context_0==overlap_memory_context && attempt_out.bits.memory && overlap_older_attempts==2) else $fatal(1,"younger memory overtook prepared compute");
+            overlap_memory_attempts++;
+          end
         end
         if (retry) retried=1;
         else if (attempt_out.bits.memory) begin
@@ -340,7 +354,59 @@ module rv5stage_vector_overlap_tb;
     drain();
     launch(store_insn(12),64'hf80,0); drain();
     assert(store_count==2 && stores[1]==0) else $fatal(1,"older late FP result overwrote younger data");
-    $display("Vector overlap passed: direct independent completion, row RAW/WAW, tail handoff, packed issue, reductions, replay, slot wrap, and canceled carry");
+    // The final authorized memory beat releases the registered sequencer and
+    // admits its successor on that edge, not one cycle after feedback.
+    reset=1; tick(); reset=0;
+    phase=16; vl=1; vtype=24;
+    launch(load_insn(8),64'h1000,0);
+    instruction=load_insn(10); scalar=64'h1010; request_valid=1;
+    do tick(); while (!launch_seen);
+    assert(sequence_done_seen) else $fatal(1,"authorized memory tail did not admit its successor on the same edge");
+    request_valid=0;
+    drain();
+    // A rejected tail still owns its checkpoint, so it cannot hand off until
+    // the replayed tail is authorized.
+    reset=1; tick(); reset=0;
+    phase=17; retried=0; retry_last=1;
+    launch(load_insn(8),64'h1100,0);
+    instruction=load_insn(10); scalar=64'h1110; request_valid=1;
+    do begin
+      tick();
+      if (retry) assert(!launch_seen) else $fatal(1,"replayed memory tail admitted its successor");
+    end while (!launch_seen);
+    assert(retried && sequence_done_seen) else $fatal(1,"replayed memory tail did not hand off on authorization");
+    request_valid=0; retry_last=0;
+    drain();
+    // Elementwise memory may capture the sequencer on an older compute tail
+    // read even though two older beats remain reserved in operand fetch.
+    reset=1; tick(); reset=0;
+    phase=18; vl=2; vtype=24; issue_ready=0; retried=0; retry_last=1;
+    overlap_older_context=64'h220; overlap_memory_context=64'h230;
+    overlap_older_attempts=0; overlap_memory_attempts=0;
+    older_issue_count=done_count; previous_retirements=retired_count;
+    launch(add_insn(8),overlap_older_context,0);
+    instruction=load_insn(10); scalar=overlap_memory_context; request_valid=1;
+    do tick(); while (!sequence_done_seen);
+    assert(launch_seen && !issued) else $fatal(1,"memory admission waited for older operand issue");
+    request_valid=0; issue_ready=1;
+    drain();
+    assert(retried && overlap_older_attempts==2 && overlap_memory_attempts==3 && done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"memory replay lost older prepared compute or duplicated a beat");
+    retry_last=0;
+    // Gather's dependent second read must likewise enter the issue queue
+    // before the younger direct memory read, even with issue held initially.
+    reset=1; tick(); reset=0;
+    phase=19; vl=2; vtype=24; issue_ready=0;
+    overlap_older_context=64'h240; overlap_memory_context=64'h250;
+    overlap_older_attempts=0; overlap_memory_attempts=0;
+    older_issue_count=done_count; previous_retirements=retired_count;
+    launch(gather_insn(8),overlap_older_context,0);
+    instruction=load_insn(10); scalar=overlap_memory_context; request_valid=1;
+    do tick(); while (!sequence_done_seen);
+    assert(launch_seen && !issued) else $fatal(1,"memory admission waited for older gather issue");
+    request_valid=0; issue_ready=1;
+    drain();
+    assert(overlap_older_attempts==2 && overlap_memory_attempts==2 && done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"gather-to-memory overlap lost ordering or completion");
+    $display("Vector overlap passed: direct independent completion, row RAW/WAW, tail handoff, compute-to-memory admission, packed issue, reductions, replay, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

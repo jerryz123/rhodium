@@ -65,6 +65,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   reg check_complete(~init: Bool(#false))
   reg certified(~init: Bool(#false))
   reg waiting_retirement(~init: Bool(#false))
+  reg uncertified_memory(~init: Bool(#false))
   inst instructions(Queue(RV5StageVectorDescriptor(xlen), 2, ~pipe: #true, ~flow: #true))
   def can_admit = !waiting_retirement
   request |> gate_flow(can_admit) |> instructions.ingress
@@ -109,6 +110,12 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
+  // Scalar Decode needs fault certainty, not the later retirement transfer.
+  // Keep vector admission serialized until that transfer independently.
+  when (request.fire() & request.bits.control.memory):
+    uncertified_memory <== !early_outcome.valid
+  elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === RV5StageVectorDisposition.Authorized)) ||| outcome.valid):
+    uncertified_memory <== Bool(#false)
   when (execution.request.fire()):
     check_started <== Bool(#false)
     check_complete <== Bool(#false)
@@ -168,7 +175,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   sequencing <== execution.sequencing
   pending <== execution.pending
   stores_pending <== execution.stores_pending ||| queued_stores.or_reduce()
-  certification_pending <== waiting_retirement
+  certification_pending <== uncertified_memory
   loads_pending <== execution.loads_pending ||| queued_loads.or_reduce()
   fp_pending <== execution.fp_pending ||| queued_fp.or_reduce()
 

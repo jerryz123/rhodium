@@ -196,12 +196,14 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   read_transfer |> read_request
   def launch = read_request.fire()
   def compute_tail_request = launch & beat_last & !serialized
-  active <== occupied
-  request.ready <== (!occupied ||| compute_tail_request) & !clear
-  def accepted = request.fire()
   def authorized_event = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Authorized)
+  def memory_tail_authorized = occupied & descriptor.control.memory & authorized_event & feedback.bits.last
+  active <== occupied
+  request.ready <== (!occupied ||| compute_tail_request ||| memory_tail_authorized) & !clear
+  def accepted = request.fire()
   // Compute micro-ops become operand-fetch-owned when read. Replayable memory
-  // retains the sequencer through final authorization.
+  // retains the sequencer through final authorization, then may hand off on
+  // the same edge while older results remain owned by their completion slots.
   sequencing_done.valid <== occupied & (compute_tail_request ||| cancel.valid ||| fault ||| truncate ||| packed_done.valid ||| (authorized_event & feedback.bits.last))
   def release_macro = sequencing_done.valid
   describe_interface_retained_storage(accepted, release_macro, occupied, ~name: "macro")

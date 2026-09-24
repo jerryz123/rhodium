@@ -148,6 +148,11 @@ changes, and trap/interrupt entry wait for drain. Younger scalar stores wait
 for vector loads or stores; younger scalar loads wait for vector stores.
 Deferred scalar destinations retain their GPR/FPR scoreboard reservations.
 Younger scalar FP work also waits for outstanding vector FP state updates.
+Without an early certificate, successful authorization of the final element
+releases independent scalar Decode on the following cycle, even if accepted
+load responses and vector writes have not drained. A retry cannot release
+Decode; a fault follows the registered precise-trap path. Vector retirement
+remains a separate, later event.
 
 The outcome register separates LSU admission from scalar WB selection. Internal retries
 do not retire the macro or restart scalar fetch. Rejection flushes younger
@@ -197,10 +202,13 @@ from an incoming or speculative descriptor. Operand fetch retains each plan's
 controls and owner through VRF latency and issue backpressure, independently of
 sequencer replacement. Independent single-beat instructions can therefore read
 and issue on consecutive cycles. The completion-slot owner ring retains older
-issued work.
+issued work. Elementwise memory can also enter the sequencer while older
+ordinary compute beats remain in operand fetch; those beats issue first.
 Memory, dependent scans, and compression instead retain the descriptor through
-final feedback because they carry replay or checkpointed cross-beat state. Index
-scans release on their final read like ordinary compute. Reductions
+final feedback because they carry replay or checkpointed cross-beat state. An
+authorized final memory beat can admit the next descriptor on that same edge;
+retry or fault feedback cannot. Index scans release on their final read like
+ordinary compute. Reductions
 release at their tail read while owner-local recurrence and completion state
 finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older

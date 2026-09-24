@@ -43,7 +43,11 @@ module rv5stage_vector_admission_tb;
     if(!reset) begin
       if(accepted) launches++;
       if(retired) completions++;
-      if(outcome_valid) begin outcomes++; last_outcome=outcome_pc; end
+      if(outcome_valid) begin
+        outcomes++; last_outcome=outcome_pc;
+        if(outcome_pc==64'h300 || outcome_pc==64'h400)
+          assert(!certification_pending && !request_ready) else $fatal(1,"successful certification did not release scalar Decode before vector retirement");
+      end
       if(precheck_out.request.valid && precheck_in.request.ready) checks++;
       if(precheck_out.release_0.valid) releases++;
       if(watch_window && precheck_out.release_0.valid)
@@ -159,6 +163,7 @@ module rv5stage_vector_admission_tb;
     // Live input changes must not alter the captured memory range or its PC.
     instruction=move_insn(4,7); scalar=64'hdead; vl=1; vtype=0;
     certify(64'h300,64'h30f,0);
+    assert(certification_pending) else $fatal(1,"failed precheck released scalar Decode before final authorization");
     drain();
     assert(checks==1 && releases==1 && outcomes==1 && last_outcome==64'h300 && accesses==2 && addresses[0]==64'h300 && addresses[1]==64'h308)
       else $fatal(1,"failed certificate did not preserve ordered elementwise execution");
