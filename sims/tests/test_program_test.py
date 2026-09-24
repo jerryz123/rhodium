@@ -53,6 +53,21 @@ class ProgramTargetTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'invalid program target'):
                 self.target.validate_target(target)
 
+    def test_virtual_memory_capabilities_are_validated_together(self):
+        target = program_target()
+        target.update(mmu_mode='sv39', privilege_modes=['m', 's', 'u'])
+        self.assertEqual(self.target.validate_target(target), target)
+        for changes in ({'privilege_modes': ['m', 's', 's']},
+                        {'privilege_modes': ['s', 'u']},
+                        {'mmu_mode': 'sv48'},
+                        {'mmu_mode': 'sv39', 'xlen': 32}):
+            invalid = target | changes
+            with self.assertRaises(ValueError):
+                self.target.validate_target(invalid)
+        target.pop('privilege_modes')
+        with self.assertRaisesRegex(ValueError, 'declared together'):
+            self.target.validate_target(target)
+
     def test_optional_boot_and_hart_metadata_is_validated(self):
         target = program_target()
         target.update(harts=[0], boot={'payload_address': 0x80000000})
@@ -278,10 +293,12 @@ class ProgramBuildTest(unittest.TestCase):
     def test_smoke_selection_follows_capabilities_not_soc_name(self):
         target = dict(soc='mini-rv5stage-soc', xlen=64, extensions=['i', 'm', 'a', 'zba', 'zbb', 'zbs', 'zicond', 'zicboz'],
                       march='rv64ima_zba_zbb_zbs_zicond_zicboz', mabi='lp64',
+                      mmu_mode='sv39', privilege_modes=['m', 's', 'u'],
                       clock_frequency_hz=100000000, ram=[])
         groups, names = self.builder.smoke_selection(target)
         self.assertEqual(len(names), 23)
         self.assertEqual(len(names), len(set(names)))
+        self.assertTrue(all('-p-' in name for name in names))
         self.assertIn('rv64ua-p-lrsc', names)
         self.assertIn('rv64mzicbo-p-zero', names)
         self.assertNotIn('rv64uc', groups)
@@ -301,6 +318,29 @@ class ProgramBuildTest(unittest.TestCase):
         target['xlen'] = 32
         with self.assertRaisesRegex(ValueError, 'RV64'):
             self.builder.isa_groups(target)
+
+    def test_virtual_environment_requires_sv39_and_supervisor_user_modes(self):
+        target = program_target()
+        target['extensions'].append('v')
+        self.assertFalse(self.builder.virtual_environment_enabled(target))
+        target.update(mmu_mode='bare', privilege_modes=['m', 's', 'u'])
+        self.assertFalse(self.builder.virtual_environment_enabled(target))
+        target['mmu_mode'] = 'sv39'
+        self.assertTrue(self.builder.virtual_environment_enabled(target))
+        target['privilege_modes'] = ['m', 's']
+        self.assertFalse(self.builder.virtual_environment_enabled(target))
+
+    def test_makefrag_inventory_selects_virtual_tests_and_excludes_misalignment(self):
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory)
+            (source / 'Makefile').write_text(
+                'rv64ui_p_tests = rv64ui-p-add rv64ui-p-ma_data\n'
+                'rv64ui_v_tests = rv64ui-v-add rv64ui-v-ma_data\n')
+            command = ['make', '-s', '-f', str(SCRIPTS / 'isa.mk'),
+                       f'src_dir={source}', 'program_groups=rv64ui',
+                       'program_virtual_groups=rv64ui', 'program-manifest']
+            names = subprocess.check_output(command, cwd=source, text=True).splitlines()
+            self.assertEqual(names, ['rv64ui-p-add', 'rv64ui-v-add'])
 
     def test_benchmark_selection_follows_vector_capability_and_mode(self):
         target = program_target()

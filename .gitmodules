@@ -23,3 +23,6 @@
 [submodule "riscv/opensbi"]
 	path = riscv/opensbi
 	url = https://github.com/riscv-software-src/opensbi.git
+[submodule "sims/program-test/bringup-bench"]
+	path = sims/program-test/bringup-bench
+	url = https://github.com/toddmaustin/bringup-bench.git

@@ -48,7 +48,8 @@ target identities so switching either axis cannot reuse another simulator.
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
 | ACT4 configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
-| Upstream ISA/benchmark/CoreMark/Embench-IoT builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
+| Upstream ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench builds, manifests, execution, and simulator artifacts | [`program-test/`](program-test/) |
+| Ordered Bringup-Bench source fixes applied only in build-local copies | [`program-test/bringup-bench-patches/`](program-test/bringup-bench-patches/) |
 | OpenSBI target-derived firmware layout, build adapter, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
@@ -346,7 +347,7 @@ arbitrary external fabric fairness.
 ### Software suite and artifact maintenance
 
 `program-test/isa.mk` includes upstream build rules and selects their physical
-test inventories. `program-test/write-target.rhm` projects the concrete SoC
+and virtual-environment test inventories. `program-test/write-target.rhm` projects the concrete SoC
 profile through the pure RISC-V GNU adapter, while `build.py` owns benchmark
 selection, mode choice, compiler probing, ELF-attribute checks, and
 content-addressed ELF directories. `build-coremark.py` separately compiles the
@@ -363,9 +364,23 @@ and publishes one target-bound ELF per workload. Its xgboost functional profile
 must retain a bounded selection covering every class, a pinned exact-correct count,
 and strict source markers so an upstream source change fails generation instead
 of silently weakening the oracle. Record functional profiles in the manifest
-and keep full upstream datasets in performance-oriented flows. Neither
-architecture-neutral benchmark is a RISC-V package dependency. Update selections for architecture or
-execution-environment compatibility, never to hide failures. Keep sources in
+and keep full upstream datasets in performance-oriented flows.
+`build-bringup-bench.py` compiles all names from the pinned upstream `BMARKS`
+inventory by default. Its RV64 port is under
+`program-test/bringup-bench-riscv-baremetal/`; the adapter builds a copy of
+upstream's `libtarg.h` with a Rhodium target condition, leaving the submodule
+pristine. It requires a checked-in upstream hash for each workload and embeds
+that reference in the target-side output check unless a bounded source patch
+requires a pinned replacement hash. The full inventory, selected names,
+compiler/target identity, patch series, and port sources participate in the
+cache key. There is one bounded functional suite for all upstream names; no
+full-versus-smoke profile switch. Validate replacement hashes with an
+independent host run and standalone Spike when changing a patch. A focused
+`BRINGUP_BENCHMARKS` selection is for local diagnosis, never a failure-based exclusion. These
+architecture-neutral benchmarks are not RISC-V package dependencies. Update
+selections for architecture or
+execution-environment compatibility or the routine CI time budget, never to hide
+functional failures. Keep sources in
 each pinned submodule untouched. Compiler/source/adapter changes must invalidate
 binary reuse; regenerate the manifest on every build invocation.
 
@@ -380,7 +395,7 @@ coverage.
 `program-test/write-target.rhm` projects the existing concrete SoC description
 to the workload adapters; do not duplicate ISA or RAM constants in Python.
 SingleCoreSpikeSoC owns the complete profile-selected ISA inventory,
-benchmarks, CoreMark, and Embench-IoT so broad software coverage uses the fast
+benchmarks, CoreMark, Embench-IoT, and Bringup-Bench so broad software coverage uses the fast
 reference hart. Both single-core SoCs own independent ACT configurations:
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
@@ -388,15 +403,18 @@ match the implementation under test.
 MiniRV5StageSoC and TiledSoC use capability-filtered ISA smoke. This
 coverage assignment is test policy, not hardware metadata; do not add a suite
 category to an SoC or core configuration.
-`ISA_GROUPS` maps target capabilities to upstream physical-environment
-inventories, and `SMOKE_TESTS`
-selects fixed representative tests from those applicable groups. Both modes
+`ISA_GROUPS` maps target ISA extensions to upstream groups; full selection also
+uses the projected MMU and privilege modes to include their virtual-environment
+inventories when Sv39 and M/S/U are available. `SMOKE_TESTS` selects fixed
+physical-environment representatives. Both modes
 bind their manifests and simulator attestations to the generated target
 description. The target description and selection mode are part of the build
 cache key. Validate every selected ELF's physical PT_LOAD ranges (using
 `p_memsz`, not file size) and executable entry before publishing a manifest,
-including on cache reuse. Physical ISA tests have no dynamic stack; adding C
-workloads requires an explicit stack/linker contract.
+including on cache reuse. Physical ISA tests have no dynamic stack; the
+upstream virtual environment owns its own stack and page tables. Keep its
+fixed `0x80000000` linker and DRAM assumptions compatible with each selected
+SoC, or adapt those assumptions before adding another RAM layout.
 
 The simulation CI job reuses its downloaded SingleCoreRV5StageSoC and
 SingleCoreSpikeSoC executables for generic platform checks, and its
@@ -404,7 +422,7 @@ MiniRV5StageSoC and TiledSoC executables for `isa-smoke`. It attempts
 both smoke targets even if one fails and uploads independent results. Changes
 to the adapter or upstream ISA sources must select that job.
 
-`program-test/run.py` owns ISA, benchmark, CoreMark, and Embench-IoT process-group deadlines,
+`program-test/run.py` owns ISA, benchmark, CoreMark, Embench-IoT, and Bringup-Bench process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
 output contracts because its upstream `main` returns zero after reporting
 validation errors. The short CoreMark workload uses the standard performance

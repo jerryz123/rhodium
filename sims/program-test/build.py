@@ -25,8 +25,8 @@ BASELINE_MARCH = 'rv64imafdc_zicsr_zifencei'
 BASELINE_MABI = 'lp64d'
 HERE = Path(__file__).resolve().parent
 
-# Upstream physical-environment groups supported by the adapter, keyed by the
-# architectural extension that makes each group applicable.
+# Upstream ISA groups supported by the adapter, keyed by the extension that
+# makes each group's physical and available virtual tests applicable.
 ISA_GROUPS = {
     'i': 'rv64ui',
     'm': 'rv64um',
@@ -59,6 +59,11 @@ def isa_groups(target):
     if target['xlen'] != 64 or 'i' not in target['extensions']:
         raise ValueError('ISA tests require an RV64 I target')
     return [group for extension, group in ISA_GROUPS.items() if extension in target['extensions']]
+
+
+def virtual_environment_enabled(target):
+    return (target.get('mmu_mode') == 'sv39'
+            and {'m', 's', 'u'} <= set(target.get('privilege_modes', [])))
 
 
 def smoke_selection(target):
@@ -159,6 +164,8 @@ def main():
                    f'RISCV_PREFIX={compiler.removesuffix("gcc")}']
         groups = isa_groups(target)
         command += ['program_groups=' + ' '.join(groups)]
+        virtual = args.isa_selection == 'full' and virtual_environment_enabled(target)
+        command += ['program_virtual_groups=' + ' '.join(groups if virtual else [])]
         names = subprocess.check_output(command + ['program-manifest'], cwd=build, text=True).splitlines()
         if args.isa_selection == 'smoke':
             _, selected = smoke_selection(target)
@@ -167,9 +174,11 @@ def main():
                 raise ValueError(f'upstream smoke tests missing from inventory: {sorted(missing)}')
             names = selected
         exclusions = {'rv64ui-p-ma_data': 'Requires successful misaligned data accesses.',
-                      '*-v-*': 'Virtual execution environment is outside this initial ISA adapter.',
+                      'rv64ui-v-ma_data': 'Requires successful misaligned data accesses.',
                       'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
                       'other instruction groups': 'Require extensions outside the concrete target profile.'}
+        if not virtual:
+            exclusions['*-v-*'] = 'Requires the full ISA selection and an Sv39 M/S/U target.'
         if args.isa_selection == 'smoke':
             exclusions['other instruction groups'] = 'Outside the fixed capability-filtered ISA smoke subset.'
     else:

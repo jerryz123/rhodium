@@ -26,6 +26,16 @@ def validate_target(target):
                    or not isinstance(region['base'], int) or not isinstance(region['size'], int)
                    or region['base'] < 0 or region['size'] <= 0 for region in target['ram'])):
         raise ValueError('invalid program target descriptor')
+    if ('mmu_mode' in target) != ('privilege_modes' in target):
+        raise ValueError('program target MMU mode and privilege modes must be declared together')
+    if 'mmu_mode' in target:
+        modes = target['privilege_modes']
+        if (target['mmu_mode'] not in ('bare', 'sv39')
+                or target['mmu_mode'] == 'sv39' and target['xlen'] != 64
+                or not isinstance(modes, list) or not modes or modes[0] != 'm'
+                or any(mode not in ('m', 's', 'u') for mode in modes)
+                or len(modes) != len(set(modes))):
+            raise ValueError('invalid program target MMU or privilege modes')
     if 'harts' in target:
         harts = target['harts']
         if (not isinstance(harts, list) or not harts

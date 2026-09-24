@@ -1,0 +1,7 @@
+# Applies Rhodium's Bringup-Bench fixes to the pinned submodule in order.
+# SPDX-License-Identifier: Apache-2.0
+0001-serialize-lz77-coding-words-as-bytes.patch
+0002-bound-expensive-workloads.patch
+0003-bound-remaining-long-workloads.patch
+0004-remove-unused-anagram-argv-read.patch
+0005-bound-numeric-workloads.patch

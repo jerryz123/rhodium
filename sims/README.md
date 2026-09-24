@@ -333,7 +333,7 @@ can access platform devices, including the boot-address register and UART.
 ## SoC software suites
 
 Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
-variants, Embench-IoT, configuration-exact ACT, and OpenSBI qualification on
+variants, Embench-IoT, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI qualification on
 both single-core SoCs:
 
 ```sh
@@ -346,19 +346,21 @@ make -C sims single-core-software-test
 `rv5stage spike`; set `SOFTWARE_CORE=rv5stage` or `SOFTWARE_CORE=spike` to
 select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
-`isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`, and
-`embench-test` targets accept either single-core SoC and remain available for
-focused execution. CI schedules
-the five native suites and ACT independently for Spike and RV5Stage, and
+`isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
+`embench-test`, and `bringup-test` targets accept either single-core SoC and
+remain available for focused execution. CI schedules five complete native
+suites, a bounded Bringup-Bench smoke, and ACT independently for Spike and RV5Stage; it also
 qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
-The ISA adapter selects upstream physical-environment tests from the concrete
-target profile. SingleCoreSpikeSoC currently selects RV64 I/M/A/F/D/C, while
-SingleCoreRV5StageSoC additionally selects Zba/Zbb/Zbs/Zicond and Zicboz. It
-omits `rv64ui-p-ma_data`, which requires successful misaligned accesses rather
-than SingleCoreRV5StageSoC's traps. Virtual-environment
-and privileged-platform groups are outside this initial ISA adapter; ACT keeps
+The full ISA adapter selects upstream physical-environment tests from the
+concrete target profile. SingleCoreSpikeSoC currently selects RV64 I/M/A/F/D/C,
+while SingleCoreRV5StageSoC additionally selects Zba/Zbb/Zbs/Zicond and Zicboz.
+For a target advertising Sv39 and M/S/U modes, it also selects each applicable
+group's upstream `-v-` virtual-environment tests. Here `-v-` means virtual
+memory, not the RISC-V vector extension. Both environments omit `ma_data`,
+which requires successful misaligned data accesses rather than these cores'
+traps. Privileged-platform groups remain outside this ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
@@ -379,8 +381,9 @@ integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
 operations, conditional zeroing, and cache zeroing where supported. TiledSoC
 also runs the compressed-instruction test. Every selected ELF must fit the
 actual RAM window, including zero-filled BSS; oversized tests fail preparation
-rather than being silently skipped. These physical assembly tests use no
-runtime-allocated stack. The complete and smoke ISA selections both bind their
+rather than being silently skipped. Physical assembly tests use no
+runtime-allocated stack; virtual-environment tests bring their own upstream
+page-table, stack, and trap runtime. The complete and smoke ISA selections both bind their
 manifests to the generated target description and require a matching simulator
 attestation. Smoke results and target descriptions live under
 `$PROGRAM_BUILD_ROOT/<soc>-<core>/isa-smoke/`, independently of the full single-core
@@ -437,6 +440,28 @@ sample indices and expected count. This is a functional simulation suite, not
 a standards-conforming Embench performance score. Score publication
 additionally requires the unmodified upstream sample set, scale, warmup,
 timing, normalization, and reporting methodology.
+
+`bringup-test` builds the pinned Bringup-Bench inventory for the concrete RV64
+target, one bounded ELF per workload. The pinned submodule remains pristine; the
+ordered [Bringup-Bench patch series](program-test/bringup-bench-patches/) is
+applied to a build-local copy and participates in the ELF cache key. Its
+bare-metal port hashes all `libtarg_putc`
+output and checks its expected hash before writing the ordinary
+HTIF completion word; a normal return from `main` without `libmin_success`
+fails. The default includes every benchmark in upstream `BMARKS`; a build or
+runtime failure is not an exclusion. For a short local port check, set
+`BRINGUP_BENCHMARKS=bubble-sort,blake2b,fft-int` with `bringup-test`, or use
+`bringup-elfs` to build without execution. The manifest records the full
+upstream count, exact selection, expected hashes, target fingerprint, and ELF
+metadata. CI and `single-core-software-test` select eight names from this same
+suite for routine SoC execution; an explicit unselected `bringup-test` attempts
+all 108 and reports any failures or timeouts.
+The expensive workloads use patched, bounded input sizes and their own pinned
+output hashes; unchanged workloads retain upstream references. For example,
+checkers performs one depth-two search, LZ77 compresses and decompresses 256
+bytes once, pi-calc generates 100 digits, and rho-factor samples 4- through
+8-bit inputs. These are functional integration tests, not equivalent benchmark
+scores or substitutes for running the original upstream workloads.
 
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
 CI installs a checksum-pinned GCC/Newlib release via

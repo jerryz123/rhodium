@@ -1,0 +1,41 @@
+/* Places Bringup-Bench code, mailbox, heap, and stack in the selected SoC RAM. */
+/* SPDX-License-Identifier: Apache-2.0 */
+OUTPUT_ARCH(riscv)
+ENTRY(_start)
+
+MEMORY
+{
+  ram (rwx) : ORIGIN = @RAM_ORIGIN@, LENGTH = @RAM_LENGTH@
+}
+
+PHDRS
+{
+  text PT_LOAD FLAGS(5);
+  data PT_LOAD FLAGS(6);
+}
+
+SECTIONS
+{
+  . = ORIGIN(ram);
+  .text.init : { KEEP(*(.text.init)) } > ram :text
+  .text : { *(.text .text.*) } > ram :text
+  .rodata : { *(.rodata .rodata.*) } > ram :text
+  . = ALIGN(0x1000);
+  .tohost : { KEEP(*(.tohost)) } > ram :data
+  .data : { *(.data .data.*) } > ram :data
+  .sdata :
+  {
+    __global_pointer$ = . + 0x800;
+    *(.srodata .srodata.*)
+    *(.sdata .sdata.*)
+  } > ram :data
+  . = ALIGN(8);
+  __bss_start = .;
+  .bss : { *(.sbss .sbss.*) *(.bss .bss.*) *(COMMON) } > ram :data
+  . = ALIGN(16);
+  __bss_end = .;
+  __heap_start = .;
+  __heap_end = __heap_start + 0x800000;
+  __stack_top = ORIGIN(ram) + LENGTH(ram);
+  ASSERT(__heap_end + 0x100000 <= __stack_top, "Bringup-Bench image leaves no heap and stack")
+}

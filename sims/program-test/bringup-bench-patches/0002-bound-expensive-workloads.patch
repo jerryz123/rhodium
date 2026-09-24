@@ -1,0 +1,134 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Bound expensive Bringup-Bench workloads for RTL execution
+Purpose: Bounds four workloads in the single functional suite.
+SPDX-License-Identifier: Apache-2.0
+
+The BRINGUP_BOUNDED macro affects four long-running programs. The upstream
+submodule and its reference hashes remain unchanged.
+
+diff --git a/checkers/checkers.c b/checkers/checkers.c
+--- a/checkers/checkers.c
++++ b/checkers/checkers.c
+@@ -1,3 +1,5 @@
++/* Runs the checkers move search with a bounded evaluation. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ #include "consttypes.h"
+@@ -82,7 +84,11 @@ main(int argc, char *argv[])
+ 		repititions = 1;
+ 	}
+ 	if (next_action == 'P') { // stage 2
++#ifdef BRINGUP_BOUNDED
++		repititions = 1;
++#else
+ 		repititions = 100;
++#endif
+ 	}
+ 			
+ 	for (int i=0; i<repititions; i++) {
+diff --git a/checkers/functions.c b/checkers/functions.c
+--- a/checkers/functions.c
++++ b/checkers/functions.c
+@@ -1,3 +1,5 @@
++/* Generates and scores checkers moves with a bounded depth-two search. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ #include "consttypes.h"
+@@ -541,6 +543,7 @@
+ 		level_1_node = (tree_node_t*)(list_member_1->child_node);
+ 		generate_node_children(level_1_node, 2);
+ 		
++#ifndef BRINGUP_BOUNDED
+ 		// generate third generation children for each second generation child
+ 		linked_list_member_t* list_member_2 
+ 			= (level_1_node->children_list).first;
+@@ -551,6 +554,7 @@
+ 			list_member_2 = list_member_2->next;
+ 		}
+ 		
++#endif
+ 		list_member_1 = list_member_1->next;
+ 	}
+ }
+@@ -563,6 +567,10 @@
+ 	if (node->children_count == 0) {
+ 		// note: if the leaf is less than depth 3, we return int_min/max
+ 			// as specified in the assignment
++#ifdef BRINGUP_BOUNDED
++		if (node->depth != 2) {
++#else
+ 		if (node->depth != 3) {
++#endif
+ 			if (node->black_action) {
+ 				return INT_MIN;
+diff --git a/lz-compress/lz-compress.c b/lz-compress/lz-compress.c
+--- a/lz-compress/lz-compress.c
++++ b/lz-compress/lz-compress.c
+@@ -96,5 +98,9 @@ int main (int argc, char const *argv[])
+ 
+     libmin_mopen(infile, "r");
+     uncompressed_size = libmin_msize(infile);
++#ifdef BRINGUP_BOUNDED
++    if (uncompressed_size > 256)
++        uncompressed_size = 256;
++#endif
+     libmin_printf("Original size: %ld\n", uncompressed_size);
+     uncompressed_text = libmin_malloc(uncompressed_size);
+@@ -108,6 +114,10 @@ int main (int argc, char const *argv[])
+ 
+     compressed_text = libmin_malloc(MALLOC_SIZE);
+ 
++#ifdef BRINGUP_BOUNDED
++    for (unsigned i = 4; i < 5; ++i)
++#else
+     for (unsigned i = 1; i < 16; ++i)
++#endif
+     {
+       compressed_size = lz77_compress(uncompressed_text, uncompressed_size, compressed_text, i);
+diff --git a/pi-calc/pi-calc.c b/pi-calc/pi-calc.c
+--- a/pi-calc/pi-calc.c
++++ b/pi-calc/pi-calc.c
+@@ -1,3 +1,5 @@
++/* Computes pi digits for a bounded RTL evaluation. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ // Developer- Dik T. Winter
+@@ -5,5 +7,10 @@
+ // Details- http://stackoverflow.com/questions/20287513/can-anyone-make-heads-or-tales-of-this-spigot-algorithm-code-pitiny-c
+ // Source- http://www.iwriteiam.nl/SigProgC.html#pi
+  
+-int a[52514],b,c=52514,d,e,f=1e4,g,h;int main(void){for(;(b=c-=14);h=libmin_printf("%04d",e+d/f))for(e=d%=f;(g=--b*2);d/=g)d=d*b+f*(h?a[b]:f/5),a[b]=d%--g;libmin_success(); return 0;}
++#ifdef BRINGUP_BOUNDED
++#define PI_WORK_SIZE 350
++#else
++#define PI_WORK_SIZE 52514
++#endif
+ 
++int a[PI_WORK_SIZE],b,c=PI_WORK_SIZE,d,e,f=1e4,g,h;int main(void){for(;(b=c-=14);h=libmin_printf("%04d",e+d/f))for(e=d%=f;(g=--b*2);d/=g)d=d*b+f*(h?a[b]:f/5),a[b]=d%--g;libmin_success(); return 0;}
+diff --git a/rho-factor/rho-factor.c b/rho-factor/rho-factor.c
+--- a/rho-factor/rho-factor.c
++++ b/rho-factor/rho-factor.c
+@@ -1,3 +1,5 @@
++/* Factors sampled integers in a bounded RTL evaluation. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ // typedef unsigned long int positive_number;
+@@ -77,7 +79,12 @@ int main(void)
+     positive_number *factors = libmin_calloc(64, sizeof(positive_number));
+     positive_number n = 0, mask = -1;
+     /* TMA: unsigned sr = (size_t)factors; sr = -sr / 561; libmin_printf("srand at %u :\n\n", sr); */ libmin_srand(/* TMA: sr */42);
+-    for (int wrapper = 4, count = 0, j; wrapper < 64; ++wrapper)
++#ifdef BRINGUP_BOUNDED
++#define RHO_MAX_BITS 8
++#else
++#define RHO_MAX_BITS 64
++#endif
++    for (int wrapper = 4, count = 0, j; wrapper < RHO_MAX_BITS; ++wrapper)
+     {
+-        for (int64_t n_bits = wrapper; n_bits <= 64; ++n_bits)
++        for (int64_t n_bits = wrapper; n_bits <= RHO_MAX_BITS; ++n_bits)
+         {

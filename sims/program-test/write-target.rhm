@@ -5,6 +5,8 @@
 import:
   rhombus/cmdline open
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
+  "../../riscv/isa/hart.rhm".RiscvMmuType
+  "../../riscv/isa/profile.rhm".MisaExtension
   "../../socs/platform/description.rhm".RiscvSoCDescription
   "targets.rhm" open
 
@@ -26,6 +28,13 @@ def region_strings = for List (region in description.memory_regions):
   "{\"base\":" ++ to_string(region.base) ++ ",\"size\":" ++ to_string(region.size_bytes) ++ "}"
 def regions = String.join(region_strings, ",")
 def harts = String.join(description.harts.map(fun (hart :: Nat): to_string(hart)), ",")
+def mmu_mode = if description.hart.mmu_type == RiscvMmuType.Sv39 | "sv39" | "bare"
+def misa_extensions = description.hart.isa_profile.misa_extensions
+def privilege_modes = "\"m\"" ++ (
+  if misa_extensions.contains(MisaExtension.S) | ",\"s\"" | ""
+) ++ (
+  if misa_extensions.contains(MisaExtension.U) | ",\"u\"" | ""
+)
 filesystem.write_string(arguments[arguments.length() - 1],
-                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "]}\n",
+                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"mmu_mode\":\"" ++ mmu_mode ++ "\",\"privilege_modes\":[" ++ privilege_modes ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "]}\n",
                         ~exists: #'truncate)

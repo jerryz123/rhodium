@@ -20,6 +20,7 @@ program_isa=false
 program_benchmark=false
 program_coremark=false
 program_embench=false
+program_bringup=false
 program_arch=false
 examples=false
 example_rtl=false
@@ -88,6 +89,7 @@ mark_all_programs() {
   program_benchmark=true
   program_coremark=true
   program_embench=true
+  program_bringup=true
   program_arch=true
 }
 
@@ -177,7 +179,7 @@ emit_jobs() {
   [[ "$example_rv5stage" == true ]] && append_matrix_entry example_matrix '{"name":"RV5Stage","target":"examples-rv5stage"}'
 
   [[ "$program_arch" == true ]] && programs=true
-  for suite in isa benchmark coremark embench; do
+  for suite in isa benchmark coremark embench bringup; do
     local variable="program_$suite"
     if [[ "${!variable}" == true ]]; then
       programs=true
@@ -193,7 +195,7 @@ emit_jobs() {
   done
   echo "programs=$programs"
   echo "program_arch=$program_arch"
-  echo "program_native=$([[ "$program_isa" == true || "$program_benchmark" == true || "$program_coremark" == true || "$program_embench" == true ]] && echo true || echo false)"
+  echo "program_native=$([[ "$program_isa" == true || "$program_benchmark" == true || "$program_coremark" == true || "$program_embench" == true || "$program_bringup" == true ]] && echo true || echo false)"
   echo "program_matrix={\"include\":[$program_matrix]}"
   echo "host=$host"
   echo "host_matrix={\"include\":[$host_matrix]}"
@@ -216,6 +218,8 @@ classify_path() {
       program_coremark=true ;;
     sims/program-test/build-embench.py|sims/program-test/embench-iot-riscv-baremetal/*|sims/program-test/embench-iot|sims/program-test/embench-iot/*)
       program_embench=true ;;
+    sims/program-test/build-bringup-bench.py|sims/program-test/bringup-bench-riscv-baremetal/*|sims/program-test/bringup-bench-patches/*|sims/program-test/bringup-bench|sims/program-test/bringup-bench/*|sims/tests/test_bringup_bench.py)
+      program_bringup=true ;;
     sims/arch-test/*|sims/tests/test_arch_test.py|riscv/riscv-arch-test|riscv/riscv-arch-test/*|riscv/riscv-arch-test-patches/*|tools/write-riscv-udb-config.rhm)
       program_arch=true ;;
     riscv/patched_submodule.py|riscv/tests/test_patched_submodule.py|riscv/riscv-isa-sim|riscv/riscv-isa-sim/*|riscv/riscv-isa-sim-patches/*)

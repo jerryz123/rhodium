@@ -1,10 +1,13 @@
-# Runs full single-core workload suites and capability-filtered ISA smoke on concrete SoCs.
+# Runs single-core workload suites and capability-filtered ISA smoke on concrete SoCs.
 # SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/riscv/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sims/program-test/coremark
 COREMARK_PORT_DIR ?= $(REPO_DIR)/sims/program-test/coremark-riscv-baremetal
 EMBENCH_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot
 EMBENCH_PORT_DIR ?= $(REPO_DIR)/sims/program-test/embench-iot-riscv-baremetal
+BRINGUP_DIR ?= $(REPO_DIR)/sims/program-test/bringup-bench
+BRINGUP_PATCH_SERIES ?= $(REPO_DIR)/sims/program-test/bringup-bench-patches/series
+BRINGUP_PORT_DIR ?= $(REPO_DIR)/sims/program-test/bringup-bench-riscv-baremetal
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
@@ -21,13 +24,15 @@ EMBENCH_SCALE ?= 1
 EMBENCH_LOCAL_SCALE ?= 1
 EMBENCH_WARMUP_HEAT ?= 0
 EMBENCH_MAX_CYCLES ?= 100000000
+BRINGUP_MAX_CYCLES ?= 100000000
+BRINGUP_BENCHMARKS ?=
 PROGRAM_PRODUCT_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
 ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
 PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
-.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup program-test-adapter-test program-target simulator-attestation
-.PHONY: isa-elfs benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs isa-test benchmark-test coremark-test coremark_scalar-test embench-test
+.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test program-target simulator-attestation
+.PHONY: isa-elfs benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
@@ -68,10 +73,14 @@ coremark_scalar-setup: coremark-setup
 embench-setup:
 	git -C $(REPO_DIR) submodule update --init sims/program-test/embench-iot
 
-program-test-setup: isa-setup coremark-setup embench-setup
+bringup-setup:
+	git -C $(REPO_DIR) submodule update --init sims/program-test/bringup-bench
+
+program-test-setup: isa-setup coremark-setup embench-setup bringup-setup
 
 program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
+	$(PYTHON) -m unittest discover -s tests -p 'test_bringup_bench.py'
 
 isa-elfs: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
@@ -103,6 +112,13 @@ embench-elfs: program-target
 	  --output "$(PROGRAM_PRODUCT_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
+
+bringup-elfs: program-target
+	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Bringup-Bench supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	$(PYTHON) program-test/build-bringup-bench.py --source "$(BRINGUP_DIR)" \
+	  --patch-series "$(BRINGUP_PATCH_SERIES)" --port "$(BRINGUP_PORT_DIR)" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup" --compiler "$(RISCV_CC)" \
+	  --target "$(PROGRAM_TARGET)" $(if $(BRINGUP_BENCHMARKS),--benchmarks "$(BRINGUP_BENCHMARKS)",)
 
 isa-test: isa-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/isa/manifest.json" \
@@ -138,11 +154,19 @@ embench-test: embench-elfs simulator-attestation
 	  --output "$(PROGRAM_PRODUCT_ROOT)/embench/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(EMBENCH_MAX_CYCLES)
 
+bringup-test: bringup-elfs simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/bringup/manifest.json" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup/results" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BRINGUP_MAX_CYCLES)
+
 single-core-software-test:
 	@status=0; for core in $(SOFTWARE_CORE); do \
 	  for suite in isa benchmark coremark coremark_scalar embench; do \
 	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
 	  done; \
+	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" \
+	    BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor || status=1; \
 	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ACT_CONFIGURATION="single-core-$$core-soc" || status=1; \
 	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
 	done; exit "$$status"

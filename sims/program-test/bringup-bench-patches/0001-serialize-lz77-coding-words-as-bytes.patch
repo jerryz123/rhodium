@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Serialize LZ77 coding words without misaligned halfword accesses
+Purpose: Keeps the compressed format while allowing RISC-V systems to trap misaligned data accesses.
+SPDX-License-Identifier: Apache-2.0
+
+Bringup-Bench starts its coding-word stream at byte offset five, so casting
+that address to uint16_t invokes undefined behavior and emits misaligned
+halfword loads and stores on RISC-V. Encode the two bytes explicitly. The
+compressor and decompressor consume the same internal little-endian format.
+
+diff --git a/lz-compress/lz-compress.c b/lz-compress/lz-compress.c
+--- a/lz-compress/lz-compress.c
++++ b/lz-compress/lz-compress.c
+@@ -1,3 +1,5 @@
++/* Exercises LZ77 compression and decompression with byte-addressed coding words. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ #include "lamia-txt.h"
+@@ -53,7 +55,8 @@ uint32_t lz77_compress (uint8_t *uncompressed_text, uint32_t uncompressed_size,
+             output_pointer = (pointer_pos << pointer_length_width) | (pointer_length ? (pointer_length - 1) : 0);
+             output_lookahead_ref = coding_pos;
+         }
+-        *((uint16_t *) (compressed_text + compressed_pointer)) = output_pointer;
++        compressed_text[compressed_pointer] = (uint8_t)output_pointer;
++        compressed_text[compressed_pointer + 1] = (uint8_t)(output_pointer >> 8);
+         compressed_pointer += 2;
+         *(compressed_text + compressed_pointer++) = *(uncompressed_text + output_lookahead_ref);
+         output_size += 3;
+@@ -77,6 +80,7 @@ uint32_t lz77_decompress (uint8_t *compressed_text, uint8_t *uncompressed_text)
+ 
+     for(coding_pos = 0; coding_pos < uncompressed_size; ++coding_pos)
+     {
+-        input_pointer = *((uint16_t *) (compressed_text + compressed_pointer));
++        input_pointer = (uint16_t)compressed_text[compressed_pointer] |
++                        ((uint16_t)compressed_text[compressed_pointer + 1] << 8);
+         compressed_pointer += 2;
+         pointer_pos = input_pointer >> pointer_length_width;

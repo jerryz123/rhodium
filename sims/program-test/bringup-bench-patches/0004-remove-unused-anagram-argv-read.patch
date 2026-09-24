@@ -1,0 +1,39 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Bound embedded anagram dictionary and avoid unused argv
+Purpose: Lets a bounded anagram search run without process arguments.
+SPDX-License-Identifier: Apache-2.0
+
+ReadDict ignores its filename parameter and uses the embedded mwords file.
+The initial argv read therefore only faults in argument-free bare-metal starts.
+Limit dictionary preprocessing and searches to its first 512 entries.
+
+diff --git a/anagram/anagram.c b/anagram/anagram.c
+--- a/anagram/anagram.c
++++ b/anagram/anagram.c
+@@ -1,3 +1,5 @@
++/* Finds anagrams from a bounded embedded dictionary without process arguments. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ /*
+  *  Anagram program by Raymond Chen,
+  *  inspired by a similar program by Brian Scearce
+@@ -288,7 +290,7 @@
+ 
+     libmin_mopen(mwords, "r");
+ 
+-    while (!libmin_meof(mwords)) {
++    while (!libmin_meof(mwords) && cWords < 512) {
+         pch = pchBase+2;                /* reserve for length */
+         cLetters = 0;
+         while ((ch = libmin_mgetc(mwords)) != '\n' && ch != EOF) {
+@@ -610,10 +612,10 @@
+ 
+ char achPhrase[255];
+ 
+ int 
+ main(int cpchArgc, char **ppchArgv)
+ {
+-    ReadDict(ppchArgv[1]);
++    ReadDict(NULL);
+ 
+     while (GetPhrase(&achPhrase[0]) != NULL) {
+         if (isdigit(achPhrase[0])) {

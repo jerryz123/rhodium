@@ -605,6 +605,7 @@ jobs:
           case "$SUITE" in
             coremark|coremark_scalar) source=sims/program-test/coremark ;;
             embench) source=sims/program-test/embench-iot ;;
+            bringup) source=sims/program-test/bringup-bench ;;
             *) source=riscv/riscv-isa-tests ;;
           esac
           echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
@@ -640,23 +641,31 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: /tmp/rhodium-program-tests/${{ matrix.soc }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sims/program-test/build.py', 'sims/program-test/build-coremark.py', 'sims/program-test/build-embench.py', 'sims/program-test/coremark-riscv-baremetal/**', 'sims/program-test/embench-iot-riscv-baremetal/**', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sims/program-test/build.py', 'sims/program-test/build-coremark.py', 'sims/program-test/build-embench.py', 'sims/program-test/build-bringup-bench.py', 'sims/program-test/coremark-riscv-baremetal/**', 'sims/program-test/embench-iot-riscv-baremetal/**', 'sims/program-test/bringup-bench-riscv-baremetal/**', 'sims/program-test/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sims/program-test/program_target.py', 'sims/program-test/write-target.rhm', 'sims/program-test/isa.mk') }}"
       - name: Build and run every selected workload
         env:
           SUITE: ${{ matrix.suite }}
           SOC: ${{ matrix.soc }}
         run: |
           set -o pipefail
+          status=0
           mkdir -p "$RUNNER_TEMP/program-logs"
+          # One bounded Bringup-Bench suite; select a routine CI subset until
+          # the remaining workloads meet the SoC simulator's wall-time budget.
+          if [[ "$SUITE" == bringup ]]; then
+            export BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor
+          fi
           make -C sims "$SUITE-test" SOC="$SOC" \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
-            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log" || status=1
+          exit "$status"
       - name: Package completed workload ELFs
         if: always()
         env:
           SUITE: ${{ matrix.suite }}
+          SOC: ${{ matrix.soc }}
         run: |
-          manifest="/tmp/rhodium-program-tests/$SUITE/manifest.json"
+          manifest="/tmp/rhodium-program-tests/$SOC/$SUITE/manifest.json"
           if [[ -f "$manifest" ]]; then
             python3 sims/program-test/archive.py --manifest "$manifest" \
               --archive "$RUNNER_TEMP/program-elfs/$SUITE.tar.gz"
@@ -668,10 +677,10 @@ jobs:
           name: ${{ matrix.soc }}-${{ matrix.suite }}-results-${{ github.sha }}
           path: |
             ${{ runner.temp }}/program-logs
-            /tmp/rhodium-program-tests/*/manifest.json
-            /tmp/rhodium-program-tests/*/instruction-report.json
-            /tmp/rhodium-program-tests/*/build.log
-            /tmp/rhodium-program-tests/*/results
+            /tmp/rhodium-program-tests/*/*/manifest.json
+            /tmp/rhodium-program-tests/*/*/instruction-report.json
+            /tmp/rhodium-program-tests/*/*/build.log
+            /tmp/rhodium-program-tests/*/*/results
             ${{ runner.temp }}/program-elfs
           if-no-files-found: warn
           retention-days: 7

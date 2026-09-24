@@ -106,7 +106,7 @@ flowchart TD
     SpikeBuild --> Simulation
     SimpleBuild --> OpenSBI
     SpikeBuild --> OpenSBI
-    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants, and Embench-IoT"]
+    SimpleBuild --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection"]
     SpikeBuild --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     SimpleBuild --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
@@ -137,7 +137,8 @@ consume the ordinary harness job's budget or skip downstream smoke coverage.
 Always retain its build/execution log, including on failure or cancellation.
 
 Both single-core software matrices independently select ISA tests, benchmarks,
-both CoreMark variants, and Embench-IoT. The OpenSBI job tests its target adapter,
+both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
+The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
 publishes its diagnostics. Both profiles select their own ACT generation and
 four-shard execution. Shared SoC dependencies
@@ -145,7 +146,7 @@ four-shard execution. Shared SoC dependencies
 adapter/source changes select the owning lane. MiniRV5StageSoC and
 TiledSoC remain capability-filtered smoke targets in the simulation job
 and do not receive additional full-suite matrices. ACT configuration
-generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT execution needs only the
+generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
 the compiler or reference-model toolchain again. Four deterministic shards cover

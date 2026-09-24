@@ -26,6 +26,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `riscv/riscv-isa-tests`
 - `sims/program-test/coremark`
 - `sims/program-test/embench-iot`
+- `sims/program-test/bringup-bench`
 - `vlsi/double_wide_openframe`
 
 CoreMark is used only from its pinned upstream checkout. Its license, result
@@ -40,6 +41,15 @@ headers; its license text remains in
 [`sims/program-test/embench-iot/COPYING`](sims/program-test/embench-iot/COPYING).
 Rhodium runs it as a bounded functional suite and does not report an Embench
 performance score.
+
+Bringup-Bench is used from its pinned upstream checkout. The suite's own code
+is Apache-2.0; adapted benchmark components retain their individual upstream
+notices. The upstream license remains in
+[`sims/program-test/bringup-bench/LICENSE`](sims/program-test/bringup-bench/LICENSE).
+Rhodium checks output hashes as a functional workload suite, not a benchmark
+score. The ordered downstream patch series in
+[`sims/program-test/bringup-bench-patches/`](sims/program-test/bringup-bench-patches/)
+is applied only to build-local copies; the pinned submodule remains pristine.
 
 ## Spike disassembler
 

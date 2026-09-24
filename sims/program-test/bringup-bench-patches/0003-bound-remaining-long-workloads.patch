@@ -1,0 +1,171 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+Subject: [PATCH] Bound the remaining long Bringup-Bench workloads
+Purpose: Keeps expensive searches and simulations useful within RTL evaluation budgets.
+SPDX-License-Identifier: Apache-2.0
+
+The bounded inputs still exercise each workload's core algorithm. The
+upstream submodule and reference hashes remain unchanged.
+
+diff --git a/ackermann/ackermann.c b/ackermann/ackermann.c
+--- a/ackermann/ackermann.c
++++ b/ackermann/ackermann.c
+@@ -1,1 +1,3 @@
++/* Evaluates a bounded grid of memoized Ackermann calls. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ /* Ackermann.c: calculate the Ackermann function (as far as that is possible),
+@@ -108,7 +110,7 @@
+ #include "libmin.h"
+ 
+-#define AMAX 5  /* largest arguments to contemplate. This is waaaaaaaaaay more than sufficient! */
++#define AMAX 4  /* Keep the recursive evaluation bounded for RTL simulation. */
+ 
+ /* Play around with these definitions. Can you get a(1,4)? */
+-#define MAX_X 0xFFFF  /* rows in storage array */
++#define MAX_X 64  /* AMAX=4 reaches x<=12; leave headroom without a 4 MiB BSS. */
+ #define MAX_Y 0x10    /* columns in storage array */
+diff --git a/connect4-minimax/connect4-minimax.c b/connect4-minimax/connect4-minimax.c
+--- a/connect4-minimax/connect4-minimax.c
++++ b/connect4-minimax/connect4-minimax.c
+@@ -1,8 +1,10 @@
++/* Runs Connect Four self-play with a bounded minimax search. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ #define ROWS 6
+ #define COLS 7
+-#define MAX_DEPTH 4
++#define MAX_DEPTH 2
+ 
+ // Players: 1 and 2. Board cells: 0 = empty.
+ #define EMPTY 0
+diff --git a/donut/donut.c b/donut/donut.c
+--- a/donut/donut.c
++++ b/donut/donut.c
+@@ -1,1 +1,3 @@
++/* Renders one coarsely sampled ASCII torus frame. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+@@ -9,7 +11,7 @@
+ #define putchar libmin_putc
+ #undef printf
+ #define printf libmin_printf
+-#define xx unsigned x=0; x < 2; x++
++#define xx unsigned x=0; x < 1; x++
+ #define K int k
+ #define niam int main
+ #define tixe libmin_success()
+@@ -22,6 +24,6 @@
+      1760];printf("\x1b[2J");for(xx
+   ){memset(b,32,1760);memset(z,0,7040)
+-  ;for(j=0;6.28>j;j+=0.07)for(i=0;6.28
+- >i;i+=0.02){float c=sin(i),d=cos(j),e=
++  ;for(j=0;6.28>j;j+=0.14)for(i=0;6.28
++ >i;i+=0.04){float c=sin(i),d=cos(j),e=
+  sin(A),f=sin(j),g=cos(A),h=d+2,D=1/(c*
+  h*e+f*g+5),l=cos      (i),m=cos(B),n=s\
+diff --git a/highlife/highlife.c b/highlife/highlife.c
+--- a/highlife/highlife.c
++++ b/highlife/highlife.c
+@@ -1,8 +1,10 @@
++/* Evolves a bounded HighLife cellular automaton sample. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+ #define kRows 20
+ #define kCols 20
+-unsigned kIterations = 100 /* 250 */;
++unsigned kIterations = 10;
+ 
+ uint64_t board_a[kRows][kCols];
+ uint64_t board_b[kRows][kCols];
+diff --git a/matmult/matmult.c b/matmult/matmult.c
+--- a/matmult/matmult.c
++++ b/matmult/matmult.c
+@@ -1,6 +1,8 @@
++/* Cross-checks two multiplication orders on bounded square matrices. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+-#define N 64  // Matrix dimension (adjust for more cache stress)
++#define N 32  // Matrix dimension bounded for RTL simulation.
+ 
+ static int A[N][N];
+ static int B[N][N];
+diff --git a/n-queens/n-queens.c b/n-queens/n-queens.c
+--- a/n-queens/n-queens.c
++++ b/n-queens/n-queens.c
+@@ -1,6 +1,8 @@
++/* Enumerates solutions to the bounded eight-queens problem. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+ 
+-#define BOARD_SIZE 10  // You can change this to any board size (e.g., 4, 8, 12)
++#define BOARD_SIZE 8
+ 
+ int solution_count = 0;
+ 
+diff --git a/ransac/ransac.c b/ransac/ransac.c
+--- a/ransac/ransac.c
++++ b/ransac/ransac.c
+@@ -1,1 +1,3 @@
++/* Fits a line with a bounded RANSAC point and iteration count. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ /*
+@@ -15,7 +17,7 @@
+ #include "libmin.h"
+ 
+-#define NUM_POINTS 100         // Total number of points (inliers + outliers)
+-#define NUM_ITERATIONS 500    // Number of RANSAC iterations
++#define NUM_POINTS 32         // Total number of points (inliers + outliers)
++#define NUM_ITERATIONS 24    // Number of RANSAC iterations
+ #define DIST_THRESHOLD 1.0     // Maximum distance (error) for a point to be considered an inlier
+ 
+ typedef struct {
+diff --git a/sudoku-solver/sudoku-solver.c b/sudoku-solver/sudoku-solver.c
+--- a/sudoku-solver/sudoku-solver.c
++++ b/sudoku-solver/sudoku-solver.c
+@@ -1,1 +1,3 @@
++/* Solves a bounded nine-by-nine Sudoku puzzle by backtracking. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+@@ -5,15 +7,15 @@
+-// Hard, but solvable, Sudoku puzzle.
++// Solvable puzzle with bounded backtracking.
+ // Zeros indicate empty cells.
+ static int board[N][N] = {
+-    {8, 0, 0, 0, 0, 0, 0, 0, 0},
+-    {0, 0, 3, 6, 0, 0, 0, 0, 0},
+-    {0, 7, 0, 0, 9, 0, 2, 0, 0},
+-    {0, 5, 0, 0, 0, 7, 0, 0, 0},
+-    {0, 0, 0, 0, 4, 5, 7, 0, 0},
+-    {0, 0, 0, 1, 0, 0, 0, 3, 0},
+-    {0, 0, 1, 0, 0, 0, 0, 6, 8},
+-    {0, 0, 8, 5, 0, 0, 0, 1, 0},
+-    {0, 9, 0, 0, 0, 0, 4, 0, 0}
++    {5, 3, 0, 0, 7, 0, 0, 0, 0},
++    {6, 0, 0, 1, 9, 5, 0, 0, 0},
++    {0, 9, 8, 0, 0, 0, 0, 6, 0},
++    {8, 0, 0, 0, 6, 0, 0, 0, 3},
++    {4, 0, 0, 8, 0, 3, 0, 0, 1},
++    {7, 0, 0, 0, 2, 0, 0, 0, 6},
++    {0, 6, 0, 0, 0, 0, 2, 8, 0},
++    {0, 0, 0, 4, 1, 9, 0, 0, 5},
++    {0, 0, 0, 0, 8, 0, 0, 7, 9}
+ };
+ 
+ // Check if placing num at board[row][col] is valid.
+diff --git a/tetris-sim/tetris-sim.c b/tetris-sim/tetris-sim.c
+--- a/tetris-sim/tetris-sim.c
++++ b/tetris-sim/tetris-sim.c
+@@ -1,1 +1,3 @@
++/* Simulates a bounded sequence of Tetris moves. */
++/* SPDX-License-Identifier: Apache-2.0 */
+ #include "libmin.h"
+@@ -304,6 +306,6 @@
+     int move_count = 0;
+     int total_lines_cleared = 0;
+ 
+-    while (1) {
++    while (move_count < 10) {
+         const Piece *piece = random_piece();
+         const Orientation *best_ori;
