@@ -24,7 +24,7 @@ typedef struct packed {
   typedef struct packed { logic access_fault; logic [W-1:0] data; logic [8:0] writeback; logic origin; } drbits_t;
   typedef struct packed { logic valid; drbits_t bits; } dr_t;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; dr_t response; logic drained; logic reservation_valid; } di_t;
-  typedef struct packed { dq_t request; } do_t;
+  typedef struct packed { dq_t request; ready_t response; } do_t;
   logic clock = 0;
   logic reset = 1;
   logic run_core = 0;
@@ -120,7 +120,8 @@ typedef struct packed {
         assert (io[0].request.bits.address >= 'h10000 && io[0].request.bits.address < 'h20000)
           else $fatal(1, "unexpected trap/fetch address %h, probe=%0d", io[0].request.bits.address, stores);
       end
-      assert (dout[0].request.valid === dout[1].request.valid)
+      assert ({dout[0].request.valid, dout[0].response.ready} ===
+              {dout[1].request.valid, dout[1].response.ready})
         else $fatal(1, "data/completion timing diverged: W=%0d trial=%0d schedule=%0d cycle=%0d probe=%0d", W, trial, schedule, cycle, stores);
       assert ({privilege[0],mstatus[0],satp[0],translation_flush[0]} === {privilege[1],mstatus[1],satp[1],translation_flush[1]})
         else $fatal(1, "architectural control state diverged");

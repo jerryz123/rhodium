@@ -239,6 +239,8 @@ module chi_read_once_home_tb;
         else $fatal(1, "inclusive Home did not accept CompAck");
       tick();
       requester_responses_in = '0;
+      // The input queue accepts CompAck before the Home retires its grant.
+      tick();
       assert(port_out.requester.requests.ready)
         else $fatal(1, "CompAck disturbed the released inclusive Home datapath");
     end
