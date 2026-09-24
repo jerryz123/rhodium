@@ -303,17 +303,29 @@ the entry is published. Fast access closes before publication; runtime HTIF,
 including signatures and mailboxes in dirty cache lines, always uses CHI.
 Warm reloads and concurrent native memory access are not supported by this path.
 
-After ELF loading completes, the C++ transport writes the reported entry point
-to the SoC's configured 64-bit boot-address register through the ordinary memory
-request path. The harness supplies that address through DPI from its SoC
-configuration. Normal HTIF polling starts only after successful final write
-completion; hardware contains no boot-specific sequencer or entry handshake.
-Every hart starts at the ROM reset address as reset deasserts; hart zero polls
-the initially zero register while loading proceeds, then loads the entry from the
-register and jumps to it with `a0 = mhartid` and `a1 = embedded DTB address`.
-Secondary harts park in the ROM. Changing binaries does not require rebuilding
-RTL. Zero entries and ELF loading writes overlapping the boot register are
-rejected, preventing premature publication. Startup errors report a nonzero exit.
+After ELF loading completes, the C++ transport writes `1` to the ACLINT MSIP
+register of each selected hart at the fixed `0x02000000` ACLINT base, waking
+nonzero harts before hart zero while the shared entry remains zero. It then
+writes the reported entry point to the SoC's configured 64-bit boot-address
+register through the ordinary memory request path. The harness supplies that
+address through DPI from its SoC configuration. Normal HTIF polling starts only
+after every blocking write completes; hardware contains no host-only boot
+sequencer or entry handshake. Every hart starts at the ROM reset address and
+waits in `WFI`; a selected hart wakes, polls the shared entry until publication,
+clears its own MSIP, and jumps with `a0 = mhartid` and `a1 = embedded DTB address`. Changing
+binaries or the selected hart set does not require rebuilding RTL. Zero entries
+and ELF loading writes overlapping the boot register are
+rejected. Publishing the entry last provides one release point after all selected
+harts have received their wakeup. Startup errors report a nonzero exit.
+
+The simulator option `+boot-harts=` selects explicit decimal hart IDs. It
+accepts comma-separated IDs and inclusive ascending ranges, for example
+`+boot-harts=0`, `+boot-harts=0-7`, or `+boot-harts=0,2,4-7`. Omission selects
+hart zero. Empty items, descending ranges, duplicates, multiple options, and
+IDs outside the ACLINT MSWI architectural limit are rejected. There is no
+`all` spelling: explicit IDs keep topology out of the DPI ABI. Program-target
+descriptors publish their implemented `harts` list so suite runners can choose
+a valid selection.
 
 Outside registered initial-image ranges, `DirectMemoryHtif` presents FESVR's abstract memory chunks as one-outstanding,
 one-to-eight-byte transactions with 64-bit addresses and data. It never widens
@@ -373,7 +385,14 @@ make -C sims isa-smoke SOC=mini CORE=rv5stage
 make -C sims isa-smoke SOC=tiled CORE=rv5stage
 ```
 
-Each command is independently runnable. CI attempts both commands even if one
+Run the target-capability-filtered upstream multihart benchmarks in two-,
+four-, and eight-hart configurations on TiledRV5StageSoC:
+
+```sh
+make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc
+```
+
+Each command is independently runnable. CI attempts all three commands even if one
 fails, so one SoC cannot suppress the other's result.
 
 Selection follows each concrete SoC's core profile and covers representative
@@ -388,9 +407,13 @@ manifests to the generated target description and require a matching simulator
 attestation. Smoke results and target descriptions live under
 `$PROGRAM_BUILD_ROOT/<soc>-<core>/isa-smoke/`, independently of the full single-core
 suites. The existing runner executes every selected test even after failures.
-TiledSoC boots only hart 0: this is mesh-backed memory coverage, not a
-multihart coherence test. ACT and the complete native suites remain restricted
-to the two single-core SoCs.
+ISA smoke still boots only hart 0. The separate tiled multihart selection builds
+each workload for two, four, and eight workers and boots harts 0–1, 0–3,
+or 0–7 for `mt-vvadd`, `mt-matmul`, and `mt-memcpy`. Any remaining physical
+harts stay parked. These counts divide the upstream matrix benchmark's 16 rows
+evenly while exercising shared barriers and data through the coherent mesh.
+ACT and the complete native suites remain restricted to the two single-core
+SoCs.
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
 `multiply`, `mm`, `dhrystone`, and `spmv`. Target-native builds also select the
@@ -401,8 +424,8 @@ that the concrete system advertises; it does not imply that every benchmark
 contains an instruction from every extension. Use `BENCHMARK_MODE=baseline` to
 reproduce the former `rv64imafdc_zicsr_zifencei`/`lp64d` compiler target for
 historical comparisons.
-Baseline mode selects only scalar workloads. Multihart and PMP benchmarks
-require capabilities outside this platform.
+Baseline mode selects only scalar workloads. The upstream PMP benchmark
+requires capabilities outside this platform.
 These are compatibility selections, not a list of tests proven to pass. Any
 selected workload failure fails its suite; there are no expected-failure masks.
 
@@ -508,6 +531,7 @@ exact-commit executable. Spike shards restore the same pinned Spike libraries
 used by their producer. ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
+CI also runs the focused two-, four-, and eight-hart benchmarks on tiled RV5Stage.
 
 ## Architectural certification tests
 
@@ -626,9 +650,9 @@ make -C sims lrsc-test SOC=tiled CORE=rv5stage
 All three targets exercise word/doubleword constrained loops in Bare and Sv39
 modes, including cache-line and page crossings. MiniRV5StageSoC uses word-aligned
 instruction placements and page tables within its 64 KiB RAM; the other systems
-also exercise halfword instruction starts. TiledSoC uses
-a test-only boot ROM that releases all eight harts to contend on shared
-counters; its core and memory system are unchanged. Builds and six-value
+also exercise halfword instruction starts. TiledRV5StageSoC uses its ordinary
+harness and `+boot-harts=0-7` to release all eight harts onto shared counters.
+Builds and six-value
 signatures stay under `BUILD_ROOT/lrsc-test/<soc>/`. Each execution has a
 20-million-cycle limit. See the [qualification scope](DEVELOPING.md#lrsc-system-qualification);
 Ziccrse advertisement is owned by the qualified SoC profiles, not this test target.

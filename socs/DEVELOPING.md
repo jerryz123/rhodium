@@ -47,6 +47,9 @@ single-router memory map, NodeIDs, external service, CHI derivation, and
 selected hart with its Home, routers, and platform devices into the caller;
 it adds no hardware wrapper. Mini supplies on-chip RAM and a forwarding Home,
 while Single supplies the inclusive LLC and an external memory boundary.
+The default tiled RV5Stage profile derives its architectural ISA fields from
+the single-core RV5Stage profile while retaining independent cache and
+execution-resource policy.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
 passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
 injection/ejection queue policy; this view adds no circuit hierarchy.
@@ -173,11 +176,12 @@ plans. Connected hierarchy, time distribution, devices, and processor behavior
 belong to the executable smoke tests in
 [`../sims/DEVELOPING.md`](../sims/DEVELOPING.md).
 
-For execution of the generated polling ROM, run:
+For execution of the generated host-release ROM, run:
 
 ```sh
 FIXTURE=rv5stage-io-boot bash tools/testing/circt/run.sh --simulate-only
 ```
 
-This cores-group CI fixture checks delayed entry publication, uncached fetch
-and data contention, secondary-hart parking, and reset using the generated ROM.
+This cores-group CI fixture checks entry publication followed by explicit MSIP
+release, per-hart MSIP clearing, uncached fetch and data contention, an
+unselected secondary hart remaining asleep, and reset using the generated ROM.

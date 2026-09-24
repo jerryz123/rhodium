@@ -51,8 +51,9 @@ transaction IDs may be reused without confusing occurrences. Request ownership
 ends at its final response or DAT transfer, or reset. For reads that require
 `CompAck`, `CHIInclusiveHNF` assigns a DBID from its configured acknowledgement
 table and releases the LLC datapath after final DAT. A later `CompAck` retires
-only that table entry, so unrelated lookup, snoop, refill, and response work can
-continue while acknowledgements are outstanding.
+that table entry and ends the same-set grant reservation. Other sets can
+continue lookup, snoop, refill, and response work while acknowledgements are
+outstanding; the granted set cannot be probed or replaced before receipt.
 Ordinary elaboration adds no event instrumentation or functional buffering.
 Multi-slot retained-event ancestry is not yet represented by the event model;
 the focused instrumented Home fixture therefore uses the one-slot configuration.

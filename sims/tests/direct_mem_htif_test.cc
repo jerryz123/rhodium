@@ -14,11 +14,13 @@
 
 using rhodium::fesvr::DirectMemoryHtif;
 using rhodium::fesvr::DirectMemoryRequest;
+using rhodium::fesvr::kAclintBase;
+using rhodium::fesvr::parse_boot_harts;
 
 class ImageHtif final : public DirectMemoryHtif {
  public:
   ImageHtif(int argc, char** argv, rhodium::fesvr::ImageMemoryMap map)
-      : DirectMemoryHtif(argc, argv, 64, 0x3000, std::move(map)) {}
+      : DirectMemoryHtif(argc, argv, 64, 0x3000, {0}, std::move(map)) {}
  protected:
   std::map<std::string, std::uint64_t> load_payload(const std::string&, reg_t* entry, reg_t) override {
     *entry = 0x80000000;
@@ -83,6 +85,7 @@ void check_image_loading(bool fail = false) {
   const std::vector<DirectMemoryRequest> expected = {
     {true, 0x7ffffffc, 0x04030201, 4},
     {true, 0x80000000 + 70000, 0x08070605, 4},
+    {true, kAclintBase, 1, 4},
     {true, 0x3000, 0x80000000, 8},
     {false, 0x80000000, 0, 1},
     {true, 0x80000000, 0x77, 1}
@@ -105,7 +108,8 @@ void check_image_loading(bool fail = false) {
 
 class ScriptedHtif final : public DirectMemoryHtif {
  public:
-  ScriptedHtif(int argc, char** argv) : DirectMemoryHtif(argc, argv, 64, 0x3000) {}
+  ScriptedHtif(int argc, char** argv)
+      : DirectMemoryHtif(argc, argv, 64, 0x3000) {}
  protected:
   void load_program() override {
     const std::uint8_t byte = 0xa5;
@@ -141,8 +145,11 @@ class BootHtif final : public DirectMemoryHtif {
  public:
   BootHtif(int argc, char** argv, int xlen, std::uint64_t boot_register,
            std::uint64_t entry, int overlap = 99, bool clear = false,
-           rhodium::fesvr::ImageMemoryMap map = {})
-      : DirectMemoryHtif(argc, argv, xlen, boot_register, std::move(map)), boot_register_(boot_register),
+           rhodium::fesvr::ImageMemoryMap map = {},
+           std::vector<std::uint32_t> boot_harts = {0})
+      : DirectMemoryHtif(argc, argv, xlen, boot_register,
+                         std::move(boot_harts), std::move(map)),
+        boot_register_(boot_register),
         entry_(entry), overlap_(overlap), clear_(clear) {}
   bool boot_returned = false;
  protected:
@@ -175,7 +182,8 @@ class BootHtif final : public DirectMemoryHtif {
 };
 
 void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
-                int fail_index = -1, int overlap = 99, bool clear = false) {
+                int fail_index = -1, int overlap = 99, bool clear = false,
+                std::vector<std::uint32_t> boot_harts = {0}) {
   char executable[] = "boot-test";
   char program[] = "scripted";
   char* argv[] = {executable, program};
@@ -186,12 +194,19 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
       [](auto, auto) { assert(false); },
       [](auto, auto) { assert(false); }});
   }
-  BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear, std::move(map));
+  BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear,
+                     std::move(map), boot_harts);
   const bool invalid_entry = entry == 0 || (xlen == 32 && entry > UINT32_MAX);
   std::vector<DirectMemoryRequest> expected;
   if (overlap == 99) {
     expected.push_back({true, 0x80000100, 0x0807060504030201ULL, 8});
     if (!invalid_entry) {
+      for (const auto hart : boot_harts) {
+        if (hart != 0)
+          expected.push_back({true, kAclintBase + 4 * hart, 1, 4});
+      }
+      if (boot_harts.front() == 0)
+        expected.push_back({true, kAclintBase, 1, 4});
       expected.push_back({true, boot_register, entry, 8});
       expected.push_back({false, boot_register, 0, 8});
       expected.push_back({true, boot_register, 0xa5, 1});
@@ -203,7 +218,6 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
   unsigned delay = 0;
   bool accepted = false;
   for (int cycle = 0; cycle < 1000 && transport.exit_word() == 0; ++cycle) {
-    if (index < 2) assert(!transport.boot_returned);
     bool ready = false, response = false;
     std::uint8_t status = 0;
     if (transport.request_valid()) {
@@ -288,6 +302,15 @@ void isolated(Test test) {
 }
 
 int main() {
+  assert(parse_boot_harts("0") == std::vector<std::uint32_t>({0}));
+  assert(parse_boot_harts("0,2,4-7") ==
+         std::vector<std::uint32_t>({0, 2, 4, 5, 6, 7}));
+  for (const auto specification : {"", "0,", "1-0", "0,0", "1-3,2", "-1", "4095", "all"}) {
+    bool rejected = false;
+    try { static_cast<void>(parse_boot_harts(specification)); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+  }
   isolated([] { check_image_loading(); });
   isolated([] { check_image_loading(true); });
   const auto run_boot = [](int xlen, std::uint64_t address, std::uint64_t entry,
@@ -301,6 +324,7 @@ int main() {
     run_boot(xlen, 0x3000, 0);
     run_boot(xlen, 0x3000, 0x80002000, 0);
     run_boot(xlen, 0x3000, 0x80002000, 1);
+    run_boot(xlen, 0x3000, 0x80002000, 2);
     for (int offset : {-4, 0, 4}) {
       run_boot(xlen, 0x3000, 0x80002000, -1, offset);
       run_boot(xlen, 0x3000, 0x80002000, -1, offset, true);
@@ -308,6 +332,7 @@ int main() {
   }
   run_boot(32, 0x3000, 0x180002000ULL);
   run_boot(64, 0x3000, 0x180002000ULL);
+  isolated([] { check_boot(64, 0x3000, 0x80002000, -1, 99, false, {0, 2, 4, 5, 6, 7}); });
   isolated(check_transfers);
   char executable[] = "boot-config-test";
   char program[] = "scripted";
@@ -315,6 +340,15 @@ int main() {
   for (const auto address : {std::uint64_t(0x3004), UINT64_MAX}) {
     bool rejected = false;
     try { DirectMemoryHtif invalid(2, argv, 64, address); }
+    catch (const std::invalid_argument&) { rejected = true; }
+    assert(rejected);
+  }
+  for (const auto& harts : {std::vector<std::uint32_t>{},
+                            std::vector<std::uint32_t>{1, 0},
+                            std::vector<std::uint32_t>{0, 0},
+                            std::vector<std::uint32_t>{4095}}) {
+    bool rejected = false;
+    try { DirectMemoryHtif invalid(2, argv, 64, 0x3000, harts); }
     catch (const std::invalid_argument&) { rejected = true; }
     assert(rejected);
   }

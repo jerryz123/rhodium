@@ -200,6 +200,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg phases(~init: vec(for List (_index in 0..slots): CHIInclusiveHNFPhase.Idle))
   reg requests(Vec(slots, CHIReqFlit(p)))
   reg comp_ack_slots(Vec(slots, Bits(comp_ack_slot_width)))
+  reg pending_grant_sets(Vec(comp_ack_entries, Bits(set_width)))
+  reg pending_grants(~init: vec(for List (_index in 0..comp_ack_entries): Bool(#false)))
   reg requester_allocates(~init: empty_slots)
   reg requester_write_data(Vec(slots, Vec(line_packets, CHIDatFlit(p))))
   reg requester_write_line_valids(~init: vec(for List (_index in 0..slots): bits(0, line_packets)))
@@ -308,6 +310,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def set_conflict = or_reduce(
     for List (index in 0..slots):
       occupied[index] & (cache_set(requests[index].address) === incoming_set)
+  ) ||| or_reduce(
+    for List (index in 0..comp_ack_entries):
+      pending_grants[index] & (pending_grant_sets[index] === incoming_set)
   )
   def incoming_comp_ack_available = !incoming_request.exp_comp_ack ||| comp_acks.available
   requester.requests.ready <== allocation_available & !set_conflict & incoming_comp_ack_available
@@ -557,6 +562,8 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   victim_writebacks.completion.ready <== selected_writeback_completion
   comp_acks.acknowledgement.valid <== requester_response.valid & incoming_comp_ack
   comp_acks.acknowledgement.bits <== requester_response_flit
+  def comp_ack_fire = comp_acks.acknowledgement.fire()
+  def completed_comp_ack_slot = requester_response_flit.txn_id[0..comp_ack_slot_width]
 
   def requester_data_fire = requester_data.fire()
   def requester_response_fire = requester_response.fire() & !incoming_comp_ack
@@ -1356,6 +1363,22 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def grant_copy = cached_data_fire & final_response_data & (
     response_completion_error === CHIRespErr.OK
   ) & response_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
+  // Final DAT transfers the transaction slot, but its new resident cannot be
+  // probed or replaced until the requester has received the complete line.
+  def pending_grant_publish = grant_copy & response_request.exp_comp_ack
+  def pending_grants_after_ack = mux(
+    comp_ack_fire,
+    pending_grants.updated(completed_comp_ack_slot, Bool(#false)),
+    pending_grants
+  )
+  when (pending_grant_publish ||| comp_ack_fire):
+    pending_grants <== mux(
+      pending_grant_publish,
+      pending_grants_after_ack.updated(response_comp_ack_slot, Bool(#true)),
+      pending_grants_after_ack
+    )
+  when pending_grant_publish:
+    pending_grant_sets <== pending_grant_sets.updated(response_comp_ack_slot, response_selected_set)
   def clear_resident_entry = write_filled_line ||| invalidate_entry
   def remove_responder = directory_line_valid & (absent_control ||| absent_data)
   def release_copyback_resident = finish_copyback & maintenance_hits[work_slot]

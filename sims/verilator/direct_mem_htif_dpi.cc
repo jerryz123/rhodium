@@ -73,9 +73,22 @@ int rhodium_htif_tick(unsigned char reset,
     // filename. Preserve all other host and target arguments, including order.
     static std::vector<char*> htif_arguments;
     bool load_through_chi = false;
+    std::string_view boot_hart_specification = "0";
+    bool saw_boot_harts = false;
     for (int index = 0; index < info.argc; ++index) {
       const std::string_view argument(info.argv[index]);
       if (index != 0 && argument == "+load-through-chi") { load_through_chi = true; continue; }
+      if (index != 0 && argument.starts_with("+boot-harts=")) {
+        if (saw_boot_harts) {
+          std::fprintf(stderr, "FESVR setup failed: +boot-harts may be supplied only once\n");
+          startup_failed = true;
+          clear_outputs(request_valid, request_write, request_address, request_data, request_length, response_ready);
+          return 3;
+        }
+        saw_boot_harts = true;
+        boot_hart_specification = argument.substr(std::string_view("+boot-harts=").size());
+        continue;
+      }
       if (index != 0 && (argument.starts_with("+rheg-trace=") || argument.starts_with("+max-cycles="))) continue;
       htif_arguments.push_back(info.argv[index]);
     }
@@ -84,9 +97,12 @@ int rhodium_htif_tick(unsigned char reset,
       if (!saw_reset) throw std::runtime_error("FESVR requires a clocked reset before loading");
       auto memories = rhodium::simulation::make_image_memory_map();
       if (load_through_chi) memories = {};
-      transport = new rhodium::fesvr::DirectMemoryHtif(static_cast<int>(htif_arguments.size()), htif_arguments.data(), target_xlen, static_cast<std::uint64_t>(boot_address_register), std::move(memories));
+      transport = new rhodium::fesvr::DirectMemoryHtif(
+        static_cast<int>(htif_arguments.size()), htif_arguments.data(), target_xlen,
+        static_cast<std::uint64_t>(boot_address_register),
+        rhodium::fesvr::parse_boot_harts(boot_hart_specification), std::move(memories));
     } catch (const std::exception& error) {
-      std::fprintf(stderr, "Image memory registration failed: %s\n", error.what());
+      std::fprintf(stderr, "FESVR setup failed: %s\n", error.what());
       startup_failed = true;
       clear_outputs(request_valid, request_write, request_address, request_data, request_length, response_ready);
       return 3;

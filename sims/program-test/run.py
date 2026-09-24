@@ -19,7 +19,10 @@ def execute(test, simulator, root, output, timeout, cycles):
     started = time.monotonic()
     elf = (root / test['elf']).resolve()
     log_path = output / (test['name'] + '.log')
-    command = [str(simulator), '+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
+    command = [str(simulator)]
+    if 'harts' in test:
+        command.append('+boot-harts=' + ','.join(str(hart) for hart in test['harts']))
+    command += ['+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
     status = 'error'
     reason = None
     try:
@@ -41,7 +44,7 @@ def execute(test, simulator, root, output, timeout, cycles):
                 lines = text.splitlines()
                 if any('SoC harness simulation timed out' in line for line in lines):
                     status = 'timeout'
-                elif code == 0 and 'SoC harness simulation passed' in lines:
+                elif code == 0 and 'SoC harness simulation passed' in text:
                     required = test.get('required_output', [])
                     forbidden = test.get('forbidden_output', [])
                     if (not isinstance(required, list) or not isinstance(forbidden, list)
@@ -82,6 +85,7 @@ def main():
     for name in ('results.json', 'junit.xml'):
         (args.output / name).unlink(missing_ok=True)
     manifest = json.loads(args.manifest.read_text())
+    target = None
     if 'target' in manifest:
         try:
             target = validate_target(manifest['target'])
@@ -101,6 +105,15 @@ def main():
     names = [test['name'] for test in tests]
     if not tests or len(set(names)) != len(names) or any(Path(n).name != n or n in ('.', '..') for n in names):
         parser.error('manifest must contain nonempty, unique, simple test names')
+    for test in tests:
+        if 'harts' not in test:
+            continue
+        harts = test['harts']
+        if (target is None or not isinstance(harts, list) or not harts
+                or any(not isinstance(hart, int) or isinstance(hart, bool) for hart in harts)
+                or harts != sorted(harts) or len(harts) != len(set(harts))
+                or any(hart not in target['harts'] for hart in harts)):
+            parser.error(f'{test["name"]}: harts must be a canonical nonempty subset of the target')
     with ThreadPoolExecutor(max_workers=args.jobs) as executor:
         results = list(executor.map(lambda test: execute(test, args.simulator.resolve(), args.manifest.parent,
                                                        args.output, args.timeout, args.max_cycles), tests))

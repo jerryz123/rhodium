@@ -8,7 +8,7 @@ import:
 
 def flit = CHIFlitParams()
 def config = AclintConfig(flit, 2)
-def params = AclintParams("test-aclint", 9, config, 0x02000000)
+def params = AclintParams("test-aclint", 9, config)
 def design = elaborate(Aclint(config))
 
 export:

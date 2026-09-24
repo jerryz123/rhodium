@@ -321,9 +321,10 @@ its page tables inside its 64-KiB RAM and uses word-aligned boundary starts;
 the compressed-enabled systems use halfword starts. The payload checks `misa.C`
 against the selected alignment, and the linker rejects out-of-RAM placement.
 
-SingleCoreRV5StageSoC and MiniRV5StageSoC use their ordinary harnesses. `tests/lrsc-tiled-soc-harness.rhdl` changes
-only the production ROM's secondary-hart filter to a NOP. Every hart still
-waits for the normal FESVR post-loading entry publication. Do not replace the
+Every SoC uses its ordinary harness and production ROM. The tiled target adds
+`+boot-harts=0-7`; the single-core targets use the default hart-zero selection.
+Every selected hart waits for the normal FESVR post-loading entry publication
+and its own ACLINT wakeup. Do not replace the
 cores, Home slices, routers, translation, cache geometry, or FESVR transport
 with fixture components. The eight-hart test contract is checked against the
 default topology before elaboration.
@@ -336,8 +337,7 @@ Separate per-hart barrier lines keep setup stores outside the tested
 reservation lines. Hart zero checks totals and writes six signature values;
 FESVR reads those values coherently after normal HTIF completion.
 
-Keep these builds isolated under `BUILD_ROOT/lrsc-test/`; the tiled boot ROM
-differs from the ordinary simulator. Both Bare and Sv39 executions must be
+Keep these builds isolated under `BUILD_ROOT/lrsc-test/`. Both Bare and Sv39 executions must be
 attempted, with a nonzero overall status if either fails. Preserve failed
 results and do not count timeout, post-pressure recovery, or partial
 signatures as qualification success. This finite regression is evidence for
@@ -393,14 +393,25 @@ binary may use the target extensions; they do not prove dynamic instruction
 coverage.
 
 `program-test/write-target.rhm` projects the existing concrete SoC description
-to the workload adapters; do not duplicate ISA or RAM constants in Python.
+to the workload adapters, including its canonical implemented hart IDs; do not
+duplicate ISA, topology, or RAM constants in Python. A manifest test may select
+a nonempty canonical subset through `harts`. The runner validates that subset
+against the target and translates it to `+boot-harts=`; tests without the field
+retain the hart-zero default.
 SingleCoreSpikeSoC owns the complete profile-selected ISA inventory,
 benchmarks, CoreMark, Embench-IoT, and Bringup-Bench so broad software coverage uses the fast
 reference hart. Both single-core SoCs own independent ACT configurations:
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-MiniRV5StageSoC and TiledSoC use capability-filtered ISA smoke. This
+MiniRV5StageSoC and TiledSoC use capability-filtered ISA smoke. TiledRV5StageSoC
+additionally owns the focused upstream multihart benchmark selection. The
+adapter materializes a private build-tree view of the pinned benchmark sources
+for each supported two-, four-, or eight-hart run, changes only the copied
+`common/crt.S` hart-count constant, and records the selected boot subset in each
+test's manifest entry while retaining the complete physical target for simulator
+attestation. Keep the source submodule pristine and make the exact upstream
+marker fail closed when its runtime changes. This
 coverage assignment is test policy, not hardware metadata; do not add a suite
 category to an SoC or core configuration.
 `ISA_GROUPS` maps target ISA extensions to upstream groups; full selection also
@@ -418,9 +429,10 @@ SoC, or adapt those assumptions before adding another RAM layout.
 
 The simulation CI job reuses its downloaded SingleCoreRV5StageSoC and
 SingleCoreSpikeSoC executables for generic platform checks, and its
-MiniRV5StageSoC and TiledSoC executables for `isa-smoke`. It attempts
-both smoke targets even if one fails and uploads independent results. Changes
-to the adapter or upstream ISA sources must select that job.
+MiniRV5StageSoC and TiledSoC executables for `isa-smoke`. It then runs the
+focused multihart benchmarks on the tiled executable.
+It attempts all three selections even if one fails and uploads their independent
+results. Changes to the adapter or upstream ISA sources must select that job.
 
 `program-test/run.py` owns ISA, benchmark, CoreMark, Embench-IoT, and Bringup-Bench process-group deadlines,
 manifest-declared output contracts, and JSON/JUnit reporting. CoreMark needs
@@ -499,8 +511,10 @@ make -C sims uart-pty-test SOC=tiled-rv5stage-soc
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
 policy while using [`chi/protocol/messages.rhdl`](../chi/protocol/messages.rhdl) for immutable
-`NonCopyBackWriteData` construction. Preserve its explicit DataID, CCID, and
-DBID/MECID choices independently of the core requester profile.
+`NonCopyBackWriteData` construction. DataID is derived from the address for
+both cacheable and noncacheable transfers; preserve that packet position plus
+the explicit CCID and DBID/MECID choices independently of the core requester
+profile.
 
 FESVR REQ construction is also immutable, with the same inactive-field zeros.
 Keep opcode selection, cacheable/device attributes, address/size, and NodeID
@@ -539,18 +553,23 @@ data into the UART scratch register, verifies the published ELF entry and
 preserved UART value, and reads a device signature back through FESVR.
 
 `DirectMemoryHtif::reset()` is FESVR's post-loading startup callback, not the
-hardware reset signal. It validates the entry and publishes it with one blocking
-eight-byte transaction before ordinary HTIF polling resumes. Every loading
+hardware reset signal. It validates the entry, writes each selected ACLINT MSIP,
+then publishes the entry with one blocking eight-byte transaction before ordinary
+HTIF polling resumes. Nonzero harts are woken before hart zero; every selected
+hart remains in the BootROM polling loop until the final publication. Every loading
 transaction is also blocking, so no separate drain or boot arbitration state
 machine is needed. Loading writes and clears overlapping the configured register
 are rejected in C++; ordinary post-publication accesses remain allowed.
-The register address and XLEN come from the harness through DPI, not native
-constants or independent command-line settings. `FesvrRequester` connects the
+The register address and XLEN come from the harness through DPI. RHDL and the
+C++ transport each define the fixed architectural ACLINT base directly. The
+exact selected hart IDs come from the consumed `+boot-harts=` option; the host
+never receives a hart count. `FesvrRequester` connects the
 transport directly to the generic `FesvrCHIAccess`; target/protocol failures
 return through its normal response and become transport failure exits.
 
-The native `transport-test` covers relocated registers, request/response stalls,
-loading and publication failures, RV32/RV64 entries, zero entries, and overlapping
+The native `transport-test` covers selection parsing and release order,
+relocated registers, request/response stalls, loading and publication failures,
+RV32/RV64 entries, zero entries, and overlapping
 writes and clears. `boot-test` exercises actual FESVR and the indirect ROM at two
 different ELF entry points on every SoC. These tests run in simulation CI.
 

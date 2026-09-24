@@ -18,6 +18,7 @@ NATIVE_SOFTWARE_SOCS := single single-core-rv5stage-soc single-core-spike-soc
 SOFTWARE_SOC ?= single
 SOFTWARE_CORE ?= rv5stage spike
 SMOKE_SOCS := mini tiled mini-rv5stage-soc tiled-rv5stage-soc
+TILED_MT_SOCS := tiled tiled-rv5stage-soc
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
@@ -28,11 +29,13 @@ BRINGUP_MAX_CYCLES ?= 100000000
 BRINGUP_BENCHMARKS ?=
 PROGRAM_PRODUCT_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
 ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
+TILED_MT_BENCHMARK_DIR := $(PROGRAM_PRODUCT_ROOT)/mt-benchmark
+TILED_MT_HART_COUNTS := 2 4 8
 PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test program-target simulator-attestation
-.PHONY: isa-elfs benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
+.PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 program-target: $(PROGRAM_TARGET)
@@ -94,6 +97,18 @@ benchmark-elfs: program-target
 	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
+tiled-mt-benchmark-elfs: program-target
+	@test "$(CORE)" = rv5stage && test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	  (echo 'Multihart benchmarks require the tiled RV5Stage SoC' >&2; exit 2)
+	@set -e; for hart_count in $(TILED_MT_HART_COUNTS); do \
+	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
+	  mkdir -p "$$output"; \
+	  $(PYTHON) program-test/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
+	    --output "$$output" --compiler "$(RISCV_CC)" --target "$(PROGRAM_TARGET)" \
+	    --benchmark-mode target --benchmark-selection multihart \
+	    --benchmark-hart-count "$$hart_count"; \
+	done
+
 coremark-elf: program-target
 	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) program-test/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
@@ -135,6 +150,15 @@ benchmark-test: benchmark-elfs simulator-attestation
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES)
+
+tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation
+	@status=0; for hart_count in $(TILED_MT_HART_COUNTS); do \
+	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
+	  $(PYTHON) program-test/run.py --manifest "$$output/manifest.json" \
+	    --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	    --output "$$output/results" --jobs $(PROGRAM_JOBS) \
+	    --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \
+	done; exit $$status
 
 coremark-test: coremark-elf simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark/manifest.json" \

@@ -16,7 +16,7 @@ module aclint_tb;
     ready_t req;
     struct packed { ready_t request; dat_forward_t response; } dat;
   } sn_out_t;
-  typedef struct packed { logic [6:0] node_id; logic [43:0] base_address; } identity_t;
+  typedef struct packed { logic [6:0] node_id; } identity_t;
 
   localparam logic [6:0] READ_NO_SNP = 7'h04;
   localparam logic [6:0] WRITE_NO_SNP_PTL = 7'h1c;
@@ -195,7 +195,7 @@ module aclint_tb;
   endtask
 
   initial begin
-    identity = '{node_id: ACLINT_ID, base_address: ACLINT_BASE};
+    identity = '{node_id: ACLINT_ID};
     tick = 1'b0;
     port_in = '0;
     repeat (2) cycle();

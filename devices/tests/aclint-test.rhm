@@ -11,13 +11,13 @@ import:
 
 def flit = CHIFlitParams()
 def config = aclint.AclintConfig(flit, 2)
-def params = aclint.AclintParams("test-aclint", 9, config, 0x02000000)
+def params = aclint.AclintParams("test-aclint", 9, config)
 
 check:
   config.hart_count ~is 2
   config.data_bytes ~is 16
   params.node.kind ~is CHINodeKind.SNI
-  params.service.address_sets[0] ~is AddressSet(0x02000000, 0xffff)
+  params.service.address_sets[0] ~is AddressSet(aclint.AclintBase, 0xffff)
   params.service.supports(CHIReqOpcode.ReadNoSnp, 8) ~is #true
   params.service.supports(CHIReqOpcode.WriteNoSnpPtl, 8) ~is #true
   params.service.supports(CHIReqOpcode.ReadNoSnp, 16) ~is #false

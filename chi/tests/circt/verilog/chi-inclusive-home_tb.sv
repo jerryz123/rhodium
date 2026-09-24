@@ -1181,20 +1181,28 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     finish_cached();
     send_request(LINE0, 7'h03); finish_cached();
 
-    // Final DAT releases the datapath while distinct Home DBIDs retain two
-    // delayed acknowledgements. Only another acknowledgement-bearing request
-    // is blocked when the small table is full.
+    // Final DAT releases the transaction slot, but its set stays reserved
+    // until CompAck confirms the requester has received the entire line.
+    // A distinct set can still use the datapath and another Home DBID.
     send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID, 1);
     finish_cached();
     first_comp_ack_dbid = response_dbid;
+    requester_requests_in.bits = '0;
+    requester_requests_in.bits.address = LINE0;
+    requester_requests_in.valid = 1'b1;
+    #1;
+    assert(!port_out.requester.requests.ready)
+      else $fatal(1, "pending grant allowed a same-set request before CompAck");
+    requester_requests_in = '0;
+    requester_requests_in.bits.address = LINE1;
+    #1;
     repeat (5) begin
       assert(port_out.requester.requests.ready)
-        else $fatal(1, "CompAck retained the inclusive Home datapath");
+        else $fatal(1, "CompAck blocked a distinct LLC set");
       tick();
     end
-    send_request(LINE0, 7'h03, 6'd6, HTIF_ID, 1);
-    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
-    finish_cached();
+    send_request(LINE1, READ_ONCE, 6'd6, HTIF_ID, 1);
+    fill_and_return(LINE1, 8'h52);
     second_comp_ack_dbid = response_dbid;
     assert(first_comp_ack_dbid != second_comp_ack_dbid)
       else $fatal(1, "inclusive Home reused a live CompAck DBID");
@@ -1214,6 +1222,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       else $fatal(1, "inclusive Home overcommitted its CompAck table");
     requester_requests_in = '0;
 
+    send_comp_ack(INSTRUCTION_ID, first_comp_ack_dbid);
     send_request(LINE0, READ_ONCE);
     while (!port_out.requester.snoops.valid) tick();
     send_comp_ack(HTIF_ID, second_comp_ack_dbid);
@@ -1223,7 +1232,6 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     finish_cached();
     assert(port_out.requester.requests.ready)
       else $fatal(1, "late CompAck did not release only its table entry");
-    send_comp_ack(INSTRUCTION_ID, first_comp_ack_dbid);
     send_request(LINE0, 7'h03);
     clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1); finish_cached();
 

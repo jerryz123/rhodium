@@ -103,47 +103,21 @@ for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
   esac
 done
 
-case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-  *" zvfh "*) ;;
-  *) echo "single-core-rv5stage-soc DTB does not advertise Zvfh" >&2; exit 1 ;;
-esac
-case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-  *" zvkt "*) ;;
-  *) echo "single-core-rv5stage-soc DTB does not advertise Zvkt" >&2; exit 1 ;;
-esac
-for extension in zvkb zvl32b zvl64b zvl128b; do
-  case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-    *" $extension "*) ;;
-    *) echo "single-core-rv5stage-soc DTB does not advertise $extension" >&2; exit 1 ;;
-  esac
+for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
+  for extension in zfh zvfh zvkt zvkb zvl32b zvl64b zvl128b zcb zfa zicbom ssnpm supm; do
+    case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
+      *" $extension "*) ;;
+      *) echo "$name DTB does not advertise $extension" >&2; exit 1 ;;
+    esac
+  done
 done
-case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-  *" zfh "*) ;;
-  *) echo "single-core-rv5stage-soc DTB does not advertise Zfh" >&2; exit 1 ;;
-esac
-for extension in zcb zfa zicbom ssnpm supm; do
-  case " $(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-    *" $extension "*) ;;
-    *) echo "single-core-rv5stage-soc DTB does not advertise $extension" >&2; exit 1 ;;
-  esac
-done
-for name in mini-rv5stage-soc tiled-rv5stage-soc; do
-  for extension in zcb zfa zicbom ssnpm supm; do
+for name in mini-rv5stage-soc; do
+  for extension in zcb zfa zicbom ssnpm supm zvfh zvkt; do
     case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
       *" $extension "*) echo "$name DTB unexpectedly advertises $extension" >&2; exit 1 ;;
       *) ;;
     esac
   done
-done
-for name in mini-rv5stage-soc tiled-rv5stage-soc; do
-  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-    *" zvfh "*) echo "$name DTB unexpectedly advertises Zvfh" >&2; exit 1 ;;
-    *) ;;
-  esac
-  case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-    *" zvkt "*) echo "$name DTB unexpectedly advertises Zvkt" >&2; exit 1 ;;
-    *) ;;
-  esac
 done
 
 [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" / model)" == "Rhodium Single-Core RV5Stage SoC" ]]

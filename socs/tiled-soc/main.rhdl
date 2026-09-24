@@ -135,8 +135,7 @@ sync_circuit TiledSoC(config :: TiledSoCConfig,
   aclint.identity <== AclintTileIdentity(p, site_width):
     site_key: bits(implementation.site_key(implementation.aclint.placement.router), site_width)
     aclint: (AclintIdentity(p):
-               node_id: bits(implementation.aclint.device.node.node_id, p.node_id_width)
-               base_address: bits(implementation.aclint.device.base_address, p.request_address_width))
+               node_id: bits(implementation.aclint.device.node.node_id, p.node_id_width))
   timebase.enable <== Bool(#true)
   aclint.tick <== timebase.wrap
   aclint.time_beat <=> distribution.time_ingress

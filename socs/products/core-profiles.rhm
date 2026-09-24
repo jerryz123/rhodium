@@ -47,11 +47,18 @@ def mini_rv5stage_soc_core_profile = RV5StageConfig(
 )
 
 def tiled_rv5stage_soc_core_profile = RV5StageConfig(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true, ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcmop)),
-  ~mmu_mode: RV5StageMmuMode.Sv39,
+  // Tiled and single-core systems expose one ISA while retaining independent
+  // cache, execution-resource, and topology configurations.
+  ~xlen: single_core_rv5stage_soc_core_profile.xlen,
+  ~extensions: single_core_rv5stage_soc_core_profile.extensions,
+  ~mmu_mode: single_core_rv5stage_soc_core_profile.mmu_mode,
+  ~cache_geometry: RV5StageCacheGeometry(),
   ~data_cache_service_queue_depth: 4,
-  ~multiplier: RV5StageMultiplierKind.Pipelined
+  ~multiplier: RV5StageMultiplierKind.Pipelined,
+  ~vector: single_core_rv5stage_soc_core_profile.vector,
+  ~vector_extensions: single_core_rv5stage_soc_core_profile.vector_extensions,
+  ~vector_length: single_core_rv5stage_soc_core_profile.vector_length,
+  ~vector_completion_slots: single_core_rv5stage_soc_core_profile.vector_completion_slots
 )
 
 export:

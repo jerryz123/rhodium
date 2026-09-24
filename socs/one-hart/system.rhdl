@@ -312,7 +312,6 @@ fun populate_single_core(params :: SingleCoreSystemParams,
     base_address: bits(params.platform.boot_address.base_address, params.flit.request_address_width)
   aclint.identity <== AclintIdentity(params.flit):
     node_id: bits(params.platform.aclint.node.node_id, params.flit.node_id_width)
-    base_address: bits(params.platform.aclint.base_address, params.flit.request_address_width)
   plic.identity <== PlicIdentity(params.flit):
     node_id: bits(params.platform.plic.node.node_id, params.flit.node_id_width)
     base_address: bits(params.platform.plic.base_address, params.flit.request_address_width)

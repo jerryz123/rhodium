@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../interrupt/aclint-layout.rhm".AclintBase
   rhombus.bits.(<<) as <<
   rhombus.bits.(>>) as >>
   lib("riscv/model/main.rhm") open
@@ -10,11 +11,14 @@ import:
   lib("riscv/isa/rv64i.rhm").LD
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/privileged.rhm").WFI
-  lib("riscv/isa/zicsr.rhm").CSRRS
+  lib("riscv/isa/zicsr.rhm") open
 
 def RiscvBootROMResetAddress = 0x00010000
 def RiscvBootROMPayloadAddress = 0x80000000
 def RiscvMhHartIdCSR = 0xf14
+def RiscvMstatusCSR = 0x300
+def RiscvMieCSR = 0x304
+def RiscvMachineSoftwareInterruptMask = 1 << 3
 
 class BootROMImage(bytes :: NonemptyList.of(Nat)):
   constructor (bytes :: NonemptyList.of(Nat)):
@@ -40,18 +44,27 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 
 // The generated reset program is equivalent to this simple assembly:
 //
+//   // Immediate mode:
 //   csrr  a0, mhartid
 //   bnez  a0, park
 //   auipc a1, device_tree_upper
 //   addi  a1, a1, device_tree_lower
-//   // Immediate mode:
 //   auipc t0, payload_upper
 //   jalr  zero, payload_lower(t0)
-//   // Indirect mode replaces those two instructions with:
-//   auipc t0, boot_address_register_upper
-// poll:
-//   ld    t1, boot_address_register_lower(t0)  // lw for RV32
-//   beqz  t1, poll
+//   // Indirect mode instead lets every hart sleep on its own ACLINT MSIP:
+//   csrr  a0, mhartid
+//   li    t2, MIP_MSIP
+//   csrc  mstatus, t2
+//   csrs  mie, t2
+//   ... compute t0 = AclintBase + 4 * mhartid
+//   ... compute t3 = boot_address_register
+// wait:
+//   wfi
+//   ld    t1, 0(t3)                 // lw for RV32
+//   beqz  t1, wait                  // tolerate spurious WFI wakeups
+//   sw    zero, 0(t0)
+//   csrc  mie, t2
+//   ... compute a1 = device_tree_address
 //   jalr  zero, 0(t1)
 // park:
 //   wfi
@@ -80,45 +93,68 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
             target_name ++ " is outside the AUIPC PC-relative range")
     [upper << 12, delta - (upper << 12)]
 
-  // a0 receives mhartid. Nonzero harts branch over the primary-hart
-  // trampoline and remain in the WFI loop at the end of the image.
-  def mutable words = [
-    CSRRS.encode([
-      rd.constrain(10),
-      rs1.constrain(0),
-      immediate12.constrain(RiscvMhHartIdCSR)
-    ]),
-    BNE.encode([
-      rs1.constrain(10),
-      rs2.constrain(0)
-    ], ~immediate: (if !boot_address_register | 20 | 28))
-  ]
+  def mutable words = [CSRRS.encode([
+    rd.constrain(10),
+    rs1.constrain(0),
+    immediate12.constrain(RiscvMhHartIdCSR)
+  ])]
 
-  def device_tree_immediates = pc_relative_immediates(
-    reset_address + 8,
-    device_tree_address,
-    "device tree"
-  )
-  words := words ++ [AUIPC.encode([rd.constrain(11)], ~immediate: device_tree_immediates[0]),
-                     ADDI.encode([
-                       rd.constrain(11),
-                       rs1.constrain(11)
-                     ], ~immediate: device_tree_immediates[1])]
-
-  def payload_immediates = pc_relative_immediates(
-    reset_address + (words.length() * 4),
-    (if !boot_address_register | payload_address | boot_address_register),
-    (if !boot_address_register | "payload" | "boot-address register")
-  )
-  words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: payload_immediates[0])]
   if !boot_address_register
-  | words := words ++ [JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: payload_immediates[1])]
-  | def load = (if xlen == XLen.X32 | LW | LD)
-    words := words ++ [load.encode([rd.constrain(6), rs1.constrain(5)], ~immediate: payload_immediates[1]),
-                       BEQ.encode([rs1.constrain(6), rs2.constrain(0)], ~immediate: -4),
-                       JALR.encode([rd.constrain(0), rs1.constrain(6)], ~immediate: 0)]
-
-  words := words ++ [WFI.encode([]), JAL.encode([rd.constrain(0)], ~immediate: -4)]
+  | // The immediate image keeps the traditional hart-zero-only trampoline.
+    words := words ++ [BNE.encode([rs1.constrain(10), rs2.constrain(0)], ~immediate: 20)]
+    def device_tree_immediates = pc_relative_immediates(reset_address + 8, device_tree_address, "device tree")
+    words := words ++ [AUIPC.encode([rd.constrain(11)], ~immediate: device_tree_immediates[0]),
+                       ADDI.encode([rd.constrain(11), rs1.constrain(11)], ~immediate: device_tree_immediates[1])]
+    def payload_immediates = pc_relative_immediates(reset_address + (words.length() * 4), payload_address, "payload")
+    words := words ++ [AUIPC.encode([rd.constrain(5)], ~immediate: payload_immediates[0]),
+                       JALR.encode([rd.constrain(0), rs1.constrain(5)], ~immediate: payload_immediates[1]),
+                       WFI.encode([]),
+                       JAL.encode([rd.constrain(0)], ~immediate: -4)]
+  | block:
+      // Clear global interrupt delivery before enabling MSIP as a WFI wake
+      // source. The pending interrupt wakes the core without entering a trap.
+      words := words ++ [
+        ADDI.encode([rd.constrain(7), rs1.constrain(0)], ~immediate: RiscvMachineSoftwareInterruptMask),
+        CSRRC.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMstatusCSR)]),
+        CSRRS.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMieCSR)])
+      ]
+      def interrupt_immediates = pc_relative_immediates(
+        reset_address + (words.length() * 4),
+        AclintBase,
+        "software-interrupt base"
+      )
+      words := words ++ [
+        AUIPC.encode([rd.constrain(5)], ~immediate: interrupt_immediates[0]),
+        ADDI.encode([rd.constrain(5), rs1.constrain(5)], ~immediate: interrupt_immediates[1]),
+        ADD.encode([rd.constrain(28), rs1.constrain(10), rs2.constrain(10)]),
+        ADD.encode([rd.constrain(28), rs1.constrain(28), rs2.constrain(28)]),
+        ADD.encode([rd.constrain(5), rs1.constrain(5), rs2.constrain(28)])
+      ]
+      def boot_immediates = pc_relative_immediates(
+        reset_address + (words.length() * 4),
+        boot_address_register,
+        "boot-address register"
+      )
+      words := words ++ [AUIPC.encode([rd.constrain(28)], ~immediate: boot_immediates[0])]
+      def wait_index = words.length()
+      def load = (if xlen == XLen.X32 | LW | LD)
+      words := words ++ [
+        WFI.encode([]),
+        load.encode([rd.constrain(6), rs1.constrain(28)], ~immediate: boot_immediates[1]),
+        BEQ.encode([rs1.constrain(6), rs2.constrain(0)], ~immediate: (wait_index - (words.length() + 2)) * 4),
+        SW.encode([rs1.constrain(5), rs2.constrain(0)], ~immediate: 0),
+        CSRRC.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMieCSR)])
+      ]
+      def device_tree_immediates = pc_relative_immediates(
+        reset_address + (words.length() * 4),
+        device_tree_address,
+        "device tree"
+      )
+      words := words ++ [
+        AUIPC.encode([rd.constrain(11)], ~immediate: device_tree_immediates[0]),
+        ADDI.encode([rd.constrain(11), rs1.constrain(11)], ~immediate: device_tree_immediates[1]),
+        JALR.encode([rd.constrain(0), rs1.constrain(6)], ~immediate: 0)
+      ]
   BootROMImage(instruction_words_to_bytes(words))
 
 def DefaultRiscvBootROMImage = riscv_bootrom_image()

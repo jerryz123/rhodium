@@ -11,6 +11,7 @@ import:
   "../../riscv/isa/xlen.rhm".XLen
   "../tiled-soc/main.rhdl" as tiled
   "../products/tiled-rv5stage.rhdl" as tiled_default
+  "../products/core-profiles.rhm" as profiles
   "../tiled-soc/compile.rhdl" as compiler
   "../harts/rv5stage.rhdl".rv5stage_hart
 
@@ -21,6 +22,8 @@ check:
   tiled_default.tiled_rv5stage_soc_core_profile.multiplier ~is profile.RV5StageMultiplierKind.Pipelined
   tiled_default.tiled_rv5stage_soc_core_profile.data_cache_service_queue_depth ~is 4
   tiled_default.tiled_rv5stage_soc_core_profile.extensions.zicbop ~is #true
+  tiled_default.tiled_rv5stage_soc_core_profile.isa_profile.isa_extensions ~is profiles.single_core_rv5stage_soc_core_profile.isa_profile.isa_extensions
+  tiled_default.tiled_rv5stage_soc_core_profile.isa_profile.misa_extensions ~is profiles.single_core_rv5stage_soc_core_profile.isa_profile.misa_extensions
   tiled_default.default_tiled_soc_config.clocks.timebase_period_cycles ~is 100
   compiled.llcs.map(fun (llc): llc.home_params.home.node_id) ~is [32, 33, 34, 35]
   compiled.llcs.map(fun (llc): llc.home_params.home.max_outstanding) ~is [2, 2, 2, 2]

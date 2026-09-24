@@ -63,15 +63,16 @@ and the full C composition; its device tree and UDB configuration advertise
 `V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`,
 `Zvkb`, `Zvbb`, `Zvkt`, the cumulative `Zvl32b`/`Zvl64b`/`Zvl128b` closure,
 `Zcb`, `Zfa`, `Zicbom`, `Ssnpm`, and the qualified `Supm` user-environment
-contract, plus `misa.V` from that same profile. The mini RV5Stage profile is
-integer-only RV64 with 2 KiB direct-mapped L1s, and the tiled RV5Stage profile
-is integer-only RV64 with the C composition. The single and tiled RV5Stage profiles
-select the feed-forward pipelined integer multiplier, while the mini RV5Stage profile
+contract, plus `misa.V` from that same profile. `TiledRV5StageSoC` uses the
+same architectural ISA fields while retaining its independent direct-mapped
+L1 and tiled-system configuration. `MiniRV5StageSoC` defaults to integer-only
+RV64 with 2 KiB direct-mapped L1s. SingleCoreRV5StageSoC and TiledRV5StageSoC
+also select the feed-forward pipelined integer multiplier, while MiniRV5StageSoC
 selects the compact iterative multiplier. The single-core and tiled profiles
 provide four authorized L1D service entries, while the compact mini profile
-provides one. They enable Zcmop; the mini RV5Stage profile
-keeps compressed instructions disabled. All three RV5Stage profiles select Sv39;
-Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC also enables
+provides one. They enable Zcmop; MiniRV5StageSoC
+keeps compressed instructions disabled. All three select Sv39;
+Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC and TiledRV5StageSoC also enable
 scalar `Zfa` and `Zfh`, Zcb, Zicbom, Ssnpm/Supm with selectable PMLEN 0, 7, and
 16, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee
 `Zvkt`. Supply an alternate `RV5StageConfig` through the owning SoC parameter
@@ -147,8 +148,8 @@ make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
 The current keys are `single-core-rv5stage-soc`, `single-core-spike-soc`,
 `mini-rv5stage-soc`, and `tiled-rv5stage-soc`. Output defaults
 to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
-The SingleCore configuration selects PMLEN 7 for its Ssnpm/Supm test
-environment; configurations without Ssnpm omit PMLEN.
+The SingleCore and Tiled configurations select PMLEN 7 for their Ssnpm/Supm
+test environments; configurations without Ssnpm omit PMLEN.
 Generated configurations are build artifacts and must not be committed.
 
 ## Common host and platform contract
@@ -170,22 +171,26 @@ to external host adapters for permission and transfer-size checks.
 [`boot.rhdl`](platform/boot.rhdl) owns the shared reset address, payload address, ROM
 layout and finalized image, and executable instruction-cacheable PMA entry.
 Every current SoC uses an 8 KiB BootROM at
-`0x00010000..0x00011fff`. Hart zero receives its embedded DTB address in `a1`
-and loads its payload entry from the boot-address register; every secondary hart parks
-in the ROM's `WFI` loop. Instruction misses fetch full 64-byte lines through
+`0x00010000..0x00011fff`. Every hart waits in the ROM with its own ACLINT MSIP
+enabled as a wake source while global interrupt delivery remains disabled.
+After a selected hart wakes, it polls the shared boot-address register while
+MSIP remains pending. Once the host publishes a nonzero entry, the hart clears
+its MSIP and jumps with `mhartid` in `a0` and the embedded DTB address in `a1`.
+Instruction misses fetch full 64-byte lines through
 HN-I with `ReadNoSnp` and install them in L1I; resident instructions use the
 ordinary cache-hit path. The ROM is immutable and does not acquire coherent
-ownership. ROM data accesses and boot-address polling remain uncached.
+ownership. ROM data accesses and the boot-address load remain uncached.
 
 Every SoC maps the 64-bit boot-address register at `0x1000` in the
 `0x1000..0x1fff` device window. Its reset value is zero;
 `boot.boot_address_register` configures its base.
 The register is non-cacheable, non-executable, and has idempotent reads.
 It is reachable through both the core RN-I and the host RN-F via the existing
-device HNI. The default ROM polls until the register is nonzero. After all
-payload writes complete, the host publishes the entry with one complete
-eight-byte write, avoiding a partially updated pointer. Without publication,
-hart zero keeps polling; zero is reserved and cannot be a payload entry.
+device HNI. After all payload writes complete, the host publishes the entry
+only after asserting MSIP for every selected hart. The complete eight-byte
+publication avoids a partially updated pointer and provides one release point
+after the blocking wakeup writes. Without publication and a wakeup, every
+hart remains in the ROM; zero is reserved and cannot be a payload entry.
 The simulator's FESVR adapter
 programs the ELF entry automatically; see the [execution contract](../sims/README.md#run-a-target).
 Concurrent updates and warm reboot are not supported.

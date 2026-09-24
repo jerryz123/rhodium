@@ -4,14 +4,17 @@
 
 #include <stdexcept>
 #include <algorithm>
+#include <charconv>
 #include <cstdio>
 #include <limits>
+#include <set>
 #include <sstream>
 
 namespace rhodium::fesvr {
 namespace {
 
 constexpr std::size_t kMaxBytes = sizeof(std::uint64_t);
+constexpr std::uint64_t kMsipStrideBytes = 4;
 
 std::uint64_t load_little_endian(const void* source, std::size_t length) {
   const auto* bytes = static_cast<const std::uint8_t*>(source);
@@ -38,17 +41,72 @@ void require_range(addr_t address, std::size_t length) {
     throw std::runtime_error("direct-memory HTIF range wraps the address space");
 }
 
+std::uint32_t parse_hart_id(std::string_view text) {
+  if (text.empty()) throw std::invalid_argument("boot hart IDs must not be empty");
+  std::uint32_t value = 0;
+  const auto [end, error] = std::from_chars(text.data(), text.data() + text.size(), value);
+  if (error != std::errc() || end != text.data() + text.size())
+    throw std::invalid_argument("boot hart IDs must be decimal integers");
+  if (value > kMaximumAclintHartId)
+    throw std::invalid_argument("boot hart ID exceeds the ACLINT MSWI range");
+  return value;
+}
+
 }  // namespace
 
+std::vector<std::uint32_t> parse_boot_harts(std::string_view specification) {
+  if (specification.empty())
+    throw std::invalid_argument("+boot-harts requires a nonempty hart list");
+  std::set<std::uint32_t> selected;
+  while (!specification.empty()) {
+    const auto comma = specification.find(',');
+    const auto item = specification.substr(0, comma);
+    if (item.empty()) throw std::invalid_argument("+boot-harts contains an empty item");
+    const auto dash = item.find('-');
+    if (dash == std::string_view::npos) {
+      const auto hart = parse_hart_id(item);
+      if (!selected.insert(hart).second)
+        throw std::invalid_argument("+boot-harts contains a duplicate hart ID");
+    } else {
+      if (item.find('-', dash + 1) != std::string_view::npos)
+        throw std::invalid_argument("+boot-harts ranges must contain one dash");
+      const auto first = parse_hart_id(item.substr(0, dash));
+      const auto last = parse_hart_id(item.substr(dash + 1));
+      if (first > last)
+        throw std::invalid_argument("+boot-harts ranges must be ascending");
+      for (auto hart = first; hart <= last; ++hart) {
+        if (!selected.insert(hart).second)
+          throw std::invalid_argument("+boot-harts contains a duplicate hart ID");
+      }
+    }
+    if (comma == std::string_view::npos) break;
+    if (comma + 1 == specification.size())
+      throw std::invalid_argument("+boot-harts contains an empty item");
+    specification.remove_prefix(comma + 1);
+  }
+  return {selected.begin(), selected.end()};
+}
+
 DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
-                                 std::uint64_t boot_address_register, ImageMemoryMap image_memories)
+                                 std::uint64_t boot_address_register,
+                                 std::vector<std::uint32_t> boot_harts,
+                                 ImageMemoryMap image_memories)
     : htif_t(argc, argv), target_xlen_(expected_xlen),
-      boot_address_register_(boot_address_register), image_memories_(std::move(image_memories)) {
+      boot_address_register_(boot_address_register),
+      boot_harts_(std::move(boot_harts)), image_memories_(std::move(image_memories)) {
   if (expected_xlen != 32 && expected_xlen != 64) {
     throw std::invalid_argument("direct-memory HTIF target XLEN must be 32 or 64");
   }
   if (boot_address_register % kMaxBytes != 0) {
     throw std::invalid_argument("boot-address register must be eight-byte aligned");
+  }
+  if (boot_harts_.empty()) {
+    throw std::invalid_argument("at least one boot hart must be selected");
+  }
+  if (!std::is_sorted(boot_harts_.begin(), boot_harts_.end()) ||
+      std::adjacent_find(boot_harts_.begin(), boot_harts_.end()) != boot_harts_.end() ||
+      boot_harts_.back() > kMaximumAclintHartId) {
+    throw std::invalid_argument("boot hart IDs must be unique, ascending, and fit the ACLINT MSWI range");
   }
   set_expected_xlen(expected_xlen);
   image_memories_.freeze();
@@ -115,6 +173,15 @@ void DirectMemoryHtif::reset() {
   if (entry == 0 || (target_xlen_ == 32 && entry > UINT32_MAX))
     throw std::runtime_error("boot entry must be nonzero and fit target XLEN");
   loading_ = false;
+  // Wake every selected hart while the shared entry remains zero. The BootROM
+  // keeps polling with MSIP pending, so publishing the entry last is one release
+  // point after all blocking wakeup writes have completed.
+  for (const auto hart : boot_harts_) {
+    if (hart != 0)
+      transact(true, kAclintBase + hart * kMsipStrideBytes, 1, kMsipStrideBytes);
+  }
+  if (boot_harts_.front() == 0)
+    transact(true, kAclintBase, 1, kMsipStrideBytes);
   // The register is always 64 bits, including on RV32. Wait for final completion.
   transact(true, boot_address_register_, entry, kMaxBytes);
 }

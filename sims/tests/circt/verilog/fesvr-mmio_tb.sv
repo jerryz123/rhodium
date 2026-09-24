@@ -96,7 +96,7 @@ module fesvr_mmio_tb;
     port_in.response_data.bits.src_id = coherent ? 9 : 6;
     port_in.response_data.bits.home_nid_or_pbha_or_mismatched_mecid = coherent ? 5 : 6;
     port_in.response_data.bits.tgt_id = 1;
-    port_in.response_data.bits.data_id = coherent ? address[5:4] : 0;
+    port_in.response_data.bits.data_id = address[5:4];
     port_in.response_data.bits.data = 128'(data) << (address[3:0] * 8);
     case (error_kind)
       1: port_in.response_data.bits.resp_err = 2'd2;
@@ -124,7 +124,7 @@ module fesvr_mmio_tb;
       assert(port_out.request_data.bits.tgt_id == (coherent ? 5 : 6));
       assert(port_out.request_data.bits.byte_enable == 16'(((1 << bytes) - 1) << address[3:0]));
       assert(port_out.request_data.bits.data == (128'(data) << (address[3:0] * 8)));
-      assert(port_out.request_data.bits.data_id == (coherent ? address[5:4] : 0));
+      assert(port_out.request_data.bits.data_id == address[5:4]);
       assert(!responses_out.valid);
       tick();
     end
@@ -191,6 +191,11 @@ module fesvr_mmio_tb;
     return_write(0, 64'h1000, 64'h8877665544332211, 8); finish_command(0);
     issue(0, 64'h1004, 0, 4); expect_request(0, 0, 1, 64'h1004, 2);
     return_read(0, 64'h1004, 64'h88776655); finish_command(64'h88776655);
+    // Noncacheable transfers retain their packet position within a CHI line.
+    issue(1, 64'h1010, 64'h0123456789abcdef, 8); expect_request(1, 0, 1, 64'h1010, 3);
+    return_write(0, 64'h1010, 64'h0123456789abcdef, 8); finish_command(0);
+    issue(0, 64'h1010, 0, 8); expect_request(0, 0, 1, 64'h1010, 3);
+    return_read(0, 64'h1010, 64'h0123456789abcdef); finish_command(64'h0123456789abcdef);
     issue(1, 64'h10000007, 64'ha5, 1); expect_request(1, 0, 1, 64'h10000007, 0);
     return_write(0, 64'h10000007, 64'ha5, 1); finish_command(0);
     issue(0, 64'h10000007, 0, 1); expect_request(0, 0, 1, 64'h10000007, 0);

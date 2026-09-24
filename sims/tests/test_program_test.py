@@ -16,7 +16,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
 def program_target(soc='single-core-rv5stage-soc'):
-    return dict(soc=soc, xlen=64, extensions=['i', 'm'], march='rv64im',
+    return dict(soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,
                 ram=[dict(base=0x80000000, size=0x10000)])
 
@@ -73,12 +73,19 @@ class ProgramTargetTest(unittest.TestCase):
         target.update(harts=[0], boot={'payload_address': 0x80000000})
         self.assertEqual(self.target.validate_target(target), target)
         target['harts'] = [0, 0]
-        with self.assertRaisesRegex(ValueError, 'hart inventory'):
+        with self.assertRaisesRegex(ValueError, 'invalid program target descriptor'):
             self.target.validate_target(target)
         target['harts'] = [0]
         target['boot'] = {'payload_address': -1}
         with self.assertRaisesRegex(ValueError, 'boot description'):
             self.target.validate_target(target)
+
+    def test_target_requires_canonical_hart_ids(self):
+        for harts in ([], [1, 0], [0, 0], [-1], [False]):
+            target = program_target()
+            target['harts'] = harts
+            with self.assertRaisesRegex(ValueError, 'invalid program target descriptor'):
+                self.target.validate_target(target)
 
 
 class ProgramArchiveTest(unittest.TestCase):
@@ -125,8 +132,6 @@ class ProgramArchiveTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     self.archive.package(manifest_path, archive_path)
                 self.assertFalse(archive_path.exists())
-
-
 class CoreMarkBuildTest(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location('coremark_build', SCRIPTS / 'build-coremark.py')
@@ -350,6 +355,37 @@ class ProgramBuildTest(unittest.TestCase):
                          self.builder.SCALAR_BENCHMARKS + self.builder.VECTOR_BENCHMARKS)
         self.assertEqual(self.builder.benchmark_selection(target, 'baseline'), self.builder.SCALAR_BENCHMARKS)
 
+    def test_multihart_benchmark_selection_materializes_target_runtime(self):
+        target = program_target('tiled-rv5stage-soc')
+        target['harts'] = list(range(8))
+        target['extensions'].append('a')
+        self.assertEqual(self.builder.benchmark_selection(target, 'target', 'multihart'),
+                         ('mt-matmul', 'mt-memcpy'))
+        target['extensions'].append('d')
+        self.assertEqual(self.builder.benchmark_selection(target, 'target', 'multihart'),
+                         self.builder.MULTIHART_BENCHMARKS)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            (source / 'env').mkdir(parents=True)
+            common = source / 'benchmarks/common'
+            common.mkdir(parents=True)
+            original = 'before\n  # for now, assume only 1 core\n  li a1, 1\nafter\n'
+            (common / 'crt.S').write_text(original)
+            for benchmark in self.builder.MULTIHART_BENCHMARKS:
+                (source / 'benchmarks' / benchmark).mkdir()
+            self.assertEqual((common / 'crt.S').read_text(), original)
+            for hart_count in (2, 4, 8):
+                with self.subTest(hart_count=hart_count):
+                    generated = self.builder.materialize_multihart_source(
+                        source, root / f'generated-{hart_count}', hart_count,
+                        self.builder.MULTIHART_BENCHMARKS)
+                    self.assertIn(f'li a1, {hart_count}', (generated / 'common/crt.S').read_text())
+                    self.assertEqual((generated.parent / 'env').resolve(), (source / 'env').resolve())
+                    for benchmark in self.builder.MULTIHART_BENCHMARKS:
+                        self.assertEqual((generated / benchmark).resolve(),
+                                         (source / 'benchmarks' / benchmark).resolve())
+
     def test_elf_footprint_uses_memory_size_and_checks_entry(self):
         base = 0x80000000
         with tempfile.TemporaryDirectory() as directory:
@@ -441,7 +477,7 @@ class ProgramBuildTest(unittest.TestCase):
             source, output = root / 'source', root / 'output'
             (source / 'env/p').mkdir(parents=True)
             (source / 'env/p/link.ld').touch()
-            target = dict(soc='mini-rv5stage-soc', xlen=64, extensions=['i'], march='rv64i', mabi='lp64',
+            target = dict(soc='mini-rv5stage-soc', xlen=64, harts=[0], extensions=['i'], march='rv64i', mabi='lp64',
                           clock_frequency_hz=100000000,
                           ram=[dict(base=0x80000000, size=0x10000)])
             target_path = root / 'target.json'
@@ -541,10 +577,83 @@ class ProgramBuildTest(unittest.TestCase):
             self.assertEqual(manifest['target'], target)
             self.assertEqual(manifest['target_fingerprint'], target_fingerprint(target))
             self.assertEqual(manifest['benchmark_mode'], 'target')
+            self.assertEqual(manifest['benchmark_selection'], 'single-hart')
             self.assertEqual(manifest['compiler_arch'], 'normalized-arch')
             self.assertEqual(len(manifest['tests']), len(builder.SCALAR_BENCHMARKS + builder.VECTOR_BENCHMARKS))
             self.assertNotIn('vec-*', manifest['exclusions'])
             self.assertTrue((output / 'instruction-report.json').is_file())
+
+    def test_multihart_benchmark_manifests_boot_selected_harts(self):
+        builder = self.builder
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source = root / 'source'
+            (source / 'env/p').mkdir(parents=True)
+            (source / 'env/p/link.ld').touch()
+            common = source / 'benchmarks/common'
+            common.mkdir(parents=True)
+            (common / 'crt.S').write_text(
+                'before\n  # for now, assume only 1 core\n  li a1, 1\nafter\n')
+            (common / 'test.ld').touch()
+            for benchmark in builder.MULTIHART_BENCHMARKS:
+                (source / 'benchmarks' / benchmark).mkdir()
+            target = program_target('tiled-rv5stage-soc')
+            target['harts'] = list(range(8))
+            target['extensions'].append('a')
+            target['march'] = 'rv64ima'
+            target_path = root / 'target.json'
+            target_path.write_text(json.dumps(target))
+            make_commands = []
+
+            def check_output(command, **kwargs):
+                if command[0] == 'git':
+                    return 'pinned-revision\n'
+                if '--version' in command:
+                    return 'test compiler 15\n'
+                raise AssertionError(command)
+
+            def run(command, **kwargs):
+                if command[0] == 'make':
+                    make_commands.append(command)
+                    for benchmark in builder.benchmark_selection(target, 'target', 'multihart'):
+                        (kwargs['cwd'] / (benchmark + '.riscv')).write_bytes(b'ELF')
+                return subprocess.CompletedProcess(command, 0)
+
+            for build_index, hart_count in enumerate((2, 4, 8), start=1):
+                with self.subTest(hart_count=hart_count):
+                    output = root / f'output-{hart_count}'
+                    argv = ['build.py', '--suite', 'benchmark', '--source', str(source),
+                            '--output', str(output), '--compiler', sys.executable,
+                            '--target', str(target_path), '--benchmark-selection', 'multihart',
+                            '--benchmark-hart-count', str(hart_count)]
+                    with patch.object(sys, 'argv', argv), \
+                            patch.object(builder.subprocess, 'check_output', side_effect=check_output), \
+                            patch.object(builder.subprocess, 'run', side_effect=run), \
+                            patch.object(builder, 'probe_compiler', return_value='normalized-arch'), \
+                            patch.object(builder, 'readelf_for', return_value='readelf'), \
+                            patch.object(builder, 'objdump_for', return_value='objdump'), \
+                            patch.object(builder, 'elf_architecture', return_value='normalized-arch'), \
+                            patch.object(builder, 'instruction_inventory', return_value=dict(instruction_count=1,
+                                                                                             compressed_instruction_count=0,
+                                                                                             unknown_instruction_count=0,
+                                                                                             mnemonics={'addi': 1})), \
+                            patch.object(builder, 'check_elf_memory', return_value=[]):
+                        builder.main()
+                    self.assertEqual(len(make_commands), build_index)
+                    source_argument = next(argument for argument in make_commands[-1]
+                                           if argument.startswith('src_dir='))
+                    generated = Path(source_argument.removeprefix('src_dir='))
+                    self.assertIn(f'li a1, {hart_count}', (generated / 'common/crt.S').read_text())
+                    manifest = json.loads((output / 'manifest.json').read_text())
+                    self.assertEqual(manifest['benchmark_selection'], 'multihart')
+                    self.assertEqual(manifest['benchmark_hart_count'], hart_count)
+                    self.assertEqual([test['name'] for test in manifest['tests']],
+                                     [name + '.riscv' for name in
+                                      builder.benchmark_selection(target, 'target', 'multihart')])
+                    self.assertTrue(all(test['harts'] == list(range(hart_count))
+                                        for test in manifest['tests']))
+                    self.assertEqual(manifest['target']['harts'], target['harts'])
+                    self.assertEqual(manifest['exclusions']['mt-vvadd'], 'Requires target extensions: d.')
 
 
 class ProgramRunnerTest(unittest.TestCase):
@@ -556,8 +665,10 @@ class ProgramRunnerTest(unittest.TestCase):
         simulator = root / 'simulator with spaces'
         simulator.write_text(f'#!{sys.executable}\n'
                              'import sys\nfrom pathlib import Path\n'
-                             "assert sys.argv[1:4] == ['+permissive', '+max-cycles=123', '+permissive-off']\n"
-                             'exec(Path(sys.argv[4]).read_text())\n')
+                             'args = sys.argv[1:]\n'
+                             "if args[0].startswith('+boot-harts='): args = args[1:]\n"
+                             "assert args[:3] == ['+permissive', '+max-cycles=123', '+permissive-off']\n"
+                             'exec(Path(args[3]).read_text())\n')
         simulator.chmod(0o755)
         tests = []
         for name, body in bodies.items():
@@ -604,6 +715,11 @@ class ProgramRunnerTest(unittest.TestCase):
         self.assertEqual(results['summary']['passed'], 1)
         self.assertTrue((Path(self.directory.name) / 'results/junit.xml').is_file())
 
+    def test_success_marker_may_follow_uart_output_on_the_same_line(self):
+        process, results = self.run_suite({'pass': "print('uartSoC harness simulation passed')"})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(results['summary']['passed'], 1)
+
     def test_manifest_output_contract_is_enforced(self):
         bodies = {
             'matched': "print('expected marker'); print('SoC harness simulation passed')",
@@ -646,6 +762,21 @@ class ProgramRunnerTest(unittest.TestCase):
                                           target=target, matching_metadata=False)
         self.assertNotEqual(process.returncode, 0)
         self.assertIsNone(results)
+
+    def test_per_test_harts_are_validated_and_passed_to_simulator(self):
+        target = program_target()
+        target['harts'] = [0, 1, 2]
+        process, results = self.run_suite(
+            {'parallel': "print('SoC harness simulation passed')"}, target=target,
+            contracts={'parallel': dict(harts=[0, 2])})
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(results['tests'][0]['command'][1], '+boot-harts=0,2')
+        for harts in ([2, 0], [0, 3], []):
+            process, results = self.run_suite(
+                {'invalid': "print('SoC harness simulation passed')"}, target=target,
+                contracts={'invalid': dict(harts=harts)})
+            self.assertNotEqual(process.returncode, 0)
+            self.assertIsNone(results)
 
 
 class SimulatorArtifactTest(unittest.TestCase):

@@ -113,6 +113,7 @@ ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/rv5stage_zihintntl.elf
 ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/rv5stage_zihintntl.signature
 LRSC_BINARIES := $(SOC_BUILD_DIR)/rv5stage_lrsc_0.elf $(SOC_BUILD_DIR)/rv5stage_lrsc_1.elf
 LRSC_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),8,1)
+LRSC_BOOT_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),+boot-harts=0-7,)
 LRSC_IALIGN := $(if $(filter mini mini-rv5stage-soc,$(SOC)),4,2)
 LRSC_PAGE_TABLE_BASE := $(if $(filter mini mini-rv5stage-soc,$(SOC)),0x8000b000,0x80010000)
 LRSC_MEMORY_LIMIT := $(if $(filter mini mini-rv5stage-soc,$(SOC)),0x80010000,0xc0000000)
@@ -156,15 +157,14 @@ uart-pty-test: $(UART_PTY_BINARY) simulator
 lrsc-test:
 	@test "$(CORE)" = rv5stage && test -n "$(filter $(SOC),mini single tiled mini-rv5stage-soc single-core-rv5stage-soc tiled-rv5stage-soc)"
 	$(MAKE) lrsc-run SOC=$(SOC) TRACE=0 PREBUILT_SIMULATOR= \
-	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test" \
-	  HARNESS_SELECTOR=$(if $(filter tiled-rv5stage-soc,$(SOC)),sims/tests/lrsc-tiled-soc-harness.rhdl,$(HARNESS_SELECTOR_$(SOC)))
+	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test"
 
 lrsc-run: $(LRSC_BINARIES) simulator
 	@status=0; for mode in 0 1; do \
 	  echo "LR/SC qualification: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
 	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
-	  if $(SIMULATOR_BINARY) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/rv5stage_lrsc_$$mode.elf" && \
-	    awk -v expected="$(if $(filter tiled-rv5stage-soc,$(SOC)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
+	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/rv5stage_lrsc_$$mode.elf" && \
+	    awk -v expected="$(if $(filter tiled tiled-rv5stage-soc,$(SOC)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
 	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
 	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
 	done; exit $$status

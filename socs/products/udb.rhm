@@ -12,7 +12,7 @@ import:
   "../platform/fabric-profiles.rhm" open
 
 def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "single-core-spike-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
-def SingleCoreRV5StageSoCUdbPmlen = 7
+def FullRV5StageSoCUdbPmlen = 7
 
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
   match configuration_name
@@ -22,7 +22,7 @@ fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfigur
         "rhodium-single-core-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Single-Core RV5Stage SoC",
         rhodium_soc_flit.request_address_width,
-        ~pmlen: SingleCoreRV5StageSoCUdbPmlen
+        ~pmlen: FullRV5StageSoCUdbPmlen
       )
   | "single-core-spike-soc":
       spike_udb_configuration(
@@ -42,7 +42,8 @@ fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfigur
         tiled_rv5stage_soc_core_profile,
         "rhodium-tiled-rv5stage-soc-rv64",
         "RV5Stage configuration instantiated by Rhodium Tiled RV5Stage SoC",
-        rhodium_soc_flit.request_address_width
+        rhodium_soc_flit.request_address_width,
+        ~pmlen: FullRV5StageSoCUdbPmlen
       )
   | ~else:
       error(~who: #'riscv_udb_configuration,

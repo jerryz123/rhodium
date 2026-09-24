@@ -12,6 +12,7 @@ import:
   lib("riscv/rtl/pma.rhdl") open
   lib("riscv/isa/xlen.rhm").XLen
   lib("devices/boot/bootrom-image.rhm") open
+  lib("devices/interrupt/aclint-layout.rhm").AclintBase
   lib("devices/boot/bootrom.rhdl") open
   lib("devices/boot/boot-address.rhdl").BootAddressWindowBytes
   "description.rhm".RiscvSoCDescription
@@ -42,6 +43,9 @@ class SoCBootConfig(reset_address :: Nat,
             "SoC description boot layout must match the BootROM configuration")
     unless (!description.boot.address_register) || description.boot.address_register.base == boot_address_register
     | error(~who: #'image_for, "SoC description boot-address register must match the BootROM configuration")
+    unless description.aclint.region.base == AclintBase
+    | error(~who: #'image_for,
+            "SoC description must use the fixed ACLINT base")
     def device_tree_bytes = description.to_device_tree().to_dtb().to_list()
     def image = BootROMImage(
       program.bytes ++ (
@@ -72,7 +76,8 @@ class SoCBootConfig(reset_address :: Nat,
     | error(~who: #'SoCBootConfig, "boot-address register must be page aligned")
     unless payload_address < (1 << 64)
     | error(~who: #'SoCBootConfig, "default payload address must fit in 64 bits")
-    super(reset_address, payload_address, window_bytes, device_tree_offset, program, boot_address_register)
+    super(reset_address, payload_address, window_bytes, device_tree_offset, program,
+          boot_address_register)
 
 fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMResetAddress,
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,

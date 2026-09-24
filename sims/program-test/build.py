@@ -4,6 +4,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -17,6 +18,10 @@ from program_target import (elf_architecture, instruction_inventory, load_target
 SCALAR_BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
                      'multiply', 'mm', 'dhrystone', 'spmv')
 VECTOR_BENCHMARKS = ('vec-memcpy', 'vec-daxpy', 'vec-sgemm', 'vec-strcmp')
+MULTIHART_BENCHMARKS = ('mt-vvadd', 'mt-matmul', 'mt-memcpy')
+MULTIHART_BENCHMARK_REQUIREMENTS = {'mt-vvadd': frozenset(('d',)),
+                                    'mt-matmul': frozenset(),
+                                    'mt-memcpy': frozenset()}
 FLAGS = ('-U_FORTIFY_SOURCE -DPREALLOCATE=0 -mcmodel=medany -static -std=gnu99 '
          '-O2 -ffast-math -fno-common -fno-builtin-printf '
          '-fno-tree-loop-distribute-patterns -Wno-implicit-int '
@@ -74,9 +79,44 @@ def smoke_selection(target):
              for extension in extensions for test in SMOKE_TESTS[extension]])
 
 
-def benchmark_selection(target, mode):
+def multihart_benchmark_harts(target):
+    harts = target['harts']
+    if len(harts) < 2 or harts != list(range(len(harts))) or 'a' not in target['extensions']:
+        raise ValueError('multihart benchmarks require at least two contiguous harts starting at zero and A')
+    return harts
+
+
+def benchmark_selection(target, mode, selection='single-hart'):
+    if selection == 'multihart':
+        if mode != 'target':
+            raise ValueError('multihart benchmarks require target-native compilation')
+        multihart_benchmark_harts(target)
+        extensions = set(target['extensions'])
+        return tuple(benchmark for benchmark in MULTIHART_BENCHMARKS
+                     if MULTIHART_BENCHMARK_REQUIREMENTS[benchmark] <= extensions)
     vector = VECTOR_BENCHMARKS if mode == 'target' and 'v' in target['extensions'] else ()
     return SCALAR_BENCHMARKS + vector
+
+
+def materialize_multihart_source(source, destination, hart_count, benchmarks):
+    source_benchmarks = source / 'benchmarks'
+    generated = destination / 'benchmarks'
+    if destination.exists():
+        shutil.rmtree(destination)
+    generated.mkdir(parents=True)
+    os.symlink(source / 'env', destination / 'env', target_is_directory=True)
+    shutil.copytree(source_benchmarks / 'common', generated / 'common')
+    for benchmark in benchmarks:
+        os.symlink(source_benchmarks / benchmark, generated / benchmark, target_is_directory=True)
+    crt = generated / 'common/crt.S'
+    text = crt.read_text()
+    marker = '  # for now, assume only 1 core\n  li a1, 1\n'
+    if text.count(marker) != 1:
+        raise ValueError('upstream multihart runtime core-count marker changed')
+    crt.write_text(text.replace(marker,
+                                '  # Rhodium build overlay selects the target hart count\n'
+                                f'  li a1, {hart_count}\n'))
+    return generated
 
 
 def check_elf_memory(elf, regions, require_executable_entry=True):
@@ -124,6 +164,8 @@ def main():
     parser.add_argument('--target', type=Path, help='generated concrete SoC program-target descriptor')
     parser.add_argument('--isa-selection', choices=('full', 'smoke'))
     parser.add_argument('--benchmark-mode', choices=('target', 'baseline'), default='target')
+    parser.add_argument('--benchmark-selection', choices=('single-hart', 'multihart'), default='single-hart')
+    parser.add_argument('--benchmark-hart-count', type=int, choices=(2, 4, 8))
     args = parser.parse_args()
     try:
         target = load_target(args.target) if args.target else None
@@ -135,6 +177,15 @@ def main():
         parser.error('ISA builds require --isa-selection=full or --isa-selection=smoke')
     if args.suite != 'isa' and args.isa_selection:
         parser.error('--isa-selection applies only to ISA builds')
+    if args.suite != 'benchmark' and args.benchmark_selection != 'single-hart':
+        parser.error('--benchmark-selection applies only to benchmark builds')
+    if args.benchmark_selection == 'multihart':
+        if args.benchmark_hart_count is None:
+            parser.error('multihart benchmarks require --benchmark-hart-count=2, 4, or 8')
+        if args.benchmark_hart_count > len(multihart_benchmark_harts(target)):
+            parser.error('benchmark hart count exceeds the target hart count')
+    elif args.benchmark_hart_count is not None:
+        parser.error('--benchmark-hart-count applies only to multihart benchmark builds')
     source, output = args.source.resolve(), args.output.resolve()
     compiler = shutil.which(args.compiler)
     if not compiler or not (source / 'env/p/link.ld').is_file():
@@ -146,6 +197,8 @@ def main():
         subprocess.run(['git', '-C', str(checkout), 'diff', '--quiet', 'HEAD', '--ignore-submodules=untracked'], check=True)
     key = hashlib.sha256((revision + env_revision + version + str(source) + compiler
                           + str(args.isa_selection) + args.benchmark_mode
+                          + args.benchmark_selection
+                          + str(args.benchmark_hart_count)
                           + json.dumps(target, sort_keys=True)).encode()
                          + Path(__file__).read_bytes() + (HERE / 'program_target.py').read_bytes()
                          + (HERE / 'isa.mk').read_bytes()).hexdigest()
@@ -182,20 +235,36 @@ def main():
         if args.isa_selection == 'smoke':
             exclusions['other instruction groups'] = 'Outside the fixed capability-filtered ISA smoke subset.'
     else:
-        benchmarks = benchmark_selection(target, args.benchmark_mode)
+        try:
+            benchmarks = benchmark_selection(target, args.benchmark_mode, args.benchmark_selection)
+        except ValueError as error:
+            parser.error(str(error))
         names = [name + '.riscv' for name in benchmarks]
         if args.benchmark_mode == 'baseline' and target['xlen'] != 64:
             parser.error('the benchmark baseline is defined only for RV64')
         march = target['march'] if args.benchmark_mode == 'target' else BASELINE_MARCH
         mabi = target['mabi'] if args.benchmark_mode == 'target' else BASELINE_MABI
         compiler_arch = probe_compiler(compiler, march, mabi, build)
+        benchmark_source = source / 'benchmarks'
+        if args.benchmark_selection == 'multihart':
+            benchmark_source = materialize_multihart_source(
+                source, build / 'multihart-source', args.benchmark_hart_count, benchmarks)
         command = ['make', '--no-print-directory', '-f', str(source / 'benchmarks/Makefile'),
-                   f'XLEN={target["xlen"]}', f'src_dir={source / "benchmarks"}', f'RISCV_GCC={compiler}',
+                   f'XLEN={target["xlen"]}', f'src_dir={benchmark_source}', f'RISCV_GCC={compiler}',
                    f'RISCV_MARCH={march}', f'RISCV_VMARCH={march}', f'RISCV_GCC_OPTS={FLAGS} -mabi={mabi}',
-                   f'RISCV_LINK_OPTS=-static -nostdlib -nostartfiles -lm -lgcc -T {source / "benchmarks/common/test.ld"}']
-        exclusions = {'mt-*': 'Requires multiple active harts.', 'pmp': 'Requires PMP.'}
-        if args.benchmark_mode != 'target' or 'v' not in target['extensions']:
-            exclusions['vec-*'] = 'Requires target-native V compilation.'
+                   f'RISCV_LINK_OPTS=-static -nostdlib -nostartfiles -lm -lgcc -T {benchmark_source / "common/test.ld"}']
+        if args.benchmark_selection == 'multihart':
+            exclusions = {'non-mt benchmarks': 'Outside the focused multihart benchmark selection.',
+                          'pmp': 'Requires PMP.'}
+            for benchmark in MULTIHART_BENCHMARKS:
+                if benchmark not in benchmarks:
+                    required = ', '.join(sorted(MULTIHART_BENCHMARK_REQUIREMENTS[benchmark]))
+                    exclusions[benchmark] = f'Requires target extensions: {required}.'
+        else:
+            exclusions = {'mt-*': 'Covered by the TiledRV5StageSoC multihart benchmark selection.',
+                          'pmp': 'Requires PMP.'}
+            if args.benchmark_mode != 'target' or 'v' not in target['extensions']:
+                exclusions['vec-*'] = 'Requires target-native V compilation.'
     if not names or len(names) != len(set(names)):
         raise RuntimeError('upstream selection is empty or contains duplicate tests')
     stamp = build / 'built.json'
@@ -227,6 +296,8 @@ def main():
             raise RuntimeError(f'selected ELF is missing: {elf}')
         tests.append({'name': name, 'elf': str(elf.relative_to(output)),
                       'sha256': hashlib.sha256(elf.read_bytes()).hexdigest()})
+        if args.suite == 'benchmark' and args.benchmark_selection == 'multihart':
+            tests[-1]['harts'] = target['harts'][:args.benchmark_hart_count]
         if readelf:
             elf_arch = elf_architecture(readelf, elf)
             if elf_arch != compiler_arch:
@@ -245,7 +316,9 @@ def main():
         manifest['selection'] = args.isa_selection
     if args.suite == 'benchmark':
         manifest.update(benchmark_mode=args.benchmark_mode, march=march, mabi=mabi,
-                        compiler_arch=compiler_arch)
+                        benchmark_selection=args.benchmark_selection, compiler_arch=compiler_arch)
+        if args.benchmark_selection == 'multihart':
+            manifest['benchmark_hart_count'] = args.benchmark_hart_count
         (output / 'instruction-report.json').write_text(json.dumps({
             'mode': args.benchmark_mode,
             'march': march,

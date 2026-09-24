@@ -1,0 +1,20 @@
+#lang rhombus
+// Defines the fixed architectural address and register layout of the ACLINT.
+// SPDX-License-Identifier: Apache-2.0
+
+def AclintBase = 0x02000000
+def AclintAddressWidth = 16
+def AclintWindowBytes = 0x10000
+def AclintMswiOffset = 0x0000
+def AclintMtimecmpOffset = 0x4000
+def AclintMtimeOffset = 0xbff8
+def AclintMaximumHarts = 4095
+
+export:
+  AclintBase
+  AclintAddressWidth
+  AclintWindowBytes
+  AclintMswiOffset
+  AclintMtimecmpOffset
+  AclintMtimeOffset
+  AclintMaximumHarts

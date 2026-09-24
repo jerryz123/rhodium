@@ -10,8 +10,9 @@ limits. This guide owns source placement, extension workflow, and validation.
 ## Architecture and ownership
 
 Device modules own accepted CHI operations, transfer sizes, register offsets,
-window constraints, and device-local parameter validation. SoCs own NodeIDs,
-address placement, PMA and Home routing, clock/tick policy, and interrupt
+window constraints, and device-local parameter validation. ACLINT additionally
+owns its fixed architectural base. SoCs own NodeIDs, other device address
+placement, PMA and Home routing, clock/tick policy, and interrupt
 wiring. Simulators own terminal processes, executable harnesses, and other
 host policy.
 
@@ -48,6 +49,7 @@ model stays beside its Rhodium adapter under `uart/dpi/`.
 | Area | Owning source |
 |---|---|
 | Boot image and reset trampoline | [`boot/bootrom-image.rhm`](boot/bootrom-image.rhm) |
+| Fixed ACLINT address and register layout | [`interrupt/aclint-layout.rhm`](interrupt/aclint-layout.rhm) |
 | CHI boot-address register | [`boot/boot-address.rhdl`](boot/boot-address.rhdl) |
 | CHI BootROM endpoint | [`boot/bootrom.rhdl`](boot/bootrom.rhdl) |
 | ACLINT registers, interrupts, and CHI endpoint | [`interrupt/aclint.rhdl`](interrupt/aclint.rhdl) |
@@ -65,7 +67,8 @@ model stays beside its Rhodium adapter under `uart/dpi/`.
 ## Add or change a device
 
 1. Define the reusable hardware boundary without choosing a system address or
-   processor-specific interrupt route.
+   processor-specific interrupt route, except for ACLINT's fixed architectural
+   placement.
 2. Validate configuration at elaboration and make unsupported accesses or
    register modes fail at the narrowest owning boundary.
 3. Keep register effects, response timing, interrupt generation, and serial or

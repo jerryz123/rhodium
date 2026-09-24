@@ -198,7 +198,7 @@ jobs:
     needs: [changes, compile-racket, single-core-rv5stage-soc-build, single-core-spike-soc-build]
     if: needs.changes.outputs.simulation == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -306,11 +306,12 @@ jobs:
         run: make -C vlsi/sim smoke
       - name: Prepare upstream ISA sources
         run: make -C sims program-test-setup
-      - name: Run MiniRV5StageSoC and TiledRV5StageSoC ISA smoke subsets
+      - name: Run small MiniRV5StageSoC and TiledRV5StageSoC software suites
         run: |
           status=0
           make -C sims isa-smoke SOC=mini-rv5stage-soc PROGRAM_JOBS=2 || status=1
           make -C sims isa-smoke SOC=tiled-rv5stage-soc PROGRAM_JOBS=2 || status=1
+          make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc PROGRAM_JOBS=1 || status=1
           exit "$status"
       - name: Package completed ISA smoke ELFs
         if: always()
@@ -321,7 +322,7 @@ jobs:
             python3 sims/program-test/archive.py --manifest "$manifest" \
               --archive "$RUNNER_TEMP/isa-smoke-elfs/$soc.tar.gz"
           done
-      - name: Publish MiniRV5StageSoC and TiledRV5StageSoC ISA smoke results
+      - name: Publish MiniRV5StageSoC and TiledRV5StageSoC software results
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -331,6 +332,10 @@ jobs:
             /tmp/rhodium-program-tests/*/isa-smoke/manifest.json
             /tmp/rhodium-program-tests/*/isa-smoke/build.log
             /tmp/rhodium-program-tests/*/isa-smoke/results
+            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/manifest.json
+            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/instruction-report.json
+            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/build.log
+            /tmp/rhodium-program-tests/*/mt-benchmark/*-harts/results
             ${{ runner.temp }}/isa-smoke-elfs
           if-no-files-found: warn
           retention-days: 7

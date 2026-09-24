@@ -4,12 +4,19 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <string_view>
+#include <vector>
 #include "image_memory.h"
 
 #include <fesvr/context.h>
 #include <fesvr/htif.h>
 
 namespace rhodium::fesvr {
+
+constexpr std::uint32_t kMaximumAclintHartId = 4094;
+constexpr std::uint64_t kAclintBase = 0x02000000;
+
+std::vector<std::uint32_t> parse_boot_harts(std::string_view specification);
 
 struct DirectMemoryRequest {
   bool write;
@@ -20,7 +27,9 @@ struct DirectMemoryRequest {
 
 class DirectMemoryHtif : public htif_t {
  public:
-  DirectMemoryHtif(int argc, char** argv, int expected_xlen, std::uint64_t boot_address_register,
+  DirectMemoryHtif(int argc, char** argv, int expected_xlen,
+                   std::uint64_t boot_address_register,
+                   std::vector<std::uint32_t> boot_harts = {0},
                    ImageMemoryMap image_memories = {});
   ~DirectMemoryHtif() override = default;
 
@@ -64,6 +73,7 @@ class DirectMemoryHtif : public htif_t {
 
   const int target_xlen_;
   const std::uint64_t boot_address_register_;
+  const std::vector<std::uint32_t> boot_harts_;
   bool loading_ = true;
   ImageMemoryMap image_memories_;
 };

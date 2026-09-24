@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "aclint-layout.rhm" open
   lib("support/annotations.rhm").NonemptyString
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/interconnect.rhdl") open
@@ -13,13 +14,6 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/subordinate/single-beat-subordinate.rhdl").CHISingleBeatSubordinate
-
-def AclintAddressWidth = 16
-def AclintWindowBytes = 0x10000
-def AclintMswiOffset = 0x0000
-def AclintMtimecmpOffset = 0x4000
-def AclintMtimeOffset = 0xbff8
-def AclintMaximumHarts = 4095
 
 class AclintConfig(flit :: CHIFlitParams,
                    hart_count :: Int.in(1 ..= AclintMaximumHarts)):
@@ -34,8 +28,7 @@ class AclintConfig(flit :: CHIFlitParams,
 
 class AclintParams(name :: NonemptyString,
                    node_id :: Nat,
-                   config :: AclintConfig,
-                   base_address :: Nat):
+                   config :: AclintConfig):
 
   property node:
     CHINodeParams(
@@ -58,28 +51,23 @@ class AclintParams(name :: NonemptyString,
   property service:
     CHISubordinateServiceParams(
       icn_port,
-      [AddressSet(base_address, AclintWindowBytes - 1)],
+      [AddressSet(AclintBase, AclintWindowBytes - 1)],
       config.requests
     )
 
   constructor (name :: NonemptyString,
                node_id :: Nat,
-               config :: AclintConfig,
-               base_address :: Nat):
-    unless base_address mod AclintWindowBytes == 0
-    | error(~who: #'AclintParams,
-            "base address must be aligned to the ACLINT window size")
-    unless bits.length((base_address + AclintWindowBytes) - 1) <= config.flit.request_address_width
+               config :: AclintConfig):
+    unless bits.length((AclintBase + AclintWindowBytes) - 1) <= config.flit.request_address_width
     | error(~who: #'AclintParams,
             "ACLINT window must fit in the CHI request address width")
     unless bits.length(node_id) <= config.flit.node_id_width
     | error(~who: #'AclintParams,
             "NodeID must fit in the physical NodeID width")
-    super(name, node_id, config, base_address)
+    super(name, node_id, config)
 
 bundle AclintIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
-  base_address: Bits(p.request_address_width)
 
 sync_circuit Aclint(config :: AclintConfig):
   def p = config.flit
@@ -112,8 +100,9 @@ sync_circuit Aclint(config :: AclintConfig):
   def incoming = port.req.bits
   def incoming_opcode :: CHIReqOpcode = incoming.opcode
   def incoming_write = incoming_opcode.is_initial_write()
-  def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - identity.base_address
-  def incoming_in_window = (incoming.address >= identity.base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].or_reduce()
+  def base_address = bits(AclintBase, p.request_address_width)
+  def incoming_relative_full :: Bits(p.request_address_width) = incoming.address - base_address
+  def incoming_in_window = (incoming.address >= base_address) & !incoming_relative_full[AclintAddressWidth..p.request_address_width].or_reduce()
   def incoming_supported = incoming_opcode.supports_initial_transaction() & incoming_in_window & (
     incoming.size_or_num_req[0..3] <= bits(3, 3)
   ) & (
@@ -122,7 +111,7 @@ sync_circuit Aclint(config :: AclintConfig):
   transaction.request_supported <== incoming_supported
   def request_fire = transaction.request_fire
   def incoming_relative :: Bits(AclintAddressWidth) = incoming_relative_full[0..AclintAddressWidth]
-  def request_relative_full :: Bits(p.request_address_width) = request.address - identity.base_address
+  def request_relative_full :: Bits(p.request_address_width) = request.address - base_address
   def request_relative :: Bits(AclintAddressWidth) = request_relative_full[0..AclintAddressWidth]
   def active_address :: Bits(AclintAddressWidth) = mux(request_fire & !incoming_write,
                                                        incoming_relative,
@@ -191,6 +180,7 @@ sync_circuit Aclint(config :: AclintConfig):
 
 
 export:
+  AclintBase
   AclintAddressWidth
   AclintWindowBytes
   AclintMswiOffset

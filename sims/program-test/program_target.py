@@ -10,11 +10,15 @@ import subprocess
 
 
 def validate_target(target):
-    required = {'soc', 'xlen', 'extensions', 'march', 'mabi', 'clock_frequency_hz', 'ram'}
+    required = {'soc', 'xlen', 'harts', 'extensions', 'march', 'mabi', 'clock_frequency_hz', 'ram'}
     if not isinstance(target, dict) or not required <= set(target):
         raise ValueError(f'program target must contain {sorted(required)}')
     extensions = target['extensions']
+    harts = target['harts']
     if (not isinstance(target['soc'], str) or not target['soc'] or target['xlen'] not in (32, 64)
+            or not isinstance(harts, list) or not harts
+            or any(not isinstance(hart, int) or isinstance(hart, bool) or hart < 0 for hart in harts)
+            or harts != sorted(harts) or len(harts) != len(set(harts))
             or not isinstance(extensions, list) or not extensions
             or any(not isinstance(extension, str) or not extension for extension in extensions)
             or len(extensions) != len(set(extensions)) or 'i' not in extensions
@@ -36,12 +40,6 @@ def validate_target(target):
                 or any(mode not in ('m', 's', 'u') for mode in modes)
                 or len(modes) != len(set(modes))):
             raise ValueError('invalid program target MMU or privilege modes')
-    if 'harts' in target:
-        harts = target['harts']
-        if (not isinstance(harts, list) or not harts
-                or any(not isinstance(hart, int) or hart < 0 for hart in harts)
-                or len(harts) != len(set(harts))):
-            raise ValueError('invalid program target hart inventory')
     if 'boot' in target:
         boot = target['boot']
         if (not isinstance(boot, dict) or set(boot) != {'payload_address'}

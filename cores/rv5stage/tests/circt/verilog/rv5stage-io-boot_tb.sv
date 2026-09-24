@@ -1,4 +1,4 @@
-// Executes cached polling BootROM with delayed uncached entry publication, secondary parking, and IO ordering.
+// Executes cached BootROM with explicit per-hart MSIP release and IO ordering.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_io_boot_tb;
   typedef struct packed {
@@ -25,7 +25,10 @@ module rv5stage_io_boot_tb;
   } chi_out_t;
   logic clock = 0, reset = 1;
   logic [63:0] hart_id = 0, entry_address = 0;
-  logic [9:0][31:0] boot_words;
+  logic machine_software_interrupt_request = 0;
+  logic machine_software_interrupt_cleared = 0;
+  logic machine_software_interrupt;
+  logic [17:0][31:0] boot_words;
   chi_in_t umem_in;
   chi_out_t umem_out;
   chi_in_t imem_in;
@@ -36,19 +39,22 @@ module rv5stage_io_boot_tb;
   logic [43:0] rom_address;
   localparam int IDLE = 0, READ = 1, DBID = 2, DATA = 3, COMP = 4;
   int state = IDLE, delay_left = 0, latency = 0, cycle = 0;
-  int boot_reads = 0, stores = 0, completions = 0, payload_fetches = 0;
-  bit park_fetched = 0;
+  int boot_reads = 0, stores = 0, completions = 0, interrupt_clears = 0, payload_fetches = 0;
   logic [43:0] address;
+  logic [43:0] msip_address;
   logic [127:0] read_value;
 
+  assign machine_software_interrupt = machine_software_interrupt_request && !machine_software_interrupt_cleared;
+  assign msip_address = 44'h02000000 + {hart_id[41:0], 2'b00};
+
   RV5StagePollingBoot dut (
-    .clock, .reset, .hart_id, .boot_words,
+    .clock, .reset, .hart_id, .machine_software_interrupt, .boot_words,
     .imem_in, .dmem_in('0), .imem_out, .dmem_out(),
     .umem_in, .umem_out
   );
 
   function automatic logic [31:0] instruction_at(input logic [43:0] pc);
-    if (pc >= 44'hc000 && pc < 44'hc028) return boot_words[(pc - 44'hc000) >> 2];
+    if (pc >= 44'hc000 && pc < 44'hc048) return boot_words[(pc - 44'hc000) >> 2];
     case (pc)
       44'hc100: return 32'h000082b7; // lui t0, 8
       44'hc104: return 32'h02a00313; // addi t1, zero, 42
@@ -94,8 +100,9 @@ module rv5stage_io_boot_tb;
       boot_reads <= 0;
       stores <= 0;
       completions <= 0;
+      interrupt_clears <= 0;
       payload_fetches <= 0;
-      park_fetched <= 0;
+      machine_software_interrupt_cleared <= 0;
       read_value <= 0;
       address <= 0;
       rom_active <= 0;
@@ -127,7 +134,6 @@ module rv5stage_io_boot_tb;
         // read must still acquire a new ROM line, never repeat a resident one.
         rom_lines_seen[imem_out.req.bits.address[8:6]] <= 1;
         if (imem_out.req.bits.address == 44'hc100) payload_fetches <= payload_fetches + 1;
-        if (imem_out.req.bits.address == 44'hc000) park_fetched <= 1;
       end
       if (imem_in.dat.response.valid && imem_out.dat.response.ready) begin
         rom_packet <= rom_packet + 1;
@@ -143,17 +149,22 @@ module rv5stage_io_boot_tb;
         if (umem_out.req.bits.opcode == 7'h04) begin
           state <= READ;
           assert (umem_out.req.bits.address == 44'h8000 &&
-                  umem_out.req.bits.size_or_num_req == 6'd3 && hart_id == 0)
-            else $fatal(1, "only primary-hart entry polling may use uncached reads");
+                  umem_out.req.bits.size_or_num_req == 6'd3)
+            else $fatal(1, "boot entry read used the wrong uncached transaction");
           boot_reads <= boot_reads + 1;
           read_value <= 128'(entry_address);
         end else begin
-          assert (umem_out.req.bits.opcode == 7'h1c &&
-                  umem_out.req.bits.size_or_num_req == 6'd2 &&
-                  umem_out.req.bits.address == (stores == 0 ? 44'h8008 : 44'h800c) &&
-                  stores < 2 && completions == stores)
-            else $fatal(1, "signature store duplicated, reordered, or passed fence");
-          stores <= stores + 1;
+          assert (umem_out.req.bits.opcode == 7'h1c && umem_out.req.bits.size_or_num_req == 6'd2)
+            else $fatal(1, "boot write used the wrong uncached transaction");
+          if (umem_out.req.bits.address == msip_address) begin
+            assert (interrupt_clears == 0 && stores == 0)
+              else $fatal(1, "MSIP clear was duplicated or followed payload stores");
+          end else begin
+            assert (umem_out.req.bits.address == (stores == 0 ? 44'h8008 : 44'h800c) &&
+                    stores < 2 && completions == stores)
+              else $fatal(1, "signature store duplicated, reordered, or passed fence");
+            stores <= stores + 1;
+          end
           state <= DBID;
         end
       end
@@ -162,14 +173,24 @@ module rv5stage_io_boot_tb;
         delay_left <= latency;
         if (state == DBID) state <= DATA;
         else begin
-          completions <= completions + 1;
+          if (address == msip_address) begin
+            interrupt_clears <= interrupt_clears + 1;
+            machine_software_interrupt_cleared <= 1;
+          end else begin
+            completions <= completions + 1;
+          end
           state <= IDLE;
         end
       end
       if (umem_out.dat.request.valid && umem_in.dat.request.ready) begin
         assert (umem_out.dat.request.bits.txn_id == 12'h123 &&
-                umem_out.dat.request.bits.byte_enable == (address == 44'h8008 ? 16'h0f00 : 16'hf000) &&
-                umem_out.dat.request.bits.data == (128'd42 << (8 * address[3:0])))
+                umem_out.dat.request.bits.byte_enable == (
+                  address == msip_address ? (16'h000f << address[3:0]) :
+                  (address == 44'h8008 ? 16'h0f00 : 16'hf000)
+                ) &&
+                umem_out.dat.request.bits.data == (
+                  address == msip_address ? 128'd0 : (128'd42 << (8 * address[3:0]))
+                ))
           else $fatal(1, "incorrect signature store payload");
         state <= COMP;
         delay_left <= latency + 8;
@@ -187,26 +208,38 @@ module rv5stage_io_boot_tb;
     for (int run = 0; run < 3; run++) begin
       latency = run == 0 ? 0 : run == 1 ? 3 : 17;
       reset = 1;
+      hart_id = 0;
       entry_address = 0;
+      machine_software_interrupt_request = 0;
       tick();
       reset = 0;
-      for (int wait_cycle = 0; wait_cycle < 3000 && boot_reads < 3; wait_cycle++) tick();
-      assert (boot_reads >= 3 && stores == 0 && payload_fetches == 0 && rom_lines_seen[0])
-        else $fatal(1, "core did not wait in ROM for entry publication");
+      repeat (300) tick();
+      assert (boot_reads == 0 && stores == 0 && payload_fetches == 0 && rom_lines_seen[0])
+        else $fatal(1, "core did not sleep in ROM before release");
       entry_address = 64'hc100;
+      repeat (100) tick();
+      assert (boot_reads == 0 && stores == 0 && payload_fetches == 0)
+        else $fatal(1, "entry publication released a hart without MSIP");
+      machine_software_interrupt_request = 1;
       for (int wait_cycle = 0; wait_cycle < 3000 && completions != 2; wait_cycle++) tick();
-      assert (completions == 2 && boot_reads >= 4 && payload_fetches == 1 && rom_lines_seen[0] && rom_lines_seen[4])
+      assert (completions == 2 && interrupt_clears == 1 && boot_reads == 1 &&
+              payload_fetches == 1 && rom_lines_seen[0] && rom_lines_seen[4])
         else $fatal(1, "indirect boot made no progress at latency %0d", latency);
       repeat (80) tick();
       assert (completions == 2 && stores == 2)
         else $fatal(1, "boot produced repeated architectural effects");
       $display("Cached polling boot passed at latency %0d: %0d distinct ROM lines including speculation", latency, rom_line_reads);
     end
-    reset = 1; hart_id = 1; tick(); reset = 0;
+    reset = 1; hart_id = 1; entry_address = 64'hc100; machine_software_interrupt_request = 0; tick(); reset = 0;
     repeat (600) tick();
-    assert (park_fetched && rom_lines_seen[0] && boot_reads == 0 && payload_fetches == 0 && stores == 0 && state == IDLE)
-      else $fatal(1, "secondary hart did not park in ROM");
-    $display("RV5Stage generated polling ROM, reset, secondary parking, and IO fence passed at three CHI latencies");
+    assert (rom_lines_seen[0] && boot_reads == 0 && payload_fetches == 0 && stores == 0 && state == IDLE)
+      else $fatal(1, "unselected secondary hart did not remain asleep");
+    machine_software_interrupt_request = 1;
+    for (int wait_cycle = 0; wait_cycle < 3000 && completions != 2; wait_cycle++) tick();
+    assert (completions == 2 && interrupt_clears == 1 && boot_reads == 1 &&
+            payload_fetches == 1 && stores == 2)
+      else $fatal(1, "selected secondary hart did not boot and clear its own MSIP");
+    $display("RV5Stage generated host-release ROM, reset, hart selection, and IO fence passed at three CHI latencies");
     $finish;
   end
 endmodule

@@ -36,7 +36,8 @@ dpi_import function rhodium_htif_tick(
 
 // Keeps the generated DPI signature flat and stable for the C++ boundary.
 // Rhodium designs should normally instantiate FesvrRequester below.
-sync_circuit DirectMemoryHTIF(xlen :: XLen, boot_address_register :: Nat):
+sync_circuit DirectMemoryHTIF(xlen :: XLen,
+                              boot_address_register :: Nat):
   unless boot_address_register mod 8 == 0 && boot_address_register < (1 << 64)
   | error(~who: #'DirectMemoryHTIF, "boot-address register must be an aligned 64-bit address")
   input(request_ready, response_valid): Bool
@@ -199,7 +200,6 @@ fun fesvr_chi_write_data(p :: CHIFlitParams,
                          address :: Bits(p.request_address_width),
                          data :: Bits(64),
                          size :: Bits(3),
-                         cacheable :: Bool,
                          dbid :: Bits(12),
                          node_id :: Nat,
                          home_node_id :: Bits(p.node_id_width)):
@@ -207,7 +207,7 @@ fun fesvr_chi_write_data(p :: CHIFlitParams,
   def placed_data = data.zext(p.data_width) << (lane.zext(alignment_bits(p.data_width)) << 3)
   def byte_enable = transfer_byte_mask(address, size, p.data_bytes)
   chi_rn_write_data(p, bits(node_id, p.node_id_width), home_node_id, dbid, placed_data, byte_enable.into(Bits(p.data_bytes)),
-                    ~data_id: mux(cacheable, chi_line_data_id(address, p), bits(0, 2)),
+                    ~data_id: chi_line_data_id(address, p),
                     ~ccid: bits(0, 2),
                     ~dbid_or_mecid: bits(0, 16))
 
@@ -312,7 +312,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   def transfer_bytes = bits(1, 4) << transfer_size
   def data_shift = offset.zext(7) << 3
   port.request_data.valid <== state === FesvrCHIState.WriteData
-  port.request_data.bits <== fesvr_chi_write_data(p, address, data >> data_shift, transfer_size, cacheable, write_dbid, node.node_id, home_id)
+  port.request_data.bits <== fesvr_chi_write_data(p, address, data >> data_shift, transfer_size, write_dbid, node.node_id, home_id)
 
   def read_pending = state === FesvrCHIState.ReadPending
   def dbid_pending = state === FesvrCHIState.WriteAwaitDBID
@@ -327,7 +327,7 @@ sync_circuit FesvrCHIAccess(flit :: CHIFlitParams,
   def rsp_fire = port.responses.fire() & !rsp_credit
   def dat_fire = port.response_data.fire() & !dat_credit
   def rsp_correct = (dbid_pending & (response.opcode === CHIRspOpcode.DBIDResp) ||| comp_pending & (response.opcode === CHIRspOpcode.Comp)) & (response.src_id === home_id) & (response.tgt_id === bits(node.node_id, p.node_id_width)) & (response.txn_id === bits(0, 12))
-  def dat_correct = (cacheable ||| (read_data.src_id === home_id)) & read_pending & (read_data.opcode === CHIDatOpcode.CompData) & (read_data.home_nid_or_pbha_or_mismatched_mecid === home_id) & (read_data.tgt_id === bits(node.node_id, p.node_id_width)) & (read_data.txn_id === bits(0, 12)) & (read_data.data_id === mux(cacheable, chi_line_data_id(address, p), bits(0, 2)))
+  def dat_correct = (cacheable ||| (read_data.src_id === home_id)) & read_pending & (read_data.opcode === CHIDatOpcode.CompData) & (read_data.home_nid_or_pbha_or_mismatched_mecid === home_id) & (read_data.tgt_id === bits(node.node_id, p.node_id_width)) & (read_data.txn_id === bits(0, 12)) & (read_data.data_id === chi_line_data_id(address, p))
   def protocol_error = (rsp_fire & !rsp_correct) ||| (dat_fire & !dat_correct)
   def slave_error = (rsp_fire & (response.resp_err =/= CHIRespErr.OK)) ||| (dat_fire & (read_data.resp_err =/= CHIRespErr.OK))
   def read_shift = address[0..alignment_bits(p.data_bytes)].zext(alignment_bits(p.data_width)) << 3

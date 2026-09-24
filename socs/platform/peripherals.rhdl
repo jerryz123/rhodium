@@ -18,7 +18,6 @@ import:
   "boot.rhdl" open
   "description.rhm" open
 
-def SoCAclintBase = 0x02000000
 def SoCPlicBase = 0x0c000000
 def SoCPlicPriorityWidth = 3
 def SoCPlicUartSource = 1
@@ -39,7 +38,7 @@ fun soc_plic_contexts(hart_count :: PosInt):
 fun soc_peripheral_regions(home :: CHIHomeParams):
   [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
-       AddressSet(SoCAclintBase, AclintWindowBytes - 1),
+       AddressSet(AclintBase, AclintWindowBytes - 1),
        soc_device_attributes
      ),
      home
@@ -85,6 +84,19 @@ class SoCPlatformParams(flit :: CHIFlitParams,
                         uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
   implements StableCircuitParam
 
+  constructor (flit :: CHIFlitParams,
+               hart_count :: PosInt,
+               home :: CHIHomeParams,
+               boot :: SoCBootConfig,
+               bootrom_node_id :: Nat,
+               aclint_node_id :: Nat,
+               plic_node_id :: Nat,
+               uart_node_id :: Nat,
+               boot_address_node_id :: Nat,
+               uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
+    super(flit, hart_count, home, boot, bootrom_node_id, aclint_node_id,
+          plic_node_id, uart_node_id, boot_address_node_id, uart_fifo_depth)
+
   property bootrom:
     SoCBootROMParams(flit, home, bootrom_node_id, boot)
   property boot_address_config: BootAddressConfig(flit, 0)
@@ -92,7 +104,7 @@ class SoCPlatformParams(flit :: CHIFlitParams,
     BootAddressParams("soc-boot-address", boot_address_node_id, boot_address_config, boot.boot_address_register)
   property aclint_config: AclintConfig(flit, hart_count)
   property aclint:
-    AclintParams("soc-aclint", aclint_node_id, aclint_config, SoCAclintBase)
+    AclintParams("soc-aclint", aclint_node_id, aclint_config)
   property plic_config: PlicConfig(flit, SoCPlicUartSource, hart_count * 2, SoCPlicPriorityWidth)
   property plic:
     PlicParams("soc-plic", plic_node_id, plic_config, SoCPlicBase)
@@ -133,7 +145,6 @@ class SoCPlatformParams(flit :: CHIFlitParams,
     CHIHNIParams(home, requester_endpoints, subordinate_map)
 
 export:
-  SoCAclintBase
   SoCPlicBase
   SoCPlicPriorityWidth
   SoCPlicUartSource

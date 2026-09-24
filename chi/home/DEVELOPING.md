@@ -77,8 +77,10 @@ payload before handshake. A successful final read-data transfer publishes a poss
 cached copy before releasing its transaction slot.
 Reads with `ExpCompAck` reserve a `CHIHomeCompAckTable` slot at admission and
 carry its DBID on every response DAT beat. Final DAT publishes the slot and
-releases the datapath; the later `CompAck` validates source, target, and DBID
-against only that table entry. Table capacity may backpressure another
+releases the transaction slot; the granted set remains reserved until `CompAck`
+confirms receipt, so its resident cannot be probed or replaced early. The later
+`CompAck` validates source, target, and DBID against only that table entry.
+Table capacity may backpressure another
 acknowledgement-bearing request, but must not block a request that does not need
 `CompAck`. Only complete successful
 snoop responses or complete copyback may remove a responder. Track retained/error state across all
