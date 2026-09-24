@@ -192,6 +192,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.time_counter <== time_counter
   def wb_scalar_fp_tag = RV5StageFpScalarTag(Bits(width))
   inst wb_gpr_calendar(RV5StageWritebackCalendar(3, 8))
+  wb_gpr_calendar.probe_client <== bits(0, index_width(3))
+  wb_gpr_calendar.probe_delay <== bits(1, 4)
   wire wb_fp_fixed_integer_return: Bool
   def wb_vector_fp_tag = Bits(index_width(vector_completion_slots))
   def wb_vector_fp_request_link :: Handle = interface_link(Decoupled(RV5StageFpExecutionRequest(xlen, effective_fp_profile, wb_vector_fp_tag)))

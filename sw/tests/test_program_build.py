@@ -296,7 +296,7 @@ class ProgramBuildTest(unittest.TestCase):
             (source / 'Makefile').write_text(
                 'rv64ui_p_tests = rv64ui-p-add rv64ui-p-ma_data\n'
                 'rv64ui_v_tests = rv64ui-v-add rv64ui-v-ma_data\n')
-            command = ['make', '-s', '-f', str(BUILD_SCRIPTS / 'isa.mk'),
+            command = ['make', '--no-print-directory', '-s', '-f', str(BUILD_SCRIPTS / 'isa.mk'),
                        f'src_dir={source}', 'program_groups=rv64ui',
                        'program_virtual_groups=rv64ui', 'program-manifest']
             names = subprocess.check_output(command, cwd=source, text=True).splitlines()

@@ -1223,6 +1223,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     requester_requests_in = '0;
 
     send_comp_ack(INSTRUCTION_ID, first_comp_ack_dbid);
+    // The ingress queue accepts CompAck before the Home processes its release.
+    tick();
     send_request(LINE0, READ_ONCE);
     while (!port_out.requester.snoops.valid) tick();
     send_comp_ack(HTIF_ID, second_comp_ack_dbid);

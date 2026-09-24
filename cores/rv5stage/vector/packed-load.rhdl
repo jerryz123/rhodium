@@ -62,8 +62,11 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   def target_row = entry.layout.rows[target_lane]
   def group = vec(for List (lane in 0..bytes): remaining[lane].into(Bool) & (entry.layout.rows[lane] === target_row)).as_bits()
   def rotation = (if bytes == 8 | target_lane | target_lane.zext(3)) - entry.layout.offsets[target_lane]
-  def load_piece = drainable & !entry.store & remaining.or_reduce() & alignment_available
-  alignment.valid <== load_piece
+  // Offer the alignment independently of write-port arbitration; only a free
+  // write cycle consumes it. This keeps the shared ALU out of its own grant path.
+  def load_alignment = drain_enable & !carry_pending & accepted_slots[head] & completed[head] & !entry.store & remaining.or_reduce() & alignment_available
+  def load_piece = load_alignment & write_available
+  alignment.valid <== load_alignment
   alignment.bits <== RV5StageVectorAlignment():
     data: data[head]
     bytes: rotation

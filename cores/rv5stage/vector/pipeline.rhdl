@@ -221,6 +221,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def offered_beat = operand_fetch.issue.bits.beat
   def service_beat = (offered_beat.control.fp_service ||| offered_beat.control.multiply_divide) & offered_beat.enabled.as_bits()[0].into(Bool)
   def immediate_beat = !offered_beat.control.memory & !service_beat
+  def local_reservation_needed = immediate_beat ||| offered_beat.control.memory
+  def local_reservation_delay = mux(offered_beat.control.memory, bits(3, 4), bits(1, 4))
+  writeback_calendar.probe_client <== bits(2, index_width(3))
+  writeback_calendar.probe_delay <== local_reservation_delay
   def issued = operand_fetch.issue |> trace_event("vector/s2.issue", ~stalls: #true, ~fields: operation):
     packed: Bool(#false)
     op_index(~format: "unsigned"): operation.beat.sequence
@@ -229,9 +233,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     last: operation.beat.last
     empty: operation.beat.empty
   def issue_owner = operand_fetch.issue.bits.context.owner
-  def Array(token, operands, scalar_reservation, local_reservation) = issued |> gate_flow(slot_available & !replay & !fold_inflight[issue_owner]) |> atomic_fork(4)
+  def Array(token, operands, scalar_reservation) = issued |> gate_flow(slot_available & !replay & !fold_inflight[issue_owner] & (!local_reservation_needed ||| writeback_calendar.probe_available)) |> atomic_fork(3)
   scalar_reservation |> filter_flow(operation => operation.beat.control.scalar_destination) |> map_flow(_operation => bits(1, 4)) |> scalar_writeback
-  local_reservation |> filter_flow(operation => immediate_beat ||| operation.beat.control.memory) |> map_flow(operation => mux(operation.beat.control.memory, bits(3, 4), bits(1, 4))) |> writeback_calendar.reserve[2]
   def element_issue = (
     token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
       byte_mask: if xlen == XLen.X64 | memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)) | memory_byte_mask(xlen, operation.beat.address[0..32], operation.beat.element_width.as_bits().into(MemoryWidth)).zext(8)
@@ -246,6 +249,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       completion_tag: allocate_slot
   )
   Array(element_issue, packed.issue) |> rr_arbiter() |> issue
+  // The calendar claims only the accepted element beat; its availability
+  // gates admission without participating in the atomic fork's ready loop.
+  writeback_calendar.reserve[2].valid <== element_issue.fire() & local_reservation_needed
+  writeback_calendar.reserve[2].bits <== local_reservation_delay
   compute_tail_issue <== element_issue.fire() & operand_fetch.issue.bits.beat.last & !(operand_fetch.issue.bits.beat.control.memory ||| (operand_fetch.issue.bits.beat.control.scan & !operand_fetch.issue.bits.beat.control.scan_control.index) ||| operand_fetch.issue.bits.beat.control.compress)
   // All routes use one persistent allocation order, including immediate ALU
   // results. No unbackpressurable write can collide with an older completion.
