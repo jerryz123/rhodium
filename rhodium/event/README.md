@@ -256,8 +256,9 @@ The compiler derives `symbols` from the enum declaration; no handwritten decoder
 table is needed. At most one field per site may have `~label: #true`, currently
 only with `enum` format. Its decoded member name overrides instruction-based
 slice naming, while the track keeps its site label. Unknown values use
-fixed-width hex labels. The field argument remains numeric, including for known
-members; enum captures without label selection do not rename events. Ordinary
+fixed-width hex labels. Perfetto arguments also display member names or unknown
+hex values; graph captures remain numeric. Enum captures without label selection
+do not rename events. Ordinary
 Bits values cannot request enum format. These options do not infer transaction
 relationships or change the captured bit layout.
 

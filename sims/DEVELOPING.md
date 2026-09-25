@@ -170,7 +170,9 @@ for memory instructions, one parent per EX/MEM event, no duplicate
 scalar children, matching RV64 PCs, and one-cycle downstream latency before WB.
 WB is successful retirement: retained WRS/CMO instructions may retire later,
 and replay/trap attempts do not emit it. Its two-bit `branch_prediction` capture
-uses the core's enum table; it compares effective predicted and resolved next PC.
+uses the core's enum table and displays its symbol in Perfetto; it compares
+effective predicted and resolved next PC. Enum arguments use symbols throughout
+the exporter, so importer queries compare names rather than packed numbers.
 The independent one-bit `ras_mismatch` compares predicted and resolved stack actions.
 Decode
 inherits packet ancestry; the raw packet boundary is not an IF/ID transfer. It requires

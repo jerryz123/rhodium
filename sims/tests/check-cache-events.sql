@@ -23,8 +23,7 @@ WITH expected(suffix, fields) AS (
          json_extract(f.value,'$.width') AS width
   FROM cache_tracks t, json_each(t.schema,'$.fields') f
 ), enum_names AS MATERIALIZED (
-  SELECT c.track_id, CAST(json_extract(s.value,'$.value') AS INT) AS opcode,
-         json_extract(s.value,'$.name') AS name
+  SELECT c.track_id, json_extract(s.value,'$.name') AS name
   FROM captures c, json_each(c.symbols) s WHERE c.label=1
 ), events AS MATERIALIZED (
   SELECT s.id, s.arg_set_id, s.track_id, t.channel,
@@ -52,10 +51,14 @@ SELECT
    WHERE name='opcode' AND encoding='enum' AND label=1 AND json_array_length(symbols)>0) AND
   (SELECT count(*)=0 FROM captures WHERE label=1 AND name!='opcode') AND
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id AND c.label=1
-   LEFT JOIN enum_names n ON n.track_id=e.track_id AND n.opcode=EXTRACT_ARG(e.arg_set_id,'debug.opcode')
-   WHERE e.name!=CASE e.kind WHEN 'stall' THEN 'stall' ELSE COALESCE(n.name,printf('0x%0*x',(c.width+3)/4,EXTRACT_ARG(e.arg_set_id,'debug.opcode'))) END) AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache/chi.txreq' AND kind='transfer' AND name='ReadOnce' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=3) AND
-  (SELECT count(*)>0 FROM events WHERE channel='icache/chi.rxdat' AND name='CompData' AND EXTRACT_ARG(arg_set_id,'debug.opcode')=4) AND
+   LEFT JOIN enum_names n ON n.track_id=e.track_id AND n.name=EXTRACT_ARG(e.arg_set_id,'debug.opcode')
+   WHERE e.name IS NOT CASE e.kind WHEN 'stall' THEN 'stall' ELSE COALESCE(n.name,
+     CASE WHEN EXTRACT_ARG(e.arg_set_id,'debug.opcode') GLOB '0x*'
+       AND length(EXTRACT_ARG(e.arg_set_id,'debug.opcode'))=2+(c.width+3)/4
+       AND substr(EXTRACT_ARG(e.arg_set_id,'debug.opcode'),3) NOT GLOB '*[^0-9a-f]*'
+       THEN EXTRACT_ARG(e.arg_set_id,'debug.opcode') END) END) AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache/chi.txreq' AND kind='transfer' AND name='ReadOnce' AND EXTRACT_ARG(arg_set_id,'debug.opcode')='ReadOnce') AND
+  (SELECT count(*)>0 FROM events WHERE channel='icache/chi.rxdat' AND name='CompData' AND EXTRACT_ARG(arg_set_id,'debug.opcode')='CompData') AND
   (SELECT count(*)=0 FROM events e JOIN captures c ON c.track_id=e.track_id
    WHERE EXTRACT_ARG(e.arg_set_id,'debug.'||c.name) IS NULL) AND
   (SELECT count(*)=0 FROM events e JOIN args a USING(arg_set_id)

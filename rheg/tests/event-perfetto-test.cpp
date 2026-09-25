@@ -327,6 +327,8 @@ void enum_trace(const std::string& path) {
       graph.record_node({site,cycle}, cycle, site == 3 ? 64 : 7);
       graph.record_payload({site,cycle}, 0, site == 3 ? UINT32_MAX : value);
       if (site == 3) graph.record_payload({site,cycle}, 1, UINT32_MAX);
+      check(graph.field({site,cycle}, site == 1 ? "operation" : "opcode").unsigned_value() ==
+            (site == 3 ? UINT64_MAX : value), "enum display changed numeric graph capture");
     }
     writer.write(graph.finish_cycle(cycle));
   }

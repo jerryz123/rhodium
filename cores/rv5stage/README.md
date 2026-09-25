@@ -254,7 +254,8 @@ Repeated PCs have separate occurrence identities; squashed tokens may have no
 later-stage descendant.
 
 WB captures `branch_prediction`: `0 = NotBranch`, `1 = Correct`, or
-`2 = Mispredicted`, with the enum symbols in the track schema.
+`2 = Mispredicted`. Perfetto displays the symbol (for example `Mispredicted`),
+with the numeric encoding in the track schema and graph capture.
 For conditional branches, JAL, and JALR (including compressed forms), correctness
 means the effective frontend next PC matches the resolved next PC. This includes
 late frontend prediction corrections, not just the original BTB lookup. RAS-action
@@ -383,7 +384,7 @@ DataID, response state/error, and byte enables, but **not the data payload**.
 SNP captures its byte address (restoring the implicit three low zero bits),
 source/transaction IDs, opcode, and return-to-source control. Opcode names come
 from the channel's hardware enum declaration, not a separate host table. Unknown
-encodings use hex slice names and retain their numeric opcode argument.
+encodings use hex slice names and opcode arguments; known opcode arguments show enum names.
 
 I-cache demand requests inherit the accepted `frontend/s0.request` occurrence
 through virtual lookup, miss selection, and retained line-read ownership. Every

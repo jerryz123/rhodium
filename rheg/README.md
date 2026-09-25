@@ -194,9 +194,11 @@ strings; names and values must be unique and values must fit the field's width
 (1–64 bits). The compiler supplies these tables from hardware enum declarations.
 `Field::symbols` carries the matching numeric/string pairs in the C++ descriptor.
 
-An explicit `label: true` selects one enum field per site as the Perfetto
-transfer slice name. Known values use the member name; unknown values use fixed-width hex.
-Track names and numeric field arguments are unchanged. Enum labels take precedence
+Perfetto enum arguments display the member name, or fixed-width hex for unknown
+values. Numeric captures remain unchanged in the graph and saved JSON; the
+static symbol table preserves their encoding without a duplicate numeric argument.
+An explicit `label: true` also selects one enum field per site as the Perfetto
+transfer slice name using the same formatting. Track names are unchanged. Enum labels take precedence
 over instruction mnemonics; without selection, existing naming behavior remains.
 Stall slices are always named `stall`. Symbol tables live in static track
 descriptions, not repeated event arguments.

@@ -1,4 +1,4 @@
-// Encodes Perfetto v58.2 packets and parses rheg trace snapshots in C++.
+// Encodes Perfetto v58.2 packets with symbolic captures and parses RHEG snapshots.
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <nlohmann/json.hpp>
@@ -292,11 +292,19 @@ void annotation(std::string& event, PendingInterns& interns, const std::string& 
   else bytes(arg, 6, value);
   bytes(event, 4, arg);
 }
+std::string enum_text(const Field& field, const FieldValue& value) {
+  const auto code = value.unsigned_value();
+  const auto symbol = std::find_if(field.symbols.begin(), field.symbols.end(),
+      [&](const auto& entry) { return entry.first == code; });
+  return symbol == field.symbols.end() ? value.hex() : symbol->second;
+}
 void capture_annotation(std::string& event, PendingInterns& interns, const Field& field, const Node& node) {
   const auto value = capture_field(node, field);
   const auto& name = field.name;
-  if (field.encoding == "hex" || field.width > 64 ||
-      ((field.encoding == "unsigned" || field.encoding == "enum") && value.unsigned_value() > INT64_MAX)) {
+  if (field.encoding == "enum") {
+    annotation(event, interns, name, enum_text(field, value));
+  } else if (field.encoding == "hex" || field.width > 64 ||
+      (field.encoding == "unsigned" && value.unsigned_value() > INT64_MAX)) {
     annotation(event, interns, name, field.encoding == "hex" ? value.hex() : value.decimal());
   } else {
     std::string arg;
@@ -736,11 +744,7 @@ struct PerfettoWriter::Impl {
           }
           else capture_annotation(fields, interns, field, node);
           if (field.label) {
-            const auto value = capture_field(node, field);
-            const auto code = value.unsigned_value();
-            const auto symbol = std::find_if(field.symbols.begin(), field.symbols.end(),
-                [&](const auto& entry) { return entry.first == code; });
-            selected_label = symbol == field.symbols.end() ? value.hex() : symbol->second;
+            selected_label = enum_text(field, capture_field(node, field));
           }
         }
       } else {

@@ -20,14 +20,14 @@ SELECT
   (SELECT count(*)=0 FROM events e WHERE name='dcache/s1.access' AND
     ((SELECT count(*) FROM edges WHERE child=e.id)!=1 OR
      COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false')) AND
-  (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')=1) AND
-  (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')=2) AND
+  (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')='LoadHit') AND
+  (SELECT count(*)>0 FROM results WHERE EXTRACT_ARG(arg_set_id,'debug.outcome')='StoreHit') AND
   (SELECT count(*)=0 FROM results r WHERE
     (SELECT count(*) FROM edges WHERE child=r.id AND src='vector/s2.issue' AND delay=30)!=1 OR
     COALESCE(EXTRACT_ARG(arg_set_id,'debug.ancestry_unknown'),'false')!='false') AND
   (SELECT count(*)=0 FROM edges WHERE dst='vector/memory.result' AND
     NOT ((src='vector/s2.issue' AND delay=30) OR (src='dcache/s1.access' AND delay=10))) AND
-  (SELECT count(*)=0 FROM results r WHERE EXTRACT_ARG(arg_set_id,'debug.outcome') IN (1,2) AND
+  (SELECT count(*)=0 FROM results r WHERE EXTRACT_ARG(arg_set_id,'debug.outcome') IN ('LoadHit','StoreHit') AND
     (SELECT count(*) FROM edges WHERE child=r.id AND src='dcache/s1.access')!=1) AND
   -- The cache and caller must name the same issue occurrence, even on retries
   -- with identical PC/address/slot captures. Payload equality cannot establish this.

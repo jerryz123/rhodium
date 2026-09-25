@@ -40,7 +40,7 @@ SELECT
       EXTRACT_ARG(r.arg_set_id,'debug.replay')=1 OR w.ts<r.ts OR (NOT retained AND w.ts!=r.ts) OR
       EXTRACT_ARG(w.arg_set_id,'debug.pc')!=EXTRACT_ARG(r.arg_set_id,'debug.pc') OR
       EXTRACT_ARG(w.arg_set_id,'debug.instruction')!=EXTRACT_ARG(r.arg_set_id,'debug.instruction')) AND
-  (SELECT count(*)=0 FROM responses r WHERE EXTRACT_ARG(arg_set_id,'debug.outcome') IN (1,2) AND
+  (SELECT count(*)=0 FROM responses r WHERE EXTRACT_ARG(arg_set_id,'debug.outcome') IN ('LoadHit','StoreHit') AND
     NOT EXISTS (SELECT 1 FROM edges cache WHERE cache.child=r.id AND cache.src='dcache/s1.access')) AND
   (SELECT count(*)>0 FROM responses WHERE EXTRACT_ARG(arg_set_id,'debug.admitted')=1) AND
   (SELECT count(*)=0 FROM responses WHERE EXTRACT_ARG(arg_set_id,'debug.admitted')=1 AND
@@ -62,7 +62,7 @@ SELECT
   (SELECT count(*)=0 FROM edges WHERE dst='dcache/chi.txreq' AND
     (src NOT IN ('dcache/refill','dcache/writeback') OR delay<0 OR
      (src='dcache/refill' AND EXTRACT_ARG(parent_args,'debug.opcode')!=EXTRACT_ARG(child_args,'debug.opcode')) OR
-     (src='dcache/writeback' AND EXTRACT_ARG(child_args,'debug.opcode')!=27) OR
+     (src='dcache/writeback' AND EXTRACT_ARG(child_args,'debug.opcode')!='WriteBackFull') OR
      ltrim(substr(EXTRACT_ARG(parent_args,'debug.address'),3),'0')!=ltrim(substr(EXTRACT_ARG(child_args,'debug.address'),3),'0'))) AND
   (SELECT count(*)=0 FROM events e WHERE name='dcache/chi.txreq' AND
     ((SELECT count(*) FROM edges WHERE child=e.id)>1 OR

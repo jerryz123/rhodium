@@ -427,7 +427,7 @@ L1I/L1D-to-CHI composition boundary. The local connection helper preserves all
 available ready-valid channel directions and captures only named scalar metadata.
 Select each channel's enum opcode with `~format: "enum", ~label: #true`; do not
 hand-maintain REQ/RSP/DAT/SNP decoding tables in the exporter. Check decoded slice
-names independently of numeric opcode captures in the trace smoke.
+names and symbolic opcode arguments against the schema's enum table in the trace smoke.
 Do not infer CHI transaction ownership by matching TxnID/DBID values. Request
 checkpoints supply occurrence identities that Flow carries through network transit.
 I/D-cache incoming RSP/DAT observations inherit certified Home output ancestry;

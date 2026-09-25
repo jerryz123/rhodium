@@ -164,7 +164,9 @@ selection policy out of this library; the caller supplies the mapping explicitly
 Default slice names use only the final dot-separated component of that leaf;
 retain the whole leaf if that component is empty. Apply this only to the site-label
 fallback, never to enum symbols or dotted instruction mnemonics. An explicit enum label field uses the compiler-supplied symbol table,
-with fixed-width hex for unknown values and unchanged numeric capture arguments.
+with fixed-width hex for unknown values. Use that same formatter for every enum
+argument, whether or not it supplies the slice name. Intern the resulting strings;
+keep numeric storage and snapshot captures unchanged, without duplicate arguments.
 Validate unique fitting symbol values/names and at most one selected label; include
 both symbols and selection in JSON/C++ descriptor equality. Never duplicate domain
 opcode tables in RHEG or infer label selection from a field's name. Without an
