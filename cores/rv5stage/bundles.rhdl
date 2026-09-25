@@ -173,6 +173,7 @@ bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   branch_prediction: RV5StageBranchPrediction
+  ras_mismatch: Bool
   raw_instruction: Bits(32)
   replay: Bool
   load_hit: Bool

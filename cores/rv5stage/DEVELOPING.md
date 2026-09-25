@@ -325,10 +325,15 @@ Vector-memory retirement likewise retains its accepted instruction in an
 fault fields, while the stored instruction supplies the retirement ancestry.
 `RV5StageBranchPrediction` stores only the effective-next-PC comparison, computed
 in EX and carried through ExecuteMemory/MemoryWriteback and retained contexts.
-Keep RAS-action mismatch in functional recovery but out of this accuracy metric.
+Keep RAS-action mismatch out of this accuracy metric. Reuse the resolved and
+predicted actions already carried in ExecuteMemory's `branch_update`, comparing
+them into MemoryWriteback's `ras_mismatch` for live and retained retirement.
+Do not gate it by branch classification, because a stale
+prediction can request a stack action on a nonbranch. Neither capture changes recovery.
 The `rv5stage-retirement-trace` fixture drives public packet predictions and memory
 completion controls, checking exact retired order, compressed and indirect
-targets, same-PC reissue, squash, CSR/data traps, delayed WRS/CMO, and MEM ancestry.
+targets, independent next-PC/RAS mismatches, same-PC reissue, squash, CSR/data
+traps, delayed WRS/CMO, and MEM ancestry.
 Run `event-offer-register` for retained ownership, replacement, stalls, and reset;
 use `rv5stage-core`, `rv5stage-zicbom`, `rv5stage-zawrs`, and the FP core fixtures
 for production retirement selection and completion policy, then the SingleCoreRV5StageSoC

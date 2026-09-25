@@ -258,7 +258,11 @@ WB captures `branch_prediction`: `0 = NotBranch`, `1 = Correct`, or
 For conditional branches, JAL, and JALR (including compressed forms), correctness
 means the effective frontend next PC matches the resolved next PC. This includes
 late frontend prediction corrections, not just the original BTB lookup. RAS-action
-repair alone does not count as a next-PC misprediction. The result travels with
+repair alone does not count as a next-PC misprediction. The independent Boolean
+`ras_mismatch` records whether predicted and resolved RAS actions differ
+(none, push, pop, or pop-then-push), including a spurious action on a nonbranch.
+A wrong return target with the correct stack action is a next-PC miss, not a
+RAS-action mismatch. Both results travel with
 the instruction from EX; no host-side PC correlation is used. Instruction
 mnemonics remain the slice names.
 

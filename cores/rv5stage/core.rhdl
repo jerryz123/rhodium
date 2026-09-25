@@ -358,6 +358,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     pc: operation.pc
     instruction(~format: "riscv", ~isa: trace_isa, ~pc: "pc"): operation.raw_instruction
     branch_prediction(~format: "enum"): operation.branch_prediction
+    ras_mismatch: operation.ras_mismatch
   def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb_commit.bits
   def wb_commit_replay = wb_commit.valid & wb_commit_bits.replay
   def wb_commit_valid = wb_commit.valid & !wb_commit_bits.replay
@@ -1123,6 +1124,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     pc: operation.pc
     resume_pc: operation.resume_pc
     branch_prediction: operation.branch_prediction
+    ras_mismatch: operation.branch_update.ras_action =/= operation.branch_update.predicted_ras_action
     raw_instruction: operation.raw_instruction
     replay: operation.replay ||| mem_cache_replay
     load_hit: mem_load_hit

@@ -28,7 +28,8 @@ SELECT
     (dst!='core/s5.wb' AND delay!=10) OR
     (dst='core/s5.wb' AND delay<CASE WHEN src='core/s3.execute' THEN 20 ELSE 10 END)) AND
   (SELECT count(*)=0 FROM pcs WHERE name='core/s5.wb' AND
-    COALESCE(EXTRACT_ARG(arg_set_id,'debug.branch_prediction'),-1) NOT IN (0,1,2)) AND
+    (COALESCE(EXTRACT_ARG(arg_set_id,'debug.branch_prediction'),-1) NOT IN (0,1,2) OR
+     COALESCE(EXTRACT_ARG(arg_set_id,'debug.ras_mismatch'),-1) NOT IN (0,1))) AND
   (SELECT count(*)=0 FROM pcs c WHERE name IN ('core/s3.execute','core/s4.memory') AND (SELECT count(*) FROM edges WHERE child=c.id)!=1) AND
   (SELECT count(*)=0 FROM pcs c WHERE name='core/s5.wb' AND (SELECT count(*) FROM edges WHERE child=c.id AND src='core/s4.memory')!=1) AND
   (SELECT count(*)=0 FROM edges result WHERE src='core/s3.execute' AND dst='core/s5.wb' AND
