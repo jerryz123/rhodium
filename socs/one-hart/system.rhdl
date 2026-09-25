@@ -23,7 +23,6 @@ import:
   lib("noc/language/main.rhm").topology
   lib("noc/rtl/router.rhdl") open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
-  lib("riscv/isa/xlen.rhm").XLen
   lib("cores/riscv/chi-hart.rhdl") open
   lib("riscv/isa/hart.rhm").RiscvHartDescription
   lib("riscv/rtl/pma.rhdl") open
@@ -224,8 +223,6 @@ class SingleCoreSoCParams(fabric :: SingleCoreSystemParams,
                compatible :: NonemptyList.of(NonemptyString),
                ~llc_sets: llc_sets :: Pow2Int = 64,
                ~llc_ways: llc_ways :: PosInt = 4):
-    unless hart_description.xlen == XLen.X64
-    | error(~who: #'SingleCoreSoCParams, "the external-memory single-core platform requires an RV64 hart")
     super(fabric, core_profile, hart_description, clocks, model, compatible, llc_sets, llc_ways)
 
   reconstructor (fabric, core_profile, hart_description, clocks, model,

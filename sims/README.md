@@ -54,6 +54,21 @@ with both Mini RV32Max core bindings required in simulation CI.
 CI runs the integer-vector smoke, boot, host MMIO,
 UART PTY, and capability-filtered ISA smoke on the exact RV32Max product.
 
+Simple also accepts both RV32Max bindings with its inclusive LLC and 1-GiB
+external memory. Qualify the platform and complete applicable native ISA
+inventory through the same FESVR path:
+
+```sh
+make -C sims smoke boot-test host-mmio-test uart-pty-test SOC=simple CORE=rv5stage ISA=rv32max
+make -C sims smoke boot-test host-mmio-test uart-pty-test SOC=simple CORE=spike ISA=rv32max
+make -C sims isa-test SOC=simple CORE=rv5stage ISA=rv32max
+make -C sims isa-test SOC=simple CORE=spike ISA=rv32max
+```
+
+These are explicit bring-up selections, not new CI lanes yet. They use Bare
+translation, VLEN64/ELEN32, and no floating point. RV32 ACT projection is not
+enabled by this platform support.
+
 The host emitters require an explicit third architectural selector:
 
 ```sh

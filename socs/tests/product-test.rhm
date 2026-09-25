@@ -105,3 +105,23 @@ check:
   rv32_description ~is simulator_soc_description("mini-spike-rv32max")
   riscv_soc_boot_config().image_for(rv32_description).bytes ~is rv32_mini.boot.image_for(rv32_description).bytes
   riscv_soc_boot_config(~payload_address: 0x100000000).image_for(rv32_description) ~throws "XLEN"
+
+// Simple keeps its full external memory and fabric widths with either RV32 hart.
+for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+  def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Max)
+  def product = resolve_soc_product(selection)
+  def config = product.configuration()
+  def description = config.description
+  check:
+    description.hart.isa_profile ~is rv32.isa
+    description.hart.vector.vlen ~is 64
+    description.hart.vector.elen ~is 32
+    description.hart.mmu_type ~is RiscvMmuType.Bare
+    description.memory_regions[0].base ~is 0x80000000
+    description.memory_regions[0].size_bytes ~is 0x40000000
+    description.memory_regions[0].contains(0xbfffffff) ~is #true
+    config.params.fabric.flit.request_address_width ~is 44
+    config.params.fabric.boot.program.bytes ~is riscv_soc_boot_config().program.bytes
+    config.params.fabric.boot.image_for(description).size_bytes <= config.params.fabric.boot.window_bytes ~is #true
+    simulator_soc_description(selection.key) ~is description
+    description.to_device_tree().to_dts().contains("rv32i") ~is #true

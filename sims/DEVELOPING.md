@@ -484,6 +484,13 @@ readback coverage for both XLENs and run RV64 smoke after changing this shared
 assembly. Both Mini RV32Max cores run this integer-vector smoke in CI alongside
 boot, host MMIO, UART PTY, and ISA smoke.
 
+Simple RV32Max uses these same width-selected platform payloads on both cores,
+but the external-memory shape runs the full applicable native ISA inventory
+with `isa-test`. Keep architectural selection identical while preserving
+RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
+CI inventory and RV32 UDB/Sail projection are separate rollout gates; local
+bring-up does not silently add a CI product or claim ACT qualification.
+
 The architectural `zihintntl-test` checks translated integer/FP hinted loads and
 dirty-data preservation on both single-core implementations. The separately
 named `zihintntl-policy-test` retains RV5Stage's concrete non-allocation timing

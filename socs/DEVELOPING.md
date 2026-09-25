@@ -62,6 +62,11 @@ the full physical-address CHI interfaces rather than narrowing the fabric to
 the scalar register width. `mini-spike-rv32max` and
 `mini-rv5stage-rv32max` exercise this platform path with the same integer-vector
 smoke payload and participate in the same shape/ISA-selected software policy.
+Simple accepts the same RV32 hart bindings without narrowing its CHI fabric,
+boot-entry register, LLC, or external-memory service. Its default RAM window
+is `0x80000000..0xbfffffff`; target addresses are zero-extended at the hart's
+existing CHI boundary. Keep the product contract tests and executable FESVR
+checks for both core bindings when changing this shared composition.
 All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture

@@ -47,11 +47,14 @@ projection. Canonical identities are `<shape>-<core>-<isa>`.
 `RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
 not a claim of complete RVA23U64/S64 conformance. `RV32Max` describes the
 maximal non-FP RV32/Zve32x/VLEN=64 architecture. Both RV5Stage and Spike
-bind this exact profile. Mini supports both bindings for platform bring-up; its BootROM
+bind this exact profile. Mini and Simple support both bindings; their common BootROM
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
-address range. Both Mini RV32Max bindings participate in simulation CI.
+address range. Simple retains its 1-GiB external RAM window at `0x80000000`
+and its inclusive LLC with either RV32 hart. Both Mini RV32Max bindings
+participate in simulation CI; Simple RV32Max is available for explicit local
+platform and native ISA qualification. RV32 ACT projection remains a separate step.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
 preserves this broad profile and implementation-specific parameters; see the
 [Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
