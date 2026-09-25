@@ -1,0 +1,50 @@
+#lang rhombus
+// Checks physical vector-row mapping independently of architectural VLEN, SEW, and register grouping.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../riscv/vector-layout.rhm" open
+  lib("riscv/isa/vector.rhm") open
+
+for (vlen in [64, 128, 256, 512, 65536]):
+  for (row_bits in [32, 64]):
+    def layout = VectorRegisterLayout(vlen, row_bits)
+    check:
+      layout.rows_per_register * row_bits ~is vlen
+      layout.depth * row_bits ~is 32 * vlen
+    for (sew in VectorElementWidths):
+      for (lmul in VectorRegisterGroups):
+        when vector_element_bits(sew) <= math.min(row_bits, 64 * vector_lmul(lmul))
+        | block:
+            def config = VectorConfig(vlen, sew, lmul)
+            for (base in 0..32):
+              when config.legal_group(base)
+              | block:
+                  for (element in [0, config.vlmax - 1]):
+                    def location = layout.location(config, base, element)
+                    check:
+                      location.row * row_bits + location.bit_offset ~is base * vlen + element * config.element_bits
+                      location.row < layout.depth ~is #true
+                      location.bit_offset + config.element_bits <= row_bits ~is #true
+    for (base in [0, 31]):
+      for (element in [0, row_bits - 1, vlen - 1]):
+        def location = layout.mask_location(base, element)
+        check:
+          location.row * row_bits + location.bit_offset ~is base * vlen + element
+          location.row < layout.depth ~is #true
+
+def layout = VectorRegisterLayout(64, 32)
+def config = VectorConfig(64, VectorSEW.E8, VectorLMUL.M1)
+check:
+  layout.depth ~is 64
+  layout.rows_per_register ~is 2
+  layout.location(config, 1, 4) ~is VectorRowLocation(3, 0)
+  VectorRegisterLayout(64, 64).depth ~is 32
+  VectorRegisterLayout(64, 128) ~throws ""
+  VectorRegisterLayout(64, 24) ~throws ""
+  layout.location(VectorConfig(128, VectorSEW.E8, VectorLMUL.M1), 0, 0) ~throws ""
+  layout.location(VectorConfig(64, VectorSEW.E64, VectorLMUL.M1), 0, 0) ~throws ""
+  layout.location(config, 32, 0) ~throws ""
+  layout.location(config, 0, config.vlmax) ~throws ""
+  layout.mask_location(32, 0) ~throws ""
+  layout.mask_location(0, 64) ~throws ""

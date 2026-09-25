@@ -12,6 +12,10 @@ profile or transaction implementation.
 Keep complete instruction-set composition, pipeline controls, and
 microarchitectural policy in the named core.
 
+`vector-layout.rhm` owns physical vector-row mapping over the architectural
+bit positions in `riscv/isa/vector.rhm`. Keep it pure host code and require an
+explicit row width. Its focused checks live in `cores/tests/vector-layout-test.rhm`.
+
 [`chi-hart.rhdl`](chi-hart.rhdl) owns physical-region/Home mapping, generic
 instruction, data, and uncached requester capabilities, placement parameters,
 and the hardware identity bundle. Named cores retain refill, writeback, snoop,

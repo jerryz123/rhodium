@@ -3,18 +3,19 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
 bundle VectorRegisterWrite(vlen :: VectorLength):
-  address: Bits(index_width(vector_depth(vlen)))
+  address: Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
   data: Bits(64)
   mask: Bits(64)
 
 sync_circuit RV5StageVectorRegisterFile(vlen :: VectorLength):
-  def Address = Bits(index_width(vector_depth(vlen)))
-  def MaskAddress = Bits(index_width(vector_chunks(vlen)))
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
+  def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))
   interface reads[3](Valid(Address), ~role: consumer)
   interface results[3](Valid(Bits(64)), ~role: producer)
   interface mask_read(Valid(MaskAddress), ~role: consumer)
@@ -23,28 +24,28 @@ sync_circuit RV5StageVectorRegisterFile(vlen :: VectorLength):
 
   // No architectural reset value, and v0 is ordinary writable storage. Its
   // shadow is a physical read replica, never independent architectural state.
-  reg storage(Vec(vector_depth(vlen), Bits(64)))
-  reg mask_shadow(Vec(vector_chunks(vlen), Bits(64)))
+  reg storage(Vec(VectorRegisterLayout(vlen, 64).depth, Bits(64)))
+  reg mask_shadow(Vec(VectorRegisterLayout(vlen, 64).rows_per_register, Bits(64)))
   def writing = write.valid & !reset_active().into(Bool)
   // Row-local hold feedback implements masked writes without a fourth indexed
   // read mux for read-modify-write on the write port.
-  for (row in 0..vector_depth(vlen)):
-    when (writing & (write.bits.address === bits(row, index_width(vector_depth(vlen))))):
+  for (row in 0..VectorRegisterLayout(vlen, 64).depth):
+    when (writing & (write.bits.address === bits(row, index_width(VectorRegisterLayout(vlen, 64).depth)))):
       storage[row] <== masked_merge(storage[row], write.bits.data, write.bits.mask)
-  for (chunk in 0..vector_chunks(vlen)):
-    when (writing & (write.bits.address === bits(chunk, index_width(vector_depth(vlen))))):
+  for (chunk in 0..VectorRegisterLayout(vlen, 64).rows_per_register):
+    when (writing & (write.bits.address === bits(chunk, index_width(VectorRegisterLayout(vlen, 64).depth)))):
       mask_shadow[chunk] <== masked_merge(mask_shadow[chunk], write.bits.data, write.bits.mask)
 
-  fun read_word(address :: Bits(index_width(vector_depth(vlen)))) :~ Bits(64):
+  fun read_word(address :: Bits(index_width(VectorRegisterLayout(vlen, 64).depth))) :~ Bits(64):
     def retained = storage[address]
     mux(writing & (write.bits.address === address), masked_merge(retained, write.bits.data, write.bits.mask), retained)
 
   for (port in 0..3):
     reads[port] |> map_valid(address => read_word(address)) |> valid_pipe(1) |> results[port]
 
-  fun read_mask(address :: Bits(index_width(vector_chunks(vlen)))) :~ Bits(64):
+  fun read_mask(address :: Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))) :~ Bits(64):
     def retained = mask_shadow[address]
-    def flat_address = address.zext(index_width(vector_depth(vlen)))
+    def flat_address = address.zext(index_width(VectorRegisterLayout(vlen, 64).depth))
     mux(writing & (write.bits.address === flat_address), masked_merge(retained, write.bits.data, write.bits.mask), retained)
 
   mask_read |> map_valid(address => read_mask(address)) |> valid_pipe(1) |> mask_result

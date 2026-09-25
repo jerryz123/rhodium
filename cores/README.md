@@ -24,10 +24,10 @@ architectural result selection.
 | Component | Interface and parameters | Timing contract | Component owns | Caller owns |
 |---|---|---|---|---|
 | [`ALU(xlen)`](alu.rhdl) | `XLen.X32` or `XLen.X64`; `left`, `right`, and `AluControl` to `result` | Combinational; no ready/valid state | Modular arithmetic, logic, shifts/rotates, comparisons, counts, unary transforms, RV64 word shaping, and the shared Zba/Zbb/Zbs/Zicond datapaths | Decode, operand routing, and result use |
-| [`SimdALU()`](simd-alu.rhdl) | Two 64-bit packed operands, runtime 8/16/32/64-bit elements, decoded controls, fixed-point rounding mode, carry/borrow inputs, and lane masks | Combinational; no ready/valid state | Lane-isolated wrapping, saturating, averaging, and carry/borrow arithmetic; logic; shifts/rotates; fixed-point rounding; counts; reversals; comparisons; min/max; selection; and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
-| [`SimdWidenOperands()`](simd-alu.rhdl) | Two packed 64-bit source operands, 8/16/32-bit source elements, optional already-wide left input, half selection, and element enables | Combinational; no ready/valid state | Per-source extension and enable remapping for one 64-bit destination group | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
-| [`SimdExtend()`](simd-alu.rhdl) | One packed 64-bit source, destination element width, 2x/4x/8x ratio, source fragment, and signedness | Combinational; no ready/valid state | Direct sign/zero extension into one 64-bit destination beat | Source EEW/EMUL scheduling, register grouping, masking, and architectural overlap legality |
-| [`SimdCompress()`](simd-alu.rhdl) | One packed 64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
+| [`SimdALU(xlen)`](simd-alu.rhdl) | Two 32/64-bit packed operands, runtime element width up to the physical word, decoded controls, fixed-point rounding mode, carry/borrow inputs, and lane masks | Combinational; no ready/valid state | Lane-isolated wrapping, saturating, averaging, and carry/borrow arithmetic; logic; shifts/rotates; fixed-point rounding; counts; reversals; comparisons; min/max; selection; and result/write-mask packing | Instruction decode, operand extraction/broadcast, clipping, vector configuration, register preservation, scheduling, and writeback |
+| [`SimdWidenOperands(xlen)`](simd-alu.rhdl) | Two packed words, source elements up to half the physical width, optional already-wide left input, half selection, and element enables | Combinational; no ready/valid state | Per-source extension and enable remapping for one physical destination word | Group sequencing, scalar/immediate broadcasting, register grouping, and architectural legality |
+| [`SimdExtend(xlen)`](simd-alu.rhdl) | One packed 32/64-bit source, destination element width, 2x/4x/8x ratio, source fragment, and signedness | Combinational; no ready/valid state | Direct sign/zero extension into one physical destination beat | Source EEW/EMUL scheduling, register grouping, masking, and architectural overlap legality |
+| [`SimdCompress(xlen)`](simd-alu.rhdl) | One packed 32/64-bit word, runtime element width, and element-selection mask | Combinational; no ready/valid state | Stable-order compaction into consecutive low lanes and selected-element count | Cross-word accumulation, architectural register grouping, tails, restart, and writeback |
 | [`BranchResolver(width)`](branch-resolver.rhdl) | `Valid(BranchResolverRequest)` to `Valid(BranchResult)` | Combinational; output validity follows input validity, with no backpressure | Equal and signed/unsigned less-than comparison plus final `taken` selection | Encodings, target generation, PC state, and redirect timing |
 | [`LoadGen(xlen, beat_bytes = 8)`](load-store.rhdl) | Address, returned beat, `MemoryWidth`, and signedness to one XLEN value | Combinational; the power-of-two beat must contain an XLEN word | Addressed scalar extraction and sign/zero extension | Beat-address alignment, access validation, protocol, and ordering |
 | [`StoreGen(xlen, beat_bytes = 8)`](load-store.rhdl) | Address, XLEN value, and `MemoryWidth` to beat data and `Mask(beat_bytes)` | Combinational; the power-of-two beat must contain an XLEN word | Addressed scalar placement and byte-lane mask generation | Beat-address alignment, access validation, protocol, and ordering |
@@ -38,9 +38,12 @@ architectural result selection.
 
 ### Packed SIMD integer ALU
 
-`SimdALU()` operates on 8, 4, 2, or 1 independent elements within 64 bits,
-selected by `SimdElementWidth.E8/E16/E32/E64`. Element zero occupies the least
-significant bits. `enabled` and `select_right` are `Mask(8)` values indexed by
+`SimdALU(xlen)` takes `xlen :: XLen` (`XLen.X32` or `XLen.X64`); its physical word width is `xlen.width`.
+The 32-bit specialization operates on 4, 2, or 1 independent E8/E16/E32
+elements; the 64-bit specialization adds E64 and doubles those lane counts.
+The caller must select an element width that fits the physical word. Element
+zero occupies the least significant bits. `enabled` and `select_right` are
+`Mask(xlen.width / 8)` values indexed by
 element, not byte; unused high mask bits are ignored at wider element sizes.
 
 `SimdAluControl` chooses an adder, logic, shift, comparison, min/max, select,
@@ -85,14 +88,16 @@ The caller uses those enables to preserve old register contents; the ALU has
 no architectural state or tail policy. Mask-register destinations use the
 element enables rather than the data byte mask.
 
-`SimdWidenOperands()` takes `SimdWidenElementWidth.E8/E16/E32`, two source
+`SimdWidenOperands(xlen)` takes `SimdWidenElementWidth.E8/E16/E32`, two source
 words, independent `left_signed`/`right_signed` controls, `upper_half`, and
 source-element `enabled` bits. `left_wide` passes an already destination-width
 left word through while the right input is extended from the selected source
 half. Its `operands` output contains the prepared `left`/`right` values,
 destination `element_width`, and
-destination-element `enabled`. The lower or upper 32 source bits become four
-16-bit, two 32-bit, or one 64-bit destination elements. Enables are selected
+destination-element `enabled`. Each invocation expands the lower or upper
+half of the source word. The caller must select a doubled element width that
+fits the physical word: E8/E16 sources on 32-bit hardware, or E8/E16/E32 on
+64-bit hardware. Enables are selected
 from the corresponding source elements; unused high output enable bits are
 zero. Prepared data is not masked. Two invocations cover a complete source
 word, and the caller owns which group to issue and where to write it. Independent
@@ -112,7 +117,12 @@ The block remains independent of RISC-V profiles: RV5Stage supplies the decode,
 legality, and scheduling around it. It does not promise a clock frequency or
 provide a registered pipeline.
 
-`SimdCompress()` retains the input order of selected elements, places them in
+`SimdExtend(xlen)` uses the same physical word width for source and destination.
+Its `legal` output checks the extension ratio, fragment, and destination width,
+including rejection of E64 on 32-bit hardware. No 64-bit execution datapath is
+retained inside the 32-bit specialization.
+
+`SimdCompress(xlen)` retains the input order of selected elements, places them in
 consecutive low lanes, clears unused output lanes, and reports a count from zero
 through the number of physical lanes. Selection bits above the active lane count
 are ignored. It is a stateless word-local primitive; a vector implementation

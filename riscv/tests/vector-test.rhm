@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks vector profiles, extensions, geometry, fractional groups, chunk mapping, masks, and data overlap.
+// Checks architectural vector profiles, fractional groups, bit positions, and data overlap.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,8 @@ def zvfh = vector_extensions(VectorExtension.Zvfh)
 def zvbb = vector_extensions(VectorExtension.Zvbb)
 
 check:
+  vector_profile_isa_extensions(VectorProfile.Zve32x, 64) ~is ["zve32x", "zvl32b", "zvl64b"]
+  vector_profile_isa_extensions(VectorProfile.V, 64) ~throws "VLEN"
   vector_profile_isa_extensions(VectorProfile.V, 128, zvfhmin).contains("zvfhmin") ~is #true
   vector_profile_isa_extensions(VectorProfile.Zve32f, 128, zvfhmin).contains("zvfhmin") ~is #true
   vector_profile_isa_extensions(VectorProfile.V, 128).contains("zvfhmin") ~is #false
@@ -33,10 +35,7 @@ check:
   vector_extensions_support_zvbb(zvbb) ~is #true
   validate_vector_extensions(VectorProfile.None, zvbb) ~throws ""
 
-for (vlen in [128, 256, 512, 1024, 65536]):
-  check:
-    vector_depth(vlen) * 64 ~is 32 * vlen
-    vector_chunks(vlen) * 64 ~is vlen
+for (vlen in [64, 128, 256, 512, 1024, 65536]):
   for (sew in VectorElementWidths):
     for (lmul in VectorRegisterGroups):
       when vector_element_bits(sew) <= 64 * vector_lmul(lmul)
@@ -56,14 +55,8 @@ for (vlen in [128, 256, 512, 1024, 65536]):
             when config.legal_group(base)
             | block:
                 for (element in [0, config.vlmax - 1]):
-                  def location = config.location(base, element)
                   check:
-                    location.chunk * 64 + location.bit_offset ~is base * vlen + element * config.element_bits
-                    location.chunk < vector_depth(vlen) ~is #true
-  def mask = vector_mask_location(vlen, 31, vlen - 1)
-  check:
-    mask.chunk ~is vector_depth(vlen) - 1
-    mask.bit_offset ~is 63
+                    config.bit_offset(base, element) ~is base * vlen + element * config.element_bits
 
 def narrow = VectorConfig(256, VectorSEW.E8, VectorLMUL.M1)
 def wide = narrow.with_eew(VectorSEW.E16)
@@ -77,11 +70,9 @@ check:
   vector_data_overlap_legal(narrow, 2, narrow, 2) ~is #true
   vector_data_overlap_legal(narrow, 2, wide, 4) ~is #true
   vector_data_overlap_legal(VectorConfig(256, VectorSEW.E8, VectorLMUL.MF2), 2, VectorConfig(256, VectorSEW.E16, VectorLMUL.M1), 2) ~is #false
-  vector_chunks(192) ~throws ""
-  vector_chunks(64) ~throws ""
+  VectorConfig(192, VectorSEW.E8, VectorLMUL.M1) ~throws ""
   VectorConfig(128, VectorSEW.E64, VectorLMUL.MF2) ~throws ""
-  wide.location(1, 0) ~throws ""
-  narrow.location(31, narrow.vlmax) ~throws ""
+  wide.bit_offset(1, 0) ~throws ""
+  narrow.bit_offset(31, narrow.vlmax) ~throws ""
   narrow.active(0, narrow.vlmax + 1, 0, #true) ~throws ""
-  vector_mask_location(128, 32, 0) ~throws ""
   VectorConfig(128, VectorSEW.E8, VectorLMUL.M8).with_eew(VectorSEW.E16) ~throws ""

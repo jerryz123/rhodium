@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
   "../vector/csr.rhdl" open
@@ -32,7 +33,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: vector_extensions))
   inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, vector_extensions))
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(xlen.width)))
-  sequencer.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
+  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
   sequencer.packed_memory <== Bool(#false)
   sequencer.packed_done.valid <== Bool(#false)
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, Bits(xlen.width)))

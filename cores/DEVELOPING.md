@@ -76,10 +76,12 @@ public README and companion DEVELOPING guide before adding system integration.
 
 ## Focused validation
 
-The packed integer unit in `simd-alu.rhdl` uses guard bits around eight bytes
-to perform every element width through one 72-bit adder. Eight byte comparison
-pairs feed a shared reduction tree; a tapered 64/32/16/16/8/8/8/8-bit shifter
-bank routes different-width operands through the same physical slots. Left
+The packed integer unit in `simd-alu.rhdl` takes `XLen.X32` or `XLen.X64` and
+specializes to that architectural width. Guard
+bits around four or eight bytes isolate each element within one shared adder;
+one additional top bit retains full-word carry. Byte comparison pairs feed a
+shared reduction tree. The tapered shifter bank is 32/16/8/8 or
+64/32/16/16/8/8/8/8 bits, routing element widths through the same slots. Left
 and right shifts share each slice by reversing around the right shifter.
 Barrel stages select fill or wrap bits for rotation; repeating a narrow
 operand across its slot makes the same network rotate at every element width.
@@ -104,7 +106,7 @@ both widening halves, compaction masks, and enable remapping against independent
 per-element models:
 
 ```sh
-FIXTURE=simd-alu bash tools/testing/circt/run.sh --simulate-only
+FIXTURES='simd-alu simd-alu32' bash tools/testing/circt/run.sh --simulate-only
 ```
 
 Pure host contracts can use the package tests directly. Cycle-visible behavior

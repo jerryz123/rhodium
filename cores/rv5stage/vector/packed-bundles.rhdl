@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
@@ -20,7 +21,7 @@ bundle RV5StageVectorPackedCursor(vlen :: VectorLength):
 bundle RV5StageVectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
   before: RV5StageVectorPackedCursor(vlen)
   after: RV5StageVectorPackedCursor(vlen)
-  rows: Vec(vector_transport_bytes(xlen), Bits(index_width(vector_depth(vlen))))
+  rows: Vec(vector_transport_bytes(xlen), Bits(index_width(VectorRegisterLayout(vlen, 64).depth)))
   offsets: Vec(vector_transport_bytes(xlen), Bits(3))
   elements: Vec(vector_transport_bytes(xlen), Bits(index_width(vlen + 1)))
   live: Bits(vector_transport_bytes(xlen))

@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../vector/register-file.rhdl" open
   "../vector/packing.rhdl" open
   "../../../riscv/isa/vector.rhm" open
@@ -54,7 +56,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   output result_address: Bits(16)
   output result_data: Bits(64)
   output result_mask: Bits(64)
-  def address_width = index_width(vector_depth(vlen))
+  def address_width = index_width(VectorRegisterLayout(vlen, 64).depth)
   def count_width = index_width(vlen + 1)
   inst bank(RV5StageVectorRegisterFile(vlen))
   inst context(ValidPipe(VectorFixtureContext(vlen), 1))
@@ -89,7 +91,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     bank.reads[port].valid <== read_valid
     bank.reads[port].bits <== [read_a, read_b, read_c][port][0..address_width]
   bank.mask_read.valid <== read_valid
-  bank.mask_read.bits <== mask_read_address[0..index_width(vector_chunks(vlen))]
+  bank.mask_read.bits <== mask_read_address[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)]
   read_a_result <== bank.results[0].bits
   read_b_result <== bank.results[1].bits
   read_c_result <== bank.results[2].bits
@@ -102,7 +104,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   prepare.mask_word <== bank.mask_result.bits
   prepare.scalar <== c.scalar
   prepare.immediate <== c.immediate
-  inst alu(SimdALU())
+  inst alu(SimdALU(XLen.X64))
   alu.left <== prepare.operands.left
   alu.right <== prepare.operands.right
   alu.element_width <== prepare.operands.element_width

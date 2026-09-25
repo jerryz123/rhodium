@@ -1,0 +1,33 @@
+#lang rhombus
+// Maps architectural vector bit positions onto explicitly sized physical register rows.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/isa/vector.rhm") open
+
+class VectorRowLocation(row :: Nat, bit_offset :: Nat)
+
+class VectorRegisterLayout(vlen :: VectorLength, row_bits :: PosInt):
+  constructor (vlen :: VectorLength, row_bits :: PosInt):
+    unless vlen mod row_bits == 0
+    | error(~who: #'VectorRegisterLayout, "row width must divide VLEN")
+    super(vlen, row_bits)
+
+  property rows_per_register :: PosInt: vlen / row_bits
+  property depth :: PosInt: 32 * rows_per_register
+
+  method location(config :: VectorConfig, base :: Nat, element :: Nat) :: VectorRowLocation:
+    unless config.vlen == vlen && config.element_bits <= row_bits
+    | error(~who: #'VectorRegisterLayout.location, "configuration must match VLEN and its elements must fit a row")
+    def offset = config.bit_offset(base, element)
+    VectorRowLocation(offset div row_bits, offset mod row_bits)
+
+  method mask_location(base :: Nat, element :: Nat) :: VectorRowLocation:
+    unless base < 32 && element < vlen
+    | error(~who: #'VectorRegisterLayout.mask_location, "mask element or register out of range")
+    def offset = base * vlen + element
+    VectorRowLocation(offset div row_bits, offset mod row_bits)
+
+export:
+  VectorRowLocation
+  VectorRegisterLayout

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "bundles.rhdl" open
   "packed-bundles.rhdl" open
   "packed-load.rhdl" open
@@ -30,7 +31,7 @@ hardware_enum RV5StagePackedPrepare:
 sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Context :: DataType, slots :: Pow2Int, ~owner_count: owner_count :: Pow2Int = 2):
   def bytes = xlen.width / 8
   def Count = Bits(index_width(vlen + 1))
-  def Address = Bits(index_width(vector_depth(vlen)))
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
   def Tag = Bits(index_width(slots))
   def Owner = Bits(index_width(owner_count))
   def Cursor = RV5StageVectorPackedCursor(vlen)
@@ -44,7 +45,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
   interface reads[3](Valid(Address), ~role: producer)
   interface results[3](Valid(Bits(64)), ~role: consumer)
-  interface mask_read(Valid(Bits(index_width(vector_chunks(vlen)))), ~role: producer)
+  interface mask_read(Valid(Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))), ~role: producer)
   interface mask_result(Valid(Bits(64)), ~role: consumer)
   interface alignment(Valid(RV5StageVectorAlignment()), ~role: producer)
   input aligned: Bits(64)
@@ -58,8 +59,8 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   input owner: Owner
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
-  input blocked_rows: Vec(vector_depth(vlen), Bool)
-  output(busy_rows, foreign_rows): Vec(vector_depth(vlen), Bool)
+  input blocked_rows: Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
+  output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
   output drain_blocked: Bool
   output active: Bool
 
@@ -116,7 +117,7 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
     def live = (bits(lane, 3) >= cursor.leading) & (element < limit)
     def register = vd + (field.zext(5) << group_shift)
     def position = (element.zext(index_width(vlen + 1) + 3) << eew) + byte.zext(index_width(vlen + 1) + 3)
-    row_values := row_values ++ [((register.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (position >> 3)[0..index_width(vector_depth(vlen))])]
+    row_values := row_values ++ [((register.zext(index_width(VectorRegisterLayout(vlen, 64).depth)) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + (position >> 3)[0..index_width(VectorRegisterLayout(vlen, 64).depth)])]
     offset_values := offset_values ++ [position[0..3]]
     element_values := element_values ++ [element]
     live_values := live_values ++ [live]
@@ -166,16 +167,16 @@ sync_circuit RV5StageVectorPackedMemory(xlen :: XLen, vlen :: VectorLength, Cont
   // The mask shadow remains independent of the three general VRF read ports.
   def start_mask = layout.elements[0] >> 6
   def end_mask = layout.elements[bytes - 1] >> 6
-  def masks_ready = !blocked_rows[start_mask[0..index_width(vector_chunks(vlen))].zext(index_width(vector_depth(vlen)))] & !blocked_rows[end_mask[0..index_width(vector_chunks(vlen))].zext(index_width(vector_depth(vlen)))]
+  def masks_ready = !blocked_rows[start_mask[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)].zext(index_width(VectorRegisterLayout(vlen, 64).depth))] & !blocked_rows[end_mask[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)].zext(index_width(VectorRegisterLayout(vlen, 64).depth))]
   mask_read.valid <== scheduling & !clear & masks_ready & ((prepare === RV5StagePackedPrepare.MaskLow) ||| (prepare === RV5StagePackedPrepare.MaskHigh))
-  mask_read.bits <== mux(prepare === RV5StagePackedPrepare.MaskHigh, end_mask, start_mask)[0..index_width(vector_chunks(vlen))]
+  mask_read.bits <== mux(prepare === RV5StagePackedPrepare.MaskHigh, end_mask, start_mask)[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)]
   def enabled_bytes = vec(for List (lane in 0..bytes):
                             def word = mux((layout.elements[lane] >> 6) === start_mask, low_mask, high_mask)
                             layout.live[lane].into(Bool) & (!masked ||| word.as_vec(Bool)[layout.elements[lane][0..6]])).as_bits()
   def source_lane = priority_encoder(store_remaining)
   def source_row = layout.rows[source_lane]
   def first_store_lane = priority_encoder(mapped.live)
-  def mutable last_store_row :: Bits(index_width(vector_depth(vlen))) = mapped.rows[first_store_lane]
+  def mutable last_store_row :: Bits(index_width(VectorRegisterLayout(vlen, 64).depth)) = mapped.rows[first_store_lane]
   for (lane in 0..bytes):
     last_store_row := mux(mapped.live[lane].into(Bool), mapped.rows[lane], last_store_row)
   for (port in 0..3):

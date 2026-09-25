@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "bundles.rhdl" open
   "geometry.rhdl" open
   "packing.rhdl" open
@@ -19,7 +20,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
-  def Address = Bits(index_width(vector_depth(vlen)))
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
   def ReadContext = RV5StageVectorReadContext(xlen, vlen, Context)
   def MicroOp = RV5StageVectorMicroOp(vlen, Context)
   bundle GatherRead():
@@ -29,7 +30,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   interface request(Decoupled(RV5StageVectorReadRequest(xlen, vlen, Context)), ~role: consumer)
   interface reads[3](Valid(Address), ~role: producer)
   interface results[3](Valid(Bits(64)), ~role: consumer)
-  interface mask_read(Valid(Bits(index_width(vector_chunks(vlen)))), ~role: producer)
+  interface mask_read(Valid(Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))), ~role: producer)
   interface mask_result(Valid(Bits(64)), ~role: consumer)
   interface issue(Decoupled(MicroOp), ~role: producer)
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
@@ -102,13 +103,13 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def floating_scalar = mux(descriptor.control.fp_service, descriptor.floating_scalar, checked_floating_scalar)
   def fp_source_width = (sew + fp_narrowing.as_bits().zext(2)).into(SimdElementWidth)
   def fp_result_width = (sew + fp_widening.as_bits().zext(2)).into(SimdElementWidth)
-  def row_base_width = index_width(vector_depth(vlen))
+  def row_base_width = index_width(VectorRegisterLayout(vlen, 64).depth)
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
   // Every destination cursor is chunk-aligned, including a restarted chunk,
   // so this byte offset is constant throughout the retained macro.
   def slide_offset = (slide_delta[0..3] << sew)
-  def slide_base = vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
+  def slide_base = vs2.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
   def read_destination_chunk = beat_control.first >> (bits(3, 2) - destination_width)
   def extension_part = mux_lookup(descriptor.control.extension_ratio, ~default: read_destination_chunk[0].as_bits().zext(3), [[SimdExtensionRatio.By4, read_destination_chunk[0..2].zext(3)], [SimdExtensionRatio.By8, read_destination_chunk[0..3]]])
   def index_shift = (beat_control.first[0..3] << index_sew) ++ bits(0, 3)
@@ -207,7 +208,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
         data: bits(0, 64)
         count: bits(0, 4)
         destination: beat_control.first
-  inst compactor(SimdCompress())
+  inst compactor(SimdCompress(XLen.X64))
   def compress_mask = results[1].bits >> beat_control.first[0..6]
   def compress_selected = vec(for List (lane in 0..8):
                                 def position = beat_control.first.zext(index_width(vlen + 1) + 1) + bits(lane, index_width(vlen + 1) + 1)

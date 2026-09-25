@@ -11,3 +11,10 @@ complete processor pipeline or a named core's extension mix.
 
 Named cores import these mappings and compose them with their own complete
 decode relation.
+
+[`VectorRegisterLayout(vlen, row_bits)`](vector-layout.rhm) maps architectural
+vector elements and mask bits into physical rows. Row width must divide VLEN;
+an element must fit within one row. The layout exposes `rows_per_register`,
+`depth` for all 32 registers, and element/mask locations as row and bit offset.
+For VLEN=64, 32-bit rows give a 64-row bank; 64-bit rows give a 32-row bank.
+This pure host model does not imply a port count, SRAM, or scheduling policy.

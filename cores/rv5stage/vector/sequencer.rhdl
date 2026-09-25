@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "bundles.rhdl" open
   "geometry.rhdl" open
   "dependencies.rhdl".vector_destination_registers
@@ -16,7 +17,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false):
-  def Address = Bits(index_width(vector_depth(vlen)))
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
   def Count = Bits(index_width(vlen + 1))
   def Sequence = Bits(vector_sequence_width(vlen))
   def ReadRequest = RV5StageVectorReadRequest(xlen, vlen, Context)
@@ -28,7 +29,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   interface read_request(Decoupled(ReadRequest), ~role: producer)
   interface sequencing_done(Pulse(), ~role: producer)
-  input blocked_rows: Vec(vector_depth(vlen), Bool)
+  input blocked_rows: Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
   output(active, read_flush): Bool
 
   reg occupied(~init: Bool(#false))
@@ -103,7 +104,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def extension_source_chunk = cursor >> (bits(3, 2) - source_sew)
   def wide_source_chunk = cursor >> (bits(2, 2) - sew)
   def destination_chunk = cursor >> (bits(3, 2) - destination_width)
-  def row_base_width = index_width(vector_depth(vlen))
+  def row_base_width = index_width(VectorRegisterLayout(vlen, 64).depth)
   def memory_emul = geometry.lmul.into(SInt(3)).sext(5) + memory_data_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def memory_group_shift = mux(memory_emul < SInt(5)(0), bits(0, 3), memory_emul.into(Bits(5))[0..3])
   def memory_register = vd + (field.zext(5) << memory_group_shift)
@@ -119,29 +120,29 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def slide_valid = vec(for List (byte in 0..16):
                           def element = slide_first + (bits(byte, xlen.width + 2) >> sew)
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
-  def slide_base = vs2.zext(row_base_width) << index_width(vector_chunks(vlen))
+  def slide_base = vs2.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
   def slide_address = slide_base + slide_chunk[0..row_base_width]
   def index_chunk = cursor >> (bits(3, 2) - index_sew)
   def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
   def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
   def first_source_chunk = mux(extension, extension_source_chunk, mux(wide_vs2 ||| fp_narrowing, wide_source_chunk, source_chunk))
-  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << index_width(vector_chunks(vlen))) + first_source_chunk[0..row_base_width]))
-  def second_address = mux(compress, (vs1.zext(row_base_width) << index_width(vector_chunks(vlen))) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << index_width(vector_chunks(vlen))) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
-  def destination_address = (vd.zext(row_base_width) << index_width(vector_chunks(vlen))) + destination_chunk[0..row_base_width]
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + first_source_chunk[0..row_base_width]))
+  def second_address = mux(compress, (vs1.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
+  def destination_address = (vd.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + destination_chunk[0..row_base_width]
   // Writes may now finish independently of older unrelated instructions.
   // Preserve WAW order at the physical destination row before capturing reads.
   def writing = !scalar_destination & !(descriptor.control.memory & descriptor.control.store) & !empty
   def write_width = sew + ((descriptor.control.integer ||| descriptor.control.multiply_divide ||| descriptor.control.fp_service) & descriptor.control.widening & !reduction).as_bits().zext(2)
   def write_chunk = mux(reduction ||| element_move, bits(0, index_width(vlen + 1)), mux(descriptor.control.mask_destination ||| mask_logic, cursor >> 6, cursor >> (bits(3, 2) - write_width)))
-  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << index_width(vector_chunks(vlen))) + write_chunk[0..row_base_width]
+  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + write_chunk[0..row_base_width]
   def destination_group = vector_destination_registers(xlen, vlen, descriptor)
-  def compressed_write_wait = vec(for List (row in 0..vector_depth(vlen)): blocked_rows[row] & destination_group[row div vector_chunks(vlen)].into(Bool)).as_bits().or_reduce()
+  def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, 64).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, 64).rows_per_register].into(Bool)).as_bits().or_reduce()
   def write_wait = writing & mux(compress, compressed_write_wait, blocked_rows[write_address])
   // Older macros have captured every operand before this descriptor starts.
   // Only their pending writes can block us; this macro's own writes cannot.
   // Indexed gathers conservatively wait for older writes before their index
   // read, since the dependent data read is a nonstallable second read stage.
-  def mask_address = (cursor >> 6)[0..index_width(vector_chunks(vlen))].zext(row_base_width)
+  def mask_address = (cursor >> 6)[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)].zext(row_base_width)
   def uses_mask = descriptor.masked ||| descriptor.control.carry_input ||| descriptor.control.mask_select
   def read_source_blocked = vec([
     !empty & blocked_rows[first_address],
@@ -173,7 +174,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   read_offer.left.bits.enables <== vec([!empty, !empty & second_source, !empty & destination_source]).as_bits()
   read_offer.left.bits.addresses <== vec([first_address, second_address, destination_address])
   read_offer.left.bits.mask_enable <== !empty
-  read_offer.left.bits.mask_address <== (cursor >> 6)[0..index_width(vector_chunks(vlen))]
+  read_offer.left.bits.mask_address <== (cursor >> 6)[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)]
   def offered_read = read_offer.right |> trace_event("vector/s1.sequence", ~stalls: #true, ~fields: read):
     pc: read.context.instruction.descriptor.pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): read.context.instruction.descriptor.instruction

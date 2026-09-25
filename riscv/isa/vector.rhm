@@ -1,11 +1,11 @@
 #lang rhombus/and_meta
-// Models ELEN=32/64 vector configurations, register groups, and 64-bit chunk locations without hardware dependencies.
+// Models architectural vector configurations, register groups, and bit positions without physical storage policy.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
 
-def VectorLengths = [128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
+def VectorLengths = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
 
 fun vector_length(value :: PosInt):
   VectorLengths.contains(value)
@@ -48,14 +48,6 @@ fun vector_lmul(lmul :: VectorLMUL):
   | lmul == VectorLMUL.M4: 4
   | ~else: 8
 
-fun vector_chunks(vlen :: VectorLength) :: PosInt:
-  vlen / 64
-
-fun vector_depth(vlen :: VectorLength) :: PosInt:
-  32 * vector_chunks(vlen)
-
-class VectorLocation(chunk :: Nat, bit_offset :: Nat)
-
 // The geometry supports fractional LMUL through SEW <= LMUL*64; profile ELEN
 // independently limits the largest legal SEW.
 // It describes a decoded legal configuration, not the vtype CSR's vill state.
@@ -76,11 +68,10 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
   method select_vl(avl :: Nat) :: Nat:
     math.min(avl, vlmax)
 
-  method location(base :: Nat, element :: Nat) :: VectorLocation:
+  method bit_offset(base :: Nat, element :: Nat) :: Nat:
     unless legal_group(base) && element < vlmax
-    | error(~who: #'VectorConfig.location, "element or register group out of range")
-    def offset = element * element_bits
-    VectorLocation(base * vector_chunks(vlen) + offset div 64, offset mod 64)
+    | error(~who: #'VectorConfig.bit_offset, "element or register group out of range")
+    base * vlen + element * element_bits
 
   method active(element :: Nat, vl :: Nat, vstart :: Nat, enabled :: Boolean) :: Boolean:
     unless vl <= vlmax
@@ -94,11 +85,6 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
     unless matches.length() == 1
     | error(~who: #'VectorConfig.with_eew, "effective register group is not representable")
     VectorConfig(vlen, eew, matches[0])
-
-fun vector_mask_location(vlen :: VectorLength, base :: Nat, element :: Nat) :: VectorLocation:
-  unless base < 32 && element < vlen
-  | error(~who: #'vector_mask_location, "mask element or register out of range")
-  VectorLocation(base * vector_chunks(vlen) + element div 64, element mod 64)
 
 fun vector_sew_encoding(sew :: VectorSEW) :: Nat:
   match sew
@@ -152,12 +138,8 @@ export:
   VectorElementWidths
   VectorRegisterGroups
   VectorConfig
-  VectorLocation
   vector_element_bits
   vector_lmul
-  vector_chunks
-  vector_depth
-  vector_mask_location
   vector_sew_encoding
   vector_lmul_encoding
   vector_vtype_config

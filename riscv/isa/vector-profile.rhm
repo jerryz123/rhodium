@@ -22,7 +22,7 @@ enum VectorExtension
 def DefaultVectorProfile = VectorProfile.None
 def NoVectorExtensions :: List.of(VectorExtension) = []
 def DefaultVectorExtensions = NoVectorExtensions
-def VectorLengthExtensionLengths = [32, 64] ++ VectorLengths
+def VectorLengthExtensionLengths = [32] ++ VectorLengths
 
 fun validate_vector_extensions(profile :: VectorProfile,
                                extensions :: List.of(VectorExtension)):
@@ -94,6 +94,8 @@ fun vector_profile_isa_extensions(profile :: VectorProfile,
                                   vlen :: VectorLength,
                                   extensions :: List.of(VectorExtension) = DefaultVectorExtensions) :: List.of(String):
   validate_vector_extensions(profile, extensions)
+  when vector_profile_is_v(profile) && vlen < 128
+  | error(~who: #'vector_profile_isa_extensions, "V requires VLEN of at least 128 bits")
   if !vector_profile_enabled(profile)
   | []
   | block:

@@ -231,6 +231,8 @@ class RV5StageConfig(xlen :: XLen,
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
+    when vector_profile_enabled(vector) && vector_length < 128
+    | error(~who: #'RV5StageConfig, "the integrated vector pipeline currently requires VLEN of at least 128 bits")
     super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
   reconstructor (xlen, extensions, mmu_mode, cache_geometry,

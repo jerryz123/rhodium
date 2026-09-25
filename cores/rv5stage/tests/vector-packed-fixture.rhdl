@@ -2,6 +2,7 @@
 // Exposes certified beat scheduling, contended VRF writes, and shared SIMD alignment.
 // SPDX-License-Identifier: Apache-2.0
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../vector/packed-memory.rhdl" open
   "../vector/sequencer.rhdl" open
   "../vector/slots.rhdl" open
@@ -44,7 +45,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   sequencer.feedback.valid <== Bool(#false)
   sequencer.feedback.bits <== dont_care(sequencer.feedback.bits.type)
   sequencer.read_request.ready <== Bool(#false)
-  sequencer.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
+  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
   reg tail(~init: bits(0, index_width(slots)))
   reg head(~init: bits(0, index_width(slots)))
   inst slots_owner(RV5StageVectorSlots(slots))
@@ -58,7 +59,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.alignment_available <== alignment_available
   engine.write_available <== write_available
   engine.owner <== bits(0, 1)
-  engine.blocked_rows <== bits(0, vector_depth(vlen)).as_vec(Bool)
+  engine.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
   inst registers(RV5StageVectorRegisterFile(vlen))
   inst execute(RV5StageVectorExecute(vlen))
   inst attempts(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))

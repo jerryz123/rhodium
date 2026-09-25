@@ -1,6 +1,12 @@
 // Checks shared SIMD carry/borrow, bit operations, extension, fixed-point, widening, and compaction against models.
 // SPDX-License-Identifier: Apache-2.0
+`ifndef SIMD_WIDTH
+`define SIMD_WIDTH 64
+`endif
 module simd_alu_tb;
+  localparam int WIDTH = `SIMD_WIDTH;
+  localparam int BYTE_COUNT = WIDTH / 8;
+  localparam int FORMATS = $clog2(BYTE_COUNT) + 1;
   localparam logic [2:0] ADDER = 0, LOGIC_OP = 1, SHIFT = 2,
                          COMPARE = 3, MINMAX = 4, SELECT_OP = 5, PERMUTE = 6, COUNT = 7;
   localparam logic [2:0] WRAP = 0, SATURATE_UNSIGNED = 1, SATURATE_SIGNED = 2,
@@ -40,7 +46,7 @@ module simd_alu_tb;
     logic lt, eq, predicate, carry_bit, carry_borrow, round_bit, lower_nonzero, discarded_nonzero, increment, overflow, expected_saturated;
     logic [7:0] expected_mask_result, expected_write_mask;
     width_bits = 8 << element_width;
-    lane_count = 64 / width_bits;
+    lane_count = WIDTH / width_bits;
     mask = 64'hffffffffffffffff >> (64 - width_bits);
     expected_data = 0;
     expected_mask_result = 0;
@@ -259,7 +265,7 @@ module simd_alu_tb;
     logic [7:0] expected_enabled, expected_write_mask;
     source_bits = 8 << widen_element_width;
     destination_bits = 2 * source_bits;
-    lanes = 64 / destination_bits;
+    lanes = WIDTH / destination_bits;
     source_mask = (64'h1 << source_bits) - 1;
     destination_mask = '1;
     destination_mask >>= 64 - destination_bits;
@@ -303,13 +309,13 @@ module simd_alu_tb;
     ratio_value = 2 << extension_ratio;
     destination_bits = 8 << element_width;
     source_bits = destination_bits / ratio_value;
-    expected_legal = element_width >= extension_ratio + 1 && int'(extension_part) < ratio_value;
+    expected_legal = destination_bits <= WIDTH && element_width >= extension_ratio + 1 && int'(extension_part) < ratio_value;
     #1;
     assert (extension_legal === expected_legal)
       else $fatal(1, "extension legality ratio=%0d width=%0d part=%0d", ratio_value, destination_bits, extension_part);
     if (expected_legal) begin
-      lanes = 64 / destination_bits;
-      source_offset = int'(extension_part) * (64 / ratio_value);
+      lanes = WIDTH / destination_bits;
+      source_offset = int'(extension_part) * (WIDTH / ratio_value);
       source_mask = '1 >> (64 - source_bits);
       destination_mask = '1 >> (64 - destination_bits);
       expected = 0;
@@ -356,7 +362,7 @@ module simd_alu_tb;
     // operands, exposing carry/borrow and shift leakage between packed lanes.
     for (int a = 0; a < 256; a++) begin
       for (int b = 0; b < 256; b++) begin
-        for (int lane = 0; lane < 8; lane++) begin
+        for (int lane = 0; lane < BYTE_COUNT; lane++) begin
           left[lane * 8 +: 8] = 8'(a + lane * 37);
           right[lane * 8 +: 8] = 8'(b ^ (lane * 53));
         end
@@ -366,7 +372,7 @@ module simd_alu_tb;
       end
     end
 
-    for (int size = 0; size < 4; size++) begin
+    for (int size = 0; size < FORMATS; size++) begin
       element_width = 2'(size);
       // Exercise every lane enable pattern, including unused high mask bits.
       for (int enables = 0; enables < 256; enables++) begin
@@ -378,7 +384,7 @@ module simd_alu_tb;
       end
       // Boundary carries, full-word overflow/borrow, and signed extremes.
       enabled = 8'hff;
-      for (int bit_index = 0; bit_index < 64; bit_index++) begin
+      for (int bit_index = 0; bit_index < WIDTH; bit_index++) begin
         left = 64'h1 << bit_index;
         right = left - 1;
         exercise_operations();
@@ -388,8 +394,8 @@ module simd_alu_tb;
       end
       left = '1; right = 1; exercise_operations();
       left = 0; right = '1; exercise_operations();
-      left = 64'h8000000000000000;
-      right = 64'h7fffffffffffffff; exercise_operations();
+      left = 64'h1 << (WIDTH - 1);
+      right = left - 1; exercise_operations();
       right = left; exercise_operations();
       left = 0; right = 0; exercise_operations();
       left = '1; right = '1; exercise_operations();
@@ -413,7 +419,7 @@ module simd_alu_tb;
           for (int amount = 0; amount < (8 << size); amount++) begin
             left = random_word();
             right = 0;
-            for (int lane = 0; lane < (8 >> size); lane++)
+            for (int lane = 0; lane < (BYTE_COUNT >> size); lane++)
               right |= 64'(amount) << (lane * (8 << size));
             enabled = 8'(random_word());
             check_result();
@@ -443,7 +449,7 @@ module simd_alu_tb;
     for (int trial = 0; trial < 20000; trial++) begin
       left = random_word();
       right = random_word();
-      element_width = 2'(random_word());
+      element_width = 2'(random_word() % 64'(FORMATS));
       enabled = 8'(random_word());
       select_right = 8'(random_word());
       exercise_operations();
@@ -451,7 +457,7 @@ module simd_alu_tb;
 
     // Every source width and half, every mask, and every byte-sized amount.
     // In particular shifts by SEW must survive widening instead of becoming 0.
-    for (int size = 0; size < 3; size++) begin
+    for (int size = 0; size < FORMATS - 1; size++) begin
       widen_element_width = 2'(size);
       for (int half = 0; half < 2; half++) begin
         upper_half = 1'(half);
@@ -472,7 +478,7 @@ module simd_alu_tb;
     end
     for (int trial = 0; trial < 10000; trial++) begin
       left = random_word(); right = random_word(); enabled = 8'(random_word());
-      widen_element_width = 2'(random_word() % 3);
+      widen_element_width = 2'(random_word() % 64'(FORMATS - 1));
       upper_half = 1'(random_word());
       widen_left_wide = 1'(random_word());
       widen_left_signed = 1'(random_word()); widen_right_signed = 1'(random_word());
@@ -493,7 +499,7 @@ module simd_alu_tb;
         end
       end
     end
-    $display("simd-alu PASS: %0d per-element differential checks", checks);
+    $display("simd-alu %0d-bit PASS: %0d per-element differential checks", WIDTH, checks);
     $finish;
   end
 endmodule

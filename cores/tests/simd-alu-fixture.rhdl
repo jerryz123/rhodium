@@ -3,9 +3,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../simd-alu.rhdl" open
+  lib("rhodium/std/bits.rhdl") open
 
-circuit SimdAluFixture():
+circuit SimdAluFixture(xlen :: XLen):
+  def width = xlen.width
   input(left, right): Bits(64)
   input element_width: SimdElementWidth
   input result_select: SimdResultSelect
@@ -35,30 +38,30 @@ circuit SimdAluFixture():
   output extension_data: Bits(64)
   output extension_legal: Bool
 
-  inst widen(SimdWidenOperands())
-  widen.left <== left
-  widen.right <== right
+  inst widen(SimdWidenOperands(xlen))
+  widen.left <== left[0..width]
+  widen.right <== right[0..width]
   widen.element_width <== widen_element_width
   widen.upper_half <== upper_half
   widen.left_wide <== widen_left_wide
   widen.left_signed <== widen_left_signed
   widen.right_signed <== widen_right_signed
-  widen.enabled <== enabled
-  prepared_left <== widen.operands.left
-  prepared_right <== widen.operands.right
+  widen.enabled <== enabled.as_bits()[0..width / 8].into(Mask(width / 8))
+  prepared_left <== if width == 64 | widen.operands.left | widen.operands.left.zext(64)
+  prepared_right <== if width == 64 | widen.operands.right | widen.operands.right.zext(64)
   prepared_width <== widen.operands.element_width
-  prepared_enabled <== widen.operands.enabled
-  inst extend(SimdExtend())
-  extend.source <== left
+  prepared_enabled <== if width == 64 | widen.operands.enabled | widen.operands.enabled.as_bits().zext(8).into(Mask(8))
+  inst extend(SimdExtend(xlen))
+  extend.source <== left[0..width]
   extend.destination_width <== element_width
   extend.ratio <== extension_ratio
   extend.part <== extension_part
   extend.signed <== extension_signed
-  extension_data <== extend.data
+  extension_data <== if width == 64 | extend.data | extend.data.zext(64)
   extension_legal <== extend.legal
-  inst alu(SimdALU())
-  alu.left <== mux(widening, widen.operands.left, left)
-  alu.right <== mux(widening, widen.operands.right, right)
+  inst alu(SimdALU(xlen))
+  alu.left <== mux(widening, widen.operands.left, left[0..width])
+  alu.right <== mux(widening, widen.operands.right, right[0..width])
   alu.element_width <== mux(widening, widen.operands.element_width, element_width)
   alu.control <== SimdAluControl():
     result_select: result_select
@@ -77,19 +80,19 @@ circuit SimdAluFixture():
     invert_right: invert_right
   alu.rounding <== rounding
   alu.rounding_mode <== rounding_mode
-  alu.enabled <== mux(widening, widen.operands.enabled, enabled)
-  alu.carry_in <== carry_in
-  alu.select_right <== select_right
-  data <== alu.result.data
-  mask_result <== alu.result.mask_result
-  write_mask <== alu.result.write_mask
+  alu.enabled <== mux(widening, widen.operands.enabled, enabled.as_bits()[0..width / 8].into(Mask(width / 8)))
+  alu.carry_in <== carry_in.as_bits()[0..width / 8].into(Mask(width / 8))
+  alu.select_right <== select_right.as_bits()[0..width / 8].into(Mask(width / 8))
+  data <== if width == 64 | alu.result.data | alu.result.data.zext(64)
+  mask_result <== if width == 64 | alu.result.mask_result | alu.result.mask_result.as_bits().zext(8).into(Mask(8))
+  write_mask <== if width == 64 | alu.result.write_mask | alu.result.write_mask.as_bits().zext(8).into(Mask(8))
   saturated <== alu.result.saturated
-  inst compress(SimdCompress())
-  compress.data <== left
+  inst compress(SimdCompress(xlen))
+  compress.data <== left[0..width]
   compress.element_width <== element_width
-  compress.selected <== enabled
-  compressed_data <== compress.compressed.data
-  compressed_count <== compress.compressed.count
+  compress.selected <== enabled.as_bits()[0..width / 8].into(Mask(width / 8))
+  compressed_data <== if width == 64 | compress.compressed.data | compress.compressed.data.zext(64)
+  compressed_count <== if width == 64 | compress.compressed.count | compress.compressed.count.zext(4)
 
 export:
   SimdAluFixture

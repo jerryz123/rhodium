@@ -150,8 +150,13 @@ its review surface: keep them exact when modules or layer imports change. They l
 direct Rhodium dependencies, not the full transitive closure.
 
 The reusable packed execution module `cores/simd-alu.rhdl` directly imports
-`std/bits.rhdl` for bit reversal and leading-zero count. Its remaining hardware
-operations use the public language; it imports no ISA catalog or named core.
+`std/bits.rhdl` for bit reversal and leading-zero count, and `riscv/isa/xlen.rhm`
+for the closed RV32/RV64 host configuration. Its remaining hardware operations
+use the public language; it imports no instruction catalog or named core.
+Its explicit `XLen` specialization prunes datapath width and element cases.
+`cores/riscv/vector-layout.rhm` is pure host physical-row geometry over
+`riscv/isa/vector.rhm`. RV5Stage vector storage and scheduling consumers import
+that layout explicitly; architectural vector descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.

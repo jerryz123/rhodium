@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../decode/vector-ctrl.rhdl".VectorOperandMode
   "bundles.rhdl" open
   "packing.rhdl" open
@@ -18,7 +20,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   interface alignment(Valid(RV5StageVectorAlignment()), ~role: consumer)
   output aligned: Bits(64)
   output result: RV5StageVectorResultBeat(vlen)
-  inst alu(SimdALU())
+  inst alu(SimdALU(XLen.X64))
   inst packing(RV5StageVectorResult(vlen))
   inst scan(RV5StageVectorMaskScan())
   def reduction = (beat.control.integer ||| beat.control.fp_service) & beat.control.reduction
@@ -32,7 +34,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def floating_scalar_destination = beat.control.floating_point & beat.control.floating_scalar_destination & element_move
   def any_scalar_destination = scalar_destination ||| floating_scalar_destination
   def widening_reduction = integer_reduction & beat.control.widening
-  inst reduction_widen(SimdWidenOperands())
+  inst reduction_widen(SimdWidenOperands(XLen.X64))
   reduction_widen.left <== beat.right
   reduction_widen.right <== beat.left
   reduction_widen.element_width <== beat.element_width.as_bits().into(SimdWidenElementWidth)
@@ -88,7 +90,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
   def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
   def element_write = VectorRegisterWrite(vlen):
-    address: (beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(vector_depth(vlen))]
+    address: (beat.destination.zext(index_width(VectorRegisterLayout(vlen, 64).depth)) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(VectorRegisterLayout(vlen, 64).depth)]
     data: mux(multiply_accumulate, mux(beat.control.multiply_destination, beat.left, beat.destination_data), mux(gather_vector, alu.result.data, bits(0, 64)))
     mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
   def fp_mask_destination = beat.control.fp_service & beat.control.mask_destination
@@ -102,7 +104,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     [SimdElementWidth.E32, scalar_value[0..32].into(SInt(32)).sext(64).into(Bits(64))]
   ])
   def element_zero_write = VectorRegisterWrite(vlen):
-    address: beat.destination.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))
+    address: beat.destination.zext(index_width(VectorRegisterLayout(vlen, 64).depth)) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
     data: mux(reduction, mux(beat.control.floating_point, beat.right, reduced), mux(beat.control.floating_point, scalar_value, extended_scalar))
     mask: mux(!beat.empty & beat.last & !any_scalar_destination, element_mask, bits(0, 64))
   result <== RV5StageVectorResultBeat(vlen):

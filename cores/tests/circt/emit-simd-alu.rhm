@@ -3,9 +3,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/isa/xlen.rhm").XLen
   "../../../rhodium/backend/circt.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../cores/tests/simd-alu-fixture.rhdl" as fixture
 
-def design = embedded.run_elaboration(fun (): fixture.SimdAluFixture())
+def design = embedded.run_elaboration(fun (): fixture.SimdAluFixture(XLen.X64))
 print(emit_circt(design))

@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "bundles.rhdl" open
   "packed-bundles.rhdl" open
   "load-response.rhdl" open
@@ -30,7 +31,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   input write_available: Bool
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
-  output(busy_rows, foreign_rows): Vec(vector_depth(vlen), Bool)
+  output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
   output(active, drain_blocked, resolved_last): Bool
   output replay_cursor: RV5StageVectorPackedCursor(vlen)
   def wb = commit |> map_valid(event => event.tag)
@@ -149,16 +150,16 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
       data[slot] <== if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
     elsewhen ((reserve.valid & (reserve.bits.tag === tag)) ||| (release_slot & (head === tag))):
       completed[slot] <== Bool(#false)
-  def carry_rows = mux(carry_valid, bits(1, vector_depth(vlen)) << carry.address, bits(0, vector_depth(vlen)))
-  def mutable busy :: Bits(vector_depth(vlen)) = carry_rows
-  def mutable foreign :: Bits(vector_depth(vlen)) = mux(carry_owner =/= owner, carry_rows, bits(0, vector_depth(vlen)))
+  def carry_rows = mux(carry_valid, bits(1, VectorRegisterLayout(vlen, 64).depth) << carry.address, bits(0, VectorRegisterLayout(vlen, 64).depth))
+  def mutable busy :: Bits(VectorRegisterLayout(vlen, 64).depth) = carry_rows
+  def mutable foreign :: Bits(VectorRegisterLayout(vlen, 64).depth) = mux(carry_owner =/= owner, carry_rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
   for (s in 0..slots):
-    def mutable rows :: Bits(vector_depth(vlen)) = bits(0, vector_depth(vlen))
+    def mutable rows :: Bits(VectorRegisterLayout(vlen, 64).depth) = bits(0, VectorRegisterLayout(vlen, 64).depth)
     for (lane in 0..bytes):
-      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, vector_depth(vlen)) << entries[s].layout.rows[lane], bits(0, vector_depth(vlen)))
-    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, vector_depth(vlen)))
+      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, VectorRegisterLayout(vlen, 64).depth) << entries[s].layout.rows[lane], bits(0, VectorRegisterLayout(vlen, 64).depth))
+    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
     busy := busy ||| owned_rows
-    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, vector_depth(vlen)))
+    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
   busy_rows <== busy.as_vec(Bool)
   foreign_rows <== foreign.as_vec(Bool)
   when (commit.valid):

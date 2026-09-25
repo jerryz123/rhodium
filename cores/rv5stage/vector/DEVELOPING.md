@@ -8,6 +8,13 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
+Physical row counts and locations come from `cores/riscv/vector-layout.rhm`,
+not the ISA model. Current pipeline consumers explicitly choose 64-bit rows
+and `SimdALU(XLen.X64)`; the reusable SIMD and layout libraries also support 32-bit
+rows. That library support does not enable RV32 or VLEN=64 in the integrated
+pipeline. Keep its profile gates until the sequencer, storage, packing,
+completion, and shared-service paths have migrated together.
+
 ## State ownership and reading order
 
 Read the execution path in this order. Component boundaries follow state

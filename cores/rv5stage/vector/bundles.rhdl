@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("hardfloat/main.rhdl").RoundingMode
   "csr.rhdl" open
@@ -167,9 +168,9 @@ bundle RV5StageVectorReadContext(xlen :: XLen, vlen :: VectorLength, Context :: 
 bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: RV5StageVectorReadContext(xlen, vlen, Context)
   enables: Bits(3)
-  addresses: Vec(3, Bits(index_width(vector_depth(vlen))))
+  addresses: Vec(3, Bits(index_width(VectorRegisterLayout(vlen, 64).depth)))
   mask_enable: Bool
-  mask_address: Bits(index_width(vector_chunks(vlen)))
+  mask_address: Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))
 
 // A macro identity survives sequencing; a slot identity names one issued beat.
 bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
@@ -194,7 +195,7 @@ bundle RV5StageVectorSlotState(vlen :: VectorLength, slots :: Pow2Int):
   accepted: Bool
   packed: Bool
   owner: Bits(index_width(slots))
-  write_address: Bits(index_width(vector_depth(vlen)))
+  write_address: Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
   writes: Bool
 
 export:

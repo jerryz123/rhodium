@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
   "slots.rhdl" open
@@ -50,7 +51,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   // Persistent ownership and allocation/acceptance/drain frontiers.
   reg entry_packed(Vec(vector_completion_slots, Bool))
   reg entry_owner(Vec(vector_completion_slots, InstructionId))
-  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(vector_depth(vlen)))))
+  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(VectorRegisterLayout(vlen, 64).depth))))
   reg entry_writes(Vec(vector_completion_slots, Bool))
   // Slots retain ownership before issue, not completed result payloads.
   // Tags identify these slots; scalar rd never encodes vector element position.

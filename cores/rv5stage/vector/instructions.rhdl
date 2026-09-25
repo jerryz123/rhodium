@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "bundles.rhdl" open
   "dependencies.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
@@ -16,7 +17,7 @@ bundle RV5StageVectorIssueFinished(slots :: Pow2Int):
 
 sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int):
   def tag_width = index_width(vector_completion_slots)
-  def row_frontier_width = index_width(vector_depth(vlen) + 1)
+  def row_frontier_width = index_width(VectorRegisterLayout(vlen, 64).depth + 1)
   def Result = RV5StageVectorOwnedResult(xlen, vlen, vector_completion_slots)
   interface request(Valid(RV5StageVectorDescriptor(xlen)), ~role: consumer)
   interface finished(Valid(RV5StageVectorIssueFinished(vector_completion_slots)), ~role: consumer)
@@ -25,9 +26,9 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   interface cancel(Pulse(), ~role: consumer)
   interface retire(Pulse(), ~role: producer)
   input slots: Vec(vector_completion_slots, RV5StageVectorSlotState(vlen, vector_completion_slots))
-  input packed_rows: Vec(vector_depth(vlen), Bool)
+  input packed_rows: Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
   input(packed_memory, packed_drain_blocked, memory_drained): Bool
-  output blocked_rows: Vec(vector_depth(vlen), Bool)
+  output blocked_rows: Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
   output(allocate_id, sequencing_id): Bits(tag_width)
   output(closed, serial, memory): Vec(vector_completion_slots, Bool)
   output(available, active, loads_pending, stores_pending, fp_pending): Bool
@@ -85,15 +86,15 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
       macro_fault[owner] <== finished.bits.fault ||| cancel.valid
   when macro_complete:
     drain_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_owner + bits(1, tag_width)
-  def mutable foreign :: Bits(vector_depth(vlen)) = packed_rows.as_bits()
+  def mutable foreign :: Bits(VectorRegisterLayout(vlen, 64).depth) = packed_rows.as_bits()
   for (owner in 0..vector_completion_slots):
-    for (row in 0..vector_depth(vlen)):
+    for (row in 0..VectorRegisterLayout(vlen, 64).depth):
       def future_row = !macro_progressive[owner] ||| (bits(row, row_frontier_width) >= macro_row_frontier[owner])
-      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div vector_chunks(vlen)].into(Bool) & future_row
-      foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, vector_depth(vlen)) << row, bits(0, vector_depth(vlen)))
+      def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div VectorRegisterLayout(vlen, 64).rows_per_register].into(Bool) & future_row
+      foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, VectorRegisterLayout(vlen, 64).depth) << row, bits(0, VectorRegisterLayout(vlen, 64).depth))
   for (slot in 0..vector_completion_slots):
-    def rows = mux(slots[slot].allocated & !slots[slot].packed & slots[slot].writes, bits(1, vector_depth(vlen)) << slots[slot].write_address, bits(0, vector_depth(vlen)))
-    foreign := foreign ||| mux(slots[slot].owner =/= current_owner, rows, bits(0, vector_depth(vlen)))
+    def rows = mux(slots[slot].allocated & !slots[slot].packed & slots[slot].writes, bits(1, VectorRegisterLayout(vlen, 64).depth) << slots[slot].write_address, bits(0, VectorRegisterLayout(vlen, 64).depth))
+    foreign := foreign ||| mux(slots[slot].owner =/= current_owner, rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
   blocked_rows <== foreign.as_vec(Bool)
   when (request.valid):
     current_owner <== next_owner

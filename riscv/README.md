@@ -44,11 +44,12 @@ VLEN; individual implementations can impose narrower limits.
 [`isa/vector.rhm`](isa/vector.rhm) is a pure ELEN=32/64 geometry model, not a
 vector instruction catalog. `VectorLengths` enumerates and `VectorLength`
 admits power-of-two VLEN values
-128..65536; `VectorConfig` describes supported decoded SEW/LMUL combinations,
+64..65536; `VectorConfig` describes supported decoded SEW/LMUL combinations,
 VLMAX, aligned register groups, deterministic `min(AVL, VLMAX)` length selection,
-element/chunk locations, and EEW-to-EMUL conversion. Fractional LMUL uses the
-low portion of a register. Mask locations always use one bit per element,
-independently of SEW/LMUL.
+architectural bit offsets, and EEW-to-EMUL conversion. Fractional LMUL uses the
+low portion of a register. Physical row mapping is independently parameterized
+by [`VectorRegisterLayout`](../cores/riscv/vector-layout.rhm); no VRF row width
+is implied by these architectural descriptors.
 
 `vector_data_overlap_legal` implements ordinary data-operand overlap rules;
 mask operands and instruction-specific restrictions still require decode
@@ -61,7 +62,8 @@ Its geometry follows
 `VectorProfile.None`, `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, and
 `V` choices. It derives each profile's implied Zve extension closure, ELEN,
 floating-point capabilities, and the cumulative `Zvl<N>b` closure through the
-selected VLEN. Concrete cores own the supported XLEN/FP combinations and
+selected VLEN. Full V requires at least 128 bits; embedded Zve profiles can
+use VLEN=64. Concrete cores own the supported XLEN/FP combinations and
 physical implementation. Only `VectorProfile.V` represents the single-letter V
 extension or sets `misa.V`. Orthogonal `VectorExtension` selections add
 capabilities without multiplying base profiles; `Zvfhmin` extends only
