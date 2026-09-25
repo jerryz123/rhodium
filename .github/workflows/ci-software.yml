@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
+        configuration: [simple-rv5stage-rva23, simple-spike-rva23]
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -221,7 +221,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [single-core-rv5stage-soc, single-core-spike-soc]
+        configuration: [simple-rv5stage-rva23, simple-spike-rva23]
         shard: [0, 1, 2, 3]
     steps:
       - name: Check out Rhodium
@@ -229,12 +229,12 @@ jobs:
       - name: Initialize upstream runner
         run: git submodule update --init sw/riscv-arch-test
       - name: Install Spike runtime dependencies
-        if: matrix.configuration == 'single-core-spike-soc'
+        if: matrix.configuration == 'simple-spike-rva23'
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
       - name: Restore pinned Spike runtime libraries
-        if: matrix.configuration == 'single-core-spike-soc'
+        if: matrix.configuration == 'simple-spike-rva23'
         uses: ./.github/actions/setup-fesvr
       - name: Download exact simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

@@ -71,8 +71,8 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
         self.assertEqual(plan["simulation_matrix"]["include"], expected)
         self.assertEqual({entry["soc"] for entry in expected},
-                         {"mini-rv5stage-soc", "mini-spike-soc", "single-core-rv5stage-soc",
-                          "single-core-spike-soc", "tiled-rv5stage-soc", "tiled-spike-soc"})
+                         {"mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
+                          "simple-spike-rva23", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
@@ -257,15 +257,15 @@ class PlanTest(unittest.TestCase):
         self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", build)
         self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", simulation)
         self.assertIn("if: matrix.shape != 'single'", simulation)
-        self.assertIn("if: matrix.soc == 'tiled-rv5stage-soc'", simulation)
+        self.assertIn("if: matrix.soc == 'tiled-rv5stage-rva23'", simulation)
         self.assertIn("tiled-litmus-smoke:", simulation)
-        self.assertIn("{soc: tiled-rv5stage-soc, core: rv5stage}", simulation)
-        self.assertIn("{soc: tiled-spike-soc, core: spike}", simulation)
+        self.assertIn("{soc: tiled-rv5stage-rva23, core: rv5stage}", simulation)
+        self.assertIn("{soc: tiled-spike-rva23, core: spike}", simulation)
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
-        self.assertIn("if: matrix.soc == 'single-core-rv5stage-soc'", simulation)
+        self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
         self.assertIn("tiled-memory-test", simulation)
-        self.assertIn("configuration: [single-core-rv5stage-soc, single-core-spike-soc]", software)
+        self.assertIn("configuration: [simple-rv5stage-rva23, simple-spike-rva23]", software)
 
 
 if __name__ == "__main__":

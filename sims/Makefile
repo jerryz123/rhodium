@@ -10,8 +10,7 @@ PYTHON ?= python3
 PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
-SOC ?= single
-CORE ?= rv5stage
+include product.mk
 TRACE ?= 0
 TRACE_FILE ?=
 NLOHMANN_JSON_INCLUDE_DIR ?=
@@ -24,68 +23,30 @@ RACO ?= raco
 VERILATOR ?= verilator
 CIRCT_OPT ?= $(REPO_DIR)/.tools/firtool-1.155.0/bin/circt-opt
 
-HARNESS_SELECTOR_single-core-rv5stage-soc := single rv5stage
-HARNESS_SELECTOR_single-core-spike-soc := single spike
-HARNESS_SELECTOR_mini-rv5stage-soc := mini rv5stage
-HARNESS_SELECTOR_mini-spike-soc := mini spike
-HARNESS_SELECTOR_tiled-rv5stage-soc := tiled rv5stage
-HARNESS_SELECTOR_tiled-spike-soc := tiled spike
-HARNESS_SELECTOR_mini := mini $(CORE)
-HARNESS_SELECTOR_single := single $(CORE)
-HARNESS_SELECTOR_tiled := tiled $(CORE)
-HARNESS_SELECTOR := $(HARNESS_SELECTOR_$(SOC))
 HARNESS_EMITTER := $(REPO_DIR)/sims/emit-soc-harness.rhm
-SOC_DPI_SOURCE_single-core-rv5stage-soc := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc $(CHI_DPI_DIR)/chi_memory.cc
-SOC_DPI_SOURCE_single-core-spike-soc := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc
-SOC_DPI_SOURCE_tiled-rv5stage-soc := $(SOC_DPI_SOURCE_single-core-rv5stage-soc)
-SOC_DPI_SOURCE_mini-spike-soc := $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc
-SOC_DPI_SOURCE_tiled-spike-soc := $(SOC_DPI_SOURCE_single-core-spike-soc)
-SOC_DPI_SOURCE_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc)
-SOC_DPI_SOURCE_single := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SOC_DPI_SOURCE_mini)
-SOC_DPI_SOURCE_tiled := $(SOC_DPI_SOURCE_single-core-rv5stage-soc) $(SOC_DPI_SOURCE_mini)
-SOC_DPI_SOURCE := $(SOC_DPI_SOURCE_$(SOC)) $(UART_DPI_DIR)/uart_dpi.cc
-SOC_DPI_HEADER_single-core-rv5stage-soc := $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h $(CHI_DPI_DIR)/chi_memory.h $(VERILATOR_DIR)/chi_image_memory.h
-SOC_DPI_HEADER_single-core-spike-soc := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h
-SOC_DPI_HEADER_tiled-rv5stage-soc := $(SOC_DPI_HEADER_single-core-rv5stage-soc)
-SOC_DPI_HEADER_mini-spike-soc := $(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h
-SOC_DPI_HEADER_tiled-spike-soc := $(SOC_DPI_HEADER_single-core-spike-soc)
-SOC_DPI_HEADER_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h)
-SOC_DPI_HEADER_single := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
-SOC_DPI_HEADER_tiled := $(SOC_DPI_HEADER_single-core-rv5stage-soc) $(SOC_DPI_HEADER_mini)
-SOC_DPI_HEADER := $(SOC_DPI_HEADER_$(SOC)) $(UART_DPI_DIR)/uart_dpi.h
 SPIKE_DPI_CPPFLAGS := -I$(SPIKE_DPI_DIR) -I$(FESVR_PREFIX)/include/riscv -iquote $(FESVR_PREFIX)/include/fesvr
-SOC_DPI_CFLAGS_single-core-rv5stage-soc := -DRHODIUM_CHI_MEMORY
-SOC_DPI_CFLAGS_single-core-spike-soc := -DRHODIUM_CHI_MEMORY $(SPIKE_DPI_CPPFLAGS)
-SOC_DPI_CFLAGS_tiled-rv5stage-soc := -DRHODIUM_CHI_MEMORY
-SOC_DPI_CFLAGS_mini-spike-soc := $(SPIKE_DPI_CPPFLAGS)
-SOC_DPI_CFLAGS_tiled-spike-soc := $(SOC_DPI_CFLAGS_single-core-spike-soc)
-SOC_DPI_CFLAGS_mini := $(if $(filter spike,$(CORE)),$(SPIKE_DPI_CPPFLAGS))
-SOC_DPI_CFLAGS_single := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
-SOC_DPI_CFLAGS_tiled := -DRHODIUM_CHI_MEMORY $(SOC_DPI_CFLAGS_mini)
-SOC_DPI_CFLAGS := $(SOC_DPI_CFLAGS_$(SOC))
-SOC_DPI_DEPENDENCY_single-core-spike-soc = $(SPIKE_LIBRARY)
-SOC_DPI_DEPENDENCY_mini-spike-soc = $(SPIKE_LIBRARY)
-SOC_DPI_DEPENDENCY_tiled-spike-soc = $(SPIKE_LIBRARY)
-SOC_DPI_DEPENDENCY_mini = $(if $(filter spike,$(CORE)),$(SPIKE_LIBRARY))
-SOC_DPI_DEPENDENCY_single = $(SOC_DPI_DEPENDENCY_mini)
-SOC_DPI_DEPENDENCY_tiled = $(SOC_DPI_DEPENDENCY_mini)
-SOC_DPI_DEPENDENCY = $(SOC_DPI_DEPENDENCY_$(SOC))
-SOC_DPI_LDFLAGS_single-core-spike-soc := -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib -lriscv -ldisasm -lsoftfloat
-SOC_DPI_LDFLAGS_mini := $(if $(filter spike,$(CORE)),$(SOC_DPI_LDFLAGS_single-core-spike-soc))
-SOC_DPI_LDFLAGS_mini-spike-soc := $(SOC_DPI_LDFLAGS_single-core-spike-soc)
-SOC_DPI_LDFLAGS_tiled-spike-soc := $(SOC_DPI_LDFLAGS_single-core-spike-soc)
-SOC_DPI_LDFLAGS_single := $(SOC_DPI_LDFLAGS_mini)
-SOC_DPI_LDFLAGS_tiled := $(SOC_DPI_LDFLAGS_mini)
-SOC_DPI_LDFLAGS := $(SOC_DPI_LDFLAGS_$(SOC))
+SOC_DPI_SOURCE := $(UART_DPI_DIR)/uart_dpi.cc
+SOC_DPI_HEADER := $(UART_DPI_DIR)/uart_dpi.h
+ifneq ($(SOC_SHAPE),mini)
+SOC_DPI_SOURCE += $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc $(CHI_DPI_DIR)/chi_memory.cc
+SOC_DPI_HEADER += $(CHI_DPI_DIR)/chi_dpi_memory_dpi.h $(CHI_DPI_DIR)/chi_memory.h $(VERILATOR_DIR)/chi_image_memory.h
+SOC_DPI_CFLAGS += -DRHODIUM_CHI_MEMORY
+endif
+ifeq ($(SOC_CORE),spike)
+SOC_DPI_SOURCE += $(SPIKE_DPI_DIR)/spike_core.cc $(SPIKE_DPI_DIR)/spike_dpi.cc
+SOC_DPI_HEADER += $(SPIKE_DPI_DIR)/spike_core.h $(SPIKE_DPI_DIR)/spike_dpi.h
+SOC_DPI_CFLAGS += $(SPIKE_DPI_CPPFLAGS)
+SOC_DPI_DEPENDENCY = $(SPIKE_LIBRARY)
+SOC_DPI_LDFLAGS := -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib -lriscv -ldisasm -lsoftfloat
+endif
 
 CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR)
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
-SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC)$(if $(filter mini single tiled,$(SOC)),-$(CORE))
-SOC_ID := $(SOC)$(if $(filter mini single tiled,$(SOC)),-$(CORE))
+SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)
 ifeq ($(TRACE),1)
-ifneq ($(filter $(word 1,$(HARNESS_SELECTOR)),single tiled),$(word 1,$(HARNESS_SELECTOR)))
+ifneq ($(filter $(word 1,$(HARNESS_SELECTOR)),simple tiled),$(word 1,$(HARNESS_SELECTOR)))
 $(error TRACE=1 supports single or tiled RV5Stage SoCs only)
 endif
 ifneq ($(word 2,$(HARNESS_SELECTOR)),rv5stage)
@@ -127,11 +88,11 @@ ZICBOZ_SIGNATURE := $(SOC_BUILD_DIR)/zicboz.signature
 ZIHINTNTL_BINARY := $(SOC_BUILD_DIR)/zihintntl.elf
 ZIHINTNTL_SIGNATURE := $(SOC_BUILD_DIR)/zihintntl.signature
 LRSC_BINARIES := $(SOC_BUILD_DIR)/lrsc_0.elf $(SOC_BUILD_DIR)/lrsc_1.elf
-LRSC_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),8,1)
-LRSC_BOOT_HARTS := $(if $(filter tiled tiled-rv5stage-soc,$(SOC)),+boot-harts=0-7,)
-LRSC_IALIGN := $(if $(filter mini mini-rv5stage-soc,$(SOC)),4,2)
-LRSC_PAGE_TABLE_BASE := $(if $(filter mini mini-rv5stage-soc,$(SOC)),0x8000b000,0x80010000)
-LRSC_MEMORY_LIMIT := $(if $(filter mini mini-rv5stage-soc,$(SOC)),0x80010000,0xc0000000)
+LRSC_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),8,1)
+LRSC_BOOT_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),+boot-harts=0-7,)
+LRSC_IALIGN := 2
+LRSC_PAGE_TABLE_BASE := $(if $(filter mini,$(SOC_SHAPE)),0x8000b000,0x80010000)
+LRSC_MEMORY_LIMIT := $(if $(filter mini,$(SOC_SHAPE)),0x80010000,0xc0000000)
 SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
 
 # Failed elaboration or lowering must not leave a reusable partial artifact.
@@ -163,15 +124,15 @@ endif
 	$(SIMULATOR_BINARY) $(TRACE_RUN_ARGS) $(HTIF_ARGS) "$(abspath $(BINARY))" $(TARGET_ARGS)
 
 smoke: $(SMOKE_BINARY)
-	$(MAKE) run SOC=$(SOC) CORE=$(CORE) BINARY=$(SMOKE_BINARY)
+	$(MAKE) run SOC=$(SOC_ID) BINARY=$(SMOKE_BINARY)
 
 uart-pty-test: $(UART_PTY_BINARY) simulator
 	$(PYTHON) tests/uart_pty_test.py "$(SIMULATOR_BINARY)" "$(UART_PTY_BINARY)"
 
 .PHONY: lrsc-test lrsc-run
 lrsc-test:
-	@test "$(CORE)" = rv5stage && test -n "$(filter $(SOC),mini single tiled mini-rv5stage-soc single-core-rv5stage-soc tiled-rv5stage-soc)"
-	$(MAKE) lrsc-run SOC=$(SOC) TRACE=0 PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
+	@test "$(SOC_CORE)" = rv5stage && test "$(SOC_ISA)" = rva23
+	$(MAKE) lrsc-run SOC=$(SOC_ID) TRACE=0 PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
 	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test"
 
 lrsc-run: $(LRSC_BINARIES) simulator
@@ -179,25 +140,27 @@ lrsc-run: $(LRSC_BINARIES) simulator
 	  echo "LR/SC qualification: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
 	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
 	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/lrsc_$$mode.elf" && \
-	    awk -v expected="$(if $(filter tiled tiled-rv5stage-soc,$(SOC)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
+	    awk -v expected="$(if $(filter tiled,$(SOC_SHAPE)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
 	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
 	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
 	done; exit $$status
 
 .PHONY: tiled-memory-test
 tiled-memory-test:
-	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf" run SOC=tiled-rv5stage-soc TRACE=0 PREBUILT_SIMULATOR= \
+	@test "$(SOC_ID)" = tiled-rv5stage-rva23
+	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/$(SOC_ID)/tiled_memory.elf" run SOC=$(SOC_ID) TRACE=0 PREBUILT_SIMULATOR= \
 	  BUILD_ROOT="$(BUILD_ROOT)/tiled-memory-test" \
 	  HARNESS_SELECTOR=sims/tests/tiled-memory-harness.rhdl \
-	  BINARY="$(BUILD_ROOT)/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf" \
+	  BINARY="$(BUILD_ROOT)/tiled-memory-test/$(SOC_ID)/tiled_memory.elf" \
 	  HTIF_ARGS=+max-cycles=50000000
 
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
 	@test -n "$(TRACE_FILE)" || (echo "TRACE_FILE is required" >&2; exit 2)
-	$(MAKE) smoke SOC=single CORE=rv5stage TRACE=1
+	@test "$(SOC_ID)" = simple-rv5stage-rva23
+	$(MAKE) smoke SOC=$(SOC_ID) TRACE=1
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-trace.sh "$(TRACE_FILE)"
-	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/single-rv5stage-trace/obj/VTestDriver" "$(BUILD_ROOT)/single-rv5stage-trace/smoke.elf"
+	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-trace/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-trace/smoke.elf"
 
 boot-test: $(BOOT_BINARIES) simulator
 	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
@@ -213,14 +176,14 @@ zicboz-test: $(ZICBOZ_BINARY) simulator
 	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
 	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
 
-ifneq ($(filter $(SOC_ID),single-rv5stage single-core-rv5stage-soc),)
+ifeq ($(SOC_ID),simple-rv5stage-rva23)
 zihintntl-test: $(ZIHINTNTL_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZIHINTNTL_SIGNATURE) +signature-granularity=8 $(ZIHINTNTL_BINARY)
 	awk 'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != "0000000000000008" { exit 1 } NR == 8 && $$0 != "0000000000000001" { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
 	@echo "Zihintntl translated non-allocation, dirty-data preservation, and coherent signature checks passed on $(SOC)"
 else
 zihintntl-test:
-	@echo "zihintntl-test supports only SOC=single CORE=rv5stage" >&2
+	@echo "zihintntl-test supports only simple-rv5stage-rva23" >&2
 	@exit 2
 endif
 
@@ -267,10 +230,11 @@ transport-test: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	  sims/tests/direct-memory-htif-test.rhm
 
 tiled-lowering-test: | $(TILED_LOWERING_DIR)
+	@test "$(SOC_SHAPE)" = tiled
 	@test -x "$(CIRCT_OPT)" || \
 	  (echo "circt-opt not found; run 'make setup-circt' at the repository root or set CIRCT_OPT" >&2; exit 1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) $(HARNESS_SELECTOR_tiled-rv5stage-soc) > $(TILED_LOWERING_DIR)/soc_harness.mlir
+	  $(HARNESS_EMITTER) $(HARNESS_SELECTOR) > $(TILED_LOWERING_DIR)/soc_harness.mlir
 	$(CIRCT_OPT) --canonicalize --cse $(TILED_LOWERING_DIR)/soc_harness.mlir -o /dev/null
 
 spike-lowering-test: | $(SPIKE_LOWERING_DIR)
@@ -304,9 +268,9 @@ $(SPIKE_LIBRARY):
 $(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR) $(SPIKE_LOWERING_DIR):
 	mkdir -p $@
 
-$(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+$(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
 	@test -n "$(HARNESS_SELECTOR)" || \
-	  (echo "unsupported SOC '$(SOC)'; expected mini, single, or tiled" >&2; exit 2)
+	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
 ifeq ($(TRACE),1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  sims/materialize-event-harness.rkt $(TRACE_HEADER) $(HARNESS_SELECTOR) > $(SOC_MLIR)

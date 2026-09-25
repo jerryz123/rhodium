@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-checks every concrete SoC's generated DTB against standard device-tree tools.
+# Cross-checks RV5Stage and requested Spike product DTBs against standard device-tree tools.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -82,7 +82,7 @@ for name in single-core-spike-soc mini-spike-soc tiled-spike-soc; do
   for ((hart=0; hart<hart_count; hart++)); do
     [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-base)" == "rv64i" ]]
     [[ "$(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" mmu-type)" == "riscv,sv39" ]]
-    for extension in i m a f d c zicsr zifencei zicntr; do
+    for extension in i m a f d c v zicsr zifencei zicntr zihpm zcb zfa zicbom supm zvfh zvbb zvkt; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
         *" $extension "*) ;;
         *) echo "$name hart $hart DTB does not advertise $extension" >&2; exit 1 ;;
@@ -96,14 +96,14 @@ for name in single-core-spike-soc mini-spike-soc tiled-spike-soc; do
   done
 done
 
-for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
+for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
     *" zcmop "*) ;;
     *) echo "$name DTB does not advertise Zcmop" >&2; exit 1 ;;
   esac
 done
 
-for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
+for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   for extension in zfh zvfh zvkt zvkb zvl32b zvl64b zvl128b zcb zfa zicbom ssnpm supm; do
     case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
       *" $extension "*) ;;
@@ -111,15 +111,6 @@ for name in single-core-rv5stage-soc tiled-rv5stage-soc; do
     esac
   done
 done
-for name in mini-rv5stage-soc; do
-  for extension in zcb zfa zicbom ssnpm supm zvfh zvkt; do
-    case " $(fdtget "$fixture_dir/$name.dtb" /cpus/cpu@0 riscv,isa-extensions) " in
-      *" $extension "*) echo "$name DTB unexpectedly advertises $extension" >&2; exit 1 ;;
-      *) ;;
-    esac
-  done
-done
-
 [[ "$(fdtget "$fixture_dir/single-core-rv5stage-soc.dtb" / model)" == "Rhodium Single-Core RV5Stage SoC" ]]
 [[ "$(fdtget "$fixture_dir/mini-rv5stage-soc.dtb" / model)" == "Rhodium Mini RV5Stage SoC" ]]
 [[ "$(fdtget "$fixture_dir/tiled-rv5stage-soc.dtb" / model)" == "Rhodium Tiled RV5Stage SoC" ]]

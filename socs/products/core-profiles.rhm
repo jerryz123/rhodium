@@ -1,67 +1,58 @@
 #lang rhombus
-// Defines the default RV5Stage profiles and physical-address width shared by concrete SoCs and host generators.
+// Applies shape-owned RV5Stage implementation policy to explicit architectural presets.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../cores/rv5stage/profile.rhm" open
-  "../../riscv/isa/c.rhm" open
-  "../../riscv/isa/fp-profile.rhm" open
-  "../../riscv/isa/vector-profile.rhm" open
-  "../../riscv/isa/xlen.rhm".XLen
+  lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  "selection.rhm" open
+  "isa-profiles.rhm" open
 
-def single_core_rv5stage_soc_core_profile = RV5StageConfig(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(
-    ~floating_point: FloatingPointProfile.D,
-    ~half_precision: HalfPrecisionProfile.Zfh,
-    ~zfa: #true,
-    ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true,
-    ~zicbop: #true, ~zicbom: #true,
-    ~zicboz: #true,
-    ~ssnpm: #true, ~supm: #true,
-    ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true,
-    ~compressed: compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)
-  ),
-  ~mmu_mode: RV5StageMmuMode.Sv39,
-  ~data_cache_service_queue_depth: 4,
-  ~multiplier: RV5StageMultiplierKind.Pipelined,
-  ~vector: VectorProfile.V,
-  ~vector_extensions: vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb),
-  ~vector_length: 128,
-  ~cache_geometry: RV5StageCacheGeometry(
-    ~instruction: RV5StageCacheConfig(64, 4),
-    ~data: RV5StageCacheConfig(64, 4)
+fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConfig:
+  def architecture = soc_architecture(preset)
+  when preset == IsaPreset.RV32Max
+  | error(~who: #'rv5stage_product_profile, "rv32max requires RV32 integer-vector integration and VLEN=64 support; no substitute profile is selected")
+  def has = fun (name :: String): architecture.has(name)
+  def compressed = cond
+  | has("zcb"): compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)
+  | has("c"): compressed_extensions(CompressedExtension.C)
+  | ~else: []
+  def cache = match shape
+  | SoCShape.Mini: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(32, 1), ~data: RV5StageCacheConfig(32, 1))
+  | SoCShape.Simple: RV5StageCacheGeometry(~instruction: RV5StageCacheConfig(64, 4), ~data: RV5StageCacheConfig(64, 4))
+  | SoCShape.Tiled: RV5StageCacheGeometry()
+  def profile = RV5StageConfig(
+    ~xlen: architecture.isa.xlen,
+    ~extensions: RV5StageExtensions(
+      ~floating_point: if has("d") | FloatingPointProfile.D | FloatingPointProfile.None,
+      ~half_precision: if has("zfh") | HalfPrecisionProfile.Zfh | HalfPrecisionProfile.None,
+      ~zfa: has("zfa"),
+      ~ziccif: has("ziccif"), ~ziccamoa: has("ziccamoa"), ~ziccrse: has("ziccrse"),
+      ~zicbop: has("zicbop"), ~zicbom: has("zicbom"), ~zicboz: has("zicboz"),
+      ~ssnpm: has("ssnpm"), ~supm: has("supm"),
+      ~zawrs: has("zawrs"), ~zihintpause: has("zihintpause"), ~zihintntl: has("zihintntl"),
+      ~compressed: compressed
+    ),
+    ~mmu_mode: if architecture.mmu == RiscvMmuType.Bare | RV5StageMmuMode.Bare | RV5StageMmuMode.Sv39,
+    ~cache_geometry: cache,
+    ~data_cache_service_queue_depth: if shape == SoCShape.Mini | 1 | 4,
+    ~multiplier: if shape == SoCShape.Mini | RV5StageMultiplierKind.Iterative | RV5StageMultiplierKind.Pipelined,
+    ~vector: architecture.vector,
+    ~vector_extensions: architecture.vector_extensions,
+    ~vector_length: architecture.vector_length
   )
-)
+  unless profile.isa_profile == architecture.isa
+  | error(~who: #'rv5stage_product_profile, "RV5Stage cannot implement the exact requested architecture: " ++ isa_preset_name(preset))
+  profile
 
-def mini_rv5stage_soc_core_profile = RV5StageConfig(
-  ~xlen: XLen.X64,
-  ~extensions: RV5StageExtensions(~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~zicbop: #true, ~zicboz: #true, ~zawrs: #true, ~zihintpause: #true, ~zihintntl: #true),
-  ~mmu_mode: RV5StageMmuMode.Sv39,
-  ~data_cache_service_queue_depth: 1,
-  ~multiplier: RV5StageMultiplierKind.Iterative,
-  ~cache_geometry: RV5StageCacheGeometry(
-    ~instruction: RV5StageCacheConfig(32, 1),
-    ~data: RV5StageCacheConfig(32, 1)
-  )
-)
-
-def tiled_rv5stage_soc_core_profile = RV5StageConfig(
-  // Tiled and single-core systems expose one ISA while retaining independent
-  // cache, execution-resource, and topology configurations.
-  ~xlen: single_core_rv5stage_soc_core_profile.xlen,
-  ~extensions: single_core_rv5stage_soc_core_profile.extensions,
-  ~mmu_mode: single_core_rv5stage_soc_core_profile.mmu_mode,
-  ~cache_geometry: RV5StageCacheGeometry(),
-  ~data_cache_service_queue_depth: 4,
-  ~multiplier: RV5StageMultiplierKind.Pipelined,
-  ~vector: single_core_rv5stage_soc_core_profile.vector,
-  ~vector_extensions: single_core_rv5stage_soc_core_profile.vector_extensions,
-  ~vector_length: single_core_rv5stage_soc_core_profile.vector_length,
-  ~vector_completion_slots: single_core_rv5stage_soc_core_profile.vector_completion_slots
-)
+def single_core_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Simple, IsaPreset.RVA23)
+def mini_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Mini, IsaPreset.RVA23)
+def tiled_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Tiled, IsaPreset.RVA23)
 
 export:
+  rv5stage_product_profile
   single_core_rv5stage_soc_core_profile
   mini_rv5stage_soc_core_profile
   tiled_rv5stage_soc_core_profile

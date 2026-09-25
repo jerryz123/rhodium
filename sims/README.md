@@ -15,20 +15,39 @@ Contributors changing a harness, binding, or build rule should read
 
 ## Choose a harness
 
-`SOC=mini|single|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
-the hart implementation. Both are host-side elaboration choices, so all six
-products have separate generated RTL and simulator artifacts. The defaults are
-`SOC=single CORE=rv5stage`.
+`SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
+the hart implementation; `ISA=rv32max|rva23` is required. There is no implicit
+ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
+Both forms produce the same canonical artifact identity. `single` remains a
+spelling alias for the `simple` shape. Shape and core default to `simple` and
+`rv5stage` only when not supplied; ISA must always be explicit.
 
 | `SOC` | Memory supplied by harness | Topology |
 | --- | --- | --- |
 | `mini` | None; internal 64 KiB `CHIRam` | One hart and a forwarding Home |
-| `single` | One `CHIDPIMemory` | One hart and one inclusive LLC |
+| `simple` | One `CHIDPIMemory` | One hart and one inclusive LLC |
 | `tiled` | One `CHIDPIMemory` | Eight harts and four LLC slices in the default mesh |
 
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
-Spike uses its own RV64IMAFDC/Sv39 profile for any shape and remains
-simulation-only. The two choices do not add a runtime mux to the RTL.
+All RV64 products request `rva23`, including Mini and Spike. Spike remains
+simulation-only and its products are currently blocked pending runtime/UDB
+integration of that architecture. No narrower fallback is selected.
+The two core choices do not add a runtime mux to the RTL.
+
+The host emitters require an explicit third architectural selector:
+
+```sh
+tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm simple rv5stage rva23 /tmp/simple-target.json
+```
+
+Run this command from the repository root. The same three selectors are
+accepted by `emit-soc-harness.rhm`; it emits MLIR to standard output.
+Both use the [shared product resolver](../socs/README.md#typed-product-selection).
+The [eight-product inventory](test-products.rhm) describes intended test
+coverage, including currently blocked products. It does not enable those
+products or expand the existing CI matrix. Make, software targets, simulator
+attestations, and ACT configurations include ISA in their product keys.
+Setup and product-independent adapter tests do not require an ISA.
 
 ## Ownership and execution boundary
 
@@ -80,17 +99,17 @@ simulator:
 
 ```sh
 make -C sims setup
-make -C sims simulator SOC=single CORE=rv5stage
-make -C sims simulator SOC=single CORE=spike
-make -C sims simulator SOC=mini CORE=spike
-make -C sims simulator SOC=tiled CORE=rv5stage
+make -C sims simulator SOC=single CORE=rv5stage ISA=rva23
+make -C sims simulator SOC=single CORE=spike ISA=rva23
+make -C sims simulator SOC=mini CORE=spike ISA=rva23
+make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-CI uses the six canonical product names `mini-rv5stage-soc`, `mini-spike-soc`,
-`single-core-rv5stage-soc`, `single-core-spike-soc`, `tiled-rv5stage-soc`, and
-`tiled-spike-soc`. Each has its own target descriptor, simulator attestation,
+CI uses the six canonical product names `mini-rv5stage-rva23`, `mini-spike-rva23`,
+`simple-rv5stage-rva23`, `simple-spike-rva23`, `tiled-rv5stage-rva23`, and
+`tiled-spike-rva23`. Each has its own target descriptor, simulator attestation,
 and build directory. The `SOC`/`CORE` selectors above remain available locally;
-the existing Single artifact names stay stable for software and ACT consumers.
+all artifact identities include the explicit ISA for software and ACT consumers.
 
 Setup requires Python 3.9+, initializes the shared
 [`riscv-isa-sim`](../riscv/riscv-isa-sim/) submodule, applies Rhodium's
@@ -120,8 +139,8 @@ either single-core SoC:
 
 ```sh
 make -C sims opensbi-setup
-make -C sims opensbi-firmware SOC=single CORE=rv5stage
-make -C sims opensbi-firmware SOC=single CORE=spike
+make -C sims opensbi-firmware SOC=single CORE=rv5stage ISA=rva23
+make -C sims opensbi-firmware SOC=single CORE=spike ISA=rva23
 ```
 
 The build derives the firmware, next-stage, and writable FDT addresses from the
@@ -140,7 +159,7 @@ Run a caller-provided S-mode ELF linked at the `next_stage_address` recorded in
 `layout.json`:
 
 ```sh
-make -C sims opensbi-run SOC=single-core-rv5stage-soc \
+make -C sims opensbi-run SOC=simple-rv5stage-rva23 \
   NEXT_STAGE=/absolute/path/to/next-stage.elf
 ```
 
@@ -152,8 +171,8 @@ application. The repository's tiny S-mode SBI qualification image is available
 only through:
 
 ```sh
-make -C sims opensbi-test SOC=single CORE=rv5stage
-make -C sims opensbi-test SOC=single CORE=spike
+make -C sims opensbi-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims opensbi-test SOC=single CORE=spike ISA=rva23
 ```
 
 The initial qualification requires one bootable RV64 hart, IMA,
@@ -184,9 +203,9 @@ set `HTIF_ARGS=+max-cycles=...` appropriately for interactive programs.
 Test all byte values through a real external PTY client with:
 
 ```sh
-make -C sims uart-pty-test SOC=mini CORE=rv5stage
-make -C sims uart-pty-test SOC=single CORE=rv5stage
-make -C sims uart-pty-test SOC=tiled CORE=rv5stage
+make -C sims uart-pty-test SOC=mini CORE=rv5stage ISA=rva23
+make -C sims uart-pty-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims uart-pty-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
 ## Export RV5Stage SoC events to Perfetto
@@ -202,20 +221,20 @@ treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
 Tracing is opt-in on the normal simulator and run targets. It supports
-`SOC=single CORE=rv5stage` and `SOC=tiled CORE=rv5stage`:
+`SOC=single CORE=rv5stage ISA=rva23` and `SOC=tiled CORE=rv5stage ISA=rva23`:
 
 ```sh
-make -C sims smoke SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
-make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=single CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled CORE=rv5stage TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
+make -C sims smoke SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
+make -C sims run SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
   BINARY=/absolute/path/to/multihart.elf \
   HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
 ```
 
 Choose a fresh trace path: the exporter overwrites the selected output file.
 Open the resulting `.pftrace` in Perfetto. Traced builds live in
-`/tmp/rhodium-sims/<soc>-rv5stage-trace/`, separate from ordinary builds. The
+`/tmp/rhodium-sims/<soc>-rv5stage-<isa>-trace/`, separate from ordinary builds. The
 trace flag instruments the same selected SoC elaboration used by `TRACE=0`;
 it does not select a different hardware configuration. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
@@ -287,9 +306,9 @@ disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 Run any FESVR-compatible target binary through an already-built simulator:
 
 ```sh
-make -C sims run SOC=single CORE=rv5stage BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=mini CORE=rv5stage BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=tiled CORE=rv5stage BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=single CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=mini CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 ```
 
 `HTIF_ARGS` places optional FESVR host arguments before the target binary, and
@@ -364,10 +383,10 @@ both single-core SoCs:
 ```sh
 make -C sims program-test-setup
 make -C sims opensbi-setup
-make -C sims single-core-software-test
+make -C sims single-core-software-test ISA=rva23
 ```
 
-`SOFTWARE_SOC` defaults to `single` and `SOFTWARE_CORE` defaults to
+`SOFTWARE_SOC` defaults to `simple` and `SOFTWARE_CORE` defaults to
 `rv5stage spike`; set `SOFTWARE_CORE=rv5stage` or `SOFTWARE_CORE=spike` to
 select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
@@ -393,18 +412,18 @@ Run the smaller, single-hart ISA selections on either core in Mini or Tiled:
 
 ```sh
 make -C sims program-test-setup
-make -C sims isa-smoke SOC=mini CORE=rv5stage
-make -C sims isa-smoke SOC=mini CORE=spike
-make -C sims isa-smoke SOC=tiled CORE=rv5stage
-make -C sims isa-smoke SOC=tiled CORE=spike
+make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rva23
+make -C sims isa-smoke SOC=mini CORE=spike ISA=rva23
+make -C sims isa-smoke SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims isa-smoke SOC=tiled CORE=spike ISA=rva23
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks in two-,
 four-, and eight-hart configurations on either Tiled product:
 
 ```sh
-make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-soc
-make -C sims tiled-mt-benchmark-test SOC=tiled-spike-soc
+make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-rva23
+make -C sims tiled-mt-benchmark-test SOC=tiled-spike-rva23
 ```
 
 Each command is independently runnable. CI gives each product its own job, so
@@ -443,14 +462,14 @@ case boots only the two to four harts it needs:
 
 ```sh
 make -C sims litmus-setup
-make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage \
+make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
-make -C sims litmus-smoke-test SOC=tiled CORE=spike \
+make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
-make -C sims litmus-full-test SOC=tiled CORE=rv5stage \
+make -C sims litmus-full-test SOC=tiled CORE=rv5stage ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
-make -C sims litmus-full-test SOC=tiled CORE=spike \
+make -C sims litmus-full-test SOC=tiled CORE=spike ISA=rva23 \
   LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir \
   LITMUS_FULL_SHARD_INDEX=0 LITMUS_FULL_SHARD_COUNT=8
 ```
@@ -486,7 +505,7 @@ The previous branch-free 84-case adapter remains available separately for
 adapter debugging and explicit subsets:
 
 ```sh
-make -C sims litmus-test SOC=tiled CORE=spike LITMUS_CASES=MP,LB+ctrls
+make -C sims litmus-test SOC=tiled CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls
 ```
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,
@@ -616,8 +635,8 @@ Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
 
 ```sh
 make -C sims arch-test-setup
-make -C sims arch-test ACT_CONFIGURATION=single-core-rv5stage-soc
-make -C sims arch-test ACT_CONFIGURATION=single-core-spike-soc
+make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
+make -C sims arch-test ACT_CONFIGURATION=simple-spike-rva23
 ```
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
@@ -699,36 +718,34 @@ certification. Upstream documents the framework in the
 Run the genuine execution smoke for any system:
 
 ```sh
-make -C sims smoke SOC=single CORE=rv5stage
-make -C sims smoke SOC=single CORE=spike
-make -C sims smoke SOC=mini CORE=rv5stage
-make -C sims smoke SOC=tiled CORE=rv5stage
-make -C sims boot-test SOC=single CORE=rv5stage
-make -C sims boot-test SOC=mini CORE=rv5stage
-make -C sims boot-test SOC=tiled CORE=rv5stage
+make -C sims smoke SOC=single CORE=rv5stage ISA=rva23
+make -C sims smoke SOC=single CORE=spike ISA=rva23
+make -C sims smoke SOC=mini CORE=rv5stage ISA=rva23
+make -C sims smoke SOC=tiled CORE=rv5stage ISA=rva23
+make -C sims boot-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims boot-test SOC=mini CORE=rv5stage ISA=rva23
+make -C sims boot-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-The ordinary smoke payload uses RV64I and Zicsr so it also runs on Mini's
-non-compressed RV5Stage profile. The supported traced SingleCoreRV5StageSoC
+The ordinary smoke payload uses RV64I and Zicsr so it also runs on every RVA23 RV5Stage profile. The supported traced SingleCoreRV5StageSoC
 build adds one compressed instruction for its disassembly check.
 
-`make -C sims tiled-memory-test` uses a separate stalled-memory build to check
+`make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23` uses a separate stalled-memory build to check
 writebacks and refills across all LLC slices through the single external
-channel. The ordinary `SOC=tiled CORE=rv5stage` harness leaves memory channels unstalled.
+channel. The ordinary `SOC=tiled CORE=rv5stage ISA=rva23` harness leaves memory channels unstalled.
 
 Run the LR/SC progress qualification through normal FESVR loading and coherent
 signature collection with:
 
 ```sh
-make -C sims lrsc-test SOC=single CORE=rv5stage
-make -C sims lrsc-test SOC=mini CORE=rv5stage
-make -C sims lrsc-test SOC=tiled CORE=rv5stage
+make -C sims lrsc-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims lrsc-test SOC=mini CORE=rv5stage ISA=rva23
+make -C sims lrsc-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
 All three targets exercise word/doubleword constrained loops in Bare and Sv39
-modes, including cache-line and page crossings. MiniRV5StageSoC uses word-aligned
-instruction placements and page tables within its 64 KiB RAM; the other systems
-also exercise halfword instruction starts. TiledRV5StageSoC uses its ordinary
+modes, including cache-line and page crossings and halfword instruction starts.
+MiniRV5StageSoC keeps page tables within its 64 KiB RAM. TiledRV5StageSoC uses its ordinary
 harness and `+boot-harts=0-7` to release all eight harts onto shared counters.
 Builds and six-value
 signatures stay under `BUILD_ROOT/lrsc-test/<soc>/`. Each execution has a
@@ -749,7 +766,7 @@ test is currently defined only for the SingleCoreRV5StageSoC profile; run it thr
 normal ELF loader and coherent HTIF path with:
 
 ```sh
-make -C sims zihintntl-test SOC=single CORE=rv5stage
+make -C sims zihintntl-test SOC=single CORE=rv5stage ISA=rva23
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and

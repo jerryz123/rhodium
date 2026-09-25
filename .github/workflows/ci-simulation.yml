@@ -59,16 +59,16 @@ jobs:
       - name: Install FESVR
         uses: ./.github/actions/setup-fesvr
       - name: Verify SRAM mapping package
-        if: matrix.soc == 'mini-rv5stage-soc'
+        if: matrix.soc == 'mini-rv5stage-rva23'
         run: make -C sram test
       - name: Compile Verilator DPI adapter
-        if: matrix.soc == 'single-core-rv5stage-soc'
+        if: matrix.soc == 'simple-rv5stage-rva23'
         run: |
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
       - name: Test host adapters
-        if: matrix.soc == 'single-core-rv5stage-soc'
+        if: matrix.soc == 'simple-rv5stage-rva23'
         run: make -C sims transport-test arch-test-adapter-test program-test-adapter-test
       - name: Download exact product simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -92,16 +92,16 @@ jobs:
           make -C sims boot-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
           make -C sims uart-pty-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
       - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
-        if: matrix.soc == 'single-core-rv5stage-soc'
-        run: make -C sims zihintntl-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
+        if: matrix.soc == 'simple-rv5stage-rva23'
+        run: make -C sims zihintntl-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
       - name: Qualify RV5Stage atomics and cache-block zeroing
-        if: matrix.soc == 'single-core-rv5stage-soc'
+        if: matrix.soc == 'simple-rv5stage-rva23'
         run: |
-          simulator="$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          make -C sims lrsc-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$simulator"
-          make -C sims zicboz-test SOC=single-core-rv5stage-soc PREBUILT_SIMULATOR="$simulator"
+          simulator="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
+          make -C sims lrsc-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$simulator"
+          make -C sims zicboz-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$simulator"
       - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        if: matrix.soc == 'mini-rv5stage-soc'
+        if: matrix.soc == 'mini-rv5stage-rva23'
         run: make -C vlsi/sim smoke
       - name: Prepare upstream ISA sources
         if: matrix.shape != 'single'
@@ -115,7 +115,7 @@ jobs:
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
       - name: Run 2-, 4-, and 8-hart benchmarks
         # Tiled Spike remains manually runnable until its full manifests fit a CI budget.
-        if: matrix.soc == 'tiled-rv5stage-soc'
+        if: matrix.soc == 'tiled-rv5stage-rva23'
         env:
           SOC: ${{ matrix.soc }}
         run: |
@@ -161,8 +161,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - {soc: tiled-rv5stage-soc, core: rv5stage}
-          - {soc: tiled-spike-soc, core: spike}
+          - {soc: tiled-rv5stage-rva23, core: rv5stage}
+          - {soc: tiled-spike-rva23, core: spike}
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     steps:
@@ -274,22 +274,22 @@ jobs:
       - name: Download exact SingleCoreRV5StageSoC simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-rv5stage-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-rv5stage-soc
+          name: simple-rv5stage-rva23-${{ github.sha }}
+          path: ${{ runner.temp }}/simple-rv5stage-rva23
       - name: Download exact SingleCoreSpikeSoC simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: single-core-spike-soc-${{ github.sha }}
-          path: ${{ runner.temp }}/single-core-spike-soc
+          name: simple-spike-rva23-${{ github.sha }}
+          path: ${{ runner.temp }}/simple-spike-rva23
       - name: Restore simulator executable permission
         run: |
-          chmod +x "$RUNNER_TEMP/single-core-rv5stage-soc/VTestDriver"
-          chmod +x "$RUNNER_TEMP/single-core-spike-soc/VTestDriver"
+          chmod +x "$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
+          chmod +x "$RUNNER_TEMP/simple-spike-rva23/VTestDriver"
       - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
         run: |
           make -C sims opensbi-setup
           status=0
-          for soc in single-core-rv5stage-soc single-core-spike-soc; do
+          for soc in simple-rv5stage-rva23 simple-spike-rva23; do
             make -C sims opensbi-test SOC="$soc" \
               OPENSBI_LLVM=/usr/bin \
               PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
@@ -301,8 +301,8 @@ jobs:
         with:
           name: opensbi-${{ github.sha }}
           path: |
-            /tmp/rhodium-software/single-core-rv5stage-soc/opensbi
-            /tmp/rhodium-software/single-core-spike-soc/opensbi
+            /tmp/rhodium-software/simple-rv5stage-rva23/opensbi
+            /tmp/rhodium-software/simple-spike-rva23/opensbi
           if-no-files-found: warn
           retention-days: 7
 
@@ -341,7 +341,7 @@ jobs:
       - name: Build and stress the stalled memory channel
         timeout-minutes: 35
         shell: bash
-        run: make -C sims tiled-memory-test 2>&1 | tee "$RUNNER_TEMP/tiled-memory.log"
+        run: make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23 2>&1 | tee "$RUNNER_TEMP/tiled-memory.log"
       - name: Publish memory stress diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -349,5 +349,5 @@ jobs:
           name: tiled-memory-${{ github.sha }}
           path: |
             ${{ runner.temp }}/tiled-memory.log
-            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-soc/tiled_memory.elf
+            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-rva23/tiled_memory.elf
           retention-days: 7

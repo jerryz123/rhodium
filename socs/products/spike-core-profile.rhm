@@ -1,30 +1,24 @@
 #lang rhombus
-// Defines the architectural and implementation profile for SingleCoreSpikeSoC.
+// Describes Spike's requested RVA23 architecture while guarding unsupported product materialization.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/spike/profile.rhm").SpikeConfig
   lib("riscv/isa/hart.rhm") open
-  lib("riscv/isa/profile.rhm") open
-  lib("riscv/isa/xlen.rhm").XLen
+  "selection.rhm" open
+  "isa-profiles.rhm".soc_architecture
 
-def single_core_spike_soc_hart_description = RiscvHartDescription(
-  RiscvIsaProfile(
-    XLen.X64,
-    ["i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"],
-    [MisaExtension.I, MisaExtension.M, MisaExtension.A,
-     MisaExtension.F, MisaExtension.D, MisaExtension.C,
-     MisaExtension.S, MisaExtension.U]
-  ),
-  RiscvMmuType.Sv39,
-  RiscvCacheDescription(64, 64, 16384),
-  RiscvCacheDescription(64, 64, 16384)
-)
+fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
+  error(~who: #'spike_product_profile, isa_preset_name(preset) ++ " requires expanded Spike runtime and UDB configuration support; no substitute profile is selected")
 
+// Requested host metadata is inspectable, but is not an enabled executable product.
+def architecture = soc_architecture(IsaPreset.RVA23)
 def single_core_spike_soc_core_profile = SpikeConfig(
-  single_core_spike_soc_hart_description
+  RiscvHartDescription(architecture.isa, architecture.mmu, RiscvCacheDescription(64, 64, 16384), RiscvCacheDescription(64, 64, 16384), ~cbo_block_bytes: 64)
 )
+def single_core_spike_soc_hart_description = single_core_spike_soc_core_profile.hart_description
 
 export:
+  spike_product_profile
   single_core_spike_soc_hart_description
   single_core_spike_soc_core_profile

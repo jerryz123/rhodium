@@ -39,17 +39,29 @@ Mini, Single, and Tiled are independent host-selected SoC shapes. Each circuit
 accepts one immutable config that owns its hart binding. The contract in
 `harts/implementation.rhdl` contains no named-core import; adapters in
 `harts/rv5stage.rhdl` and `harts/spike.rhdl` supply their implementations.
-`products/hart-selection.rhm` chooses a binding for a `(shape, core)` product,
-and `products/` owns default profiles and thin named entrypoints. No shape
+`products/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
+and parsing of complete CLI keys. `products/isa-profiles.rhm` authors pure
+architectural presets without importing a named core. The core-profile
+factories apply independent implementation policy and reject a request they
+cannot implement exactly. `products/resolve.rhm` supplies the selected hart,
+shape configuration, software-visible description, and UDB projection.
+`products/hart-selection.rhm` requires an explicit typed ISA alongside shape/core
+when entering that resolver; concrete source specializations explicitly select
+their preset through the same profile factories. No shape
 imports a product or a named core. The shared `one-hart/system.rhdl` owns the
 single-router memory map, NodeIDs, external service, CHI derivation, and
 `populate_single_core` helper used by Mini and Single. That helper emits the
 selected hart with its Home, routers, and platform devices into the caller;
 it adds no hardware wrapper. Mini supplies on-chip RAM and a forwarding Home,
 while Single supplies the inclusive LLC and an external memory boundary.
-The default tiled RV5Stage profile derives its architectural ISA fields from
-the single-core RV5Stage profile while retaining independent cache and
-execution-resource policy.
+All RV64 products select the same authored `RVA23` architectural preset without
+copying one another's implementation configuration. Mini retains its compact
+resources. Spike's requested metadata is available, but executable resolution
+is gated until its runtime and UDB projection support the requested architecture.
+Do not substitute a scalar profile. The intended
+eight-product test inventory belongs in `sims/test-products.rhm`, not in
+hardware selection or in a Cartesian product of axes. New ISA enablement and
+CI rollout are separate from adding an authored requested architecture.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
 passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
 injection/ejection queue policy; this view adds no circuit hierarchy.
@@ -63,6 +75,7 @@ parameters obtain subordinate endpoints from their services. `make check-boundar
 |---|---|
 | Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
 | RV5Stage processor profiles | [`core-profiles.rhm`](products/core-profiles.rhm) |
+| Typed product selection, architectural presets, and shared resolution | [`selection.rhm`](products/selection.rhm), [`isa-profiles.rhm`](products/isa-profiles.rhm), [`resolve.rhm`](products/resolve.rhm) |
 | Spike processor profile | [`spike-core-profile.rhm`](products/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
 | Concrete RISC-V UDB product configurations | [`udb.rhm`](products/udb.rhm) |

@@ -1,0 +1,44 @@
+#lang rhombus
+// Authors implementation-independent product architectures, including not-yet-enabled RV32 vector requirements.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "selection.rhm".IsaPreset
+  lib("riscv/isa/profile.rhm") open
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/vector-profile.rhm") open
+
+class SoCArchitecture(isa :: RiscvIsaProfile,
+                      mmu :: RiscvMmuType,
+                      vector :: VectorProfile,
+                      vector_extensions :: List.of(VectorExtension),
+                      vector_length :: PosInt):
+  method has(extension :: String) :: Boolean: isa.isa_extensions.contains(extension)
+
+def IntegerSystemExtensions = ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
+def IntegerHintExtensions = ["zawrs", "zihintpause", "zihintntl"]
+def IntegerMisa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
+
+fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
+  match preset
+  | IsaPreset.RV32Max:
+      def scalar = ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse"]
+      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ ["zve32x", "zvkb", "zvbb", "zvl32b", "zvl64b", "zvkt"]
+      SoCArchitecture(
+        RiscvIsaProfile(XLen.X32, names, IntegerMisa ++ [MisaExtension.C]),
+        RiscvMmuType.Bare, VectorProfile.Zve32x, [VectorExtension.Zvbb], 64
+      )
+  | IsaPreset.RVA23:
+      // Product selection, not a claim of RVA23U64/S64 conformance.
+      def extensions = vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb)
+      def scalar = ["i", "m", "a", "f", "d", "c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zfa", "zfh", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse", "ssnpm", "supm"]
+      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ vector_profile_isa_extensions(VectorProfile.V, 128, extensions) ++ ["zvkt"]
+      SoCArchitecture(
+        RiscvIsaProfile(XLen.X64, names, IntegerMisa ++ [MisaExtension.F, MisaExtension.D, MisaExtension.C, MisaExtension.V]),
+        RiscvMmuType.Sv39, VectorProfile.V, extensions, 128
+      )
+
+export:
+  SoCArchitecture
+  soc_architecture

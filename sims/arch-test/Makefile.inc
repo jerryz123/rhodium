@@ -1,6 +1,6 @@
 # Builds and runs UDB-selected ACT4 payloads for a selected platform configuration.
 # SPDX-License-Identifier: Apache-2.0
-ACT_CONFIGURATION ?= single-core-rv5stage-soc
+ACT_CONFIGURATION ?= $(SOC_ID)
 PYTHON ?= python3
 ACT_DIR ?= $(REPO_DIR)/sw/riscv-arch-test
 ACT_VENV ?= $(REPO_DIR)/.tools/act-venv
@@ -41,6 +41,7 @@ arch-test-source:
 
 arch-test-config:
 	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)
+	@test "$(ACT_SOC)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
 	$(MAKE) -C $(REPO_DIR) riscv-udb-config RISCV_UDB_CONFIGURATION=$(ACT_UDB_CONFIGURATION) RISCV_UDB_OUTPUT=$(ACT_CONFIG_DIR)/udb.yaml
 	$(ACT_PYTHON) arch-test/configure.py --udb $(ACT_CONFIG_DIR)/udb.yaml --output $(ACT_CONFIG_DIR) \
 	  --name $(ACT_CONFIGURATION) --compiler $(RISCV_CC) --objdump $(ACT_OBJDUMP) --sail $(ACT_SAIL) \
@@ -65,6 +66,7 @@ arch-test: arch-test-elfs
 
 arch-test-run:
 	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)
+	@test "$(ACT_SOC)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
 	@test -d "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" && \
 	  test -n "$$(find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -name '*.elf' -type f -print -quit)" || \
 	  (echo "No ACT ELFs; run arch-test-elfs first" >&2; exit 2)

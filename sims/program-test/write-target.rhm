@@ -8,15 +8,17 @@ import:
   "../../riscv/isa/hart.rhm".RiscvMmuType
   "../../riscv/isa/profile.rhm".MisaExtension
   "../../socs/platform/description.rhm".RiscvSoCDescription
+  "../../socs/products/selection.rhm" open
   "targets.rhm" open
 
 def arguments = current_command_line()
-unless arguments.length() == 2 || arguments.length() == 3
-| error(~who: #'write_program_target, "expected a SoC name and output file, or a shape, core, and output file")
-def name = if arguments.length() == 3 | arguments[0] ++ "-" ++ arguments[1] | arguments[0]
-def description :: RiscvSoCDescription = if arguments.length() == 3
-| simulator_shape_description(arguments[0], arguments[1])
-| simulator_soc_description(name)
+unless [2, 4].contains(arguments.length())
+| error(~who: #'write_program_target, "expected an explicit shape-core-isa product key and output file, or shape, core, ISA, and output file")
+def selection = if arguments.length() == 4
+| SoCSelection(parse_soc_shape(arguments[0]), parse_core_kind(arguments[1]), parse_isa_preset(arguments[2]))
+| named_soc_selection(arguments[0])
+def name = selection.key
+def description :: RiscvSoCDescription = simulator_soc_description(name)
 def compiler_target = gnu_isa_target(
   description.hart.xlen,
   description.hart.isa_profile.isa_extensions

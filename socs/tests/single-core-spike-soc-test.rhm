@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the Spike-backed single-core SoC profile, address map, and CHI attachment.
+// Checks requested Spike RVA23 metadata and platform composition independently of runtime enablement.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,13 +7,15 @@ import:
   "../../chi/protocol/link.rhdl".CHINodeKind
   "../../riscv/isa/hart.rhm".RiscvMmuType
   "../products/single-core-spike-soc.rhdl" as soc
+  "../products/isa-profiles.rhm".soc_architecture
+  "../products/selection.rhm".IsaPreset
 
 def params = soc.single_core_spike_soc_params
 def fabric = params.fabric
 def description = params.description
 
 check:
-  params.core_profile.isa_string ~is "rv64imafdc_zicsr_zifencei_zicntr_zihpm"
+  params.core_profile.hart_description.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
   params.core_profile.privilege_string ~is "msu"
   description.model ~is "Rhodium Single-Core Spike SoC"
   description.compatible ~is ["rhodium,single-core-spike-soc"]

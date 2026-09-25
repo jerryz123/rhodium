@@ -1,0 +1,32 @@
+#lang rhombus
+// Checks Spike's supported scalar UDB projection independently of requested SoC presets.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../profile.rhm".SpikeConfig
+  "../udb.rhm".spike_udb_configuration
+  "../../../riscv/isa/hart.rhm" open
+  "../../../riscv/isa/profile.rhm" open
+  "../../../riscv/isa/xlen.rhm".XLen
+
+// This unit fixture exercises the existing projection, not a production ISA preset.
+def isa = RiscvIsaProfile(
+  XLen.X64,
+  ["i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"],
+  [MisaExtension.I, MisaExtension.M, MisaExtension.A, MisaExtension.F, MisaExtension.D, MisaExtension.C, MisaExtension.S, MisaExtension.U]
+)
+def cache = RiscvCacheDescription(64, 64, 16384)
+def profile = SpikeConfig(RiscvHartDescription(isa, RiscvMmuType.Sv39, cache, cache))
+def configuration = spike_udb_configuration(profile, "spike-scalar-fixture", "Scalar projection unit fixture")
+def yaml = configuration.to_yaml()
+
+check:
+  configuration.name ~is "spike-scalar-fixture"
+  yaml.contains("  NUM_PMP_ENTRIES: 16") ~is #true
+  yaml.contains("  NUM_USABLE_PMP_ENTRIES: 16") ~is #true
+  yaml.contains("  PMP_GRANULARITY: 2") ~is #true
+  yaml.contains("  PHYS_ADDR_WIDTH: 56") ~is #true
+  yaml.contains("  ARCH_ID_VALUE: 5") ~is #true
+  yaml.contains("  CACHE_BLOCK_SIZE:") ~is #false
+  yaml.contains("{ name: \"Sm\", version: \"= 1.13.0\" }") ~is #true
+  yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true

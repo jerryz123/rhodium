@@ -1,0 +1,66 @@
+#lang rhombus
+// Defines explicit typed product axes and canonical shape-core-ISA identities.
+// SPDX-License-Identifier: Apache-2.0
+
+enum SoCShape | Mini | Simple | Tiled
+enum CoreKind | RV5Stage | Spike
+enum IsaPreset | RV32Max | RVA23
+
+fun soc_shape_name(shape :: SoCShape) :: String:
+  match shape
+  | SoCShape.Mini: "mini"
+  | SoCShape.Simple: "simple"
+  | SoCShape.Tiled: "tiled"
+
+fun core_kind_name(core :: CoreKind) :: String:
+  match core
+  | CoreKind.RV5Stage: "rv5stage"
+  | CoreKind.Spike: "spike"
+
+fun isa_preset_name(isa :: IsaPreset) :: String:
+  match isa
+  | IsaPreset.RV32Max: "rv32max"
+  | IsaPreset.RVA23: "rva23"
+
+fun parse_soc_shape(name :: String) :: SoCShape:
+  match name
+  | "mini": SoCShape.Mini
+  | "simple": SoCShape.Simple
+  | "single": SoCShape.Simple
+  | "tiled": SoCShape.Tiled
+  | ~else: error(~who: #'parse_soc_shape, "unsupported SoC shape: " ++ name)
+
+fun parse_core_kind(name :: String) :: CoreKind:
+  match name
+  | "rv5stage": CoreKind.RV5Stage
+  | "spike": CoreKind.Spike
+  | ~else: error(~who: #'parse_core_kind, "unsupported core: " ++ name)
+
+fun parse_isa_preset(name :: String) :: IsaPreset:
+  match name
+  | "rv32max": IsaPreset.RV32Max
+  | "rva23": IsaPreset.RVA23
+  | ~else: error(~who: #'parse_isa_preset, "unsupported ISA preset: " ++ name)
+
+class SoCSelection(shape :: SoCShape, core :: CoreKind, isa :: IsaPreset):
+  property key :: String:
+    soc_shape_name(shape) ++ "-" ++ core_kind_name(core) ++ "-" ++ isa_preset_name(isa)
+
+fun named_soc_selection(name :: String) :: SoCSelection:
+  def axes = name.split("-")
+  unless axes.length() == 3
+  | error(~who: #'named_soc_selection, "expected an explicit shape-core-isa product key")
+  SoCSelection(parse_soc_shape(axes[0]), parse_core_kind(axes[1]), parse_isa_preset(axes[2]))
+
+export:
+  SoCShape
+  CoreKind
+  IsaPreset
+  SoCSelection
+  soc_shape_name
+  core_kind_name
+  isa_preset_name
+  parse_soc_shape
+  parse_core_kind
+  parse_isa_preset
+  named_soc_selection

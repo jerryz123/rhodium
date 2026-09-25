@@ -36,14 +36,41 @@ cacheable coherent RAM.
 
 ## Choose a system
 
-The executable configurations have two independent host-side axes:
-`mini`, `single`, or `tiled` selects the memory/fabric topology, and
-`rv5stage` or `spike` selects the hart implementation. A
+### Typed product selection
+
+[`products/selection.rhm`](products/selection.rhm) defines `SoCShape`
+(`Mini`, `Simple`, `Tiled`), `CoreKind` (`RV5Stage`, `Spike`), and `IsaPreset`.
+[`products/resolve.rhm`](products/resolve.rhm) resolves a `SoCSelection` into
+one hart binding, shape configuration, architectural description, and UDB
+projection. Canonical identities are `<shape>-<core>-<isa>`.
+
+`RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
+not a claim of complete RVA23U64/S64 conformance. `RV32Max` describes the
+intended maximal non-FP RV32/Zve32x/VLEN=64 architecture, but instantiation
+currently rejects it pending RV32 integer-vector and VLEN=64 integration.
+Spike rejects `RVA23` pending its runtime/UDB expansion, rather than
+substituting its narrower profile.
+
+The only presets are `RV32Max` and `RVA23`. Product selection requires an
+explicit ISA, either in a complete key or as a typed selector; there is no
+shape/core-only architectural fallback. Concrete source specializations author
+their preset explicitly. Cache geometry,
+multiplier choice, and queue depths remain shape-specific implementation
+policy. See the [simulation inventory](../sims/test-products.rhm) for the
+eight intended test products, which is not a claim that all are enabled yet.
+
+### Composition choices
+
+The Make entrypoints accept three independent host-side axes:
+`mini`, `simple`, or `tiled` selects the memory/fabric topology,
+`rv5stage` or `spike` selects the hart implementation, and `ISA` selects the
+required architectural preset. A
 [`RiscvHartImplementation`](harts/implementation.rhdl) binds its profile,
 architectural description, 64-byte CHI cache-line contract, attachment
 factory, and circuit factory. Each shape derives its device tree and
 hardware from that same binding. See the [simulator selector](../sims/README.md#choose-a-harness)
-for all six products. Spike products are simulation-only.
+for the product selectors. Spike products are simulation-only and currently
+blocked pending RVA23 runtime/UDB integration; their requested metadata remains inspectable.
 
 | Shape | Harts | Normal-memory termination | Coherence structure |
 | --- | ---: | --- | --- |
@@ -65,20 +92,18 @@ and the full C composition; its device tree and UDB configuration advertise
 `Zcb`, `Zfa`, `Zicbom`, `Ssnpm`, and the qualified `Supm` user-environment
 contract, plus `misa.V` from that same profile. `TiledRV5StageSoC` uses the
 same architectural ISA fields while retaining its independent direct-mapped
-L1 and tiled-system configuration. `MiniRV5StageSoC` defaults to integer-only
-RV64 with 2 KiB direct-mapped L1s. SingleCoreRV5StageSoC and TiledRV5StageSoC
+L1 and tiled-system configuration. `MiniRV5StageSoC` uses the same architecture
+with 2 KiB direct-mapped L1s. SingleCoreRV5StageSoC and TiledRV5StageSoC
 also select the feed-forward pipelined integer multiplier, while MiniRV5StageSoC
 selects the compact iterative multiplier. The single-core and tiled profiles
 provide four authorized L1D service entries, while the compact mini profile
-provides one. They enable Zcmop; MiniRV5StageSoC
-keeps compressed instructions disabled. All three select Sv39;
-Zicbop and Zicboz are enabled in each default profile. SingleCoreRV5StageSoC and TiledRV5StageSoC also enable
+provides one. All three enable compressed instructions and Zcmop, and select Sv39;
+Zicbop and Zicboz are enabled in each default profile. All three also enable
 scalar `Zfa` and `Zfh`, Zcb, Zicbom, Ssnpm/Supm with selectable PMLEN 0, 7, and
 16, vector `Zvfh`, vector `Zvbb`, and the intrinsic vector timing guarantee
 `Zvkt`. Supply an alternate `RV5StageConfig` through the owning SoC parameter
-object to change those selections. `SingleCoreSpikeSoC` deliberately defines
-its RV64IMAFDC, Zicsr, Zifencei, Zicntr, Zihpm, and Sv39 profile independently rather
-than importing RV5Stage defaults.
+object to change those selections. `SingleCoreSpikeSoC` requests the same
+authored architecture without importing RV5Stage's implementation configuration.
 Zicboz-capable CPU nodes advertise `riscv,cboz-block-size = 64`; normal RAM
 permits block zero, while ROM and peripheral regions reject it.
 
@@ -142,13 +167,13 @@ command.
 Generate one entry from the repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
 ```
 
-The current keys are `single-core-rv5stage-soc`, `single-core-spike-soc`,
-`mini-rv5stage-soc`, and `tiled-rv5stage-soc`. Output defaults
+Keys are explicit `<shape>-<core>-<isa>` selections, with the same support
+checks as hardware selection. `RISCV_UDB_CONFIGURATION` has no default. Output defaults
 to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
-The SingleCore and Tiled configurations select PMLEN 7 for their Ssnpm/Supm
+The RVA23 configurations select PMLEN 7 for their Ssnpm/Supm
 test environments; configurations without Ssnpm omit PMLEN.
 Generated configurations are build artifacts and must not be committed.
 
@@ -289,13 +314,15 @@ contracts as `SingleCoreRV5StageSoC`. A hart-neutral
 core's endpoint capabilities and Home-facing contracts without moving
 transaction policy into the SoC helper.
 
-The default core profile is RV64IMAFDC with Zicsr, Zifencei, Zicntr, Zihpm,
-and Sv39. All 29 HPM counters and event selectors are read-only zero.
+The requested core profile is `RVA23`, shared with the RV5Stage products.
+Product materialization is explicitly blocked until Spike's runtime and UDB
+projection support that architecture; no scalar substitute is selected.
+The existing scalar UDB projection remains covered by Spike-owned unit tests.
 Its architectural description declares 16 KiB instruction and data caches with
 64-byte lines; the Spike runtime models those private caches and services their
 coherence through the three CHI ports. Because `SpikeCore` contains a DPI
-boundary, this SoC is an executable reference-core composition rather than a
-synthesis target. The matching simulator harness supplies external CHI memory
+boundary, this SoC is a simulation-only reference-core composition rather than a
+synthesis target. Once enabled, its simulator harness supplies external CHI memory
 and the ordinary coherent FESVR host; it does not bypass the SoC memory system.
 
 ## MiniRV5StageSoC

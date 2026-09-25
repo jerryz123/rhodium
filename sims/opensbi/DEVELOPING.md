@@ -15,7 +15,8 @@ The [`../../sw/build/opensbi.py`](../../sw/build/opensbi.py) adapter derives its
 from the selected SoC target descriptor. The firmware ELF remains linked at
 zero so FESVR's standard DRAM load offset relocates it to the SoC boot address.
 [`write-device-tree.rhm`](write-device-tree.rhm) resolves the selected shape
-and core through the shared [`program-test/targets.rhm`](../program-test/targets.rhm) catalog,
+and core with a required ISA (or complete product key) through the shared
+[`program-test/targets.rhm`](../program-test/targets.rhm) resolver,
 derives an OpenSBI execution DTB from the canonical SoC description, and
 appends only the simulator-owned `ucb,htif0` reset endpoint. FW_JUMP embeds
 that DTB, copies it into the
@@ -37,8 +38,8 @@ Run the adapter tests before the real firmware test:
 ```sh
 make -C sims opensbi-adapter-test
 make -C sims opensbi-setup
-make -C sims opensbi-test SOC=single CORE=rv5stage
-make -C sims opensbi-test SOC=single CORE=spike
+make -C sims opensbi-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims opensbi-test SOC=single CORE=spike ISA=rva23
 ```
 
 Keep generated firmware, layouts, logs, and payload ELFs under

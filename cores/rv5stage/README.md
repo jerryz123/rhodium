@@ -919,7 +919,7 @@ Generate the configuration for one checked-in SoC composition from the
 repository root:
 
 ```sh
-make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
 ```
 
 The [SoC UDB configuration catalog](../../socs/README.md#risc-v-udb-configuration-catalog)

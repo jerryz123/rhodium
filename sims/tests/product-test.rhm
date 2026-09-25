@@ -1,0 +1,24 @@
+#lang rhombus
+// Checks the exact non-Cartesian test-product inventory and its canonical identities.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../test-products.rhm".TestProducts
+  lib("socs/products/selection.rhm") open
+
+def names = TestProducts.map(fun (product :: SoCSelection): product.key)
+check:
+  names ~is [
+    "mini-rv5stage-rv32max",
+    "mini-rv5stage-rva23",
+    "mini-spike-rva23",
+    "simple-rv5stage-rv32max",
+    "simple-rv5stage-rva23",
+    "simple-spike-rva23",
+    "tiled-rv5stage-rva23",
+    "tiled-spike-rva23"
+  ]
+for (product in TestProducts):
+  check:
+    named_soc_selection(product.key) ~is product
+    names.filter(~keep: fun (name): name == product.key).length() ~is 1

@@ -457,7 +457,7 @@ configuration, and validate it with the UDB version pinned by the ACT4 checkout:
 
 ```sh
 tools/run-racket-tests.sh riscv/tests/udb-test.rhm cores/rv5stage/tests/udb-test.rhm
-make riscv-udb-config RISCV_UDB_CONFIGURATION=single-core-rv5stage-soc
+make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
 bundle exec --gemfile sw/riscv-arch-test/framework/src/act/data/Gemfile \
   udb validate cfg /tmp/rhodium-udb/single-core-rv5stage-soc.yaml
 ```

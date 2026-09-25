@@ -15,7 +15,7 @@ import unittest
 SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
-def program_target(soc='single-core-rv5stage-soc'):
+def program_target(soc='simple-rv5stage-rva23'):
     return dict(soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,
                 ram=[dict(base=0x80000000, size=0x10000)])
@@ -318,13 +318,57 @@ class ProgramShardReportTest(unittest.TestCase):
             self.assertFalse(json.loads((root / 'summary.json').read_text())['complete'])
 
 
+class ProductSelectionTest(unittest.TestCase):
+    def dry_run(self, *arguments, target='program-target'):
+        return subprocess.run(
+            ['make', '-C', str(SCRIPTS.parent), '-n', target,
+             'SPIKE_IDENTITY=fixture', *arguments], capture_output=True, text=True)
+
+    def test_explicit_axes_and_product_key_share_artifacts(self):
+        axes = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rva23')
+        key = self.dry_run('SOC=mini-rv5stage-rva23')
+        self.assertEqual(axes.returncode, 0, axes.stderr)
+        self.assertEqual(key.returncode, 0, key.stderr)
+        self.assertEqual(axes.stdout, key.stdout)
+        self.assertIn('/mini-rv5stage-rva23/obj/program-target.json', key.stdout)
+        other = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rv32max')
+        self.assertEqual(other.returncode, 0, other.stderr)
+        self.assertIn('/mini-rv5stage-rv32max/obj/program-target.json', other.stdout)
+
+    def test_requires_complete_consistent_selection(self):
+        for arguments in (
+                ('SOC=mini', 'CORE=rv5stage', 'ISA='),
+                ('SOC=mini-rv5stage-rva23', 'ISA=rv32max'),
+                ('SOC=mini-rv5stage-rva23', 'CORE=spike'),
+                ('SOC=mini', 'ISA=typo'),
+                ('SOC=mini--rv5stage-rva23',)):
+            with self.subTest(arguments=arguments):
+                self.assertNotEqual(self.dry_run(*arguments).returncode, 0)
+
+    def test_setup_does_not_require_a_product(self):
+        result = self.dry_run('ISA=', target='setup')
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_traced_products_retain_the_explicit_isa(self):
+        for shape in ('simple', 'tiled'):
+            result = self.dry_run(f'SOC={shape}-rv5stage-rva23', 'TRACE=1')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'/{shape}-rv5stage-rva23-trace/obj/program-target.json', result.stdout)
+
+    def test_act_and_harness_use_the_same_explicit_product(self):
+        result = self.dry_run('ACT_CONFIGURATION=simple-rv5stage-rva23', target='arch-test-config')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23', result.stdout)
+        self.assertIn('test "simple-rv5stage-rva23" = "simple-rv5stage-rva23"', result.stdout)
+
+
 class SimulatorArtifactTest(unittest.TestCase):
     def test_exact_artifact_and_mismatch_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'single-core-rv5stage-soc']
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
             subprocess.run(command + ['record'] + options, check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             binary.write_bytes(b'changed binary')
@@ -335,12 +379,13 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             subprocess.run([sys.executable, str(SCRIPTS / 'artifact.py'), 'record',
-                            '--binary', str(binary), '--soc', 'single-core-rv5stage-soc'], check=True)
-            command = ['make', '-C', str(SCRIPTS.parent), 'simulator', 'SOC=single-core-rv5stage-soc',
+                            '--binary', str(binary), '--soc', 'simple-rv5stage-rva23'], check=True)
+            command = ['make', '-C', str(SCRIPTS.parent), 'simulator', 'SOC=simple-rv5stage-rva23',
                        f'PREBUILT_SIMULATOR={binary}',
                        f'PYTHON={sys.executable}', 'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false']
             self.assertEqual(subprocess.run(command, capture_output=True).returncode, 0)
-            self.assertNotEqual(subprocess.run(command + ['SOC=tiled-rv5stage-soc'], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command + ['SOC=tiled-rv5stage-rva23'], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command + ['SOC=simple-rv5stage-rv32max'], capture_output=True).returncode, 0)
 
     def test_target_fingerprint_is_attested(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -350,7 +395,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             target = root / 'target.json'
             target.write_text(json.dumps(program_target()))
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
-            options = ['--binary', str(binary), '--soc', 'single-core-rv5stage-soc', '--target', str(target)]
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23', '--target', str(target)]
             subprocess.run(command + ['record'] + options, check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             changed = program_target()

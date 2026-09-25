@@ -149,7 +149,7 @@ build products, not checked-in inputs.
 First compare the technology-independent MiniRV5StageSoC smoke with this mapped one:
 
 ```sh
-make -C sims smoke SOC=mini-rv5stage-soc
+make -C sims smoke SOC=mini-rv5stage-rva23
 make -C vlsi/sim smoke
 ```
 

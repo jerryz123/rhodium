@@ -27,16 +27,22 @@ Keep its ISA, CSR, counter, PMP, and trap claims aligned with the configured
 Spike revision and [`profile.rhm`](profile.rhm); the SoC UDB catalog adds only
 integration-owned platform facts. In particular, Spike's RV64 PMP CSR mask
 uses its 56-bit physical-address limit, not the fabric's 44-bit CHI address
-width. Validate changes with the SoC UDB test and
-the Spike ACT configuration and ELF generation targets.
+width. Validate the supported scalar projection with `tests/udb-test.rhm`.
+The SoC products now request RVA23 and reject executable resolution until the
+runtime and UDB projection support it. Their requested metadata tests are not
+runtime qualification; do not restore a scalar fallback to make them run.
+After enabling that architecture, validate the SoC UDB projection and the
+Spike ACT configuration and ELF generation targets.
 
 Run the focused host contract check with:
 
 ```sh
 tools/run-racket-tests.sh cores/spike/tests/profile-test.rhm
+tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
 make -C sims spike-core-test
 make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
-make -C sims smoke SOC=single-core-spike-soc
 ```
+
+Once the RVA23 product is enabled, also run `make -C sims smoke SOC=simple-spike-rva23`.

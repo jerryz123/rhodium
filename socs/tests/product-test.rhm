@@ -1,0 +1,72 @@
+#lang rhombus
+// Checks architectural presets, shape-specific resources, and shared hardware/software/UDB product projections.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../products/selection.rhm" open
+  "../products/isa-profiles.rhm" open
+  "../products/resolve.rhm" open
+  "../products/core-profiles.rhm" open
+  "../products/spike-core-profile.rhm" open
+  "../products/udb.rhm".riscv_udb_configuration
+  "../../sims/program-test/targets.rhm" open
+  lib("cores/rv5stage/profile.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/profile.rhm").MisaExtension
+  lib("riscv/isa/hart.rhm").RiscvMmuType
+  lib("riscv/isa/vector-profile.rhm").VectorProfile
+  lib("riscv/gnu-toolchain.rhm").gnu_isa_target
+
+def rv32 = soc_architecture(IsaPreset.RV32Max)
+def rv32_compiler = gnu_isa_target(rv32.isa.xlen, rv32.isa.isa_extensions)
+check:
+  rv32.isa.xlen ~is XLen.X32
+  rv32.mmu ~is RiscvMmuType.Bare
+  rv32.vector ~is VectorProfile.Zve32x
+  rv32.vector_length ~is 64
+  rv32_compiler.mabi ~is "ilp32"
+  rv32_compiler.march.starts_with("rv32imacb_") ~is #true
+  rv32.isa.misa_extension_bits ~is 0x141107
+for (extension in ["zcb", "zcmop", "zicbom", "zicbop", "zicboz", "zawrs", "zihintpause", "zihintntl", "ziccrse", "zve32x", "zvbb", "zvkb", "zvkt", "zvl64b"]):
+  check: rv32.has(extension) ~is #true
+for (extension in ["f", "d", "v", "zfh", "zfa", "zve32f", "zvfh", "ssnpm", "supm"]):
+  check: rv32.has(extension) ~is #false
+
+for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
+  def selection = SoCSelection(shape, CoreKind.RV5Stage, IsaPreset.RVA23)
+  def product = resolve_soc_product(selection)
+  def profile :: RV5StageConfig = product.hart.profile
+  def architecture = soc_architecture(selection.isa)
+  def description = product.description
+  def udb = product.udb()
+  check:
+    named_soc_selection(selection.key) ~is selection
+    profile.isa_profile ~is architecture.isa
+    profile.vector_length ~is architecture.vector_length
+    product.configuration().hart.description ~is description.hart
+    description.hart.isa_profile ~is architecture.isa
+    simulator_soc_description(product.key) ~is description
+    simulator_shape_description(soc_shape_name(shape), "rv5stage", ~isa: IsaPreset.RVA23) ~is description
+    riscv_udb_configuration(product.key) ~is udb
+    udb.name ~is "rhodium-" ++ product.key
+    udb.to_yaml().contains("  VLEN: 128") ~is #true
+    udb.to_yaml().contains("  MXLEN: 64") ~is #true
+    udb.to_yaml().contains("  PMLEN: 7") ~is #true
+    gnu_isa_target(description.hart.xlen, description.hart.isa_profile.isa_extensions).mabi ~is "lp64d"
+    profile.multiplier ~is (if shape == SoCShape.Mini | RV5StageMultiplierKind.Iterative | RV5StageMultiplierKind.Pipelined)
+    profile.data_cache_service_queue_depth ~is (if shape == SoCShape.Mini | 1 | 4)
+
+check:
+  single_core_rv5stage_soc_core_profile.cache_geometry.instruction.sets ~is 64
+  single_core_rv5stage_soc_core_profile.cache_geometry.instruction.ways ~is 4
+  mini_rv5stage_soc_core_profile.cache_geometry.instruction.sets ~is 32
+  mini_rv5stage_soc_core_profile.cache_geometry.instruction.ways ~is 1
+  tiled_rv5stage_soc_core_profile.cache_geometry.instruction.ways ~is 1
+  mini_rv5stage_soc_core_profile.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
+  single_core_spike_soc_core_profile.hart_description.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
+  parse_soc_shape("single") ~is SoCShape.Simple
+  parse_soc_shape("simple") ~is SoCShape.Simple
+  parse_core_kind("spike") ~is CoreKind.Spike
+  parse_isa_preset("rv32max") ~is IsaPreset.RV32Max
+  parse_isa_preset("rva23") ~is IsaPreset.RVA23
+  parse_isa_preset("typo") ~throws "unsupported ISA preset"

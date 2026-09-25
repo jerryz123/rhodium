@@ -67,12 +67,12 @@ CIRCT_CORE_CHECKS = frozenset(
     check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key == "circt-hardfloat"
 )
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup")
-SINGLE_CORE_SOCS = ("single-core-rv5stage-soc", "single-core-spike-soc")
+SINGLE_CORE_SOCS = ("simple-rv5stage-rva23", "simple-spike-rva23")
 SIMULATOR_PRODUCTS = (
-    ("mini-rv5stage-soc", "mini", "rv5stage"),
-    ("mini-spike-soc", "mini", "spike"),
-    ("single-core-rv5stage-soc", "single", "rv5stage"),
-    ("single-core-spike-soc", "single", "spike"),
-    ("tiled-rv5stage-soc", "tiled", "rv5stage"),
-    ("tiled-spike-soc", "tiled", "spike"),
+    ("mini-rv5stage-rva23", "mini", "rv5stage"),
+    ("mini-spike-rva23", "mini", "spike"),
+    ("simple-rv5stage-rva23", "single", "rv5stage"),
+    ("simple-spike-rva23", "single", "spike"),
+    ("tiled-rv5stage-rva23", "tiled", "rv5stage"),
+    ("tiled-spike-rva23", "tiled", "spike"),
 )

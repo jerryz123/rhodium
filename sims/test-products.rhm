@@ -1,0 +1,20 @@
+#lang rhombus
+// Lists the eight intended test products independently of current implementation availability or workload policy.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("socs/products/selection.rhm") open
+
+def TestProducts :: List.of(SoCSelection) = [
+  SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Max),
+  SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Simple, CoreKind.RV5Stage, IsaPreset.RV32Max),
+  SoCSelection(SoCShape.Simple, CoreKind.RV5Stage, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Simple, CoreKind.Spike, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Tiled, CoreKind.RV5Stage, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Tiled, CoreKind.Spike, IsaPreset.RVA23)
+]
+
+export:
+  TestProducts

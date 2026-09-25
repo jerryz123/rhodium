@@ -1,54 +1,16 @@
 #lang rhombus
-// Catalogs generated UDB configurations for concrete RISC-V SoC and core combinations.
+// Projects explicit shape-core-ISA product keys through the shared configuration resolver.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm".NonemptyString
   "../../riscv/udb.rhm".UdbConfiguration
-  "../../cores/rv5stage/udb.rhm".rv5stage_udb_configuration
-  "../../cores/spike/udb.rhm".spike_udb_configuration
-  "core-profiles.rhm" open
-  "spike-core-profile.rhm".single_core_spike_soc_core_profile
-  "../platform/fabric-profiles.rhm" open
-
-def RiscvUdbConfigurationNames = ["single-core-rv5stage-soc", "single-core-spike-soc", "mini-rv5stage-soc", "tiled-rv5stage-soc"]
-def FullRV5StageSoCUdbPmlen = 7
+  "selection.rhm" open
+  "resolve.rhm".resolve_soc_product
 
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
-  match configuration_name
-  | "single-core-rv5stage-soc":
-      rv5stage_udb_configuration(
-        single_core_rv5stage_soc_core_profile,
-        "rhodium-single-core-rv5stage-soc-rv64",
-        "RV5Stage configuration instantiated by Rhodium Single-Core RV5Stage SoC",
-        rhodium_soc_flit.request_address_width,
-        ~pmlen: FullRV5StageSoCUdbPmlen
-      )
-  | "single-core-spike-soc":
-      spike_udb_configuration(
-        single_core_spike_soc_core_profile,
-        "rhodium-single-core-spike-soc-rv64",
-        "Spike configuration instantiated by Rhodium Single-Core Spike SoC"
-      )
-  | "mini-rv5stage-soc":
-      rv5stage_udb_configuration(
-        mini_rv5stage_soc_core_profile,
-        "rhodium-mini-rv5stage-soc-rv64",
-        "RV5Stage configuration instantiated by Rhodium Mini RV5Stage SoC",
-        rhodium_soc_flit.request_address_width
-      )
-  | "tiled-rv5stage-soc":
-      rv5stage_udb_configuration(
-        tiled_rv5stage_soc_core_profile,
-        "rhodium-tiled-rv5stage-soc-rv64",
-        "RV5Stage configuration instantiated by Rhodium Tiled RV5Stage SoC",
-        rhodium_soc_flit.request_address_width,
-        ~pmlen: FullRV5StageSoCUdbPmlen
-      )
-  | ~else:
-      error(~who: #'riscv_udb_configuration,
-            "unknown RISC-V UDB configuration " ++ configuration_name ++ "; expected one of " ++ String.join(RiscvUdbConfigurationNames, ", "))
+  def product = resolve_soc_product(named_soc_selection(configuration_name))
+  product.udb()
 
 export:
-  RiscvUdbConfigurationNames
   riscv_udb_configuration

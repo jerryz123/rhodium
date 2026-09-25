@@ -24,12 +24,12 @@ For example:
 
 ```sh
 make -C sims program-test-setup
-make -C sims isa-test SOC=single CORE=rv5stage
-make -C sims bringup-test SOC=single CORE=spike
-make -C sims arch-test ACT_CONFIGURATION=single-core-rv5stage-soc
-make -C sims opensbi-test SOC=single CORE=rv5stage
-make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage LITMUS7=/path/to/litmus7
-make -C sims litmus-smoke-test SOC=tiled CORE=spike LITMUS7=/path/to/litmus7
+make -C sims isa-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims bringup-test SOC=single CORE=spike ISA=rva23
+make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
+make -C sims opensbi-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims litmus-smoke-test SOC=tiled CORE=rv5stage ISA=rva23 LITMUS7=/path/to/litmus7
+make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 LITMUS7=/path/to/litmus7
 ```
 
 The Spike/FESVR upstream under [`riscv/riscv-isa-sim`](../riscv/riscv-isa-sim/)

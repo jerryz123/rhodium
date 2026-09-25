@@ -81,7 +81,7 @@ Validate the complete compiled execution path with:
 make -C vlsi/sim smoke
 ```
 
-Compare against `make -C sims smoke SOC=mini-rv5stage-soc` when diagnosing whether a failure
+Compare against `make -C sims smoke SOC=mini-rv5stage-rva23` when diagnosing whether a failure
 belongs to shared simulation or mapping. Mapping requires CIRCT, the SRAM pass,
 Python, and Verilator; execution additionally requires FESVR and the RISC-V
 cross compiler. Generated artifacts are not checked in.

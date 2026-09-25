@@ -1,41 +1,19 @@
 #lang rhombus
-// Resolves simulator SoC names to their canonical architectural descriptions.
+// Projects software targets from the same resolved products used for hardware and UDB.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../socs/products/single-core-rv5stage-soc.rhdl" as single_core
-  "../../socs/products/single-core-spike-soc.rhdl" as spike
-  "../../socs/products/mini-rv5stage-soc.rhdl" as mini_rv5stage
-  "../../socs/products/tiled-rv5stage.rhdl" as tiled_rv5stage
-  "../../socs/mini-soc/main.rhdl" as mini
-  "../../socs/single-core-soc/main.rhdl" as single
-  "../../socs/tiled-soc/main.rhdl" as tiled
-  "../../socs/products/hart-selection.rhm".soc_hart
+  "../../socs/products/selection.rhm" open
+  "../../socs/products/resolve.rhm".resolve_soc_product
   "../../socs/platform/description.rhm".RiscvSoCDescription
 
-def SimulatorSoCNames = ["mini-rv5stage-soc", "mini-spike-soc", "single-core-rv5stage-soc", "single-core-spike-soc", "tiled-rv5stage-soc", "tiled-spike-soc"]
-
 fun simulator_soc_description(name :: String) :: RiscvSoCDescription:
-  match name
-  | "single-core-rv5stage-soc": single_core.single_core_rv5stage_soc_params.description
-  | "single-core-spike-soc": spike.single_core_spike_soc_params.description
-  | "mini-rv5stage-soc": mini_rv5stage.mini_rv5stage_soc_params.description
-  | "mini-spike-soc": mini.mini_soc_config(soc_hart("mini", "spike")).description
-  | "tiled-rv5stage-soc": tiled_rv5stage.default_tiled_soc_config.description
-  | "tiled-spike-soc": tiled.tiled_soc_config(soc_hart("tiled", "spike")).description
-  | ~else:
-      error(~who: #'simulator_soc_description,
-            "unknown simulator SoC " ++ name ++ "; expected one of " ++ String.join(SimulatorSoCNames, ", "))
+  resolve_soc_product(named_soc_selection(name)).description
 
-fun simulator_shape_description(shape :: String, core :: String) :: RiscvSoCDescription:
-  def hart = soc_hart(shape, core)
-  match shape
-  | "mini": mini.mini_soc_config(hart).description
-  | "single": single.single_core_soc_config(hart).description
-  | "tiled": tiled.tiled_soc_config(hart).description
-  | ~else: error(~who: #'simulator_shape_description, "unsupported SoC shape")
+fun simulator_shape_description(shape :: String, core :: String, ~isa: isa :: IsaPreset) :: RiscvSoCDescription:
+  def selection = SoCSelection(parse_soc_shape(shape), parse_core_kind(core), isa)
+  resolve_soc_product(selection).description
 
 export:
-  SimulatorSoCNames
   simulator_soc_description
   simulator_shape_description

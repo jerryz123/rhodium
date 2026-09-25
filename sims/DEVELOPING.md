@@ -26,20 +26,34 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE)` selection has an isolated build directory. CI names all six
+Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all six
 products explicitly and publishes one exact-commit simulator and target
 descriptor per product. Software-only changes build just the two Single products;
 simulation changes build all six. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
-target identities so switching either axis cannot reuse another simulator.
+target identities so switching any axis cannot reuse another simulator.
+
+The host selection layer now uses `socs/products/resolve.rhm` for hardware,
+software target descriptions, and UDB. `emit-soc-harness.rhm` and
+`program-test/write-target.rhm` require an explicit third ISA selector (the
+target writer also accepts a complete product key). `product.mk` validates the
+Make selectors and gives hardware, software, and attestations the same canonical
+shape-core-ISA identity. There is no ISA default. Spike resolution is blocked until
+its runtime/UDB projection can implement that profile. `test-products.rhm` is the explicit typed
+eight-product inventory, separate from implementation support and workload
+policy. Its focused contract test runs with the SoC host lane. CI callers now
+use complete keys without expanding the workload inventory or enabling blocked
+products. ACT configuration must match the selected product. Product-independent
+setup and host adapter tests remain usable without an ISA selection.
 
 ## Implementation map
 
 | Concern | Owner |
 |---|---|
 | Build graph, tools, variants, and artifacts | [`Makefile`](Makefile) |
+| Required ISA selection and canonical Make artifact identity | [`product.mk`](product.mk) |
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
 | Shared external-memory single-core execution harness | [`single-core-soc-harness.rhdl`](single-core-soc-harness.rhdl) |
 | Distinct internal-RAM and tiled harness circuits | [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
@@ -137,7 +151,7 @@ an absent model archive and an archive-only library update when changing this ru
 Run the real smoke with native importer validation:
 
 ```sh
-make -C sims trace-smoke TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace \
+make -C sims trace-smoke SOC=simple-rv5stage-rva23 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace \
   TRACE_PROCESSOR=/path/to/native/trace_processor_shell
 ```
 
@@ -318,7 +332,7 @@ completion, deadlines, artifact identity, and complete-result checks using syste
 Python without ACT dependencies. Run `make -C sims litmus-setup litmus-adapter-test`
 separately for tests requiring the pinned source corpus. CI runs the shared
 checks before workloads and the litmus check only after its source setup. With ACT
-installed, run `make -C sims arch-test` to generate and execute all applicable
+installed, run `make -C sims arch-test SOC=simple-rv5stage-rva23` to generate and execute all applicable
 tests; the architecture-test CI lane uses this same target. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
@@ -326,7 +340,7 @@ current coverage limits.
 
 ### LR/SC system qualification
 
-`make -C sims lrsc-test SOC=single-core-rv5stage-soc`, `SOC=mini-rv5stage-soc`, and `SOC=tiled-rv5stage-soc` complement the
+`make -C sims lrsc-test SOC=simple-rv5stage-rva23`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled-rv5stage-rva23` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
 `tests/programs/lrsc.S` runs six constrained-loop placements, covering
 LR.W/SC.W and LR.D/SC.D at aligned, cross-line/page, and page-boundary starts. Each
@@ -335,8 +349,8 @@ Setup, barriers, function returns, signatures, and HTIF exit are outside the
 constrained loop. The linker keeps code, shared counters, and page tables
 separate. Bare and supervisor Sv39 executables use the same identity-mapped
 RAM, with independent 4-KiB leaf mappings and preset A/D bits. MiniRV5StageSoC places
-its page tables inside its 64-KiB RAM and uses word-aligned boundary starts;
-the compressed-enabled systems use halfword starts. The payload checks `misa.C`
+its page tables inside its 64-KiB RAM; all RVA23 products use halfword boundary
+starts. The payload checks `misa.C`
 against the selected alignment, and the linker rejects out-of-RAM placement.
 
 Every SoC uses its ordinary harness and production ROM. The tiled target adds
@@ -521,25 +535,25 @@ make -C sims transport-test
 Check the tiled harness through CIRCT with:
 
 ```sh
-make -C sims tiled-lowering-test
+make -C sims tiled-lowering-test SOC=tiled-rv5stage-rva23
 ```
 
 Run the end-to-end execution path for each supported system with:
 
 ```sh
-make -C sims smoke SOC=single-core-rv5stage-soc
-make -C sims smoke SOC=single-core-spike-soc
-make -C sims smoke SOC=mini-rv5stage-soc
-make -C sims smoke SOC=tiled-rv5stage-soc
-make -C sims host-mmio-test SOC=single-core-rv5stage-soc
-make -C sims host-mmio-test SOC=mini-rv5stage-soc
-make -C sims host-mmio-test SOC=tiled-rv5stage-soc
-make -C sims boot-test SOC=single-core-rv5stage-soc
-make -C sims boot-test SOC=mini-rv5stage-soc
-make -C sims boot-test SOC=tiled-rv5stage-soc
-make -C sims uart-pty-test SOC=single-core-rv5stage-soc
-make -C sims uart-pty-test SOC=mini-rv5stage-soc
-make -C sims uart-pty-test SOC=tiled-rv5stage-soc
+make -C sims smoke SOC=simple-rv5stage-rva23
+make -C sims smoke SOC=simple-spike-rva23
+make -C sims smoke SOC=mini-rv5stage-rva23
+make -C sims smoke SOC=tiled-rv5stage-rva23
+make -C sims host-mmio-test SOC=simple-rv5stage-rva23
+make -C sims host-mmio-test SOC=mini-rv5stage-rva23
+make -C sims host-mmio-test SOC=tiled-rv5stage-rva23
+make -C sims boot-test SOC=simple-rv5stage-rva23
+make -C sims boot-test SOC=mini-rv5stage-rva23
+make -C sims boot-test SOC=tiled-rv5stage-rva23
+make -C sims uart-pty-test SOC=simple-rv5stage-rva23
+make -C sims uart-pty-test SOC=mini-rv5stage-rva23
+make -C sims uart-pty-test SOC=tiled-rv5stage-rva23
 ```
 
 FESVR's write-data wrapper retains lane placement, masks, and packet-position
@@ -570,7 +584,7 @@ and PTY; no test-only DPI transport bypasses that path. Simulation CI runs it
 on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
-`make -C sims tiled-memory-test` builds a separate TiledSoC harness specialization
+`make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23` builds a separate TiledSoC harness specialization
 with independent REQ, RSP, write-DAT, and read-DAT stalls. Its target payload
 dirty-evicts and refills a 64 KiB footprint across every LLC slice, checks the
 last architectural memory line, and exits through FESVR. Harness assertions
@@ -611,7 +625,7 @@ normal FESVR flow. Its final signature also lets FESVR read the dirty cache
 line coherently after the program exits:
 
 ```sh
-make -C sims zicboz-test SOC=single-core-rv5stage-soc
+make -C sims zicboz-test SOC=simple-rv5stage-rva23
 ```
 
 `zihintntl-test` runs `tests/programs/zihintntl.S` through the RV5Stage

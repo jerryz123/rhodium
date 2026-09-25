@@ -1,0 +1,55 @@
+#lang rhombus
+// Resolves typed products once for hardware composition, architectural descriptions, and UDB projection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "selection.rhm" open
+  "core-profiles.rhm".rv5stage_product_profile
+  "spike-core-profile.rhm".spike_product_profile
+  "../harts/implementation.rhdl".RiscvHartImplementation
+  "../harts/rv5stage.rhdl".rv5stage_hart
+  "../harts/spike.rhdl".spike_hart
+  "../mini-soc/main.rhdl" as mini
+  "../single-core-soc/main.rhdl" as simple
+  "../tiled-soc/main.rhdl" as tiled
+  "../platform/description.rhm".RiscvSoCDescription
+  "../platform/fabric-profiles.rhm".rhodium_soc_flit
+  lib("cores/rv5stage/profile.rhm").RV5StageConfig
+  lib("cores/spike/profile.rhm").SpikeConfig
+  lib("cores/rv5stage/udb.rhm").rv5stage_udb_configuration
+  lib("cores/spike/udb.rhm").spike_udb_configuration
+  lib("riscv/udb.rhm").UdbConfiguration
+
+class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementation):
+  constructor (selection :: SoCSelection):
+    def hart = match selection.core
+    | CoreKind.RV5Stage: rv5stage_hart(rv5stage_product_profile(selection.shape, selection.isa))
+    | CoreKind.Spike: spike_hart(spike_product_profile(selection.isa))
+    super(selection, hart)
+
+  property key :: String: selection.key
+
+  method configuration() :: mini.MiniSoCConfig || simple.SingleCoreSoCConfig || tiled.TiledSoCConfig:
+    match selection.shape
+    | SoCShape.Mini: mini.mini_soc_config(hart)
+    | SoCShape.Simple: simple.single_core_soc_config(hart)
+    | SoCShape.Tiled: tiled.tiled_soc_config(hart)
+
+  property description :: RiscvSoCDescription: configuration().description
+
+  method udb(~name: name :: String = "rhodium-" ++ key) :: UdbConfiguration:
+    match selection.core
+    | CoreKind.RV5Stage:
+        def profile :: RV5StageConfig = hart.profile
+        def pmlen = if profile.extensions.ssnpm | 7 | 0
+        rv5stage_udb_configuration(profile, name, "Rhodium " ++ key, rhodium_soc_flit.request_address_width, ~pmlen: pmlen)
+    | CoreKind.Spike:
+        def profile :: SpikeConfig = hart.profile
+        spike_udb_configuration(profile, name, "Rhodium " ++ key)
+
+fun resolve_soc_product(selection :: SoCSelection) :: ResolvedSoCProduct:
+  ResolvedSoCProduct(selection)
+
+export:
+  ResolvedSoCProduct
+  resolve_soc_product

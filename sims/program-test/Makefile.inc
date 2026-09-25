@@ -18,11 +18,11 @@ PROGRAM_TIMEOUT ?= 300
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
 BENCHMARK_MODE ?= target
-NATIVE_SOFTWARE_SOCS := single single-core-rv5stage-soc single-core-spike-soc
-SOFTWARE_SOC ?= single
+NATIVE_SOFTWARE_SOCS := simple
+SOFTWARE_SOC ?= simple
 SOFTWARE_CORE ?= rv5stage spike
-SMOKE_SOCS := mini tiled mini-rv5stage-soc mini-spike-soc tiled-rv5stage-soc tiled-spike-soc
-TILED_MT_SOCS := tiled tiled-rv5stage-soc tiled-spike-soc
+SMOKE_SOCS := mini tiled
+TILED_MT_SOCS := tiled
 COREMARK_ITERATIONS ?= 1
 COREMARK_MAX_CYCLES ?= 100000000
 EMBENCH_SCALE ?= 1
@@ -49,7 +49,7 @@ LITMUS_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-smoke
 LITMUS_FULL_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-full
 LITMUS_GENERATOR_ARGS := --litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)")
 TILED_MT_HART_COUNTS := 2 4 8
-PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
+PROGRAM_TARGET_SELECTION := $(SOC_ID)
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test litmus-adapter-test program-target simulator-attestation
@@ -69,7 +69,7 @@ $(PROGRAM_TARGET):
 endif
 
 isa-smoke-config:
-	@test -n "$(filter $(SOC),$(SMOKE_SOCS))" || (echo 'ISA smoke supports SOC=$(SMOKE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(SMOKE_SOCS))" || (echo 'ISA smoke supports SOC=$(SMOKE_SOCS)' >&2; exit 2)
 	mkdir -p "$(ISA_SMOKE_DIR)"
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(ISA_SMOKE_DIR)/target.json"
 
@@ -112,19 +112,19 @@ litmus-adapter-test:
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_litmus_build.py'
 
 isa-elfs: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --isa-selection full
 
 benchmark-elfs: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full benchmark suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full benchmark suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 tiled-mt-benchmark-elfs: program-target
-	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
 	  (echo 'Multihart benchmarks require a tiled SoC' >&2; exit 2)
 	@set -e; for hart_count in $(TILED_MT_HART_COUNTS); do \
 	  output="$(TILED_MT_BENCHMARK_DIR)/$$hart_count-harts"; \
@@ -136,7 +136,7 @@ tiled-mt-benchmark-elfs: program-target
 	done
 
 litmus-elfs: program-target
-	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
 	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
 	  --runtime "$(LITMUS_PORT_DIR)" --riscv-tests "$(RISCV_TESTS_DIR)" \
@@ -145,7 +145,7 @@ litmus-elfs: program-target
 	  $(if $(LITMUS7),--litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)"))
 
 litmus-smoke-elfs litmus-full-elfs: program-target
-	@test -n "$(filter $(SOC),$(TILED_MT_SOCS))" || \
+	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
 	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
 	@test -n "$(LITMUS7)" || \
 	  (echo 'Litmus profiles require an explicit pinned LITMUS7 executable' >&2; exit 2)
@@ -158,26 +158,26 @@ litmus-smoke-elfs litmus-full-elfs: program-target
 	  $(LITMUS_GENERATOR_ARGS)
 
 coremark-elf: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
 
 coremark_scalar-elf: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark scalar supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark scalar supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)" --variant coremark_scalar
 
 embench-elfs: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
 bringup-elfs: program-target
-	@test -n "$(filter $(SOC),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Bringup-Bench supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
+	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Bringup-Bench supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-bringup-bench.py --source "$(BRINGUP_DIR)" \
 	  --patch-series "$(BRINGUP_PATCH_SERIES)" --port "$(BRINGUP_PORT_DIR)" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup" --compiler "$(RISCV_CC)" \
@@ -265,10 +265,10 @@ bringup-test: bringup-elfs simulator-attestation
 single-core-software-test:
 	@status=0; for core in $(SOFTWARE_CORE); do \
 	  for suite in isa benchmark coremark coremark_scalar embench; do \
-	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
+	    $(MAKE) "$$suite-test" SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	  done; \
-	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" \
+	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) \
 	    BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor || status=1; \
-	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ACT_CONFIGURATION="single-core-$$core-soc" || status=1; \
-	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" || status=1; \
+	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) ACT_CONFIGURATION="$(SOFTWARE_SOC)-$$core-$(SOC_ISA)" || status=1; \
+	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	done; exit "$$status"
