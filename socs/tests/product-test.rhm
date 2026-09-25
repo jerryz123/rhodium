@@ -70,3 +70,12 @@ check:
   parse_isa_preset("rv32max") ~is IsaPreset.RV32Max
   parse_isa_preset("rva23") ~is IsaPreset.RVA23
   parse_isa_preset("typo") ~throws "unsupported ISA preset"
+
+def spike_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RVA23))
+check:
+  spike_product.description.hart.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
+  spike_product.description.hart.vector.vlen ~is 128
+  spike_product.description.hart.vector.elen ~is 64
+  single_core_spike_soc_core_profile.isa_string.length() > 64 ~is #true
+  single_core_spike_soc_core_profile.isa_bytes > 0 ~is #true
+  spike_product.description ~is simulator_soc_description("mini-spike-rva23")

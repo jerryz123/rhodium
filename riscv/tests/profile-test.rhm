@@ -32,3 +32,8 @@ check:
   RiscvCacheDescription(64, 3, 4096) ~throws "whole number"
   RiscvHartDescription(rv32, RiscvMmuType.Sv39, RiscvCacheDescription(64, 64, 4096), RiscvCacheDescription(64, 64, 4096)) ~throws "Sv39"
   RiscvHartDescription(RiscvIsaProfile(XLen.X64, ["i", "zic64b"], [MisaExtension.I]), RiscvMmuType.Bare, RiscvCacheDescription(64, 64, 4096), RiscvCacheDescription(64, 64, 4096)) ~throws "CBO block size"
+  RiscvVectorDescription(64, 32).vlen ~is 64
+  RiscvVectorDescription(128, 64).elen ~is 64
+  RiscvVectorDescription(96, 32) ~throws "vector geometry"
+  RiscvVectorDescription(32, 64) ~throws "vector geometry"
+  RiscvHartDescription(rv32, RiscvMmuType.Bare, RiscvCacheDescription(64, 64, 4096), RiscvCacheDescription(64, 64, 4096), ~vector: RiscvVectorDescription(64, 32)) ~throws "specified together"

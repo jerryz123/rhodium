@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes requested Spike SoC metadata and rejects hardware construction until its RVA23 binding is enabled.
+// Composes the explicit Spike RVA23 product with the shared single-core platform.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,7 +11,6 @@ import:
   "../single-core-soc/main.rhdl" as generic
   "../harts/spike.rhdl".spike_hart
   "spike-core-profile.rhm" open
-  "selection.rhm".IsaPreset
 
 fun make_single_core_spike_soc_params(
   core_profile :: SpikeConfig = single_core_spike_soc_core_profile,
@@ -32,7 +31,6 @@ fun make_single_core_spike_soc_params(
 def single_core_spike_soc_params = make_single_core_spike_soc_params()
 
 fun SingleCoreSpikeSoC(params :: SingleCoreSoCParams = single_core_spike_soc_params):
-  spike_product_profile(IsaPreset.RVA23)
   def core_profile :: SpikeConfig = params.core_profile
   generic.SingleCoreSoC(generic.SingleCoreSoCConfig(spike_hart(core_profile), params))
 

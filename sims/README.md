@@ -30,8 +30,9 @@ spelling alias for the `simple` shape. Shape and core default to `simple` and
 
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
 All RV64 products request `rva23`, including Mini and Spike. Spike remains
-simulation-only and its products are currently blocked pending runtime/UDB
-integration of that architecture. No narrower fallback is selected.
+simulation-only and executes that exact selected architecture. Its broad
+ACT/UDB projection remains unavailable; simulator execution does not imply
+ACT qualification. No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
 
 The host emitters require an explicit third architectural selector:

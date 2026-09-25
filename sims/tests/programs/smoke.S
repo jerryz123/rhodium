@@ -1,4 +1,4 @@
-// Checks SoC BootROM handoff, the boot register, and UART-to-PLIC claim/completion through HTIF.
+// Checks SoC boot, UART/PLIC, and selected Spike vector geometry and execution through HTIF.
 // SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start
@@ -101,12 +101,64 @@ plic_claim_supervisor:
   li s5, 6
   lw t0, 0(s3)
   bnez t0, fail
+#ifdef RHODIUM_SMOKE_SPIKE_RVA23
+  // Fail explicitly on an illegal instruction, rather than looping at mtvec=0.
+  li s5, 7
+  la t0, fail
+  csrw mtvec, t0
+  li t0, 0x6600                // Enable FP and vector architectural state.
+  csrs mstatus, t0
+  csrr t0, vlenb
+  li t1, 16
+  bne t0, t1, fail
+  li s5, 8
+  vsetivli t0, 4, e32, m1, ta, ma
+  li t1, 4
+  bne t0, t1, fail
+  vid.v v1
+  vadd.vi v1, v1, 7
+  la t0, vector_result
+  vse32.v v1, (t0)
+  vle32.v v2, (t0)
+  vmv.v.i v3, 0
+  vredsum.vs v3, v2, v3
+  vmv.x.s t0, v3
+  li t1, 34                   // 7 + 8 + 9 + 10, through the CHI memory path.
+  bne t0, t1, fail
+  li s5, 9
+  vmv.v.i v1, 1
+  vbrev8.v v2, v1             // Zvbb is not just an advertised extension.
+  vmv.x.s t0, v2
+  li t1, 128
+  bne t0, t1, fail
+  li s5, 10
+  vsetivli t0, 2, e64, m1, ta, ma
+  li t1, 2
+  bne t0, t1, fail
+  li t0, 0x3ff0000000000000   // 1.0 in binary64.
+  fmv.d.x ft0, t0
+  vfmv.v.f v1, ft0
+  vfadd.vv v2, v1, v1
+  vfmv.f.s ft1, v2
+  fmv.x.d t0, ft1
+  li t1, 0x4000000000000000
+  bne t0, t1, fail
+  li s5, 11
+  fcvt.h.d ft2, ft0           // Scalar Zfh plus vector Zvfh.
+  vsetivli zero, 8, e16, m1, ta, ma
+  vfmv.v.f v1, ft2
+  vfadd.vv v2, v1, v1
+  vmv.x.s t0, v2
+  li t1, 0x4000              // 2.0 in binary16.
+  bne t0, t1, fail
+#endif
   li t0, 1
   la t1, tohost
   sd t0, 0(t1)
 1:
   j 1b
 
+.balign 4
 fail:
   slli t0, s5, 1
   ori t0, t0, 1
@@ -123,3 +175,8 @@ tohost:
 .globl fromhost
 fromhost:
   .dword 0
+#ifdef RHODIUM_SMOKE_SPIKE_RVA23
+.balign 16
+vector_result:
+  .space 16
+#endif

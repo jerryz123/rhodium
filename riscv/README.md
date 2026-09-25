@@ -14,6 +14,14 @@ dependencies of the pure model.
 Contributors extending the model or catalogs should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
+`RiscvHartDescription` in [`isa/hart.rhm`](isa/hart.rhm) carries the ISA,
+MMU, cache/CBO descriptions, and optional exact vector geometry.
+`RiscvVectorDescription(vlen, elen)` describes the implemented register and
+element widths, not just the minimum register length advertised by Zvl.
+Vector-enabled harts require this geometry; scalar harts omit it. The host
+description permits power-of-two VLEN through 65536 and ELEN 32 or 64 up to
+VLEN; individual implementations can impose narrower limits.
+
 ## Find what you need
 
 | Task | Start here |

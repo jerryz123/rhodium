@@ -14,6 +14,8 @@ struct Configuration {
   std::uint64_t reset_vector = 0;
   bool xlen_is_64 = true;
   std::uint8_t max_vaddr_bits = 0;
+  std::uint32_t vector_length = 0;
+  std::uint32_t vector_element_width = 0;
   std::string isa;
   std::string privilege;
   std::uint16_t max_retired_instructions_per_cycle = 1;

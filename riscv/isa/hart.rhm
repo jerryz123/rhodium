@@ -23,28 +23,41 @@ class RiscvCacheDescription(block_bytes :: PosInt,
 
   property ways :: PosInt: size_bytes / (block_bytes * sets)
 
+// Exact implementation geometry, unlike the minimum-length Zvl ISA claims.
+class RiscvVectorDescription(vlen :: PosInt, elen :: PosInt):
+  constructor (vlen :: PosInt, elen :: PosInt):
+    unless [32, 64].contains(elen) && elen <= vlen && vlen <= 65536 && (vlen bits.and (vlen - 1)) == 0
+    | error(~who: #'RiscvVectorDescription, "vector geometry requires power-of-two VLEN <= 65536 and ELEN 32 or 64 <= VLEN")
+    super(vlen, elen)
+
 class RiscvHartDescription(isa_profile :: RiscvIsaProfile,
                            mmu_type :: RiscvMmuType,
                            instruction_cache :: RiscvCacheDescription,
                            data_cache :: RiscvCacheDescription,
-                           cbo_block_bytes :: maybe(PosInt)):
+                           cbo_block_bytes :: maybe(PosInt),
+                           vector :: maybe(RiscvVectorDescription)):
   constructor (isa_profile :: RiscvIsaProfile,
                mmu_type :: RiscvMmuType,
                instruction_cache :: RiscvCacheDescription,
                data_cache :: RiscvCacheDescription,
-               ~cbo_block_bytes: cbo_block_bytes :: maybe(PosInt) = #false):
+               ~cbo_block_bytes: cbo_block_bytes :: maybe(PosInt) = #false,
+               ~vector: vector :: maybe(RiscvVectorDescription) = #false):
     when mmu_type == RiscvMmuType.Sv39 && isa_profile.xlen != XLen.X64
     | error(~who: #'RiscvHartDescription, "Sv39 requires RV64")
     when for any (extension in ["zic64b", "zicbom", "zicbop", "zicboz"]):
            isa_profile.isa_extensions.contains(extension) && !(cbo_block_bytes is_a PosInt)
     | error(~who: #'RiscvHartDescription,
             "cache-block extensions require a CBO block size")
+    def has_vector = for any (extension in isa_profile.isa_extensions): extension == "v" || extension.starts_with("zve")
+    unless has_vector == (vector is_a RiscvVectorDescription)
+    | error(~who: #'RiscvHartDescription, "vector ISA and exact vector geometry must be specified together")
     super(isa_profile, mmu_type, instruction_cache, data_cache,
-          cbo_block_bytes)
+          cbo_block_bytes, vector)
 
   property xlen :: XLen: isa_profile.xlen
 
 export:
   RiscvMmuType
   RiscvCacheDescription
+  RiscvVectorDescription
   RiscvHartDescription

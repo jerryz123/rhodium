@@ -48,8 +48,9 @@ projection. Canonical identities are `<shape>-<core>-<isa>`.
 not a claim of complete RVA23U64/S64 conformance. `RV32Max` describes the
 intended maximal non-FP RV32/Zve32x/VLEN=64 architecture, but instantiation
 currently rejects it pending RV32 integer-vector and VLEN=64 integration.
-Spike rejects `RVA23` pending its runtime/UDB expansion, rather than
-substituting its narrower profile.
+Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
+still rejects this broad profile pending expansion; it never substitutes a
+narrower architecture.
 
 The only presets are `RV32Max` and `RVA23`. Product selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
@@ -69,8 +70,8 @@ required architectural preset. A
 architectural description, 64-byte CHI cache-line contract, attachment
 factory, and circuit factory. Each shape derives its device tree and
 hardware from that same binding. See the [simulator selector](../sims/README.md#choose-a-harness)
-for the product selectors. Spike products are simulation-only and currently
-blocked pending RVA23 runtime/UDB integration; their requested metadata remains inspectable.
+for the product selectors. Spike products are simulation-only; their execution
+configuration and architectural description come from the same selected preset.
 
 | Shape | Harts | Normal-memory termination | Coherence structure |
 | --- | ---: | --- | --- |
@@ -314,15 +315,15 @@ contracts as `SingleCoreRV5StageSoC`. A hart-neutral
 core's endpoint capabilities and Home-facing contracts without moving
 transaction policy into the SoC helper.
 
-The requested core profile is `RVA23`, shared with the RV5Stage products.
-Product materialization is explicitly blocked until Spike's runtime and UDB
-projection support that architecture; no scalar substitute is selected.
+The selected core profile is `RVA23`, shared with the RV5Stage products.
+The runtime preserves its complete ISA string and exact VLEN=128/ELEN=64;
+its broad ACT/UDB projection remains unavailable. No scalar substitute is selected.
 The existing scalar UDB projection remains covered by Spike-owned unit tests.
 Its architectural description declares 16 KiB instruction and data caches with
 64-byte lines; the Spike runtime models those private caches and services their
 coherence through the three CHI ports. Because `SpikeCore` contains a DPI
 boundary, this SoC is a simulation-only reference-core composition rather than a
-synthesis target. Once enabled, its simulator harness supplies external CHI memory
+synthesis target. Its simulator harness supplies external CHI memory
 and the ordinary coherent FESVR host; it does not bypass the SoC memory system.
 
 ## MiniRV5StageSoC

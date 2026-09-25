@@ -78,6 +78,10 @@ SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),
 SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
 SMOKE_MARCH := $(if $(filter 1,$(TRACE)),rv64ic_zicsr,rv64i_zicsr)
 SMOKE_CPPFLAGS := $(if $(filter 1,$(TRACE)),-DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1)
+ifeq ($(SOC_CORE)-$(SOC_ISA),spike-rva23)
+SMOKE_MARCH := rv64gcv_zvbb_zvfh
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_SPIKE_RVA23=1
+endif
 UART_PTY_BINARY := $(SOC_BUILD_DIR)/uart_pty.elf
 TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/tiled_memory.elf
 BOOT_BINARIES := $(SOC_BUILD_DIR)/boot_2000.elf $(SOC_BUILD_DIR)/boot_3000.elf

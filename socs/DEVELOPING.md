@@ -56,9 +56,10 @@ it adds no hardware wrapper. Mini supplies on-chip RAM and a forwarding Home,
 while Single supplies the inclusive LLC and an external memory boundary.
 All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
-resources. Spike's requested metadata is available, but executable resolution
-is gated until its runtime and UDB projection support the requested architecture.
-Do not substitute a scalar profile. The intended
+resources. Spike's executable binding preserves the same selected architecture
+and exact vector geometry. Its ACT/UDB projection is independently gated until
+that projection can describe the broad architecture; simulator execution does
+not require UDB support. Do not substitute a scalar profile. The intended
 eight-product test inventory belongs in `sims/test-products.rhm`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.

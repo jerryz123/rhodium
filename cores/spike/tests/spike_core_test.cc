@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <stdexcept>
 
 using rhodium::spike::Configuration;
 using rhodium::spike::Inputs;
@@ -22,6 +23,23 @@ int main() {
   configuration.instruction_cache_ways = 1;
   configuration.data_cache_sets = 2;
   configuration.data_cache_ways = 1;
+  // Configuration fields are assertions about the selected ISA, not hints.
+  auto mismatched = configuration;
+  mismatched.xlen_is_64 = false;
+  bool rejected = false;
+  try { SpikeCoreModel invalid(mismatched); }
+  catch (const std::invalid_argument&) { rejected = true; }
+  assert(rejected);
+  auto vector_configuration = configuration;
+  vector_configuration.isa = "rv64gcv_zvl256b";
+  vector_configuration.vector_length = 256;
+  vector_configuration.vector_element_width = 64;
+  SpikeCoreModel vector_model(vector_configuration);
+  vector_configuration.vector_length = 128;
+  rejected = false;
+  try { SpikeCoreModel invalid(vector_configuration); }
+  catch (const std::invalid_argument&) { rejected = true; }
+  assert(rejected);
   SpikeCoreModel model(configuration);
 
   Inputs inputs;

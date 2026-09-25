@@ -8,10 +8,16 @@ import:
   lib("riscv/isa/profile.rhm").MisaExtension
   lib("riscv/isa/xlen.rhm").XLen
 
-def SpikeIsaBytes :: PosInt = 64
+def SpikeIsaBytes :: PosInt = 512
+def SpikePrivilegeBytes :: PosInt = 4
 
 fun spike_isa_string(architecture :: RiscvHartDescription) :: String:
-  def extensions = architecture.isa_profile.isa_extensions
+  def mutable extensions = architecture.isa_profile.isa_extensions
+  when architecture.vector is_a RiscvVectorDescription
+  | block:
+      def length_extension = "zvl" ++ to_string(architecture.vector.vlen) ++ "b"
+      unless extensions.contains(length_extension)
+      | extensions := extensions ++ [length_extension]
   def single_letter = ["m", "a", "f", "d", "c", "b", "v"]
   def compact = String.join(single_letter.filter(
     ~keep: fun (extension): extensions.contains(extension)
@@ -34,9 +40,9 @@ fun spike_max_vaddr_bits(mmu_type :: RiscvMmuType) :: Nat:
   | RiscvMmuType.Bare: 0
   | RiscvMmuType.Sv39: 39
 
-fun pack_spike_string(value :: String) :: Nat:
+fun pack_spike_string(value :: String, capacity :: PosInt = SpikeIsaBytes) :: Nat:
   def bytes = value.utf8_bytes().to_list()
-  when bytes.length() >= SpikeIsaBytes
+  when bytes.length() >= capacity
   | error(~who: #'pack_spike_string, "Spike configuration string is too long")
   def mutable packed = 0
   def mutable shift = 0
@@ -55,9 +61,13 @@ class SpikeConfig(architecture :: RiscvHartDescription,
                ~pmp_regions: pmp_regions :: Nat = 16):
     unless architecture.instruction_cache.block_bytes == 64 && (
       architecture.data_cache.block_bytes == 64
-    )
+    ) && (architecture.cbo_block_bytes == #false || architecture.cbo_block_bytes == 64)
     | error(~who: #'SpikeConfig,
             "the initial Spike adapter requires 64-byte cache lines")
+    when architecture.vector is_a RiscvVectorDescription && architecture.vector.vlen > 4096
+    | error(~who: #'SpikeConfig, "the pinned Spike runtime supports VLEN up to 4096")
+    pack_spike_string(spike_isa_string(architecture))
+    pack_spike_string(spike_privilege_string(architecture), SpikePrivilegeBytes)
     unless pmp_regions <= 64
     | error(~who: #'SpikeConfig, "Spike supports at most 64 PMP regions")
     unless max_retired_instructions_per_cycle <= 0xffff
@@ -77,12 +87,15 @@ class SpikeConfig(architecture :: RiscvHartDescription,
   property isa_string :: String: spike_isa_string(architecture)
   property privilege_string :: String: spike_privilege_string(architecture)
   property isa_bytes :: Nat: pack_spike_string(isa_string)
-  property privilege_bytes :: Nat: pack_spike_string(privilege_string)
+  property privilege_bytes :: Nat: pack_spike_string(privilege_string, SpikePrivilegeBytes)
+  property vector_length :: Nat: if architecture.vector is_a RiscvVectorDescription | architecture.vector.vlen | 0
+  property vector_element_width :: Nat: if architecture.vector is_a RiscvVectorDescription | architecture.vector.elen | 0
   property xlen_is_64 :: Boolean: architecture.xlen == XLen.X64
   property max_vaddr_bits :: Nat: spike_max_vaddr_bits(architecture.mmu_type)
 
 export:
   SpikeIsaBytes
+  SpikePrivilegeBytes
   spike_isa_string
   spike_privilege_string
   pack_spike_string

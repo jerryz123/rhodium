@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <stdexcept>
 
 #include "spike_core.h"
 
@@ -29,15 +30,15 @@ std::string scope_name() {
   return name == nullptr ? "<unnamed>" : name;
 }
 
-std::string packed_string(const svBitVecVal* packed) {
+std::string packed_string(const svBitVecVal* packed, std::size_t capacity) {
   std::string result;
-  for (std::size_t index = 0; index < 64; ++index) {
+  for (std::size_t index = 0; index < capacity; ++index) {
     const std::uint32_t word = packed[index / 4];
     const char value = static_cast<char>((word >> ((index % 4) * 8)) & 0xffU);
-    if (value == '\0') break;
+    if (value == '\0') return result;
     result.push_back(value);
   }
-  return result;
+  throw std::invalid_argument("unterminated Spike configuration string");
 }
 
 std::array<std::uint64_t, 8> unpack_line(const svBitVecVal* packed) {
@@ -66,8 +67,8 @@ void store(T* target, T value) {
 extern "C" unsigned char rhodium_spike_tick(
     unsigned char reset, long long hart_id, long long reset_vector,
     long long time, char interrupts, unsigned char xlen_is_64,
-    char max_vaddr_bits,
-    const svBitVecVal* isa, const svBitVecVal* privilege,
+    char max_vaddr_bits, int vector_length, int vector_element_width,
+    const svBitVecVal* isa, int privilege,
     short max_retired_instructions_per_cycle, char pmp_regions,
     short instruction_cache_sets, short instruction_cache_ways,
     short data_cache_sets, short data_cache_ways,
@@ -140,8 +141,11 @@ extern "C" unsigned char rhodium_spike_tick(
     configuration.reset_vector = static_cast<std::uint64_t>(reset_vector);
     configuration.xlen_is_64 = xlen_is_64 != 0;
     configuration.max_vaddr_bits = static_cast<std::uint8_t>(max_vaddr_bits);
-    configuration.isa = packed_string(isa);
-    configuration.privilege = packed_string(privilege);
+    configuration.vector_length = static_cast<std::uint32_t>(vector_length);
+    configuration.vector_element_width = static_cast<std::uint32_t>(vector_element_width);
+    configuration.isa = packed_string(isa, 512);
+    const svBitVecVal privilege_word = static_cast<svBitVecVal>(privilege);
+    configuration.privilege = packed_string(&privilege_word, 4);
     configuration.max_retired_instructions_per_cycle =
         static_cast<std::uint16_t>(max_retired_instructions_per_cycle);
     configuration.pmp_regions = pmp_regions;

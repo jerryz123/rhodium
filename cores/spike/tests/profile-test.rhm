@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../profile.rhm".SpikeConfig
+  "../profile.rhm" open
   "../../../riscv/isa/hart.rhm" open
   "../../../riscv/isa/profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
@@ -36,3 +36,16 @@ check:
   SpikeConfig(RiscvHartDescription(isa, RiscvMmuType.Bare, cache, cache,
                                    ~cbo_block_bytes: 64)).max_vaddr_bits ~is 0
   (config.isa_bytes bits.and 0xffffffff) ~is 0x34367672
+
+def vector_isa = RiscvIsaProfile(XLen.X32, ["i", "zve32x"], [MisaExtension.I])
+def vector_config = SpikeConfig(RiscvHartDescription(vector_isa, RiscvMmuType.Bare, cache, cache, ~vector: RiscvVectorDescription(64, 32)))
+check:
+  vector_config.isa_string ~is "rv32i_zve32x_zvl64b"
+  vector_config.vector_length ~is 64
+  vector_config.vector_element_width ~is 32
+  vector_config.xlen_is_64 ~is #false
+  default_config.vector_length ~is 0
+  default_config.vector_element_width ~is 0
+  pack_spike_string(String.join(for List (_index in 0..511): "a", "")) > 0 ~is #true
+  pack_spike_string(String.join(for List (_index in 0..512): "a", "")) ~throws "too long"
+  RiscvHartDescription(vector_isa, RiscvMmuType.Bare, cache, cache) ~throws "specified together"

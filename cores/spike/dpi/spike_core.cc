@@ -102,6 +102,12 @@ class SpikeCoreModel::Implementation final : public simif_t {
         cfg_.isa, cfg_.priv, &cfg_, this,
         static_cast<std::uint32_t>(configuration_.hart_id), false, nullptr,
         std::cerr);
+    const auto& isa = processor_->get_isa();
+    if (isa.get_max_xlen() != (configuration_.xlen_is_64 ? 64 : 32))
+      throw std::invalid_argument("Spike ISA XLEN does not match the hart configuration");
+    if (isa.get_vlen() != configuration_.vector_length ||
+        isa.get_elen() != configuration_.vector_element_width)
+      throw std::invalid_argument("Spike ISA vector geometry does not match the hart configuration");
     if (configuration_.max_vaddr_bits != 0 && configuration_.max_vaddr_bits != 39)
       throw std::invalid_argument("Spike adapter supports only Bare and Sv39 translation");
     processor_->set_max_vaddr_bits(configuration_.max_vaddr_bits);

@@ -18,6 +18,10 @@ read/write direction before reservation matching; keep its physical-map
 classification and atomic support bit aligned with the typed DPI response.
 The configured MMU type also crosses this boundary; set Spike's maximum virtual
 address width before resetting its CSRs, matching standalone Spike initialization.
+Pass exact VLEN/ELEN through the DPI ABI and check them against the pinned ISA
+parser before execution. Do not rely on a runtime default or silently reduce
+the advertised ISA to fit the transport. Keep packed-string capacities aligned
+with the native decoder; the generated-header ABI check covers argument types.
 The external SSIP/STIP levels overlay, rather than overwrite, Spike's
 software-writable `mip` state; keep the corresponding pinned Spike patch and
 the DPI bridge in sync when changing interrupt delivery.
@@ -28,11 +32,10 @@ Spike revision and [`profile.rhm`](profile.rhm); the SoC UDB catalog adds only
 integration-owned platform facts. In particular, Spike's RV64 PMP CSR mask
 uses its 56-bit physical-address limit, not the fabric's 44-bit CHI address
 width. Validate the supported scalar projection with `tests/udb-test.rhm`.
-The SoC products now request RVA23 and reject executable resolution until the
-runtime and UDB projection support it. Their requested metadata tests are not
-runtime qualification; do not restore a scalar fallback to make them run.
-After enabling that architecture, validate the SoC UDB projection and the
-Spike ACT configuration and ELF generation targets.
+The SoC products execute the explicit RVA23 preset. Their broad ACT projection
+remains gated in `udb.rhm`; runtime support must not imply a completed Sail/UDB
+model. Expand and validate that projection separately before enabling ACT for
+this profile. Do not restore a scalar fallback to make ACT generation run.
 
 Run the focused host contract check with:
 
@@ -45,4 +48,8 @@ make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
 ```
 
-Once the RVA23 product is enabled, also run `make -C sims smoke SOC=simple-spike-rva23`.
+Run `make -C sims smoke SOC=mini-spike-rva23` for the complete BootROM/FESVR
+path. The Spike RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,
+Zvbb, and binary64/binary16 vector FP results. Repeat with
+`HTIF_ARGS=+load-through-chi` to cover both loader paths. This bounded smoke
+does not replace ISA/ACT qualification.

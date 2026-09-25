@@ -8,13 +8,24 @@ configuration for the simulator-backed core. Its
 `hart_description` projection uses the same implementation-neutral
 [`RiscvHartDescription`](../../riscv/isa/hart.rhm) consumed by SoC and
 device-tree code. The configuration derives Spike's ISA, privilege, and
-Bare/Sv39 MMU settings. It separately owns the maximum retired instructions per
+Bare/Sv39 MMU settings and exact vector VLEN/ELEN. The pinned runtime derives
+vector geometry from its ISA string; initialization checks that it agrees with
+the hart description. The adapter includes the exact VLEN's Zvl spelling when
+the ISA advertises only a smaller minimum. Configuration strings are
+NUL-terminated and bounded to 512 bytes for ISA and four bytes for privilege;
+oversized strings are rejected, not truncated. It separately owns the maximum retired instructions per
 simulated cycle and PMP implementation parameters.
 `max_retired_instructions_per_cycle` defaults
 to one; increasing it accelerates cached execution while memory and coherence
 transactions can still yield the model before that maximum is reached.
 
-The default SoC specialization enables Zihpm with 29 read-only-zero HPM counters
+The explicit `rva23` SoC specialization selects the shared RV64D/V architecture
+with VLEN=128 and ELEN=64, without substituting a scalar profile. This preset
+name is not a full RVA23 conformance claim. Simulator execution and ACT
+projection are separate capabilities: the broad profile's ACT/UDB projection
+is not implemented yet and still rejects that request.
+
+The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
 and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits
 are also read-only zero; only the base counter-control bits remain writable.
 

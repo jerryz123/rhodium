@@ -270,7 +270,8 @@ class RV5StageConfig(xlen :: XLen,
       if mmu_mode == RV5StageMmuMode.Bare | RiscvMmuType.Bare | RiscvMmuType.Sv39,
       RiscvCacheDescription(RV5StageCacheLineBytes, cache_geometry.instruction.sets, cache_geometry.instruction.capacity_bytes),
       RiscvCacheDescription(RV5StageCacheLineBytes, cache_geometry.data.sets, cache_geometry.data.capacity_bytes),
-      ~cbo_block_bytes: RV5StageCacheLineBytes
+      ~cbo_block_bytes: RV5StageCacheLineBytes,
+      ~vector: if vector_profile_enabled(vector) | RiscvVectorDescription(vector_length, vector_profile_elen_bits(vector)) | #false
     )
 
 export:

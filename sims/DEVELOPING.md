@@ -40,12 +40,13 @@ software target descriptions, and UDB. `emit-soc-harness.rhm` and
 `program-test/write-target.rhm` require an explicit third ISA selector (the
 target writer also accepts a complete product key). `product.mk` validates the
 Make selectors and gives hardware, software, and attestations the same canonical
-shape-core-ISA identity. There is no ISA default. Spike resolution is blocked until
-its runtime/UDB projection can implement that profile. `test-products.rhm` is the explicit typed
+shape-core-ISA identity. There is no ISA default. Spike runtime configuration
+includes exact vector geometry; its broad ACT/UDB projection remains gated
+independently of execution. `test-products.rhm` is the explicit typed
 eight-product inventory, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
-use complete keys without expanding the workload inventory or enabling blocked
-products. ACT configuration must match the selected product. Product-independent
+use complete keys without expanding the workload inventory. ACT configuration
+must match the selected product. Product-independent
 setup and host adapter tests remain usable without an ISA selection.
 
 ## Implementation map
@@ -468,6 +469,11 @@ benchmarks. Tiled Spike has the same local multihart target but stays out of
 the required CI step until all three hart counts complete within a justified
 runtime budget. The matrix disables fail-fast and uploads independent results.
 Changes to the adapter or upstream ISA sources must select that job.
+The ordinary `smoke` target specializes its payload for Spike RVA23: in addition
+to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
+exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses
+the same FESVR and prebuilt-simulator path in CI; no alternate loader or harness
+is involved.
 
 The separate tiled-litmus smoke CI matrix builds both Spike and RV5Stage tiled
 simulators and runs the same checked-in, litmus7-generated case selection on

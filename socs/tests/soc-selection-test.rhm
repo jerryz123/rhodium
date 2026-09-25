@@ -1,21 +1,18 @@
 #lang rhombus
-// Checks shape composition from RV5Stage products and requested Spike architectural metadata.
+// Checks that both core selections compose through the shared explicit product resolver.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../products/hart-selection.rhm".soc_hart
   "../products/selection.rhm".IsaPreset
-  "../products/spike-core-profile.rhm".single_core_spike_soc_core_profile
-  "../harts/spike.rhdl".spike_hart
   "../mini-soc/main.rhdl" as mini
   "../single-core-soc/main.rhdl" as single
   "../tiled-soc/main.rhdl" as tiled
 
 for (core in ["rv5stage", "spike"]):
-  // A binding suffices for host topology checks; it does not enable the Spike runtime.
-  def mini_hart = if core == "spike" | spike_hart(single_core_spike_soc_core_profile) | soc_hart("mini", core, ~isa: IsaPreset.RVA23)
-  def single_hart = if core == "spike" | spike_hart(single_core_spike_soc_core_profile) | soc_hart("single", core, ~isa: IsaPreset.RVA23)
-  def tiled_hart = if core == "spike" | spike_hart(single_core_spike_soc_core_profile) | soc_hart("tiled", core, ~isa: IsaPreset.RVA23)
+  def mini_hart = soc_hart("mini", core, ~isa: IsaPreset.RVA23)
+  def single_hart = soc_hart("single", core, ~isa: IsaPreset.RVA23)
+  def tiled_hart = soc_hart("tiled", core, ~isa: IsaPreset.RVA23)
   def mini_config = mini.mini_soc_config(mini_hart)
   def mini_fabric = mini_config.fabric
   def single_config = single.single_core_soc_config(single_hart)

@@ -1,21 +1,24 @@
 #lang rhombus
-// Describes Spike's requested RVA23 architecture while guarding unsupported product materialization.
+// Projects explicit product architectures into the Spike execution configuration.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/spike/profile.rhm").SpikeConfig
   lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/vector-profile.rhm").vector_profile_elen_bits
   "selection.rhm" open
   "isa-profiles.rhm".soc_architecture
 
 fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
-  error(~who: #'spike_product_profile, isa_preset_name(preset) ++ " requires expanded Spike runtime and UDB configuration support; no substitute profile is selected")
+  def architecture = soc_architecture(preset)
+  SpikeConfig(
+    RiscvHartDescription(architecture.isa, architecture.mmu,
+                         RiscvCacheDescription(64, 64, 16384), RiscvCacheDescription(64, 64, 16384),
+                         ~cbo_block_bytes: 64,
+                         ~vector: RiscvVectorDescription(architecture.vector_length, vector_profile_elen_bits(architecture.vector)))
+  )
 
-// Requested host metadata is inspectable, but is not an enabled executable product.
-def architecture = soc_architecture(IsaPreset.RVA23)
-def single_core_spike_soc_core_profile = SpikeConfig(
-  RiscvHartDescription(architecture.isa, architecture.mmu, RiscvCacheDescription(64, 64, 16384), RiscvCacheDescription(64, 64, 16384), ~cbo_block_bytes: 64)
-)
+def single_core_spike_soc_core_profile = spike_product_profile(IsaPreset.RVA23)
 def single_core_spike_soc_hart_description = single_core_spike_soc_core_profile.hart_description
 
 export:
