@@ -314,11 +314,14 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     owner: operation.owner
     pc: operation.pc
     splat: operation.splat
-  def compute_maturity = executed |> filter_valid(result => !result.beat.memory)
+  def Array(compute_route, memory_route) = executed |> to_decoupled() |> demux_flow(2, result => result.beat.memory)
+  def compute_maturity = compute_route |> to_valid()
+  def Array(fp_compute, multiply_compute, divide_compute, feedback_compute, completion_compute, instruction_compute, resolution_compute) = compute_maturity |> fork_valid(7)
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
   def compute_owner = compute_result.owner
-  executed |> filter_valid(result => result.beat.memory) |> memory_pipe.ingress
+  memory_route |> to_valid() |> memory_pipe.ingress
+  def Array(completion_memory, resolution_memory) = memory_pipe.egress |> fork_valid(2)
   def memory_result = memory_pipe.egress.bits
   def memory_beat = memory_result.beat
 
@@ -349,11 +352,11 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   divide_authorized.egress |> divide_request
   multiply_result |> completions.multiply_result
   divide_result |> completions.divide_result
-  compute_maturity |> filter_valid(result => result.beat.fp_execute) |> map_valid(result => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> fp_authorized.ingress
+  fp_compute |> filter_valid(result => result.beat.fp_execute) |> map_valid(result => vector_fp_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> fp_authorized.ingress
   when (fp_authorized.ingress.valid):
     assert(fp_authorized.ingress.ready, "vector_fp_execute_has_reserved_request_space")
-  compute_maturity |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
-  compute_maturity |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
+  multiply_compute |> filter_valid(result => result.beat.multiply_execute & !result.beat.divide) |> map_valid(result => vector_multiply_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> multiply_authorized.ingress
+  divide_compute |> filter_valid(result => result.beat.multiply_execute & result.beat.divide) |> map_valid(result => vector_divide_request(xlen, vlen, vector_completion_slots, ex_effective_beat, result.tag)) |> to_decoupled() |> divide_authorized.ingress
   when (multiply_authorized.ingress.valid):
     assert(multiply_authorized.ingress.ready, "vector_multiply_execute_has_reserved_request_space")
   when (divide_authorized.ingress.valid):
@@ -399,7 +402,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
       fault_address: event.fault_address
       last: memory_beat.last
       compress_state: memory_beat.compress_state
-  def compute_feedback = compute_maturity |> map_valid(result => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
+  def compute_feedback = feedback_compute |> map_valid(result => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
     context: result.pc
     sequence: result.beat.sequence
     first: result.beat.first
@@ -424,9 +427,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def delayed_splat_skip = splat_skip_feedback |> valid_pipe(1)
   splat.skipped.valid <== delayed_splat_skip.valid
   def ordinary_feedback = Array(relevant_memory_feedback, relevant_compute_feedback) |> valid_arbiter()
+  def Array(sequencer_ordinary_feedback, operand_feedback) = ordinary_feedback |> fork_valid(2)
   assert(!(ordinary_feedback.valid & delayed_splat_skip.valid), "vector_splat_skip_has_unique_feedback")
-  Array(ordinary_feedback, delayed_splat_skip) |> valid_arbiter() |> sequencer.feedback
-  ordinary_feedback |> filter_valid(_event => !cancel.valid) |> operand_fetch.feedback
+  Array(sequencer_ordinary_feedback, delayed_splat_skip) |> valid_arbiter() |> sequencer.feedback
+  operand_feedback |> filter_valid(_event => !cancel.valid) |> operand_fetch.feedback
 
   when (decision.valid):
     assert(decision_tag === completions.accept_slot, "vector_feedback_follows_acceptance_frontier")
@@ -434,8 +438,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     assert(active, "vector_issue_release_has_macro_owner")
 
   // Completion storage persists across sequencer replacement and memory replay.
-  compute_maturity |> completions.compute_maturity
-  memory_pipe.egress |> completions.memory_attempt
+  completion_compute |> completions.compute_maturity
+  completion_memory |> completions.memory_attempt
   element_memory_decision |> completions.decision
   local_completion |> completions.response
   def variable_waiting = (completion.valid & !completion.ready) ||| (divide_result.valid & !divide_result.ready) ||| (Bool(multiply_latency == #false) & multiply_result.valid & !multiply_result.ready) ||| (!fp_returns[0].into(Bool) & fp_result.valid & !fp_result.ready)
@@ -459,9 +463,9 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   completions.scalar_result |> scalar_result
   completions.floating_result |> floating_result
 
-  compute_maturity |> instructions.compute_maturity
-  def resolved_memory = memory_pipe.egress |> filter_valid(_result => memory_accepted)
-  Array(compute_maturity, resolved_memory) |> valid_arbiter() |> instructions.resolved
+  instruction_compute |> instructions.compute_maturity
+  def resolved_memory = resolution_memory |> filter_valid(_result => memory_accepted)
+  Array(resolution_compute, resolved_memory) |> valid_arbiter() |> instructions.resolved
   cancel |> instructions.cancel
   instructions.retire |> retire
 

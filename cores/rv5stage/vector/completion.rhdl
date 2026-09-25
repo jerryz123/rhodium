@@ -64,6 +64,8 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   reg accept_cursor(~init: bits(0, index_width(vector_completion_slots)))
   replay |> slots.replay
   def memory_accepted = decision.valid & (decision.bits.disposition === RV5StageVectorDisposition.Authorized)
+  def Array(local_compute, scalar_compute, floating_compute) = compute_maturity |> fork_valid(3)
+  def Array(hit_attempt, accepted_attempt) = memory_attempt |> fork_valid(2)
   def compute_result = compute_maturity.bits
   def compute_beat = compute_result.beat
   def compute_tag = compute_result.tag
@@ -86,7 +88,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     data: Bits(64)
     flags: Bits(5)
     saturated: Bool
-  def local_result = compute_maturity |> filter_valid(_result => compute_completes_now) |> map_valid(result => Writeback()):
+  def local_result = local_compute |> filter_valid(_result => compute_completes_now) |> map_valid(result => Writeback()):
     tag: result.tag
     beat: result.beat
     owner: result.owner
@@ -116,7 +118,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     flags: bits(0, 5)
     saturated: Bool(#false)
   def compute_arrival = local_result.valid ||| multiplication.valid ||| floating.valid ||| division.valid
-  def hit_result = memory_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
+  def hit_result = hit_attempt |> filter_valid(_result => hit_valid) |> map_valid(result => Writeback()):
     tag: result.tag
     beat: result.beat
     owner: result.owner
@@ -131,12 +133,13 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     flags: bits(0, 5)
     saturated: Bool(#false)
   compute_writeback <== compute_arrival ||| hit_valid ||| slow_result.valid
-  def accepted_memory = memory_attempt |> filter_valid(_result => memory_accepted & decision.bits.slow)
+  def accepted_memory = accepted_attempt |> filter_valid(_result => memory_accepted & decision.bits.slow)
+  def accepted_per_slot = accepted_memory |> fork_valid(vector_completion_slots)
   // Each memory slot retains an occurrence, not result data. Distinct slots may
   // return out of order, so describe their individual retained lifetimes.
   def memory_results = for Array (slot in 0..vector_completion_slots):
     def tag = bits(slot, tag_width)
-    def capture = accepted_memory |> filter_valid(operation => operation.tag === tag)
+    def capture = accepted_per_slot[slot] |> filter_valid(operation => operation.tag === tag)
     def returned = inject_flow(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
     def name = "memory-result-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, returned.valid, authorized_slots[slot] & entries[slot].memory & !completed[slot], ~name: name)
@@ -166,13 +169,13 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     assert(authorized_slots[divide_result.bits.tag.slot] & entries[divide_result.bits.tag.slot].multiply_divide & entries[divide_result.bits.tag.slot].divide, "vector_divide_result_has_authorized_owner")
     assert(!completed[divide_result.bits.tag.slot], "vector_divide_result_completes_once")
   (
-    compute_maturity |> filter_valid(result => compute_completes_now & result.beat.scalar_destination)
+    scalar_compute |> filter_valid(result => compute_completes_now & result.beat.scalar_destination)
       |> map_valid(result => RegisterFileWrite(xlen)):
            address: result.beat.destination
            data: result.beat.write.data[0..xlen.width]
   ) |> scalar_result
   (
-    compute_maturity |> filter_valid(result => compute_completes_now & result.beat.floating_scalar_destination)
+    floating_compute |> filter_valid(result => compute_completes_now & result.beat.floating_scalar_destination)
       |> map_valid(result => FloatingPointRegisterWrite(fp_profile)):
            address: result.beat.destination
            data: if xlen == XLen.X32 | mux(result.beat.element_width === SimdElementWidth.E16, (!bits(0, 16)) ++ result.beat.write.data[0..16], result.beat.write.data[0..32]) | mux_lookup(result.beat.element_width, ~default: result.beat.write.data, [[SimdElementWidth.E16, (!bits(0, 48)) ++ result.beat.write.data[0..16]], [SimdElementWidth.E32, (!bits(0, 32)) ++ result.beat.write.data[0..32]]])
