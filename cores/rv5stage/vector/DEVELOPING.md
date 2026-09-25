@@ -103,8 +103,12 @@ enqueue. Compute heads dispatch without a preparation cycle. Memory heads wait
 for their one precheck response when eligible; false selects elementwise fallback.
 Empty memory retires at dispatch without acquiring a page window. The scalar
 certification barrier starts at enqueue, including for a tail entry, and clears
-on an early certificate or final successful elementwise authorization. It is
-separate from the vector-admission barrier, which remains until the registered
+on an early certificate or final successful elementwise authorization. A
+WB-precertified single-page descriptor skips that barrier because its MMU
+translation was captured and pinned on the admission edge. It releases the
+window when sequencing finishes, without another precheck or retirement
+outcome. The scalar certification barrier is separate from the vector-admission
+barrier, which remains until the registered
 retirement outcome. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
 work; transfer to execution must not create a cycle without pending ownership.
 Do not use pending

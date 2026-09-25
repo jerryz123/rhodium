@@ -44,6 +44,10 @@ sync_circuit RV5StageMmuDataPortFixture():
   data |> mmu.data
   pipeline |> mmu.pipeline
   vector_precheck |> mmu.vector_precheck
+  mmu.vector_fast.request.valid <== Bool(#false)
+  mmu.vector_fast.request.bits <== dont_care(RV5StageVectorRange())
+  mmu.vector_fast.install.valid <== Bool(#false)
+  mmu.vector_fast.install.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
   mmu.pipeline_vector <== pipeline_vector
   mmu.pipeline_memory |> pipeline_memory
   mmu.pipeline_lookup |> pipeline_lookup

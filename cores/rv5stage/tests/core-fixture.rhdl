@@ -115,12 +115,17 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   | block:
       output pipeline_vector: Bool
       interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)
+      interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: requester)
       pipeline_vector <== core.pipeline_vector
       core.vector_precheck |> vector_precheck
+      core.vector_fast |> vector_fast
   | block:
       // This architectural word-memory model has no translation certificate.
       // Reject the optimization and retain exact element execution.
       core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
+      core.vector_fast.response.valid <== Bool(#false)
+      core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
+      core.vector_fast.install_ready <== Bool(#false)
   core.prefetch |> prefetch
   core.interrupts <== interrupts
   core.hart_id <== hart_id

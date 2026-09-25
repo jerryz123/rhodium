@@ -4,12 +4,20 @@
 
 import:
   "bundles.rhdl" open
-  "geometry.rhdl".vector_zero_stride_load
+  "geometry.rhdl".vector_zero_stride_load_parts
   "../mmu/protocol.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
+  "../../../riscv/rtl/vector.rhdl".RiscvVectorState
+
+bundle RV5StageVectorFootprintGeometry():
+  eligible: Bool
+  empty: Bool
+  start_offset: Bits(68)
+  span_bytes: Bits(68)
+  eew: Bits(2)
 
 bundle RV5StageVectorFootprint():
   eligible: Bool
@@ -23,35 +31,45 @@ fun vector_field_extent(value :: Bits(68), nf :: Bits(3)) :~ Bits(68):
     [6, (value << 3) - value], [7, value << 3]
   ])
 
-fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen), masking :: PointerMaskControl()) :~ RV5StageVectorFootprint():
-  def control = descriptor.control
+fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen)) :~ RV5StageVectorFootprintGeometry():
   def whole = control.memory_mode === VectorMemoryMode.WholeRegister
   def mask = control.memory_mode === VectorMemoryMode.Mask
-  def zero_stride = vector_zero_stride_load(xlen, descriptor)
+  def zero_stride = vector_zero_stride_load_parts(control, instruction)
   def eew = mux(mask, bits(0, 2), control.memory_data_eew)
-  def start = descriptor.state.vstart.zext(68)
+  def start = state.vstart.zext(68)
   def whole_limit = vector_field_extent(bits(vlen / 8, 68), control.memory_nf) >> eew
-  def limit = mux(whole, whole_limit, mux(mask, (descriptor.state.vl.zext(68) + bits(7, 68)) >> 3, descriptor.state.vl.zext(68)))
+  def limit = mux(whole, whole_limit, mux(mask, (state.vl.zext(68) + bits(7, 68)) >> 3, state.vl.zext(68)))
   def nf = mux(whole ||| mask, bits(0, 3), control.memory_nf)
-  def first_raw = descriptor.scalar.zext(68) + mux(zero_stride, bits(0, 68), vector_field_extent(start << eew, nf))
-  def last_raw = descriptor.scalar.zext(68) + mux(zero_stride, bits(1, 68) << eew, vector_field_extent(limit << eew, nf)) - bits(1, 68)
+  RV5StageVectorFootprintGeometry():
+    eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst)
+    empty: start >= limit
+    start_offset: mux(zero_stride, bits(0, 68), vector_field_extent(start << eew, nf))
+    span_bytes: mux(zero_stride, bits(1, 68) << eew, vector_field_extent((limit - start) << eew, nf))
+    eew: eew
+
+fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen), masking :: PointerMaskControl()) :~ RV5StageVectorFootprint():
+  def geometry = vector_footprint_geometry(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state)
+  def first_raw = descriptor.scalar.zext(68) + geometry.start_offset
+  def last_raw = first_raw + geometry.span_bytes - bits(1, 68)
   def first_address = apply_pointer_mask(xlen, first_raw[0..xlen.width], masking)
   def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
   def first = if xlen == XLen.X32 | first_address.zext(64) | first_address
   def last = if xlen == XLen.X32 | last_address.zext(64) | last_address
   def no_wrap = !first_raw[xlen.width..68].or_reduce() & !last_raw[xlen.width..68].or_reduce() & (first <= last) & ((last - first).zext(68) === (last_raw - first_raw))
-  def aligned = (first & ((bits(1, 64) << eew) - bits(1, 64))) === bits(0, 64)
+  def aligned = (first & ((bits(1, 64) << geometry.eew) - bits(1, 64))) === bits(0, 64)
   def two_pages = (last[12..64] === first[12..64]) ||| (last[12..64] === (first[12..64] + bits(1, 52)))
   RV5StageVectorFootprint():
-    eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & no_wrap & aligned & two_pages
-    empty: start >= limit
+    eligible: geometry.eligible & no_wrap & aligned & two_pages
+    empty: geometry.empty
     range:
       RV5StageVectorRange():
         first: first
         last: last
-        store: control.store
+        store: descriptor.control.store
 
 export:
+  RV5StageVectorFootprintGeometry
+  vector_footprint_geometry
   RV5StageVectorFootprint
   vector_field_extent
   vector_footprint

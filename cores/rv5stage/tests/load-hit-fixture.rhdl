@@ -53,6 +53,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   core.pipeline_access |> mmu.pipeline
   mmu.pipeline_vector <== core.pipeline_vector
   core.vector_precheck |> mmu.vector_precheck
+  core.vector_fast |> mmu.vector_fast
   mmu.pipeline_lookup |> cache.pipeline_lookup
   mmu.pipeline_memory |> cache.pipeline
   mmu.core_lookup |> data_port_arbiter.core_lookup

@@ -101,6 +101,13 @@ invalidate translations or cancel accepted page-table response ownership.
    requests identify vector ownership through their existing writeback union.
    Never apply a window to a scalar request or recheck its pages through the
    replaceable DTLB. Assert that every authorized vector request is inside it.
+   The speculative one-page MEM check shares the demand DTLB read and its
+   normal access-permission evaluation, but cannot displace a committed demand,
+   existing precheck, or ordinary pipeline lookup. It never walks or touches
+   L1D. Capture its physical page and context in MEM/WB; WB may install them
+   directly into an idle vector window only with accepted descriptor admission.
+   Check both context equality and the invalidation epoch so intervening TLB
+   replacement is harmless while SFENCE invalidation rejects the certificate.
    Page probes reuse the demand DTLB and serialized walker, including ordinary
    A/D checks; unsuccessful probes reply false rather than populating the
    architectural fault latch. They never issue data accesses. A matching

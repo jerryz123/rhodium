@@ -53,6 +53,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   output(active, sequencing, pending, stores_pending): Bool
   output(certification_pending, loads_pending, fp_pending): Bool
   output available: Bool
+  output fast_admission_ready: Bool
 
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
   execution.schedule_enable <== Bool(#true)
@@ -73,12 +74,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   request |> gate_flow(can_admit) |> instructions.ingress
   def queued_descriptor = instructions.egress
   available <== can_admit & instructions.ingress.ready
+  fast_admission_ready <== can_admit & !instructions.count.or_reduce()
   // Only the head owns these controls. Enqueuing another descriptor cannot
   // change a pending certificate or the older execution owner's LSU policy.
   def footprint = vector_footprint(xlen, vlen, queued_descriptor.bits, queued_descriptor.bits.pointer_masking)
-  def needs_check = queued_descriptor.bits.control.memory & !footprint.empty & footprint.eligible
+  def needs_check = queued_descriptor.bits.control.memory & !footprint.empty & footprint.eligible & !queued_descriptor.bits.precertified
   def immediate_certificate = !queued_descriptor.bits.control.memory ||| footprint.empty
-  def head_certified = immediate_certificate ||| (check_complete & certified)
+  def head_certified = immediate_certificate ||| queued_descriptor.bits.precertified ||| (check_complete & certified)
   (
     queued_descriptor |> map_flow(descriptor => RV5StageVectorInstruction(xlen, Bits(xlen.width))):
       context: descriptor.pc
@@ -108,14 +110,14 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   // its selection cannot feed scalar WB request formation in that same cycle.
   def final_outcome = access.outcome |> filter_valid(_event => !execution_certified)
   Array(early_outcome, final_outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
-  when (request.fire() & request.bits.control.memory):
+  when (request.fire() & request.bits.control.memory & !request.bits.precertified):
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):
     waiting_retirement <== Bool(#false)
   // Scalar Decode needs fault certainty, not the later retirement transfer.
   // Keep vector admission serialized until that transfer independently.
   when (request.fire() & request.bits.control.memory):
-    uncertified_memory <== !early_outcome.valid
+    uncertified_memory <== !request.bits.precertified & !early_outcome.valid
   elsewhen (early_outcome.valid ||| (final_outcome.valid & (final_outcome.bits.disposition === RV5StageVectorDisposition.Authorized)) ||| outcome.valid):
     uncertified_memory <== Bool(#false)
   when (execution.request.fire()):
@@ -131,7 +133,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
     store <== queued_descriptor.bits.control.store & queued_descriptor.bits.control.memory
     captured_pointer_masking <== queued_descriptor.bits.pointer_masking
     execution_certified <== head_certified
-    active_precheck <== needs_check
+    active_precheck <== needs_check ||| queued_descriptor.bits.precertified
   elsewhen (precheck.release.valid):
     active_precheck <== Bool(#false)
   when (precheck.response.fire()):

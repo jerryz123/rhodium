@@ -6,6 +6,7 @@ import:
   lib("cores/rv5stage/profile.rhm") open
   lib("cores/rv5stage/fetch/bpd/protocol.rhdl") open
   lib("cores/rv5stage/mmu/mmu.rhdl") open
+  lib("cores/rv5stage/mmu/protocol.rhdl") open
   lib("cores/rv5stage/csr.rhdl").PrivilegeMode
   lib("cores/rv5stage/instruction-memory-router.rhdl") open
   lib("cores/rv5stage/icache/cache.rhdl") open
@@ -36,6 +37,10 @@ sync_circuit RV5StageFetchThroughput():
   mmu.vector_precheck.request.bits <== dont_care(mmu.vector_precheck.request.bits.type)
   mmu.vector_precheck.release.valid <== Bool(#false)
   mmu.vector_precheck.response.ready <== Bool(#true)
+  mmu.vector_fast.request.valid <== Bool(#false)
+  mmu.vector_fast.request.bits <== dont_care(RV5StageVectorRange())
+  mmu.vector_fast.install.valid <== Bool(#false)
+  mmu.vector_fast.install.bits <== dont_care(RV5StageVectorFastCertificate(XLen.X64))
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
   fetch.control.active <== active

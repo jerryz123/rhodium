@@ -39,6 +39,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
+  interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: responder)
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
@@ -60,6 +61,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst walker(RV5StagePageTableWalker())
   inst vector_window(RV5StageVectorWindow(physical_map))
   vector_precheck |> vector_window.check
+  def fast_window_install = vector_fast.install |> map_valid(certificate => RV5StageVectorWindowInstall()):
+    range: certificate.range
+    ppn: certificate.ppn
+  fast_window_install |> vector_window.fast_install
   def page_probe = vector_window.translation
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
   inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
@@ -77,6 +82,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_translation_enabled = satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
+  reg vector_invalidation_epoch(~init: bits(0, 2))
+  when invalidate_all:
+    vector_invalidation_epoch <== vector_invalidation_epoch + bits(1, 2)
+  // WB owns both installation and architectural invalidation, so an admitted
+  // vector instruction cannot invalidate its own candidate in this cycle.
+  vector_fast.install_ready <== vector_window.fast_ready & (vector_fast.install.bits.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.install.bits.satp === satp) & (vector_fast.install.bits.privilege === data_privilege) & (vector_fast.install.bits.sum === sum) & (vector_fast.install.bits.mxr === mxr)
+  assert(!vector_fast.install.valid ||| vector_fast.install_ready, "vector_fast_install_has_current_context")
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
@@ -108,14 +120,27 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   vector_window.addresses <== vec([data_virtual_address, load_virtual_address])
   def load_pinned = vector_window.owned & pipeline_owner.bits
   def probe_selected = page_probe.request.valid & !data.request.valid
-  dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, load_virtual_address))
+  def fast_selected = vector_fast.request.valid & !data.request.valid & !page_probe.request.valid & !load_request.egress.valid
+  dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
   def pipeline_is_store = load_request.egress.bits.access === RV5StageMemoryOperation.Store
-  dtlb.access <== mux(data.request.valid, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, pipeline_is_store), Sv39Access.Store, Sv39Access.Load))
+  dtlb.access <== mux(data.request.valid, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, mux(load_request.egress.valid, pipeline_is_store, vector_fast.request.bits.store)), Sv39Access.Store, Sv39Access.Load))
   dtlb.privilege <== data_privilege
   dtlb.sum <== sum
   dtlb.mxr <== mxr
   dtlb.enabled <== data_translation_enabled
   dtlb.invalidate_all <== invalidate_all
+  def vector_fast_page = (dtlb.translation.physical_address[12..56] ++ bits(0, 12)).zext(64)
+  vector_fast.response.valid <== fast_selected & !invalidate_all & dtlb.hit & !dtlb.fault & !dtlb.translation.access_fault & vector_page_permitted(physical_map, vector_fast_page, vector_fast.request.bits.store)
+  vector_fast.response.bits <== RV5StageVectorFastCertificate(xlen):
+    range: vector_fast.request.bits
+    ppn: dtlb.translation.physical_address[12..56]
+    satp: satp
+    privilege: data_privilege
+    sum: sum
+    mxr: mxr
+    invalidation_epoch: vector_invalidation_epoch
+  when (vector_fast.request.valid):
+    assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "vector_fast_range_is_one_page")
 
   reg prefetch_previous_privilege(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg prefetch_previous_satp(~init: bits(0, width))

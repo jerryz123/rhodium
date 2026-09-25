@@ -16,9 +16,11 @@ import:
 fun vector_indexed_memory(control :: RV5StageVectorControl()) :~ Bool:
   control.memory & control.memory_addressing.is_one_of(VectorMemoryAddressing.IndexedUnordered, VectorMemoryAddressing.IndexedOrdered)
 
+fun vector_zero_stride_load_parts(control :: RV5StageVectorControl(), instruction :: Bits(32)) :~ Bool:
+  control.memory & !control.store & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & !instruction_field(riscv_fields.rs2, instruction).or_reduce()
+
 fun vector_zero_stride_load(xlen :: XLen, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bool:
-  def control = descriptor.control
-  control.memory & !control.store & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & !instruction_field(riscv_fields.rs2, descriptor.instruction).or_reduce()
+  vector_zero_stride_load_parts(descriptor.control, descriptor.instruction)
 
 fun vector_mask_word(control :: RV5StageVectorControl()) :~ Bool:
   control.integer & (control.mask_logic ||| (control.scan & (control.scan_control.result =/= VectorScanResult.Elements)))
@@ -76,6 +78,7 @@ fun vector_aligned_first(xlen :: XLen, vlen :: VectorLength, first :: Bits(index
   first & !(bits(vector_word_bytes(xlen) - 1, index_width(vlen + 1)) >> sew)
 
 export:
+  vector_zero_stride_load_parts
   vector_indexed_memory
   vector_zero_stride_load
   vector_mask_word

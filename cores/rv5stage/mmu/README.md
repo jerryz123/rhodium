@@ -42,6 +42,14 @@ request unaccepted; the core retains its hint across replay.
 `vector_precheck` certifies a nonspeculative macro's contiguous one- or two-page
 range without accessing its data. A successful response retains its physical
 page mappings and checked permissions separately from the DTLB until `release`.
+A speculative, single-page `vector_fast` request shares the normal MEM DTLB
+lookup and permission logic after higher-priority demand, precheck, and
+pipeline requests. It starts no walk or data-cache lookup. MEM snapshots the
+translated page, full-page PMA proof, and translation context with the scalar
+pipeline token; WB installs the mapping only with accepted vector admission and
+an unchanged context. A replaced DTLB entry cannot affect the pinned page.
+A miss, port conflict, unsuitable region, or changed context falls back to
+`vector_precheck`, without reporting a speculative fault.
 A free demand DTLB port checks the first page on precheck admission; a warm
 translation can certify a one-page range for the following cycle. A DTLB miss
 uses the same serialized walker as scalar translation. A covering superpage

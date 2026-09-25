@@ -25,6 +25,7 @@ bundle RV5StageVectorAlignment(xlen :: XLen):
 
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
+  precertified: Bool
   instruction: Bits(32)
   state: RiscvVectorState(xlen)
   control: RV5StageVectorControl()

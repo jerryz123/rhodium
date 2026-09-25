@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/sv39.rhdl" open
   "../csr.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
@@ -36,6 +37,28 @@ bundle RV5StageVectorRange():
   first: Bits(64)
   last: Bits(64)
   store: Bool
+
+// A speculative single-page proof is installed only when its instruction
+// reaches WB under the same translation context and an idle vector window.
+bundle RV5StageVectorFastCertificate(xlen :: XLen):
+  range: RV5StageVectorRange()
+  ppn: Bits(44)
+  satp: Bits(xlen.width)
+  privilege: PrivilegeMode
+  sum: Bool
+  mxr: Bool
+  invalidation_epoch: Bits(2)
+
+interface RV5StageVectorFastCheck(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(RV5StageVectorRange())
+    install: Valid(RV5StageVectorFastCertificate(xlen))
+  responder -> requester:
+    response: Valid(RV5StageVectorFastCertificate(xlen))
+    install_ready: Bool
 
 bundle RV5StagePageProbeRequest():
   address: Bits(64)
@@ -77,6 +100,8 @@ export:
   RV5StageTranslationResult
   RV5StagePageTableMemory
   RV5StageVectorRange
+  RV5StageVectorFastCertificate
+  RV5StageVectorFastCheck
   RV5StageVectorPrecheck
   RV5StagePageProbeRequest
   RV5StagePageProbe

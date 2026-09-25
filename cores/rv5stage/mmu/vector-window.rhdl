@@ -14,9 +14,26 @@ hardware_enum RV5StageVectorWindowState:
   Complete
   Owned
 
+bundle RV5StageVectorWindowInstall():
+  range: RV5StageVectorRange()
+  ppn: Bits(44)
+
+fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), store :: Bool) :~ Bool:
+  def mutable permitted = Bool(#false)
+  for (region in physical_map.regions):
+    def attributes = region.attributes
+    // Endpoint membership alone cannot certify a sparse physical address set.
+    if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
+    | permitted := permitted ||| (region.address_set.matches(address) & mux(store, Bool(attributes.writable), Bool(attributes.readable)))
+    | #void
+  def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
+  permitted & fits
+
 sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   interface check(RV5StageVectorPrecheck(), ~role: responder)
   interface translation(RV5StagePageProbe(), ~role: requester)
+  interface fast_install(Valid(RV5StageVectorWindowInstall()), ~role: consumer)
+  output fast_ready: Bool
   input addresses: Vec(2, Bits(64))
   output physical_addresses: Vec(2, Bits(64))
   output hits: Vec(2, Bool)
@@ -28,12 +45,13 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   reg last_ppn(Bits(44))
   reg safe(~init: Bool(#false))
   def admitting = state === RV5StageVectorWindowState.Idle
+  fast_ready <== admitting
   def lookup_span = mux(admitting, check.request.bits, span)
   def lookup_second = !admitting & second
   def first_page = span.first[12..64]
   def last_page = span.last[12..64]
   def split = lookup_span.first[12..64] =/= lookup_span.last[12..64]
-  check.request.ready <== admitting
+  check.request.ready <== admitting & !fast_install.valid
   check.response.valid <== state === RV5StageVectorWindowState.Complete
   check.response.bits <== safe
   translation.request.valid <== (state === RV5StageVectorWindowState.Request) ||| (admitting & check.request.valid)
@@ -47,34 +65,30 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
     hits[index] <== owned & (address >= span.first) & (address <= span.last) & ((page === first_page) ||| (page === last_page))
     physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
 
-  fun permitted_page(address :: Bits(64)) :~ Bool:
-    def mutable permitted = Bool(#false)
-    for (region in physical_map.regions):
-      def attributes = region.attributes
-      // Requiring every page-offset bit in the AddressSet avoids falsely
-      // certifying a sparse map from endpoint membership alone.
-      if (region.address_set.mask bits.and 4095) == 4095 && attributes.cacheable && (!attributes.device) && attributes.read_idempotent
-      | permitted := permitted ||| (region.address_set.matches(address) & mux(lookup_span.store, Bool(attributes.writable), Bool(attributes.readable)))
-      | #void
-    def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
-    permitted & fits
-
   def result = translation.response.bits
   def same_leaf = mux_lookup(result.level, ~default: Bool(#false), [[1, lookup_span.first[21..64] === lookup_span.last[21..64]], [2, lookup_span.first[30..64] === lookup_span.last[30..64]]])
   def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
   def next_page = result_page + bits(4096, 64)
-  def success = !result.fault & !result.access_fault & permitted_page(result_page)
+  def success = !result.fault & !result.access_fault & vector_page_permitted(physical_map, result_page, lookup_span.store)
   def needs_second = success & !lookup_second & split & !same_leaf
   when (check.release.valid):
     state <== RV5StageVectorWindowState.Idle
     safe <== Bool(#false)
+  elsewhen (fast_install.valid):
+    assert(admitting & !check.request.valid, "vector_fast_install_has_idle_window")
+    state <== RV5StageVectorWindowState.Owned
+    span <== fast_install.bits.range
+    first_ppn <== fast_install.bits.ppn
+    last_ppn <== fast_install.bits.ppn
+    safe <== Bool(#true)
+    second <== Bool(#false)
   elsewhen (translation.response.valid):
     assert((state === RV5StageVectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
     when (check.request.fire()):
       span <== check.request.bits
     when (!lookup_second):
       first_ppn <== result.physical_address[12..56]
-    safe <== success & (lookup_second ||| !split ||| (same_leaf & permitted_page(next_page)))
+    safe <== success & (lookup_second ||| !split ||| (same_leaf & vector_page_permitted(physical_map, next_page, lookup_span.store)))
     state <== mux(needs_second, RV5StageVectorWindowState.Request, RV5StageVectorWindowState.Complete)
     when (lookup_second ||| (success & split & same_leaf)):
       last_ppn <== mux(lookup_second, result.physical_address[12..56], next_page[12..56])
@@ -91,3 +105,5 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
 
 export:
   RV5StageVectorWindow
+  RV5StageVectorWindowInstall
+  vector_page_permitted

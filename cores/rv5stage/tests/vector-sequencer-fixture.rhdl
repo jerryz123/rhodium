@@ -55,6 +55,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
     descriptor:
       RV5StageVectorDescriptor(xlen):
         pc: bits(0x100, xlen.width)
+        precertified: Bool(#false)
         instruction: instruction
         state:
           RiscvVectorState(xlen):

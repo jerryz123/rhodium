@@ -29,6 +29,8 @@ import:
   "decode/hint-ctrl.rhdl" open
   "decode/fp-ctrl.rhdl" open
   "dcache/protocol.rhdl" open
+  "mmu/protocol.rhdl" open
+  "vector/precheck.rhdl".RV5StageVectorFootprintGeometry
   "register-file.rhdl" open
   "multiply.rhdl" open
   "divide.rhdl" open
@@ -139,6 +141,9 @@ bundle RV5StageException(xlen :: XLen):
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
+  vector_fast_first: Bits(xlen.width)
+  vector_fast_no_wrap: Bool
+  vector_fast_geometry: RV5StageVectorFootprintGeometry()
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   redirect_valid: Bool
@@ -170,6 +175,8 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
+  vector_fast_valid: Bool
+  vector_fast: RV5StageVectorFastCertificate(xlen)
   pc: Bits(xlen.width)
   resume_pc: Bits(xlen.width)
   branch_prediction: RV5StageBranchPrediction

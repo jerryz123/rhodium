@@ -7,6 +7,7 @@ import:
   "../fetch/packet.rhdl" open
   "../fetch/bpd/protocol.rhdl" open
   "../dcache/protocol.rhdl" open
+  "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
@@ -51,6 +52,9 @@ sync_circuit RV5StageRetirementTrace():
   core.pipeline_access.response.bits <== literal(RV5StagePipelineResult(XLen.X64), 0)
   core.pipeline_access.commit_ready <== Bool(#false)
   core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
+  core.vector_fast.response.valid <== Bool(#false)
+  core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(XLen.X64))
+  core.vector_fast.install_ready <== Bool(#false)
   core.data_access.request.ready <== data_ready
   core.data_access.request_fault <== Bool(#false)
   core.data_access.request_access_fault <== data_fault

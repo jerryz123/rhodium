@@ -28,9 +28,13 @@ local feed-forward execution and memory stages; scalar stages do not carry its
 micro-ops. Compute, including owner-scoped reductions, hands the sole sequencer
 to its successor when its tail beat issues, while completion slots retain older
 issued work. Replayable memory and explicitly checkpointed cross-beat operations
-remain serialized. Nonfaulting certification lets independent scalar instructions retire
-while the macro executes in the background. Contiguous one- or two-page memory
-ranges use retained page translations; other memory forms keep precise
+remain serialized. A one-page vector memory range can use the scalar EX adder
+and the existing MEM DTLB lookup to obtain a speculative certificate. WB pins
+that translated page when it admits the macro, so later vector accesses do not
+depend on the replaceable TLB entry. Independent scalar instructions may follow
+speculatively; if WB cannot pin the page, it restarts them while the ordinary
+precheck or element-wise path proceeds. The established one- or two-page
+precheck also retains translations; other memory forms keep precise
 element-wise execution. See the [vector ownership contract](vector/README.md#execution-ownership)
 for certification, deferred destinations, and scalar ordering barriers.
 Vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,

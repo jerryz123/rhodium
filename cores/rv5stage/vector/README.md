@@ -138,6 +138,12 @@ drain. Empty memory bodies certify at dispatch. Contiguous unit-stride memory
 macros and encoded-`rs2=x0` non-segmented strided loads can certify after a
 page-level precheck of at most two 4 KiB pages. The latter check only the one
 element's aligned transfer word and retain their single-read splat execution. The
+one-page fast path uses the scalar ALU in EX for the first address, including
+the `vstart` byte offset, and the normal DTLB in MEM. WB installs the captured
+translation into the same owned page window and retires the macro on admission.
+The original `rs1` base remains in its descriptor for sequencing. When this
+speculative check cannot certify, WB restarts younger work and the existing
+precheck or element-wise path retains precise fault ownership. The
 MMU retains their translations until final non-replayable acceptance, independently
 of DTLB replacement; a covering superpage needs only one translation lookup.
 Certification requires natural element alignment, no address wrap, and full-page
