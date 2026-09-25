@@ -37,6 +37,9 @@ module rv5stage_vector_admission_tb;
   function automatic logic [31:0] load16_insn(input int rd);
     return 32'h02005007 | (32'(rd)<<7);
   endfunction
+  function automatic logic [31:0] zero_stride_load16_insn(input int rd);
+    return 32'h0a005007 | (32'(rd)<<7);
+  endfunction
   task automatic tick;
     #2;
     accepted=request_valid && request_ready;
@@ -204,6 +207,26 @@ module rv5stage_vector_admission_tb;
     assert(checks==2 && releases==2 && accesses==25 && outcomes==2 && last_outcome==64'h700)
       else $fatal(1,"overlapped certified memory lost its page window or final replay");
     for(int n=8;n<25;n++) assert(addresses[n]>=64'h700 && addresses[n]<=64'h77f) else $fatal(1,"overlapped memory left certified range");
+
+    // A zero-stride splat checks one element while older compute still owns
+    // the sequencer, then retires before its one data read and row writes.
+    clear();
+    launch(move_insn(8,1),64'h10,16,27);
+    launch(zero_stride_load16_insn(24),64'h800,4,8);
+    certify(64'h800,64'h807,1);
+    while(!outcome_valid) tick();
+    assert(!certification_pending && accesses==0) else $fatal(1,"zero-stride retirement waited for data access");
+    drain();
+    assert(checks==1 && releases==1 && outcomes==1 && last_outcome==64'h800 && accesses==1 && addresses[0]==64'h800)
+      else $fatal(1,"certified zero-stride load did not retain the one-read splat path");
+
+    clear();
+    launch(zero_stride_load16_insn(24),64'h900,4,8);
+    certify(64'h900,64'h907,0);
+    assert(certification_pending) else $fatal(1,"failed zero-stride certificate released Decode early");
+    drain();
+    assert(checks==1 && releases==1 && outcomes==1 && last_outcome==64'h900 && accesses==1 && addresses[0]==64'h900)
+      else $fatal(1,"failed zero-stride certificate lost conservative splat execution");
 
     clear();
     launch(memory_insn(8,0),64'h600,0,24); drain();

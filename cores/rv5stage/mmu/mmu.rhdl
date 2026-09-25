@@ -241,8 +241,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     sum: sum
     mxr: mxr
   def walker_request_fire = walker.request.fire()
-  page_probe.request.ready <== probe_selected & !invalidate_all & ((can_start_walk & dtlb.hit) ||| (start_probe_walk & walker.request.ready))
-  def probe_hit_result = inject_flow(Valid(RV5StageTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb.translation) |> valid_pipe(1)
+  page_probe.request.ready <== probe_selected & !invalidate_all & (dtlb.hit ||| (start_probe_walk & walker.request.ready))
+  def probe_hit_result = inject_flow(Valid(RV5StageTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb.translation)
   // Fetch recovery discards the consumer, not an accepted translation. Let
   // the walk warm the ITLB and retain ownership of every accepted PTE reply.
   def discard_instruction_walk = instruction.flush & walk_active & !walk_is_data & !walk_is_probe

@@ -105,6 +105,12 @@ invalidate translations or cancel accepted page-table response ownership.
    A/D checks; unsuccessful probes reply false rather than populating the
    architectural fault latch. They never issue data accesses. A matching
    superpage supplies both adjacent page translations from one result.
+   Offer the first page's DTLB lookup on precheck admission. Return a hit
+   combinationally to the vector window so it can capture the authorization on
+   that edge; if a committed demand owns the DTLB, retain the span and retry.
+   A miss uses the unchanged generic walker request, with only the MMU wrapper
+   recording that its result belongs to the vector probe. Repeat the lookup
+   for a second page unless the first hit covers both through a superpage.
    Whole-page PMA checks exclude devices, non-idempotent memory, and subpage
    maps. Failed conservative coverage selects element-wise execution.
 6. Keep prefetch probes non-faulting and independent of walker ownership; they
@@ -151,8 +157,9 @@ request acceptance, delayed response, response arrival, and completion. Refetch
 must reuse a successful detached fill without additional PTE traffic; detached
 faults must neither escape nor block the next walk.
 The same fixture certifies split pages with noncontiguous physical mappings,
-checks held responses, replaces DTLB entries while a vector window remains
-live, verifies one-walk superpage coverage, and rejects a second-page fault
+checks next-cycle responses for warm DTLB hits and held responses, replaces
+DTLB entries while a vector window remains live, verifies one-walk superpage
+coverage, and rejects a second-page fault
 without reporting a trap from the precheck.
 It checks prefetch latency and back-to-back
 throughput, TLB selection and rejection, Bare/PMA behavior, and synchronous

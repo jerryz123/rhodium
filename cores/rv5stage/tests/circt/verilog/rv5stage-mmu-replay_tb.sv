@@ -395,12 +395,16 @@ module rv5stage_mmu_replay_tb;
   endtask
 
   task automatic certify_range(input logic [63:0] first_address, last_address,
-                               input bit store, expected_safe, input int expected_ptes);
+                               input bit store, expected_safe, input int expected_ptes,
+                               input bit expect_fast_hit = 0);
     int before_ptes;
     before_ptes = vector_pte_requests;
     @(negedge clock);
     vector_precheck_in.request = '{valid:1, bits:'{first:first_address,last:last_address,store:store}};
-    do tick(); while (!vector_precheck_out.response.valid && !vector_precheck_out.request.ready);
+    tick();
+    if (expect_fast_hit) assert(vector_precheck_out.response.valid)
+      else $fatal(1,"warm vector DTLB hit did not certify at admission");
+    while (!vector_precheck_out.response.valid && !vector_precheck_out.request.ready) tick();
     @(negedge clock); vector_precheck_in.request.valid = 0;
     wait(vector_precheck_out.response.valid);
     repeat(3) begin
@@ -410,6 +414,28 @@ module rv5stage_mmu_replay_tb;
     end
     assert(vector_pte_requests - before_ptes == expected_ptes && !data_out.request_fault && !data_out.request_access_fault)
       else $fatal(1,"page precheck used %0d PTE reads, expected %0d, or leaked an architectural fault", vector_pte_requests-before_ptes, expected_ptes);
+    @(negedge clock); vector_precheck_in.response.ready = 1;
+    tick();
+    @(negedge clock); vector_precheck_in.response.ready = 0;
+  endtask
+
+  task automatic certify_contended_hit;
+    int before_ptes;
+    before_ptes = vector_pte_requests;
+    @(negedge clock);
+    vector_scalar_address = 64'h4000;
+    data_request_valid = 1;
+    vector_precheck_in.request = '{valid:1, bits:'{first:64'h4000,last:64'h40ff,store:0}};
+    tick();
+    assert(!vector_precheck_out.response.valid)
+      else $fatal(1,"vector precheck bypassed an older demand DTLB request");
+    @(negedge clock);
+    data_request_valid = 0;
+    vector_precheck_in.request.valid = 0;
+    tick();
+    assert(vector_precheck_out.response.valid && vector_precheck_out.response.bits &&
+           vector_pte_requests == before_ptes)
+      else $fatal(1,"contended warm vector probe did not retry the DTLB hit");
     @(negedge clock); vector_precheck_in.response.ready = 1;
     tick();
     @(negedge clock); vector_precheck_in.response.ready = 0;
@@ -1103,6 +1129,9 @@ module rv5stage_mmu_replay_tb;
     zero_request = 0;
     clear_translations();
     certify_range(64'h4fc0, 64'h503f, 1, 1, 6);
+    release_window();
+    // The two warm 4 KiB translations must be reused without another walk.
+    certify_range(64'h4fc0, 64'h503f, 1, 1, 0);
     pipeline_vector = 1;
     check_load_pipeline(64'h4ff8, 1, 64'h8ff8);
     check_load_pipeline(64'h5000, 1, 64'ha000);
@@ -1142,8 +1171,13 @@ module rv5stage_mmu_replay_tb;
     vector_no_dirty = 1;
     certify_range(64'h4000, 64'h40ff, 0, 1, 3);
     release_window();
+    // Warm DTLB translations certify without a request/response staging cycle.
+    certify_range(64'h4000, 64'h40ff, 0, 1, 0, 1);
+    release_window();
+    certify_contended_hit();
+    release_window();
     // A TLB hit still checks this macro's store permission, including D.
-    certify_range(64'h4000, 64'h40ff, 1, 0, 0);
+    certify_range(64'h4000, 64'h40ff, 1, 0, 0, 1);
     release_window();
     $display("RV5Stage frontend-owned ITLB replay, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
     $finish;

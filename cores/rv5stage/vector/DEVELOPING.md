@@ -161,7 +161,11 @@ drops younger read preparation and reservations, and retains accepted responses
 and the partial-row carry. The aligned transport envelope must remain inside
 the MMU certificate. A false certificate selects the original elementwise
 sequencer; never treat a failed precheck as an architectural fault.
-Encoded-zero-stride splats instead use one ordinary faultable LSU attempt.
+Encoded-zero-stride splats instead use one ordinary LSU attempt. Their
+one-element transfer-word certificate can retire the macro before that attempt while
+older vector work still occupies the sequencer; a failed certificate retains
+the ordinary faultable path. Certification never selects packed execution for
+the splat.
 Masked prefix probes return registered sequencer feedback without allocating
 completion slots; the first active probe owns the one read slot. The retained
 EEW value drains through the sole VRF write port one selected row at a time.

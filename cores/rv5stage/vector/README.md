@@ -135,15 +135,18 @@ final conservative acceptance, a precise fault, or fault-only-first truncation
 to scalar retirement one cycle after the local decision. Non-memory macros
 retire through their ordinary scalar WB launch token and do not wait for result
 drain. Empty memory bodies certify at dispatch. Contiguous unit-stride memory
-macros can certify after a page-level precheck of at most two 4 KiB pages. The
+macros and encoded-`rs2=x0` non-segmented strided loads can certify after a
+page-level precheck of at most two 4 KiB pages. The latter check only the one
+element's aligned transfer word and retain their single-read splat execution. The
 MMU retains their translations until final non-replayable acceptance, independently
 of DTLB replacement; a covering superpage needs only one translation lookup.
 Certification requires natural element alignment, no address wrap, and full-page
 ordinary cacheable read-idempotent PMA coverage with the required permissions.
-It never accesses the vector data itself. Failed prechecks, larger ranges,
-indexed/strided operations, and fault-only-first operations use the existing
-element-wise path. In particular, a conservative check of a masked-off page
-must not create an architectural exception.
+It never accesses the vector data itself. A failed precheck keeps the original
+execution path: one-read splat for encoded zero stride, element-wise for ordinary
+unit stride. Larger ranges, indexed and other strided operations, and
+fault-only-first operations use the element-wise path. In particular, a
+conservative check of a masked-off page must not create an architectural exception.
 
 After certification, independent scalar work can execute and retire while
 the vector sequencer remains active. Vector/state observers, fences, translation

@@ -7,6 +7,7 @@ import:
   "vector/pipeline.rhdl" open
   "vector/memory.rhdl" open
   "vector/precheck.rhdl" open
+  "vector/geometry.rhdl".vector_zero_stride_load
   "mmu/protocol.rhdl" open
   "vector/muldiv.rhdl" open
   "integer-execution.rhdl" open
@@ -83,7 +84,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
       context: descriptor.pc
       descriptor: descriptor
   ) |> gate_flow(!needs_check ||| check_complete) |> execution.request
-  execution.packed_memory <== head_certified & queued_descriptor.bits.control.memory
+  execution.packed_memory <== head_certified & queued_descriptor.bits.control.memory & !vector_zero_stride_load(xlen, queued_descriptor.bits)
   precheck.request.valid <== queued_descriptor.valid & needs_check & !check_started
   precheck.request.bits <== footprint.range.updated(~first: footprint.range.first.align_down(xlen.width / 8), ~last: footprint.range.last ||| bits(xlen.width / 8 - 1, 64))
   def checked = precheck.response |> gate_flow(check_started & !check_complete) |> to_valid()

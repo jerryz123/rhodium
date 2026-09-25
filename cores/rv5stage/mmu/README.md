@@ -42,7 +42,10 @@ request unaccepted; the core retains its hint across replay.
 `vector_precheck` certifies a nonspeculative macro's contiguous one- or two-page
 range without accessing its data. A successful response retains its physical
 page mappings and checked permissions separately from the DTLB until `release`.
-A covering superpage needs one lookup; otherwise each page is checked once.
+A free demand DTLB port checks the first page on precheck admission; a warm
+translation can certify a one-page range for the following cycle. A DTLB miss
+uses the same serialized walker as scalar translation. A covering superpage
+needs one lookup; otherwise each page is checked once.
 Only ordinary cacheable, read-idempotent, full-page PMA coverage is eligible.
 Failure requests conservative element-wise execution, not an architectural
 trap. This preserves masking and exact fault ownership.

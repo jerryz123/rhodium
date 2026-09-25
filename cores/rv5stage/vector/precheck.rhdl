@@ -1,9 +1,10 @@
 #lang rhodium
-// Computes conservative contiguous vector footprints without an element-address multiplier.
+// Computes conservative vector memory byte footprints without an element-address multiplier.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
+  "geometry.rhdl".vector_zero_stride_load
   "../mmu/protocol.rhdl" open
   "../decode/vector-ctrl.rhdl" open
   "../../../riscv/isa/vector.rhm" open
@@ -26,13 +27,14 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageV
   def control = descriptor.control
   def whole = control.memory_mode === VectorMemoryMode.WholeRegister
   def mask = control.memory_mode === VectorMemoryMode.Mask
+  def zero_stride = vector_zero_stride_load(xlen, descriptor)
   def eew = mux(mask, bits(0, 2), control.memory_data_eew)
   def start = descriptor.state.vstart.zext(68)
   def whole_limit = vector_field_extent(bits(vlen / 8, 68), control.memory_nf) >> eew
   def limit = mux(whole, whole_limit, mux(mask, (descriptor.state.vl.zext(68) + bits(7, 68)) >> 3, descriptor.state.vl.zext(68)))
   def nf = mux(whole ||| mask, bits(0, 3), control.memory_nf)
-  def first_raw = descriptor.scalar.zext(68) + vector_field_extent(start << eew, nf)
-  def last_raw = descriptor.scalar.zext(68) + vector_field_extent(limit << eew, nf) - bits(1, 68)
+  def first_raw = descriptor.scalar.zext(68) + mux(zero_stride, bits(0, 68), vector_field_extent(start << eew, nf))
+  def last_raw = descriptor.scalar.zext(68) + mux(zero_stride, bits(1, 68) << eew, vector_field_extent(limit << eew, nf)) - bits(1, 68)
   def first_address = apply_pointer_mask(xlen, first_raw[0..xlen.width], masking)
   def last_address = apply_pointer_mask(xlen, last_raw[0..xlen.width], masking)
   def first = if xlen == XLen.X32 | first_address.zext(64) | first_address
@@ -41,7 +43,7 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageV
   def aligned = (first & ((bits(1, 64) << eew) - bits(1, 64))) === bits(0, 64)
   def two_pages = (last[12..64] === first[12..64]) ||| (last[12..64] === (first[12..64] + bits(1, 52)))
   RV5StageVectorFootprint():
-    eligible: control.memory & (control.memory_addressing === VectorMemoryAddressing.UnitStride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & no_wrap & aligned & two_pages
+    eligible: control.memory & ((control.memory_addressing === VectorMemoryAddressing.UnitStride) ||| zero_stride) & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & no_wrap & aligned & two_pages
     empty: start >= limit
     range:
       RV5StageVectorRange():
