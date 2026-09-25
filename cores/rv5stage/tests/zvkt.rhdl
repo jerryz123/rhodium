@@ -20,8 +20,8 @@ sync_circuit RV5StageZvkt(vlen :: VectorLength = 128):
   input(left_floating_scalar, right_floating_scalar): Bits(64)
   input vxrm: Bits(2)
   input(request_valid, issue_ready, cancel): Bool
-  interface left_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
-  interface right_initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  interface left_initialize(Valid(VectorRegisterWrite(XLen.X64, vlen)), ~role: consumer)
+  interface right_initialize(Valid(VectorRegisterWrite(XLen.X64, vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, data_differed): Bool
   output probe_count: Bits(16)
   output(control_vs1, control_rs1, sew64, v0_data): Bool

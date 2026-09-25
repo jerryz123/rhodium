@@ -23,25 +23,26 @@ import:
 sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input(vtype, vl, vstart, scalar): Bits(xlen.width)
-  input floating_scalar: Bits(64)
+  input floating_scalar: Bits(xlen.width)
   input vxrm: Bits(2)
   input(request_valid, issue_ready, cancel, retry_enable): Bool
   input retry_first: Bits(index_width(vlen + 1))
-  interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
+  interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
   output(active, request_ready, legal, issued, committed, retried): Bool
-  output result: RV5StageVectorResultBeat(vlen)
-  inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V, ~vector_extensions: vector_extensions))
-  inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, VectorProfile.V, vector_extensions))
+  output result: RV5StageVectorResultBeat(xlen, vlen)
+  def profile = if xlen == XLen.X32 | VectorProfile.Zve32x | VectorProfile.V
+  inst decode(RV5StageInstructionDecoder(xlen, ~vector: profile, ~vector_extensions: vector_extensions))
+  inst operation_legality(RV5StageVectorOperationLegality(xlen, vlen, profile, vector_extensions))
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(xlen.width)))
-  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
+  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
   sequencer.packed_memory <== Bool(#false)
   sequencer.packed_done.valid <== Bool(#false)
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, Bits(xlen.width)))
-  inst bank(RV5StageVectorRegisterFile(vlen))
-  inst execute(RV5StageVectorExecute(vlen))
+  inst bank(RV5StageVectorRegisterFile(xlen, vlen))
+  inst execute(RV5StageVectorExecute(xlen, vlen))
   execute.alignment.valid <== Bool(#false)
-  execute.alignment.bits <== dont_care(RV5StageVectorAlignment())
-  inst pipeline(ValidPipe(RV5StageVectorResultBeat(vlen), 3, ~flushable: #true))
+  execute.alignment.bits <== dont_care(RV5StageVectorAlignment(xlen))
+  inst pipeline(ValidPipe(RV5StageVectorResultBeat(xlen, vlen), 3, ~flushable: #true))
   decode.instruction <== instruction
   operation_legality.instruction <== instruction
   operation_legality.control <== decode.control.vector
@@ -82,7 +83,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
   sequencer.cancel.valid <== cancel
   operand_fetch.issue.ready <== Bool(#true)
   execute.beat <== operand_fetch.issue.bits.beat
-  execute.scan_carry <== bits(0, 64)
+  execute.scan_carry <== bits(0, xlen.width)
   pipeline.ingress.valid <== operand_fetch.issue.fire()
   pipeline.ingress.bits <== execute.result
   def retained_control = sequencer.retained.descriptor.control

@@ -4,7 +4,7 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   "../decode/vector-ctrl.rhdl".VectorOperandMode
   "bundles.rhdl" open
   "packing.rhdl" open
@@ -14,15 +14,15 @@ import:
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
 
-circuit RV5StageVectorExecute(vlen :: VectorLength):
-  input beat: RV5StageVectorBeat(vlen)
-  input scan_carry: Bits(64)
-  interface alignment(Valid(RV5StageVectorAlignment()), ~role: consumer)
-  output aligned: Bits(64)
-  output result: RV5StageVectorResultBeat(vlen)
-  inst alu(SimdALU(XLen.X64))
-  inst packing(RV5StageVectorResult(vlen))
-  inst scan(RV5StageVectorMaskScan())
+circuit RV5StageVectorExecute(xlen :: XLen, vlen :: VectorLength):
+  input beat: RV5StageVectorBeat(xlen, vlen)
+  input scan_carry: Bits(xlen.width)
+  interface alignment(Valid(RV5StageVectorAlignment(xlen)), ~role: consumer)
+  output aligned: Bits(xlen.width)
+  output result: RV5StageVectorResultBeat(xlen, vlen)
+  inst alu(SimdALU(xlen))
+  inst packing(RV5StageVectorResult(xlen, vlen))
+  inst scan(RV5StageVectorMaskScan(xlen))
   def reduction = (beat.control.integer ||| beat.control.fp_service) & beat.control.reduction
   def integer_reduction = beat.control.integer & reduction
   def element_move = beat.control.element_move
@@ -34,7 +34,7 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def floating_scalar_destination = beat.control.floating_point & beat.control.floating_scalar_destination & element_move
   def any_scalar_destination = scalar_destination ||| floating_scalar_destination
   def widening_reduction = integer_reduction & beat.control.widening
-  inst reduction_widen(SimdWidenOperands(XLen.X64))
+  inst reduction_widen(SimdWidenOperands(xlen))
   reduction_widen.left <== beat.right
   reduction_widen.right <== beat.left
   reduction_widen.element_width <== beat.element_width.as_bits().into(SimdWidenElementWidth)
@@ -47,18 +47,18 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   def alu_right = mux(widening_reduction, reduction_widen.operands.left, beat.right)
   scan.source <== beat.left
   scan.enabled <== beat.mask_enabled
-  scan.first <== beat.first.zext(64)
+  scan.first <== beat.first.zext(xlen.width)
   scan.carry <== scan_carry
   scan.element_width <== beat.element_width
   scan.control <== beat.control.scan_control
   alu.left <== mux(alignment.valid, alignment.bits.data, mux(beat.control.swap_operands, alu_right, alu_left))
-  alu.right <== mux(alignment.valid, (alignment.bits.bytes ++ bits(0, 3)).zext(64), mux(beat.control.swap_operands, alu_left, alu_right))
+  alu.right <== mux(alignment.valid, (alignment.bits.bytes ++ bits(0, 3)).zext(xlen.width), mux(beat.control.swap_operands, alu_left, alu_right))
   alu.control <== mux(alignment.valid, beat.control.alu.updated(~result_select: SimdResultSelect.Shift, ~shift_right: Bool(#true), ~rotate: Bool(#true)), beat.control.alu)
   aligned <== alu.result.data
   // Slides premerge adjacent chunks into one rotate source. Only the existing
-  // 64-bit shift slot executes; destination SEW/masks remain with packing.
-  alu.element_width <== mux(alignment.valid ||| sliding ||| gathering, SimdElementWidth.E64, mux(widening_reduction, reduction_widen.operands.element_width, beat.element_width))
-  alu.enabled <== mux(alignment.valid ||| integer_reduction ||| sliding ||| gathering, bits(1, 8).into(Mask(8)), beat.enabled)
+  // full-word shift slot executes; destination SEW/masks remain with packing.
+  alu.element_width <== mux(alignment.valid ||| sliding ||| gathering, (if xlen == XLen.X32 | SimdElementWidth.E32 | SimdElementWidth.E64), mux(widening_reduction, reduction_widen.operands.element_width, beat.element_width))
+  alu.enabled <== mux(alignment.valid ||| integer_reduction ||| sliding ||| gathering, bits(1, vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen))), beat.enabled)
   alu.carry_in <== beat.carry_in
   alu.select_right <== beat.select_right
   alu.rounding <== beat.control.rounding & !alignment.valid
@@ -71,11 +71,11 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
   packing.clip <== beat.control.clip
   packing.clip_unsigned <== beat.control.clip_unsigned
   packing.enabled <== beat.enabled
-  def slide_bytes = vec(for List (byte in 0..8):
-                          mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..4): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(8))
-  def gather_broadcast = mux_lookup(beat.element_width, ~default: alu.result.data, for List (format in 0..3): [SimdElementWidth.values()[format], vec(for List (_ in 0..(8 >> format)): alu.result.data[0..(8 << format)]).as_bits()])
-  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~mask_result: mux(beat.control.invert_comparison, !alu.result.mask_result.as_bits(), alu.result.mask_result.as_bits()).into(Mask(8)))
-  def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, 64), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, 64), packing.write.mask))))
+  def slide_bytes = vec(for List (byte in 0..vector_word_bytes(xlen)):
+                          mux_lookup(beat.element_width, ~default: beat.enabled[byte], for List (format in 1..vector_format_count(xlen)): [SimdElementWidth.values()[format], beat.enabled[byte div (2 ** format)]])).as_bits().into(Mask(vector_word_bytes(xlen)))
+  def gather_broadcast = mux_lookup(beat.element_width, ~default: alu.result.data, for List (format in 0..(vector_format_count(xlen) - 1)): [SimdElementWidth.values()[format], vec(for List (_ in 0..(vector_word_bytes(xlen) >> format)): alu.result.data[0..(8 << format)]).as_bits()])
+  packing.result <== alu.result.updated(~data: mux(scanning, scan.data, mux(gathering & !gather_vector, gather_broadcast, alu.result.data)), ~write_mask: mux(sliding ||| gathering, slide_bytes, alu.result.write_mask), ~mask_result: mux(beat.control.invert_comparison, !alu.result.mask_result.as_bits(), alu.result.mask_result.as_bits()).into(Mask(vector_word_bytes(xlen))))
+  def scan_write = packing.write.updated(~data: scan.data, ~mask: mux(beat.control.scalar_destination, bits(0, xlen.width), mux(beat.control.mask_destination, beat.mask_enabled, mux(beat.empty, bits(0, xlen.width), packing.write.mask))))
   def singleton = beat.control.memory ||| beat.control.fp_service ||| beat.control.multiply_divide ||| gather_vector
   def widening_multiply = beat.control.multiply_divide & beat.control.widening
   def widening_singleton = widening_multiply ||| widening_reduction
@@ -87,27 +87,26 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     ~mask: beat.mask_enabled
   )
   def singleton_width = mux(beat.control.fp_service, beat.fp_result_width.into(Bits(2)), beat.element_width.into(Bits(2)) + widening_singleton.as_bits().zext(2))
-  def element_shift = (beat.first[0..3] << singleton_width) ++ bits(0, 3)
-  def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, 64), [[1, bits(0xffff, 64)], [2, bits(0xffffffff, 64)], [3, !bits(0, 64)]])
-  def element_write = VectorRegisterWrite(vlen):
-    address: (beat.destination.zext(index_width(VectorRegisterLayout(vlen, 64).depth)) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + (beat.first >> (bits(3, 2) - singleton_width))[0..index_width(VectorRegisterLayout(vlen, 64).depth)]
-    data: mux(multiply_accumulate, mux(beat.control.multiply_destination, beat.left, beat.destination_data), mux(gather_vector, alu.result.data, bits(0, 64)))
-    mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, 64))
+  def element_shift = (beat.first[0..vector_byte_offset_width(xlen)] << singleton_width) ++ bits(0, 3)
+  def element_mask = mux_lookup(singleton_width, ~default: bits(0xff, xlen.width), [[1, bits(0xffff, xlen.width)], [2, bits(0xffffffff, xlen.width)], [3, !bits(0, xlen.width)]])
+  def element_write = VectorRegisterWrite(xlen, vlen):
+    address: (beat.destination.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + (beat.first >> (bits(vector_byte_offset_width(xlen), 2) - singleton_width))[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth)]
+    data: mux(multiply_accumulate, mux(beat.control.multiply_destination, beat.left, beat.destination_data), mux(gather_vector, alu.result.data, bits(0, xlen.width)))
+    mask: mux(beat.enabled.as_bits()[0].into(Bool) & (!beat.control.memory ||| !beat.control.store), element_mask << element_shift, bits(0, xlen.width))
   def fp_mask_destination = beat.control.fp_service & beat.control.mask_destination
   // Reduction input is one element plus the seed/committed accumulator. Masked
   // elements retain that accumulator; only the final beat writes element zero.
   def reduced = mux(beat.enabled.as_bits()[0].into(Bool), alu.result.data, beat.right)
   def scalar_value = mux(any_scalar_destination, beat.left, beat.right)
-  def extended_scalar = mux_lookup(beat.element_width, ~default: scalar_value, [
-    [SimdElementWidth.E8, scalar_value[0..8].into(SInt(8)).sext(64).into(Bits(64))],
-    [SimdElementWidth.E16, scalar_value[0..16].into(SInt(16)).sext(64).into(Bits(64))],
-    [SimdElementWidth.E32, scalar_value[0..32].into(SInt(32)).sext(64).into(Bits(64))]
-  ])
-  def element_zero_write = VectorRegisterWrite(vlen):
-    address: beat.destination.zext(index_width(VectorRegisterLayout(vlen, 64).depth)) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
+  def scalar_extensions = for List (format in 0..(vector_format_count(xlen) - 1)):
+    def width = 8 << format
+    [SimdElementWidth.values()[format], scalar_value[0..width].into(SInt(width)).sext(xlen.width).into(Bits(xlen.width))]
+  def extended_scalar = mux_lookup(beat.element_width, ~default: scalar_value, scalar_extensions)
+  def element_zero_write = VectorRegisterWrite(xlen, vlen):
+    address: beat.destination.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
     data: mux(reduction, mux(beat.control.floating_point, beat.right, reduced), mux(beat.control.floating_point, scalar_value, extended_scalar))
-    mask: mux(!beat.empty & beat.last & !any_scalar_destination, element_mask, bits(0, 64))
-  result <== RV5StageVectorResultBeat(vlen):
+    mask: mux(!beat.empty & beat.last & !any_scalar_destination, element_mask, bits(0, xlen.width))
+  result <== RV5StageVectorResultBeat(xlen, vlen):
     sequence: beat.sequence
     first: beat.first
     end: beat.end
@@ -131,8 +130,8 @@ circuit RV5StageVectorExecute(vlen :: VectorLength):
     multiply_subtract: multiply_accumulate & beat.control.multiply_subtract
     store: beat.control.store
     saturated: beat.control.integer & packing.saturated
-    shift: mux(fp_mask_destination, beat.first[0..6], mux(reduction, bits(0, 6), element_shift))
-    write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, mux(fp_mask_destination, packing.write, element_write), mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, 64), packing.write.mask))))))
+    shift: mux(fp_mask_destination, beat.first[0..vector_bit_offset_width(xlen)], mux(reduction, bits(0, vector_bit_offset_width(xlen)), element_shift))
+    write: mux(scanning, scan_write, mux(reduction ||| element_move, element_zero_write, mux(singleton, mux(fp_mask_destination, packing.write, element_write), mux(beat.control.mask_logic, mask_write, packing.write.updated(~mask: mux(beat.empty, bits(0, xlen.width), packing.write.mask))))))
     compress_state: beat.compress_state
 
 export:

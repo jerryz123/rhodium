@@ -18,7 +18,7 @@ Contributors changing the core should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
 The opt-in [vector path](vector/README.md) provides configurable VLEN,
-a flat 64-bit register bank with three general reads and a dedicated `v0` mask
+a flat XLEN-bit register bank with three general reads and a dedicated `v0` mask
 shadow, SIMD packing, and opt-in WB-owned `vset*`/CSR
 and same-width integer execution. One macro travels through the scalar pipeline
 as a side-effect-free launch token, then WB starts a separate
@@ -33,13 +33,13 @@ while the macro executes in the background. Contiguous one- or two-page memory
 ranges use retained page translations; other memory forms keep precise
 element-wise execution. See the [vector ownership contract](vector/README.md#execution-ownership)
 for certification, deferred destinations, and scalar ordering barriers.
-RV64 vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
+Vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
 strided, indexed, segmented, and fault-only-first forms, with tagged
 completion slots, precise element restart, and fault-only-first VL truncation. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
 independently of VLEN. RV64D also shares scalar FP execution for same-width
 FP32/FP64 vector add, subtract, and multiply, with locally accepted operands and
-scheduled VRF writes and completion-time flag updates. RV64 vectors also share the profile-selected
+scheduled VRF writes and completion-time flag updates. Vectors also share the profile-selected
 integer multiplier and iterative divider for SEW8/16/32/64 `.vv` and `.vx`
 operations, with independent arbitration and reserved completion ownership.
 `VectorProfile` selects
@@ -64,7 +64,7 @@ datapath while advertising the required `Zvkb` subset. The default remains
 | Deferred work | Loads, atomics, multiply, divide, and FP results may complete after their scalar token retires |
 | Integer widths | RV32 and RV64 selected by `XLen.X32` or `XLen.X64` |
 | Floating point | Disabled by default; RV32F or RV64D, with optional Zfhmin, Zfh, or Zfa |
-| Vector | Disabled by default; opt-in RV64 Zve32x/f, Zve64x/f/d, or V 1.0 with configurable power-of-two VLEN from 128 through 65536 bits |
+| Vector | Disabled by default; opt-in Zve32x on RV32; Zve32x/f, Zve64x/f/d, or V 1.0 on RV64; power-of-two VLEN from twice XLEN through 65536 bits |
 | Address translation | Bare for RV32; Bare or Sv39 for RV64 |
 | Private caches | Separate configurable L1I and single-miss write-back L1D with independent load hit-under-miss; fixed 64-byte lines; demand-priority Zicbop admission |
 | External memory | Instruction RN-I snapshot reads, data RN-F coherence, and a separate shared uncached RN-I channel |
@@ -845,9 +845,9 @@ runs the same cross-field validation as direct construction.
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
 | `profile.extensions` | Floating-point, compressed, cache-block, memory-guarantee, hint, and pointer-masking selections; optional features default to disabled |
-| `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; the current RV64-only integration pairs FP-capable vector profiles with scalar D |
+| `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; ELEN cannot exceed XLEN; FP-capable profiles currently require RV64D |
 | `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions, `Zvfh` enabling full vector half precision, and `Zvbb` enabling vector basic bit manipulation |
-| `profile.vector_length` | VLEN in bits; a power of two from 128 through 65536, independent of whether the vector profile is enabled |
+| `profile.vector_length` | VLEN in bits; a power of two through 65536; enabled profiles require at least twice XLEN |
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |
 | `profile.mmu_mode` | `Bare` or, for RV64, `Sv39` translation behavior |
 | `profile.cache_geometry` | Independent L1I and L1D set and way geometry |

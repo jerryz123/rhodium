@@ -23,14 +23,14 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
   input(request_valid, issue_ready, cancel): Bool
   output(active, request_ready, issued, compute_matured, memory_committed, retired, saturate): Bool
   output wb_index: Bits(index_width(vlen + 1))
-  output store_data: Bits(64)
+  output store_data: Bits(xlen.width)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   inst decode(RV5StageInstructionDecoder(xlen, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorExecution(xlen, vlen, Bits(32)))
   vector.schedule_enable <== issue_ready
   vector.scalar_writeback.ready <== Bool(#true)
   vector.packed_memory <== Bool(#false)
-  inst tokens(ValidPipe(RV5StageVectorToken(Bits(32), 8), 3, ~flushable: #true))
+  inst tokens(ValidPipe(RV5StageVectorToken(xlen, Bits(32), 8), 3, ~flushable: #true))
   inst compute_maturity(ValidPipe(Bool, 1, ~flushable: #true))
   reg index(~init: bits(0, index_width(vlen + 1)))
   decode.instruction <== instruction
@@ -50,7 +50,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
             vxsat: Bool(#false)
         control: decode.control.vector
         scalar: scalar
-        floating_scalar: bits(0, 64)
+        floating_scalar: bits(0, xlen.width)
         stride: bits(0, xlen.width)
         masked: !instruction[25].into(Bool)
         rounding_mode: RoundingMode.NearEven

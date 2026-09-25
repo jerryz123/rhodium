@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
   "slots.rhdl" open
@@ -40,18 +40,18 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   interface fp_result(Decoupled(RV5StageFpExecutionResult(xlen, fp_profile, SlotId)), ~role: consumer)
   interface multiply_result(Irrevocable(RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorMultiplyTag(vector_completion_slots))), ~role: consumer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorDivideTag(vector_completion_slots))), ~role: consumer)
-  interface drained(Valid(RV5StageVectorDrained(vlen, vector_completion_slots)), ~role: producer)
-  interface write(Valid(VectorRegisterWrite(vlen)), ~role: producer)
+  interface drained(Valid(RV5StageVectorDrained(xlen, vlen, vector_completion_slots)), ~role: producer)
+  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   interface fp_update(Valid(Bits(5)), ~role: producer)
   interface saturate(Pulse(), ~role: producer)
   interface scalar_result(Valid(RegisterFileWrite(xlen)), ~role: producer)
   interface floating_result(Valid(FloatingPointRegisterWrite(fp_profile)), ~role: producer)
-  output state: Vec(vector_completion_slots, RV5StageVectorSlotState(vlen, vector_completion_slots))
+  output state: Vec(vector_completion_slots, RV5StageVectorSlotState(xlen, vlen, vector_completion_slots))
   output(allocate_slot, accept_slot, drain_slot): SlotId
   // Persistent ownership and allocation/acceptance/drain frontiers.
   reg entry_packed(Vec(vector_completion_slots, Bool))
   reg entry_owner(Vec(vector_completion_slots, InstructionId))
-  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(VectorRegisterLayout(vlen, 64).depth))))
+  reg entry_write_address(Vec(vector_completion_slots, Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))))
   reg entry_writes(Vec(vector_completion_slots, Bool))
   // Slots retain ownership before issue, not completed result payloads.
   // Tags identify these slots; scalar rd never encodes vector element position.
@@ -59,7 +59,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   def allocated = slots.allocated
   def authorized_slots = slots.accepted
   reg completed(~init: bits(0, vector_completion_slots).as_vec(Bool))
-  reg entries(Vec(vector_completion_slots, RV5StageVectorResultBeat(vlen)))
+  reg entries(Vec(vector_completion_slots, RV5StageVectorResultBeat(xlen, vlen)))
   reg drain_cursor(~init: bits(0, index_width(vector_completion_slots)))
   reg allocate_cursor(~init: bits(0, index_width(vector_completion_slots)))
   reg accept_cursor(~init: bits(0, index_width(vector_completion_slots)))
@@ -80,13 +80,13 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   // at their producer; a hit owns the cycle reserved before its lookup.
   def multiply_entry = entries[multiply_result.bits.tag.slot]
   def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
-  def fp_arrival_data = mux(entries[fp_result.bits.tag].mask_destination, fp_result.bits.integer_value[0].as_bits().zext(64), mux(entries[fp_result.bits.tag].fp_result === VectorFloatResult.Integer, if xlen == XLen.X64 | fp_result.bits.integer_value | fp_result.bits.integer_value.zext(64), if xlen == XLen.X64 | fp_result.bits.fp_value | fp_result.bits.fp_value.zext(64)))
+  def fp_arrival_data = mux(entries[fp_result.bits.tag].mask_destination, fp_result.bits.integer_value[0].as_bits().zext(xlen.width), mux(entries[fp_result.bits.tag].fp_result === VectorFloatResult.Integer, fp_result.bits.integer_value, fp_result.bits.fp_value))
   def compute_completes_now = !compute_beat.fp_execute & !compute_beat.multiply_execute
   bundle Writeback():
     tag: SlotId
-    beat: RV5StageVectorResultBeat(vlen)
+    beat: RV5StageVectorResultBeat(xlen, vlen)
     owner: InstructionId
-    data: Bits(64)
+    data: Bits(xlen.width)
     flags: Bits(5)
     saturated: Bool
   def local_result = local_compute |> filter_valid(_result => compute_completes_now) |> map_valid(result => Writeback()):
@@ -123,14 +123,14 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     tag: result.tag
     beat: result.beat
     owner: result.owner
-    data: if xlen == XLen.X64 | decision.bits.data | decision.bits.data.zext(64)
+    data: decision.bits.data
     flags: bits(0, 5)
     saturated: Bool(#false)
   def slow_result = response |> gate_flow(!compute_arrival & !hit_valid) |> to_valid() |> map_valid(result => Writeback()):
     tag: result.tag
     beat: entries[result.tag]
     owner: entry_owner[result.tag]
-    data: if xlen == XLen.X64 | result.data | result.data.zext(64)
+    data: result.data
     flags: bits(0, 5)
     saturated: Bool(#false)
   compute_writeback <== compute_arrival ||| hit_valid ||| slow_result.valid
@@ -229,7 +229,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
     elsewhen (finished.valid & (finished.bits.tag === tag)):
       completed[slot] <== Bool(#true)
   drained.valid <== finished.valid
-  drained.bits <== RV5StageVectorDrained(vlen, vector_completion_slots):
+  drained.bits <== RV5StageVectorDrained(xlen, vlen, vector_completion_slots):
     beat: finished.bits.beat
     owner: finished.bits.owner
     data: finished.bits.data
@@ -237,7 +237,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   drain_slot <== drain_cursor
   accept_slot <== accept_cursor
   state <== vec(for List (s in 0..vector_completion_slots):
-                 RV5StageVectorSlotState(vlen, vector_completion_slots):
+                 RV5StageVectorSlotState(xlen, vlen, vector_completion_slots):
                    allocated: allocated[s]
                    accepted: authorized_slots[s]
                    packed: entry_packed[s]

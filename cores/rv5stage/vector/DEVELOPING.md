@@ -9,11 +9,21 @@ named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
 Physical row counts and locations come from `cores/riscv/vector-layout.rhm`,
-not the ISA model. Current pipeline consumers explicitly choose 64-bit rows
-and `SimdALU(XLen.X64)`; the reusable SIMD and layout libraries also support 32-bit
-rows. That library support does not enable RV32 or VLEN=64 in the integrated
-pipeline. Keep its profile gates until the sequencer, storage, packing,
-completion, and shared-service paths have migrated together.
+not the ISA model. Thread `xlen` through storage, sequencing, packing,
+completion, and shared-service payloads; instantiate `SimdALU(xlen)` and
+`VectorRegisterLayout(vlen, xlen.width)`. RV32 uses 32-bit rows and permits
+VLEN=64; RV64 uses 64-bit rows. Architectural ELEN remains profile-owned.
+Physical bit offsets, byte offsets, lane counts, and row addresses come from
+the shared layout helpers, not literal 64-bit constants. Keep CHI addresses
+and authorization range arithmetic at their independently defined widths.
+
+For physical-width changes, run the RV32 and RV64 sequencer and packed-memory
+fixtures, plus overlap, reduction, and shared mul/div fixtures. Check layout,
+profile, and product host tests with the repository Racket wrappers. The
+integrated minimum-geometry check is `make -C sims smoke
+SOC=mini-rv5stage-rv32max`: it executes integer-vector load/store, arithmetic,
+reduction, Zvbb, mul/div, and widening multiply through the normal FESVR flow
+with VLEN64 and 32-bit rows. This does not qualify RV32 vector FP or expand CI.
 
 ## State ownership and reading order
 
@@ -115,7 +125,7 @@ their layout and partial-row carry retain independent completion ownership.
 Replay restores only the current unauthorized suffix. Result routing uses the
 slot's route, never the current descriptor's route, and no launch resets the ring.
 All accepted operands are captured, so older issued instructions have no unread
-VRF sources. Older pending writes block reads by 64-bit row; `dependencies.rhdl`
+VRF sources. Older pending writes block reads by XLEN-bit row; `dependencies.rhdl`
 computes conservative destination groups while pending writes have not yet
 resolved to individual rows. For monotonic same-width elementwise compute,
 `instructions.rhdl` advances an owner-local row frontier when the last beat for a
@@ -132,7 +142,7 @@ interleaved instruction sequencing.
 
 Certified contiguous macros select `packed-memory.rhdl` after the page check,
 before execution allocation. Its byte/field cursor maps aligned XLEN requests
-onto 64-bit VRF rows without an element-address multiplier. Fast stores schedule
+onto XLEN-bit VRF rows without an element-address multiplier. Fast stores schedule
 two contributing VRF reads only when the next completion slot and shared SIMD
 alignment slice are available. The fixed response aligns and issues without a
 store-word queue. Masked and segmented stores retain the row data needed for
@@ -140,7 +150,7 @@ their explicit multi-read assembly sequence.
 Loads capture raw hit/delayed data in reserved slots and align only at ordered
 drain. A completed prefix and carry suffix can update on the same edge.
 Segment mapping remains explicit byte routing, separate from the rotator.
-The existing `execute.rhdl` instance shares its SIMD E64 rotate slice between
+The existing `execute.rhdl` instance shares its SIMD full-word rotate slice between
 ordinary execution and packed alignment. Fixed-cycle ordinary execution has
 priority over scheduled store alignment, then buffered load alignment.
 Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
@@ -365,7 +375,7 @@ Fused operations reuse the third general VRF read for old `vd`; comparisons
 retain a mask-destination bit beside their completion slot and write the shared
 `v0` shadow through the sole scheduled VRF write port. Vector-scalar FP checks the
 FPR scoreboard in Decode, selects the scalar source on the FP adapter's first
-read port at WB launch, and retains the forwarded 64-bit value in the admitted
+read port at WB launch, and retains the forwarded XLEN-bit value in the admitted
 descriptor. It must not consume a general VRF read port. Do not add vector-only
 FP datapaths or reinterpret scalar register controls as vector source metadata.
 Conversion rows carry explicit source/result domains, source/result element
@@ -495,8 +505,8 @@ must explicitly produce zero and hold the drain head at zero; `index_width(1)`
 still represents a one-bit hardware value. Keep the count on public token,
 completion, and data-protocol types, not just on the private register arrays.
 
-`register-file.rhdl` stores a flat `Vec(32 * VLEN / 64, Bits(64))` behind three
-general read ports and mirrors the `VLEN / 64` physical chunks of `v0` into a
+`register-file.rhdl` stores a flat `Vec(32 * VLEN / XLEN, Bits(XLEN))` behind three
+general read ports and mirrors the `VLEN / XLEN` physical chunks of `v0` into a
 dedicated address-only mask shadow. Both paths use Flow
 `map_valid`/`valid_pipe` to snapshot each read. Forward the bit-merged value at
 the read edge, not a live write mux after the response register. Otherwise a
@@ -548,7 +558,7 @@ network. Decode selects count/first/mask/element results and prefix/index
 modifiers; the datapath does not recognize instructions. The sequencer reads
 source masks at EEW=1 through existing ports and bounds every scan's enables
 to that beat's exclusive end. Iota uses data-width beats; queries and first-bit
-masks use 64-mask-bit beats. The parent retains scan carry separately from
+masks use XLEN-mask-bit beats. The parent retains scan carry separately from
 VRF write data and serializes dependent beats through result maturity. Index is
 stateless: its final read releases sequencing, its final issue ends issue
 ownership, and it may enter while older operand preparation remains active.
@@ -591,10 +601,10 @@ the beat. The low byte offset depends only on the retained displacement because
 every issue cursor is destination-chunk-aligned.
 
 Preselect the lower chunk's high bytes and upper chunk's low bytes, then use
-the existing SIMD E64 rotate-right path in `execute.rhdl`. Slide1 insertion
+the existing SIMD full-word rotate-right path in `execute.rhdl`. Slide1 insertion
 happens before rotation: SEW-aligned displacement preserves each byte's
 element-local scalar position. Decode selects shift/rotate controls directly.
-Override the ALU's physical E64 write mask with byte enables derived from the
+Override the ALU's physical full-word write mask with byte enables derived from the
 architectural SEW, without changing ordinary SIMD shift behavior.
 Increasing destination order makes legal in-place downward slides overlap-safe:
 mature writes cannot overwrite any later beat's needed source elements.
@@ -621,7 +631,7 @@ Never truncate an unsigned index before comparing it with data VLMAX.
 
 The vector gather beat carries the raw source word and a rotation displacement
 that places its selected element directly in its destination slot. Execute
-uses the existing E64 rotate path and singleton destination mask. Scalar and
+uses the existing full-word rotate path and singleton destination mask. Scalar and
 immediate gathers instead rotate to element zero, then replicate that SEW
 slice into the packed destination word. They use the normal packed schedule;
 their immutable source word can be reread without adding retained broadcast
@@ -638,7 +648,7 @@ reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
 which smaller legal EI16 groups cannot reach.
 
 Compression owns cross-word state in `sequencer.rhdl`, not in the reusable SIMD
-component. `SimdCompress` returns only a compacted 64-bit word and selected
+component. `SimdCompress` returns only a compacted XLEN-bit word and selected
 element count. The sequencer appends that word to a retained suffix and places
 at most one full destination chunk on each source-read beat. If the final
 source beat emits a full chunk and leaves a suffix, a backpressurable flush
@@ -668,7 +678,7 @@ count. Keep overflow bits until destination bounds are checked. Local `legal`
 outputs are not architectural group/overlap permission or result maturity.
 
 Widening schedules destination-width beats in `sequencer.rhdl`. Narrow-source
-lower/upper pairs reread one 64-bit source row. Wide-source forms instead derive
+lower/upper pairs reread one XLEN-bit source row. Wide-source forms instead derive
 the `vs2` row from destination-width geometry while their narrow vector/scalar
 source retains lower/upper selection. Each beat independently advances the
 exclusive maturity frontier without a speculative source buffer. Decode owns
@@ -701,7 +711,7 @@ priority over the sticky set.
 Keep execution enables separate from `select_right`: merge consumes `v0` as
 data while both selected alternatives remain writable. Move rows describe only
 their real source and select the existing SIMD right-input path. Mask-logic rows
-select a 64-mask-bit schedule in `sequencer.rhdl`, with a retained
+select a XLEN-mask-bit schedule in `sequencer.rhdl`, with a retained
 bit-enable mask for the partial first/last word. `execute.rhdl` reuses the SIMD
 logic network and writes its packed data directly instead of comparison bits.
 The single-register legality rule belongs in decode, not generic VRF geometry.

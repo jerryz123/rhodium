@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the RV32 VLEN256 sequencer to cover wider-than-XLEN elements and register groups.
+// Emits the RV32 VLEN256 sequencer with native 32-bit rows and register groups.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

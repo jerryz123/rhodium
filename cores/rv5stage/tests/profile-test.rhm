@@ -63,6 +63,8 @@ check:
   RV5StageConfig(~xlen: XLen.X64, ~vector_length: 192) ~throws "VectorLength"
   RV5StageConfig(~xlen: XLen.X64, ~vector: VectorProfile.V) ~throws "require scalar D"
   RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.F), ~vector: VectorProfile.V) ~throws "require RV64"
+  RV5StageConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64).hart_description.vector.elen ~is 32
+  RV5StageConfig(~xlen: XLen.X32, ~vector: VectorProfile.Zve32x, ~vector_length: 64).isa_profile.isa_extensions.contains("zvl64b") ~is #true
   RV5StageConfig(~xlen: XLen.X64, ~vector_extensions: vector_extensions(VectorExtension.Zvfhmin)) ~throws ""
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)) ~throws "Zvfh requires scalar Zfhmin or Zfh"
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.D, ~half_precision: HalfPrecisionProfile.Zfh), ~vector: VectorProfile.V, ~vector_extensions: vector_extensions(VectorExtension.Zvfh)).isa_profile.isa_extensions.contains("zvfh") ~is #true

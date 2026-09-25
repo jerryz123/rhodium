@@ -155,8 +155,10 @@ for the closed RV32/RV64 host configuration. Its remaining hardware operations
 use the public language; it imports no instruction catalog or named core.
 Its explicit `XLen` specialization prunes datapath width and element cases.
 `cores/riscv/vector-layout.rhm` is pure host physical-row geometry over
-`riscv/isa/vector.rhm`. RV5Stage vector storage and scheduling consumers import
-that layout explicitly; architectural vector descriptors own no physical rows.
+`riscv/isa/vector.rhm`, with XLEN-derived word geometry from `riscv/isa/xlen.rhm`.
+RV5Stage storage, sequencing, packing, scanning, and completion consumers import
+that layout explicitly and select `xlen.width` rows; architectural vector
+descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.

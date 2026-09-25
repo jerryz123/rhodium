@@ -17,7 +17,7 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int):
-  def Token = RV5StageVectorToken(Bits(xlen.width), slots)
+  def Token = RV5StageVectorToken(xlen, Bits(xlen.width), slots)
   bundle Lookup():
     token: Token
     request: RV5StageDataReq(xlen, slots)

@@ -179,8 +179,10 @@ fun check_rv5stage_vector_profile(xlen :: XLen,
                                   vector :: VectorProfile,
                                   vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   validate_vector_extensions(vector, vector_extensions)
-  when vector_profile_enabled(vector) && xlen != XLen.X64
-  | error(~who: #'check_rv5stage_vector_profile, "RV5Stage vector profiles require RV64")
+  when vector_profile_supports_integer64(vector) && xlen != XLen.X64
+  | error(~who: #'check_rv5stage_vector_profile, "64-bit vector elements require RV64")
+  when vector_profile_supports_fp32(vector) && xlen != XLen.X64
+  | error(~who: #'check_rv5stage_vector_profile, "integrated vector floating point requires RV64")
   when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "Zve64d and V require scalar D")
   when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)
@@ -231,8 +233,8 @@ class RV5StageConfig(xlen :: XLen,
     when xlen == XLen.X32 && mmu_mode != RV5StageMmuMode.Bare
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
-    when vector_profile_enabled(vector) && vector_length < 128
-    | error(~who: #'RV5StageConfig, "the integrated vector pipeline currently requires VLEN of at least 128 bits")
+    when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
+    | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")
     super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
   reconstructor (xlen, extensions, mmu_mode, cache_geometry,

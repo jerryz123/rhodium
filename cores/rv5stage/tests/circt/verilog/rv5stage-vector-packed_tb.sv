@@ -17,7 +17,8 @@ module rv5stage_vector_packed_tb;
   localparam int SLOTS = 1 << $bits(token.completion_tag);
   localparam int BYTES = $bits(response_in.bits.data)/8;
   byte unsigned memory [8192], expected_memory [8192];
-  logic [63:0] bank [64], expected_bank [64];
+  localparam int ROW_BITS = $bits(written_out.bits.data), ROW_BYTES = ROW_BITS/8, DEPTH = 32*128/ROW_BITS;
+  logic [ROW_BITS-1:0] bank [DEPTH], expected_bank [DEPTH];
   bit outstanding [SLOTS];
   logic [63:0] returns [SLOTS];
   int due [SLOTS];
@@ -57,7 +58,7 @@ module rv5stage_vector_packed_tb;
         requests++;
         consecutive++;
         if (consecutive>max_consecutive) max_consecutive=consecutive;
-        assert((token.address & 64'(BYTES-1))==0 && token.memory_width==2'($clog2(BYTES)))
+        assert((token.address & (BYTES*8)'(BYTES-1))==0 && token.memory_width==2'($clog2(BYTES)))
           else $fatal(1,"unaligned/non-word transport");
       end else consecutive=0;
       if (response_in.valid) outstanding[int'(response_in.bits.tag)]=0;
@@ -108,12 +109,12 @@ module rv5stage_vector_packed_tb;
     for (int b=0;b<8192;b++) begin
       memory[b]=8'(b*37+tests*11); expected_memory[b]=memory[b];
     end
-    for (int row=0;row<64;row++) begin
-      bank[row]=64'hb7832065ea4c9d01 ^ (64'(row)*64'h01030507090b0d0f);
-      if (row==0) bank[row]=64'h965a3cc369a5965a;
-      if (all_masked && row<2) bank[row]=0;
+    for (int row=0;row<DEPTH;row++) begin
+      bank[row]=ROW_BITS'(64'hb7832065ea4c9d01 ^ (64'(row)*64'h01030507090b0d0f));
+      if (row==0) bank[row]=ROW_BITS'(64'h965a3cc369a5965a);
+      if (all_masked && row<128/ROW_BITS) bank[row]=0;
       expected_bank[row]=bank[row];
-      initialize_in.valid=1; initialize_in.bits.address=6'(row);
+      initialize_in.valid=1; initialize_in.bits.address=$bits(initialize_in.bits.address)'(row);
       initialize_in.bits.data=bank[row]; initialize_in.bits.mask='1;
       tick();
     end
@@ -123,12 +124,12 @@ module rv5stage_vector_packed_tb;
     if (transfer_mode==3) begin count=(int'(vl)+7)/8; fields=1; element_bytes=1; end
     for (int element=start;element<count;element++)
       for (int field=0;field<fields;field++)
-        if (!masking || transfer_mode!=0 || bank[element/64][element%64])
+        if (!masking || transfer_mode!=0 || bank[element/ROW_BITS][element%ROW_BITS])
           for (int b=0;b<element_bytes;b++) begin
             int address, position, row, lane;
             address=int'(base)+(element*fields+field)*element_bytes+b;
             position=8*16+field*register_stride+element*element_bytes+b;
-            row=position/8; lane=position%8;
+            row=position/ROW_BYTES; lane=position%ROW_BYTES;
             if (writing) expected_memory[address]=bank[row][lane*8+:8];
             else expected_bank[row][lane*8+:8]=memory[address];
           end
@@ -142,7 +143,7 @@ module rv5stage_vector_packed_tb;
     assert(retired_count==1 && !active) else $fatal(1,"packed timeout test=%0d accepted=%0d requests=%0d",tests,accepted,requests);
     assert(accepted==expected_beats) else $fatal(1,"beat count test=%0d got=%0d expected=%0d",tests,accepted,expected_beats);
     if (replaying) assert(did_retry) else $fatal(1,"retry not exercised");
-    for (int row=0;row<64;row++)
+    for (int row=0;row<DEPTH;row++)
       assert(bank[row]===expected_bank[row])
         else $fatal(1,"VRF test=%0d store=%0b offset=%0d size=%0d fields=%0d row=%0d got=%h expected=%h",tests,writing,offset,size,fields,row,bank[row],expected_bank[row]);
     for (int b=0;b<8192;b++)
@@ -156,7 +157,7 @@ module rv5stage_vector_packed_tb;
     initialize_in='0; response_in='0; base=0; vl=0; vstart=0; vtype=0;
     nf=0; eew=0; mode=0; store=0; masked=0;
     tick(); tick(); reset=0; tick();
-    for (int size=0;size<4;size++)
+    for (int size=0;size<=$clog2(BYTES);size++)
       for (int offset=0;offset<8;offset+=(1<<size))
         for (int writing=0;writing<2;writing++) begin
           run_case(1'(writing),offset,size,1,0,0,0,0);

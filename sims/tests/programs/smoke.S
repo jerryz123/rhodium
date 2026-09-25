@@ -1,4 +1,4 @@
-// Checks SoC boot, UART/PLIC, and selected Spike vector geometry and execution through HTIF.
+// Checks SoC boot, UART/PLIC, and selected vector geometry and execution through HTIF.
 // SPDX-License-Identifier: Apache-2.0
 #include "xlen.h"
 .section .text
@@ -106,7 +106,7 @@ plic_claim_supervisor:
   li s5, 6
   lw t0, 0(s3)
   bnez t0, fail
-#ifdef RHODIUM_SMOKE_SPIKE_VECTOR
+#ifdef RHODIUM_SMOKE_VECTOR
   // Fail explicitly on an illegal instruction, rather than looping at mtvec=0.
   li s5, 7
   la t0, fail
@@ -140,6 +140,25 @@ plic_claim_supervisor:
   vmv.x.s t0, v2
   li t1, 128
   bne t0, t1, fail
+#if __riscv_xlen == 32
+  li s5, 12
+  vmv.v.i v1, 7
+  li t1, 6
+  vmul.vx v2, v1, t1         // Shared integer service, then dependent divide.
+  vdiv.vx v3, v2, t1
+  vmv.x.s t0, v3
+  li t1, 7
+  bne t0, t1, fail
+  li s5, 13
+  vsetvli t0, zero, e16, m1, ta, ma
+  vmv.v.i v4, -3
+  li t1, 7
+  vwmul.vx v6, v4, t1        // Widen into native 32-bit result rows.
+  vsetvli zero, zero, e32, m2, ta, ma
+  vmv.x.s t0, v6
+  li t1, -21
+  bne t0, t1, fail
+#endif
 #ifdef RHODIUM_SMOKE_SPIKE_RVA23
   li s5, 10
   li t0, 0x6000               // Enable FP only on the FP-capable preset.
@@ -188,7 +207,7 @@ tohost:
 .globl fromhost
 fromhost:
   .dword 0
-#ifdef RHODIUM_SMOKE_SPIKE_VECTOR
+#ifdef RHODIUM_SMOKE_VECTOR
 .balign 16
 vector_result:
   .space 16

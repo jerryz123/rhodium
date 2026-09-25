@@ -46,9 +46,8 @@ projection. Canonical identities are `<shape>-<core>-<isa>`.
 
 `RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
 not a claim of complete RVA23U64/S64 conformance. `RV32Max` describes the
-intended maximal non-FP RV32/Zve32x/VLEN=64 architecture, but instantiation
-in RV5Stage still rejects it pending RV32 integer-vector and VLEN=64 integration.
-Mini supports an RV32Max Spike binding for platform bring-up; its BootROM
+maximal non-FP RV32/Zve32x/VLEN=64 architecture. Both RV5Stage and Spike
+bind this exact profile. Mini supports both bindings for platform bring-up; its BootROM
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's

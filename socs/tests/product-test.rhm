@@ -82,11 +82,15 @@ check:
   single_core_spike_soc_core_profile.isa_bytes > 0 ~is #true
   spike_product.description ~is simulator_soc_description("mini-spike-rva23")
 
-// This reference binding qualifies RV32 platform wiring without enabling RV5Stage vectors.
+// Both hart implementations project the same RV32 architecture and platform geometry.
 def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Max))
 def rv32_mini :: MiniSoCConfig = rv32_product.configuration()
 def rv32_description = rv32_product.description
+def rv32_rtl = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Max))
 check:
+  rv32_rtl.description.hart.isa_profile ~is rv32.isa
+  rv32_rtl.description.hart.vector.vlen ~is 64
+  rv32_rtl.description.hart.vector.elen ~is 32
   rv32_description.hart.isa_profile ~is rv32.isa
   rv32_description.hart.vector.vlen ~is 64
   rv32_description.hart.vector.elen ~is 32

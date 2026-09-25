@@ -1,13 +1,13 @@
 // Models vector elements, extension, carry/borrow, fixed-point, stateful replay, and cancellation independently.
 // SPDX-License-Identifier: Apache-2.0
-  localparam int CW = $clog2(VLEN + 1), SW = CW + 3, AW = $clog2(32 * VLEN / 64), DEPTH = 32 * VLEN / 64;
-  typedef struct packed { logic [AW-1:0] address; logic [63:0] data, mask; } write_t;
+  localparam int CW = $clog2(VLEN + 1), SW = CW + 3, AW = $clog2(32 * VLEN / XLEN), DEPTH = 32 * VLEN / XLEN;
+  typedef struct packed { logic [AW-1:0] address; logic [XLEN-1:0] data, mask; } write_t;
   typedef struct packed { logic valid; write_t bits; } write_port_t;
-  typedef struct packed { logic [SW-1:0] operation_sequence; logic [CW-1:0] first, ending; logic last, reduction, scan; logic [63:0] scan_carry; logic scalar_destination, floating_scalar_destination; logic [4:0] destination; logic [1:0] element_width; logic memory, floating_point, fp_execute, mask_destination; logic [1:0] fp_result; logic multiply_divide, multiply_execute, divide, multiply_accumulate, multiply_subtract, store, saturated; logic [5:0] shift; write_t write; logic [63:0] compress_data; logic [3:0] compress_count; logic [CW-1:0] compress_destination; } result_t;
+  typedef struct packed { logic [SW-1:0] operation_sequence; logic [CW-1:0] first, ending; logic last, reduction, scan; logic [XLEN-1:0] scan_carry; logic scalar_destination, floating_scalar_destination; logic [4:0] destination; logic [1:0] element_width; logic memory, floating_point, fp_execute, mask_destination; logic [1:0] fp_result; logic multiply_divide, multiply_execute, divide, multiply_accumulate, multiply_subtract, store, saturated; logic [$clog2(XLEN)-1:0] shift; write_t write; logic [XLEN-1:0] compress_data; logic [$clog2(XLEN/8):0] compress_count; logic [CW-1:0] compress_destination; } result_t;
   logic clock = 0, reset = 1;
   logic [31:0] instruction;
   logic [XLEN-1:0] vtype, vl, vstart, scalar;
-  logic [63:0] floating_scalar;
+  logic [XLEN-1:0] floating_scalar;
   logic [1:0] vxrm;
   logic request_valid, issue_ready, cancel, retry_enable;
   logic [CW-1:0] retry_first;
@@ -16,7 +16,7 @@
   result_t result;
   RV5StageVectorSequencerFixture dut (.*);
   always #5 clock = ~clock;
-  logic [63:0] memory [DEPTH], snapshot [DEPTH];
+  logic [XLEN-1:0] memory [DEPTH], snapshot [DEPTH];
   logic [63:0] rng = 64'h713bfd9167c282c9;
   int tx_source_width, tx_width, tx_lanes, tx_vl, tx_start, tx_first, tx_opcode, tx_mode, tx_vd, tx_vs1, tx_vs2, tx_vxrm;
   logic [63:0] tx_scalar, tx_distance;
@@ -33,7 +33,7 @@
     return rng;
   endfunction
   function automatic logic [63:0] element(input int regno, index, width_bits);
-    return (snapshot[regno * VLEN / 64 + index * width_bits / 64] >> (index * width_bits % 64)) & (64'hffffffffffffffff >> (64 - width_bits));
+    return (64'(snapshot[regno * VLEN / XLEN + index * width_bits / XLEN]) >> (index * width_bits % XLEN)) & (64'hffffffffffffffff >> (64 - width_bits));
   endfunction
   function automatic logic signed [63:0] signed_element(input logic [63:0] value, input int width_bits);
     return $signed(value << (64 - width_bits)) >>> (64 - width_bits);
@@ -101,7 +101,7 @@
         assert (checking) else $fatal(1, "write escaped a cancelled macro");
         first = tx_first;
         ending = tx_start >= tx_vl ? tx_vl : ((first + tx_lanes < tx_vl) ? first + tx_lanes : tx_vl);
-        address = tx_vd * VLEN / 64 + (tx_compare || tx_mask_logic ? first / 64 : first * tx_width / 64);
+        address = tx_vd * VLEN / XLEN + (tx_compare || tx_mask_logic ? first / XLEN : first * tx_width / XLEN);
         expected_data = 0; expected_mask = 0; expected_saturated = 0;
         lane_mask = 64'hffffffffffffffff >> (64 - tx_width);
         broadcast_value = tx_scalar;
@@ -110,7 +110,7 @@
           if (first < tx_vl) begin
             for (int lane = 0; lane < tx_lanes && first + lane < ending; lane++) begin
               position = first + lane;
-              if (snapshot[tx_vs1 * VLEN / 64 + position / 64][position % 64]) begin
+              if (snapshot[tx_vs1 * VLEN / XLEN + position / XLEN][position % XLEN]) begin
                 tx_compress_buffer |= 128'(element(tx_vs2, position, tx_width)) << (tx_compress_count * tx_width);
                 tx_compress_count++;
               end
@@ -118,14 +118,14 @@
           end
           emitted = tx_compress_count >= tx_lanes ? tx_lanes : ending == tx_vl ? tx_compress_count : 0;
           for (int lane = 0; lane < emitted; lane++) expected_mask |= lane_mask << (lane * tx_width);
-          expected_data = tx_compress_buffer[63:0] & expected_mask;
-          address = tx_vd * VLEN / 64 + tx_compress_destination * tx_width / 64;
+          expected_data = 64'(tx_compress_buffer[XLEN-1:0]) & expected_mask;
+          address = tx_vd * VLEN / XLEN + tx_compress_destination * tx_width / XLEN;
           tx_compress_buffer >>= emitted * tx_width;
           tx_compress_count -= emitted;
           tx_compress_destination += emitted;
         end else for (int lane = 0; lane < tx_lanes; lane++) begin
           position = first + lane;
-          enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || tx_carry_family || snapshot[position / 64][position % 64]);
+          enabled = position >= tx_start && position < tx_vl && (!tx_masked || tx_opcode == 23 || tx_carry_family || snapshot[position / XLEN][position % XLEN]);
           if (tx_opcode == 14 && tx_mode != 6 && !tx_gather && 64'(position) < tx_distance) enabled = 0;
           if (enabled) begin
             left_width = tx_narrowing ? 2 * tx_width : tx_wide_source ? tx_width : tx_source_width;
@@ -138,7 +138,7 @@
             if (tx_extension) begin
               value = tx_extension_signed ? signed_element(a, tx_source_width) : a;
             end else if (tx_carry_family) begin
-              carry_input = tx_carry_input && snapshot[position / 64][position % 64];
+              carry_input = tx_carry_input && snapshot[position / XLEN][position % XLEN];
               if (!tx_opcode[1]) begin
                 wide_result = {64'b0, a} + {64'b0, b} + 128'(carry_input);
                 value = tx_opcode[0] ? 64'(wide_result[tx_width]) : wide_result[63:0];
@@ -203,7 +203,7 @@
                 else if (tx_distance >= 64'(tx_vlmax) || 64'(position) >= 64'(tx_vlmax)-tx_distance) value = 0;
                 else value = element(tx_vs2,position+int'(tx_distance),tx_width);
               end
-              23: value = !tx_masked || snapshot[position / 64][position % 64] ? b : a;
+              23: value = !tx_masked || snapshot[position / XLEN][position % XLEN] ? b : a;
               24: value = 64'(a == b);
               25: value = 64'(a != b);
               26: value = 64'(a < b);
@@ -220,24 +220,24 @@
               43: value = rounded_shift(a, tx_width, b, 1, 2'(tx_vxrm));
               default: $fatal(1, "bad reference opcode");
             endcase
-            bit_offset = tx_compare ? position % 64 : tx_gather_vector || tx_narrowing ? position*tx_width%64 : lane * tx_width;
+            bit_offset = tx_compare ? position % XLEN : tx_gather_vector || tx_narrowing ? position*tx_width% XLEN : lane * tx_width;
             expected_data |= (value & (tx_compare ? 64'd1 : lane_mask)) << bit_offset;
             expected_mask |= (tx_compare ? 64'd1 : lane_mask) << bit_offset;
           end
         end
         assert (int'(result.first) == first && int'(result.ending) == ending && result.last == (ending == tx_vl && (!tx_compress || tx_compress_count == 0)))
           else $fatal(1, "element progress first=%0d/%0d end=%0d/%0d", result.first, first, result.ending, ending);
-        assert (result.write.mask == expected_mask && (result.write.data & expected_mask) == expected_data)
-          else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h source=%h ratio=%0d", tx_opcode, tx_width, first, result.write.data & expected_mask, expected_data, result.write.mask, expected_mask, snapshot[tx_vs2 * VLEN / 64 + first * tx_source_width / 64], tx_extension_ratio);
+        assert (64'(result.write.mask) == expected_mask && (64'(result.write.data) & expected_mask) == expected_data)
+          else $fatal(1, "op=%0d SEW=%0d first=%0d data=%h/%h mask=%h/%h source=%h ratio=%0d", tx_opcode, tx_width, first, 64'(result.write.data) & expected_mask, expected_data, result.write.mask, expected_mask, snapshot[tx_vs2 * VLEN / XLEN + first * tx_source_width / XLEN], tx_extension_ratio);
         assert (result.saturated == expected_saturated)
           else $fatal(1, "op=%0d SEW=%0d first=%0d saturation=%b/%b", tx_opcode, tx_width, first, result.saturated, expected_saturated);
         if (expected_mask != 0) begin
           assert (int'(result.write.address) == address) else $fatal(1, "wrong destination row");
-          memory[address] = (memory[address] & ~expected_mask) | expected_data;
+          memory[address] = (memory[address] & ~XLEN'(expected_mask)) | XLEN'(expected_data);
         end
         if (tx_compress) begin
-          assert(result.compress_data == tx_compress_buffer[63:0] && result.compress_count == 4'(tx_compress_count) && int'(result.compress_destination) == tx_compress_destination)
-            else $fatal(1,"compress checkpoint data=%h/%h count=%0d/%0d destination=%0d/%0d",result.compress_data,tx_compress_buffer[63:0],result.compress_count,tx_compress_count,result.compress_destination,tx_compress_destination);
+          assert(result.compress_data == tx_compress_buffer[XLEN-1:0] && int'(result.compress_count) == tx_compress_count && int'(result.compress_destination) == tx_compress_destination)
+            else $fatal(1,"compress checkpoint data=%h/%h count=%0d/%0d destination=%0d/%0d",result.compress_data,tx_compress_buffer[XLEN-1:0],result.compress_count,tx_compress_count,result.compress_destination,tx_compress_destination);
         end
         if (tx_dense && tx_beats != 0)
           assert (last_commit_cycle + (tx_gather_vector ? 2 : 1) == cycles) else $fatal(1, "bubble in an unstalled vector stream");
@@ -267,7 +267,7 @@
     tx_whole_move = op == 39 && mode == 3 && source1 inside {0, 1, 3, 7};
     tx_mask_logic = mode == 2 && !tx_extension && !tx_compress && !tx_widening && !tx_narrowing && !tx_average;
     tx_gather = op==12 || (op==14 && mode==0); tx_gather_vector=tx_gather && mode==0;
-    tx_source_width = tx_mask_logic ? 1 : tx_extension ? (8 << sew) / tx_extension_ratio : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_extension ? 8 << sew : tx_source_width; tx_lanes = tx_gather_vector ? 1 : 64 / (tx_narrowing ? 2 * tx_width : tx_width);
+    tx_source_width = tx_mask_logic ? 1 : tx_extension ? (8 << sew) / tx_extension_ratio : 8 << sew; tx_width = tx_widening ? 2 * tx_source_width : tx_extension ? 8 << sew : tx_source_width; tx_lanes = tx_gather_vector ? 1 : XLEN / (tx_narrowing ? 2 * tx_width : tx_width);
     tx_vl = tx_whole_move ? (source1 + 1) * VLEN / (8 << sew) : count; tx_start = start; tx_first = start / tx_lanes * tx_lanes;
     tx_opcode = op; tx_mode = mode; tx_vd = destination; tx_vs1 = source1; tx_vs2 = source2;
     tx_vxrm = round_mode;
@@ -304,20 +304,20 @@
     repeat (3) tick(); reset = 0;
     for (int row = 0; row < DEPTH; row++) begin
       initialize_in.valid = 1;
-      initialize_in.bits = '{AW'(row), random_word(), 64'hffffffffffffffff};
+      initialize_in.bits = '{AW'(row), XLEN'(random_word()), '1};
       tick();
     end
     initialize_in.valid = 0;
     // Every SEW/LMUL geometry, including fractional groups, in-place operands,
     // vstart in the middle of a beat, tails, and signed scalar extension.
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       for (int lm = 0; lm < 8; lm++) begin
         int maximum;
-        if (lm == 4 || (lm >= 5 && sew > lm - 5)) continue;
+        if (lm == 4 || (lm >= 5 && sew > lm - 8 + $clog2(XLEN/8))) continue;
         maximum = VLEN / (8 << sew);
         maximum = lm < 4 ? maximum << lm : maximum >> (8 - lm);
         if (maximum == 0) continue;
-        run_macro(sew, lm, maximum, 0, 0, 0, 24, 16, 8, 0, maximum > 64 / (8 << sew));
+        run_macro(sew, lm, maximum, 0, 0, 0, 24, 16, 8, 0, maximum > XLEN / (8 << sew));
         run_macro(sew, lm, maximum - 1, maximum > 2 ? 1 : 0, 11, 4, 8, 3, 8, 1);
       end
       for (int op = 0; op < 42; op++) begin
@@ -339,13 +339,13 @@
     for (int ratio_index = 0; ratio_index < 3; ratio_index++) begin
       int power;
       power = ratio_index + 1;
-      for (int sew = power; sew < 4; sew++) begin
+      for (int sew = power; sew < $clog2(XLEN/8)+1; sew++) begin
         for (int lm = 0; lm < 8; lm++) begin
           int signed_lm, maximum, lanes;
           signed_lm = lm < 4 ? lm : lm - 8;
-          if (lm == 4 || sew > signed_lm + 3 || signed_lm - power < -3) continue;
+          if (lm == 4 || sew > signed_lm + $clog2(XLEN/8) || signed_lm - power < -3) continue;
           maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
-          lanes = 64 / (8 << sew);
+          lanes = XLEN / (8 << sew);
           for (int signedness = 0; signedness < 2; signedness++)
             run_macro(sew, lm, maximum, maximum > 2 ? 1 : 0, 18, 2, 24, 6 - 2 * ratio_index + signedness, 8, 1'(signedness), maximum > lanes, 1'(signedness), lanes);
         end
@@ -353,7 +353,7 @@
     end
     // Carry/borrow consumes v0 as operand data rather than predication. The
     // mask-producing forms optionally consume carry-in and may write v0.
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       int maximum;
       maximum = VLEN / (8 << sew);
       for (int mode_index = 0; mode_index < 3; mode_index++) begin
@@ -362,7 +362,7 @@
         source1 = mode == 0 ? 16 : mode == 4 ? 3 : 31;
         scalar = XLEN'(-17);
         run_macro(sew, 0, maximum, 1, 16, mode, 24, source1, 8, 1);
-        run_macro(sew, 0, maximum - 1, 0, 17, mode, 0, source1, 8, 1, maximum > 8 >> sew, 1, 8 >> sew);
+        run_macro(sew, 0, maximum - 1, 0, 17, mode, 0, source1, 8, 1, maximum > (XLEN/8) >> sew, 1, (XLEN/8) >> sew);
         run_macro(sew, 0, maximum, 0, 17, mode, 3, source1, 8, 0);
         if (mode != 3) begin
           run_macro(sew, 0, maximum, 1, 18, mode, 24, source1, 8, 1);
@@ -371,10 +371,10 @@
         end
       end
     end
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       for (int lm = 0; lm < 8; lm++) begin
         int maximum;
-        if (lm == 4 || (lm >= 5 && sew > lm - 5)) continue;
+        if (lm == 4 || (lm >= 5 && sew > lm - 8 + $clog2(XLEN/8))) continue;
         maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
         run_macro(sew, lm, maximum, maximum > 2 ? 1 : 0, 16, 0, 24, 16, 8, 1, 0, lm != 0);
         run_macro(sew, lm, maximum, 0, 19, 0, 3, 16, 8, 0, 0, lm != 0);
@@ -383,11 +383,11 @@
     // Narrow+narrow widening add/sub uses one destination-width beat per
     // source half. Exercise every legal SEW/LMUL, signedness, form, masks,
     // tails, vstart, upper halves, and the permitted high-source overlap.
-    for (int sew = 0; sew < 3; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8); sew++) begin
       for (int lm = 0; lm < 3; lm++) begin
         int maximum, lanes, count;
         maximum = (VLEN / (8 << sew)) << lm;
-        lanes = 4 >> sew;
+        lanes = (XLEN/16) >> sew;
         count = maximum < 2 * lanes + 1 ? maximum : 2 * lanes + 1;
         for (int op = 48; op < 52; op++) begin
           run_macro(sew, lm, count, op[0] ? 1 : 0, op, 2, 24, 16, 8, op[0], op == 49, op != 50, lanes);
@@ -395,15 +395,15 @@
           run_macro(sew, lm, count - 1, count > 2 ? lanes - 1 : 0, op, 6, 24, 3, 8, op[0]);
         end
       end
-      run_macro(sew, 0, VLEN / (8 << sew), 0, 51, 2, 8, 16, 9, 0, 1, 0, 4 >> sew);
+      run_macro(sew, 0, VLEN / (8 << sew), 0, 51, 2, 8, 16, 9, 0, 1, 0, (XLEN/16) >> sew);
     end
     // Wide+narrow widening reuses the destination-width schedule. vs2 reads
     // one wide row per beat while vector/scalar vs1 still selects a narrow half.
-    for (int sew = 0; sew < 3; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8); sew++) begin
       for (int lm = 0; lm < 3; lm++) begin
         int maximum, lanes, count;
         maximum = (VLEN / (8 << sew)) << lm;
-        lanes = 4 >> sew;
+        lanes = (XLEN/16) >> sew;
         count = maximum < 2 * lanes + 1 ? maximum : 2 * lanes + 1;
         for (int op = 52; op < 56; op++) begin
           run_macro(sew, lm, count, op[0] ? 1 : 0, op, 2, 24, 16, 8, op[0], op == 53, op != 54, lanes);
@@ -412,19 +412,19 @@
         end
       end
       // Equal-width destination/vs2 overlap and high-part narrow-vs1 overlap.
-      run_macro(sew, 0, VLEN / (8 << sew), 0, 55, 2, 8, 9, 8, 0, 1, 0, 4 >> sew);
+      run_macro(sew, 0, VLEN / (8 << sew), 0, 55, 2, 8, 9, 8, 0, 1, 0, (XLEN/16) >> sew);
     end
     // Narrowing shifts consume one doubled-width source row and write one
     // destination half-row per beat through the existing SIMD shifter.
-    for (int sew = 0; sew < 3; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8); sew++) begin
       for (int lm_index = 0; lm_index < 6; lm_index++) begin
         int lm, exponent, maximum, lanes, count;
         lm = lm_index < 3 ? lm_index : lm_index + 2;
         exponent = lm < 4 ? lm : lm - 8;
-        if (sew > exponent + 3) continue;
+        if (sew > exponent + $clog2(XLEN/8)) continue;
         maximum = exponent >= 0 ? (VLEN / (8 << sew)) << exponent : (VLEN / (8 << sew)) >> -exponent;
         if (maximum == 0) continue;
-        lanes = 4 >> sew;
+        lanes = (XLEN/16) >> sew;
         count = maximum < 2 * lanes + 1 ? maximum : 2 * lanes + 1;
         for (int op = 44; op < 46; op++) begin
           run_macro(sew, lm, count, op[0] ? 1 : 0, op, 0, 24, 16, 8, op[0], op == 44, 0, lanes);
@@ -434,22 +434,22 @@
         end
       end
       // Low-part in-place overlap remains safe across partial destination rows.
-      run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, 4 >> sew);
+      run_macro(sew, 0, VLEN / (8 << sew), 0, 45, 0, 8, 16, 8, 0, 1, 0, (XLEN/16) >> sew);
     end
     // Saturating add/sub uses the packed adder's lane carry/sign results;
     // averaging retains the infinite-precision extension through vxrm rounding.
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       int maximum;
       maximum = VLEN / (8 << sew);
       for (int op = 32; op < 36; op++) begin
-        run_macro(sew, 0, maximum, int'(op[0]), op, 0, 24, 16, 8, op[0], op == 32, 0, 64 / (8 << sew));
+        run_macro(sew, 0, maximum, int'(op[0]), op, 0, 24, 16, 8, op[0], op == 32, 0, XLEN / (8 << sew));
         scalar = XLEN'(-17);
         run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 4, 24, 3, 8, !op[0]);
         if (!op[1]) run_macro(sew, 0, maximum, 0, op, 3, 24, 31, 8, 0);
       end
       for (int round_mode = 0; round_mode < 4; round_mode++) begin
         for (int op = 8; op < 12; op++) begin
-          run_macro(sew, 0, maximum, int'(round_mode[0]), op, 2, 24, 16, 8, round_mode[1], op == 8, 0, 64 / (8 << sew), round_mode);
+          run_macro(sew, 0, maximum, int'(round_mode[0]), op, 2, 24, 16, 8, round_mode[1], op == 8, 0, XLEN / (8 << sew), round_mode);
           scalar = XLEN'(sew * 11) - XLEN'(round_mode) - XLEN'(9);
           run_macro(sew, 0, maximum - 1, maximum > 2 ? 1 : 0, op, 6, 24, 3, 8, !round_mode[0], 0, 1, -1, round_mode);
         end
@@ -459,7 +459,7 @@
     // the doubled-width source first, then saturate each active lane and report
     // a per-beat sticky-CSR contribution. Live vxrm changes after admission
     // must not affect the captured macro.
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       int maximum;
       maximum = VLEN / (8 << sew);
       for (int round_mode = 0; round_mode < 4; round_mode++) begin
@@ -471,10 +471,10 @@
         end
       end
     end
-    for (int sew = 0; sew < 3; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8); sew++) begin
       int maximum, lanes;
       maximum = VLEN / (8 << sew);
-      lanes = 4 >> sew;
+      lanes = (XLEN/16) >> sew;
       for (int round_mode = 0; round_mode < 4; round_mode++) begin
         for (int op = 46; op < 48; op++) begin
           run_macro(sew, 0, maximum, 0, op, 0, 24, 16, 8, round_mode[0], round_mode == 1, 1, lanes, round_mode);
@@ -486,10 +486,10 @@
     end
     // Moves and merge share an encoding but not predication: a zero v0 bit
     // selects vs2; it must not disable the destination write.
-    for (int sew = 0; sew < 4; sew++) begin
+    for (int sew = 0; sew < $clog2(XLEN/8)+1; sew++) begin
       for (int lm = 0; lm < 8; lm++) begin
         int maximum;
-        if (lm == 4 || (lm >= 5 && sew > lm - 5)) continue;
+        if (lm == 4 || (lm >= 5 && sew > lm - 8 + $clog2(XLEN/8))) continue;
         maximum = lm < 4 ? ((VLEN / (8 << sew)) << lm) : ((VLEN / (8 << sew)) >> (8 - lm));
         for (int form = 0; form < 3; form++) begin
           int mode, src;
@@ -508,7 +508,7 @@
         maximum = VLEN >> sew;
         run_macro(sew, 3, maximum, 0, op, 2, 3, 5, 7, 0, 0, 0);
         run_macro(sew, 3, maximum - 1, 3, op, 2, 5, 5, 7, 0);
-        run_macro(sew, 3, maximum, maximum > 64 ? 63 : 1, op, 2, 0, 5, 0, 0, 1, 1, 0);
+        run_macro(sew, 3, maximum, maximum > XLEN ? XLEN-1 : 1, op, 2, 0, 5, 0, 0, 1, 1, 0);
       end
       run_macro(sew, 0, 0, 7, 23, 3, 0, 31, 0, 0);
       run_macro(sew, 0, 1, 7, 23, 4, 8, 3, 8, 1);
@@ -516,10 +516,10 @@
     end
     // Whole-register moves ignore vl and LMUL, copy NREG complete registers,
     // honor SEW-granular vstart, and naturally update the dedicated v0 shadow.
-    for(int sew=0;sew<4;sew++) begin
+    for(int sew=0;sew < $clog2(XLEN/8)+1;sew++) begin
       for(int registers=1;registers<=8;registers*=2) begin
         int effective, lanes;
-        effective=registers*VLEN/(8<<sew); lanes=8>>sew;
+        effective=registers*VLEN/(8<<sew); lanes=(XLEN/8)>>sew;
         run_macro(sew,0,0,0,39,3,16,registers-1,8,0,1,0,lanes);
         run_macro(sew,0,1,1,39,3,0,registers-1,8,0,registers==8,1,lanes);
         run_macro(sew,3,VLEN,0,39,3,8,registers-1,8,0);
@@ -528,12 +528,12 @@
     end
     // Slides read across chunks/groups while rotating through the same E64
     // SIMD slot. Golden values come from the original architectural snapshot.
-    for (int sew=0;sew<4;sew++) begin
+    for (int sew=0;sew < $clog2(XLEN/8)+1;sew++) begin
       for (int lm=0;lm<8;lm++) begin
         int maximum, lanes;
-        if (lm==4 || (lm>=5 && sew>lm-5)) continue;
+        if (lm==4 || (lm>=5 && sew>lm-8+$clog2(XLEN/8))) continue;
         maximum=lm<4 ? (VLEN/(8<<sew))<<lm : (VLEN/(8<<sew))>>(8-lm);
-        lanes=8>>sew;
+        lanes=(XLEN/8)>>sew;
         for (int form=0;form<6;form++) begin
           int op, mode, dest;
           op=form inside {0,1,4} ? 14 : 15;
@@ -570,11 +570,11 @@
     end
     // Gather reads arbitrary source positions, with a separate EEW16 index
     // stream. Source values are modeled from the admission-time snapshot.
-    for(int sew=0;sew<4;sew++) begin
+    for(int sew=0;sew < $clog2(XLEN/8)+1;sew++) begin
       for(int lm=0;lm<8;lm++) begin
         int maximum, exponent;
         exponent=lm<4 ? lm : lm-8;
-        if(lm==4 || sew>exponent+3) continue;
+        if(lm==4 || sew>exponent+$clog2(XLEN/8)) continue;
         maximum=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
         for(int form=0;form<4;form++) begin
           int iw, groups, ig, op, mode;
@@ -585,18 +585,18 @@
           // sweeps, so indexed selection cannot pass on an all-zero source.
           for(int r=8;r<32;r++) begin
             if(r>=16 && r<24) continue;
-            for(int row=0;row<VLEN/64;row++) begin
-              initialize_in='{1'b1,'{AW'(r*VLEN/64+row),random_word(),64'hffffffffffffffff}}; tick();
+            for(int row=0;row<VLEN/ XLEN;row++) begin
+              initialize_in='{1'b1,'{AW'(r*VLEN/ XLEN+row),XLEN'(random_word()),'1}}; tick();
             end
           end
           initialize_in.valid=0;
           if(form<2) begin
-            for(int row=0;row<groups*VLEN/64;row++) begin
+            for(int row=0;row<groups*VLEN/ XLEN;row++) begin
               logic [63:0] data, idx;
               data=0;
-              for(int lane=0;lane<64/iw;lane++) begin
+              for(int lane=0;lane<XLEN/iw;lane++) begin
                 int i;
-                i=row*(64/iw)+lane;
+                i=row*(XLEN/iw)+lane;
                 case(i%8)
                   0: idx=0;
                   1: idx=64'(maximum-1);
@@ -607,13 +607,13 @@
                 endcase
                 data|=(idx & ('1>>(64-iw)))<<(lane*iw);
               end
-              initialize_in='{1'b1,'{AW'(16*VLEN/64+row),data,64'hffffffffffffffff}}; tick();
+              initialize_in='{1'b1,'{AW'(16*VLEN/ XLEN+row),XLEN'(data),'1}}; tick();
             end
             initialize_in.valid=0;
           end
           for(int scenario=0;scenario<9;scenario++) begin
             int length, start, lanes;
-            lanes=form<2 ? 1 : 8>>sew;
+            lanes=form<2 ? 1 : (XLEN/8)>>sew;
             length=scenario==0 ? 0 : scenario==1 ? maximum-1 : maximum;
             start=scenario==2 ? 1 : scenario==3 ? maximum : 0;
             scalar=scenario==4 ? XLEN'(maximum-1) : scenario==5 ? XLEN'(maximum) : scenario==6 ? XLEN'(256) : scenario==7 ? XLEN'(1)<<(XLEN-1) : scenario==8 ? '1 : XLEN'(3);
@@ -633,18 +633,18 @@
     end
     // Compress streams source chunks in order, checkpoints its packed suffix
     // at WB, and writes consecutive destination chunks without extra VRF ports.
-    for(int sew=0;sew<4;sew++) begin
+    for(int sew=0;sew < $clog2(XLEN/8)+1;sew++) begin
       for(int lm=0;lm<8;lm++) begin
         int exponent, maximum, lanes;
         exponent=lm<4 ? lm : lm-8;
-        if(lm==4 || sew>exponent+3) continue;
+        if(lm==4 || sew>exponent+$clog2(XLEN/8)) continue;
         maximum=exponent>=0 ? (VLEN/(8<<sew))<<exponent : (VLEN/(8<<sew))>>(-exponent);
-        lanes=8>>sew;
+        lanes=(XLEN/8)>>sew;
         for(int pattern=0;pattern<4;pattern++) begin
-          for(int row=0;row<VLEN/64;row++) begin
+          for(int row=0;row<VLEN/ XLEN;row++) begin
             logic [63:0] mask_data;
             mask_data=pattern==0 ? 0 : pattern==1 ? '1 : pattern==2 ? 64'hd4924924a529294a : random_word();
-            initialize_in='{1'b1,'{AW'(5*VLEN/64+row),mask_data,64'hffffffffffffffff}}; tick();
+            initialize_in='{1'b1,'{AW'(5*VLEN/ XLEN+row),XLEN'(mask_data),'1}}; tick();
           end
           initialize_in.valid=0;
           run_macro(sew,lm,pattern==0 ? maximum : pattern==1 ? maximum-1 : maximum,0,23,2,24,5,8,0,pattern==3 && maximum>lanes,pattern!=2,pattern==3 ? lanes : -1);
@@ -654,8 +654,8 @@
     end
     // Exercise in-place prefixes and first partial rows around stateful cases.
     for (int ones = 0; ones < 2; ones++) begin
-      for (int row = 0; row < VLEN / 64; row++) begin
-        initialize_in = '{1'b1, '{AW'(row), ones != 0 ? 64'hffffffffffffffff : 64'b0, 64'hffffffffffffffff}};
+      for (int row = 0; row < VLEN / XLEN; row++) begin
+        initialize_in = '{1'b1, '{AW'(row), ones != 0 ? '1 : '0, '1}};
         tick();
       end
       initialize_in.valid = 0;
@@ -667,14 +667,14 @@
       scalar=3; run_macro(0,3,VLEN,0,12,4,24,3,8,1,0,0);
       run_macro(0,3,VLEN,0,12,0,24,16,8,1);
     end
-    run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, 64);
+    run_macro(0, 3, VLEN - 1, 3, 27, 2, 3, 5, 3, 0, 1, 1, XLEN);
     run_macro(0, 3, VLEN - 1, 3, 23, 0, 8, 16, 8, 1, 1, 1, 8);
     run_macro(0, 3, VLEN, 0, 0, 0, 24, 16, 8, 0, 0, 0);
     // Initial partial chunks and later in-place chunks must not rewrite
     // pre-vstart elements.
     run_macro(0, 0, VLEN / 8, 3, 0, 4, 8, 3, 8, 0, 1, 1, 0);
     run_macro(0, 0, VLEN / 8, 3, 0, 4, 8, 3, 8, 0, 1, 1, 8);
-    initialize_in = '{1'b1, '{AW'(0), 64'haaaaaaaaaaaaaaa5, 64'hffffffffffffffff}};
+    initialize_in = '{1'b1, '{AW'(0), XLEN'(64'haaaaaaaaaaaaaaa5), '1}};
     tick(); initialize_in.valid = 0;
     run_macro(0, 0, VLEN / 8, 0, 25, 0, 0, 16, 8, 1);
     assert (consecutive >= VLEN / 8 - 1 && retries > 0) else $fatal(1, "missing throughput/retry coverage");

@@ -59,8 +59,9 @@ detects XLEN at runtime and selects its entry load. Image finalization validates
 boot addresses against the hart description and embeds its device tree.
 The boot-entry register remains 64 bits, with RV32 reading its low word. Preserve
 the full physical-address CHI interfaces rather than narrowing the fabric to
-the scalar register width. `mini-spike-rv32max` exercises this platform path
-without lifting RV5Stage's RV32-vector gate or expanding the CI inventory.
+the scalar register width. `mini-spike-rv32max` and
+`mini-rv5stage-rv32max` exercise this platform path with the same integer-vector
+smoke payload. Enabling these bindings does not expand the CI inventory.
 All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture

@@ -27,11 +27,11 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   input(store, masked, request_valid, issue_ready, retry, slow, alignment_available, write_available): Bool
   input hit_data: Bits(64)
   interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
-  interface initialize(Valid(VectorRegisterWrite(vlen)), ~role: consumer)
-  interface written(Valid(VectorRegisterWrite(vlen)), ~role: producer)
+  interface initialize(Valid(VectorRegisterWrite(xlen, vlen)), ~role: consumer)
+  interface written(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   output(request_ready, active, issued, retired): Bool
-  output token: RV5StageVectorToken(Bits(64), slots)
-  interface attempt(Valid(RV5StageVectorToken(Bits(64), slots)), ~role: producer)
+  output token: RV5StageVectorToken(xlen, Bits(64), slots)
+  interface attempt(Valid(RV5StageVectorToken(xlen, Bits(64), slots)), ~role: producer)
   inst engine(RV5StageVectorPackedMemory(xlen, vlen, Bits(64), slots))
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(64)))
   sequencer.packed_memory <== Bool(#true)
@@ -45,7 +45,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   sequencer.feedback.valid <== Bool(#false)
   sequencer.feedback.bits <== dont_care(sequencer.feedback.bits.type)
   sequencer.read_request.ready <== Bool(#false)
-  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
+  sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
   reg tail(~init: bits(0, index_width(slots)))
   reg head(~init: bits(0, index_width(slots)))
   inst slots_owner(RV5StageVectorSlots(slots))
@@ -59,10 +59,10 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.alignment_available <== alignment_available
   engine.write_available <== write_available
   engine.owner <== bits(0, 1)
-  engine.blocked_rows <== bits(0, VectorRegisterLayout(vlen, 64).depth).as_vec(Bool)
-  inst registers(RV5StageVectorRegisterFile(vlen))
-  inst execute(RV5StageVectorExecute(vlen))
-  inst attempts(ValidPipe(RV5StageVectorToken(Bits(64), slots), 3, ~flushable: #true))
+  engine.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
+  inst registers(RV5StageVectorRegisterFile(xlen, vlen))
+  inst execute(RV5StageVectorExecute(xlen, vlen))
+  inst attempts(ValidPipe(RV5StageVectorToken(xlen, Bits(64), slots), 3, ~flushable: #true))
   def control :: RV5StageVectorControl() = literal(RV5StageVectorControl(), 0)
   def launches :: Handle = interface_link(Decoupled(RV5StageVectorInstruction(xlen, Bits(64))))
   launches.left.valid <== request_valid
@@ -81,7 +81,7 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
             vxsat: Bool(#false)
         control: control.updated(~memory: Bool(#true), ~store: store, ~memory_data_eew: eew, ~memory_nf: nf, ~memory_mode: mode)
         scalar: base[0..xlen.width]
-        floating_scalar: bits(0, 64)
+        floating_scalar: bits(0, xlen.width)
         stride: bits(0, xlen.width)
         masked: masked
         rounding_mode: RoundingMode.NearEven
@@ -128,8 +128,8 @@ sync_circuit RV5StageVectorPackedFixture(slots :: Pow2Int, ~xlen: xlen :: XLen =
   engine.alignment |> execute.alignment
   engine.aligned <== execute.aligned
   assert(!engine.alignment.valid ||| alignment_available, "packed_alignment_obeys_availability")
-  execute.beat <== literal(RV5StageVectorBeat(vlen), 0)
-  execute.scan_carry <== bits(0, 64)
+  execute.beat <== literal(RV5StageVectorBeat(xlen, vlen), 0)
+  execute.scan_carry <== bits(0, xlen.width)
   request_ready <== launches.left.ready
   active <== engine.active
   issued <== engine.issue.fire()

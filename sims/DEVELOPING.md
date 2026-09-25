@@ -474,7 +474,7 @@ to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
 exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses
 the same FESVR and prebuilt-simulator path in CI; no alternate loader or harness
 is involved.
-The RV32Max Spike binding uses the same payload's integer-vector branch with
+Both RV32Max core bindings use the same payload's integer-vector branch with
 VLEN64/ELEN32. `tests/programs/xlen.h` selects register-sized loads/stores for
 platform payloads. The boot register and HTIF mailboxes remain eight bytes:
 RV32 payload termination writes the low word of a zero-initialized mailbox, and the MMIO signature test

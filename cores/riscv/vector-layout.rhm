@@ -4,6 +4,15 @@
 
 import:
   lib("riscv/isa/vector.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+// Physical word geometry for cores whose vector lane follows XLEN.
+fun vector_word_bytes(xlen :: XLen) :: PosInt: xlen.width / 8
+fun vector_bit_offset_width(xlen :: XLen) :: PosInt: bits.length(xlen.width - 1)
+fun vector_byte_offset_width(xlen :: XLen) :: PosInt: bits.length(vector_word_bytes(xlen) - 1)
+fun vector_lane_count_width(xlen :: XLen) :: PosInt: bits.length(vector_word_bytes(xlen))
+fun vector_format_count(xlen :: XLen) :: PosInt: vector_byte_offset_width(xlen) + 1
+fun vector_slide_bytes(xlen :: XLen) :: PosInt: 2 * vector_word_bytes(xlen)
 
 class VectorRowLocation(row :: Nat, bit_offset :: Nat)
 
@@ -29,5 +38,11 @@ class VectorRegisterLayout(vlen :: VectorLength, row_bits :: PosInt):
     VectorRowLocation(offset div row_bits, offset mod row_bits)
 
 export:
+  vector_word_bytes
+  vector_bit_offset_width
+  vector_byte_offset_width
+  vector_lane_count_width
+  vector_format_count
+  vector_slide_bytes
   VectorRowLocation
   VectorRegisterLayout

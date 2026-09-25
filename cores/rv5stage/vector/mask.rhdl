@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("cores/riscv/vector-layout.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
   "../../simd-alu.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
@@ -18,38 +20,38 @@ bundle VectorMaskScanControl():
   include_first: Bool
   only_first: Bool
 
-circuit RV5StageVectorMaskScan():
-  input(source, enabled, first, carry): Bits(64)
+circuit RV5StageVectorMaskScan(xlen :: XLen):
+  input(source, enabled, first, carry): Bits(xlen.width)
   input element_width: SimdElementWidth
   input control: VectorMaskScanControl()
-  output(data, next_carry): Bits(64)
+  output(data, next_carry): Bits(xlen.width)
   def selected = source & enabled
   // A shared parallel prefix network supplies the total and every lane prefix.
-  // Seven bits represent all 64 selected bits without overflowing at a full word.
-  def mutable sums = for List (index in 0..64): selected[index].zext(7)
-  for (level in 0..6):
+  // One extra count bit represents a fully selected physical word.
+  def mutable sums = for List (index in 0..xlen.width): selected[index].zext(vector_bit_offset_width(xlen) + 1)
+  for (level in 0..vector_bit_offset_width(xlen)):
     def previous = sums
     def distance = 2 ** level
-    sums := for List (index in 0..64):
-      def current :: Bits(7) = previous[index]
+    sums := for List (index in 0..xlen.width):
+      def current :: Bits(vector_bit_offset_width(xlen) + 1) = previous[index]
       if index < distance
       | current
-      | def lower :: Bits(7) = previous[index - distance]
+      | def lower :: Bits(vector_bit_offset_width(xlen) + 1) = previous[index - distance]
         current + lower
-  def prefixes = [bits(0, 7)] ++ sums
-  def total :: Bits(7) = sums[63]
-  def count = carry + total.zext(64)
-  def first_set = count_leading_zeros(reverse_bits(selected)).zext(64)
-  def first_result = mux((carry === !bits(0, 64)) & selected.or_reduce(), first + first_set, carry)
-  def mask = vec(for List (index in 0..64):
-                   def preceding :: Bits(7) = prefixes[index]
+  def prefixes = [bits(0, vector_bit_offset_width(xlen) + 1)] ++ sums
+  def total :: Bits(vector_bit_offset_width(xlen) + 1) = sums[xlen.width - 1]
+  def count = carry + total.zext(xlen.width)
+  def first_set = count_leading_zeros(reverse_bits(selected)).zext(xlen.width)
+  def first_result = mux((carry === !bits(0, xlen.width)) & selected.or_reduce(), first + first_set, carry)
+  def mask = vec(for List (index in 0..xlen.width):
+                   def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[index]
                    !carry.or_reduce() & !preceding.or_reduce() & mux(control.only_first, selected[index].into(Bool), control.include_first ||| !selected[index].into(Bool))).as_bits()
-  def elements = for List (format in 0..4):
+  def elements = for List (format in 0..vector_format_count(xlen)):
     def width = 8 * (2 ** format)
-    vec(for List (lane in 0..(64 / width)):
-          def preceding :: Bits(7) = prefixes[lane]
-          mux(control.index, first + bits(lane, 64), carry + preceding.zext(64))[0..width]).as_bits()
-  def packed = mux_lookup(element_width, ~default: elements[0], for List (format in 1..4): [SimdElementWidth.values()[format], elements[format]])
+    vec(for List (lane in 0..(xlen.width / width)):
+          def preceding :: Bits(vector_bit_offset_width(xlen) + 1) = prefixes[lane]
+          mux(control.index, first + bits(lane, xlen.width), carry + preceding.zext(xlen.width))[0..width]).as_bits()
+  def packed = mux_lookup(element_width, ~default: elements[0], for List (format in 1..vector_format_count(xlen)): [SimdElementWidth.values()[format], elements[format]])
   next_carry <== mux(control.result === VectorScanResult.First, first_result, count)
   data <== mux_lookup(control.result, ~default: count, [[VectorScanResult.First, first_result], [VectorScanResult.Mask, mask], [VectorScanResult.Elements, packed]])
 

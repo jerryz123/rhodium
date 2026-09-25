@@ -12,8 +12,6 @@ import:
 
 fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConfig:
   def architecture = soc_architecture(preset)
-  when preset == IsaPreset.RV32Max
-  | error(~who: #'rv5stage_product_profile, "rv32max requires RV32 integer-vector integration and VLEN=64 support; no substitute profile is selected")
   def has = fun (name :: String): architecture.has(name)
   def compressed = cond
   | has("zcb"): compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)

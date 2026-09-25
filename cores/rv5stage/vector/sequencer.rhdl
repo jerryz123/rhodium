@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   "bundles.rhdl" open
   "geometry.rhdl" open
   "dependencies.rhdl".vector_destination_registers
@@ -17,7 +17,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
 
 sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false):
-  def Address = Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
+  def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def Count = Bits(index_width(vlen + 1))
   def Sequence = Bits(vector_sequence_width(vlen))
   def ReadRequest = RV5StageVectorReadRequest(xlen, vlen, Context)
@@ -29,7 +29,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   interface read_request(Decoupled(ReadRequest), ~role: producer)
   interface sequencing_done(Pulse(), ~role: producer)
-  input blocked_rows: Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
+  input blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   output(active, read_flush): Bool
 
   reg occupied(~init: Bool(#false))
@@ -41,9 +41,9 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   reg authorized(Count)
   reg authorized_field(Bits(3))
   reg authorized_sequence(Sequence)
-  reg memory_element_address(~init: bits(0, 64))
-  reg authorized_memory_element_address(~init: bits(0, 64))
-  reg memory_element_step(~init: bits(0, 64))
+  reg memory_element_address(~init: bits(0, xlen.width))
+  reg authorized_memory_element_address(~init: bits(0, xlen.width))
+  reg memory_element_step(~init: bits(0, xlen.width))
   reg memory_setup_remaining(~init: bits(0, index_width(vlen + 1)))
   reg all_issued(~init: Bool(#false))
   def descriptor = instruction.descriptor
@@ -56,7 +56,7 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def sew = vector_data_width(descriptor.control, geometry.sew)
   def mask_word = vector_mask_word(descriptor.control)
   def limit = vector_beat_limit(xlen, vlen, descriptor)
-  def lanes = vector_beat_lanes(vlen, descriptor.control, sew)
+  def lanes = vector_beat_lanes(xlen, vlen, descriptor.control, sew)
   def element_move = descriptor.control.element_move
   def whole_register_memory = descriptor.control.memory & (descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
   def segmented_memory = descriptor.control.memory & !whole_register_memory & descriptor.control.memory_nf.or_reduce()
@@ -100,49 +100,49 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   def beat_last = empty ||| ((end === limit) & last_field)
   // A vector gather's second read owns port zero in the index-response cycle.
   // The next index read can overlap the preceding data response, not its read.
-  def source_chunk = mux(mask_logic ||| scan, cursor >> 6, cursor >> (bits(3, 2) - sew))
-  def extension_source_chunk = cursor >> (bits(3, 2) - source_sew)
-  def wide_source_chunk = cursor >> (bits(2, 2) - sew)
-  def destination_chunk = cursor >> (bits(3, 2) - destination_width)
-  def row_base_width = index_width(VectorRegisterLayout(vlen, 64).depth)
+  def source_chunk = mux(mask_logic ||| scan, cursor >> vector_bit_offset_width(xlen), cursor >> (bits(vector_byte_offset_width(xlen), 2) - sew))
+  def extension_source_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - source_sew)
+  def wide_source_chunk = cursor >> (bits(vector_byte_offset_width(xlen) - 1, 2) - sew)
+  def destination_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - destination_width)
+  def row_base_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
   def memory_emul = geometry.lmul.into(SInt(3)).sext(5) + memory_data_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5))
   def memory_group_shift = mux(memory_emul < SInt(5)(0), bits(0, 3), memory_emul.into(Bits(5))[0..3])
   def memory_register = vd + (field.zext(5) << memory_group_shift)
-  def memory_field_offset = field.zext(64) << memory_data_eew
+  def memory_field_offset = field.zext(xlen.width) << memory_data_eew
   def memory_effective_address = memory_element_address + memory_field_offset
   // Whole-element displacement stays at XLEN until bounds are checked. Extra
   // bits retain both unsigned overflow and the negative slide-up prefix.
   def slide_origin = cursor.zext(xlen.width + 2) + slide_delta
-  def slide_chunk = slide_origin >> (bits(3, 2) - sew)
-  def slide_first = slide_origin & !(bits(7, xlen.width + 2) >> sew)
+  def slide_chunk = slide_origin >> (bits(vector_byte_offset_width(xlen), 2) - sew)
+  def slide_first = slide_origin & !(bits(vector_word_bytes(xlen) - 1, xlen.width + 2) >> sew)
   // Every destination cursor is chunk-aligned, including a restarted chunk,
   // so this byte offset is constant throughout the retained macro.
-  def slide_valid = vec(for List (byte in 0..16):
+  def slide_valid = vec(for List (byte in 0..vector_slide_bytes(xlen)):
                           def element = slide_first + (bits(byte, xlen.width + 2) >> sew)
                           element < geometry.vlmax.zext(xlen.width + 2)).as_bits()
-  def slide_base = vs2.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
+  def slide_base = vs2.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
   def slide_address = slide_base + slide_chunk[0..row_base_width]
-  def index_chunk = cursor >> (bits(3, 2) - index_sew)
-  def scalar_in_range = scalar_index < geometry.vlmax.zext(64)
-  def scalar_address = slide_base + (scalar_index >> (bits(3, 2) - sew))[0..row_base_width]
+  def index_chunk = cursor >> (bits(vector_byte_offset_width(xlen), 2) - index_sew)
+  def scalar_in_range = scalar_index < geometry.vlmax.zext(xlen.width)
+  def scalar_address = slide_base + (scalar_index >> (bits(vector_byte_offset_width(xlen), 2) - sew))[0..row_base_width]
   def first_source_chunk = mux(extension, extension_source_chunk, mux(wide_vs2 ||| fp_narrowing, wide_source_chunk, source_chunk))
-  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..8].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + first_source_chunk[0..row_base_width]))
-  def second_address = mux(compress, (vs1.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + (cursor >> 6)[0..row_base_width], mux(slide, mux(slide_valid[8..16].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
-  def destination_address = (vd.zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + destination_chunk[0..row_base_width]
+  def first_address = mux(gather, mux(!gather_vector & scalar_in_range, scalar_address, slide_base), mux(slide, mux(slide_valid[0..vector_word_bytes(xlen)].or_reduce(), slide_address, slide_base), (mux(descriptor.control.memory, memory_register, vs2).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + first_source_chunk[0..row_base_width]))
+  def second_address = mux(compress, (vs1.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + (cursor >> vector_bit_offset_width(xlen))[0..row_base_width], mux(slide, mux(slide_valid[vector_word_bytes(xlen)..vector_slide_bytes(xlen)].or_reduce(), slide_address + bits(1, row_base_width), slide_base), (mux(indexed_memory, vs2, vs1).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + mux(reduction, bits(0, row_base_width), mux(gather_vector ||| indexed_memory, index_chunk, source_chunk)[0..row_base_width])))
+  def destination_address = (vd.zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + destination_chunk[0..row_base_width]
   // Writes may now finish independently of older unrelated instructions.
   // Preserve WAW order at the physical destination row before capturing reads.
   def writing = !scalar_destination & !(descriptor.control.memory & descriptor.control.store) & !empty
   def write_width = sew + ((descriptor.control.integer ||| descriptor.control.multiply_divide ||| descriptor.control.fp_service) & descriptor.control.widening & !reduction).as_bits().zext(2)
-  def write_chunk = mux(reduction ||| element_move, bits(0, index_width(vlen + 1)), mux(descriptor.control.mask_destination ||| mask_logic, cursor >> 6, cursor >> (bits(3, 2) - write_width)))
-  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)) + write_chunk[0..row_base_width]
+  def write_chunk = mux(reduction ||| element_move, bits(0, index_width(vlen + 1)), mux(descriptor.control.mask_destination ||| mask_logic, cursor >> vector_bit_offset_width(xlen), cursor >> (bits(vector_byte_offset_width(xlen), 2) - write_width)))
+  def write_address = (mux(segmented_memory, memory_register, vd).zext(row_base_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + write_chunk[0..row_base_width]
   def destination_group = vector_destination_registers(xlen, vlen, descriptor)
-  def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, 64).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, 64).rows_per_register].into(Bool)).as_bits().or_reduce()
+  def compressed_write_wait = vec(for List (row in 0..VectorRegisterLayout(vlen, xlen.width).depth): blocked_rows[row] & destination_group[row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool)).as_bits().or_reduce()
   def write_wait = writing & mux(compress, compressed_write_wait, blocked_rows[write_address])
   // Older macros have captured every operand before this descriptor starts.
   // Only their pending writes can block us; this macro's own writes cannot.
   // Indexed gathers conservatively wait for older writes before their index
   // read, since the dependent data read is a nonstallable second read stage.
-  def mask_address = (cursor >> 6)[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)].zext(row_base_width)
+  def mask_address = (cursor >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)].zext(row_base_width)
   def uses_mask = descriptor.masked ||| descriptor.control.carry_input ||| descriptor.control.mask_select
   def read_source_blocked = vec([
     !empty & blocked_rows[first_address],
@@ -160,21 +160,21 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
   read_offer.left.bits.context.instruction <== instruction
   read_offer.left.bits.context.minimum <== minimum
   read_offer.left.bits.context.slide_valid <== slide_valid
-  read_offer.left.bits.context.beat_control <== RV5StageVectorBeatControl(vlen):
+  read_offer.left.bits.context.beat_control <== RV5StageVectorBeatControl(xlen, vlen):
     sequence: sequence
     first: cursor
     end: end
     last: beat_last
     empty: empty
     address: memory_effective_address
-    mask_enabled: vec(for List (bit_index in 0..64):
+    mask_enabled: vec(for List (bit_index in 0..xlen.width):
                         def element = cursor.zext(index_width(vlen + 1) + 1) + bits(bit_index, index_width(vlen + 1) + 1)
                         !empty & (element >= minimum.zext(index_width(vlen + 1) + 1)) & (element < end.zext(index_width(vlen + 1) + 1))).as_bits()
     destination: mux(segmented_memory, memory_register, vd)
   read_offer.left.bits.enables <== vec([!empty, !empty & second_source, !empty & destination_source]).as_bits()
   read_offer.left.bits.addresses <== vec([first_address, second_address, destination_address])
   read_offer.left.bits.mask_enable <== !empty
-  read_offer.left.bits.mask_address <== (cursor >> 6)[0..index_width(VectorRegisterLayout(vlen, 64).rows_per_register)]
+  read_offer.left.bits.mask_address <== (cursor >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
   def offered_read = read_offer.right |> trace_event("vector/s1.sequence", ~stalls: #true, ~fields: read):
     pc: read.context.instruction.descriptor.pc
     instruction(~format: "riscv", ~isa: trace_isa || (if xlen == XLen.X32 | "rv32imafdcv" | "rv64imafdcv"), ~pc: "pc"): read.context.instruction.descriptor.instruction
@@ -229,20 +229,20 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
     occupied <== Bool(#true)
     instruction <== request.bits
     def start = mux(request.bits.descriptor.control.element_move, bits(0, index_width(vlen + 1)), request.bits.descriptor.state.vstart[0..index_width(vlen + 1)])
-    def base = if xlen == XLen.X64 | request.bits.descriptor.scalar | request.bits.descriptor.scalar.zext(64)
-    def stride = if xlen == XLen.X64 | request.bits.descriptor.stride | request.bits.descriptor.stride.into(SInt(32)).sext(64).into(Bits(64))
-    def field_bytes = bits(1, 64) << request.bits.descriptor.control.memory_data_eew
-    def fields = request.bits.descriptor.control.memory_nf.zext(64) + bits(1, 64)
+    def base = request.bits.descriptor.scalar
+    def stride = request.bits.descriptor.stride
+    def field_bytes = bits(1, xlen.width) << request.bits.descriptor.control.memory_data_eew
+    def fields = request.bits.descriptor.control.memory_nf.zext(xlen.width) + bits(1, xlen.width)
     def request_whole_register_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.WholeRegister)
     def request_mask_memory = request.bits.descriptor.control.memory & (request.bits.descriptor.control.memory_mode === VectorMemoryMode.Mask)
     def unit_stride_step = mux(request_whole_register_memory, field_bytes, mux(request.bits.descriptor.control.memory_nf.or_reduce(), fields << request.bits.descriptor.control.memory_data_eew, field_bytes))
     def element_step = mux(request.bits.descriptor.control.memory_addressing === VectorMemoryAddressing.Strided, stride, unit_stride_step)
     def word_schedule = request.bits.descriptor.control.integer & (request.bits.descriptor.control.mask_logic ||| (request.bits.descriptor.control.scan & (request.bits.descriptor.control.scan_control.result =/= VectorScanResult.Elements)))
     def single_schedule = request.bits.descriptor.control.memory ||| request.bits.descriptor.control.fp_service ||| request.bits.descriptor.control.multiply_divide ||| (request.bits.descriptor.control.integer & (request.bits.descriptor.control.reduction ||| (request.bits.descriptor.control.gather & (request.bits.descriptor.control.operand === VectorOperandMode.Vector))))
-    def packed_start = vector_aligned_first(vlen, start, request.bits.descriptor.state.vtype[3..5])
-    def width_change_start = mux_lookup(request.bits.descriptor.state.vtype[3..5], ~default: start.align_down(4), [[1, start.align_down(2)], [2, start]])
+    def packed_start = vector_aligned_first(xlen, vlen, start, request.bits.descriptor.state.vtype[3..5])
+    def width_change_start = start & !(bits(vector_word_bytes(xlen) / 2 - 1, index_width(vlen + 1)) >> request.bits.descriptor.state.vtype[3..5])
     def request_width_change = (request.bits.descriptor.control.integer ||| request.bits.descriptor.control.fp_service) & (request.bits.descriptor.control.widening ||| request.bits.descriptor.control.narrowing)
-    cursor <== mux(word_schedule, start.align_down(64), mux(single_schedule, start, mux(request_width_change, width_change_start, packed_start)))
+    cursor <== mux(word_schedule, start.align_down(xlen.width), mux(single_schedule, start, mux(request_width_change, width_change_start, packed_start)))
     field <== bits(0, 3)
     sequence <== bits(0, vector_sequence_width(vlen))
     minimum <== start
@@ -261,8 +261,8 @@ sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context
     memory_setup_remaining <== mux(request.bits.descriptor.control.memory & !indexed & (start < request_limit), start, bits(0, index_width(vlen + 1)))
     all_issued <== Bool(#false)
   elsewhen retry:
-    def width_change_restart = mux_lookup(geometry.sew, ~default: authorized.align_down(4), [[1, authorized.align_down(2)], [2, authorized]])
-    cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(64), mux(singleton, authorized, mux(width_change, width_change_restart, vector_aligned_first(vlen, authorized, geometry.sew)))))
+    def width_change_restart = authorized & !(bits(vector_word_bytes(xlen) / 2 - 1, index_width(vlen + 1)) >> geometry.sew)
+    cursor <== mux(compress, authorized, mux(mask_word, authorized.align_down(xlen.width), mux(singleton, authorized, mux(width_change, width_change_restart, vector_aligned_first(xlen, vlen, authorized, geometry.sew)))))
     field <== authorized_field
     sequence <== authorized_sequence
     minimum <== authorized

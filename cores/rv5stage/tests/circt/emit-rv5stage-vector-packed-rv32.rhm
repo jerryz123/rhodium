@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits four-byte packed transport with the same eight-byte VRF and SIMD rotator.
+// Emits four-byte packed transport with native four-byte VRF rows and SIMD rotation.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../../cores/rv5stage/tests/vector-packed-fixture.rhdl" open

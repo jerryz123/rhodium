@@ -15,7 +15,7 @@ import:
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
-fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(vlen), tag :: Bits(index_width(slots))) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
+fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(xlen, vlen), tag :: Bits(index_width(slots))) :~ RV5StageFpExecutionRequest(xlen, (if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D), Bits(index_width(slots))):
   def profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def flen = floating_point_register_width(profile)
   fun precision(width :: SimdElementWidth) :~ RV5StageFloatPrecision:
@@ -35,7 +35,7 @@ fun vector_fp_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat
     ~registers: unused.registers.updated(~destination: mux(fp_destination, RV5StageFloatDestination.FloatingPoint, RV5StageFloatDestination.Integer), ~uses_frs1: fp_source),
     ~execution: beat.control.fp_execution.updated(~source_precision: source_precision, ~destination_precision: result_precision, ~integer_width: mux(fp_source, integer_width(beat.fp_result_width), integer_width(beat.fp_source_width)))
   )
-  fun operand(value :: Bits(64), precision :: RV5StageFloatPrecision) :~ Bits(flen):
+  fun operand(value :: Bits(xlen.width), precision :: RV5StageFloatPrecision) :~ Bits(flen):
     def half = riscv_nan_box(FloatFormat.F16, value[0..16].into(IEEEFloat(FloatFormat.F16)), flen)
     def single = riscv_nan_box(FloatFormat.F32, value[0..32].into(IEEEFloat(FloatFormat.F32)), flen)
     if xlen == XLen.X32

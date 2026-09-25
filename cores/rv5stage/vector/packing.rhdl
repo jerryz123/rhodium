@@ -4,7 +4,7 @@
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   "../../../riscv/isa/vector.rhm" open
   "../../simd-alu.rhdl" open
   "register-file.rhdl" open
@@ -40,54 +40,54 @@ bundle VectorPackingControl(vlen :: VectorLength):
   left_signed: Bool
   right_signed: Bool
 
-bundle VectorPackedOperands(vlen :: VectorLength):
-  left: Bits(64)
-  right: Bits(64)
+bundle VectorPackedOperands(xlen :: XLen, vlen :: VectorLength):
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
   element_width: SimdElementWidth
-  enabled: Mask(8)
+  enabled: Mask(vector_word_bytes(xlen))
   first_element: Bits(index_width(vlen + 1))
 
 // Internal narrowing result retains the per-beat saturation indication beside
 // the packed write data until WB authorizes the architectural sticky update.
-bundle VectorNarrowedResult():
-  result: SimdAluResult(XLen.X64)
+bundle VectorNarrowedResult(xlen :: XLen):
+  result: SimdAluResult(xlen)
   saturated: Bool
 
-circuit RV5StageVectorOperands(vlen :: VectorLength):
+circuit RV5StageVectorOperands(xlen :: XLen, vlen :: VectorLength):
   input control: VectorPackingControl(vlen)
-  input(left, right, mask_word, scalar): Bits(64)
+  input(left, right, mask_word, scalar): Bits(xlen.width)
   input immediate: Bits(6)
-  output operands: VectorPackedOperands(vlen)
+  output operands: VectorPackedOperands(xlen, vlen)
   output legal: Bool
 
   def count_width = index_width(vlen + 1)
   def widths = [SimdElementWidth.E8, SimdElementWidth.E16, SimdElementWidth.E32, SimdElementWidth.E64]
-  def signed_immediate = immediate[0..5].into(SInt(5)).sext(64).into(Bits(64))
-  def immediate_value = mux_lookup(control.immediate_kind, ~default: signed_immediate, [[VectorImmediateKind.Unsigned5, immediate[0..5].zext(64)], [VectorImmediateKind.Unsigned6, immediate.zext(64)]])
+  def signed_immediate = immediate[0..5].into(SInt(5)).sext(xlen.width).into(Bits(xlen.width))
+  def immediate_value = mux_lookup(control.immediate_kind, ~default: signed_immediate, [[VectorImmediateKind.Unsigned5, immediate[0..5].zext(xlen.width)], [VectorImmediateKind.Unsigned6, immediate.zext(xlen.width)]])
   def broadcast_source = mux(control.operand_select === VectorOperandSelect.Immediate, immediate_value, scalar)
-  def source_mask = (mask_word >> control.first_element[0..6])[0..8]
+  def source_mask = (mask_word >> control.first_element[0..vector_bit_offset_width(xlen)])[0..vector_word_bytes(xlen)]
   def alternatives:
-    for List (format in 0..4):
+    for List (format in 0..vector_format_count(xlen)):
       def width = 8 << format
-      def lanes = 64 / width
-      def enabled = vec(for List (lane in 0..8):
+      def lanes = xlen.width / width
+      def enabled = vec(for List (lane in 0..vector_word_bytes(xlen)):
                           def element = control.first_element.zext(count_width + 1) + bits(lane, count_width + 1)
                           Bool(lane < lanes) & (element >= control.vstart.zext(count_width + 1)) & (element < control.vl.zext(count_width + 1)) & (element < control.vlmax.zext(count_width + 1)) & (!control.masked ||| source_mask[lane].into(Bool)))
-      VectorPackedOperands(vlen):
+      VectorPackedOperands(xlen, vlen):
         left: left
         right: mux(control.operand_select === VectorOperandSelect.Vector, right, vec(for List (_ in 0..lanes): broadcast_source[0..width]).as_bits())
         element_width: widths[format]
-        enabled: enabled.as_bits().into(Mask(8))
+        enabled: enabled.as_bits().into(Mask(vector_word_bytes(xlen)))
         first_element: control.first_element
-  def packed :: VectorPackedOperands(vlen) = mux_lookup(control.element_width, ~default: alternatives[0], for List (format in 1..4): [widths[format], alternatives[format]])
-  inst extend(SimdExtend(XLen.X64))
+  def packed :: VectorPackedOperands(xlen, vlen) = mux_lookup(control.element_width, ~default: alternatives[0], for List (format in 1..vector_format_count(xlen)): [widths[format], alternatives[format]])
+  inst extend(SimdExtend(xlen))
   extend.source <== packed.left
   extend.destination_width <== control.element_width
   extend.ratio <== control.extension_ratio
   extend.part <== control.extension_part
   extend.signed <== control.extension_signed
   def extended = packed.updated(~left: extend.data)
-  inst widen(SimdWidenOperands(XLen.X64))
+  inst widen(SimdWidenOperands(xlen))
   widen.left <== packed.left
   widen.right <== packed.right
   widen.enabled <== packed.enabled
@@ -96,18 +96,18 @@ circuit RV5StageVectorOperands(vlen :: VectorLength):
   widen.left_signed <== control.left_signed
   widen.right_signed <== control.right_signed
   widen.element_width <== control.element_width.as_bits().into(SimdWidenElementWidth)
-  def half_elements = mux_lookup(control.element_width, ~default: bits(4, count_width), [[SimdElementWidth.E16, bits(2, count_width)], [SimdElementWidth.E32, bits(1, count_width)]])
-  def widened = VectorPackedOperands(vlen):
+  def half_elements = bits(vector_word_bytes(xlen) / 2, count_width) >> control.element_width.as_bits()
+  def widened = VectorPackedOperands(xlen, vlen):
     left: widen.operands.left
     right: widen.operands.right
     element_width: widen.operands.element_width
     enabled: widen.operands.enabled
     first_element: control.first_element + mux(control.upper_half, half_elements, bits(0, count_width))
   operands <== mux(control.extension, extended, mux(control.widening ||| control.narrowing, widened, packed))
-  def aligned = mux_lookup(control.element_width, ~default: control.first_element.is_aligned(8), [[SimdElementWidth.E16, control.first_element.is_aligned(4)], [SimdElementWidth.E32, control.first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
-  legal <== aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !((control.widening ||| control.narrowing) & (control.element_width === SimdElementWidth.E64)) & (!control.extension ||| extend.legal)
+  def aligned = !(control.first_element & (bits(vector_word_bytes(xlen) - 1, count_width) >> control.element_width.as_bits())).or_reduce()
+  legal <== (control.element_width.as_bits() <= bits(vector_format_count(xlen) - 1, 2)) & aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !((control.widening ||| control.narrowing) & (control.element_width.as_bits() >= bits(vector_format_count(xlen) - 1, 2))) & (!control.extension ||| extend.legal)
 
-circuit RV5StageVectorResult(vlen :: VectorLength):
+circuit RV5StageVectorResult(xlen :: XLen, vlen :: VectorLength):
   input destination: Bits(5)
   input first_element: Bits(index_width(vlen + 1))
   input element_width: SimdElementWidth
@@ -115,25 +115,25 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
   input narrowing: Bool
   input clip: Bool
   input clip_unsigned: Bool
-  input enabled: Mask(8)
-  input result: SimdAluResult(XLen.X64)
-  output write: VectorRegisterWrite(vlen)
+  input enabled: Mask(vector_word_bytes(xlen))
+  input result: SimdAluResult(xlen)
+  output write: VectorRegisterWrite(xlen, vlen)
   output legal: Bool
   output saturated: Bool
 
   // Keep the carry above the physical address until checking the bank bound.
-  def address_width = index_width(VectorRegisterLayout(vlen, 64).depth)
+  def address_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth)
   def calculation_width = index_width(vlen + 1) + 1
-  def base = destination.zext(calculation_width) << index_width(VectorRegisterLayout(vlen, 64).rows_per_register)
+  def base = destination.zext(calculation_width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
   def element = first_element.zext(calculation_width)
-  def data_chunk = mux_lookup(element_width, ~default: element >> 3, [[SimdElementWidth.E16, element >> 2], [SimdElementWidth.E32, element >> 1], [SimdElementWidth.E64, element]])
-  def address = base + mux(mask_destination, element >> 6, data_chunk)
-  def mask_write_mask = enabled.as_bits().zext(64) << first_element[0..6]
-  def upper_half = mux_lookup(element_width, ~default: first_element[2].into(Bool), [[SimdElementWidth.E16, first_element[1].into(Bool)], [SimdElementWidth.E32, first_element[0].into(Bool)]])
-  def narrowed_results = for List (format in 0..3):
+  def data_chunk = element >> (bits(vector_byte_offset_width(xlen), 2) - element_width.as_bits())
+  def address = base + mux(mask_destination, element >> vector_bit_offset_width(xlen), data_chunk)
+  def mask_write_mask = enabled.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)]
+  def upper_half = (first_element & (bits(vector_word_bytes(xlen) / 2, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce()
+  def narrowed_results = for List (format in 0..(vector_format_count(xlen) - 1)):
     def element_bits = 8 * (2 ** format)
     def source_bits = 2 * element_bits
-    def lanes = 32 div element_bits
+    def lanes = (xlen.width / 2) div element_bits
     def elements = for List (lane in 0..lanes):
       def source = result.data[lane * source_bits..(lane + 1) * source_bits]
       def low = source[0..element_bits]
@@ -147,28 +147,28 @@ circuit RV5StageVectorResult(vlen :: VectorLength):
       def unsigned_limit = !bits(0, element_bits)
       def signed_limit = mux(result_negative, bits(1 << (element_bits - 1), element_bits), bits((1 << (element_bits - 1)) - 1, element_bits))
       [mux(clip & overflow, mux(clip_unsigned, unsigned_limit, signed_limit), low), (enabled[lane] & clip & overflow).as_bits()]
-    def low_data :: Bits(32) = if lanes == 1 | elements[0][0] | concat(elements.map(fun (element :: List): element[0]).reverse())
+    def low_data :: Bits(xlen.width / 2) = if lanes == 1 | elements[0][0] | concat(elements.map(fun (element :: List): element[0]).reverse())
     def saturation_bits :: Bits(lanes) = if lanes == 1 | elements[0][1] | concat(elements.map(fun (element :: List): element[1]).reverse())
-    def mask_bits = for List (byte in 0..4): enabled[byte div (2 ** format)].as_bits()
-    def low_mask = concat(mask_bits.reverse()).into(Mask(4))
-    VectorNarrowedResult():
+    def mask_bits = for List (byte in 0..(vector_word_bytes(xlen) / 2)): enabled[byte div (2 ** format)].as_bits()
+    def low_mask = concat(mask_bits.reverse()).into(Mask(vector_word_bytes(xlen) / 2))
+    VectorNarrowedResult(xlen):
       result:
-        SimdAluResult(XLen.X64):
-          data: mux(upper_half, low_data ++ bits(0, 32), bits(0, 32) ++ low_data)
+        SimdAluResult(xlen):
+          data: mux(upper_half, low_data ++ bits(0, xlen.width / 2), bits(0, xlen.width / 2) ++ low_data)
           mask_result: result.mask_result
-          write_mask: mux(upper_half, low_mask.as_bits() ++ bits(0, 4), bits(0, 4) ++ low_mask.as_bits()).into(Mask(8))
+          write_mask: mux(upper_half, low_mask.as_bits() ++ bits(0, vector_word_bytes(xlen) / 2), bits(0, vector_word_bytes(xlen) / 2) ++ low_mask.as_bits()).into(Mask(vector_word_bytes(xlen)))
           saturated: result.saturated
       saturated: saturation_bits.or_reduce()
-  def narrowed :: VectorNarrowedResult() = mux_lookup(element_width, ~default: narrowed_results[0], [[SimdElementWidth.E16, narrowed_results[1]], [SimdElementWidth.E32, narrowed_results[2]]])
-  def effective_result :: SimdAluResult(XLen.X64) = mux(narrowing, narrowed.result, result)
+  def narrowed :: VectorNarrowedResult(xlen) = mux_lookup(element_width, ~default: narrowed_results[0], for List (format in 1..(vector_format_count(xlen) - 1)): [SimdElementWidth.values()[format], narrowed_results[format]])
+  def effective_result :: SimdAluResult(xlen) = mux(narrowing, narrowed.result, result)
   saturated <== result.saturated ||| (narrowing & narrowed.saturated)
-  write <== VectorRegisterWrite(vlen):
+  write <== VectorRegisterWrite(xlen, vlen):
     address: address[0..address_width]
-    data: mux(mask_destination, effective_result.mask_result.as_bits().zext(64) << first_element[0..6], effective_result.data)
+    data: mux(mask_destination, effective_result.mask_result.as_bits().zext(xlen.width) << first_element[0..vector_bit_offset_width(xlen)], effective_result.data)
     mask: mux(mask_destination, mask_write_mask, expand_mask(effective_result.write_mask.as_bits(), 8))
-  def aligned = mux_lookup(element_width, ~default: first_element.is_aligned(8), [[SimdElementWidth.E16, first_element.is_aligned(4)], [SimdElementWidth.E32, first_element.is_aligned(2)], [SimdElementWidth.E64, Bool(#true)]])
-  def half_aligned = mux_lookup(element_width, ~default: first_element.is_aligned(4), [[SimdElementWidth.E16, first_element.is_aligned(2)], [SimdElementWidth.E32, Bool(#true)], [SimdElementWidth.E64, Bool(#false)]])
-  legal <== mux(narrowing, half_aligned, aligned) & (address < bits(VectorRegisterLayout(vlen, 64).depth, calculation_width)) & (!mask_destination ||| (first_element < bits(vlen, index_width(vlen + 1))))
+  def aligned = !(first_element & (bits(vector_word_bytes(xlen) - 1, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce()
+  def half_aligned = !(first_element & (bits(vector_word_bytes(xlen) / 2 - 1, index_width(vlen + 1)) >> element_width.as_bits())).or_reduce() & (element_width.as_bits() < bits(vector_format_count(xlen) - 1, 2))
+  legal <== (element_width.as_bits() <= bits(vector_format_count(xlen) - 1, 2)) & mux(narrowing, half_aligned, aligned) & (address < bits(VectorRegisterLayout(vlen, xlen.width).depth, calculation_width)) & (!mask_destination ||| (first_element < bits(vlen, index_width(vlen + 1))))
 
 export:
   VectorOperandSelect

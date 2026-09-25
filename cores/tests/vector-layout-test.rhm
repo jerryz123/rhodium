@@ -5,6 +5,16 @@
 import:
   "../riscv/vector-layout.rhm" open
   lib("riscv/isa/vector.rhm") open
+  lib("riscv/isa/xlen.rhm").XLen
+
+for (xlen in [XLen.X32, XLen.X64]):
+  check:
+    vector_word_bytes(xlen) * 8 ~is xlen.width
+    2 ** vector_bit_offset_width(xlen) ~is xlen.width
+    2 ** vector_byte_offset_width(xlen) ~is vector_word_bytes(xlen)
+    vector_lane_count_width(xlen) ~is vector_byte_offset_width(xlen) + 1
+    vector_format_count(xlen) ~is vector_byte_offset_width(xlen) + 1
+    vector_slide_bytes(xlen) ~is 2 * vector_word_bytes(xlen)
 
 for (vlen in [64, 128, 256, 512, 65536]):
   for (row_bits in [32, 64]):

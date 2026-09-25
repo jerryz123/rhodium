@@ -42,7 +42,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     owner: InstructionId
     pc: Bits(xlen.width)
   bundle OwnedBeat():
-    beat: RV5StageVectorBeat(vlen)
+    beat: RV5StageVectorBeat(xlen, vlen)
     tag: SlotId
     owner: InstructionId
     pc: Bits(xlen.width)
@@ -63,7 +63,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   interface divide_request(Decoupled(DivideRequest), ~role: producer)
   interface divide_result(Irrevocable(RV5StageExecutionResult(DividerResponse(xlen.width), DivideTag)), ~role: consumer)
   interface request(Decoupled(RV5StageVectorInstruction(xlen, Context)), ~role: consumer)
-  interface issue(Decoupled(RV5StageVectorToken(Context, vector_completion_slots)), ~role: producer)
+  interface issue(Decoupled(RV5StageVectorToken(xlen, Context, vector_completion_slots)), ~role: producer)
   interface cancel(Pulse(), ~role: consumer)
   // Only memory attempts require an external retry, fault, or authorization decision.
   interface decision(Valid(RV5StageVectorCommit(xlen, vector_completion_slots)), ~role: consumer)
@@ -109,7 +109,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def head_result = completions.drained.bits.beat
   def drained_data = completions.drained.bits.data
   inst ex_pipe(ValidPipe(OwnedBeat(), 1, ~flushable: #true))
-  inst execute(RV5StageVectorExecute(vlen))
+  inst execute(RV5StageVectorExecute(xlen, vlen))
   inst memory_pipe(ValidPipe(OwnedResult, 2, ~flushable: #true))
   def decision_tag = decision.bits.tag
   def feedback_packed = entry_packed[decision_tag]
@@ -122,10 +122,10 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   packed_completion_input |> to_valid() |> packed.completion
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, OwnedContext(), ~trace_isa: trace_isa))
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, OwnedContext()))
-  inst registers(RV5StageVectorRegisterFile(vlen))
+  inst registers(RV5StageVectorRegisterFile(xlen, vlen))
   reg serial_fold_inflight(~init: bits(0, vector_completion_slots).as_vec(Bool))
-  reg accumulators(Vec(vector_completion_slots, Bits(64)))
-  reg scan_carries(Vec(vector_completion_slots, Bits(64)))
+  reg accumulators(Vec(vector_completion_slots, Bits(xlen.width)))
+  reg scan_carries(Vec(vector_completion_slots, Bits(xlen.width)))
   def retry = element_memory_decision.valid & (element_memory_decision.bits.disposition === RV5StageVectorDisposition.Retry)
   def fault = element_memory_decision.valid & (element_memory_decision.bits.disposition === RV5StageVectorDisposition.Fault)
   def truncating = element_memory_decision.valid & (element_memory_decision.bits.disposition === RV5StageVectorDisposition.Truncate)
@@ -271,8 +271,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def suffix_ready = slot_available & !serial_fold_inflight[issue_owner] & writeback_calendar.probe_available
   def Array(token, operands) = issued |> gate_flow(!replay & (!operand_fetch.suffix_pending ||| suffix_ready)) |> atomic_fork(2)
   def element_issue = (
-    token |> map_flow(operation => RV5StageVectorToken(Context, vector_completion_slots)):
-      byte_mask: if xlen == XLen.X64 | memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth)) | memory_byte_mask(xlen, operation.beat.address[0..32], operation.beat.element_width.as_bits().into(MemoryWidth)).zext(8)
+    token |> map_flow(operation => RV5StageVectorToken(xlen, Context, vector_completion_slots)):
+      byte_mask: memory_byte_mask(xlen, operation.beat.address, operation.beat.element_width.as_bits().into(MemoryWidth))
       context: operation.context.value
       last: operation.beat.last ||| (splat.probing & operation.beat.enabled.as_bits()[0].into(Bool) & (operation.context.owner === splat.owner))
       truncate_on_fault: (operation.beat.control.memory_mode === VectorMemoryMode.FaultOnlyFirst) & operation.beat.first.or_reduce()
@@ -309,7 +309,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   execute.beat <== ex_effective_beat
   execute.scan_carry <== scan_carries[ex_owner]
   def executed = ex_pipe.egress |> map_valid(operation => RV5StageVectorOwnedResult(xlen, vlen, vector_completion_slots)):
-    beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: bits(0, 64))), execute.result)
+    beat: mux(operation.splat, execute.result.updated(~last: Bool(#true), ~write: execute.result.write.updated(~mask: bits(0, xlen.width))), execute.result)
     tag: operation.tag
     owner: operation.owner
     pc: operation.pc
@@ -377,7 +377,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     elsewhen (drain & (completions.drained.bits.owner === owner_tag) & head_result.reduction & head_result.floating_point):
       accumulators[owner] <== drained_data
     when (request.fire() & (next_owner === owner_tag)):
-      scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, 64), bits(0, 64))
+      scan_carries[owner] <== mux(request.bits.descriptor.control.scan_control.result === VectorScanResult.First, !bits(0, xlen.width), bits(0, xlen.width))
     elsewhen (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan):
       scan_carries[owner] <== compute_beat.scan_carry
     when ((request.fire() & (next_owner === owner_tag)) ||| (cancel.valid & (current_owner === owner_tag)) ||| ((retry ||| fault ||| truncating) & (feedback_owner === owner_tag)) ||| (compute_maturity.valid & (compute_owner === owner_tag) & compute_beat.scan) ||| (drain & (completions.drained.bits.owner === owner_tag) & head_result.floating_point & head_result.reduction)):

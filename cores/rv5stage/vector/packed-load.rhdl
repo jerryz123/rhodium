@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   "bundles.rhdl" open
   "packed-bundles.rhdl" open
   "load-response.rhdl" open
@@ -21,9 +21,9 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   interface reserve(Valid(RV5StageVectorPackedReservation(xlen, vlen, slots, owner_count)), ~role: consumer)
   interface commit(Valid(RV5StageVectorCommit(xlen, slots)), ~role: consumer)
   interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
-  interface alignment(Valid(RV5StageVectorAlignment()), ~role: producer)
-  input aligned: Bits(64)
-  interface write(Valid(VectorRegisterWrite(vlen)), ~role: producer)
+  interface alignment(Valid(RV5StageVectorAlignment(xlen)), ~role: producer)
+  input aligned: Bits(xlen.width)
+  interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   interface released(Valid(Tag), ~role: producer)
   input head: Tag
   input owner: Owner
@@ -31,19 +31,19 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   input write_available: Bool
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
-  output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, 64).depth, Bool)
+  output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   output(active, drain_blocked, resolved_last): Bool
-  output replay_cursor: RV5StageVectorPackedCursor(vlen)
+  output replay_cursor: RV5StageVectorPackedCursor(xlen, vlen)
   def wb = commit |> map_valid(event => event.tag)
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
   inst loads(RV5StageVectorLoadResponse(xlen, slots))
   reg entries(Vec(slots, Entry))
   reg completed(~init: bits(0, slots).as_vec(Bool))
-  reg data(Vec(slots, Bits(64)))
+  reg data(Vec(slots, Bits(xlen.width)))
   reg drain_remaining(~init: bits(0, bytes))
   reg draining(~init: Bool(#false))
   reg carry_valid(~init: Bool(#false))
-  reg carry(VectorRegisterWrite(vlen))
+  reg carry(VectorRegisterWrite(xlen, vlen))
   reg carry_owner(Owner)
   active <== accepted_slots.as_bits().or_reduce() ||| carry_valid
   // A closed issue owner cannot add another fragment. Flush its retained
@@ -62,38 +62,38 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   def target_lane = priority_encoder(remaining)
   def target_row = entry.layout.rows[target_lane]
   def group = vec(for List (lane in 0..bytes): remaining[lane].into(Bool) & (entry.layout.rows[lane] === target_row)).as_bits()
-  def rotation = (if bytes == 8 | target_lane | target_lane.zext(3)) - entry.layout.offsets[target_lane]
+  def rotation = target_lane - entry.layout.offsets[target_lane]
   // Offer the alignment independently of write-port arbitration; only a free
   // write cycle consumes it. This keeps the shared ALU out of its own grant path.
   def load_alignment = drain_enable & !carry_pending & accepted_slots[head] & completed[head] & !entry.store & remaining.or_reduce() & alignment_available
   def load_piece = load_alignment & write_available
   alignment.valid <== load_alignment
-  alignment.bits <== RV5StageVectorAlignment():
+  alignment.bits <== RV5StageVectorAlignment(xlen):
     data: data[head]
     bytes: rotation
-  def piece_data = vec(for List (offset in 0..8):
+  def piece_data = vec(for List (offset in 0..bytes):
                          def mutable value = bits(0, 8)
                          for (lane in 0..bytes):
-                           def index = bits(lane, 3) - rotation
-                           value := mux(group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3)), aligned.as_vec(Bits(8))[index], value)
+                           def index = bits(lane, vector_byte_offset_width(xlen)) - rotation
+                           value := mux(group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, vector_byte_offset_width(xlen))), aligned.as_vec(Bits(8))[index], value)
                          mux(entry.segmented, value, aligned[offset * 8..offset * 8 + 8])).as_bits()
-  def piece_mask = vec(for List (offset in 0..8):
-                         def selected = vec(for List (lane in 0..bytes): group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3))).as_bits().or_reduce()
+  def piece_mask = vec(for List (offset in 0..bytes):
+                         def selected = vec(for List (lane in 0..bytes): group[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, vector_byte_offset_width(xlen)))).as_bits().or_reduce()
                          mux(selected, !bits(0, 8), bits(0, 8))).as_bits()
   def same_row = carry_valid & (carry.address === target_row)
   def suffix = remaining & !group
   def suffix_lane = priority_encoder(suffix)
   def suffix_row = entry.layout.rows[suffix_lane]
-  def suffix_mask = vec(for List (offset in 0..8):
-                          def selected = vec(for List (lane in 0..bytes): suffix[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, 3))).as_bits().or_reduce()
+  def suffix_mask = vec(for List (offset in 0..bytes):
+                          def selected = vec(for List (lane in 0..bytes): suffix[lane].into(Bool) & (entry.layout.offsets[lane] === bits(offset, vector_byte_offset_width(xlen)))).as_bits().or_reduce()
                           mux(selected, !bits(0, 8), bits(0, 8))).as_bits()
   // One rotated word supplies both sides of a row boundary. Emit the completed
   // prefix and retain its suffix on the same edge, sustaining one beat/cycle.
   def split_load = load_piece & !entry.segmented & suffix.or_reduce() & (!carry_valid ||| same_row)
-  def combined = VectorRegisterWrite(vlen):
+  def combined = VectorRegisterWrite(xlen, vlen):
     address: target_row
-    data: masked_merge(mux(same_row, carry.data, bits(0, 64)), piece_data, piece_mask)
-    mask: mux(same_row, carry.mask, bits(0, 64)) ||| piece_mask
+    data: masked_merge(mux(same_row, carry.data, bits(0, xlen.width)), piece_data, piece_mask)
+    mask: mux(same_row, carry.mask, bits(0, xlen.width)) ||| piece_mask
   def full_row = load_piece & !entry.segmented & combined.mask.and_reduce() & (!carry_valid ||| same_row)
   def release_slot = drainable & (entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load)))
   write.valid <== (load_piece & carry_valid & !same_row) ||| flush_carry ||| split_load ||| full_row
@@ -121,7 +121,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   when split_load:
     carry_valid <== Bool(#true)
     carry_owner <== entry.owner
-    carry <== VectorRegisterWrite(vlen):
+    carry <== VectorRegisterWrite(xlen, vlen):
       address: suffix_row
       data: aligned
       mask: suffix_mask
@@ -144,22 +144,22 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
       entries[slot] <== reserve.bits.entry
     when (loads.completed[1].valid & (loads.completed[1].bits.tag === tag)):
       completed[slot] <== Bool(#true)
-      data[slot] <== if xlen == XLen.X64 | loads.completed[1].bits.data | loads.completed[1].bits.data.zext(64)
+      data[slot] <== loads.completed[1].bits.data
     elsewhen (loads.completed[0].valid & (loads.completed[0].bits.tag === tag)):
       completed[slot] <== Bool(#true)
-      data[slot] <== if xlen == XLen.X64 | loads.completed[0].bits.data | loads.completed[0].bits.data.zext(64)
+      data[slot] <== loads.completed[0].bits.data
     elsewhen ((reserve.valid & (reserve.bits.tag === tag)) ||| (release_slot & (head === tag))):
       completed[slot] <== Bool(#false)
-  def carry_rows = mux(carry_valid, bits(1, VectorRegisterLayout(vlen, 64).depth) << carry.address, bits(0, VectorRegisterLayout(vlen, 64).depth))
-  def mutable busy :: Bits(VectorRegisterLayout(vlen, 64).depth) = carry_rows
-  def mutable foreign :: Bits(VectorRegisterLayout(vlen, 64).depth) = mux(carry_owner =/= owner, carry_rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
+  def carry_rows = mux(carry_valid, bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << carry.address, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+  def mutable busy :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = carry_rows
+  def mutable foreign :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = mux(carry_owner =/= owner, carry_rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
   for (s in 0..slots):
-    def mutable rows :: Bits(VectorRegisterLayout(vlen, 64).depth) = bits(0, VectorRegisterLayout(vlen, 64).depth)
+    def mutable rows :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = bits(0, VectorRegisterLayout(vlen, xlen.width).depth)
     for (lane in 0..bytes):
-      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, VectorRegisterLayout(vlen, 64).depth) << entries[s].layout.rows[lane], bits(0, VectorRegisterLayout(vlen, 64).depth))
-    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
+      rows := rows ||| mux(entries[s].mask[lane].into(Bool), bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << entries[s].layout.rows[lane], bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+    def owned_rows = mux(accepted_slots[s] & !entries[s].store, rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
     busy := busy ||| owned_rows
-    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, VectorRegisterLayout(vlen, 64).depth))
+    foreign := foreign ||| mux(entries[s].owner =/= owner, owned_rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
   busy_rows <== busy.as_vec(Bool)
   foreign_rows <== foreign.as_vec(Bool)
   when (commit.valid):

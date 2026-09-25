@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
+  lib("cores/riscv/vector-layout.rhm") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("hardfloat/main.rhdl").RoundingMode
   "csr.rhdl" open
@@ -18,10 +18,10 @@ import:
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
 
-// A second client of the existing SIMD E64 rotate slot; no private barrel shifter.
-bundle RV5StageVectorAlignment():
-  data: Bits(64)
-  bytes: Bits(3)
+// A second client of the existing full-word SIMD rotate slot; no private barrel shifter.
+bundle RV5StageVectorAlignment(xlen :: XLen):
+  data: Bits(xlen.width)
+  bytes: Bits(vector_byte_offset_width(xlen))
 
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
@@ -29,7 +29,7 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   state: RiscvVectorState(xlen)
   control: RV5StageVectorControl()
   scalar: Bits(xlen.width)
-  floating_scalar: Bits(64)
+  floating_scalar: Bits(xlen.width)
   stride: Bits(xlen.width)
   masked: Bool
   rounding_mode: RoundingMode
@@ -40,39 +40,39 @@ bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   descriptor: RV5StageVectorDescriptor(xlen)
 
 // Compression checkpoints retain only the not-yet-written packed suffix.
-bundle RV5StageVectorCompressState(vlen :: VectorLength):
-  data: Bits(64)
-  count: Bits(4)
+bundle RV5StageVectorCompressState(xlen :: XLen, vlen :: VectorLength):
+  data: Bits(xlen.width)
+  count: Bits(vector_lane_count_width(xlen))
   destination: Bits(index_width(vlen + 1))
 
 // Local attempt stages retain macro context and memory metadata, not SIMD operands.
-bundle RV5StageVectorToken(Context :: DataType, vector_completion_slots :: Pow2Int):
-  byte_mask: Bits(8)
+bundle RV5StageVectorToken(xlen :: XLen, Context :: DataType, vector_completion_slots :: Pow2Int):
+  byte_mask: Bits(vector_word_bytes(xlen))
   context: Context
   last: Bool
   truncate_on_fault: Bool
   memory: Bool
   memory_width: Bits(2)
   enabled: Bool
-  address: Bits(64)
-  store_data: Bits(64)
+  address: Bits(xlen.width)
+  store_data: Bits(xlen.width)
   completion_tag: Bits(index_width(vector_completion_slots))
 
-bundle RV5StageVectorBeat(vlen :: VectorLength):
+bundle RV5StageVectorBeat(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   destination_first: Bits(index_width(vlen + 1))
   last: Bool
   empty: Bool
-  address: Bits(64)
-  left: Bits(64)
-  right: Bits(64)
-  destination_data: Bits(64)
-  enabled: Mask(8)
-  carry_in: Mask(8)
-  select_right: Mask(8)
-  mask_enabled: Bits(64)
+  address: Bits(xlen.width)
+  left: Bits(xlen.width)
+  right: Bits(xlen.width)
+  destination_data: Bits(xlen.width)
+  enabled: Mask(vector_word_bytes(xlen))
+  carry_in: Mask(vector_word_bytes(xlen))
+  select_right: Mask(vector_word_bytes(xlen))
+  mask_enabled: Bits(xlen.width)
   element_width: SimdElementWidth
   fp_source_width: SimdElementWidth
   fp_result_width: SimdElementWidth
@@ -80,20 +80,20 @@ bundle RV5StageVectorBeat(vlen :: VectorLength):
   fp_rounding_mode: RoundingMode
   control: RV5StageVectorControl()
   destination: Bits(5)
-  compress_state: RV5StageVectorCompressState(vlen)
+  compress_state: RV5StageVectorCompressState(xlen, vlen)
 
-bundle RV5StageVectorMicroOp(vlen :: VectorLength, Context :: DataType):
+bundle RV5StageVectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: Context
-  beat: RV5StageVectorBeat(vlen)
+  beat: RV5StageVectorBeat(xlen, vlen)
 
-bundle RV5StageVectorResultBeat(vlen :: VectorLength):
+bundle RV5StageVectorResultBeat(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   last: Bool
   reduction: Bool
   scan: Bool
-  scan_carry: Bits(64)
+  scan_carry: Bits(xlen.width)
   scalar_destination: Bool
   floating_scalar_destination: Bool
   destination: Bits(5)
@@ -110,9 +110,9 @@ bundle RV5StageVectorResultBeat(vlen :: VectorLength):
   multiply_subtract: Bool
   store: Bool
   saturated: Bool
-  shift: Bits(6)
-  write: VectorRegisterWrite(vlen)
-  compress_state: RV5StageVectorCompressState(vlen)
+  shift: Bits(vector_bit_offset_width(xlen))
+  write: VectorRegisterWrite(xlen, vlen)
+  compress_state: RV5StageVectorCompressState(xlen, vlen)
 
 // LSU tags name bounded completion slots, not scalar register destinations.
 bundle RV5StageVectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
@@ -145,36 +145,36 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   cause: Bits(xlen.width)
   fault_address: Bits(xlen.width)
   last: Bool
-  compress_state: RV5StageVectorCompressState(vlen)
+  compress_state: RV5StageVectorCompressState(xlen, vlen)
 
 // Beat control retains only per-beat state; instruction invariants stay in the captured descriptor.
-bundle RV5StageVectorBeatControl(vlen :: VectorLength):
+bundle RV5StageVectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
   end: Bits(index_width(vlen + 1))
   last: Bool
   empty: Bool
-  address: Bits(64)
-  mask_enabled: Bits(64)
+  address: Bits(xlen.width)
+  mask_enabled: Bits(xlen.width)
   destination: Bits(5)
 
 // Capture the instruction descriptor with beat control and restart bounds across VRF latency.
 bundle RV5StageVectorReadContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   instruction: RV5StageVectorInstruction(xlen, Context)
   minimum: Bits(index_width(vlen + 1))
-  beat_control: RV5StageVectorBeatControl(vlen)
-  slide_valid: Bits(16)
+  beat_control: RV5StageVectorBeatControl(xlen, vlen)
+  slide_valid: Bits(vector_slide_bytes(xlen))
 
 bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: RV5StageVectorReadContext(xlen, vlen, Context)
   enables: Bits(3)
-  addresses: Vec(3, Bits(index_width(VectorRegisterLayout(vlen, 64).depth)))
+  addresses: Vec(3, Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth)))
   mask_enable: Bool
-  mask_address: Bits(index_width(VectorRegisterLayout(vlen, 64).rows_per_register))
+  mask_address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
 
 // A macro identity survives sequencing; a slot identity names one issued beat.
 bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
-  beat: RV5StageVectorResultBeat(vlen)
+  beat: RV5StageVectorResultBeat(xlen, vlen)
   tag: Bits(index_width(slots))
   owner: Bits(index_width(slots))
   pc: Bits(xlen.width)
@@ -185,17 +185,17 @@ bundle RV5StageVectorSlotAllocation(slots :: Pow2Int):
   packed: Bool
 
 // A drain carries the retained beat and unshifted service data for recurrences.
-bundle RV5StageVectorDrained(vlen :: VectorLength, slots :: Pow2Int):
-  beat: RV5StageVectorResultBeat(vlen)
+bundle RV5StageVectorDrained(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  beat: RV5StageVectorResultBeat(xlen, vlen)
   owner: Bits(index_width(slots))
-  data: Bits(64)
+  data: Bits(xlen.width)
 
-bundle RV5StageVectorSlotState(vlen :: VectorLength, slots :: Pow2Int):
+bundle RV5StageVectorSlotState(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   allocated: Bool
   accepted: Bool
   packed: Bool
   owner: Bits(index_width(slots))
-  write_address: Bits(index_width(VectorRegisterLayout(vlen, 64).depth))
+  write_address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   writes: Bool
 
 export:

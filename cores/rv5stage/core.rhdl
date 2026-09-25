@@ -765,7 +765,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
              state: wb_vector_context.state
              control: wb_vector_context.control
              scalar: wb_vector_context.scalar
-             floating_scalar: wb_fp.snapshot_read_data
+             floating_scalar: wb_fp.snapshot_read_data[0..width]
              stride: wb_vector_context.stride
              masked: !wb_vector_context.instruction[25].into(Bool)
              rounding_mode: wb_csrs.frm.into(RoundingMode)

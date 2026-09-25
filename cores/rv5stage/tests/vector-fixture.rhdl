@@ -58,7 +58,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   output result_mask: Bits(64)
   def address_width = index_width(VectorRegisterLayout(vlen, 64).depth)
   def count_width = index_width(vlen + 1)
-  inst bank(RV5StageVectorRegisterFile(vlen))
+  inst bank(RV5StageVectorRegisterFile(XLen.X64, vlen))
   inst context(ValidPipe(VectorFixtureContext(vlen), 1))
   context.ingress.valid <== read_valid
   def packing_control = VectorPackingControl(vlen):
@@ -97,7 +97,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   read_c_result <== bank.results[2].bits
   mask_read_result <== bank.mask_result.bits
   def c :: VectorFixtureContext(vlen) = context.egress.bits
-  inst prepare(RV5StageVectorOperands(vlen))
+  inst prepare(RV5StageVectorOperands(XLen.X64, vlen))
   prepare.control <== c.control
   prepare.left <== bank.results[0].bits
   prepare.right <== bank.results[1].bits
@@ -128,7 +128,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
     arithmetic_shift: Bool(#false)
     rotate: Bool(#false)
     invert_right: Bool(#false)
-  inst assemble(RV5StageVectorResult(vlen))
+  inst assemble(RV5StageVectorResult(XLen.X64, vlen))
   assemble.destination <== c.destination
   assemble.first_element <== prepare.operands.first_element
   assemble.element_width <== prepare.operands.element_width
@@ -145,7 +145,7 @@ sync_circuit VectorBankFixture(vlen :: VectorLength):
   result_mask <== assemble.write.mask
   def committing = commit & context.egress.valid & prepare.legal & assemble.legal
   bank.write.valid <== write_valid ||| committing
-  def initialization = VectorRegisterWrite(vlen):
+  def initialization = VectorRegisterWrite(XLen.X64, vlen):
     address: write_address[0..address_width]
     data: write_data
     mask: write_mask

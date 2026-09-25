@@ -1,5 +1,5 @@
 #lang rhombus
-// Authors implementation-independent product architectures, including not-yet-enabled RV32 vector requirements.
+// Authors implementation-independent RV32Max and RVA23 product architectures.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

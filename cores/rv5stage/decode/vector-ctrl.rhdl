@@ -1150,11 +1150,11 @@ circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, prof
   def indexed_memory_legal = !indexed_memory ||| ((memory_index_emul >= SInt(5)(-3)) & (memory_index_emul <= SInt(5)(3)) & memory_index_aligned & indexed_overlap_legal & (!masked ||| source2.or_reduce()))
   def segment_memory_legal = !segmented_memory ||| ((memory_register_count <= bits(8, 7)) & (memory_data_end <= bits(32, 7)))
   def memory_eew_legal = (indexed_memory ||| (control.memory_data_eew <= elen)) & (!indexed_memory ||| (control.memory_index_eew <= elen))
-  def ordinary_memory_legal = control.memory & !whole_register_memory & !mask_memory & Bool(xlen == XLen.X64) & memory_eew_legal & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & segment_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
-  def mask_memory_legal = mask_memory & Bool(xlen == XLen.X64)
+  def ordinary_memory_legal = control.memory & !whole_register_memory & !mask_memory & memory_eew_legal & (emul >= SInt(5)(-3)) & (emul <= SInt(5)(3)) & destination_aligned & indexed_memory_legal & segment_memory_legal & (control.store ||| !(masked & !destination.or_reduce())) & (!control.store ||| !masked ||| destination.or_reduce())
+  def mask_memory_legal = mask_memory
   def whole_register_count = control.memory_nf.zext(7) + bits(1, 7)
   def whole_register_end = destination.zext(7) + whole_register_count
-  def whole_register_legal = whole_register_memory & Bool(xlen == XLen.X64) & (control.memory_data_eew <= elen) & control.memory_nf.is_one_of(bits(0, 3), bits(1, 3), bits(3, 3), bits(7, 3)) & !(destination & control.memory_nf.zext(5)).or_reduce() & (whole_register_end <= bits(32, 7))
+  def whole_register_legal = whole_register_memory & (control.memory_data_eew <= elen) & control.memory_nf.is_one_of(bits(0, 3), bits(1, 3), bits(3, 3), bits(7, 3)) & !(destination & control.memory_nf.zext(5)).or_reduce() & (whole_register_end <= bits(32, 7))
   def fp_width_change = fp_widening ||| fp_narrowing
   def fp_reduction = control.floating_point & control.reduction
   def fp_sources_legal = mux(fp_reduction, reduction_sources_legal, mux(fp_narrowing ||| (fp_widening & control.wide_vs2), wide_source2_aligned, source2_aligned) & (!control.fp_uses_vs1 ||| source1_aligned))
@@ -1175,7 +1175,7 @@ circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, prof
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
   def multiply_profile_legal = Bool(vector_profile_is_v(profile)) ||| !((config.sew === bits(3, 2)) & restricted_elen64_multiply)
-  def multiply_divide_legal = control.multiply_divide & Bool(xlen == XLen.X64) & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
+  def multiply_divide_legal = control.multiply_divide & multiply_profile_legal & multiply_divide_sources_legal & destination_aligned & !(masked & !destination.or_reduce())
   legal <== start_legal & (whole_register_legal ||| (!config.vill & (integer_legal ||| ordinary_memory_legal ||| mask_memory_legal ||| fp_legal ||| multiply_divide_legal)))
 
 export:

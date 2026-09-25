@@ -1,10 +1,10 @@
 <!-- Defines RV5Stage vector configuration, decode, storage, and execution-boundary contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# RV64 vector path
+# XLEN-wide vector path
 
 The opt-in `RV5StageConfig(~vector: profile, ~vector_length: vlen)` enables one
-of the standard Zve profiles or V 1.0, vector CSR state, and RV64 vector memory
+of the standard Zve profiles or V 1.0, vector CSR state, and vector memory
 operations using unit-stride, constant-stride, indexed, unit-stride segment,
 constant-stride segment, indexed segment, and unit-stride fault-only-first
 addressing, plus mask-register and whole-register loads and stores and
@@ -13,9 +13,10 @@ separate default VLEN of 128 bits. Every enabled profile advertises its implied
 Zve closure and cumulative `Zvl<N>b` closure through its selected VLEN. Zve32
 profiles select ELEN=32; Zve64 profiles and V select ELEN=64. FP32 profiles
 require scalar FP support, while Zve64d and
-V require scalar D. RV5Stage currently integrates these profiles only with
-RV64 and supports scalar FP there only as D, so every FP-capable vector profile
-uses the RV64D scalar specialization. Only V advertises `V 1.0` and `misa.V`;
+V require scalar D. RV32 supports Zve32x with a 32-bit lane and
+VLEN starting at 64; RV64 uses a 64-bit lane with VLEN starting at 128.
+FP-capable vector profiles remain restricted to RV64D pending RV32 FP
+qualification. Only V advertises `V 1.0` and `misa.V`;
 it does not imply Zvbb. Selecting `VectorExtension.Zvbb` independently enables
 the ratified vector basic bit-manipulation instruction set for any enabled
 vector profile and advertises its required `Zvkb` subset.
@@ -43,9 +44,11 @@ bypasses the result to younger `vset*`, scalar consumers, and vector-state
 snapshots. Each vector macro carries that EX snapshot through WB admission, so
 a vector instruction can immediately follow a configuration while older macros
 retain their prior snapshots. Squashed or faulting operations do not update this state.
-Supported physical geometry is SEW 8/16/32/64 and
+Supported physical geometry is SEW 8/16/32 on RV32 and 8/16/32/64 on RV64, with
 LMUL 1/8 through 8, with the selected profile limiting architectural ELEN to
-32 or 64, subject to SEW <= LMUL * ELEN. Unsupported configurations
+32 or 64, subject to SEW <= LMUL * ELEN. The instruction families described
+below are additionally bounded by that ELEN; widening results must fit it.
+Unsupported configurations
 set `vill` and zero VL. Ordinary AVL selection uses `min(AVL, VLMAX)`;
 `rs1=x0,rd!=x0` selects VLMAX, while `rs1=rd=x0` preserves VL only when the
 old/new types are legal and VLMAX is unchanged. Reserved keep-VL uses trap.
@@ -211,7 +214,7 @@ edge; the encoded-zero-stride load specialization retains vector admission until
 its row writes drain. Retry or fault feedback cannot admit a successor. Index scans
 release on their final read like ordinary compute. Reductions release at their
 tail read while owner-local recurrence and completion state finish independently. A dependent
-consumer waits for each needed 64-bit VRF row rather than the entire older
+consumer waits for each needed XLEN-bit VRF row rather than the entire older
 instruction. Same-width elementwise compute releases its conservative
 destination-group claim row by row as results resolve; exact outstanding
 writes still block reads and younger writes until actual VRF writeback. Irregular and replayable
@@ -229,7 +232,7 @@ The integrated core propagates the count through every LSU adapter. Standalone
 compositions must select the same count on their data interfaces and engines.
 
 [`bundles.rhdl`](bundles.rhdl) defines an instruction/configuration snapshot,
-64-bit packed micro-ops, and memory acceptance/retry/fault feedback. Position
+XLEN-bit packed micro-ops, and memory acceptance/retry/fault feedback. Position
 is an exclusive architectural element range, independent of masked-off lanes;
 caller-defined context identifies outstanding work. Authorization is distinct
 from result completion, and accepted side effects must never be retried.
@@ -264,7 +267,7 @@ preserving the base of the oldest unauthorized element. Masked-off elements
 still advance the sequence; empty bodies neither warm up nor access memory.
 For non-segmented strided loads with `rs2=x0`, the first enabled element supplies
 the sole data read of a successful attempt; retries may reissue it. Once that
-read is authorized, its EEW value is replicated through masked 64-bit VRF row
+read is authorized, its EEW value is replicated through masked XLEN-bit VRF row
 writes without later elementwise memory completions. A masked-off or empty
 body performs no data read, and a register containing zero remains an ordinary
 strided load with one access per active element.
@@ -315,7 +318,7 @@ Whole-register `vl1/2/4/8re8/16/32/64.v` and `vs1/2/4/8r.v` transfers use the
 same singleton LSU path. Their effective length is `NREG * VLEN / EEW`,
 independent of `vl` and `vtype`; `vstart` still identifies the next encoded-EEW
 element. The sequencer walks one continuous register group, so its existing
-64-bit VRF row address naturally crosses register boundaries without another
+XLEN-bit VRF row address naturally crosses register boundaries without another
 datapath. Decode enforces NREG alignment and rejects register wrap past `v31`.
 The fixed-unmasked forms leave `vl` and `vtype` unchanged, and precise faults
 reuse the ordinary authorized cursor and address checkpoint.
@@ -340,7 +343,7 @@ adder.
 The six `vzext.vf2/vf4/vf8` and `vsext.vf2/vf4/vf8` forms retain destination
 SEW/LMUL scheduling while reading `vs2` at EEW `SEW/2`, `SEW/4`, or `SEW/8`.
 Operand fetch selects the corresponding narrow source fragment and
-[`SimdExtend`](../../simd-alu.rhdl) directly wires its elements into one 64-bit
+[`SimdExtend`](../../simd-alu.rhdl) directly wires its elements into one XLEN-bit
 destination beat. Legality rejects unsupported source EEW, source EMUL below
 1/8, misaligned groups, masked `v0` conflicts, and destination overlap except
 when an integral source group occupies the highest-numbered part of the
@@ -368,7 +371,7 @@ owned until drained.
 This cut preserves inactive and tail contents, supports fractional LMUL,
 in-place same-width groups, and the permitted high-part overlap for widening
 destinations. `vrsub.vx` and `vrsub.vi` reuse the subtract datapath with swapped
-operands. RV32 VX operands are sign-extended before SEW64 broadcast, and
+operands. Scalar operands retain XLEN width, and
 comparison and carry/borrow bits use the ordinary masked write port.
 
 ## Widening integer add and subtract
@@ -382,7 +385,7 @@ representable through EMUL=8. A narrow vector source may overlap only the
 architectural high part of the destination. The wide `vs2` group may equal the
 destination group; misalignment and partial overlap trap before any VRF read.
 
-One sequencer beat produces one 64-bit destination row. Narrow-source forms
+One sequencer beat produces one XLEN-bit destination row. Narrow-source forms
 reread the same source row for its lower and upper halves. Wide-source forms
 advance the `vs2` row every beat while the narrow source still selects the
 corresponding half. Each destination-width beat matures independently without
@@ -398,7 +401,7 @@ the vector shift-amount source and destination use the configured SEW/LMUL.
 Shift amounts are reduced modulo twice SEW. Logical forms zero-fill and
 arithmetic forms sign-fill before the low SEW result is retained.
 
-One 64-bit wide-source row produces half of a 64-bit destination row. The
+One XLEN-bit wide-source row produces half of an XLEN-bit destination row. The
 operand adapter zero-extends the selected narrow shift amounts into the
 existing SIMD shifter's doubled-width lanes, and result packing places the
 narrow halves into the correct destination half-row. No second shifter or VRF
@@ -426,7 +429,7 @@ not read the same register at both mask EEW=1 and data SEW. Scalar `x0` and an
 immediate zero remain valid merge inputs.
 
 Whole-register `vmv1r.v`, `vmv2r.v`, `vmv4r.v`, and `vmv8r.v` copy one
-aligned register group through the same 64-bit packed datapath. Their effective
+aligned register group through the same XLEN-bit packed datapath. Their effective
 length is `NREG * VLEN / SEW`, independent of `vl` and LMUL but still dependent
 on a legal `vtype`; `vstart` identifies the first SEW-wide element to copy.
 Decode rejects misaligned or wrapping source and destination groups. Equal
@@ -438,7 +441,7 @@ the ordinary result-maturity, cancellation, and `v0`-shadow rules.
 `vmnor.mm`, and `vmxnor.mm` operate on packed one-bit elements. Each operand
 names one register independent of LMUL. They are always unmasked, may write
 `v0`, and support in-place source/destination overlap. The sequencer processes
-up to 64 mask bits per beat through the existing logic datapath and VRF write
+up to XLEN mask bits per beat through the existing logic datapath and VRF write
 port; it does not expand mask bits into SEW-sized data elements.
 
 All these operations preserve pre-`vstart` and tail contents, including partial
@@ -503,8 +506,8 @@ Prefix-mask destinations cannot overlap their source or, when masked, v0.
 Iota's aligned data group cannot overlap its source mask or, when masked, v0;
 index has no source group. Queries permit any source mask, including v0.
 
-The packed scan network processes up to 64 mask bits per query/prefix-mask
-beat or 8/4/2/1 elements per iota beat. One dependent scan beat is in flight;
+The packed scan network processes up to XLEN mask bits per query/prefix-mask
+beat or XLEN/SEW elements per iota beat. One dependent scan beat is in flight;
 its carry advances only when the private result matures. Cancellation preserves
 already-written prefix results while suppressing future writes
 and unfinished scalar answers. Index needs no carry dependency, releases the
@@ -530,10 +533,10 @@ These rules follow the [RVV slide specification](https://github.com/riscv/riscv-
 
 Slides read two adjacent source chunks through general ports while the `v0`
 shadow supplies predication. Byte muxes form one input for the SIMD ALU's
-existing 64-bit rotate slot; no separate slide barrel shifter or full-vector
+existing XLEN-bit rotate slot; no separate slide barrel shifter or full-vector
 crossbar is instantiated.
-The rotation operates as E64 while write enables retain architectural SEW.
-The packed schedule supplies 8/4/2/1 elements per beat, with one result per
+The rotation operates at the full physical word width while write enables retain architectural SEW.
+The packed schedule supplies XLEN/SEW elements per beat, with one result per
 cycle in an unstalled stream after setup. Result maturity authorizes writes,
 and cancellation suppresses only future writes.
 
@@ -558,7 +561,7 @@ the addressed data word; the `v0` shadow supplies predication alongside them.
 The bank supplies one element every
 two cycles in an unstalled stream after setup. Scalar/immediate forms read
 their selected source word for each destination chunk and broadcast packed
-8/4/2/1-element beats, one per cycle. Both use the existing SIMD 64-bit rotate
+XLEN/SEW-element beats, one per cycle. Both use the existing SIMD XLEN-bit rotate
 slot, with no extra slide shifter or full-vector crossbar. Only result maturity
 authorizes writes; cancellation flushes both read contexts and speculative results.
 
@@ -573,7 +576,7 @@ must be aligned and disjoint; the single-register selection mask must be
 disjoint from both data groups, including when VL is zero.
 
 The sequencer reads the data and selection-mask chunks through general ports.
-[`SimdCompress`](../../simd-alu.rhdl) compacts each 64-bit word without
+[`SimdCompress`](../../simd-alu.rhdl) compacts each XLEN-bit word without
 owning architectural state. A retained suffix joins the next compacted word;
 each issued beat carries its post-beat suffix, element count, and destination
 position as a speculative checkpoint. Result maturity advances the committed
@@ -583,7 +586,7 @@ result maturity, and no extra read or write port is added.
 
 ## Shared integer multiply/divide
 
-RV64 vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
+RV32 and RV64 vectors execute `vmul`, `vmulh`, `vmulhu`, `vmulhsu`,
 `vsmul`, `vdiv`, `vdivu`, `vrem`, and `vremu` in `.vv` and `.vx` forms at
 SEW8/16/32/64. `vwmulu`, `vwmulsu`, and `vwmul` execute at SEW8/16/32 and
 produce 2*SEW destinations. These are singleton operations, not packed SIMD
@@ -635,8 +638,8 @@ response ownership. The multiply completion tag retains the `vsmul` rounding
 mode and result selection; its result reports saturation at actual writeback, when
 `vxsat` is pulsed exactly once. Masked and empty elements complete without
 execution.
-These iterative services do not promise one element per cycle. RV32 vector
-mul/div remains outside the supported public profile.
+These services do not promise one element per cycle. RV32 executes integer
+mul/div through SEW32; widening operations require a destination no wider than XLEN.
 
 ## Shared floating point
 
@@ -660,7 +663,8 @@ the macro captures at WB launch; exact sign, min/max, and comparison operations
 do not depend on `frm`; fixed-RTZ conversions also ignore it. `Zvfhmin`
 restricts SEW16 to its two FP-to-FP conversions; full `Zvfh` admits same-width
 FP16 arithmetic, comparisons, reductions, moves, slides, and all applicable
-widening/narrowing forms. RV32 vector FP remains outside this cut.
+widening/narrowing forms. RV32 vector FP qualification remains separate from
+the RV32Max integer-vector product bring-up.
 `vfredusum.vs`, `vfredosum.vs`,
 `vfredmin.vs`, and `vfredmax.vs` fold FP32 or FP64 elements through the shared
 service in element order. `vfwredusum.vs` and `vfwredosum.vs` exactly promote
@@ -700,7 +704,7 @@ without entering the service.
 
 Scalar/vector movement supports `vfmv.v.f`, `vfmerge.vfm`, `vfmv.f.s`,
 `vfmv.s.f`, `vfslide1up.vf`, and `vfslide1down.vf`. Broadcast and merge reuse
-the packed operand path, while the slide forms reuse the ordinary 64-bit slide
+the packed operand path, while the slide forms reuse the ordinary XLEN-bit slide
 datapath; none enters the FP arithmetic service or updates `fflags`.
 An SEW32 scalar FPR source is NaN-box checked before its payload enters the
 vector path, so an invalid box supplies the canonical FP32 NaN. Vector-to-FPR
@@ -735,11 +739,10 @@ Final completion clears `vstart`; inactive and tail bits remain undisturbed.
 
 ## Unit-stride memory
 
-The public RV64 vector path executes naturally aligned `vle8/16/32/64.v` and
-`vse8/16/32/64.v`. Encoded EEW determines both the
+The vector path executes naturally aligned `vle8/16/32.v` and
+`vse8/16/32.v` on both XLENs, plus the EEW64 forms on RV64. Encoded EEW determines both the
 address increment and EMUL (`LMUL * EEW / SEW`); legality checks the effective
-group and rejects masked load overlap with `v0`. RV32 memory execution is not
-enabled. Masks suppress accesses and faults, and nonzero `vstart` preserves the
+group and rejects masked load overlap with `v0`. Masks suppress accesses and faults, and nonzero `vstart` preserves the
 prefix. Empty bodies still complete exactly one macro without memory effects.
 
 Certified contiguous accesses use aligned XLEN-sized LSU beats, with byte
@@ -752,8 +755,8 @@ This does not enable architecturally misaligned elements.
 
 The private address/lookup/acceptance stages arbitrate for the scalar LSU.
 Unmasked contiguous streams can offer one aligned word per cycle when read
-credits, completion slots, and the LSU permit it. The existing SIMD E64 rotator
-aligns memory words with 64-bit VRF rows; a masked carry merges boundary fragments.
+credits, completion slots, and the LSU permit it. The existing SIMD full-word rotator
+aligns memory words with XLEN-bit VRF rows; a masked carry merges boundary fragments.
 Segments additionally transpose memory bytes into their separate field groups.
 Masked and segmented store preparation can require multiple VRF read cycles.
 Stores cannot mutate the
@@ -794,22 +797,22 @@ store's ordered LSU drain. Interrupt entry waits for vector completion.
 
 ## Register bank
 
-`RV5StageVectorRegisterFile(vlen :: VectorLength)` has exactly
-`32 * VLEN / 64` general entries of `Bits(64)`, with no reset value. VLEN is a host
-power of two from 128 through 65536 bits. The flat address is
-`register_number * (VLEN / 64) + chunk_number`; chunk zero holds the lowest bits.
+`RV5StageVectorRegisterFile(xlen :: XLen, vlen :: VectorLength)` has exactly
+`32 * VLEN / XLEN` general entries of `Bits(XLEN)`, with no reset value. VLEN is a host
+power of two from twice XLEN through 65536 bits. The flat address is
+`register_number * (VLEN / XLEN) + chunk_number`; chunk zero holds the lowest bits.
 `v0` is writable, not a hardwired zero register. A physical shadow of its
-`VLEN / 64` chunks supplies the dedicated mask-read port; it is not separate
+`VLEN / XLEN` chunks supplies the dedicated mask-read port; it is not separate
 architectural state.
 
-- Three independent `Valid(Address)` reads return `Valid(Bits(64))` exactly one
+- Three independent `Valid(Address)` reads return `Valid(Bits(XLEN))` exactly one
   cycle later for arbitrary vector rows.
 - One independent `Valid(MaskAddress)` read addresses a chunk within the `v0`
-  shadow and returns `Valid(Bits(64))` exactly one cycle later. It cannot name
+  shadow and returns `Valid(Bits(XLEN))` exactly one cycle later. It cannot name
   another vector register. There is no read backpressure; the caller must have
   space for every requested result.
-- One `Valid(VectorRegisterWrite(vlen))` write carries an address, 64-bit data,
-  and **64 individual bit enables**. Ordinary byte enables are expanded by the
+- One `Valid(VectorRegisterWrite(xlen, vlen))` write carries an address, XLEN-bit data,
+  and **XLEN individual bit enables**. Ordinary byte enables are expanded by the
   result adapter. Mask results update individual bits through the same port.
   Writes to `v0` update its general row and shadow atomically.
 - A read and write sampled at the same edge return the post-write value:
@@ -825,7 +828,7 @@ masked-write semantics without depending on an unspecified SRAM collision mode.
 
 ## Packing boundary
 
-`RV5StageVectorOperands(vlen)` takes two source chunks, one `v0` shadow chunk, a
+`RV5StageVectorOperands(xlen, vlen)` takes two source chunks, one `v0` shadow chunk, a
 scalar, a six-bit immediate container, and `VectorPackingControl(vlen)`. It
 emits SIMD operands, element enables, and the first output element. Two-source
 operations therefore leave the third general read port free, and masked
@@ -834,7 +837,7 @@ mask-capture phase.
 
 `first_element` denotes the start of an aligned **source** chunk, not the next
 enabled element. The caller supplies the mask word containing that element
-(`v0` chunk `first_element / 64`). Enables intersect `vstart <= i < vl`,
+(`v0` chunk `first_element / XLEN`). Enables intersect `vstart <= i < vl`,
 `i < vlmax`, and the architectural mask. Nonzero `vstart` suppresses lanes rather
 than shifting their positions. Scalar/immediate broadcast uses the low SEW
 bits; `VectorImmediateKind` distinguishes signed five-bit, unsigned five-bit,
@@ -842,7 +845,7 @@ and unsigned six-bit values. The six-bit form supplies `vror.vi`; other vector
 immediates retain their architectural five-bit interpretation.
 
 Widening reuses `SimdWidenOperands`: each invocation sign- or zero-extends
-either half of an 8/16/32-bit source chunk into one 64-bit output chunk. The
+either half of an 8/16/32-bit source chunk into one XLEN-bit output chunk. The
 returned first element and width describe that destination chunk. Both halves
 must use the appropriate source snapshot. Narrowing reuses the same adapter to
 pass one wide `vs2` row while zero-extending half of the narrow shift-amount
@@ -863,7 +866,7 @@ captured with the macro descriptor, so later CSR changes cannot alter admitted
 work. Saturating operations report their result through accepted completion
 state before producing the sticky `vxsat` update.
 
-`RV5StageVectorResult(vlen)` converts a SIMD result into the bank write payload.
+`RV5StageVectorResult(xlen, vlen)` converts a SIMD result into the bank write payload.
 Data destinations use the returned output element width; comparisons and
 carry/borrow results place one bit per element into the correct destination
 mask chunk. Disabled bytes/bits receive no write enable, preserving inactive
