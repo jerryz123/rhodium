@@ -345,6 +345,18 @@ class ProductSelectionTest(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assertNotEqual(self.dry_run(*arguments).returncode, 0)
 
+    def test_platform_payloads_follow_selected_xlen(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for isa, xlen, abi in (('rv32max', 32, 'ilp32'), ('rva23', 64, 'lp64')):
+                product = f'mini-spike-{isa}'
+                for payload in ('smoke', 'boot_2000', 'host_mmio', 'uart_pty'):
+                    with self.subTest(isa=isa, payload=payload):
+                        result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
+                                              target=f'{directory}/{product}/{payload}.elf')
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn(f'-march=rv{xlen}', result.stdout)
+                        self.assertIn(f'-mabi={abi}', result.stdout)
+
     def test_setup_does_not_require_a_product(self):
         result = self.dry_run('ISA=', target='setup')
         self.assertEqual(result.returncode, 0, result.stderr)

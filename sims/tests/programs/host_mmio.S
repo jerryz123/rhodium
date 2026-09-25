@@ -1,10 +1,11 @@
 // Verifies SoC startup entry publication, ELF-loaded UART data, and an MMIO signature for FESVR.
 // SPDX-License-Identifier: Apache-2.0
+#include "xlen.h"
 .section .text
 .globl _start
 _start:
   li t0, 0x1000
-  ld t1, 0(t0)
+  LOAD_XLEN t1, 0(t0)
   la t2, _start
   bne t1, t2, fail
   li t0, 0x10000007
@@ -13,15 +14,22 @@ _start:
   bne t1, t2, fail
   // This signature is deliberately in MMIO, not coherent RAM.
   li t0, 0x1000
+#if __riscv_xlen == 64
   li t1, 0x123456789abcdef0
   sd t1, 0(t0)
+#else
+  li t1, 0x9abcdef0
+  sw t1, 0(t0)
+  li t1, 0x12345678
+  sw t1, 4(t0)
+#endif
   li t0, 1
   j done
 fail:
   li t0, 3
 done:
   la t1, tohost
-  sd t0, 0(t1)
+  STORE_XLEN t0, 0(t1)
 1:
   j 1b
 

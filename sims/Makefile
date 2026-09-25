@@ -78,9 +78,18 @@ SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),
 SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
 SMOKE_MARCH := $(if $(filter 1,$(TRACE)),rv64ic_zicsr,rv64i_zicsr)
 SMOKE_CPPFLAGS := $(if $(filter 1,$(TRACE)),-DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1)
+PLATFORM_MARCH := $(if $(filter rv32max,$(SOC_ISA)),rv32i_zicsr,rv64i_zicsr)
+PLATFORM_MABI := $(if $(filter rv32max,$(SOC_ISA)),ilp32,lp64)
+ifeq ($(SOC_ISA),rv32max)
+SMOKE_MARCH := $(PLATFORM_MARCH)
+endif
 ifeq ($(SOC_CORE)-$(SOC_ISA),spike-rva23)
 SMOKE_MARCH := rv64gcv_zvbb_zvfh
-SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_SPIKE_RVA23=1
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_SPIKE_VECTOR=1 -DRHODIUM_SMOKE_SPIKE_RVA23=1
+endif
+ifeq ($(SOC_CORE)-$(SOC_ISA),spike-rv32max)
+SMOKE_MARCH := rv32imacb_zicsr_zve32x_zvl64b_zvbb
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_SPIKE_VECTOR=1
 endif
 UART_PTY_BINARY := $(SOC_BUILD_DIR)/uart_pty.elf
 TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/tiled_memory.elf
@@ -167,11 +176,11 @@ trace-smoke:
 	TRACE_PROCESSOR="$(TRACE_PROCESSOR)" bash tests/check-event-driver.sh "$(BUILD_ROOT)/$(SOC_ID)-trace/obj/VTestDriver" "$(BUILD_ROOT)/$(SOC_ID)-trace/smoke.elf"
 
 boot-test: $(BOOT_BINARIES) simulator
-	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) "$$binary"; done
+	@set -e; for binary in $(BOOT_BINARIES); do $(SIMULATOR_BINARY) $(HTIF_ARGS) "$$binary"; done
 	@echo "Two ELF entries booted through the same $(SOC) harness and ROM"
 
 host-mmio-test: $(HOST_MMIO_BINARY) simulator
-	$(SIMULATOR_BINARY) +signature=$(HOST_MMIO_SIGNATURE) +signature-granularity=8 $(HOST_MMIO_BINARY)
+	$(SIMULATOR_BINARY) $(HTIF_ARGS) +signature=$(HOST_MMIO_SIGNATURE) +signature-granularity=8 $(HOST_MMIO_BINARY)
 	awk '{ if ($$0 != "123456789abcdef0") exit 1 } END { if (NR != 1) exit 1 }' $(HOST_MMIO_SIGNATURE)
 	@echo "Host boot-register and UART MMIO checks passed"
 
@@ -333,12 +342,12 @@ $(SIMULATOR_BINARY):
 endif
 
 $(SMOKE_BINARY): tests/programs/smoke.S \
-                 tests/programs/smoke.ld $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=$(SMOKE_MARCH) -mabi=lp64 -nostdlib -nostartfiles $(SMOKE_CPPFLAGS) \
+                 tests/programs/smoke.ld tests/programs/xlen.h $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=$(SMOKE_MARCH) -mabi=$(PLATFORM_MABI) -nostdlib -nostartfiles $(SMOKE_CPPFLAGS) \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(UART_PTY_BINARY): tests/programs/uart_pty.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+$(UART_PTY_BINARY): tests/programs/uart_pty.S tests/programs/smoke.ld tests/programs/xlen.h $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=$(PLATFORM_MARCH) -mabi=$(PLATFORM_MABI) -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
 $(TILED_MEMORY_BINARY): tests/programs/tiled_memory.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
@@ -352,12 +361,12 @@ $(SOC_BUILD_DIR)/lrsc_%.elf: tests/programs/lrsc.S tests/programs/lrsc.ld | $(SO
 	  -Wl,--defsym,lrsc_page_tables=$(LRSC_PAGE_TABLE_BASE),--defsym,lrsc_memory_limit=$(LRSC_MEMORY_LIMIT) \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/lrsc.ld $< -o $@
 
-$(HOST_MMIO_BINARY): tests/programs/host_mmio.S tests/programs/host_mmio.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
+$(HOST_MMIO_BINARY): tests/programs/host_mmio.S tests/programs/host_mmio.ld tests/programs/xlen.h $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=$(PLATFORM_MARCH) -mabi=$(PLATFORM_MABI) -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/host_mmio.ld $< -o $@
 
-$(SOC_BUILD_DIR)/boot_%.elf: tests/programs/smoke.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i_zicsr -mabi=lp64 -nostdlib -nostartfiles \
+$(SOC_BUILD_DIR)/boot_%.elf: tests/programs/smoke.S tests/programs/smoke.ld tests/programs/xlen.h $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
+	$(RISCV_CC) -march=$(PLATFORM_MARCH) -mabi=$(PLATFORM_MABI) -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,--defsym,payload_entry=0x8000$* \
 	  -Wl,-T,tests/programs/smoke.ld $< -o $@
 

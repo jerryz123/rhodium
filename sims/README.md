@@ -35,6 +35,20 @@ ACT/UDB projection remains unavailable; simulator execution does not imply
 ACT qualification. No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
 
+Mini's RV32 platform bring-up binding is available as `SOC=mini-spike-rv32max`.
+The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
+ELF32/ILP32 for that ISA. The smoke additionally exercises Zve32x/VLEN64 and
+Zvbb without floating-point instructions. For example:
+
+```sh
+make -C sims smoke SOC=mini-spike-rv32max
+make -C sims smoke SOC=mini-spike-rv32max HTIF_ARGS=+load-through-chi
+make -C sims boot-test host-mmio-test uart-pty-test SOC=mini-spike-rv32max
+```
+
+This is platform bring-up, not RV5Stage RV32-vector enablement or ACT
+qualification, and does not add a required CI product.
+
 The host emitters require an explicit third architectural selector:
 
 ```sh

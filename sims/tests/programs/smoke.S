@@ -1,5 +1,6 @@
 // Checks SoC boot, UART/PLIC, and selected Spike vector geometry and execution through HTIF.
 // SPDX-License-Identifier: Apache-2.0
+#include "xlen.h"
 .section .text
 .globl _start
 _start:
@@ -13,27 +14,31 @@ _start:
   bnez a0, fail
   li t0, 0x10100
   bne a1, t0, fail
-  lwu t1, 0(a1)
+  LOAD_U32 t1, 0(a1)
   li t2, 0xedfe0dd0
   bne t1, t2, fail
   li t0, 0x1000
-  ld t1, 0(t0)
+  LOAD_XLEN t1, 0(t0)
   la t2, _start
   bne t1, t2, fail
   // After handoff, exercise both word lanes without any concurrent ROM reader.
   // This is register readback coverage, not a warm-reboot protocol.
   li t3, 0x12345678
   sw t3, 4(t0)
-  lwu t4, 4(t0)
+  LOAD_U32 t4, 4(t0)
   bne t3, t4, fail
   sw zero, 0(t0)
-  lwu t4, 0(t0)
+  LOAD_U32 t4, 0(t0)
   bnez t4, fail
+#if __riscv_xlen == 64
   ld t4, 0(t0)
   slli t3, t3, 32
   bne t3, t4, fail
-  sd t1, 0(t0)
-  ld t4, 0(t0)
+#else
+  sw zero, 4(t0)              // Restore the 64-bit register's zero high word on RV32.
+#endif
+  STORE_XLEN t1, 0(t0)
+  LOAD_XLEN t4, 0(t0)
   bne t1, t4, fail
 
   // Assert the UART's level-sensitive TX-empty interrupt. Both contexts of
@@ -101,19 +106,19 @@ plic_claim_supervisor:
   li s5, 6
   lw t0, 0(s3)
   bnez t0, fail
-#ifdef RHODIUM_SMOKE_SPIKE_RVA23
+#ifdef RHODIUM_SMOKE_SPIKE_VECTOR
   // Fail explicitly on an illegal instruction, rather than looping at mtvec=0.
   li s5, 7
   la t0, fail
   csrw mtvec, t0
-  li t0, 0x6600                // Enable FP and vector architectural state.
+  li t0, 0x600                 // Enable vector architectural state.
   csrs mstatus, t0
   csrr t0, vlenb
-  li t1, 16
+  li t1, (__riscv_xlen / 4)    // RV32Max has VLEN64; RVA23 has VLEN128.
   bne t0, t1, fail
   li s5, 8
-  vsetivli t0, 4, e32, m1, ta, ma
-  li t1, 4
+  vsetvli t0, zero, e32, m1, ta, ma
+  li t1, (__riscv_xlen / 16)
   bne t0, t1, fail
   vid.v v1
   vadd.vi v1, v1, 7
@@ -123,7 +128,11 @@ plic_claim_supervisor:
   vmv.v.i v3, 0
   vredsum.vs v3, v2, v3
   vmv.x.s t0, v3
-  li t1, 34                   // 7 + 8 + 9 + 10, through the CHI memory path.
+#if __riscv_xlen == 32
+  li t1, 15                   // 7 + 8, through the CHI memory path.
+#else
+  li t1, 34                   // 7 + 8 + 9 + 10.
+#endif
   bne t0, t1, fail
   li s5, 9
   vmv.v.i v1, 1
@@ -131,7 +140,10 @@ plic_claim_supervisor:
   vmv.x.s t0, v2
   li t1, 128
   bne t0, t1, fail
+#ifdef RHODIUM_SMOKE_SPIKE_RVA23
   li s5, 10
+  li t0, 0x6000               // Enable FP only on the FP-capable preset.
+  csrs mstatus, t0
   vsetivli t0, 2, e64, m1, ta, ma
   li t1, 2
   bne t0, t1, fail
@@ -152,9 +164,10 @@ plic_claim_supervisor:
   li t1, 0x4000              // 2.0 in binary16.
   bne t0, t1, fail
 #endif
+#endif
   li t0, 1
   la t1, tohost
-  sd t0, 0(t1)
+  STORE_XLEN t0, 0(t1)        // HTIF's high word stays zero in the ELF image.
 1:
   j 1b
 
@@ -163,7 +176,7 @@ fail:
   slli t0, s5, 1
   ori t0, t0, 1
   la t1, tohost
-  sd t0, 0(t1)
+  STORE_XLEN t0, 0(t1)
 2:
   j 2b
 
@@ -175,7 +188,7 @@ tohost:
 .globl fromhost
 fromhost:
   .dword 0
-#ifdef RHODIUM_SMOKE_SPIKE_RVA23
+#ifdef RHODIUM_SMOKE_SPIKE_VECTOR
 .balign 16
 vector_result:
   .space 16

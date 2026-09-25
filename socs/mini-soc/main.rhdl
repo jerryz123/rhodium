@@ -9,7 +9,6 @@ import:
   lib("chi/protocol/fabric.rhdl").CHIHomeParams
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/ram.rhdl").CHIRam
-  lib("riscv/isa/xlen.rhm").XLen
   "../harts/implementation.rhdl".RiscvHartImplementation
   "../one-hart/system.rhdl" open
   "../platform/endpoint-params.rhdl".soc_host_node
@@ -33,8 +32,8 @@ class MiniSoCConfig(hart :: RiscvHartImplementation, ram :: CHIRamParams, clocks
                ram :: CHIRamParams = mini_soc_ram_params,
                ~clocks: clocks :: SoCClockConfig = mini_soc_clocks,
                ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: ram.base_address)):
-    unless hart.description.xlen == XLen.X64
-    | error(~who: #'MiniSoCConfig, "the compact platform requires an RV64 hart")
+    unless ram.base_address + ram.config.size_bytes <= (1 << hart.description.xlen.width)
+    | error(~who: #'MiniSoCConfig, "Mini RAM must fit the hart's address range")
     super(hart, ram, clocks, boot)
 
   property fabric :: SingleCoreSystemParams:

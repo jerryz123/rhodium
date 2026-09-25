@@ -1,5 +1,6 @@
 // Exchanges every byte through SoC UART pins and a PTY, then exits through HTIF.
 // SPDX-License-Identifier: Apache-2.0
+#include "xlen.h"
 .section .text
 .globl _start
 _start:
@@ -35,7 +36,7 @@ fail:
   li t0, 3
 done:
   la t1, tohost
-  sd t0, 0(t1)
+  STORE_XLEN t0, 0(t1)
 1:
   j 1b
 receive:

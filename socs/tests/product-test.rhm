@@ -9,6 +9,8 @@ import:
   "../products/core-profiles.rhm" open
   "../products/spike-core-profile.rhm" open
   "../products/udb.rhm".riscv_udb_configuration
+  "../mini-soc/main.rhdl".MiniSoCConfig
+  "../platform/boot.rhdl".riscv_soc_boot_config
   "../../sims/program-test/targets.rhm" open
   lib("cores/rv5stage/profile.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
@@ -79,3 +81,21 @@ check:
   single_core_spike_soc_core_profile.isa_string.length() > 64 ~is #true
   single_core_spike_soc_core_profile.isa_bytes > 0 ~is #true
   spike_product.description ~is simulator_soc_description("mini-spike-rva23")
+
+// This reference binding qualifies RV32 platform wiring without enabling RV5Stage vectors.
+def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Max))
+def rv32_mini :: MiniSoCConfig = rv32_product.configuration()
+def rv32_description = rv32_product.description
+check:
+  rv32_description.hart.isa_profile ~is rv32.isa
+  rv32_description.hart.vector.vlen ~is 64
+  rv32_description.hart.vector.elen ~is 32
+  rv32_description.hart.mmu_type ~is RiscvMmuType.Bare
+  rv32_mini.boot.program.bytes ~is riscv_soc_boot_config().program.bytes
+  rv32_mini.boot.image_for(rv32_description).size_bytes <= rv32_mini.boot.window_bytes ~is #true
+  rv32_description.memory_regions[0].base ~is 0x80000000
+  rv32_description.memory_regions[0].size_bytes ~is 0x10000
+  rv32_description.to_device_tree().to_dts().contains("rv32i") ~is #true
+  rv32_description ~is simulator_soc_description("mini-spike-rv32max")
+  riscv_soc_boot_config().image_for(rv32_description).bytes ~is rv32_mini.boot.image_for(rv32_description).bytes
+  riscv_soc_boot_config(~payload_address: 0x100000000).image_for(rv32_description) ~throws "XLEN"

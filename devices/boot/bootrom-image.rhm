@@ -9,7 +9,7 @@ import:
   lib("riscv/model/main.rhm") open
   lib("riscv/isa/integer-common.rhm") open
   lib("riscv/isa/rv64i.rhm").LD
-  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/rv32i.rhm").SLLI
   lib("riscv/isa/privileged.rhm").WFI
   lib("riscv/isa/zicsr.rhm") open
 
@@ -60,7 +60,14 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 //   ... compute t3 = boot_address_register
 // wait:
 //   wfi
-//   ld    t1, 0(t3)                 // lw for RV32
+//   li    t4, 1
+//   slli  t4, t4, 31
+//   blt   t4, zero, rv32            // bit 31 is the sign bit only on RV32
+//   ld    t1, 0(t3)
+//   j     loaded
+// rv32:
+//   lw    t1, 0(t3)
+// loaded:
 //   beqz  t1, wait                  // tolerate spurious WFI wakeups
 //   sw    zero, 0(t0)
 //   csrc  mie, t2
@@ -72,8 +79,7 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
 fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         payload_address :: Nat = RiscvBootROMPayloadAddress,
                         ~device_tree_address: device_tree_address :: Nat = 0,
-                        ~boot_address_register: boot_address_register :: maybe(Nat) = #false,
-                        ~xlen: xlen :: XLen = XLen.X64):
+                        ~boot_address_register: boot_address_register :: maybe(Nat) = #false):
   unless reset_address mod 4 == 0
   | error(~who: #'riscv_bootrom_image, "reset address must be four-byte aligned")
   unless !boot_address_register || boot_address_register mod 8 == 0
@@ -137,11 +143,17 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
       )
       words := words ++ [AUIPC.encode([rd.constrain(28)], ~immediate: boot_immediates[0])]
       def wait_index = words.length()
-      def load = (if xlen == XLen.X32 | LW | LD)
+      // The RV32 shift encoding is also valid on RV64. Select the load at
+      // runtime without requiring misa or taking an illegal-instruction trap.
       words := words ++ [
         WFI.encode([]),
-        load.encode([rd.constrain(6), rs1.constrain(28)], ~immediate: boot_immediates[1]),
-        BEQ.encode([rs1.constrain(6), rs2.constrain(0)], ~immediate: (wait_index - (words.length() + 2)) * 4),
+        ADDI.encode([rd.constrain(29), rs1.constrain(0)], ~immediate: 1),
+        SLLI.encode([rd.constrain(29), rs1.constrain(29)], ~immediate: 31),
+        BLT.encode([rs1.constrain(29), rs2.constrain(0)], ~immediate: 12),
+        LD.encode([rd.constrain(6), rs1.constrain(28)], ~immediate: boot_immediates[1]),
+        JAL.encode([rd.constrain(0)], ~immediate: 8),
+        LW.encode([rd.constrain(6), rs1.constrain(28)], ~immediate: boot_immediates[1]),
+        BEQ.encode([rs1.constrain(6), rs2.constrain(0)], ~immediate: (wait_index - (words.length() + 7)) * 4),
         SW.encode([rs1.constrain(5), rs2.constrain(0)], ~immediate: 0),
         CSRRC.encode([rd.constrain(0), rs1.constrain(7), immediate12.constrain(RiscvMieCSR)])
       ]

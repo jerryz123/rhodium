@@ -54,6 +54,13 @@ single-router memory map, NodeIDs, external service, CHI derivation, and
 selected hart with its Home, routers, and platform devices into the caller;
 it adds no hardware wrapper. Mini supplies on-chip RAM and a forwarding Home,
 while Single supplies the inclusive LLC and an external memory boundary.
+`SoCBootConfig` contains no XLEN specialization: the common reset program
+detects XLEN at runtime and selects its entry load. Image finalization validates
+boot addresses against the hart description and embeds its device tree.
+The boot-entry register remains 64 bits, with RV32 reading its low word. Preserve
+the full physical-address CHI interfaces rather than narrowing the fabric to
+the scalar register width. `mini-spike-rv32max` exercises this platform path
+without lifting RV5Stage's RV32-vector gate or expanding the CI inventory.
 All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture

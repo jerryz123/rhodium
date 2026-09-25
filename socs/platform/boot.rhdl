@@ -10,7 +10,6 @@ import:
   lib("chi/protocol/fabric.rhdl").CHIHomeParams
   lib("cores/riscv/chi-hart.rhdl").RiscvHartCHIRegion
   lib("riscv/rtl/pma.rhdl") open
-  lib("riscv/isa/xlen.rhm").XLen
   lib("devices/boot/bootrom-image.rhm") open
   lib("devices/interrupt/aclint-layout.rhm").AclintBase
   lib("devices/boot/bootrom.rhdl") open
@@ -34,6 +33,9 @@ class SoCBootConfig(reset_address :: Nat,
     reset_address + device_tree_offset
 
   method image_for(description :: RiscvSoCDescription):
+    def address_limit = 1 << description.hart.xlen.width
+    unless payload_address < address_limit && reset_address + window_bytes <= address_limit && boot_address_register + BootAddressWindowBytes <= address_limit
+    | error(~who: #'image_for, "boot addresses must fit the hart's XLEN")
     unless description.boot.reset_address == reset_address && (
       description.boot.payload_address == payload_address
     ) && description.boot.rom.base == reset_address && (
@@ -74,8 +76,6 @@ class SoCBootConfig(reset_address :: Nat,
     | error(~who: #'SoCBootConfig, "device-tree offset must lie in the BootROM window")
     unless boot_address_register mod BootAddressWindowBytes == 0
     | error(~who: #'SoCBootConfig, "boot-address register must be page aligned")
-    unless payload_address < (1 << 64)
-    | error(~who: #'SoCBootConfig, "default payload address must fit in 64 bits")
     super(reset_address, payload_address, window_bytes, device_tree_offset, program,
           boot_address_register)
 
@@ -83,8 +83,7 @@ fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMRes
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
                           ~window_bytes: window_bytes :: Pow2Int = SoCBootROMWindowBytes,
                           ~device_tree_offset: device_tree_offset :: Nat = SoCBootROMDeviceTreeOffset,
-                          ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase,
-                          ~xlen: xlen :: XLen = XLen.X64):
+                          ~boot_address_register: boot_address_register :: Nat = SoCBootAddressBase):
   SoCBootConfig(
     ~reset_address: reset_address,
     ~payload_address: payload_address,
@@ -95,8 +94,7 @@ fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMRes
       reset_address,
       payload_address,
       ~device_tree_address: reset_address + device_tree_offset,
-      ~boot_address_register: boot_address_register,
-      ~xlen: xlen
+      ~boot_address_register: boot_address_register
     )
   )
 

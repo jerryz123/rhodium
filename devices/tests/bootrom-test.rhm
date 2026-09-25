@@ -11,7 +11,7 @@ import:
   "../../riscv/model/main.rhm" open
   "../../riscv/isa/integer-common.rhm" open
   "../../riscv/isa/rv64i.rhm".LD
-  "../../riscv/isa/xlen.rhm".XLen
+  "../../riscv/isa/rv32i.rhm".SLLI
   "../../riscv/isa/privileged.rhm" open
   "../../riscv/isa/zicsr.rhm" open
   "../boot/bootrom-image.rhm" open
@@ -45,31 +45,37 @@ def relocated_image = riscv_bootrom_image(
 )
 def default_words = for List (index in 0..(default_image.size_bytes / 4)):
   image_word(default_image, index)
-def indirect64 = riscv_bootrom_image(~boot_address_register: 0x1000, ~device_tree_address: 0x10100)
-def indirect32 = riscv_bootrom_image(~boot_address_register: 0x2000, ~xlen: XLen.X32)
+def indirect = riscv_bootrom_image(~boot_address_register: 0x1000, ~device_tree_address: 0x10100)
+def relocated_indirect = riscv_bootrom_image(~boot_address_register: 0x2000)
 def flit = CHIFlitParams()
 def layout = bootrom.CHIBootROMLayout(flit, ~window_bytes: 64)
 def config = bootrom.CHIBootROMConfig(layout)
 def params = bootrom.CHIBootROMParams("test-bootrom", 12, layout)
 
 check:
-  indirect64.size_bytes ~is 72
-  indirect32.size_bytes ~is 72
-  LD.matches(image_word(indirect64, 11)) ~is #true
-  LW.matches(image_word(indirect32, 11)) ~is #true
-  pc_relative_target(indirect64, RiscvBootROMResetAddress, 9, 11) ~is 0x1000
-  pc_relative_target(indirect32, RiscvBootROMResetAddress, 9, 11) ~is 0x2000
-  pc_relative_target(indirect64, RiscvBootROMResetAddress, 4) ~is 0x02000000
-  pc_relative_target(indirect64, RiscvBootROMResetAddress, 15) ~is 0x10100
-  CSRRC.matches(image_word(indirect64, 2)) ~is #true
-  CSRRS.matches(image_word(indirect64, 3)) ~is #true
-  WFI.matches(image_word(indirect64, 10)) ~is #true
-  BEQ.matches(image_word(indirect64, 12)) ~is #true
-  BImmediate.decode(image_word(indirect64, 12)) ~is 0x1ff8
-  SW.matches(image_word(indirect64, 13)) ~is #true
-  CSRRC.matches(image_word(indirect64, 14)) ~is #true
-  JALR.matches(image_word(indirect64, 17)) ~is #true
-  IImmediate.decode(image_word(indirect64, 17)) ~is 0
+  indirect.size_bytes ~is 92
+  LD.matches(image_word(indirect, 14)) ~is #true
+  LW.matches(image_word(indirect, 16)) ~is #true
+  SLLI.matches(image_word(indirect, 12)) ~is #true
+  IImmediate.decode(image_word(indirect, 12)) ~is 31
+  BLT.matches(image_word(indirect, 13)) ~is #true
+  BImmediate.decode(image_word(indirect, 13)) ~is 12
+  JImmediate.decode(image_word(indirect, 15)) ~is 8
+  pc_relative_target(indirect, RiscvBootROMResetAddress, 9, 14) ~is 0x1000
+  pc_relative_target(indirect, RiscvBootROMResetAddress, 9, 16) ~is 0x1000
+  pc_relative_target(relocated_indirect, RiscvBootROMResetAddress, 9, 14) ~is 0x2000
+  pc_relative_target(relocated_indirect, RiscvBootROMResetAddress, 9, 16) ~is 0x2000
+  pc_relative_target(indirect, RiscvBootROMResetAddress, 4) ~is 0x02000000
+  pc_relative_target(indirect, RiscvBootROMResetAddress, 20) ~is 0x10100
+  CSRRC.matches(image_word(indirect, 2)) ~is #true
+  CSRRS.matches(image_word(indirect, 3)) ~is #true
+  WFI.matches(image_word(indirect, 10)) ~is #true
+  BEQ.matches(image_word(indirect, 17)) ~is #true
+  BImmediate.decode(image_word(indirect, 17)) ~is 0x1fe4
+  SW.matches(image_word(indirect, 18)) ~is #true
+  CSRRC.matches(image_word(indirect, 19)) ~is #true
+  JALR.matches(image_word(indirect, 22)) ~is #true
+  IImmediate.decode(image_word(indirect, 22)) ~is 0
   riscv_bootrom_image(~boot_address_register: 0x1004) ~throws "eight-byte aligned"
   default_image.size_bytes ~is 32
   default_words ~is [

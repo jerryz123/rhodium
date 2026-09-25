@@ -228,11 +228,14 @@ per-hart state. The platform can reset it to zero and publish a nonzero entry
 in one complete eight-byte write after payload loading finishes. The device does not validate the stored value as an
 executable address or provide a warm-reboot protocol.
 
-`riscv_bootrom_image(~boot_address_register: address, ~xlen: xlen)` generates the host-released
+`riscv_bootrom_image(~boot_address_register: address)` generates the host-released
 trampoline instead of the default immediate trampoline. Every hart enables
 MSIP only as a `WFI` wake source while global interrupt delivery remains
-disabled. On wake it reads the shared entry with `LW` for RV32 or `LD` for
-RV64; a zero value returns to `WFI`, allowing spurious wakeups. A nonzero entry
+disabled. The same instruction bytes work on RV32 and RV64: on wake, a shift
+and signed branch detect XLEN, selecting `LW` for RV32 or `LD` for RV64 without
+reading `misa` or trapping. The register and host publication remain 64-bit;
+RV32 consumes its low word and requires an entry that fits 32 bits. A zero
+loaded value returns to `WFI`, allowing spurious wakeups. A nonzero entry
 causes the hart to clear its own ACLINT MSIP, disable the wake source, set
 `a0 = mhartid` and `a1 = embedded DTB address`, and jump. The register must be
 eight-byte aligned; it and the fixed ACLINT base must be reachable by the ROM's
