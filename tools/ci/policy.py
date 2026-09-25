@@ -67,8 +67,18 @@ CIRCT_CORE_CHECKS = frozenset(
     check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key == "circt-hardfloat"
 )
 NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup")
-SINGLE_CORE_SOCS = ("simple-rv5stage-rva23", "simple-spike-rva23")
+PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
+# Software policy has exactly two axes. Core choice only selects the DUT.
+SOFTWARE_TESTS = {
+    ("mini", "rv32max"): PLATFORM_TESTS + ("isa-smoke",),
+    ("mini", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
+    ("single", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
+    ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
+}
+NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES}
 SIMULATOR_PRODUCTS = (
+    ("mini-rv5stage-rv32max", "mini", "rv5stage"),
+    ("mini-spike-rv32max", "mini", "spike"),
     ("mini-rv5stage-rva23", "mini", "rv5stage"),
     ("mini-spike-rva23", "mini", "spike"),
     ("simple-rv5stage-rva23", "single", "rv5stage"),
@@ -76,3 +86,11 @@ SIMULATOR_PRODUCTS = (
     ("tiled-rv5stage-rva23", "tiled", "rv5stage"),
     ("tiled-spike-rva23", "tiled", "spike"),
 )
+SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
+                         if (shape, soc.rsplit("-", 1)[1]) in NATIVE_SOFTWARE)
+
+
+def simulation_entry(soc, shape, core):
+    isa = soc.rsplit("-", 1)[1]
+    return dict(soc=soc, shape=shape, core=core, isa=isa,
+                software_tests=" ".join(SOFTWARE_TESTS[shape, isa]))

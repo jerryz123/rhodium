@@ -98,13 +98,13 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>six exact products for simulation;<br/>two Single products for software only"]
-    Simulators --> Simulation["Per-product simulation jobs<br/>harness checks and Mini/Tiled ISA smoke;<br/>Tiled RV5Stage multihart suite"]
+    Compile --> Simulators["Reusable simulator workflow<br/>eight exact products for simulation;<br/>two Single products for software only"]
+    Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["OpenSBI and RV5Stage<br/>stalled-memory jobs"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
-    Compile --> ActBuild["Generate RV5Stage ACT ELFs"]
-    Simulators --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
+    Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
+    Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
@@ -143,13 +143,14 @@ Both single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
 The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
-publishes its diagnostics. RV5Stage alone selects ACT generation and
-four-shard execution until Spike's RVA23 UDB projection is complete. Shared SoC dependencies
+publishes its diagnostics. Both profiles select their own ACT generation and
+four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
-adapter/source changes select the owning lane. Both Mini and both Tiled
-products receive capability-filtered ISA smoke; Tiled RV5Stage runs the
-two-, four-, and eight-hart benchmark manifests in CI, while Tiled Spike's
-locally runnable equivalent awaits runtime qualification. None receives the full
+adapter/source changes select the owning lane. All four CI Mini and both Tiled
+products receive capability-filtered ISA smoke; both Tiled cores run the
+two-, four-, and eight-hart benchmark manifests in CI. Software selection is a
+function of SoC shape and ISA, never core identity. No timeout or prior failure
+removes a workload from one core. None receives the full
 single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned

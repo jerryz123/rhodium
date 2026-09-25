@@ -22,8 +22,14 @@ transactions can still yield the model before that maximum is reached.
 The explicit `rva23` SoC specialization selects the shared RV64D/V architecture
 with VLEN=128 and ELEN=64, without substituting a scalar profile. This preset
 name is not a full RVA23 conformance claim. Simulator execution and ACT
-projection are separate capabilities: the broad profile's ACT/UDB projection
-is not implemented yet and still rejects that request.
+projection are separate capabilities. The ACT/UDB projection preserves this
+complete profile, including vector geometry, CBOs and pointer masking, alongside
+Spike-owned PMP, CSR, reservation and trap parameters. Unknown ISA claims fail
+closed. The generated ACT configuration reports reference-model differences:
+Sail 0.14.1 preserves an inactive unordered-reduction NaN seed, while Spike
+canonicalizes it and flags signaling NaNs. No tests are removed to hide this
+legal implementation difference; generating a configuration is not full ACT
+qualification.
 
 The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
 and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits

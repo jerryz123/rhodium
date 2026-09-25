@@ -6,6 +6,7 @@ import:
   lib("support/annotations.rhm").NonemptyString
   lib("riscv/udb.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   "profile.rhm".SpikeConfig
 
 fun extension(name :: NonemptyString, version :: NonemptyString) :: UdbExtension:
@@ -32,29 +33,96 @@ def NoHpmCounters = for List (_index in 0..32): #false
 // Spike's processor_t::paddr_bits() is 56 for RV64, independently of the CHI fabric width.
 def SpikeRV64PhysicalAddressWidth = 56
 
+// ISA spellings and versions are explicit: an unmodeled claim must fail closed.
+def SpikeUdbExtensions = [
+  ["i", extension("I", "2.1")],
+  ["m", extension("M", "2.0")],
+  ["a", extension("A", "2.1.0")],
+  ["f", extension("F", "2.2.0")],
+  ["d", extension("D", "2.2.0")],
+  ["c", extension("C", "2.0")],
+  ["b", extension("B", "1.0.0")],
+  ["za64rs", extension("Za64rs", "1.0.0")],
+  ["zba", extension("Zba", "1.0.0")],
+  ["zbb", extension("Zbb", "1.0.0")],
+  ["zbs", extension("Zbs", "1.0.0")],
+  ["zcb", extension("Zcb", "1.0.0")],
+  ["zcmop", extension("Zcmop", "1.0.0")],
+  ["zfa", extension("Zfa", "1.0.0")],
+  ["zfh", extension("Zfh", "1.0.0")],
+  ["zic64b", extension("Zic64b", "1.0.0")],
+  ["zicbop", extension("Zicbop", "1.0.0")],
+  ["zicboz", extension("Zicboz", "1.0.0")],
+  ["zicbom", extension("Zicbom", "1.0.0")],
+  ["ziccamoa", extension("Ziccamoa", "1.0.0")],
+  ["ziccif", extension("Ziccif", "1.0.0")],
+  ["ziccrse", extension("Ziccrse", "1.0.0")],
+  ["ssnpm", extension("Ssnpm", "1.0.0")],
+  ["supm", extension("Supm", "1.0.0")],
+  ["zawrs", extension("Zawrs", "1.0.0")],
+  ["zihintntl", extension("Zihintntl", "1.0.0")],
+  ["zicond", extension("Zicond", "1.0.0")],
+  ["zimop", extension("Zimop", "1.0.0")],
+  ["zkt", extension("Zkt", "1.0.0")],
+  ["v", extension("V", "1.0.0")],
+  ["zve32x", extension("Zve32x", "1.0.0")],
+  ["zve32f", extension("Zve32f", "1.0.0")],
+  ["zve64x", extension("Zve64x", "1.0.0")],
+  ["zve64f", extension("Zve64f", "1.0.0")],
+  ["zve64d", extension("Zve64d", "1.0.0")],
+  ["zvfhmin", extension("Zvfhmin", "1.0.0")],
+  ["zvfh", extension("Zvfh", "1.0.0")],
+  ["zvkb", extension("Zvkb", "1.0.0")],
+  ["zvbb", extension("Zvbb", "1.0.0")],
+  ["zvkt", extension("Zvkt", "1.0.0")],
+  ["zvl32b", extension("Zvl32b", "1.0.0")],
+  ["zvl64b", extension("Zvl64b", "1.0.0")],
+  ["zvl128b", extension("Zvl128b", "1.0.0")],
+  ["zihintpause", extension("Zihintpause", "2.0.0")],
+  ["zicntr", extension("Zicntr", "2.0")],
+  ["zicsr", extension("Zicsr", "2.0")],
+  ["zifencei", extension("Zifencei", "2.0.0")],
+  ["zihpm", extension("Zihpm", "2.0")]
+]
+
+fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension):
+  def advertised = profile.hart_description.isa_profile.isa_extensions
+  def mutable result = []
+  for (name in advertised):
+    def entries = SpikeUdbExtensions.filter(~keep: fun (entry): entry[0] == name)
+    unless entries.length() == 1
+    | error(~who: #'spike_udb_extensions, "no Spike UDB projection for extension: " ++ name)
+    result := result ++ [entries[0][1]]
+  // Expand architectural implication without borrowing another core's policies.
+  result := result ++ [
+    extension("Zmmul", "1.0.0"), extension("Zaamo", "1.0.0"), extension("Zalrsc", "1.0.0"),
+    extension("Zca", "1.0.0"), extension("Zcd", "1.0.0"),
+    extension("U", "1.0.0"), extension("S", "1.13.0"), extension("Sm", "1.13.0"),
+    extension("Svbare", "1.0.0")
+  ]
+  when advertised.contains("zfh")
+  | result := result ++ [extension("Zfhmin", "1.0.0")]
+  when advertised.contains("zvfh") && !advertised.contains("zvfhmin")
+  | result := result ++ [extension("Zvfhmin", "1.0.0")]
+  when advertised.contains("za64rs")
+  | result := result ++ [extension("Za128rs", "1.0.0")]
+  when profile.hart_description.mmu_type == RiscvMmuType.Sv39
+  | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
+  result
+
 fun spike_udb_configuration(profile :: SpikeConfig,
                             name :: NonemptyString,
                             description :: NonemptyString) :: UdbConfiguration:
+  def advertised = profile.hart_description.isa_profile.isa_extensions
+  fun has(name :: String) :: Boolean: advertised.contains(name)
   unless profile.hart_description.xlen == XLen.X64 && (
-    profile.hart_description.isa_profile.isa_extensions == [
-      "i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"
-    ]
+    for all (name in ["i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"]): has(name)
   )
-  | error(~who: #'spike_udb_configuration, "the Spike ACT projection requires the configured RV64IMAFDC profile")
+  | error(~who: #'spike_udb_configuration, "the Spike ACT projection requires RV64IMAFDC with base counters and Zihpm")
   unless profile.pmp_regions == 0 || profile.pmp_regions == 16 || profile.pmp_regions == 64
   | error(~who: #'spike_udb_configuration, "Sail models 0, 16, or 64 PMP entries")
-  UdbConfiguration(
-    name,
-    description,
-    [extension("I", "2.1"), extension("M", "2.0"), extension("Zmmul", "1.0.0"),
-     extension("A", "2.1.0"), extension("Zaamo", "1.0.0"), extension("Zalrsc", "1.0.0"),
-     extension("F", "2.2.0"), extension("D", "2.2.0"), extension("C", "2.0"),
-     extension("Zca", "1.0.0"), extension("Zcd", "1.0.0"),
-     extension("Zicsr", "2.0"), extension("Zifencei", "2.0.0"),
-     extension("Zicntr", "2.0"), extension("Zihpm", "2.0"), extension("U", "1.0.0"),
-     extension("S", "1.13.0"), extension("Sm", "1.13.0"),
-     extension("Svbare", "1.0.0"), extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")],
-    [natural_parameter("MXLEN", 64), natural_parameter("PHYS_ADDR_WIDTH", SpikeRV64PhysicalAddressWidth),
+  def mutable parameters = [
+     natural_parameter("MXLEN", 64), natural_parameter("PHYS_ADDR_WIDTH", SpikeRV64PhysicalAddressWidth),
      natural_parameter("PMA_GRANULARITY", 3),
      boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
      boolean_parameter("TRAP_ON_ECALL_FROM_M", #true), boolean_parameter("TRAP_ON_EBREAK", #true),
@@ -125,12 +193,55 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      natural_parameter("STVEC_BASE_ALIGNMENT_VECTORED", 4),
      boolean_parameter("SATP_MODE_BARE", #true),
      boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
-     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", [0]),
+     natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if profile.vector_length > 0 | [0, 1, 2, 3] | [0]),
      natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", [0, 1, 2, 3]),
      boolean_parameter("MUTABLE_MISA_F", #true), boolean_parameter("MUTABLE_MISA_D", #true),
      boolean_parameter("MUTABLE_MISA_C", #true),
      string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")]
-  )
+  when has("b")
+  | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_B", #true)]
+  when has("zic64b") || has("zicbom") || has("zicboz")
+  | parameters := parameters ++ [natural_parameter("CACHE_BLOCK_SIZE", profile.hart_description.cbo_block_bytes)]
+  when has("zicbom")
+  | parameters := parameters ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
+  when has("ssnpm")
+  | parameters := parameters ++ [natural_parameter("PMLEN", 16)]
+  when has("zawrs")
+  | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #true)]
+  when profile.vector_length > 0
+  | parameters := parameters ++ [
+      natural_parameter("VLEN", profile.vector_length),
+      natural_parameter("ELEN", profile.vector_element_width),
+      natural_parameter("SEW_MIN", 8),
+      boolean_parameter("FOLLOW_VTYPE_RESET_RECOMMENDATION", #true),
+      boolean_parameter("IMPRECISE_VECTOR_TRAP_SETTABLE", #false),
+      string_parameter("LEGAL_VSTART", "1_stride"),
+      // vector_unit.cc sets vill on a reserved VLMAX change; an old illegal
+      // vtype has VLMAX zero, so a legal replacement also takes that path.
+      string_parameter("RESERVED_VSET_X0X0_VILL_SET", "always"),
+      string_parameter("RESERVED_VSET_X0X0_VLMAX_CHANGE", "always"),
+      string_parameter("RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX", "VLMAX"),
+      string_parameter("SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED", "no_unrequired_supported"),
+      boolean_parameter("VILL_SET_ON_RESERVED_VTYPE", #true),
+      string_parameter("HW_MSTATUS_VS_DIRTY_UPDATE", "precise"),
+      boolean_parameter("VECTOR_FF_NO_EXCEPTION_TRIM", #false),
+      string_parameter("VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD", "custom"),
+      string_parameter("VECTOR_FF_UPDATE_PAST_TRIM", "update_none"),
+      boolean_parameter("VECTOR_LOAD_PAST_TRAP", #false),
+      string_parameter("VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT", "no_overwrite"),
+      string_parameter("VECTOR_LS_INDEX_MAX_EEW", "64"),
+      boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #false),
+      boolean_parameter("VECTOR_LS_SEG_PARTIAL_ACCESS", #true),
+      boolean_parameter("VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL", #false),
+      string_parameter("VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR", "copy"),
+      string_parameter("VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR", "copy"),
+      // v_ext_macros.h canonicalizes an inactive NaN seed and flags sNaN.
+      string_parameter("VFREDUSUM_NAN", "custom"),
+      string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
+      boolean_parameter("VSSTATUS_VS_EXISTS", #false),
+      boolean_parameter("MUTABLE_MISA_V", #true)
+    ]
+  UdbConfiguration(name, description, spike_udb_extensions(profile), parameters)
 
 export:
   spike_udb_configuration

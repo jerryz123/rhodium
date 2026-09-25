@@ -51,11 +51,10 @@ bind this exact profile. Mini supports both bindings for platform bring-up; its 
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
-address range. This binding is not an addition to the intended eight-product
-CI inventory.
+address range. Both Mini RV32Max bindings participate in simulation CI.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
-still rejects this broad profile pending expansion; it never substitutes a
-narrower architecture.
+preserves this broad profile and implementation-specific parameters; see the
+[Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
 
 The only presets are `RV32Max` and `RVA23`. Product selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
@@ -322,8 +321,8 @@ transaction policy into the SoC helper.
 
 The selected core profile is `RVA23`, shared with the RV5Stage products.
 The runtime preserves its complete ISA string and exact VLEN=128/ELEN=64;
-its broad ACT/UDB projection remains unavailable. No scalar substitute is selected.
-The existing scalar UDB projection remains covered by Spike-owned unit tests.
+its ACT/UDB projection preserves that architecture without a scalar substitute.
+Scalar and production projections remain covered by Spike-owned unit tests.
 Its architectural description declares 16 KiB instruction and data caches with
 64-byte lines; the Spike runtime models those private caches and services their
 coherence through the three CHI ports. Because `SpikeCore` contains a DPI

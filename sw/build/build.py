@@ -33,24 +33,26 @@ HERE = Path(__file__).resolve().parent
 # Upstream ISA groups supported by the adapter, keyed by the extension that
 # makes each group's physical and available virtual tests applicable.
 ISA_GROUPS = {
-    'i': 'rv64ui',
-    'm': 'rv64um',
-    'a': 'rv64ua',
-    'f': 'rv64uf',
-    'd': 'rv64ud',
-    'c': 'rv64uc',
-    'zba': 'rv64uzba',
-    'zbb': 'rv64uzbb',
-    'zbs': 'rv64uzbs',
-    'zicond': 'rv64uzicond',
-    'zicboz': 'rv64mzicbo',
+    'i': 'ui',
+    'm': 'um',
+    'a': 'ua',
+    'f': 'uf',
+    'd': 'ud',
+    'c': 'uc',
+    'zba': 'uzba',
+    'zbb': 'uzbb',
+    'zbs': 'uzbs',
+    'zicond': 'uzicond',
+    'zicboz': 'mzicbo',
 }
+# The pinned upstream has no RV32 CBO test group.
+ISA_GROUP_XLENS = {'zicboz': (64,)}
 
 # Representative operations, chosen by feature rather than observed pass status.
 SMOKE_TESTS = {
-    'i': ('add', 'sub', 'sll', 'sltu', 'beq', 'bne', 'jalr', 'lb', 'ld', 'sb', 'sd'),
+    'i': ('add', 'sub', 'sll', 'sltu', 'beq', 'bne', 'jalr', 'lb', 'sb'),
     'm': ('mul', 'mulh', 'div', 'rem'),
-    'a': ('amoadd_d', 'amoswap_w', 'lrsc'),
+    'a': ('amoswap_w', 'lrsc'),
     'c': ('rvc',),
     'zba': ('sh1add',),
     'zbb': ('clz',),
@@ -61,9 +63,10 @@ SMOKE_TESTS = {
 
 
 def isa_groups(target):
-    if target['xlen'] != 64 or 'i' not in target['extensions']:
-        raise ValueError('ISA tests require an RV64 I target')
-    return [group for extension, group in ISA_GROUPS.items() if extension in target['extensions']]
+    if target['xlen'] not in (32, 64) or 'i' not in target['extensions']:
+        raise ValueError('ISA tests require an RV32 or RV64 I target')
+    return [f'rv{target["xlen"]}{group}' for extension, group in ISA_GROUPS.items()
+            if extension in target['extensions'] and target['xlen'] in ISA_GROUP_XLENS.get(extension, (32, 64))]
 
 
 def virtual_environment_enabled(target):
@@ -72,11 +75,19 @@ def virtual_environment_enabled(target):
 
 
 def smoke_selection(target):
-    isa_groups(target)
-    extensions = [extension for extension in SMOKE_TESTS if extension in target['extensions']]
-    return ([ISA_GROUPS[extension] for extension in extensions],
-            [f'{ISA_GROUPS[extension]}-p-{test}'
-             for extension in extensions for test in SMOKE_TESTS[extension]])
+    available = isa_groups(target)
+    groups, names = [], []
+    for extension, tests in SMOKE_TESTS.items():
+        group = f'rv{target["xlen"]}{ISA_GROUPS[extension]}'
+        if group not in available:
+            continue
+        groups.append(group)
+        if extension == 'i':
+            tests += ('lw', 'sw') if target['xlen'] == 32 else ('ld', 'sd')
+        elif extension == 'a':
+            tests += ('amoadd_w',) if target['xlen'] == 32 else ('amoadd_d',)
+        names.extend(f'{group}-p-{test}' for test in tests)
+    return groups, names
 
 
 def multihart_benchmark_harts(target):
@@ -141,17 +152,24 @@ def check_elf_memory(elf, regions, require_executable_entry=True):
     storage they declare is part of PT_LOAD p_memsz, like their other test data.
     """
     data = elf.read_bytes()
-    if len(data) < 64 or data[:7] != b'\x7fELF\x02\x01\x01':
-        raise ValueError(f'{elf}: expected a little-endian ELF64 executable')
-    header = struct.unpack_from('<HHIQQQIHHHHHH', data, 16)
+    if len(data) < 16 or data[:4] != b'\x7fELF' or data[4] not in (1, 2) or data[5:7] != b'\x01\x01':
+        raise ValueError(f'{elf}: expected a little-endian ELF32 or ELF64 executable')
+    elf64 = data[4] == 2
+    header_format = '<HHIQQQIHHHHHH' if elf64 else '<HHIIIIIHHHHHH'
+    if len(data) < 16 + struct.calcsize(header_format):
+        raise ValueError(f'{elf}: truncated executable header')
+    header = struct.unpack_from(header_format, data, 16)
     kind, machine, _, entry, phoff, _, _, _, phsize, phnum, *_ = header
-    if kind != 2 or machine != 243 or phsize != 56 or phoff + phsize * phnum > len(data):
+    if kind != 2 or machine != 243 or phsize != (56 if elf64 else 32) or phoff + phsize * phnum > len(data):
         raise ValueError(f'{elf}: invalid RISC-V executable headers')
     load_entry = False
     executable_entry = False
     footprint = []
     for index in range(phnum):
-        ptype, flags, offset, virtual, physical, filesz, memsz, _ = struct.unpack_from('<IIQQQQQQ', data, phoff + index * phsize)
+        if elf64:
+            ptype, flags, offset, virtual, physical, filesz, memsz, _ = struct.unpack_from('<IIQQQQQQ', data, phoff + index * phsize)
+        else:
+            ptype, offset, virtual, physical, filesz, memsz, flags, _ = struct.unpack_from('<IIIIIIII', data, phoff + index * phsize)
         if ptype != 1:
             continue
         if filesz > memsz or offset + filesz > len(data) or physical != virtual:
@@ -227,7 +245,7 @@ def main():
     compiler_arch = None
     if args.suite == 'isa':
         command = ['make', '--no-print-directory', '-s', '-f', str(HERE / 'isa.mk'),
-                   'XLEN=64', f'src_dir={source / "isa"}', f'RISCV_GCC={compiler}',
+                   f'XLEN={target["xlen"]}', f'src_dir={source / "isa"}', f'RISCV_GCC={compiler}',
                    'RISCV_GCC_OPTS=-static -mcmodel=medany -fvisibility=hidden -nostdlib -nostartfiles',
                    f'RISCV_PREFIX={compiler.removesuffix("gcc")}']
         groups = isa_groups(target)
@@ -241,10 +259,13 @@ def main():
             if missing:
                 raise ValueError(f'upstream smoke tests missing from inventory: {sorted(missing)}')
             names = selected
-        exclusions = {'rv64ui-p-ma_data': 'Requires successful misaligned data accesses.',
-                      'rv64ui-v-ma_data': 'Requires successful misaligned data accesses.',
+        exclusions = {f'rv{target["xlen"]}ui-p-ma_data': 'Requires successful misaligned data accesses.',
+                      f'rv{target["xlen"]}ui-v-ma_data': 'Requires successful misaligned data accesses.',
                       'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
                       'other instruction groups': 'Require extensions outside the concrete target profile.'}
+        for extension, xlens in ISA_GROUP_XLENS.items():
+            if extension in target['extensions'] and target['xlen'] not in xlens:
+                exclusions[extension] = f'Pinned upstream has no RV{target["xlen"]} test group.'
         if not virtual:
             exclusions['*-v-*'] = 'Requires the full ISA selection and an Sv39 M/S/U target.'
         if args.isa_selection == 'smoke':

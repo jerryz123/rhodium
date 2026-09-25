@@ -26,10 +26,10 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all six
+Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all eight
 products explicitly and publishes one exact-commit simulator and target
 descriptor per product. Software-only changes build just the two Single products;
-simulation changes build all six. The host emitter
+simulation changes build all eight, including both Mini RV32Max cores. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
@@ -41,8 +41,8 @@ software target descriptions, and UDB. `emit-soc-harness.rhm` and
 target writer also accepts a complete product key). `product.mk` validates the
 Make selectors and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
-includes exact vector geometry; its broad ACT/UDB projection remains gated
-independently of execution. `test-products.rhm` is the explicit typed
+includes exact vector geometry, and its ACT/UDB projection preserves its own
+architectural choices. `test-products.rhm` is the explicit typed
 eight-product inventory, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
@@ -431,13 +431,12 @@ duplicate ISA, topology, or RAM constants in Python. A manifest test may select
 a nonempty canonical subset through `harts`. The runner validates that subset
 against the target and translates it to `+boot-harts=`; tests without the field
 retain the hart-zero default.
-SingleCoreSpikeSoC owns the complete profile-selected ISA inventory,
-benchmarks, CoreMark, Embench-IoT, and Bringup-Bench so broad software coverage uses the fast
-reference hart. Both single-core SoCs own independent ACT configurations:
+Both Single-core RVA23 products own the complete profile-selected ISA inventory,
+benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own independent ACT configurations:
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-Both Mini and both Tiled products use capability-filtered ISA smoke. Both
+The four CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
 Tiled products additionally own the focused upstream multihart benchmark selection. The
 adapter materializes a private build-tree view of the pinned benchmark sources
 for each supported two-, four-, or eight-hart run, changes only the copied
@@ -449,7 +448,9 @@ nonzero exit is reported as failure. Keep the source submodule pristine and
 make both exact upstream markers fail closed when their runtimes change. This
 coverage assignment is test policy, not hardware metadata; do not add a suite
 category to an SoC or core configuration.
-`ISA_GROUPS` maps target ISA extensions to upstream groups; full selection also
+`ISA_GROUPS` maps target ISA extensions to XLEN-qualified upstream groups;
+the pinned upstream's RV64-only CBO group is recorded as a coverage gap for RV32.
+Full selection also
 uses the projected MMU and privilege modes to include their virtual-environment
 inventories when Sv39 and M/S/U are available. `SMOKE_TESTS` selects fixed
 physical-environment representatives. Both modes
@@ -463,13 +464,13 @@ fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
 The simulation CI matrix downloads and verifies one exact-commit simulator and
-target descriptor per product. Every product runs platform checks, both Mini
-and Tiled profiles run `isa-smoke`, and Tiled RV5Stage runs multihart
-benchmarks. Tiled Spike has the same local multihart target but stays out of
-the required CI step until all three hart counts complete within a justified
-runtime budget. The matrix disables fail-fast and uploads independent results.
+target descriptor per product. Every product runs platform checks, Mini
+and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
+benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
+each core binding consumes the identical selection. The matrix disables
+fail-fast, attempts every selected target even after failure, and uploads independent results.
 Changes to the adapter or upstream ISA sources must select that job.
-The ordinary `smoke` target specializes its payload for Spike RVA23: in addition
+The ordinary `smoke` target specializes its payload by ISA: for RVA23, in addition
 to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
 exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses
 the same FESVR and prebuilt-simulator path in CI; no alternate loader or harness
@@ -480,7 +481,18 @@ platform payloads. The boot register and HTIF mailboxes remain eight bytes:
 RV32 payload termination writes the low word of a zero-initialized mailbox, and the MMIO signature test
 explicitly writes both boot-register word lanes. Keep the smoke's boot-register
 readback coverage for both XLENs and run RV64 smoke after changing this shared
-assembly. The bounded RV32 qualification does not alter the CI product matrix.
+assembly. Both Mini RV32Max cores run this integer-vector smoke in CI alongside
+boot, host MMIO, UART PTY, and ISA smoke.
+
+The architectural `zihintntl-test` checks translated integer/FP hinted loads and
+dirty-data preservation on both single-core implementations. The separately
+named `zihintntl-policy-test` retains RV5Stage's concrete non-allocation timing
+assertions and is a microarchitecture check, not a software-selection exception.
+Supervisor payloads open PMP where present before using MPRV or S-mode; absent
+PMP CSRs are handled by a local startup continuation, not core-name dispatch.
+ACT retains exact ISA and implementation parameters, and emits
+`reference-model-differences.json` for legal DUT choices not configurable in
+Sail 0.14.1. These differences neither rewrite the DUT nor suppress test cases.
 
 The separate tiled-litmus smoke CI matrix builds both Spike and RV5Stage tiled
 simulators and runs the same checked-in, litmus7-generated case selection on

@@ -361,11 +361,42 @@ class ProductSelectionTest(unittest.TestCase):
         result = self.dry_run('ISA=', target='setup')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_mini_rv32max_smoke_requires_integer_vector_payload(self):
+        with tempfile.TemporaryDirectory() as directory:
+            product = 'mini-rv5stage-rv32max'
+            result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
+                                  target=f'{directory}/{product}/smoke.elf')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('-march=rv32imacb_zicsr_zve32x_zvl64b_zvbb', result.stdout)
+            self.assertIn('-mabi=ilp32', result.stdout)
+            self.assertIn('-DRHODIUM_SMOKE_VECTOR=1', result.stdout)
+
+    def test_smoke_isa_and_payload_flags_do_not_depend_on_core(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for isa in ('rv32max', 'rva23'):
+                commands = []
+                for core in ('rv5stage', 'spike'):
+                    product = f'mini-{core}-{isa}'
+                    result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
+                                          target=f'{directory}/{product}/smoke.elf')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn('-DRHODIUM_SMOKE_VECTOR=1', result.stdout)
+                    commands.append(result.stdout.replace(product, 'product'))
+                self.assertEqual(commands[0], commands[1])
+
     def test_traced_products_retain_the_explicit_isa(self):
         for shape in ('simple', 'tiled'):
             result = self.dry_run(f'SOC={shape}-rv5stage-rva23', 'TRACE=1')
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn(f'/{shape}-rv5stage-rva23-trace/obj/program-target.json', result.stdout)
+
+    def test_simple_ntl_architectural_test_accepts_both_cores(self):
+        for core in ('rv5stage', 'spike'):
+            result = self.dry_run(f'SOC=simple-{core}-rva23', target='zihintntl-test')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('translated loads, dirty-data preservation', result.stdout)
+            self.assertNotIn('requires the single-core', result.stdout)
+            self.assertNotIn('-DRHODIUM_NTL_CACHE_POLICY=1', result.stdout)
 
     def test_act_and_harness_use_the_same_explicit_product(self):
         result = self.dry_run('ACT_CONFIGURATION=simple-rv5stage-rva23', target='arch-test-config')

@@ -1,4 +1,4 @@
-// Checks Spike coroutine backpressure, PMA classification, line fill, and instruction-cache hits.
+// Checks Spike coroutine transport, cache visibility, and block-zero PMA enforcement.
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_core.h"
 
@@ -6,6 +6,7 @@
 #include <array>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <stdexcept>
 
 using rhodium::spike::Configuration;
@@ -215,12 +216,15 @@ int main() {
 
   // CBO.ZERO must acquire one coherent line and publish a dirty zero line.
   // A region without the cache-block-zero PMA permission must fault instead.
+  // Keep all FESVR coroutine contexts alive for this process-long fixture.
+  std::array<std::unique_ptr<SpikeCoreModel>, 2> zero_models;
   for (bool allowed : {true, false}) {
     Configuration zero_configuration;
     zero_configuration.reset_vector = 0x1000;
     zero_configuration.isa = "rv64ima_zicsr_zic64b_zicboz";
     zero_configuration.privilege = "msu";
-    SpikeCoreModel zero_model(zero_configuration);
+    zero_models[allowed] = std::make_unique<SpikeCoreModel>(zero_configuration);
+    auto& zero_model = *zero_models[allowed];
     Inputs zero_inputs;
     std::size_t zero_classifications = 0;
     std::size_t zero_acquires = 0;

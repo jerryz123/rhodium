@@ -72,8 +72,6 @@ VECTOR_PARAMETER_VALUES = {
     "FOLLOW_VTYPE_RESET_RECOMMENDATION": True,
     "IMPRECISE_VECTOR_TRAP_SETTABLE": False,
     "LEGAL_VSTART": "1_stride",
-    "RESERVED_VSET_X0X0_VILL_SET": "never",
-    "RESERVED_VSET_X0X0_VLMAX_CHANGE": "never",
     "RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX": "VLMAX",
     "SUPPORT_FRACTIONAL_LMUL_BEYOND_REQUIRED": "no_unrequired_supported",
     "VECTOR_FF_NO_EXCEPTION_TRIM": False,
@@ -87,11 +85,23 @@ VECTOR_PARAMETER_VALUES = {
     "VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL": False,
     "VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR": "copy",
     "VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR": "copy",
-    "VFREDUSUM_NAN": "no_change",
     "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
     "VSSTATUS_VS_EXISTS": False,
 }
 POINTER_MASKING_VERSIONS = {"Ssnpm": "1.0.0", "Supm": "1.0.0"}
+
+
+def reference_model_differences(params):
+    """Report legal DUT choices that Sail 0.14.1 cannot configure exactly.
+
+    These do not change the selected ISA or suppress tests. Preserve the DUT's
+    UDB parameters and expose reference-model differences with every ACT build.
+    """
+    fixed = {"RESERVED_VSET_X0X0_VILL_SET": "always",
+             "RESERVED_VSET_X0X0_VLMAX_CHANGE": "always",
+             "VFREDUSUM_NAN": "no_change"}
+    return {name: {"dut": params[name], "sail": value}
+            for name, value in fixed.items() if name in params and params[name] != value}
 
 
 def validate_reservation_bounds(reservation, extensions):
@@ -165,6 +175,13 @@ def project_vector(model_extensions, extensions, params):
     for name, expected in VECTOR_PARAMETER_VALUES.items():
         if params.get(name) != expected:
             raise ValueError(f"Sail vector projection requires {name}={expected!r}")
+    for name, choices in {
+        "RESERVED_VSET_X0X0_VILL_SET": ("never", "always"),
+        "RESERVED_VSET_X0X0_VLMAX_CHANGE": ("never", "always"),
+        "VFREDUSUM_NAN": ("no_change", "custom"),
+    }.items():
+        if params.get(name) not in choices:
+            raise ValueError(f"unmodeled vector parameter {name}={params.get(name)!r}")
     vector["support_level"] = {
         "V": "Full",
         "Zve64d": "Float_double",
@@ -231,6 +248,9 @@ def sail_config(default, udb, origin, size):
     for name, options in model_extensions.items():
         if "supported" in options:
             options["supported"] = name in extensions
+    if "Zawrs" in extensions:
+        model_extensions["Zawrs"]["nto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
+        model_extensions["Zawrs"]["sto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
     for name in ("Smstateen", "Ssstateen"):
         model_extensions["Stateen"][name]["supported"] = False
     base = default["base"]
@@ -357,6 +377,10 @@ def main():
     )
     (args.output / "rvmodel_macros.h").write_text(macros)
     (args.output / "sail.json").write_text("// Configures Sail for the selected UDB target.\n" + json.dumps(config, indent=2) + "\n")
+    differences = reference_model_differences(udb["params"])
+    (args.output / "reference-model-differences.json").write_text(json.dumps(differences, indent=2) + "\n")
+    if differences:
+        print("ACT reference-model differences (tests remain enabled): " + json.dumps(differences, sort_keys=True))
     subprocess.run([sail, "--config", str(args.output / "sail.json"), "--validate-config"], check=True)
     act = test_config(args.name, args.compiler, args.objdump, sail, args.udb)
     with (args.output / "test_config.yaml").open("w") as output:

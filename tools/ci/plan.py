@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, simulation_entry
 
 
 def matches(path, *patterns):
@@ -216,7 +216,7 @@ class Selection:
             "simulator_matrix": {"include": [dict(soc=soc, shape=shape, core=core)
                                              for soc, shape, core in products]} if run_simulator else {"include": []},
             "run_simulation": self.simulation,
-            "simulation_matrix": {"include": [dict(soc=soc, shape=shape, core=core)
+            "simulation_matrix": {"include": [simulation_entry(soc, shape, core)
                                             for soc, shape, core in SIMULATOR_PRODUCTS]} if self.simulation else {"include": []},
             "run_program_native": run_program_native,
             "program_matrix": suites,

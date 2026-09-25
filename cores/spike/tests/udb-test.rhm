@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks Spike's supported scalar UDB projection independently of requested SoC presets.
+// Checks scalar and exact RVA23 Spike UDB projections, including implementation-owned vector and PMP choices.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,8 @@ import:
   "../../../riscv/isa/hart.rhm" open
   "../../../riscv/isa/profile.rhm" open
   "../../../riscv/isa/xlen.rhm".XLen
+  "../../../socs/products/selection.rhm".IsaPreset
+  "../../../socs/products/spike-core-profile.rhm".spike_product_profile
 
 // This unit fixture exercises the existing projection, not a production ISA preset.
 def isa = RiscvIsaProfile(
@@ -30,3 +32,18 @@ check:
   yaml.contains("  CACHE_BLOCK_SIZE:") ~is #false
   yaml.contains("{ name: \"Sm\", version: \"= 1.13.0\" }") ~is #true
   yaml.contains("{ name: \"Zihpm\", version: \"= 2.0\" }") ~is #true
+
+def rva23_profile = spike_product_profile(IsaPreset.RVA23)
+def rva23 = spike_udb_configuration(rva23_profile, "spike-rva23", "Exact Spike RVA23 preset")
+def rva23_yaml = rva23.to_yaml()
+for (name in ["B", "Zcb", "Zcmop", "Zfa", "Zfh", "Zfhmin", "V", "Zve32x", "Zve64d", "Zvbb", "Zvkb", "Zvfh", "Zvfhmin", "Zvkt", "Zvl128b", "Ssnpm", "Supm", "Zicbom", "Zicboz", "Za64rs"]):
+  check: (for any (entry in rva23.extensions): entry.name == name) ~is #true
+check:
+  rva23_yaml.contains("  VLEN: 128") ~is #true
+  rva23_yaml.contains("  ELEN: 64") ~is #true
+  rva23_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
+  rva23_yaml.contains("  PHYS_ADDR_WIDTH: 56") ~is #true
+  rva23_yaml.contains("  PMLEN: 16") ~is #true
+  rva23_yaml.contains("  ZAWRS_NTO_IS_NOP: true") ~is #true
+  rva23_yaml.contains("  RESERVED_VSET_X0X0_VLMAX_CHANGE: \"always\"") ~is #true
+  rva23_yaml.contains("  VFREDUSUM_NAN: \"custom\"") ~is #true

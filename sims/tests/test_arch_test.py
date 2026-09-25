@@ -144,6 +144,20 @@ class ArchTestConfigTest(unittest.TestCase):
         self.assertIs(config["include_priv_tests"], True)
         self.assertEqual(config["udb_config"], str(Path("/tmp/udb.yaml").resolve()))
 
+    def test_wait_on_reservation_policy_follows_the_profile(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        for is_nop in (False, True):
+            default = sail_default()
+            default["extensions"]["Zawrs"] = {
+                "supported": False, "nto": {"is_nop": not is_nop}, "sto": {"is_nop": not is_nop}}
+            params = architecture_params()
+            params["ZAWRS_NTO_IS_NOP"] = is_nop
+            udb = {"params": params, "implemented_extensions": [
+                {"name": "Sm", "version": "= 1.13.0"}, {"name": "Zawrs", "version": "= 1.0.0"}]}
+            config = configure["sail_config"](default, udb, 0x80000000, 0x40000000)
+            self.assertIs(config["extensions"]["Zawrs"]["nto"]["is_nop"], is_nop)
+            self.assertIs(config["extensions"]["Zawrs"]["sto"]["is_nop"], is_nop)
+
     def test_software_check_delegation_requires_a_cfi_extension(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         for extension in ("Zicfilp", "Zicfiss"):
@@ -214,6 +228,24 @@ class ArchTestConfigTest(unittest.TestCase):
         self.assertEqual(config["base"]["mstatus"]["vs_legal_states"], "ExtContext_FourState")
         for name in ("Zvfh", "Zvkb", "Zvbb", "Zvkt"):
             self.assertIs(config["extensions"][name]["supported"], True)
+
+    def test_spike_vector_choices_and_reference_differences_are_preserved(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        udb["params"].update(RESERVED_VSET_X0X0_VILL_SET="always",
+                             RESERVED_VSET_X0X0_VLMAX_CHANGE="always",
+                             VFREDUSUM_NAN="custom", ZAWRS_NTO_IS_NOP=True)
+        udb["implemented_extensions"].append({"name": "Zawrs", "version": "= 1.0.0"})
+        default = sail_default()
+        default["extensions"]["Zawrs"] = {"supported": False, "nto": {}, "sto": {}}
+        config = configure["sail_config"](default, udb, 0x80000000, 0x40000000)
+        self.assertEqual(config["extensions"]["V"]["support_level"], "Full")
+        self.assertTrue(config["extensions"]["Zawrs"]["nto"]["is_nop"])
+        self.assertEqual(configure["reference_model_differences"](udb["params"]),
+                         {"VFREDUSUM_NAN": {"dut": "custom", "sail": "no_change"}})
+        self.assertEqual(udb["params"]["VFREDUSUM_NAN"], "custom")
+        self.assertEqual(set(configure["reference_model_differences"](vector_udb()["params"])),
+                         {"RESERVED_VSET_X0X0_VILL_SET", "RESERVED_VSET_X0X0_VLMAX_CHANGE"})
 
     def test_pointer_masking_environment_projects_to_sail_hardware(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))

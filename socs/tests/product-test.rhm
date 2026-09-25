@@ -81,6 +81,8 @@ check:
   single_core_spike_soc_core_profile.isa_string.length() > 64 ~is #true
   single_core_spike_soc_core_profile.isa_bytes > 0 ~is #true
   spike_product.description ~is simulator_soc_description("mini-spike-rva23")
+  spike_product.udb().to_yaml().contains("  VLEN: 128") ~is #true
+  riscv_udb_configuration("simple-spike-rva23").to_yaml().contains("  CACHE_BLOCK_SIZE: 64") ~is #true
 
 // Both hart implementations project the same RV32 architecture and platform geometry.
 def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Max))

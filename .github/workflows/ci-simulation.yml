@@ -15,7 +15,7 @@ on:
         required: true
         type: string
       matrix:
-        description: Six-product simulation matrix selected by the CI planner.
+        description: Qualified product simulation matrix selected by the CI planner.
         required: true
         type: string
 
@@ -82,45 +82,27 @@ jobs:
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" \
             --soc "$SOC" --target "$RUNNER_TEMP/$SOC/program-target.json"
-      - name: Exercise FESVR, boot register, MMIO, and UART
-        env:
-          SOC: ${{ matrix.soc }}
-        run: |
-          simulator="$RUNNER_TEMP/$SOC/VTestDriver"
-          make -C sims smoke SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
-          make -C sims host-mmio-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
-          make -C sims boot-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
-          make -C sims uart-pty-test SOC="$SOC" PREBUILT_SIMULATOR="$simulator"
-      - name: Verify translated NTL cache policy through SingleCoreRV5StageSoC FESVR
-        if: matrix.soc == 'simple-rv5stage-rva23'
-        run: make -C sims zihintntl-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
-      - name: Qualify RV5Stage atomics and cache-block zeroing
-        if: matrix.soc == 'simple-rv5stage-rva23'
-        run: |
-          simulator="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
-          make -C sims lrsc-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$simulator"
-          make -C sims zicboz-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$simulator"
-      - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
-        if: matrix.soc == 'mini-rv5stage-rva23'
-        run: make -C vlsi/sim smoke
       - name: Prepare upstream ISA sources
         if: matrix.shape != 'single'
         run: make -C sims isa-setup
-      - name: Run capability-filtered ISA smoke
-        if: matrix.shape != 'single'
+      - name: Run shape-and-ISA software selection
         env:
           SOC: ${{ matrix.soc }}
+          SOFTWARE_TESTS: ${{ matrix.software_tests }}
         run: |
-          make -C sims isa-smoke SOC="$SOC" PROGRAM_JOBS=2 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
-      - name: Run 2-, 4-, and 8-hart benchmarks
-        # Tiled Spike remains manually runnable until its full manifests fit a CI budget.
-        if: matrix.soc == 'tiled-rv5stage-rva23'
-        env:
-          SOC: ${{ matrix.soc }}
-        run: |
-          make -C sims tiled-mt-benchmark-test SOC="$SOC" PROGRAM_JOBS=1 \
-            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
+          simulator="$RUNNER_TEMP/$SOC/VTestDriver"
+          status=0
+          for target in $SOFTWARE_TESTS; do
+            make -C sims "$target" SOC="$SOC" PROGRAM_JOBS=2 \
+              PREBUILT_SIMULATOR="$simulator" || status=1
+          done
+          exit "$status"
+      - name: Verify RV5Stage-specific NTL cache timing
+        if: matrix.soc == 'simple-rv5stage-rva23'
+        run: make -C sims zihintntl-policy-test SOC=simple-rv5stage-rva23 PREBUILT_SIMULATOR="$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
+      - name: Execute mapped MiniRV5StageSoC through standard FESVR flow
+        if: matrix.soc == 'mini-rv5stage-rva23'
+        run: make -C vlsi/sim smoke
       - name: Package completed ISA smoke ELFs
         if: always() && matrix.shape != 'single'
         run: |

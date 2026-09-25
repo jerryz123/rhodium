@@ -34,11 +34,14 @@ Keep its ISA, CSR, counter, PMP, and trap claims aligned with the configured
 Spike revision and [`profile.rhm`](profile.rhm); the SoC UDB catalog adds only
 integration-owned platform facts. In particular, Spike's RV64 PMP CSR mask
 uses its 56-bit physical-address limit, not the fabric's 44-bit CHI address
-width. Validate the supported scalar projection with `tests/udb-test.rhm`.
-The SoC products execute the explicit RVA23 preset. Their broad ACT projection
-remains gated in `udb.rhm`; runtime support must not imply a completed Sail/UDB
-model. Expand and validate that projection separately before enabling ACT for
-this profile. Do not restore a scalar fallback to make ACT generation run.
+width. `tests/udb-test.rhm` covers both scalar and production RVA23 projections.
+Keep extension/version mapping fail-closed and expand only architectural
+implications; do not import RV5Stage policy. Vector parameters follow the pinned
+`vector_unit.cc` and `v_ext_macros.h`, including reserved vset choices and
+inactive NaN canonicalization. `sims/arch-test/configure.py` records fixed Sail
+behavior differences separately in `reference-model-differences.json`; it must
+not rewrite the DUT's parameters or filter tests to hide them. Validate actual
+Sail configuration generation as well as UDB serialization.
 
 Run the focused host contract check with:
 
@@ -52,7 +55,7 @@ make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
 ```
 
 Run `make -C sims smoke SOC=mini-spike-rva23` for the complete BootROM/FESVR
-path. The Spike RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,
+path. The shared RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,
 Zvbb, and binary64/binary16 vector FP results. Repeat with
 `HTIF_ARGS=+load-through-chi` to cover both loader paths. This bounded smoke
 does not replace ISA/ACT qualification.

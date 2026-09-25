@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, simulation_entry
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -64,15 +64,27 @@ class PlanTest(unittest.TestCase):
         expected = [(soc, suite) for suite in ("coremark", "coremark_scalar") for soc in SINGLE_CORE_SOCS]
         self.assertEqual(program_entries(plan), expected)
 
-    def test_simulation_builds_and_runs_all_six_shape_core_products(self):
+    def test_simulation_builds_and_runs_all_qualified_products(self):
         plan = self.plan("sims/Makefile")
         expected = [dict(soc=soc, shape=shape, core=core)
                     for soc, shape, core in SIMULATOR_PRODUCTS]
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
-        self.assertEqual(plan["simulation_matrix"]["include"], expected)
+        self.assertEqual(plan["simulation_matrix"]["include"],
+                         [simulation_entry(*product) for product in SIMULATOR_PRODUCTS])
         self.assertEqual({entry["soc"] for entry in expected},
-                         {"mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
+                         {"mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
                           "simple-spike-rva23", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
+        for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
+            with self.subTest(path=path):
+                self.assertIn(simulation_entry("mini-rv5stage-rv32max", "mini", "rv5stage"),
+                              self.plan(path)["simulation_matrix"]["include"])
+
+    def test_software_selection_is_identical_for_matching_shape_and_isa(self):
+        entries = self.plan("sims/Makefile")["simulation_matrix"]["include"]
+        for (shape, isa), tests in SOFTWARE_TESTS.items():
+            products = [entry for entry in entries if (entry["shape"], entry["isa"]) == (shape, isa)]
+            self.assertEqual({entry["core"] for entry in products}, {"rv5stage", "spike"})
+            self.assertEqual({entry["software_tests"] for entry in products}, {" ".join(tests)})
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
@@ -256,8 +268,11 @@ class PlanTest(unittest.TestCase):
         self.assertIn("matrix: ${{ fromJSON(inputs.matrix) }}", simulation)
         self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", build)
         self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", simulation)
+        self.assertIn("SOFTWARE_TESTS: ${{ matrix.software_tests }}", simulation)
+        self.assertIn('for target in $SOFTWARE_TESTS', simulation)
+        self.assertIn('make -C sims "$target" SOC="$SOC"', simulation)
         self.assertIn("if: matrix.shape != 'single'", simulation)
-        self.assertIn("if: matrix.soc == 'tiled-rv5stage-rva23'", simulation)
+        self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
         self.assertIn("tiled-litmus-smoke:", simulation)
         self.assertIn("{soc: tiled-rv5stage-rva23, core: rv5stage}", simulation)
         self.assertIn("{soc: tiled-spike-rva23, core: spike}", simulation)
@@ -265,8 +280,8 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
         self.assertIn("tiled-memory-test", simulation)
-        self.assertEqual(software.count("configuration: [simple-rv5stage-rva23]"), 2)
-        self.assertNotIn("configuration: [simple-spike-rva23]", software)
+        self.assertEqual(software.count("configuration: [simple-rv5stage-rva23, simple-spike-rva23]"), 2)
+        self.assertIn("Restore pinned Spike runtime libraries", software)
 
 
 if __name__ == "__main__":

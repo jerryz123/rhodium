@@ -24,7 +24,12 @@ upstream source. Preserve upstream licensing and the repository's
 [`build/`](build/) owns ELF construction, target validation, compiler and ISA
 checks, content-addressed build reuse, and manifests. `build.py` and `isa.mk`
 compile the ISA tests and upstream benchmarks; the named benchmark builders
-compile CoreMark, Embench-IoT, and Bringup-Bench. `build-litmus.py` discovers
+compile CoreMark, Embench-IoT, and Bringup-Bench. ISA selection derives upstream
+groups, native-width smoke operations, and Make XLEN from the target descriptor.
+Validate ELF32 and ELF64 load segments including BSS and executable entry on
+both fresh builds and cache reuse. Record upstream inventory gaps (currently
+RV32 CBO-zero) separately from target capability exclusions; never select by
+observed pass status. `build-litmus.py` discovers
 the branch-free RV64I cases in upstream's model-run `@all` inventory, combines
 their exact instruction rows with the pinned Herd state log, and links a
 Rhodium-owned multihart runtime from `litmus-riscv-baremetal/` against the

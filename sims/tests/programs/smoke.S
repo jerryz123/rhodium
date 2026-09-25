@@ -159,7 +159,7 @@ plic_claim_supervisor:
   li t1, -21
   bne t0, t1, fail
 #endif
-#ifdef RHODIUM_SMOKE_SPIKE_RVA23
+#ifdef RHODIUM_SMOKE_RVA23
   li s5, 10
   li t0, 0x6000               // Enable FP only on the FP-capable preset.
   csrs mstatus, t0

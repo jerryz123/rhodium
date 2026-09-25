@@ -83,9 +83,9 @@ PLATFORM_MABI := $(if $(filter rv32max,$(SOC_ISA)),ilp32,lp64)
 ifeq ($(SOC_ISA),rv32max)
 SMOKE_MARCH := $(PLATFORM_MARCH)
 endif
-ifeq ($(SOC_CORE)-$(SOC_ISA),spike-rva23)
+ifeq ($(SOC_ISA),rva23)
 SMOKE_MARCH := rv64gcv_zvbb_zvfh
-SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1 -DRHODIUM_SMOKE_SPIKE_RVA23=1
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1 -DRHODIUM_SMOKE_RVA23=1
 endif
 ifeq ($(SOC_ISA),rv32max)
 SMOKE_MARCH := rv32imacb_zicsr_zve32x_zvl64b_zvbb
@@ -144,7 +144,7 @@ uart-pty-test: $(UART_PTY_BINARY) simulator
 
 .PHONY: lrsc-test lrsc-run
 lrsc-test:
-	@test "$(SOC_CORE)" = rv5stage && test "$(SOC_ISA)" = rva23
+	@test "$(SOC_ISA)" = rva23
 	$(MAKE) lrsc-run SOC=$(SOC_ID) TRACE=0 PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
 	  BUILD_ROOT="$(BUILD_ROOT)/lrsc-test"
 
@@ -189,16 +189,23 @@ zicboz-test: $(ZICBOZ_BINARY) simulator
 	awk '{ expected = (NR > 4 && NR <= 8) ? "00000000000000000000000000000000" : "ffffffffffffffffffffffffffffffff"; if ($$0 != expected) exit 1 } END { if (NR != 12) exit 1 }' $(ZICBOZ_SIGNATURE)
 	@echo "Zicboz offset, neighbor, and coherent signature checks passed"
 
-ifeq ($(SOC_ID),simple-rv5stage-rva23)
+ifeq ($(SOC_SHAPE)-$(SOC_ISA),simple-rva23)
 zihintntl-test: $(ZIHINTNTL_BINARY) simulator
 	$(SIMULATOR_BINARY) +signature=$(ZIHINTNTL_SIGNATURE) +signature-granularity=8 $(ZIHINTNTL_BINARY)
 	awk 'NR == 1 && $$0 != "123456789abcdef0" { exit 1 } NR == 2 && $$0 != "0000000000000008" { exit 1 } NR == 8 && $$0 != "0000000000000001" { exit 1 } END { if (NR != 8) exit 1 }' $(ZIHINTNTL_SIGNATURE)
-	@echo "Zihintntl translated non-allocation, dirty-data preservation, and coherent signature checks passed on $(SOC)"
+	@echo "Zihintntl translated loads, dirty-data preservation, and coherent signature checks passed on $(SOC)"
 else
 zihintntl-test:
-	@echo "zihintntl-test supports only simple-rv5stage-rva23" >&2
+	@echo "zihintntl-test requires the single-core RVA23 platform" >&2
 	@exit 2
 endif
+
+# Cache-policy timing is a separate RV5Stage microarchitecture qualification,
+# not part of the architecture-based software matrix.
+.PHONY: zihintntl-policy-test
+zihintntl-policy-test:
+	@test "$(SOC_ID)" = simple-rv5stage-rva23
+	$(MAKE) zihintntl-test BUILD_ROOT="$(BUILD_ROOT)/ntl-policy" NTL_CPPFLAGS=-DRHODIUM_NTL_CACHE_POLICY=1
 
 dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \
@@ -354,7 +361,7 @@ $(TILED_MEMORY_BINARY): tests/programs/tiled_memory.S tests/programs/smoke.ld | 
 	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
-$(SOC_BUILD_DIR)/lrsc_%.elf: tests/programs/lrsc.S tests/programs/lrsc.ld | $(SOC_BUILD_DIR)
+$(SOC_BUILD_DIR)/lrsc_%.elf: tests/programs/lrsc.S tests/programs/lrsc.ld tests/programs/pmp.h | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=rv64ia_zicsr_zifencei -mabi=lp64 -nostdlib -nostartfiles \
 	  -DLRSC_HARTS=$(LRSC_HARTS) -DLRSC_TRANSLATED=$* \
 	  -DLRSC_IALIGN=$(LRSC_IALIGN) -DLRSC_PAGE_TABLE_BASE=$(LRSC_PAGE_TABLE_BASE) \
@@ -374,6 +381,6 @@ $(ZICBOZ_BINARY): tests/programs/zicboz.S tests/programs/zicboz.ld | $(SOC_BUILD
 	$(RISCV_CC) -march=rv64im_zicsr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/zicboz.ld $< -o $@
 
-$(ZIHINTNTL_BINARY): tests/programs/zihintntl.S tests/programs/zihintntl.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64im_zicsr_zicntr -mabi=lp64 -nostdlib -nostartfiles \
+$(ZIHINTNTL_BINARY): tests/programs/zihintntl.S tests/programs/zihintntl.ld tests/programs/pmp.h | $(SOC_BUILD_DIR)
+	$(RISCV_CC) $(NTL_CPPFLAGS) -march=rv64im_zicsr_zicntr -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/zihintntl.ld $< -o $@

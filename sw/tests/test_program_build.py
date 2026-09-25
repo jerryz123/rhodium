@@ -266,8 +266,14 @@ class ProgramBuildTest(unittest.TestCase):
         _, compressed = self.builder.smoke_selection(target)
         self.assertEqual(set(compressed) - set(names), {'rv64uc-p-rvc'})
         target['xlen'] = 32
-        with self.assertRaisesRegex(ValueError, 'RV64'):
-            self.builder.smoke_selection(target)
+        groups, names = self.builder.smoke_selection(target)
+        self.assertEqual(len(names), 23)
+        self.assertTrue(all(name.startswith('rv32') for name in names))
+        self.assertIn('rv32ui-p-lw', names)
+        self.assertIn('rv32ui-p-sw', names)
+        self.assertIn('rv32ua-p-amoadd_w', names)
+        self.assertIn('rv32uc-p-rvc', names)
+        self.assertNotIn('rv32mzicbo', groups)
 
     def test_full_isa_groups_follow_target_capabilities(self):
         target = program_target()
@@ -276,8 +282,9 @@ class ProgramBuildTest(unittest.TestCase):
                          ['rv64ui', 'rv64um', 'rv64ua', 'rv64uf', 'rv64ud',
                           'rv64uc', 'rv64uzba', 'rv64uzicond'])
         target['xlen'] = 32
-        with self.assertRaisesRegex(ValueError, 'RV64'):
-            self.builder.isa_groups(target)
+        self.assertEqual(self.builder.isa_groups(target),
+                         ['rv32ui', 'rv32um', 'rv32ua', 'rv32uf', 'rv32ud',
+                          'rv32uc', 'rv32uzba', 'rv32uzicond'])
 
     def test_virtual_environment_requires_sv39_and_supervisor_user_modes(self):
         target = program_target()
@@ -291,16 +298,40 @@ class ProgramBuildTest(unittest.TestCase):
         self.assertFalse(self.builder.virtual_environment_enabled(target))
 
     def test_makefrag_inventory_selects_virtual_tests_and_excludes_misalignment(self):
+        for xlen in (32, 64):
+            with self.subTest(xlen=xlen), tempfile.TemporaryDirectory() as directory:
+                source = Path(directory)
+                group = f'rv{xlen}ui'
+                (source / 'Makefile').write_text(
+                    f'{group}_p_tests = {group}-p-add {group}-p-ma_data\n'
+                    f'{group}_v_tests = {group}-v-add {group}-v-ma_data\n')
+                command = ['make', '--no-print-directory', '-s', '-f', str(BUILD_SCRIPTS / 'isa.mk'),
+                           f'XLEN={xlen}', f'src_dir={source}', f'program_groups={group}',
+                           f'program_virtual_groups={group}', 'program-manifest']
+                names = subprocess.check_output(command, cwd=source, text=True).splitlines()
+                self.assertEqual(names, [f'{group}-p-add', f'{group}-v-add'])
+
+    def test_rv32_elf_footprint_checks_bss_entry_and_program_headers(self):
         with tempfile.TemporaryDirectory() as directory:
-            source = Path(directory)
-            (source / 'Makefile').write_text(
-                'rv64ui_p_tests = rv64ui-p-add rv64ui-p-ma_data\n'
-                'rv64ui_v_tests = rv64ui-v-add rv64ui-v-ma_data\n')
-            command = ['make', '--no-print-directory', '-s', '-f', str(BUILD_SCRIPTS / 'isa.mk'),
-                       f'src_dir={source}', 'program_groups=rv64ui',
-                       'program_virtual_groups=rv64ui', 'program-manifest']
-            names = subprocess.check_output(command, cwd=source, text=True).splitlines()
-            self.assertEqual(names, ['rv64ui-p-add', 'rv64ui-v-add'])
+            elf = Path(directory) / 'test.elf'
+            base = 0x80000000
+            ram = [dict(base=base, size=0x8000)]
+
+            def write_elf(memsz=0x8000, entry=base, flags=5, phsize=32):
+                header = b'\x7fELF\x01\x01\x01' + bytes(9)
+                header += struct.pack('<HHIIIIIHHHHHH', 2, 243, 1, entry, 52, 0, 0, 52, phsize, 1, 0, 0, 0)
+                segment = struct.pack('<IIIIIIII', 1, 84, base, base, 1, memsz, flags, 1)
+                elf.write_bytes(header + segment + b'\x00')
+
+            write_elf()
+            self.assertEqual(self.builder.check_elf_memory(elf, ram), [dict(address=base, memory_bytes=0x8000)])
+            for values in (dict(memsz=0x8001), dict(entry=base + 0x8000), dict(flags=0), dict(phsize=56)):
+                write_elf(**values)
+                with self.assertRaises(ValueError):
+                    self.builder.check_elf_memory(elf, ram)
+            elf.write_bytes(b'\x7fELF\x01\x01\x01' + bytes(9))
+            with self.assertRaises(ValueError):
+                self.builder.check_elf_memory(elf, ram)
 
     def test_benchmark_selection_follows_vector_capability_and_mode(self):
         target = program_target()

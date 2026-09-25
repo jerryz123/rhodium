@@ -61,13 +61,13 @@ The boot-entry register remains 64 bits, with RV32 reading its low word. Preserv
 the full physical-address CHI interfaces rather than narrowing the fabric to
 the scalar register width. `mini-spike-rv32max` and
 `mini-rv5stage-rv32max` exercise this platform path with the same integer-vector
-smoke payload. Enabling these bindings does not expand the CI inventory.
+smoke payload and participate in the same shape/ISA-selected software policy.
 All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture
-and exact vector geometry. Its ACT/UDB projection is independently gated until
-that projection can describe the broad architecture; simulator execution does
-not require UDB support. Do not substitute a scalar profile. The intended
+and exact vector geometry. Its ACT/UDB projection retains implementation-owned
+PMP, CSR and vector choices; reference-model limitations are documented by the
+[Spike package](../cores/spike/README.md). Do not substitute a scalar profile. The intended
 eight-product test inventory belongs in `sims/test-products.rhm`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.

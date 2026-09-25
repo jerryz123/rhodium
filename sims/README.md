@@ -31,8 +31,9 @@ spelling alias for the `simple` shape. Shape and core default to `simple` and
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
 All RV64 products request `rva23`, including Mini and Spike. Spike remains
 simulation-only and executes that exact selected architecture. Its broad
-ACT/UDB projection remains unavailable; simulator execution does not imply
-ACT qualification. No narrower fallback is selected.
+ACT/UDB projection preserves the requested ISA; simulator execution and successful
+configuration generation do not imply full ACT qualification. See the
+[Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
 
 Mini's RV32 platform bring-up bindings are `SOC=mini-spike-rv32max` and
@@ -49,7 +50,9 @@ make -C sims boot-test host-mmio-test uart-pty-test SOC=mini-spike-rv32max
 ```
 
 This is bounded platform and integer-vector bring-up, not ACT qualification,
-and does not add a required CI product.
+with both Mini RV32Max core bindings required in simulation CI.
+CI runs the integer-vector smoke, boot, host MMIO,
+UART PTY, and capability-filtered ISA smoke on the exact RV32Max product.
 
 The host emitters require an explicit third architectural selector:
 
@@ -122,7 +125,8 @@ make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-CI uses the six canonical product names `mini-rv5stage-rva23`, `mini-spike-rva23`,
+CI uses the eight canonical product names `mini-rv5stage-rv32max`, `mini-spike-rv32max`,
+`mini-rv5stage-rva23`, `mini-spike-rva23`,
 `simple-rv5stage-rva23`, `simple-spike-rva23`, `tiled-rv5stage-rva23`, and
 `tiled-spike-rva23`. Each has its own target descriptor, simulator attestation,
 and build directory. The `SOC`/`CORE` selectors above remain available locally;
@@ -410,13 +414,13 @@ described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
 `embench-test`, and `bringup-test` targets accept either single-core SoC and
 remain available for focused execution. CI schedules five complete native
-suites and a bounded Bringup-Bench smoke on both cores, and ACT on RV5Stage;
-it also qualifies OpenSBI on both. Spike RVA23 remains outside ACT until its
-UDB projection describes that architecture without a scalar fallback.
+suites, a bounded Bringup-Bench smoke, and ACT independently for Spike and RV5Stage;
+it also qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
+generated test inventory.
 
 The full ISA adapter selects upstream physical-environment tests from the
-concrete target profile. SingleCoreSpikeSoC currently selects RV64 I/M/A/F/D/C,
-while SingleCoreRV5StageSoC additionally selects Zba/Zbb/Zbs/Zicond and Zicboz.
+concrete target profile. Both Simple RVA23 implementations select RV64
+I/M/A/F/D/C, Zba/Zbb/Zbs/Zicond, and Zicboz groups.
 For a target advertising Sv39 and M/S/U modes, it also selects each applicable
 group's upstream `-v-` virtual-environment tests. Here `-v-` means virtual
 memory, not the RISC-V vector extension. Both environments omit `ma_data`,
@@ -429,6 +433,7 @@ Run the smaller, single-hart ISA selections on either core in Mini or Tiled:
 
 ```sh
 make -C sims program-test-setup
+make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rv32max
 make -C sims isa-smoke SOC=mini CORE=rv5stage ISA=rva23
 make -C sims isa-smoke SOC=mini CORE=spike ISA=rva23
 make -C sims isa-smoke SOC=tiled CORE=rv5stage ISA=rva23
@@ -445,15 +450,15 @@ make -C sims tiled-mt-benchmark-test SOC=tiled-spike-rva23
 
 Each command is independently runnable. CI gives each product its own job, so
 one slow or failing Tiled run cannot suppress another product's result.
-The Tiled Spike multihart target is available locally, but its full benchmark
-manifests are not yet a required CI step: local two-hart vector-add and memcpy
-runs exceeded the current 300-second per-test budget. The Tiled RV5Stage
-multihart step remains enabled in CI while the Spike runtime budget is qualified.
+Both Tiled cores run the same multihart manifests in CI. Slow runs remain
+visible as timeouts, not as core-specific exclusions.
 
 Selection follows each concrete SoC's core profile and covers representative
 integer arithmetic, branches, loads/stores, multiply/divide, atomics, bit
-operations, conditional zeroing, and cache zeroing where supported. TiledSoC
-also runs the compressed-instruction test. Every selected ELF must fit the
+operations, conditional zeroing, and cache zeroing where an upstream group exists.
+Compressed profiles also run the compressed-instruction test. ISA groups and
+word-sized smoke operations follow target XLEN. The pinned upstream has no RV32
+CBO-zero group; manifests record this coverage gap. Every selected ELF must fit the
 actual RAM window, including zero-filled BSS; oversized tests fail preparation
 rather than being silently skipped. Physical assembly tests use no
 runtime-allocated stack; virtual-environment tests bring their own upstream
@@ -632,15 +637,16 @@ not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 `COREMARK_MAX_CYCLES`, or `EMBENCH_MAX_CYCLES` when diagnosing timeouts.
 Benchmark CI checks correctness, never exact cycle counts.
 
-CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and RV5Stage ACT on pull requests and
+CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
 pushes to `main`; manual dispatch selects all six. The native suites consume
-one exact-commit SingleCoreSpikeSoC executable and its matching patched Spike
-runtime. ACT generates one RV5Stage ELF inventory, then partitions it across
-four execution jobs that consume the exact-commit simulator.
+each core's exact-commit executable, with the matching patched Spike runtime
+where needed. ACT generates one profile-specific ELF inventory for each single-core
+SoC, then partitions each across four execution jobs consuming that SoC's
+exact-commit executable. Spike shards restore the producer's pinned libraries.
 ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
-CI also runs the focused two-, four-, and eight-hart benchmarks on tiled RV5Stage.
+CI also runs the focused two-, four-, and eight-hart benchmarks on both Tiled cores.
 
 ## Architectural certification tests
 
@@ -652,10 +658,11 @@ Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
 ```sh
 make -C sims arch-test-setup
 make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
+make -C sims arch-test ACT_CONFIGURATION=simple-spike-rva23
 ```
 
-The Spike RVA23 product runs native ISA suites, but its broader UDB projection
-is deliberately unavailable; `arch-test` for that product rejects the request.
+Spike ACT retains the full selected ISA and reports known Sail reference-model
+differences without filtering affected tests; see the [Spike guide](../cores/spike/README.md).
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
 initializes the pinned `sw/riscv-arch-test` submodule, installs Python and
@@ -745,7 +752,9 @@ make -C sims boot-test SOC=mini CORE=rv5stage ISA=rva23
 make -C sims boot-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-The ordinary smoke payload uses RV64I and Zicsr so it also runs on every RVA23 RV5Stage profile. The supported traced SingleCoreRV5StageSoC
+The ordinary smoke payload follows ISA selection, independent of core: RVA23
+exercises integer, vector, Zvbb and vector FP, while RV32Max uses integer-vector
+operations without FP. The supported traced SingleCoreRV5StageSoC
 build adds one compressed instruction for its disassembly check.
 
 `make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23` uses a separate stalled-memory build to check
@@ -779,19 +788,21 @@ path as an external target binary.
 `0x80003000` through one compiled simulator and ROM per SoC. It verifies the
 runtime register value, primary hart ID, and embedded DTB pointer and magic.
 
-All default SoC profiles enable Zihintntl. The checked-in end-to-end cache-policy
-test is currently defined only for the SingleCoreRV5StageSoC profile; run it through the
-normal ELF loader and coherent HTIF path with:
+The Simple RVA23 software lane checks Zihintntl on both core implementations
+through the normal ELF loader and coherent HTIF path:
 
 ```sh
 make -C sims zihintntl-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims zihintntl-test SOC=single CORE=spike ISA=rva23
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and
 compressed aliases when C is available, and tests a hinted FP load when D is
-available. Relative hit/miss timing checks distinguish repeated non-allocating
-loads from ignored hints, while the resident probe verifies that dirty data
-remains authoritative after the coherent transaction. The inclusive outer
+available. It accepts architecturally valid no-op hints and verifies that dirty
+data remains authoritative after coherent transactions. Separately,
+`make -C sims zihintntl-policy-test SOC=single CORE=rv5stage ISA=rva23` enables
+relative hit/miss timing assertions for RV5Stage's non-allocating policy.
+The inclusive outer
 cache may invalidate that L1 copy while allocating the hinted line, so the
 SoC test does not claim that the resident remains cached. FESVR reads the final
 dirty signature coherently. Its conflict pattern

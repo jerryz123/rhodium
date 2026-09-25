@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 .option norvc
 .option norelax
+#include "pmp.h"
 .section .text
 .globl _start
 _start:
@@ -10,6 +11,7 @@ _start:
   bgeu s10, t0, park
   la t0, fail
   csrw mtvec, t0
+  allow_test_memory
   // The third placement must obey the production core's instruction alignment.
   csrr t0, misa
   andi t0, t0, 4

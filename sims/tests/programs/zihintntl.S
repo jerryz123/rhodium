@@ -1,6 +1,7 @@
-// Checks Zihintntl load non-allocation and dirty-data preservation through SoC/FESVR execution.
+// Checks translated Zihintntl data preservation, with optional RV5Stage cache-policy timing.
 // SPDX-License-Identifier: Apache-2.0
 .option norvc
+#include "pmp.h"
 
 .macro prime_conflict_set
   // The checked-in SingleCoreRV5StageSoC data cache is 64-set, four-way. The resident
@@ -21,6 +22,7 @@
 _start:
   la t0, trap
   csrw mtvec, t0
+  allow_test_memory
   li s11, 2
   // M-mode executes the test, while MPRV selects S-mode Sv39 data accesses.
   // Identity mapping covers control data; a separate virtual gigapage aliases
@@ -65,8 +67,10 @@ calibrate:
   bnez s8, calibrate
   sd s3, 16(s7)
   sd s4, 24(s7)
+#ifdef RHODIUM_NTL_CACHE_POLICY
   addi t0, s3, 8
   bgeu t0, s4, fail
+#endif
   add s5, s3, s4
   srli s5, s5, 1
   sd s5, 32(s7)
@@ -135,8 +139,10 @@ trial:
   bnez s8, trial
   sd s9, 40(s7)
   sd s4, 48(s7)
+#ifdef RHODIUM_NTL_CACHE_POLICY
   addi t0, t4, 8
   bgeu t0, s9, fail
+#endif
   addi s6, s6, 8
   addi s11, s11, 1
   addi s10, s10, -1
