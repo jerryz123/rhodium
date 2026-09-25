@@ -1,6 +1,7 @@
 // Runs litmus7's fixed thread pool on the selected physical harts without an OS.
 // SPDX-License-Identifier: Apache-2.0
 #include <stdint.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include "utils.h"
@@ -189,6 +190,27 @@ static unsigned histogram_lines;
 static int saw_histogram;
 static int output_finished;
 
+static int parse_histogram_header(const char *line, unsigned *count)
+{
+  static const char prefix[] = "Histogram (";
+  if (strncmp(line, prefix, sizeof(prefix) - 1) != 0)
+    return 0;
+  const char *cursor = line + sizeof(prefix) - 1;
+  if (*cursor < '0' || *cursor > '9')
+    return 0;
+  unsigned value = 0;
+  while (*cursor >= '0' && *cursor <= '9') {
+    unsigned digit = (unsigned)(*cursor++ - '0');
+    if (value > (UINT_MAX - digit) / 10)
+      return 0;
+    value = value * 10 + digit;
+  }
+  if (strcmp(cursor, " states)") != 0)
+    return 0;
+  *count = value;
+  return 1;
+}
+
 static void emit_buffer(const char *buffer, unsigned length)
 {
   volatile uint64_t request[8] __attribute__((aligned(64))) = {
@@ -210,7 +232,7 @@ static void emit_line(void)
   int keep = 0;
   if (!saw_histogram && strncmp(output_line, "Test ", 5) == 0)
     keep = 1;
-  else if (!saw_histogram && sscanf(output_line, "Histogram (%u states)", &histogram_lines) == 1) {
+  else if (!saw_histogram && parse_histogram_header(output_line, &histogram_lines)) {
     keep = 1;
     saw_histogram = 1;
     if (!histogram_lines)

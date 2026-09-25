@@ -51,6 +51,7 @@ sync_circuit SpikeCore(config :: SpikeConfig,
   spike.address.request.ready <== spike.address.response.ready
   spike.address.response.valid <== spike.address.request.valid
   spike.address.response.bits.cacheable <== classified.cacheable
+  spike.address.response.bits.cache_block_zero <== classified.cache_block_zero
   spike.address.response.bits.instruction_cacheable <== classified.instruction_cacheable
   spike.address.response.bits.device <== classified.device
   spike.address.response.bits.atomic <== classified.atomic

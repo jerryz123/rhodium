@@ -410,9 +410,9 @@ described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
 `embench-test`, and `bringup-test` targets accept either single-core SoC and
 remain available for focused execution. CI schedules five complete native
-suites, a bounded Bringup-Bench smoke, and ACT independently for Spike and RV5Stage; it also
-qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
-generated test inventory.
+suites and a bounded Bringup-Bench smoke on both cores, and ACT on RV5Stage;
+it also qualifies OpenSBI on both. Spike RVA23 remains outside ACT until its
+UDB projection describes that architecture without a scalar fallback.
 
 The full ISA adapter selects upstream physical-environment tests from the
 concrete target profile. SingleCoreSpikeSoC currently selects RV64 I/M/A/F/D/C,
@@ -632,13 +632,12 @@ not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 `COREMARK_MAX_CYCLES`, or `EMBENCH_MAX_CYCLES` when diagnosing timeouts.
 Benchmark CI checks correctness, never exact cycle counts.
 
-CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
+CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and RV5Stage ACT on pull requests and
 pushes to `main`; manual dispatch selects all six. The native suites consume
 one exact-commit SingleCoreSpikeSoC executable and its matching patched Spike
-runtime. ACT generates one profile-specific ELF inventory for each single-core
-SoC, then partitions each across four execution jobs that consume that SoC's
-exact-commit executable. Spike shards restore the same pinned Spike libraries
-used by their producer. ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
+runtime. ACT generates one RV5Stage ELF inventory, then partitions it across
+four execution jobs that consume the exact-commit simulator.
+ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
 build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
 CI also runs the focused two-, four-, and eight-hart benchmarks on tiled RV5Stage.
@@ -653,8 +652,10 @@ Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
 ```sh
 make -C sims arch-test-setup
 make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
-make -C sims arch-test ACT_CONFIGURATION=simple-spike-rva23
 ```
+
+The Spike RVA23 product runs native ISA suites, but its broader UDB projection
+is deliberately unavailable; `arch-test` for that product rejects the request.
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
 initializes the pinned `sw/riscv-arch-test` submodule, installs Python and

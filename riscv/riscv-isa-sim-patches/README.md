@@ -33,6 +33,8 @@ The queue is ordered so each change can be reviewed and removed independently:
    supervisor pending bits when the external interrupt levels change.
 8. `0008-check-lrsc-physical-access.patch` lets embedded platforms check the
    full LR/SC physical range and permissions before testing reservation state.
+9. `0009-route-cbo-zero-through-simif.patch` lets embedded coherent caches
+   perform CBO.ZERO without exposing a direct host-memory pointer.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

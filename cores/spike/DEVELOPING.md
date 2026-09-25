@@ -16,6 +16,9 @@ the RTL-owned `RiscvPhysicalMemoryMap`.
 The patched Spike `lrsc_accessible` hook supplies the full access size and
 read/write direction before reservation matching; keep its physical-map
 classification and atomic support bit aligned with the typed DPI response.
+The pinned Spike CBO.ZERO hook must keep the full-block PMA check and coherent
+unique-line update in `dpi/spike_core.cc`; never expose private cache storage
+through `addr_to_mem` as a shortcut.
 The configured MMU type also crosses this boundary; set Spike's maximum virtual
 address width before resetting its CSRs, matching standalone Spike initialization.
 Pass exact VLEN/ELEN through the DPI ABI and check them against the pinned ISA

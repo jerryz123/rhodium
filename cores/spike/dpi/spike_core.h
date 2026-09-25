@@ -32,6 +32,7 @@ struct Inputs {
   bool address_request_ready = false;
   bool address_response_valid = false;
   bool address_response_cacheable = false;
+  bool address_response_cache_block_zero = false;
   bool address_response_instruction_cacheable = false;
   bool address_response_device = false;
   bool address_response_atomic = false;

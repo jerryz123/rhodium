@@ -265,7 +265,8 @@ class PlanTest(unittest.TestCase):
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
         self.assertIn("tiled-memory-test", simulation)
-        self.assertIn("configuration: [simple-rv5stage-rva23, simple-spike-rva23]", software)
+        self.assertEqual(software.count("configuration: [simple-rv5stage-rva23]"), 2)
+        self.assertNotIn("configuration: [simple-spike-rva23]", software)
 
 
 if __name__ == "__main__":

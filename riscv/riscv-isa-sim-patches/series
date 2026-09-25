@@ -8,3 +8,4 @@
 0006-zero-unimplemented-hpm-controls.patch
 0007-separate-supervisor-interrupt-pins.patch
 0008-check-lrsc-physical-access.patch
+0009-route-cbo-zero-through-simif.patch

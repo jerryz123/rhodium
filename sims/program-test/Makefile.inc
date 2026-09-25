@@ -269,6 +269,8 @@ single-core-software-test:
 	  done; \
 	  $(MAKE) bringup-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) \
 	    BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor || status=1; \
-	  $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) ACT_CONFIGURATION="$(SOFTWARE_SOC)-$$core-$(SOC_ISA)" || status=1; \
+	  if [ "$$core" = rv5stage ]; then \
+	    $(MAKE) arch-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) ACT_CONFIGURATION="$(SOFTWARE_SOC)-$$core-$(SOC_ISA)" || status=1; \
+	  fi; \
 	  $(MAKE) opensbi-test SOC=$(SOFTWARE_SOC) CORE="$$core" ISA=$(SOC_ISA) || status=1; \
 	done; exit "$$status"

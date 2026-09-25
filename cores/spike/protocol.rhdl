@@ -14,6 +14,7 @@ bundle SpikeAddressRequest():
 
 bundle SpikeAddressResponse():
   cacheable: Bool
+  cache_block_zero: Bool
   instruction_cacheable: Bool
   device: Bool
   atomic: Bool

@@ -37,6 +37,7 @@ enum class CacheState : std::uint8_t {
 
 struct AddressResponse {
   bool cacheable = false;
+  bool cache_block_zero = false;
   bool instruction_cacheable = false;
   bool device = false;
   bool atomic = false;
@@ -56,7 +57,8 @@ std::uint8_t size_code(std::size_t size) {
     case 2: return 1;
     case 4: return 2;
     case 8: return 3;
-    default: throw std::invalid_argument("Spike transaction size must be 1, 2, 4, or 8 bytes");
+    case 64: return 6;
+    default: throw std::invalid_argument("Spike transaction size must be 1, 2, 4, 8, or 64 bytes");
   }
 }
 
@@ -131,6 +133,16 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   char* addr_to_mem(reg_t) override { return nullptr; }
   bool reservable(reg_t) override { return true; }
+  bool cache_block_zero(reg_t address, std::size_t length) override {
+    if (length != kLineBytes || (address & (kLineBytes - 1)) != 0) return false;
+    const AddressResponse attributes = classify(address, length, true, false);
+    if (attributes.fault || !attributes.cacheable || !attributes.cache_block_zero) return false;
+    CacheLine* line = acquire_data_line(address, true);
+    if (line == nullptr) return false;
+    line->bytes.fill(0);
+    line->state = CacheState::kUniqueDirty;
+    return true;
+  }
   bool lrsc_accessible(reg_t address, std::size_t length, bool write) override {
     const AddressResponse attributes = classify(address, length, write, false);
     return !attributes.fault && attributes.atomic;
@@ -199,6 +211,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
     if (address_response_waiting_ && inputs_.address_response_valid) {
       address_response_ = AddressResponse{
           inputs_.address_response_cacheable,
+          inputs_.address_response_cache_block_zero,
           inputs_.address_response_instruction_cacheable,
           inputs_.address_response_device,
           inputs_.address_response_atomic,
@@ -249,9 +262,9 @@ class SpikeCoreModel::Implementation final : public simif_t {
   AddressResponse classify(std::uint64_t address, std::size_t length,
                            bool write, bool execute) {
     if (length == 0) return {};
-    std::size_t encoded_length = std::min<std::size_t>(length, 8);
+    std::size_t encoded_length = length == kLineBytes ? kLineBytes : std::min<std::size_t>(length, 8);
     while (encoded_length != 1 && encoded_length != 2 &&
-           encoded_length != 4 && encoded_length != 8) {
+           encoded_length != 4 && encoded_length != 8 && encoded_length != kLineBytes) {
       --encoded_length;
     }
     address_request_address_ = address;

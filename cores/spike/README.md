@@ -45,6 +45,9 @@ transaction.
 LR/SC checks the complete RTL-owned physical-memory range for atomic support
 and the operation's read or write permission before testing reservation state.
 An SC to a faulting region therefore traps even when its reservation has failed.
+CBO.ZERO likewise checks the full 64-byte block against the RTL-owned physical
+map. On a permitted cacheable region, it acquires a unique coherent line and
+marks the zeroed line dirty; a region without cache-block-zero permission traps.
 
 [`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
 to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and

@@ -103,8 +103,8 @@ flowchart TD
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["OpenSBI and RV5Stage<br/>stalled-memory jobs"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
-    Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
-    Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
+    Compile --> ActBuild["Generate RV5Stage ACT ELFs"]
+    Simulators --> ActRun["RV5Stage ACT execution<br/>four disjoint shards"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
@@ -143,8 +143,8 @@ Both single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
 The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
-publishes its diagnostics. Both profiles select their own ACT generation and
-four-shard execution. Shared SoC dependencies
+publishes its diagnostics. RV5Stage alone selects ACT generation and
+four-shard execution until Spike's RVA23 UDB projection is complete. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. Both Mini and both Tiled
 products receive capability-filtered ISA smoke; Tiled RV5Stage runs the

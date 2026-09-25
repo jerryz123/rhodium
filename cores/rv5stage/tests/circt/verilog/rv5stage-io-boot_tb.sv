@@ -28,7 +28,6 @@ module rv5stage_io_boot_tb;
   logic machine_software_interrupt_request = 0;
   logic machine_software_interrupt_cleared = 0;
   logic machine_software_interrupt;
-  logic [17:0][31:0] boot_words;
   chi_in_t umem_in;
   chi_out_t umem_out;
   chi_in_t imem_in;
@@ -48,13 +47,13 @@ module rv5stage_io_boot_tb;
   assign msip_address = 44'h02000000 + {hart_id[41:0], 2'b00};
 
   RV5StagePollingBoot dut (
-    .clock, .reset, .hart_id, .machine_software_interrupt, .boot_words,
+    .clock, .reset, .hart_id, .machine_software_interrupt, .boot_words(),
     .imem_in, .dmem_in('0), .imem_out, .dmem_out(),
     .umem_in, .umem_out
   );
 
   function automatic logic [31:0] instruction_at(input logic [43:0] pc);
-    if (pc >= 44'hc000 && pc < 44'hc048) return boot_words[(pc - 44'hc000) >> 2];
+    if (pc >= 44'hc000 && pc < 44'hc000 + 44'($bits(dut.boot_words)/8)) return dut.boot_words[(pc - 44'hc000) >> 2];
     case (pc)
       44'hc100: return 32'h000082b7; // lui t0, 8
       44'hc104: return 32'h02a00313; // addi t1, zero, 42

@@ -212,4 +212,67 @@ int main() {
   }
   assert(instruction_fills >= 2);
   assert(!fence_trapped_to_zero);
+
+  // CBO.ZERO must acquire one coherent line and publish a dirty zero line.
+  // A region without the cache-block-zero PMA permission must fault instead.
+  for (bool allowed : {true, false}) {
+    Configuration zero_configuration;
+    zero_configuration.reset_vector = 0x1000;
+    zero_configuration.isa = "rv64ima_zicsr_zic64b_zicboz";
+    zero_configuration.privilege = "msu";
+    SpikeCoreModel zero_model(zero_configuration);
+    Inputs zero_inputs;
+    std::size_t zero_classifications = 0;
+    std::size_t zero_acquires = 0;
+    bool zero_trapped = false;
+    for (std::size_t cycle = 0; cycle < 96; ++cycle) {
+      const Outputs zero_outputs = zero_model.tick(zero_inputs);
+      Inputs next;
+      if (zero_outputs.address_request_valid) {
+        next.address_request_ready = true;
+        next.address_response_valid = true;
+        next.address_response_cacheable = true;
+        next.address_response_instruction_cacheable = true;
+        if (zero_outputs.address_request_address == 0x2000) {
+          assert(zero_outputs.address_request_size == 6);
+          assert(zero_outputs.address_request_write);
+          next.address_response_cache_block_zero = allowed;
+          ++zero_classifications;
+        }
+        zero_trapped |= zero_outputs.address_request_address == 0;
+      }
+      if (zero_outputs.instruction_request_valid) {
+        next.instruction_request_ready = true;
+        next.instruction_response_valid = true;
+        next.instruction_response_line[0] = 0x0040a00f000020b7ULL;
+        next.instruction_response_line[1] = 0x0000006fULL;
+      }
+      if (zero_outputs.acquire_request_valid) {
+        assert(allowed);
+        assert(zero_outputs.acquire_request_address == 0x2000);
+        assert(zero_outputs.acquire_request_unique);
+        ++zero_acquires;
+        next.acquire_request_ready = true;
+        next.acquire_response_valid = true;
+        next.acquire_response_state = 2;
+        next.acquire_response_line.fill(~std::uint64_t{0});
+      }
+      zero_inputs = next;
+    }
+    assert(zero_classifications >= 1);
+    assert(zero_acquires == (allowed ? 1U : 0U));
+    assert(zero_trapped == !allowed);
+    if (allowed) {
+      Inputs snoop;
+      snoop.snoop_valid = true;
+      snoop.snoop_address = 0x2000;
+      snoop.snoop_invalidate = true;
+      snoop.snoop_return_to_source = true;
+      const Outputs response = zero_model.tick(snoop);
+      assert(response.snoop_response_valid);
+      assert(response.snoop_response_pass_dirty);
+      assert(response.snoop_response_has_data);
+      for (std::uint64_t word : response.snoop_response_line) assert(word == 0);
+    }
+  }
 }

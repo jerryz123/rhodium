@@ -1,0 +1,35 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Route CBO.ZERO through an embedded simulator hook
+Purpose: Lets a coherent simulator zero a cache block without a direct host-memory pointer.
+SPDX-License-Identifier: Apache-2.0
+
+Spike normally implements CBO.ZERO by writing directly to addr_to_mem. An
+embedded simulator with a private coherent cache cannot expose that pointer:
+the zero must acquire ownership and become dirty in its cache. Preserve the
+direct-memory path and let such simulators handle only the fallback.
+
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -18,6 +18,8 @@ public:
+   virtual char* addr_to_mem(reg_t paddr) = 0;
+   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
+   // LR and SC must check the full physical access before testing reservation state.
+   virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
++  // Return true after zeroing a block owned by an embedded memory model.
++  virtual bool cache_block_zero(reg_t, size_t) { return false; }
+   // used for MMIO addresses
+   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -234,5 +234,8 @@ class mmu_t : public abstract_device_t {
+       if (tracer.interested_in_range(paddr, paddr + blocksz, STORE))
+         tracer.trace(paddr, blocksz, STORE);
+       memset(host_addr, 0, blocksz);
++    } else if (sim->cache_block_zero(paddr, blocksz)) {
++      if (tracer.interested_in_range(paddr, paddr + blocksz, STORE))
++        tracer.trace(paddr, blocksz, STORE);
+     } else {
+       throw trap_store_access_fault((proc) ? proc->state.v : false, transformed_addr, 0, 0);

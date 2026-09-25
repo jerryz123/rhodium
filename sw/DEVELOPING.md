@@ -74,6 +74,9 @@ removes the generated `fflush` after its directly emitted HTIF output. It does
 not rewrite generated test instructions or outcome code. The port forwards only
 the test identity and complete histogram with one HTIF write per line;
 litmus7's witness and provenance footer is not used by the model checker.
+Keep histogram-header parsing local and bounded: formatted input from Newlib
+pulls stdio and allocator objects whose medlow relocations cannot link into
+the high-address bare-metal memory image.
 OpenSBI's DTB emitter remains in `sims/opensbi/` because it projects the
 simulator's selected SoC and transport endpoint. ACT's UDB/Sail platform
 configuration and its DUT runner likewise remain in `sims/arch-test/`.
