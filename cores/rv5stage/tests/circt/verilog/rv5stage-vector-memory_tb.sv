@@ -61,6 +61,9 @@ module rv5stage_vector_memory_tb;
   int certified_overlap = 0;
   logic vector_sequencing, vector_certifying, scalar_overlap_lookup = 0;
   int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
+  int zero_stride_start = 0, zero_stride_end = 0, masked_splat_start = 0, masked_splat_end = 0, wide_splat_start = 0, wide_splat_end = 0;
+  int zero_stride_reads = 0, register_zero_stride_reads = 0, zero_stride_row_writes = 0;
+  int masked_splat_reads = 0, masked_splat_row_writes = 0, wide_splat_reads = 0, wide_splat_row_writes = 0;
   bit instruction_valid = 0, uncached_pending = 0, returning = 0, writing_back = 0;
   logic [31:0] instruction_word;
   response_bits_t uncached_response;
@@ -203,6 +206,14 @@ module rv5stage_vector_memory_tb;
         assert (load_address != 64'h4ff0 && load_address != 64'h4ff8)
           else $fatal(1, "fault restart repeated an authorized prefix element");
       if (load_issue && load_address == 64'h1300 && vector_load_pending) scalar_overlap <= scalar_overlap + 1;
+      if (signatures >= zero_stride_start && signatures < zero_stride_end && load_issue) begin
+        if (load_address == 64'h2800) zero_stride_reads <= zero_stride_reads + 1;
+        if (load_address == 64'h2830) register_zero_stride_reads <= register_zero_stride_reads + 1;
+      end
+      if (signatures >= masked_splat_start && signatures < masked_splat_end && load_issue && load_address == 64'h28e2)
+        masked_splat_reads <= masked_splat_reads + 1;
+      if (signatures >= wide_splat_start && signatures < wide_splat_end && load_issue && load_address == 64'h2800)
+        wide_splat_reads <= wide_splat_reads + 1;
       if (instruction_out.flush && vector_load_pending) redirected_tail <= redirected_tail + 1;
       if (device_elements != 0 && load_issue && load_address == 64'h1308)
         assert (device_elements == 4 && !uncached_pending) else $fatal(1, "scalar load passed undrained vector stores");
@@ -259,6 +270,12 @@ module rv5stage_vector_memory_tb;
           if (signatures == fault_reset_signature || signatures == whole_fault_reset_signature || signatures == mask_fault_reset_signature) resumed <= 0;
           if (signatures == fault_signature + 3 || signatures == whole_fault_signature + 3 || signatures == mask_fault_signature + 3) resumed <= 1;
           if (signatures + 1 == expected_count) begin
+            assert (zero_stride_reads == 1 && register_zero_stride_reads == 4 && zero_stride_row_writes == 1)
+              else $fatal(1, "zero-stride accesses: encoded x0=%0d, register zero=%0d, splat rows=%0d", zero_stride_reads, register_zero_stride_reads, zero_stride_row_writes);
+            assert (masked_splat_reads == 1 && masked_splat_row_writes == 1)
+              else $fatal(1, "masked zero-stride splat: reads=%0d rows=%0d", masked_splat_reads, masked_splat_row_writes);
+            assert (wide_splat_reads == 1 && wide_splat_row_writes == 4)
+              else $fatal(1, "wide zero-stride splat: reads=%0d rows=%0d", wide_splat_reads, wide_splat_row_writes);
             assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && certified_overlap > 0 && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d certified_overlap=%0d", longest_warm_run,rejections,device_elements,scalar_overlap,certified_overlap);
             $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills, %0d certified scalar overlaps; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
@@ -335,12 +352,43 @@ module rv5stage_vector_memory_tb;
     li(8,'h2830); li(9,'h2a40); li(10,-16);
     emit(vmem(0,3,8,8,0,1,10)); emit(vmem(1,3,8,9));
     check_memory('h2a40,32,values);
-    for (int i = 0; i < 4; i++) values[i] = 64'h301;
-    li(8,'h2800); li(9,'h2a80); emit(vmem(0,3,8,8,0,1,0)); emit(vmem(1,3,8,9));
-    check_memory('h2a80,32,values);
+    zero_stride_start = expected_count;
+    // A zero held in x10 must still read each element; encoded x0 may read once.
+    li(8,'h2830); li(10,0); emit(vmem(0,3,16,8,0,1,10));
+    configure(1,0,4);
+    values = new[1]; values[0] = 64'h0301030103010301;
+    li(8,'h2800); li(9,'h2a80); emit(vmem(0,1,8,8,0,1,0)); emit(vmem(1,1,8,9));
+    check_memory('h2a80,8,values);
+    zero_stride_end = expected_count;
+    masked_splat_start = expected_count;
+    // Restart at element two with only element three enabled. A cold single
+    // read must update one lane; an all-masked successor must perform no read.
+    write_word('h28c0,64'h5555555555555555);
+    write_word('h28d0,64'h8);
+    write_word('h28d8,64'h0);
+    write_word('h28e0,64'h000000000bcd0000);
+    li(8,'h28c0); emit(vmem(0,1,8,8));
+    li(8,'h28d0); emit(vmem(0,0,0,8));
+    emit(csr(8,0,2,5));
+    li(8,'h28e2); emit(vmem(0,1,8,8,1,1,0));
+    li(9,'h2a88); emit(vmem(1,1,8,9));
+    values = new[1]; values[0] = 64'h0bcd555555555555;
+    check_memory('h2a88,8,values);
+    li(8,'h28d8); emit(vmem(0,0,0,8));
+    li(8,'h28e2); emit(vmem(0,1,8,8,1,1,0));
+    li(9,'h2a90); emit(vmem(1,1,8,9));
+    check_memory('h2a90,8,values);
+    masked_splat_end = expected_count;
+    configure(3,1,4);
+    wide_splat_start = expected_count;
+    li(8,'h2800); li(9,'h2aa0); emit(vmem(0,3,8,8,0,1,0)); emit(vmem(1,3,8,9));
+    values = new[1]; values[0] = 64'h301;
+    check_memory('h2aa0,8,values);
+    wide_splat_end = expected_count;
     emit(vint(11,16,16,16)); li(7,'h55); emit(vint(0,16,16,7,4));
     emit(csr(8,0,2,5));
     li(8,'h2800); li(9,'h2ac0); li(10,16); emit(vmem(0,3,16,8,0,1,10)); emit(vmem(1,3,16,9));
+    values = new[4];
     values[0]=64'h55; values[1]=64'h55; values[2]=64'h303; values[3]=64'h304;
     check_memory('h2ac0,32,values);
     // Indexed memory uses encoded index EEW but vtype SEW for transferred data.
@@ -617,6 +665,35 @@ module rv5stage_vector_memory_tb;
     reset=0;
   end
 endmodule
+
+// Observe the one-row splat through the register file's public write interface.
+module vector_memory_splat_write_observer(input logic clock, reset, input logic [134:0] write_in);
+  always @(posedge clock) begin
+    if (!reset && rv5stage_vector_memory_tb.signatures >= rv5stage_vector_memory_tb.zero_stride_start &&
+        rv5stage_vector_memory_tb.signatures < rv5stage_vector_memory_tb.zero_stride_end &&
+        write_in[134] && write_in[133:128] == 6'd16) begin
+      assert (write_in[127:64] == 64'h0301030103010301 && write_in[63:0] == '1)
+        else $fatal(1, "zero-stride splat did not write one complete EEW16 row");
+      rv5stage_vector_memory_tb.zero_stride_row_writes++;
+    end
+    if (!reset && rv5stage_vector_memory_tb.signatures >= rv5stage_vector_memory_tb.masked_splat_start &&
+        rv5stage_vector_memory_tb.signatures < rv5stage_vector_memory_tb.masked_splat_end &&
+        write_in[134] && write_in[133:128] == 6'd16 && write_in[63:0] == 64'hffff000000000000) begin
+      assert ((write_in[127:64] & write_in[63:0]) == 64'h0bcd000000000000)
+        else $fatal(1, "masked zero-stride splat wrote the wrong EEW16 lane");
+      rv5stage_vector_memory_tb.masked_splat_row_writes++;
+    end
+    if (!reset && rv5stage_vector_memory_tb.signatures >= rv5stage_vector_memory_tb.wide_splat_start &&
+        rv5stage_vector_memory_tb.signatures < rv5stage_vector_memory_tb.wide_splat_end &&
+        write_in[134] && write_in[133:128] >= 6'd16 && write_in[133:128] <= 6'd19) begin
+      assert (write_in[133:128] == 6'(16 + rv5stage_vector_memory_tb.wide_splat_row_writes) &&
+              write_in[127:64] == 64'h301 && write_in[63:0] == '1)
+        else $fatal(1, "wide zero-stride splat did not drain consecutive EEW64 rows");
+      rv5stage_vector_memory_tb.wide_splat_row_writes++;
+    end
+  end
+endmodule
+bind RV5StageVectorRegisterFile vector_memory_splat_write_observer splat_write_observer(.clock(clock), .reset(reset), .write_in(write_in));
 
 // Observe the public macro lifetime rather than generated internal registers.
 module vector_memory_lifetime_observer(input logic sequencing, certification_pending);

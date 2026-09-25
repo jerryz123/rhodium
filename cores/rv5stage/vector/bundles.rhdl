@@ -177,6 +177,7 @@ bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Po
   tag: Bits(index_width(slots))
   owner: Bits(index_width(slots))
   pc: Bits(xlen.width)
+  splat: Bool
 
 bundle RV5StageVectorSlotAllocation(slots :: Pow2Int):
   owner: Bits(index_width(slots))

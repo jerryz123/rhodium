@@ -1,0 +1,126 @@
+#lang rhodium
+// Retains one faultable zero-stride load value and splats it through masked VRF row writes.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "register-file.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/vector.rhm" open
+  "../../../riscv/model/formats.rhm" as riscv_fields
+  "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageVectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
+  def Owner = Bits(index_width(slots))
+  def Row = Bits(index_width(vector_depth(vlen) + 1))
+  def MaskAddress = Bits(index_width(vector_chunks(vlen)))
+  interface launch(Valid(RV5StageVectorInstruction(xlen, Owner)), ~role: consumer)
+  interface read_started(Pulse(), ~role: consumer)
+  interface skipped(Pulse(), ~role: consumer)
+  interface decision(Valid(RV5StageVectorCommit(xlen, slots)), ~role: consumer)
+  input(decision_first, decision_last): Bool
+  interface completion(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)
+  interface mask_read(Valid(MaskAddress), ~role: producer)
+  interface mask_result(Valid(Bits(64)), ~role: consumer)
+  interface write(Valid(VectorRegisterWrite(vlen)), ~role: producer)
+  input blocked_rows: Vec(vector_depth(vlen), Bool)
+  input write_available: Bool
+  output(active, probing, probe_pending): Bool
+  output owner: Owner
+
+  reg occupied(~init: Bool(#false))
+  reg waiting(~init: Bool(#false))
+  reg value_valid(~init: Bool(#false))
+  reg lookup_pending(~init: Bool(#false))
+  reg response_tag(Bits(index_width(slots)))
+  reg instruction(RV5StageVectorDescriptor(xlen))
+  reg instruction_owner(Owner)
+  reg value(Bits(64))
+  reg row(Row)
+  reg mask_cached(~init: Bool(#false))
+  reg mask_waiting(~init: Bool(#false))
+  reg mask_index(MaskAddress)
+  reg mask_word(Bits(64))
+  active <== occupied
+  probing <== occupied & !waiting & !value_valid
+  probe_pending <== lookup_pending
+  owner <== instruction_owner
+
+  def eew = instruction.control.memory_data_eew
+  def vd = instruction_field(riscv_fields.rd, instruction.instruction)
+  def start = instruction.state.vstart[0..index_width(vlen + 1)]
+  def limit = instruction.state.vl[0..index_width(vlen + 1)]
+  def row_limit = ((limit.zext(index_width(vlen + 1) + 4) << eew) + bits(7, index_width(vlen + 1) + 4)) >> 3
+  def first_element = row.zext(index_width(vlen + 1) + 1) << (bits(3, 2) - eew)
+  def needed_mask = (first_element >> 6)[0..index_width(vector_chunks(vlen))]
+  def mask_ready = !instruction.masked ||| (mask_cached & (mask_index === needed_mask))
+  def address = (vd.zext(index_width(vector_depth(vlen))) << index_width(vector_chunks(vlen))) + row[0..index_width(vector_depth(vlen))]
+  mask_read.valid <== value_valid & instruction.masked & !mask_ready & !mask_waiting & (row < row_limit[0..index_width(vector_depth(vlen) + 1)]) & !blocked_rows[needed_mask.zext(index_width(vector_depth(vlen)))]
+  mask_read.bits <== needed_mask
+
+  def repeated = mux_lookup(eew, ~default: value, [
+    [0, vec(for List (_ in 0..8): value[0..8]).as_bits()],
+    [1, vec(for List (_ in 0..4): value[0..16]).as_bits()],
+    [2, vec(for List (_ in 0..2): value[0..32]).as_bits()]
+  ])
+  def byte_mask = vec(for List (byte in 0..8):
+                        def element = ((row.zext(index_width(vlen + 1) + 4) << 3) + bits(byte, index_width(vlen + 1) + 4)) >> eew
+                        def enabled = (element >= start.zext(index_width(vlen + 1) + 4)) & (element < limit.zext(index_width(vlen + 1) + 4)) & (!instruction.masked ||| (mask_word >> element[0..6])[0].into(Bool))
+                        mux(enabled, !bits(0, 8), bits(0, 8))).as_bits()
+  def can_advance = value_valid & (row < row_limit[0..index_width(vector_depth(vlen) + 1)]) & mask_ready & !mask_waiting & !blocked_rows[address] & (!byte_mask.or_reduce() ||| write_available)
+  def next_row = row + bits(1, index_width(vector_depth(vlen) + 1))
+  def row_done = can_advance & (next_row === row_limit[0..index_width(vector_depth(vlen) + 1)])
+  write.valid <== can_advance & byte_mask.or_reduce()
+  write.bits <== VectorRegisterWrite(vlen):
+    address: address
+    data: repeated
+    mask: byte_mask
+
+  when (launch.valid):
+    occupied <== Bool(#true)
+    waiting <== Bool(#false)
+    value_valid <== Bool(#false)
+    lookup_pending <== Bool(#false)
+    instruction <== launch.bits.descriptor
+    instruction_owner <== launch.bits.context
+  elsewhen (decision.valid):
+    lookup_pending <== Bool(#false)
+    def authorized = decision.bits.disposition === RV5StageVectorDisposition.Authorized
+    when (decision.bits.disposition.is_one_of(RV5StageVectorDisposition.Fault, RV5StageVectorDisposition.Truncate) ||| (authorized & !decision_first & decision_last)):
+      occupied <== Bool(#false)
+    when (authorized & decision_first & decision.bits.slow):
+      waiting <== Bool(#true)
+      response_tag <== decision.bits.tag
+    when (authorized & decision_first & !decision.bits.slow):
+      value <== if xlen == XLen.X64 | decision.bits.data | decision.bits.data.zext(64)
+      value_valid <== Bool(#true)
+  elsewhen (completion.valid & waiting & (completion.bits.tag === response_tag)):
+    value <== if xlen == XLen.X64 | completion.bits.data | completion.bits.data.zext(64)
+    value_valid <== Bool(#true)
+    waiting <== Bool(#false)
+  elsewhen (read_started.valid):
+    lookup_pending <== Bool(#true)
+  elsewhen (skipped.valid):
+    lookup_pending <== Bool(#false)
+  elsewhen row_done:
+    occupied <== Bool(#false)
+    value_valid <== Bool(#false)
+
+  when (launch.valid):
+    mask_waiting <== Bool(#false)
+    mask_cached <== Bool(#false)
+  elsewhen (mask_read.valid):
+    mask_waiting <== Bool(#true)
+    mask_index <== needed_mask
+  elsewhen (mask_result.valid & mask_waiting):
+    mask_word <== mask_result.bits
+    mask_cached <== Bool(#true)
+    mask_waiting <== Bool(#false)
+  when (launch.valid):
+    row <== ((launch.bits.descriptor.state.vstart[0..index_width(vlen + 1)].zext(index_width(vlen + 1) + 4) << launch.bits.descriptor.control.memory_data_eew) >> 3)[0..index_width(vector_depth(vlen) + 1)]
+  elsewhen can_advance:
+    row <== next_row
+
+export RV5StageVectorSplatLoad

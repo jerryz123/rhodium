@@ -206,11 +206,11 @@ issued work. Elementwise memory can also enter the sequencer while older
 ordinary compute beats remain in operand fetch; those beats issue first.
 Memory, dependent scans, and compression instead retain the descriptor through
 final feedback because they carry replay or checkpointed cross-beat state. An
-authorized final memory beat can admit the next descriptor on that same edge;
-retry or fault feedback cannot. Index scans release on their final read like
-ordinary compute. Reductions
-release at their tail read while owner-local recurrence and completion state
-finish independently. A dependent
+authorized final ordinary memory beat can admit the next descriptor on that same
+edge; the encoded-zero-stride load specialization retains vector admission until
+its row writes drain. Retry or fault feedback cannot admit a successor. Index scans
+release on their final read like ordinary compute. Reductions release at their
+tail read while owner-local recurrence and completion state finish independently. A dependent
 consumer waits for each needed 64-bit VRF row rather than the entire older
 instruction. Same-width elementwise compute releases its conservative
 destination-group claim row by row as results resolve; exact outstanding
@@ -262,6 +262,12 @@ multiplier. Each completed element advances the speculative base, while WB
 authorization advances a separate checkpoint. Retry restores that checkpoint,
 preserving the base of the oldest unauthorized element. Masked-off elements
 still advance the sequence; empty bodies neither warm up nor access memory.
+For non-segmented strided loads with `rs2=x0`, the first enabled element supplies
+the sole data read of a successful attempt; retries may reissue it. Once that
+read is authorized, its EEW value is replicated through masked 64-bit VRF row
+writes without later elementwise memory completions. A masked-off or empty
+body performs no data read, and a register containing zero remains an ordinary
+strided load with one access per active element.
 
 Indexed loads and stores capture the scalar base but read one unsigned byte
 offset from `vs2` for every active element. The encoded EEW describes that

@@ -23,6 +23,7 @@ lifetimes; they do not introduce additional pipeline stages.
 | `completion.rhdl` / `slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
 | `packed-memory.rhdl` | Packed request cursor, masks, store reads, and request preparation | Final packed acceptance, or replay restores the rejected cursor |
 | `packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
+| `splat-load.rhdl` | One faultable encoded-zero-stride read value, mask-word cache, and row-wise VRF writes | The final row drains, all elements are masked, or the read faults |
 
 `geometry.rhdl` provides focused combinational helpers for beat limits, widths,
 lane counts, and VRF operand requirements. There is no schedule payload or
@@ -99,8 +100,10 @@ ownership. Persistent slots retain route and owner identity across descriptor
 replacement. Keep front admission, sequencing release, execution allocation,
 compute maturity or memory acceptance, service-result arrival, and drain distinct.
 
-Every ordinary beat, including immediate integer results, reserves a slot in
-one persistent ring. Packed beats share its allocation/acceptance/drain frontier;
+Every issued ordinary beat, including immediate integer results, reserves a slot
+in one persistent ring. Encoded-zero-stride masked prefix probes return feedback
+without issuing a beat or reserving a slot. Packed beats share the ring's
+allocation/acceptance/drain frontier;
 their layout and partial-row carry retain independent completion ownership.
 Replay restores only the current unauthorized suffix. Result routing uses the
 slot's route, never the current descriptor's route, and no launch resets the ring.
@@ -141,6 +144,12 @@ drops younger read preparation and reservations, and retains accepted responses
 and the partial-row carry. The aligned transport envelope must remain inside
 the MMU certificate. A false certificate selects the original elementwise
 sequencer; never treat a failed precheck as an architectural fault.
+Encoded-zero-stride splats instead use one ordinary faultable LSU attempt.
+Masked prefix probes return registered sequencer feedback without allocating
+completion slots; the first active probe owns the one read slot. The retained
+EEW value drains through the sole VRF write port one selected row at a time.
+The splat owner blocks new vector admission until that drain finishes, while
+older packed carries retain write-port priority and older rows block writes.
 The `rv5stage-vector-packed` and `rv5stage-vector-packed-rv32` fixtures
 check byte-accurate loads/stores, every legal head offset, masks, segments,
 whole/mask transfers, replay, reordered returns, and sustained common-path issue.
