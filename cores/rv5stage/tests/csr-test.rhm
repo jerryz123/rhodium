@@ -20,7 +20,7 @@ check:
     "clock", "reset", "interrupts", "hart_id", "time_counter", "interrupt_boundary", "interrupt_pc", "commit_in", "fp_update_in", "vector_retire_in", "vector_saturate_in", "vector_fault_start_in", "vector_truncate_in", "cbo_operation"
   ]
   rv64.outputs.map(fun (port): port.name) ~is [
-    "redirect_out", "interrupt_request", "wfi_retired", "wfi_wake",
+    "redirect_out", "interrupt_request", "retired", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
     "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_enabled", "cbo_permission", "translation_flush",
     "pointer_masking", "pointer_masking_changed"

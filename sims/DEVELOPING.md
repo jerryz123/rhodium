@@ -312,7 +312,9 @@ model-specific text and HTIF mailboxes follow test data and stack.
 
 Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
 completion, deadlines, artifact identity, and complete-result checks using system
-Python without ACT dependencies. CI runs these checks before workloads. With ACT
+Python without ACT dependencies. Run `make -C sims litmus-setup litmus-adapter-test`
+separately for tests requiring the pinned source corpus. CI runs the shared
+checks before workloads and the litmus check only after its source setup. With ACT
 installed, run `make -C sims arch-test` to generate and execute all applicable
 tests; the architecture-test CI lane uses this same target. When changing the driver, also run the existing smoke
 and exercise a small `+max-cycles` timeout. See the

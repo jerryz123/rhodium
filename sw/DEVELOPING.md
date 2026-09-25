@@ -50,8 +50,9 @@ name against the current target-filtered inventory instead of silently
 dropping unsupported cases. Full selects that entire inventory and records all
 build failures with `--keep-going`. The smoke file is a coverage and runtime
 selection, not a pass list: preserve known failure reproducers when changing it.
-CI checks out herdtools7 at its workflow-pinned commit and builds litmus7 there;
-the Make targets retain an explicit executable dependency for local use.
+CI checks out herdtools7 at its workflow-pinned commit, installs its separate
+`aslref` library into the pinned OCaml switch, and then builds litmus7. The Make
+targets retain an explicit executable dependency for local use.
 Compile litmus7 support code for the selected target's scalar base extensions,
 plus Zalasr when advertised, so compiler-generated vector or other optional
 instructions do not confound the memory-model workload. This changes neither

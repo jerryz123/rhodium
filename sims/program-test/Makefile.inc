@@ -52,7 +52,7 @@ TILED_MT_HART_COUNTS := 2 4 8
 PROGRAM_TARGET_SELECTION := $(if $(filter mini single tiled,$(SOC)),$(SOC) $(CORE),$(SOC))
 PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
 
-.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test program-target simulator-attestation
+.PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test litmus-adapter-test program-target simulator-attestation
 .PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
@@ -107,6 +107,8 @@ program-test-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_program_test.py'
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_program_build.py'
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_bringup_bench.py'
+
+litmus-adapter-test:
 	$(PYTHON) -m unittest discover -s $(REPO_DIR)/sw/tests -p 'test_litmus_build.py'
 
 isa-elfs: program-target
