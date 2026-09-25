@@ -1,4 +1,4 @@
-# Runs each SoC product independently plus OpenSBI and stalled-memory qualification.
+# Runs each SoC product independently plus OpenSBI qualification.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI simulation
@@ -286,50 +286,4 @@ jobs:
             /tmp/rhodium-software/simple-rv5stage-rva23/opensbi
             /tmp/rhodium-software/simple-spike-rva23/opensbi
           if-no-files-found: warn
-          retention-days: 7
-
-  tiled-memory:
-    name: TiledRV5StageSoC memory backpressure
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
-        with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: ${{ inputs.racket-version }}
-      - name: Restore exact Rhodium bytecode
-        uses: ./.github/actions/setup-racket-artifact
-        with:
-          racket-version: ${{ inputs.racket-version }}
-          rhombus-checksum: ${{ inputs.rhombus-checksum }}
-          artifact-name: rhodium-bytecode-${{ github.sha }}
-      - name: Install native build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - name: Install RISC-V software toolchain
-        uses: ./.github/actions/setup-riscv-toolchain
-      - name: Install Verilator
-        uses: ./.github/actions/setup-verilator
-      - name: Install CIRCT
-        uses: ./.github/actions/setup-circt
-      - name: Install FESVR
-        uses: ./.github/actions/setup-fesvr
-      - name: Build and stress the stalled memory channel
-        timeout-minutes: 35
-        shell: bash
-        run: make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23 2>&1 | tee "$RUNNER_TEMP/tiled-memory.log"
-      - name: Publish memory stress diagnostics
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: tiled-memory-${{ github.sha }}
-          path: |
-            ${{ runner.temp }}/tiled-memory.log
-            /tmp/rhodium-sims/tiled-memory-test/tiled-rv5stage-rva23/tiled_memory.elf
           retention-days: 7

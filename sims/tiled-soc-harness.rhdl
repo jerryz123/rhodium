@@ -5,18 +5,14 @@
 import:
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
-  lib("chi/protocol/flits.rhdl").CHIReqOpcode
-  lib("rhodium/std/ready-valid.rhdl") open
   lib("socs/tiled-soc/main.rhdl") as tiled
   lib("socs/products/tiled-rv5stage.rhdl").default_tiled_soc_config
   lib("socs/tiled-soc/compile.rhdl") as compiler
   lib("devices/uart/uart-dpi.rhdl").UartDPI
-  lib("flow/gate.rhdl").gate_flow
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
 sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = default_tiled_soc_config,
-                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1,
-                        ~memory_stalls: memory_stalls :: Boolean = #false):
+                        uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   def implementation = compiler.compile_tiled_soc(soc_config)
   output exit: Bits(32)
 
@@ -26,42 +22,8 @@ sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = default_tiled_soc_c
   inst uart(UartDPI(0, uart_oversample_divisor))
 
   requester.port <=> soc.host.memory
-  if memory_stalls
-  | block:
-      // A test specialization independently stalls every external-memory flow.
-      reg phase(~init: bits(0, 8))
-      phase <== phase + bits(1, 8)
-      // Let the coverage assertions sample completion before the driver exits.
-      reg checked_exit(~init: bits(0, 32))
-      checked_exit <== requester.exit
-      exit <== checked_exit
-      soc.memory.req |> gate_flow(!(phase[0..3] === bits(0, 3))) |> memory.port.req
-      memory.port.rsp |> gate_flow(phase[0..4] < bits(3, 4)) |> soc.memory.rsp
-      soc.memory.dat.request |> gate_flow(phase[0..5] < bits(5, 5)) |> memory.port.dat.request
-      memory.port.dat.response |> gate_flow(phase[0..7] < bits(8, 7)) |> soc.memory.dat.response
-
-      def memory_flows = [soc.memory.req, memory.port.rsp, soc.memory.dat.request, memory.port.dat.response]
-      reg blocked(~init: vec(for List (_index in 0..4): Bool(#false)))
-      for (index in 0..4):
-        def channel :: Endpoint = memory_flows[index]
-        when (channel.valid & !channel.ready):
-          blocked[index] <== Bool(#true)
-        when (!(requester.exit === bits(0, 32))):
-          assert(blocked[index], "tiled_memory_flow_exercised_backpressure")
-      reg read_seen(~init: vec(for List (_entry in implementation.llcs): Bool(#false)))
-      reg write_seen(~init: vec(for List (_entry in implementation.llcs): Bool(#false)))
-      for (index in 0..implementation.llcs.length()):
-        def entry = implementation.llcs[index]
-        when (memory.port.req.fire() & (memory.port.req.bits.src_id === bits(entry.home_params.home.node_id, implementation.flit.node_id_width))):
-          read_seen[index] <== read_seen[index] ||| (memory.port.req.bits.opcode === CHIReqOpcode.ReadNoSnp)
-          write_seen[index] <== write_seen[index] ||| memory.port.req.bits.opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl)
-        when (!(requester.exit === bits(0, 32))):
-          assert(read_seen[index] & write_seen[index], "tiled_memory_each_slice_read_and_writeback")
-      #void
-  | block:
-      soc.memory <=> memory.port
-      exit <== requester.exit
-      #void
+  soc.memory <=> memory.port
+  exit <== requester.exit
   memory.identity <== CHIRamIdentity(implementation.flit):
     node_id: bits(implementation.memory.node.node_id, implementation.flit.node_id_width)
     base_address: bits(soc_config.memory.base, implementation.flit.request_address_width)

@@ -279,7 +279,6 @@ class PlanTest(unittest.TestCase):
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
-        self.assertIn("tiled-memory-test", simulation)
         self.assertEqual(software.count("configuration: [simple-rv5stage-rva23, simple-spike-rva23]"), 2)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 

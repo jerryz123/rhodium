@@ -642,8 +642,8 @@ Each archive contains `manifest.json` and every selected ELF at the manifest's
 relative path, including ISA binaries without a filename extension. Extract an
 archive to an empty directory to replay the exact CI-built binaries with a
 matching simulator; the runner checks their manifest SHA-256 digests. The
-simulation job separately publishes its hand-written smoke ELFs, the tiled-memory
-job attaches its test ELF, and ACT publishes its generated ELF archive.
+simulation job separately publishes its hand-written smoke ELFs, and ACT
+publishes its generated ELF archive.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
 `PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
@@ -771,10 +771,6 @@ The ordinary smoke payload follows ISA selection, independent of core: RVA23
 exercises integer, vector, Zvbb and vector FP, while RV32Max uses integer-vector
 operations without FP. The supported traced SingleCoreRV5StageSoC
 build adds one compressed instruction for its disassembly check.
-
-`make -C sims tiled-memory-test SOC=tiled-rv5stage-rva23` uses a separate stalled-memory build to check
-writebacks and refills across all LLC slices through the single external
-channel. The ordinary `SOC=tiled CORE=rv5stage ISA=rva23` harness leaves memory channels unstalled.
 
 Run the LR/SC progress qualification through normal FESVR loading and coherent
 signature collection with:

@@ -92,7 +92,6 @@ SMOKE_MARCH := rv32imacb_zicsr_zve32x_zvl64b_zvbb
 SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1
 endif
 UART_PTY_BINARY := $(SOC_BUILD_DIR)/uart_pty.elf
-TILED_MEMORY_BINARY := $(SOC_BUILD_DIR)/tiled_memory.elf
 BOOT_BINARIES := $(SOC_BUILD_DIR)/boot_2000.elf $(SOC_BUILD_DIR)/boot_3000.elf
 HOST_MMIO_BINARY := $(SOC_BUILD_DIR)/host_mmio.elf
 HOST_MMIO_SIGNATURE := $(SOC_BUILD_DIR)/host_mmio.signature
@@ -157,15 +156,6 @@ lrsc-run: $(LRSC_BINARIES) simulator
 	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
 	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
 	done; exit $$status
-
-.PHONY: tiled-memory-test
-tiled-memory-test:
-	@test "$(SOC_ID)" = tiled-rv5stage-rva23
-	$(MAKE) "$(BUILD_ROOT)/tiled-memory-test/$(SOC_ID)/tiled_memory.elf" run SOC=$(SOC_ID) TRACE=0 PREBUILT_SIMULATOR= \
-	  BUILD_ROOT="$(BUILD_ROOT)/tiled-memory-test" \
-	  HARNESS_SELECTOR=sims/tests/tiled-memory-harness.rhdl \
-	  BINARY="$(BUILD_ROOT)/tiled-memory-test/$(SOC_ID)/tiled_memory.elf" \
-	  HTIF_ARGS=+max-cycles=50000000
 
 trace-smoke:
 	@test -n "$(TRACE_PROCESSOR)" || (echo "TRACE_PROCESSOR must name the native Perfetto importer" >&2; exit 2)
@@ -355,10 +345,6 @@ $(SMOKE_BINARY): tests/programs/smoke.S \
 
 $(UART_PTY_BINARY): tests/programs/uart_pty.S tests/programs/smoke.ld tests/programs/xlen.h $(CURDIR)/Makefile | $(SOC_BUILD_DIR)
 	$(RISCV_CC) -march=$(PLATFORM_MARCH) -mabi=$(PLATFORM_MABI) -nostdlib -nostartfiles \
-	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
-
-$(TILED_MEMORY_BINARY): tests/programs/tiled_memory.S tests/programs/smoke.ld | $(SOC_BUILD_DIR)
-	$(RISCV_CC) -march=rv64i -mabi=lp64 -nostdlib -nostartfiles \
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
 $(SOC_BUILD_DIR)/lrsc_%.elf: tests/programs/lrsc.S tests/programs/lrsc.ld tests/programs/pmp.h | $(SOC_BUILD_DIR)

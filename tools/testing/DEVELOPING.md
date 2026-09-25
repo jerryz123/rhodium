@@ -101,7 +101,7 @@ flowchart TD
     Compile --> Simulators["Reusable simulator workflow<br/>eight exact products for simulation;<br/>two Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
-    Simulators --> Qualification["OpenSBI and RV5Stage<br/>stalled-memory jobs"]
+    Simulators --> Qualification["OpenSBI qualification"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
@@ -133,11 +133,6 @@ timeout budgets. The aggregate `cores-vector-functional` selector combines
 the two functional shards, `cores-vector` adds configurations, and `cores`
 still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
-
-The stalled-memory TiledSoC specialization runs in its own job under the same
-simulation change selection. Its separate build and bounded execution cannot
-consume the ordinary harness job's budget or skip downstream smoke coverage.
-Always retain its build/execution log, including on failure or cancellation.
 
 Both single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
