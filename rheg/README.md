@@ -297,10 +297,11 @@ during the build; no Python participates in conversion or at runtime.
 No LLVM, external disassembler process, Perfetto SDK, or protobuf runtime is
 required.
 
-The compiler's normal include search path must contain `nlohmann/json.hpp`. If
-the package is installed elsewhere, pass
-`NLOHMANN_JSON_INCLUDE_DIR=/path/to/include` to Make, the test runner, or the
-simulator build.
+The Makefile discovers the installed header through `pkg-config` when available,
+then falls back to the compiler's normal include search path. To select a
+specific installation, pass `NLOHMANN_JSON_INCLUDE_DIR=/path/to/include` to
+Make, the test runner, or the simulator build. A missing header produces an
+actionable build error; no dependency is downloaded automatically.
 
 For integration, build the `libraries` Make target and link
 `librheg_perfetto.a`, `librheg_runtime.a`, and system zlib in that order. Do not

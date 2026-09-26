@@ -7,6 +7,7 @@ BUILD_DIR ?= /tmp/rhodium-perfetto-build
 PYTHON ?= python3
 CXX ?= c++
 AR ?= ar
+PKG_CONFIG ?= pkg-config
 CXXFLAGS ?= -O2
 override CXXFLAGS += -std=c++17 -MMD -MP
 
@@ -25,6 +26,9 @@ SPIKE_CONFIG_DIR := $(BUILD_DIR)/spike-config
 SPIKE_CONFIG := $(SPIKE_CONFIG_DIR)/config.h
 OBJECT_DIR := $(BUILD_DIR)/objects
 
+ifeq ($(strip $(NLOHMANN_JSON_INCLUDE_DIR)),)
+NLOHMANN_JSON_INCLUDE_DIR := $(shell $(PKG_CONFIG) --variable=includedir nlohmann_json 2>/dev/null)
+endif
 ifneq ($(strip $(NLOHMANN_JSON_INCLUDE_DIR)),)
 NLOHMANN_JSON_HEADER := $(NLOHMANN_JSON_INCLUDE_DIR)/nlohmann/json.hpp
 JSON_INCLUDES := -isystem $(NLOHMANN_JSON_INCLUDE_DIR)
@@ -75,6 +79,10 @@ $(OBJECT_DIR)/runtime/%.o: $(RUNTIME_DIR)/%.cc
 
 $(OBJECT_DIR)/perfetto/rheg_perfetto.o: $(REPO_DIR)/rheg/perfetto/rheg_perfetto.cc $(NLOHMANN_JSON_HEADER) $(SPIKE_PATCH_STAMP) $(SPIKE_CONFIG)
 	@mkdir -p $(@D)
+	@printf '%s\n' '#include <nlohmann/json.hpp>' | $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JSON_INCLUDES) -MF /dev/null -x c++ -fsyntax-only - >/dev/null 2>&1 || { \
+	  echo 'Cannot compile with nlohmann/json.hpp; install nlohmann-json3-dev or nlohmann-json, or set NLOHMANN_JSON_INCLUDE_DIR=/path/to/include' >&2; \
+	  exit 1; \
+	}
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(COMMON_INCLUDES) $(JSON_INCLUDES) $(SPIKE_INCLUDES) -c $< -o $@
 
 $(OBJECT_DIR)/perfetto/%.o: $(REPO_DIR)/rheg/perfetto/%.cc
