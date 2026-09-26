@@ -87,6 +87,8 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~chi: config :: RiscvHartCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
+  when profile.extensions.svpbmt
+  | error(~who: #'RV5Stage, "Svpbmt translation support requires pending PBMT-aware memory routing and CHI integration")
   unless config.cache_line_bytes == RV5StageCacheLineBytes
   | error(~who: #'RV5Stage,
           "RV5Stage requires 64-byte CHI cache lines")

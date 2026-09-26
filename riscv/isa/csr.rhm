@@ -503,6 +503,8 @@ def MstatusUXL = BitField("mstatus.UXL", 33, 32)
 def MstatusSXL = BitField("mstatus.SXL", 35, 34)
 
 def EnvcfgFIOM = BitField("xenvcfg.FIOM", 0, 0)
+def EnvcfgPMM = BitField("xenvcfg.PMM", 33, 32)
+def MenvcfgPBMTE = BitField("menvcfg.PBMTE", 62, 62)
 def CounterenCY = BitField("xcounteren.CY", 0, 0)
 def CounterenTM = BitField("xcounteren.TM", 1, 1)
 def CounterenIR = BitField("xcounteren.IR", 2, 2)
@@ -550,6 +552,8 @@ export:
   MstatusUXL
   MstatusSXL
   EnvcfgFIOM
+  EnvcfgPMM
+  MenvcfgPBMTE
   CounterenCY
   CounterenTM
   CounterenIR

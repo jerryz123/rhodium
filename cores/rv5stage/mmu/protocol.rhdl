@@ -15,6 +15,7 @@ bundle RV5StageTranslationRequest():
   privilege: PrivilegeMode
   sum: Bool
   mxr: Bool
+  pbmte: Bool
 
 bundle RV5StageTranslationResult():
   virtual_address: Bits(64)
@@ -30,6 +31,7 @@ bundle RV5StageTranslationResult():
   dirty: Bool
   fault: Bool
   access_fault: Bool
+  pbmt: PageMemoryType
 
 // One nonspeculative macro owns the checked range until release. A false
 // response selects exact element execution; it is never an architectural fault.

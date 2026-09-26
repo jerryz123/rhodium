@@ -61,6 +61,7 @@ Dependency enforcement and extension workflow are documented in
 | [`interrupt.rhdl`](interrupt.rhdl) | `RiscvInterrupts`, `resolve_riscv_interrupt`, `interrupt_cause_bits` | Materialize pending bits and standard M/S priority and delegation without owning state |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
 | [`sv39.rhdl`](sv39.rhdl) | `Sv39Access`, `Sv39Pte`, `Sv39Translation`, and `sv39_*` helpers | Materialize Sv39 geometry, demand permission, and A/D-independent prefetch permission as typed hardware |
+| [`svpbmt.rhdl`](svpbmt.rhdl) | `PageMemoryType`, `RiscvMemoryAccessAttributes`, and `resolve_memory_attributes` | Resolve per-access memory attributes independently of physical permissions and coherence routing |
 | [`floating-point.rhdl`](floating-point.rhdl) | `FloatSignOperation`, `RiscvRoundingMode`, Zfa immediate constants, and `riscv_*` helpers | Apply RISC-V policy around HardFloat values |
 
 ## Decode descriptors
@@ -175,8 +176,8 @@ to the downstream translation and memory system.
 
 `pointer_mask_envcfg_fields` returns only PMM bits, allowing CSR owners to
 combine it with other `senvcfg` fields. Reserved PMM=01 normalizes to disabled;
-PMM=00/10/11 select PMLEN=0/7/16. The pure definitions live in
-[`../isa/pointer-masking.rhm`](../isa/pointer-masking.rhm).
+PMM=00/10/11 select PMLEN=0/7/16. `PointerMaskMode` owns these encodings;
+the pure `EnvcfgPMM` field descriptor lives in [`../isa/csr.rhm`](../isa/csr.rhm).
 Apply masking once to explicit memory effective addresses, including prefetches,
 atomics, FP memory operations, and CMOs. Do not apply it to instruction fetch,
 implicit PTE accesses, branch targets, or software CSR values. Hardware address
@@ -214,6 +215,23 @@ store permission under current privilege, `SUM`, and `MXR` while deliberately
 ignoring `A` and `D`. Page-table walk
 state, TLB organization, replacement, faults, and processor integration are
 not part of this reusable combinational layer.
+
+`Sv39Pte()` separates the N bit, PBMT field, and remaining reserved bits.
+`sv39_pte_structurally_valid(pte, ~pbmte: enabled)` accepts NC and IO only on
+leaf PTEs with PBMTE enabled; reserved PBMT, non-leaf overrides, NAPOT, and
+other reserved bits remain faults. The default PBMTE is false.
+
+[`svpbmt.rhdl`](svpbmt.rhdl) implements the
+[Svpbmt 1.0 attribute rules](https://docs.riscv.org/reference/isa/v20240411/priv/svpbmt.html).
+`resolve_memory_attributes(physical, pbmt)` takes a validated page type and
+returns data/instruction cacheability, read idempotency, strong ordering, and
+memory/IO fence classification. NC and IO disable both forms of caching;
+changing between physical IO and main memory selects both fence domains.
+Unmapped physical accesses return inactive attributes. The original physical
+lookup remains authoritative for mapping, permissions, atomic capabilities,
+and Home selection: this helper neither grants access nor implements a cache
+or transport policy. `svpbmt_envcfg_fields` preserves only PBMTE for enabled
+RV64 implementations; disabled and RV32 specializations return zero.
 
 `Sv39Pte()` uses the 64-bit PTE encoding as its packed representation. Convert
 raw `Bits(64)` with `raw.into(Sv39Pte())`; use `pte.as_bits()` to recover the

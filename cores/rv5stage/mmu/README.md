@@ -359,6 +359,21 @@ Trap priority and
 
 ## Supported Sv39 behavior and deliberate limits
 
+The standalone walker and TLB retain Svpbmt page types. The walker captures
+`request.bits.pbmte` with each accepted request; successful completion, TLB
+refill, demand lookup, and prefetch probe preserve the leaf type. Bare lookup
+returns PMA. Page/access faults do not populate the TLB, and invalidation wins
+over a simultaneous fill.
+
+This is a translation foundation, not integrated Svpbmt support. The composed
+MMU still supplies PBMTE=false until physical routing, vector certificates,
+cache admission, and CHI honor the attributes. `RV5StageExtensions(~svpbmt:
+#true)` enables standalone CSR qualification only, requires RV64 Sv39, and is
+rejected by the complete `RV5Stage` composition. It is not an ISA/UDB claim.
+Published SoC profiles remain unchanged. The CSR component exposes PBMTE and
+conservatively requests translation invalidation on a committed change;
+firmware must still follow the architectural SFENCE/cache-maintenance rules.
+
 The implemented slice supports canonical Sv39 virtual addresses, all three
 standard leaf sizes, accumulated global mappings, User/Supervisor permissions,
 Machine data accesses modified by `MPRV`/`MPP`, `SUM`, `MXR`, and Svade fault
@@ -374,8 +389,8 @@ Deliberate limits are:
 - nonzero ASIDs, ASID- or address-selective `SFENCE.VMA`, and retention of
   global entries across invalidation are not implemented;
 - hardware A/D-bit updates are not implemented;
-- PBMT, Svnapot/NAPOT translations, PMP, and multi-hart shootdown are outside
-  this MMU;
+- integrated PBMT access policy, Svnapot/NAPOT translations, PMP, and multi-hart
+  shootdown remain outside this MMU;
 - walks are neither speculative nor concurrent, and there is no independent
   page-table-memory port or page-walk cache; and
 - best-effort prefetch probes do not fill a TLB or initiate a background walk.

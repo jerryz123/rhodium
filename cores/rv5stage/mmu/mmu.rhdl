@@ -259,6 +259,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def start_data_walk = can_start_walk & !start_probe_walk & !instruction_miss & data_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
   walker.request.bits <== RV5StageTranslationRequest():
+    // Full-core enablement waits for PBMT-aware physical routing and CHI.
+    pbmte: Bool(#false)
     virtual_address: mux(start_probe_walk, page_probe.request.bits.address, mux(start_data_walk, data_virtual_address, instruction_virtual_address))
     root_ppn: root_ppn
     access: mux(start_probe_walk, mux(page_probe.request.bits.store, Sv39Access.Store, Sv39Access.Load), mux(start_data_walk, data_access_kind, Sv39Access.Fetch))

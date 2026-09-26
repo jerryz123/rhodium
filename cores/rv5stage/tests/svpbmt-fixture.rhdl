@@ -1,0 +1,104 @@
+#lang rhodium
+// Exercises PBMT decoding, retained page walks, TLB refill/probes, and effective access attributes.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../mmu/walker.rhdl" open
+  "../mmu/tlb.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../csr.rhdl".PrivilegeMode
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("riscv/rtl/svpbmt.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageSvpbmtFixture():
+  input command_valid: Bool
+  input address: Bits(64)
+  input pbmte: Bool
+  input access: Sv39Access
+  output command_ready: Bool
+  input cancel: Bool
+  input memory_ready: Bool
+  input memory_fault: Bool
+  input response_valid: Bool
+  input pte: Bits(64)
+  output memory_valid: Bool
+  output memory_address: Bits(64)
+  input completion_ready: Bool
+  output completed: Bool
+  output fault: Bool
+  output access_fault: Bool
+  output result_pbmt: PageMemoryType
+  output result_address: Bits(56)
+  input lookup_address: Bits(64)
+  input enabled: Bool
+  input invalidate: Bool
+  output hit: Bool
+  output tlb_fault: Bool
+  output tlb_pbmt: PageMemoryType
+  output tlb_address: Bits(56)
+  output probe_hit: Bool
+  output probe_pbmt: PageMemoryType
+  input physical: RiscvPhysicalMemoryLookup()
+  input attribute_pbmt: PageMemoryType
+  output attributes: RiscvMemoryAccessAttributes()
+  output pte_valid: Bool
+  input envcfg: Bits(64)
+  output envcfg_fields: Bits(64)
+  output disabled_fields: Bits(64)
+  output rv32_fields: Bits(32)
+
+  attributes <== resolve_memory_attributes(physical, attribute_pbmt)
+  pte_valid <== sv39_pte_structurally_valid(pte.into(Sv39Pte()), ~pbmte: pbmte)
+  envcfg_fields <== svpbmt_envcfg_fields(XLen.X64, envcfg, ~enabled: #true)
+  disabled_fields <== svpbmt_envcfg_fields(XLen.X64, envcfg, ~enabled: #false)
+  rv32_fields <== svpbmt_envcfg_fields(XLen.X32, envcfg[0..32], ~enabled: #false)
+
+  inst walker(RV5StagePageTableWalker())
+  walker.cancel <== cancel
+  walker.request.valid <== command_valid
+  walker.request.bits <== RV5StageTranslationRequest():
+    virtual_address: address
+    root_ppn: bits(1, 44)
+    access: access
+    privilege: PrivilegeMode.Supervisor
+    sum: Bool(#false)
+    mxr: Bool(#false)
+    pbmte: pbmte
+  command_ready <== walker.request.ready
+  walker.memory.request.ready <== memory_ready
+  walker.memory.request_access_fault <== memory_fault
+  walker.memory.response.valid <== response_valid
+  walker.memory.response.bits <== pte
+  memory_valid <== walker.memory.request.valid
+  memory_address <== walker.memory.request.bits
+  completed <== walker.completion.valid
+  fault <== walker.completion.bits.fault
+  access_fault <== walker.completion.bits.access_fault
+  result_pbmt <== walker.completion.bits.pbmt
+  result_address <== walker.completion.bits.physical_address
+
+  inst tlb(RV5StageTlb(2))
+  walker.completion |> gate_flow(completion_ready & !cancel) |> to_valid() |> tlb.fill
+  tlb.virtual_address <== lookup_address
+  tlb.access <== access
+  tlb.privilege <== PrivilegeMode.Supervisor
+  tlb.sum <== Bool(#false)
+  tlb.mxr <== Bool(#false)
+  tlb.enabled <== enabled
+  tlb.invalidate_all <== invalidate
+  tlb.probe_virtual_address <== lookup_address
+  tlb.probe_privilege <== PrivilegeMode.Supervisor
+  tlb.probe_sum <== Bool(#false)
+  tlb.probe_mxr <== Bool(#false)
+  tlb.probe_enabled <== enabled
+  hit <== tlb.hit
+  tlb_fault <== tlb.fault
+  tlb_pbmt <== tlb.translation.pbmt
+  tlb_address <== tlb.physical_address
+  probe_hit <== tlb.probe_hit
+  probe_pbmt <== tlb.probe_pbmt
+
+export RV5StageSvpbmtFixture

@@ -26,6 +26,7 @@ sync_circuit RV5StageWalkTrace():
   inst walker(RV5StagePageTableWalker())
   walker.cancel <== cancel
   def translation = RV5StageTranslationRequest():
+    pbmte: Bool(#false)
     virtual_address: address
     root_ppn: bits(1, 44)
     access: Sv39Access.Load

@@ -175,6 +175,15 @@ In `riscv/rtl/`, `decode.rhdl` imports
 `std/bits.rhdl`; these modules materialize reusable architectural values and
 policy without importing a concrete processor.
 
+`riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
+plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.
+`sv39.rhdl` imports its page-memory-type representation and retains its existing
+`std/bits.rhdl` dependency. RV5Stage CSR storage and translation components
+consume these adapters without moving implementation policy into `riscv/`.
+`riscv/rtl/pointer-masking.rhdl` imports the pure CSR fields and XLEN plus
+the CSR and privilege adapters. Its PMM encoding belongs to its hardware enum,
+not a duplicate host enum and integer converter.
+
 The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for
 mask expansion/merging, `std/ready-valid.rhdl` for authorized CSR events, and
 `flow/main.rhdl` for backpressured read requests, synchronous Valid read

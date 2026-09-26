@@ -115,6 +115,7 @@ module rv5stage_csr_tb;
   logic fp_enabled;
   logic cbo_zero_enabled;
   logic translation_flush;
+  logic pbmte;
   logic [2:0] pointer_masking;
   logic pointer_masking_changed;
 
@@ -175,7 +176,8 @@ module rv5stage_csr_tb;
     input logic [1:0] operation,
     input logic [11:0] address,
     input logic [63:0] source,
-    input logic [63:0] expected_old
+    input logic [63:0] expected_old,
+    input logic expect_flush = 1'b0
   );
     @(negedge clock);
     clear_commit();
@@ -190,7 +192,7 @@ module rv5stage_csr_tb;
     assert (retired && writeback_valid && writeback_value == expected_old)
       else $fatal(1, "CSR %03h returned %016h instead of %016h",
                   address, writeback_value, expected_old);
-    assert (!redirect_out.valid && !translation_flush)
+    assert (!redirect_out.valid && translation_flush == expect_flush)
       else $fatal(1, "legal CSR access unexpectedly redirected");
     if (address == 12'h10a) begin
       automatic logic [63:0] replacement;
@@ -617,7 +619,13 @@ module rv5stage_csr_tb;
     $display("RV5Stage CSR and privilege transitions passed");
     reset_dut();
     assert (cbo_zero_enabled) else $fatal(1, "M mode must allow CBO.ZERO");
-    csr_access(CSR_WRITE, CSR_MENVCFG, ~64'd0, 64'd0);
+    assert (!pbmte) else $fatal(1, "PBMTE must reset disabled");
+    csr_access(CSR_WRITE, CSR_MENVCFG, ~64'd0, 64'd0, 1'b1);
+    assert (pbmte) else $fatal(1, "PBMTE write not retained");
+    csr_access(CSR_SET, CSR_MENVCFG, 64'd0, 64'h4000000000000081);
+    csr_access(CSR_SET, CSR_MENVCFG, 64'h4000000000000000, 64'h4000000000000081);
+    csr_access(CSR_CLEAR, CSR_MENVCFG, 64'h4000000000000000, 64'h4000000000000081, 1'b1);
+    assert (!pbmte) else $fatal(1, "PBMTE clear not retained");
     csr_access(CSR_SET, CSR_MENVCFG, 64'd0, 64'h81);
     csr_access(CSR_WRITE, CSR_SENVCFG, ~64'd0, 64'd0);
     csr_access(CSR_SET, CSR_SENVCFG, 64'd0, 64'h300000081);
@@ -640,6 +648,21 @@ module rv5stage_csr_tb;
     csr_access(CSR_WRITE, CSR_SENVCFG, 64'h80, 64'd0);
     enter_supervisor(64'd0);
     assert (!cbo_zero_enabled) else $fatal(1, "S mode must require M CBZE");
+    reset_dut();
+    @(negedge clock);
+    clear_commit();
+    commit_in.valid = 1'b1;
+    commit_in.bits.system.csr = CSR_WRITE;
+    commit_in.bits.csr_address = CSR_MENVCFG;
+    commit_in.bits.csr_source = 64'h4000000000000000;
+    commit_in.bits.exception_valid = 1'b1;
+    commit_in.bits.exception_cause = 64'd2;
+    #1;
+    assert (!retired && !translation_flush && redirect_out.valid)
+      else $fatal(1, "faulting PBMTE write generated a translation change");
+    @(posedge clock); #1;
+    clear_commit();
+    assert (!pbmte) else $fatal(1, "faulting PBMTE write changed CSR state");
     $finish;
   end
 endmodule

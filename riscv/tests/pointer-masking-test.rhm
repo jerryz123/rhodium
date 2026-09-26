@@ -1,15 +1,15 @@
 #lang rhombus
-// Checks the architectural PMM encodings and corresponding ignored pointer lengths.
+// Checks the architectural PMM field and the hardware enum's public encodings.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../isa/pointer-masking.rhm" open
+  "../isa/csr.rhm".EnvcfgPMM
+  "../rtl/pointer-masking.rhdl".PointerMaskMode
 
 check:
-  PointerMaskFieldOffset ~is 32
-  pointer_mask_mode_code(PointerMaskMode.Disabled) ~is 0
-  pointer_mask_mode_code(PointerMaskMode.Bits7) ~is 2
-  pointer_mask_mode_code(PointerMaskMode.Bits16) ~is 3
-  pointer_mask_length(PointerMaskMode.Disabled) ~is 0
-  pointer_mask_length(PointerMaskMode.Bits7) ~is 7
-  pointer_mask_length(PointerMaskMode.Bits16) ~is 16
+  EnvcfgPMM.low ~is 32
+  EnvcfgPMM.width ~is 2
+  EnvcfgPMM.mask() ~is 0x300000000
+  PointerMaskMode.Disabled.packed_value() ~is 0
+  PointerMaskMode.Bits7.packed_value() ~is 2
+  PointerMaskMode.Bits16.packed_value() ~is 3

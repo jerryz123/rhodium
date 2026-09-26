@@ -14,10 +14,12 @@ import:
 def design = embedded.run_elaboration(
   fun (): csr.RV5StageCsrFile(RV5StageConfig(
     ~xlen: XLen.X64,
+    ~mmu_mode: RV5StageMmuMode.Sv39,
     ~extensions: RV5StageExtensions(
       ~floating_point: FloatingPointProfile.D,
       ~zicboz: #true,
       ~ssnpm: #true,
+      ~svpbmt: #true,
       ~compressed: CCompressedExtensions
     )
   ))

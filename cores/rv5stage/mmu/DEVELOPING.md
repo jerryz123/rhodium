@@ -139,6 +139,14 @@ recovery distinct from `walker.cancel` when extending this instrumentation.
 
 ## Focused validation
 
+For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `rv5stage-csr`,
+and `rv5stage-mmu-replay`. PBMTE is captured at walk admission; do not sample
+the caller's next request while validating later PTE replies. PBMT travels
+with translation results and TLB entries, including the prefetch probe.
+Do not enable it in the composed MMU before the shared attribute resolver is
+used by demand/fetch/prefetch routing, vector authorization, and CHI service.
+That integration must preserve PTE-response draining across cancellation.
+
 Run the MMU-owned host check from the repository root:
 
 ```sh

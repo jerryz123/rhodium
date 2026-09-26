@@ -272,7 +272,7 @@ fixture_in_group() {
     cores-vector-configurations:rv5stage-vector-packed-rv32|cores-vector-configurations:rv5stage-vector-mask-512|cores-vector-configurations:rv5stage-vector-memory-one-slot|cores-vector-configurations:rv5stage-vector-sequencer-rv32|cores-vector-configurations:rv5stage-vector-sequencer-1024)
       return 0
       ;;
-    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
+    cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
     cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
@@ -895,6 +895,7 @@ direct_fixture_specs=(
   'rv5stage-zicboz|rv5stage_zicboz_tb'
   'rv5stage-zicbom|rv5stage_zicbom_tb'
   'rv5stage-mmu-replay|rv5stage_mmu_replay_tb'
+  'rv5stage-svpbmt|rv5stage_svpbmt_tb'
   'rv5stage-interrupt|rv5stage_interrupt_tb'
   'rv5stage-wfi|rv5stage_wfi_tb'
   'rv5stage-zawrs|rv5stage_zawrs_tb'

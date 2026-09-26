@@ -4,6 +4,7 @@
 
 import:
   "../isa/sv39.rhm" open
+  "svpbmt.rhdl".PageMemoryType
   lib("rhodium/std/bits.rhdl") open
 
 hardware_enum Sv39Access:
@@ -13,7 +14,9 @@ hardware_enum Sv39Access:
   CacheManagement
 
 bundle Sv39Pte():
-  reserved: Bits(10)
+  napot: Bool
+  pbmt: PageMemoryType
+  reserved: Bits(7)
   ppn: Bits(44)
   rsw: Bits(2)
   dirty: Bool
@@ -44,8 +47,9 @@ fun sv39_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(9):
 fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
   pte.read ||| pte.execute
 
-fun sv39_pte_structurally_valid(pte :: Sv39Pte()) :~ Bool:
-  pte.valid & !(pte.write & !pte.read) & !pte.reserved.or_reduce()
+fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
+  def pbmt_valid = (pte.pbmt === PageMemoryType.PMA) ||| (pbmte & sv39_leaf(pte) & (pte.pbmt =/= PageMemoryType.Reserved))
+  pte.valid & !(pte.write & !pte.read) & !pte.napot & !pte.reserved.or_reduce() & pbmt_valid
 
 fun sv39_superpage_aligned(pte :: Sv39Pte(), level :: Bits(2)) :~ Bool:
   mux_lookup(level, ~default: !pte.ppn[0..18].or_reduce()):
@@ -87,6 +91,7 @@ fun sv39_prefetch_permission_valid(pte :: Sv39Pte(),
   fetch_valid ||| load_valid ||| store_valid
 
 export:
+  PageMemoryType
   Sv39Access
   Sv39Pte
   Sv39Translation

@@ -44,7 +44,7 @@ sync_circuit RV5StagePageTableWalker():
   def memory_response_received = memory.response.valid & waiting_for_memory
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = pte.sv39_leaf()
-  def structural_fault = !pte.sv39_pte_structurally_valid() ||| (
+  def structural_fault = !sv39_pte_structurally_valid(pte, ~pbmte: operation.pbmte) ||| (
     leaf & !pte.sv39_superpage_aligned(level)
   ) ||| (!leaf & ((level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user))
   def permission_fault = leaf & !pte.sv39_permission_valid(operation.access, operation.privilege === PrivilegeMode.User, operation.privilege === PrivilegeMode.Supervisor, operation.sum, operation.mxr)
@@ -83,6 +83,7 @@ sync_circuit RV5StagePageTableWalker():
         dirty: Bool(#false)
         fault: Bool(#true)
         access_fault: Bool(#false)
+        pbmt: PageMemoryType.PMA
   elsewhen (memory_request_fire & memory.request_access_fault):
     state <== RV5StagePageWalkState.Complete
     result <== RV5StageTranslationResult():
@@ -99,6 +100,7 @@ sync_circuit RV5StagePageTableWalker():
       dirty: Bool(#false)
       fault: Bool(#false)
       access_fault: Bool(#true)
+      pbmt: PageMemoryType.PMA
   elsewhen (memory_request_fire & !memory.request_access_fault):
     state <== RV5StagePageWalkState.Response
   elsewhen memory_response_received:
@@ -106,6 +108,7 @@ sync_circuit RV5StagePageTableWalker():
       state <== RV5StagePageWalkState.Complete
       result <== RV5StageTranslationResult():
         virtual_address: operation.virtual_address
+        pbmt: mux(walk_fault, PageMemoryType.PMA, pte.pbmt)
         physical_address: sv39_physical_address(operation.virtual_address, pte, level)
         ppn: pte.ppn
         level: level

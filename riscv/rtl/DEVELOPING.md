@@ -16,6 +16,10 @@ libraries, and the public HardFloat package. They must not import Rhodium
 implementation layers, backends, concrete cores, examples, or tests.
 
 Keep representation conversion and architecture-wide reusable policy here.
+Define hardware-only encoded choices directly with `hardware_enum`; do not add
+a matching host enum and an enum-to-integer function solely to initialize it.
+Keep pure host encodings when architectural models or tools consume them, such
+as CSR addresses, trap/interrupt masks, MISA bits, and vector configuration.
 Reusable mappings from instruction catalogs to shared processor components
 belong in `cores/riscv/`; complete instruction selection, register files,
 privilege-state storage, scheduling, execution composition, and retirement
@@ -40,6 +44,7 @@ enforces this package direction.
 | Trap and interrupt selection, delegation, pending values, and cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |
 | Sv39 combinational helpers | [`sv39.rhdl`](sv39.rhdl) |
+| Svpbmt encodings, CSR masking, and effective access attributes | [`svpbmt.rhdl`](svpbmt.rhdl); physical permissions remain in `pma.rhdl` |
 | RISC-V floating-point policy | [`floating-point.rhdl`](floating-point.rhdl) |
 | Focused behavioral coverage | [`../tests/`](../tests/) |
 
@@ -64,6 +69,11 @@ RISC-V policy around public HardFloat types without acquiring arithmetic
 implementation.
 
 ## Focused validation
+
+The `rv5stage-svpbmt` fixture combines the reusable Svpbmt helpers with the
+production walker/TLB and checks all PBMT encodings, PMA overrides, reserved
+bits, held results, superpages, Bare bypass, and invalidation. Pair it with
+`rv5stage-csr` for profile-controlled PBMTE writes and flush notification.
 
 For pointer masking, run `riscv/tests/pointer-masking-test.rhm` and the
 `riscv-pointer-masking` backend fixture. The latter sweeps PMM, MPRV/MPP,

@@ -1,0 +1,52 @@
+#lang rhodium
+// Resolves Svpbmt access attributes without granting physical permissions or changing coherence routing.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/csr.rhm".MenvcfgPBMTE
+  "../isa/xlen.rhm".XLen
+  "csr.rhdl" open
+  "pma.rhdl".RiscvPhysicalMemoryLookup
+
+hardware_enum PageMemoryType(~width: 2):
+  PMA = 0
+  NC = 1
+  IO = 2
+  Reserved = 3
+
+// Permissions, atomic support, and physical Home selection remain with the PMA.
+// Both fence domains apply when PBMT changes main memory into IO or vice versa.
+bundle RiscvMemoryAccessAttributes():
+  cacheable: Bool
+  instruction_cacheable: Bool
+  read_idempotent: Bool
+  strongly_ordered: Bool
+  fence_memory: Bool
+  fence_io: Bool
+
+fun resolve_memory_attributes(physical :: RiscvPhysicalMemoryLookup(), pbmt :: PageMemoryType) :~ RiscvMemoryAccessAttributes():
+  def inherit = pbmt === PageMemoryType.PMA
+  def nc = pbmt === PageMemoryType.NC
+  def io = pbmt === PageMemoryType.IO
+  RiscvMemoryAccessAttributes():
+    cacheable: physical.mapped & inherit & physical.cacheable
+    instruction_cacheable: physical.mapped & inherit & physical.instruction_cacheable
+    read_idempotent: physical.mapped & (nc ||| (inherit & physical.read_idempotent))
+    strongly_ordered: physical.mapped & (io ||| (inherit & physical.device))
+    fence_memory: physical.mapped & (nc ||| !physical.device)
+    fence_io: physical.mapped & (io ||| physical.device)
+
+fun svpbmt_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
+  if enabled && xlen == XLen.X64
+  | value & bits(MenvcfgPBMTE.mask(), xlen.width)
+  | bits(0, xlen.width)
+
+fun svpbmt_enabled(xlen :: XLen, value :: Bits(xlen.width)) :~ Bool:
+  if xlen == XLen.X64 | csr_flag(value, MenvcfgPBMTE) | Bool(#false)
+
+export:
+  PageMemoryType
+  RiscvMemoryAccessAttributes
+  resolve_memory_attributes
+  svpbmt_envcfg_fields
+  svpbmt_enabled

@@ -44,6 +44,7 @@ check:
   MstatusMPP.low ~is 11
   MstatusMPP.width ~is 2
   MstatusSXL.mask() ~is 0xc00000000
+  MenvcfgPBMTE.mask() ~is 0x4000000000000000
   csr_fields_mask([MstatusSIE, MstatusMIE, MstatusUPIE, MstatusSPIE, MstatusMPIE, MstatusSPP, MstatusMPP, MstatusMPRV, MstatusSUM, MstatusMXR, MstatusTVM, MstatusTW, MstatusTSR]) ~is 0x7e19ba
   csr_fields_mask([MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusSUM, MstatusMXR]) ~is 0xc0132
   csr_fields_mask([CounterenCY, CounterenTM, CounterenIR]) ~is 0x7

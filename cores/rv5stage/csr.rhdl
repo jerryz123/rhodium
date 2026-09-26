@@ -25,6 +25,7 @@ import:
   "../../riscv/rtl/trap.rhdl" open
   "../../riscv/rtl/privilege.rhdl" open
   "../../riscv/rtl/pointer-masking.rhdl" open
+  "../../riscv/rtl/svpbmt.rhdl" open
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
 
@@ -239,11 +240,13 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   input cbo_operation: CboManagementOperation
   output cbo_permission: CboManagementPermission()
   output translation_flush: Bool
+  output pbmte: Bool
   output pointer_masking: PointerMaskControl()
   output pointer_masking_changed: Bool
 
   reg privilege_state(PrivilegeMode, ~init: PrivilegeMode.Machine)
   reg state(RV5StageCsrState(xlen), ~init: literal(RV5StageCsrState(xlen), 0))
+  pbmte <== svpbmt_enabled(xlen, state.menvcfg)
   cbo_zero_enabled <== cbo_zero_permitted(xlen, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicboz: core_profile.extensions.zicboz)
   cbo_permission <== cbo_management_permission(xlen, cbo_operation, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicbom: core_profile.extensions.zicbom)
   inst counters(RiscvBaseCounters(xlen))
@@ -371,7 +374,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Menvcfg:
       read: state.menvcfg
       write value:
-        state.menvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz)
+        state.menvcfg <== fiom_field(value) ||| cmo_envcfg_fields(xlen, value, ~zicbom: core_profile.extensions.zicbom, ~zicboz: core_profile.extensions.zicboz) ||| svpbmt_envcfg_fields(xlen, value, ~enabled: core_profile.extensions.svpbmt)
     storage CsrId.Mscratch: state.mscratch
     csr CsrId.Mepc:
       read: state.mepc
@@ -492,7 +495,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   fp_csrs.status_write.valid <== csr_write & csr.is_one_of(csr_bits(CsrId.Mstatus), csr_bits(CsrId.Sstatus))
   fp_csrs.status_write.bits <== csr_field(csr_replacement, MstatusFS)
   def sfence_vma_commit = commit.valid & (commit.bits.fence.action === RV5StageFenceOperation.AddressTranslation)
-  translation_flush <== (sfence_vma_commit & !synchronous_trap.valid) ||| (
+  def pbmte_changed = Bool(core_profile.extensions.svpbmt) & csr_write & !trap.valid & (csr === csr_bits(CsrId.Menvcfg)) & (svpbmt_enabled(xlen, csr_replacement) =/= pbmte)
+  translation_flush <== pbmte_changed ||| (sfence_vma_commit & !synchronous_trap.valid) ||| (
     csr_write & (csr === csr_bits(CsrId.Satp))
   )
   def machine_counter_csr = csr.is_one_of(csr_bits(CsrId.Mcycle),

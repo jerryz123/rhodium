@@ -5,14 +5,13 @@
 import:
   "../isa/csr.rhm" open
   "../isa/xlen.rhm" open
-  "../isa/pointer-masking.rhm" as isa
   "csr.rhdl" open
   "privilege.rhdl" open
 
 hardware_enum PointerMaskMode(~width: 2):
-  Disabled = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Disabled))
-  Bits7 = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Bits7))
-  Bits16 = (isa.pointer_mask_mode_code(isa.PointerMaskMode.Bits16))
+  Disabled = 0
+  Bits7 = 2
+  Bits16 = 3
 
 bundle PointerMaskControl():
   mode: PointerMaskMode
@@ -21,12 +20,14 @@ bundle PointerMaskControl():
 fun pointer_mask_mode(xlen :: XLen, envcfg :: Bits(xlen.width)) :~ PointerMaskMode:
   if xlen == XLen.X32
   | PointerMaskMode.Disabled
-  | mux_lookup(envcfg[isa.PointerMaskFieldOffset..(isa.PointerMaskFieldOffset + 2)], ~default: PointerMaskMode.Disabled, [[2, PointerMaskMode.Bits7], [3, PointerMaskMode.Bits16]])
+  | block:
+      def mode = csr_field(envcfg, EnvcfgPMM).into(PointerMaskMode)
+      mux(enum_valid(mode), mode, PointerMaskMode.Disabled)
 
 fun pointer_mask_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
   if xlen == XLen.X32 || !enabled
   | bits(0, xlen.width)
-  | pointer_mask_mode(xlen, value).into(Bits(2)).zext(64) << isa.PointerMaskFieldOffset
+  | csr_field_value(EnvcfgPMM, pointer_mask_mode(xlen, value).into(Bits(2)), xlen.width)
 
 fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus :: Bits(xlen.width), satp :: Bits(xlen.width), senvcfg :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ PointerMaskControl():
   if xlen == XLen.X32 || !enabled
