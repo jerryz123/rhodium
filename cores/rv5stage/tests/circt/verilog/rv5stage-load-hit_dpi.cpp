@@ -1,4 +1,4 @@
-// Checks shared cache resolution and dual instruction/result ownership through caller storage.
+// Checks cache SRAM-port events, resolution, and instruction/result ownership through caller storage.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "rv5stage-load-hit_manifest.h"
@@ -15,7 +15,7 @@ std::deque<Demand> pending, advancing;
 std::deque<rheg::Ref> launching;
 std::map<rheg::Ref,rheg::Ref> writebacks_by_parent;
 std::uint64_t writebacks=0;
-std::uint64_t cycle=0, accesses=0, responses=0, lookups=0, resolutions=0;
+std::uint64_t cycle=0, tag_ports=0, memory_ports=0, accesses=0, responses=0, lookups=0, resolutions=0;
 std::uint64_t admissions=0, refills=0, rejected=0, hits=0, replays=0, cache_address=0;
 bool resetting=true, accepted=false, cache_accepted=false;
 bool tx_accepted=false;
@@ -54,7 +54,7 @@ extern "C" void demand_sample(unsigned reset, unsigned attempt, unsigned fire, u
     pending.clear(); advancing.clear(); writebacks_by_parent.clear();
     writebacks=0;
     launching.clear(); attempts=retries=0;
-    cycle=accesses=responses=lookups=resolutions=admissions=refills=rejected=hits=replays=0;
+    cycle=tag_ports=memory_ports=accesses=responses=lookups=resolutions=admissions=refills=rejected=hits=replays=0;
     return;
   }
   if(attempt && !fire) ++rejected;
@@ -76,6 +76,19 @@ extern "C" void demand_check(unsigned done) {
     }
     if(!writebacks_by_parent.emplace(parent,wb).second) fail("duplicate WB for predecessor");
     ++writebacks;
+  }
+  const rheg::Ref tags{demand_sites::tags,tag_ports};
+  if(graph.nodes.count(tags)) {
+    if(graph.nodes.at(tags).cycle!=cycle || field(tags,"write")!=(field(tags,"owner")==3))
+      fail("tag port operation does not match its owner");
+    ++tag_ports;
+  }
+  const rheg::Ref memory{demand_sites::memory,memory_ports};
+  if(graph.nodes.count(memory)) {
+    if(graph.nodes.at(memory).cycle!=cycle ||
+       field(memory,"write")!=((field(memory,"owner")==3) || (field(memory,"owner")==4) || (field(memory,"owner")==6)))
+      fail("data port operation does not match its owner");
+    ++memory_ports;
   }
   const rheg::Ref access{demand_sites::access,accesses};
   if(graph.nodes.count(access)) {
@@ -156,7 +169,7 @@ extern "C" void demand_check(unsigned done) {
     ++attempts;
   }
   if(done) {
-    if(!pending.empty() || !advancing.empty() || refills!=6 || resolutions!=6 || lookups!=6 ||
+    if(!pending.empty() || !advancing.empty() || !tag_ports || !memory_ports || refills!=6 || resolutions!=6 || lookups!=6 ||
        !rejected || !hits || !replays || !launching.empty() || attempts!=12 || retries!=6) fail("missing drain, miss, hit, rejection, or retry coverage");
     std::printf("Shared cache -> WB and caller result -> S3 -> S4 lineage passed (%llu responses, %llu admissions, %llu rejected attempts)\n",
                 (unsigned long long)responses,(unsigned long long)admissions,(unsigned long long)rejected);

@@ -18,7 +18,15 @@ WITH events AS MATERIALIZED (
   WHERE e.name='dcache/s2.resp'
 )
 SELECT
-  (SELECT count(DISTINCT name)=4 FROM events WHERE name GLOB 'dcache/s[1-4].*') AND
+  (SELECT count(DISTINCT name)=6 FROM events WHERE name GLOB 'dcache/s[1-4].*') AND
+  (SELECT count(*)>0 FROM events WHERE name='dcache/s1.tags') AND
+  (SELECT count(*)>0 FROM events WHERE name='dcache/s1.memory') AND
+  (SELECT count(*)=0 FROM events WHERE name='dcache/s1.tags' AND
+    (EXTRACT_ARG(arg_set_id,'debug.owner') NOT IN ('Pipeline','Service','Snoop','Refill') OR
+     EXTRACT_ARG(arg_set_id,'debug.write')!=(EXTRACT_ARG(arg_set_id,'debug.owner')='Refill'))) AND
+  (SELECT count(*)=0 FROM events WHERE name='dcache/s1.memory' AND
+    (EXTRACT_ARG(arg_set_id,'debug.owner') NOT IN ('Pipeline','Service','Refill','Mutation','Gather','StoreDrain') OR
+     EXTRACT_ARG(arg_set_id,'debug.write')!=(EXTRACT_ARG(arg_set_id,'debug.owner') IN ('Refill','Mutation','StoreDrain')))) AND
   (SELECT count(*)=0 FROM events e WHERE name IN ('dcache/s1.access','dcache/s3.lookup','dcache/s4.resolve')
     AND (SELECT count(*) FROM edges WHERE child=e.id)!=1) AND
   (SELECT count(*)=0 FROM edges WHERE

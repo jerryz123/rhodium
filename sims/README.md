@@ -316,6 +316,9 @@ the buffered packet/parcel assembly path. Scalar and vector lookups converge on
 the cache-owned `dcache/s1.access` track; caller capture is separately visible as
 `dcache/s2.resp` or `vector/memory.result`. Dependencies follow modeled
 arbitration, translation, and storage; unsupported paths retain explicit ancestry gaps.
+The `dcache/s1.tags` and `dcache/s1.memory` tracks show actual tag/data SRAM
+port requests one cycle before their synchronous responses, including the
+winning snoop, refill, or store-service owner when a core lookup replays.
 
 It also includes the [private-cache outer CHI channels](../cores/rv5stage/README.md#private-cache-outer-traffic)
 as `icache/chi.*` and `dcache/chi.*` labels, including request, response, refill-data,

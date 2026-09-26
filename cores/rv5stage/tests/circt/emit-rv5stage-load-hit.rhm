@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the integrated shared-cache regression with caller capture and instruction-to-refill lineage.
+// Emits the shared-cache trace regression with SRAM-port, caller, and refill event sites.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../../../cores/rv5stage/tests/load-hit-fixture.rhdl".RV5StageLoadHit
@@ -8,7 +8,7 @@ import:
   "../../../../rhodium/event/main.rhm" open
 def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageLoadHit()), EventInstrumentationConfig(~partial: #true))
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace demand_sites {\n" ++ String.join(
-  for List (label in ["core/s3.execute", "core/s4.memory", "core/s5.wb", "dcache/s1.access", "dcache/s2.resp", "dcache/s3.lookup", "dcache/s4.resolve", "dcache/chi.txreq", "dcache/refill"], name in ["ex", "mem", "wb", "access", "response", "lookup", "resolve", "txreq", "refill"]):
+  for List (label in ["core/s3.execute", "core/s4.memory", "core/s5.wb", "dcache/s1.access", "dcache/s1.tags", "dcache/s1.memory", "dcache/s2.resp", "dcache/s3.lookup", "dcache/s4.resolve", "dcache/chi.txreq", "dcache/refill"], name in ["ex", "mem", "wb", "access", "tags", "memory", "response", "lookup", "resolve", "txreq", "refill"]):
     def indices = (for List (index in 0..traced.manifest.sites.length()): index).filter(~keep: fun (index): traced.manifest.sites[index].label == label)
     unless indices.length() == 1 | error("expected one demand trace site: " ++ label)
     "constexpr unsigned " ++ name ++ " = " ++ to_string(indices[0]) ++ ";\n",

@@ -316,14 +316,19 @@ Cache events describe shared resolution and the caller's response capture:
 
 | Label | Observation |
 | --- | --- |
+| `dcache/s1.tags` | Actual tag SRAM request, including snoop and refill ownership; captures array index, read/write direction, and owner. An S0 read feeding S1 appears in its request cycle. |
+| `dcache/s1.memory` | Actual data SRAM request, including lookup, gather, refill, mutation, and store-drain ownership; captures array index, read/write direction, and owner. |
 | `dcache/s1.access` | Shared physical-tag/data resolution; captures physical address, access kind, width, byte mask, outcome, and reason. Scalar and vector lookups use the same site. |
 | `dcache/s2.resp` | Scalar response captured at WB; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
 | `vector/memory.result` | Vector adapter's captured decision; captures PC, effective address, completion slot, outcome, fault, replay, and slow-path `admitted`. |
 | `dcache/s3.lookup` | Retained slow-path lookup advances; captures physical address, access kind, and prefetch status. |
 | `dcache/s4.resolve` | Lookup result one cycle after S3; captures physical address, prefetch, hit, and direct-refill command acceptance. |
 
-The slash selects the `dcache` display group; tracks retain the dotted leaf
-names such as `s1.access`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
+The two port tracks report actual SRAM use rather than the later lookup
+decision. A snoop can therefore occupy `s1.tags` while a core lookup is
+denied, and a replaying `s1.access` need not have a corresponding core-owned
+port request. The slash selects the `dcache` display group; tracks retain the
+dotted leaf names such as `s1.tags`. See the [display contract](../../rheg/README.md#perfetto-display-and-queries)
 for hierarchy, slice naming, and querying full labels.
 
 S1 returns a combinational result in the MEM cycle; there is no cache-owned

@@ -34,6 +34,15 @@ hardware_enum RV5StageDataGatherState:
   SnoopRead
   SnoopReady
 
+hardware_enum RV5StageDCacheArrayOwner:
+  Pipeline
+  Service
+  Snoop
+  Refill
+  Mutation
+  Gather
+  StoreDrain
+
 bundle RV5StageL1DTransactionContext(xlen :: XLen,
                                      way_width :: PosInt, vector_completion_slots :: Pow2Int):
   request: RV5StageDataReq(xlen, vector_completion_slots)
@@ -716,8 +725,11 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     for (byte in 0..word_bytes):
       repeated_line_write_bytes := repeated_line_write_bytes ++ [line_write_bytes[byte]]
 
-  arrays.tags.request.valid <== array_lookup_issue ||| install_refill ||| snoop_lookup_start
-  arrays.tags.request.bits <== ReadWriteRequest(set_width, Bits(tag_width), ways):
+  def tag_port_owner = priority_mux(~default: RV5StageDCacheArrayOwner.Pipeline):
+    install_refill: RV5StageDCacheArrayOwner.Refill
+    snoop_lookup_start: RV5StageDCacheArrayOwner.Snoop
+    !s0_read_issue: RV5StageDCacheArrayOwner.Service
+  def tag_port_request = ReadWriteRequest(set_width, Bits(tag_width), ways):
     address: (
       priority_mux(~default: array_read_set):
         install_refill: refill_set
@@ -726,6 +738,14 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     write: install_refill
     data: vec(for List (_way in 0..ways): refill_tag)
     mask: install_way_mask
+  def traced_tag_port = (
+    inject_flow(Valid(ReadWriteRequest(set_width, Bits(tag_width), ways)), ~valid: array_lookup_issue ||| install_refill ||| snoop_lookup_start, ~bits: tag_port_request)
+      |> trace_valid_event("dcache/s1.tags", ~fields: request):
+        index: request.address
+        write: request.write
+        owner(~format: "enum"): tag_port_owner
+  )
+  traced_tag_port |> arrays.tags.request
   def update_snoop_state = snoop.update.valid & !snoop.update.bits.invalidate
   arrays.states.request.valid <== array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state ||| store_state_write
   def refill_cache_state = mux(refill.completion.bits.state === CHIResponseState.Unique,
@@ -752,8 +772,13 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def refill_install_address = (refill_set ++ refill_install_index)
   def gather_address = (gather_set ++ gather_issue_index)
   def array_data_read = (s0_read_issue & s0_load) ||| s2_retry ||| (array_lookup_issue & !s0_read_issue)
-  arrays.data.request.valid <== array_data_read ||| cache_write ||| gather_issue ||| store_drain
-  arrays.data.request.bits <== ReadWriteRequest(data_address_width, Bits(8), data_lanes):
+  def data_port_owner = priority_mux(~default: RV5StageDCacheArrayOwner.Service):
+    s0_read_issue: RV5StageDCacheArrayOwner.Pipeline
+    gather_issue: RV5StageDCacheArrayOwner.Gather
+    refill_install_word: RV5StageDCacheArrayOwner.Refill
+    local_mutation_commit: RV5StageDCacheArrayOwner.Mutation
+    store_drain: RV5StageDCacheArrayOwner.StoreDrain
+  def data_port_request = ReadWriteRequest(data_address_width, Bits(8), data_lanes):
     address: (
       priority_mux(~default: array_read_data_address):
         store_drain: stores.drain.bits.address[word_offset_width..(offset_width + set_width)]
@@ -768,6 +793,14 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         store_drain: store_lane_mask
         local_mutation_commit: local_mutation_lane_mask
     )
+  def traced_data_port = (
+    inject_flow(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
+      |> trace_valid_event("dcache/s1.memory", ~fields: request):
+        index: request.address
+        write: request.write
+        owner(~format: "enum"): data_port_owner
+  )
+  traced_data_port |> arrays.data.request
 
   assert(!(store_drain & (array_data_read ||| cache_write ||| gather_issue)), "l1d_store_drain_data_port_exclusive")
   assert(!(store_state_write & (array_lookup_issue ||| install_refill ||| local_mutation_commit ||| snoop_lookup_start ||| update_snoop_state)), "l1d_store_drain_state_port_exclusive")
