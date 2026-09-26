@@ -68,7 +68,7 @@ fun chi_cache_maintenance(opcode :: CHIReqOpcode) :~ Bool:
 fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
   mux_lookup(opcode, ~default: CHISnpOpcode.SnpCleanInvalid):
     CHIReqOpcode.ReadOnce: CHISnpOpcode.SnpOnce
-    CHIReqOpcode.ReadClean: CHISnpOpcode.SnpCleanShared
+    CHIReqOpcode.ReadClean: CHISnpOpcode.SnpClean
     CHIReqOpcode.CleanShared: CHISnpOpcode.SnpCleanShared
     CHIReqOpcode.ReadUnique: CHISnpOpcode.SnpUnique
     CHIReqOpcode.MakeInvalid: CHISnpOpcode.SnpMakeInvalid
@@ -84,6 +84,8 @@ fun chi_request_allocates_coherent(opcode :: CHIReqOpcode) :~ Bool:
   opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteUniquePtl)
 
 fun chi_snoop_response_state_valid(opcode :: CHISnpOpcode, response :: CHICoherentResponse()) :~ Bool:
-  mux(opcode.is_one_of(CHISnpOpcode.SnpCleanShared, CHISnpOpcode.SnpOnce),
-      response.state =/= CHIResponseState.SharedDirty,
-      response.state === CHIResponseState.Invalid)
+  mux(opcode === CHISnpOpcode.SnpClean,
+      response.state.is_one_of(CHIResponseState.Invalid, CHIResponseState.SharedClean),
+      mux(opcode.is_one_of(CHISnpOpcode.SnpCleanShared, CHISnpOpcode.SnpOnce),
+          response.state =/= CHIResponseState.SharedDirty,
+          response.state === CHIResponseState.Invalid))

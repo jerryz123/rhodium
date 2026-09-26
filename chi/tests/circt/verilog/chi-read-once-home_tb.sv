@@ -347,15 +347,14 @@ module chi_read_once_home_tb;
     // the LLC, and leaves only its DBID-table entry live until delayed CompAck.
     fill_read(LINE0, 8'h10, 1'b1, 0, 3, 3);
 
-    // Give the RN-F a clean shared copy, then prove SnpOnce retains that copy
-    // by observing it again on the following nonallocating snapshot.
+    // Give the RN-F a clean shared copy. Repeated snapshots then use the LLC
+    // without snooping a resident that cannot modify its copy silently.
     send_read(LINE0, READ_CLEAN, OWNER_ID);
     accept_line(8'h10, 3'd1, 0, 0, 1);
     delayed_comp_ack(OWNER_ID);
     repeat (2) begin
       send_read(LINE0, READ_ONCE, READER_ID);
-      clean_snoop(2);
-      accept_line(8'h10, 3'd0);
+      accept_line(8'h10, 3'd0, 0, 2, 1);
       delayed_comp_ack(READER_ID);
     end
 

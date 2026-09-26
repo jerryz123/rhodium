@@ -686,7 +686,7 @@ return backing data without evicting or installing a line. Either form uses an
 LLC hit and snoops tracked RN-F residents when required. An LLC miss needs no
 requested-line snoop because inclusion proves that no private copy exists.
 
-`CHIHNF` broadcasts `SnpCleanShared` before `ReadClean` and
+`CHIHNF` broadcasts `SnpClean` before `ReadClean` and
 `SnpUnique` before `ReadUnique` and `SnpCleanInvalid` before `WriteUniquePtl`, excluding the
 requesting RN-F. It accepts clean `SnpResp` or a complete dirty
 `SnpRespData` intervention with `PassDirty`. Dirty packets are committed to the
@@ -739,16 +739,18 @@ entry. The noncaching Home forwards dirty copyback through one 64-byte
 after granting copyback are fatal assertions, not successful retirement.
 Advertising copyback requires full-line backing-write service.
 
-The inclusive Home tracks a conservative per-line bit for every configured
-RN-F. Zero proves absence; one means a copy may remain. Successful `ReadClean`
-and `ReadUnique` grants record their requester. `ReadOnce`, RN-I reads, and
-`WriteUniquePtl` do not create residency. Silent clean evictions may leave stale
-bits; a complete successful snoop reporting Invalid clears its responder's bit.
-Retained copies and errored or incomplete responses remain conservatively tracked.
-Snoop selection intersects this mask with the operation's requester-exclusion
-rules. Thus coherent reads of an LLC-only line need no L1 snoops. Replacement
-cannot reuse the entry until tracked copies have been invalidated and dirty
-data obligations completed; failed snoop invalidation grants no new copy.
+The inclusive Home tracks two conservative per-line bits for every configured
+RN-F: possible residency and possible silent write permission. Successful
+`ReadClean` and `ReadUnique` grants record residency; only `ReadUnique` grants
+write permission. A complete successful snoop reporting SharedClean removes
+write permission but retains possible residency, while Invalid removes both.
+`ReadOnce`, RN-I reads, and `WriteUniquePtl` do not create residency. Silent
+clean evictions may leave stale bits; errored or incomplete responses remain
+conservatively tracked. `ReadClean` and `ReadOnce` snoop only possible writers,
+since the LLC holds current data when none exists. Unique grants, invalidating
+writes, maintenance, and replacement still consider every possible resident.
+Replacement cannot reuse the entry until tracked copies have been invalidated
+and dirty data obligations completed; failed snoop invalidation grants no new copy.
 
 The noncaching Home remains broadcast-based and single-transaction. General
 ordering, broader retry use, same-set parallelism, multiple shared lookup/data

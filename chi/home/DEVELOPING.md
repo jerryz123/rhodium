@@ -49,8 +49,10 @@ maintenance fixtures when changing this bookkeeping; the shared maintenance
 bench checks target order, stalled dispatch stability, and reset before and
 after a dispatch.
 
-`CHIInclusiveHNF` owns `resident_lines`, indexed by LLC set/way and configured
-RN-F order. Keep the absence invariant separate from LLC dirty state and from
+`CHIInclusiveHNF` owns `resident_lines` and `may_write_lines`, indexed by LLC
+set/way and configured RN-F order. Possible writers are a subset of possible
+residents; a clean `Unique` snoop response still permits a silent later write.
+Keep these permission invariants separate from LLC dirty state and from
 `chi_request_allocates_coherent`, whose opcode family includes non-allocating
 `WriteUniquePtl`. Its bounded transaction slots retain the request, selected
 set/way, line data, snoop state, fill/writeback masks, errors, and subordinate
@@ -82,9 +84,11 @@ confirms receipt, so its resident cannot be probed or replaced early. The later
 `CompAck` validates source, target, and DBID against only that table entry.
 Table capacity may backpressure another
 acknowledgement-bearing request, but must not block a request that does not need
-`CompAck`. Only complete successful
-snoop responses or complete copyback may remove a responder. Track retained/error state across all
-dirty packets, and keep a failed victim invalidation from replacing its entry.
+`CompAck`. Only complete successful snoop responses or complete copyback may
+remove a responder. A complete SharedClean response removes possible write
+permission but not residency; an Invalid response removes both. Track
+retained/error state across all dirty packets, and keep a failed victim
+invalidation from replacing its entry.
 Successful line installation starts with an empty directory. Never attach the
 old victim's bits to the new tag. `ReadOnce` `MemAttr.Allocate` controls only
 miss installation: hits retain normal directory snooping, while nonallocating

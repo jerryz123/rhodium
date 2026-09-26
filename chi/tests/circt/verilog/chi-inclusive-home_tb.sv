@@ -506,6 +506,16 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       accept_cached_packet(2'(packet), expected_line[packet], error);
   endtask
 
+  task automatic finish_maintenance;
+    while (!port_out.requester.responses.valid) tick();
+    assert(port_out.requester.responses.bits.opcode == COMP &&
+           port_out.requester.responses.bits.resp_err == 0)
+      else $fatal(1, "inclusive Home did not complete clean maintenance");
+    requester_responses_ready_in.ready = 1'b1;
+    tick();
+    requester_responses_ready_in = '0;
+  endtask
+
   task automatic accept_victim_packet(input logic [1:0] packet_id,
                                       input logic [127:0] payload);
     CHIDatFlit expected_packet;
@@ -815,10 +825,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_request(LINE0, 7'h02, 6'd6, DATA_ID);
     finish_cached();
 
-    // A nonallocating hit still observes the tracked RN-F copy.
-    send_request(LINE0, READ_ONCE);
-    clean_snoop(DATA_ID, 5'h03, 3'd1);
-    finish_cached();
+    // A nonallocating hit can use the LLC while its only resident is SharedClean.
+    send_request(LINE0, READ_ONCE); finish_cached();
 
     // A nonallocating miss bypasses the full set without snooping or replacing
     // its selected victim, then returns the fetched line directly.
@@ -828,9 +836,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     assert (!port_out.requester.snoops.valid && port_out.subordinate.req.valid)
       else $fatal(1, "nonallocating ReadOnce miss attempted replacement");
     fill_and_return(LINE3, 8'h28);
-    send_request(LINE0, READ_ONCE);
-    clean_snoop(DATA_ID, 5'h03, 3'd1);
-    finish_cached();
+    send_request(LINE0, READ_ONCE); finish_cached();
 
     // The bypassed line was not installed, so another access misses again.
     send_request(LINE3, READ_ONCE);
@@ -1137,54 +1143,51 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     expected_line[0] = 128'h60;
     send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID); finish_cached();
 
-    // Track both shared copies; retain a responder that reports SharedClean.
-    send_request(LINE0, 7'h02, 6'd6, DATA_ID);
-    clean_snoop(INSTRUCTION_ID, 5'h08, 3'd1); finish_cached();
-    send_request(LINE0, 7'h03);
-    clean_snoops_back_to_back(INSTRUCTION_ID, DATA_ID, 5'h03, 3'd1);
-    finish_cached();
+    // A second clean grant records residency without granting write permission.
+    send_request(LINE0, 7'h02, 6'd6, DATA_ID); finish_cached();
+    repeat (2) begin send_request(LINE0, READ_ONCE); finish_cached(); end
 
-    // A silent clean eviction leaves one stale positive, then Invalid clears it.
-    send_request(LINE0, 7'h03);
-    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd0);
-    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
-    send_request(LINE0, 7'h03);
-    clean_snoop(DATA_ID, 5'h03, 3'd1); finish_cached();
-
-    // Reestablish sharing, then invalidate only the other resident for Unique.
-    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
-    clean_snoop(DATA_ID, 5'h08, 3'd1); finish_cached();
+    // Unique acquisition invalidates every other resident, including clean ones.
     send_request(LINE0, 7'h07, 6'd6, DATA_ID);
     clean_snoop(INSTRUCTION_ID, 5'h07, 3'd0); finish_cached();
-    send_request(LINE0, 7'h03);
+    send_request(LINE0, READ_ONCE);
     clean_snoop(DATA_ID, 5'h03, 3'd2); finish_cached();
 
-    // A failed Invalid response is not proof of absence and grants no new copy.
+    // SnpClean removes the owner's write permission but not its residency.
     send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
-    clean_snoop(DATA_ID, 5'h08, 3'd0, 2'd2); finish_cached(2'd2);
-    send_request(LINE0, 7'h03);
-    clean_snoop(DATA_ID, 5'h03, 3'd2); finish_cached();
+    clean_snoop(DATA_ID, 5'h02, 3'd1); finish_cached();
+    send_request(LINE0, READ_ONCE); finish_cached();
+    send_request(LINE0, 7'h07, 6'd6, INSTRUCTION_ID);
+    clean_snoop(DATA_ID, 5'h07, 3'd0); finish_cached();
+    send_request(LINE0, READ_ONCE);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd2); finish_cached();
 
-    // Preserve the resident through an early errored dirty packet, even when
+    // A failed invalidation cannot lose the unique owner or grant another copy.
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID);
+    clean_snoop(INSTRUCTION_ID, 5'h07, 3'd0, 2'd2); finish_cached(2'd2);
+    send_request(LINE0, READ_ONCE);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd2); finish_cached();
+
+    // Preserve the writer through an early errored dirty packet, even when
     // the final packet reports success/Invalid. No requester is granted a copy.
-    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
-    dirty_snoop(DATA_ID, 8'hb0, 5'h08, 3'b100, 1);
+    send_request(LINE0, 7'h02, 6'd6, DATA_ID);
+    dirty_snoop(INSTRUCTION_ID, 8'hb0, 5'h02, 3'b100, 1);
     for (int packet = 0; packet < 4; packet++)
       for (int b = 0; b < 16; b++)
         if (SNOOP_MASKS[packet*16+b]) expected_line[packet][b*8+:8] = 8'hb0 + 8'(packet);
     finish_cached(2'd2);
-    send_request(LINE0, 7'h03);
-    dirty_snoop(DATA_ID, 8'hc0, 5'h03, 3'b100);
+    send_request(LINE0, READ_ONCE);
+    dirty_snoop(INSTRUCTION_ID, 8'hc0, 5'h03, 3'b100);
     for (int packet = 0; packet < 4; packet++)
       for (int b = 0; b < 16; b++)
         if (SNOOP_MASKS[packet*16+b]) expected_line[packet][b*8+:8] = 8'hc0 + 8'(packet);
     finish_cached();
-    send_request(LINE0, 7'h03); finish_cached();
+    send_request(LINE0, READ_ONCE); finish_cached();
 
     // Final DAT releases the transaction slot, but its set stays reserved
     // until CompAck confirms the requester has received the entire line.
     // A distinct set can still use the datapath and another Home DBID.
-    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID, 1);
+    send_request(LINE0, 7'h07, 6'd6, INSTRUCTION_ID, 1);
     finish_cached();
     first_comp_ack_dbid = response_dbid;
     requester_requests_in.bits = '0;
@@ -1230,12 +1233,12 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     send_comp_ack(HTIF_ID, second_comp_ack_dbid);
     assert(port_out.requester.snoops.valid)
       else $fatal(1, "late CompAck disturbed the active LLC transaction");
-    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1);
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd2);
     finish_cached();
     assert(port_out.requester.requests.ready)
       else $fatal(1, "late CompAck did not release only its table entry");
     send_request(LINE0, 7'h03);
-    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd1); finish_cached();
+    clean_snoop(INSTRUCTION_ID, 5'h03, 3'd2); finish_cached();
 
     // Failed victim invalidation must retain the old tag and residency, not
     // recycle its way for an unrelated requested line or emit a refill.
@@ -1305,6 +1308,33 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     for (int packet = 0; packet < 4; packet++)
       accept_cached_packet(packet[1:0], 128'h90 + 128'(packet), 2'd2);
     send_request(LINE0, READ_NO_SNP); repeat (3) tick(); finish_cached();
+
+    // Maintenance still targets every clean resident and can dispatch its
+    // snoops back-to-back with out-of-order responses.
+    reset = 1; tick(); reset = 0;
+    send_request(LINE0, READ_NO_SNP); tick(); fill_and_return(LINE0, 8'ha0);
+    for (int packet = 0; packet < 4; packet++) expected_line[packet] = 128'ha0 + 128'(packet);
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID); finish_cached();
+    send_request(LINE0, 7'h02, 6'd6, DATA_ID); finish_cached();
+    send_request(LINE0, 7'h08, 6'd6, HTIF_ID);
+    clean_snoops_back_to_back(INSTRUCTION_ID, DATA_ID, 5'h08, 3'd1); finish_maintenance();
+
+    // CleanShared can leave UniqueClean in an RN-F. It does not prove that
+    // future writes require Home permission, unlike the ReadClean downgrade.
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID);
+    clean_snoop(INSTRUCTION_ID, 5'h07, 3'd0); finish_cached();
+    send_request(LINE0, 7'h08, 6'd6, HTIF_ID);
+    clean_snoop(DATA_ID, 5'h08, 3'd2); finish_maintenance();
+    send_request(LINE0, READ_ONCE);
+    clean_snoop(DATA_ID, 5'h03, 3'd2); finish_cached();
+    send_request(LINE0, 7'h02, 6'd6, INSTRUCTION_ID);
+    dirty_snoop(DATA_ID, 8'he0, 5'h02, 3'b101);
+    for (int packet = 0; packet < 4; packet++)
+      for (int byte_index = 0; byte_index < 16; byte_index++)
+        if (SNOOP_MASKS[packet * 16 + byte_index])
+          expected_line[packet][byte_index * 8 +: 8] = 8'he0 + 8'(packet);
+    finish_cached();
+    send_request(LINE0, READ_ONCE); finish_cached();
 
     $display("CHI inclusive Home residency, copyback, response errors, and storage simulation passed");
 `ifdef CHI_HOME_TRACE

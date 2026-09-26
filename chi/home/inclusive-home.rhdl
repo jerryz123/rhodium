@@ -230,6 +230,9 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg resident_lines(~init: vec(
     for List (_set in 0..sets): vec(for List (_way in 0..ways): bits(0, resident_count))
   ))
+  reg may_write_lines(~init: vec(
+    for List (_set in 0..sets): vec(for List (_way in 0..ways): bits(0, resident_count))
+  ))
   reg replacement_state(~init: vec(for List (_set in 0..sets): plru_initial_state(ways)))
   inst tags(SyncRam1RW(sets, Bits(line_address_width), ways))
   inst lines(SyncRam1RW(sets, Bits(512), ways))
@@ -1008,11 +1011,13 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       block:
         def endpoint = residents[index]
         def resident = valid_lines[lookup_set][lookup_way] & resident_lines[lookup_set][lookup_way].as_vec(Bool)[index]
+        def read_needs_writer = lookup_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadOnce)
+        def read_target = chi_request_snoops_caches(lookup_request.opcode) & (lookup_request.src_id =/= bits(endpoint.node_id, p.node_id_width)) & (!read_needs_writer ||| may_write_lines[lookup_set][lookup_way].as_vec(Bool)[index])
         resident & mux(
           lookup_maintenance,
           lookup_selection.valid & ((lookup_request.src_id =/= bits(endpoint.node_id, p.node_id_width)) ||| lookup_request.excl_snoop_me_cah),
           mux(lookup_selection.valid,
-              chi_request_snoops_caches(lookup_request.opcode) & (lookup_request.src_id =/= bits(endpoint.node_id, p.node_id_width)),
+              read_target,
               lookup_installs_miss))
   )
   def lookup_has_snoop_targets = lookup_snoop_targets.or_reduce()
@@ -1357,12 +1362,21 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   ) & (
     requester_data.bits.resp_err === CHIRespErr.OK
   ) & (requester_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.Invalid)
+  // A successful SharedClean response removes silent write permission, but
+  // does not prove that the responder has evicted its copy.
+  def shared_control = requester_response_fire & (requester_response_flit.resp_err === CHIRespErr.OK) & (
+    requester_response_flit.resp.into(CHICoherentResponse()).state === CHIResponseState.SharedClean
+  )
+  def shared_data = snoop_data_fire & final_snoop_data & (completion_error === CHIRespErr.OK) & (
+    requester_data.bits.resp_err === CHIRespErr.OK
+  ) & (requester_data.bits.resp.into(CHICoherentResponse()).state === CHIResponseState.SharedClean)
   def directory_line_valid = valid_lines[selected_set][selected_way] & (
     !maintenance ||| maintenance_hits[work_slot]
   )
   def grant_copy = cached_data_fire & final_response_data & (
     response_completion_error === CHIRespErr.OK
   ) & response_request.opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique)
+  def grant_write_permission = grant_copy & (response_request.opcode === CHIReqOpcode.ReadUnique)
   // Final DAT transfers the transaction slot, but its new resident cannot be
   // probed or replaced until the requester has received the complete line.
   def pending_grant_publish = grant_copy & response_request.exp_comp_ack
@@ -1385,6 +1399,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def resident_work_update = zero_snoop_clean_victim ||| clear_resident_entry ||| remove_responder ||| (
     release_copyback_resident
   )
+  def writer_work_update = resident_work_update ||| (directory_line_valid & (shared_control ||| shared_data))
   def resident_work_set = mux(zero_snoop_clean_victim, lookup_set, selected_set)
   def resident_lines_after_work = mux(
     zero_snoop_clean_victim,
@@ -1428,14 +1443,43 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       resident_lines_after_work[response_selected_set][response_selected_way] ||| response_requester_mask
     )
   )
+  def writer_work_way = mux(zero_snoop_clean_victim, lookup_way, selected_way)
+  def writer_mask = may_write_lines[resident_work_set][writer_work_way]
+  def writer_after_work = mux(
+    zero_snoop_clean_victim ||| clear_resident_entry,
+    bits(0, resident_count),
+    mux(remove_responder ||| shared_control ||| shared_data,
+        writer_mask & !responder_mask,
+        writer_mask & !work_requester_mask)
+  )
+  def may_write_lines_after_work = may_write_lines.updated(
+    resident_work_set,
+    may_write_lines[resident_work_set].updated(writer_work_way, writer_after_work)
+  )
+  def may_write_lines_after_grant = may_write_lines_after_work.updated(
+    response_selected_set,
+    may_write_lines_after_work[response_selected_set].updated(
+      response_selected_way,
+      may_write_lines_after_work[response_selected_set][response_selected_way] ||| response_requester_mask
+    )
+  )
   when grant_copy:
     assert(valid_lines[response_selected_set][response_selected_way],
            "chi_inclusive_hnf_grant_has_directory_entry")
-  when (grant_copy & resident_work_update):
+  when (grant_copy & writer_work_update):
     assert(response_selected_set =/= resident_work_set,
            "chi_inclusive_hnf_parallel_directory_sets_distinct")
+  when writer_work_update:
+    assert((writer_after_work & !resident_lines_after_work[resident_work_set][writer_work_way]) === bits(0, resident_count),
+           "chi_inclusive_hnf_writer_is_resident")
+  def granted_writer_without_residency = may_write_lines_after_grant[response_selected_set][response_selected_way] & !resident_lines_after_grant[response_selected_set][response_selected_way]
+  when grant_write_permission:
+    assert(granted_writer_without_residency === bits(0, resident_count),
+           "chi_inclusive_hnf_granted_writer_is_resident")
   when (resident_work_update ||| grant_copy):
     resident_lines <== mux(grant_copy, resident_lines_after_grant, resident_lines_after_work)
+  when (writer_work_update ||| grant_write_permission):
+    may_write_lines <== mux(grant_write_permission, may_write_lines_after_grant, may_write_lines_after_work)
 
   def trace_contract:
     if slots == 1
