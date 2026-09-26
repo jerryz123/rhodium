@@ -751,8 +751,9 @@ failures in newly selected suites are surfaced normally, not silently excluded;
 they need diagnosis before claiming coverage.
 
 The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
-protocol. Console printing macros are empty, so failures currently report
-completion status and simulator logs without ACT's detailed mismatch console.
+protocol. ACT failure handlers send their first mismatch and trap context
+through HTIF's terminal device before reporting failed completion; the per-ELF
+log retains those diagnostics.
 `ACT_MAX_CYCLES` defaults to ten million cycles; `ACT_TIMEOUT` defaults to 300
 seconds per ELF. `ACT_JOBS` defaults to one simulator at a time;
 `ACT_BUILD_JOBS` defaults to two compilation/reference tasks at a time. The shared

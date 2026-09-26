@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Check CBO management physical access independently of reservations
+Purpose: Lets embedded simulators reject inaccessible cache blocks without conflating CBO and LR/SC policy.
+SPDX-License-Identifier: Apache-2.0
+
+CBO.CLEAN, CBO.INVAL, and CBO.FLUSH operate on a whole physical block.
+The reservation predicate neither checks that full range nor describes CBO
+permission in a simulator with private coherent caches. Give the embedded
+model a dedicated physical-access hook and retain direct-memory behavior by
+default.
+
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -20,5 +20,7 @@ public:
+   virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
+   // Return true after zeroing a block owned by an embedded memory model.
+   virtual bool cache_block_zero(reg_t, size_t) { return false; }
++  // Check physical access to an entire CBO management block, not reservation support.
++  virtual bool cache_block_accessible(reg_t paddr, size_t) { return addr_to_mem(paddr); }
+   // used for MMIO addresses
+   // Embedded coherent models may hold ownership across an AMO's load and store.
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -246,6 +246,6 @@ class mmu_t : public abstract_device_t {
+     check_triggers(triggers::OPERATION_STORE, transformed_addr, false, blocksz);
+     convert_load_traps_to_store_traps({
+       const reg_t paddr = translate(access_info, 1) - (transformed_addr & (blocksz - 1));
+-      if (sim->reservable(paddr)) {
++      if (sim->cache_block_accessible(paddr, blocksz)) {
+         if (tracer.interested_in_range(paddr, paddr + blocksz, LOAD))
+           tracer.clean_invalidate(paddr, blocksz, clean, inval);

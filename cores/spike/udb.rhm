@@ -219,7 +219,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   when has("ssnpm")
   | parameters := parameters ++ [natural_parameter("PMLEN", 16)]
   when has("zawrs")
-  | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #true)]
+  | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
   when profile.vector_length > 0
   | parameters := parameters ++ [
       natural_parameter("VLEN", profile.vector_length),

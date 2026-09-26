@@ -4,6 +4,7 @@
 
 import:
   "profile.rhm".RV5StageConfig
+  "profile.rhm".RV5StageMmuMode
   "decode/fence-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   "vector/csr.rhdl" open
@@ -183,13 +184,14 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def compressed_extensions = core_profile.extensions.compressed
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
+  def paged_memory = core_profile.mmu_mode != RV5StageMmuMode.Bare
   def zero = bits(0, width)
   def mstatus_writable_fields = [
     MstatusSIE, MstatusMIE, MstatusUPIE, MstatusSPIE, MstatusMPIE,
-    MstatusSPP, MstatusMPP, MstatusMPRV, MstatusSUM, MstatusMXR,
-    MstatusTVM, MstatusTW, MstatusTSR
-  ]
-  def sstatus_writable_fields = [MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusSUM, MstatusMXR]
+    MstatusSPP, MstatusMPP, MstatusMPRV, MstatusMXR, MstatusTVM,
+    MstatusTW, MstatusTSR
+  ] ++ (if paged_memory | [MstatusSUM] | [])
+  def sstatus_writable_fields = [MstatusSIE, MstatusUPIE, MstatusSPIE, MstatusSPP, MstatusMXR] ++ (if paged_memory | [MstatusSUM] | [])
   def mstatus_write_mask = bits(csr_fields_mask(mstatus_writable_fields), width)
   def sstatus_write_mask = bits(csr_fields_mask(sstatus_writable_fields), width)
   def xlen64_encoding = bits(XLen64Encoding, MstatusUXL.width)

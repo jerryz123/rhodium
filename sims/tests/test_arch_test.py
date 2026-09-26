@@ -622,6 +622,14 @@ class ArchTestRunnerTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0)
         self.assertIn('RVCP-SUMMARY: TEST PASSED - Test File "test with spaces.S"', result.stdout)
 
+    def test_target_diagnostics_keep_one_runner_owned_summary(self):
+        output = ('RVCP-SUMMARY: TEST FAILED - Test File "test with spaces.S"\n'
+                  'RVCP: Expected Value: 0x80000')
+        result = self.run_simulator(output, 3)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn('RVCP: Expected Value: 0x80000', result.stdout)
+        self.assertEqual(result.stdout.count('RVCP-SUMMARY:'), 1)
+
     def test_exit_zero_without_completion_is_failure(self):
         result = self.run_simulator("", 0)
         self.assertNotEqual(result.returncode, 0)

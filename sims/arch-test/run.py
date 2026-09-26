@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Adapts confirmed HTIF completion to ACT's summary protocol and preserves simulator failures.
+# Adapts confirmed HTIF completion to one ACT summary while preserving mismatch diagnostics.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 from pathlib import Path
@@ -22,8 +22,10 @@ def main():
     )
     confirmed = False
     for line in process.stdout:
-        print(line, end="", flush=True)
         confirmed |= line.strip() == "SoC harness simulation passed"
+        if line.startswith("RVCP-SUMMARY:"):
+            continue
+        print(line, end="", flush=True)
     returncode = process.wait()
     # Exit zero alone cannot prove that the target reached its HTIF pass macro.
     passed = returncode == 0 and confirmed

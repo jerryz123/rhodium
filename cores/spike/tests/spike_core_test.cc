@@ -1,4 +1,4 @@
-// Checks Spike coroutine transport, coherent atomics, cache visibility, and block-zero PMA enforcement.
+// Checks Spike coroutine transport, coherent atomics, cache visibility, and CBO physical access.
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_core.h"
 
@@ -278,6 +278,48 @@ int main() {
       assert(response.snoop_response_has_data);
       for (std::uint64_t word : response.snoop_response_line) assert(word == 0);
     }
+  }
+
+  // Management CBOs may use a readable or writable block, but neither kind
+  // of physical access is available in the fault hole.
+  std::array<std::unique_ptr<SpikeCoreModel>, 3> management_models;
+  for (std::size_t permission = 0; permission < management_models.size(); ++permission) {
+    Configuration management_configuration;
+    management_configuration.reset_vector = 0x1000;
+    management_configuration.isa = "rv64ima_zicsr_zic64b_zicbom";
+    management_configuration.privilege = "msu";
+    management_models[permission] = std::make_unique<SpikeCoreModel>(management_configuration);
+    auto& management_model = *management_models[permission];
+    Inputs management_inputs;
+    std::size_t classifications = 0;
+    bool trapped = false;
+    for (std::size_t cycle = 0; cycle < 96; ++cycle) {
+      const Outputs management_outputs = management_model.tick(management_inputs);
+      Inputs next;
+      if (management_outputs.address_request_valid) {
+        next.address_request_ready = true;
+        next.address_response_valid = true;
+        next.address_response_cacheable = true;
+        next.address_response_instruction_cacheable = true;
+        if (management_outputs.address_request_address == 0x2000) {
+          assert(management_outputs.address_request_size == 6);
+          ++classifications;
+          next.address_response_fault = permission == 0 ||
+              (permission == 1 && management_outputs.address_request_write) ||
+              (permission == 2 && !management_outputs.address_request_write);
+        }
+        trapped |= management_outputs.address_request_address == 0;
+      }
+      if (management_outputs.instruction_request_valid) {
+        next.instruction_request_ready = true;
+        next.instruction_response_valid = true;
+        next.instruction_response_line[0] = 0x0010a00f000020b7ULL;
+        next.instruction_response_line[1] = 0x0000006fULL;
+      }
+      management_inputs = next;
+    }
+    assert(classifications >= 1);
+    assert(trapped == (permission == 0));
   }
 
   // An AMO must request a unique line before reading it, complete its update

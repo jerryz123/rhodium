@@ -25,6 +25,9 @@ snoops during that wait.
 The pinned Spike CBO.ZERO hook must keep the full-block PMA check and coherent
 unique-line update in `dpi/spike_core.cc`; never expose private cache storage
 through `addr_to_mem` as a shortcut.
+The CBO management hook checks full-block physical readability or writability
+independently of LR/SC reservation support; preserve store-class faults when
+neither physical access is permitted.
 The configured MMU type also crosses this boundary; set Spike's maximum virtual
 address width before resetting its CSRs, matching standalone Spike initialization.
 Pass exact VLEN/ELEN through the DPI ABI and check them against the pinned ISA
@@ -45,6 +48,8 @@ RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
 32-bit physical addresses. RV32 retains nine ASID bits.
 `tests/udb-test.rhm` covers scalar, RVA23, and RV32Int projections;
 `socs/tests/udb-test.rhm` checks the paired RV32Int/RV32Max FP and vector closures.
+Do not advertise `WRS.NTO` as an unconditional no-op: the pinned Spike raises
+an illegal-instruction trap for a non-M-mode wait when `mstatus.TW` is set.
 Compressed FP implications follow actual F/D support. FS remains writable
 with S mode even without F, as in Spike's `sstatus_csr_t` implementation.
 Keep extension/version mapping fail-closed and expand only architectural

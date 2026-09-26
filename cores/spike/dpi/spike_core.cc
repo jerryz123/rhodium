@@ -133,6 +133,11 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   char* addr_to_mem(reg_t) override { return nullptr; }
   bool reservable(reg_t) override { return true; }
+  bool cache_block_accessible(reg_t address, std::size_t length) override {
+    if (length != kLineBytes || (address & (kLineBytes - 1)) != 0) return false;
+    if (!classify(address, length, false, false).fault) return true;
+    return !classify(address, length, true, false).fault;
+  }
   bool cache_block_zero(reg_t address, std::size_t length) override {
     if (length != kLineBytes || (address & (kLineBytes - 1)) != 0) return false;
     const AddressResponse attributes = classify(address, length, true, false);

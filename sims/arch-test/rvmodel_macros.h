@@ -17,9 +17,14 @@
 #define RVMODEL_HALT_FAIL \
   la t0, tohost; li t1, 3; sw zero, 4(t0); sw t1, 0(t0); 1: j 1b;
 
-// The runner reports completion; console diagnostics require a future console binding.
+// Failure handlers send their first mismatch and trap context through HTIF's
+// terminal device. Wait for each character to be consumed before reusing tohost.
 #define RVMODEL_IO_INIT(_R1, _R2, _R3)
-#define RVMODEL_IO_WRITE_STR(_R1, _R2, _R3, _STR_PTR)
+#define RVMODEL_IO_WRITE_STR(_R1, _R2, _R3, _STR_PTR) \
+  1: lbu _R1, 0(_STR_PTR); beqz _R1, 3f; \
+  la _R2, tohost; sw _R1, 0(_R2); li _R3, 0x01010000; sw _R3, 4(_R2); \
+  2: lw _R3, 4(_R2); bnez _R3, 2b; \
+  addi _STR_PTR, _STR_PTR, 1; j 1b; 3:
 
 // SingleCoreRV5StageSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
 // Its architectural timebase advances every clock cycle.

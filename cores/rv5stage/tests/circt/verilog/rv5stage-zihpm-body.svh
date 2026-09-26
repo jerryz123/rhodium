@@ -1,4 +1,4 @@
-// Sweeps zero-valued HPM and minimal machine CSRs, write intent, XLEN, and S/U permissions.
+// Sweeps zero-valued HPM, Bare-mode status CSRs, write intent, XLEN, and S/U permissions.
 // SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed {
@@ -138,6 +138,13 @@
     #1;
     reset = 0;
     assert (privilege == 3) else $fatal(1, "CSR reset privilege mismatch");
+    // A permanently Bare implementation hardwires SUM to zero, while MXR and
+    // TVM remain writable status controls even though paging is unavailable.
+    access_csr('h300, 1, word_t'('h1c0000), 1, 0, 0, 0);
+    assert ((mstatus & word_t'('h1c0000)) == word_t'('h180000))
+      else $fatal(1, "RV%0d Bare mstatus SUM/MXR/TVM mask mismatch", XLEN);
+    access_csr('h100, 1, word_t'('hc0000), 1, 0, 0, 0);
+    access_csr('h100, 2, 0, 0, 0, (XLEN == 32 ? word_t'(0) : word_t'('h200000000)) | word_t'('h80000));
     readonly_zero('hf15); // No configuration structure is provided.
     if (XLEN == 32) begin
       writable_zero('h310); // Little-endian, non-hypervisor mstatush.

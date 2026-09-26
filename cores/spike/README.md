@@ -40,6 +40,9 @@ Standalone `SpikeConfig` configurations can still enable PMP.
 The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
 and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits
 are also read-only zero; only the base counter-control bits remain writable.
+The pinned Spike's `WRS.NTO` is not an unconditional no-op: in S/U mode with
+`mstatus.TW` set, it raises an illegal-instruction trap. Its ACT/UDB projection
+describes that behavior rather than claiming a no-op implementation.
 
 [`spike.rhdl`](spike.rhdl) exposes the same architectural inputs and independent
 instruction, coherent-data, and uncached CHI ports used by a RISC-V hart. The
@@ -63,6 +66,9 @@ PMA or to uncached regions trap rather than silently losing atomicity.
 CBO.ZERO likewise checks the full 64-byte block against the RTL-owned physical
 map. On a permitted cacheable region, it acquires a unique coherent line and
 marks the zeroed line dirty; a region without cache-block-zero permission traps.
+CBO.CLEAN, CBO.INVAL, and CBO.FLUSH check full-block physical access through a
+separate hook: either readable or writable access permits the operation, while
+a region permitting neither raises a store access fault.
 
 [`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
 to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and

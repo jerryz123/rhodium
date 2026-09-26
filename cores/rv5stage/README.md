@@ -974,8 +974,9 @@ more ways increase total capacity without adding virtual index bits. Physical
 tags retain every address bit above the set index, including page-offset bits
 not consumed by smaller geometries. MiniRV5StageSoC's 32-set, one-way caches remain 2 KiB.
 
-RV64 supports Bare and Sv39 translation; RV32 remains Bare. Sv39
-translation can optionally support 64 KiB mappings with
+RV64 supports Bare and Sv39 translation; RV32 remains Bare. Bare profiles
+hardwire `mstatus.SUM`/`sstatus.SUM` to zero while retaining writable `MXR`
+and `TVM` status fields. Sv39 translation can optionally support 64 KiB mappings with
 `RV5StageExtensions(~svnapot: #true)`; see the
 [MMU contract](mmu/README.md#supported-sv39-behavior-and-deliberate-limits).
 This opt-in is not yet an ISA/UDB or SoC-profile claim. Early virtual

@@ -44,7 +44,7 @@ check:
   rva23_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
   rva23_yaml.contains("  PHYS_ADDR_WIDTH: 56") ~is #true
   rva23_yaml.contains("  PMLEN: 16") ~is #true
-  rva23_yaml.contains("  ZAWRS_NTO_IS_NOP: true") ~is #true
+  rva23_yaml.contains("  ZAWRS_NTO_IS_NOP: false") ~is #true
   rva23_yaml.contains("  RESERVED_VSET_X0X0_VLMAX_CHANGE: \"always\"") ~is #true
   rva23_yaml.contains("  VFREDUSUM_NAN: \"custom\"") ~is #true
 

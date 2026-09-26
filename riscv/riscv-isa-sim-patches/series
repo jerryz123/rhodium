@@ -1,4 +1,4 @@
-# Applies Rhodium's embedded-disassembler changes to riscv-isa-sim in order.
+# Lists ordered riscv-isa-sim patches for Rhodium's embedded Spike model.
 # SPDX-License-Identifier: Apache-2.0
 0001-return-parser-errors-as-exceptions.patch
 0002-recognize-zic64b-property.patch
@@ -10,3 +10,4 @@
 0008-check-lrsc-physical-access.patch
 0009-route-cbo-zero-through-simif.patch
 0010-scope-amo-memory-access.patch
+0011-check-cbo-management-physical-access.patch
