@@ -114,7 +114,7 @@ plic_claim_supervisor:
   li t0, 0x600                 // Enable vector architectural state.
   csrs mstatus, t0
   csrr t0, vlenb
-  li t1, (__riscv_xlen / 4)    // RV32Max has VLEN64; RVA23 has VLEN128.
+  li t1, (__riscv_xlen / 4)    // Both RV32 presets have VLEN64; RVA23 has VLEN128.
   bne t0, t1, fail
   li s5, 8
   vsetvli t0, zero, e32, m1, ta, ma
@@ -159,7 +159,73 @@ plic_claim_supervisor:
   li t1, -21
   bne t0, t1, fail
 #endif
-#ifdef RHODIUM_SMOKE_RVA23
+#ifdef __riscv_zve32f
+  // Exercise shared scalar/vector F, result ownership, masks, flags, and memory.
+  li s5, 14
+  li t0, 0x6000
+  csrs mstatus, t0
+  csrw fcsr, zero
+  vsetivli zero, 2, e32, m1, tu, mu
+  li t0, 0x3fc00000           // 1.5 in binary32.
+  fmv.w.x ft0, t0
+  fadd.s ft1, ft0, ft0        // Scalar producer forwarded into vector snapshot.
+  vfmv.v.f v1, ft1
+  vmv.x.s t0, v1
+  li t1, 0x40400000
+  bne t0, t1, fail
+  li s5, 17
+  vfadd.vf v2, v1, ft0        // 4.5
+  vmv.x.s t0, v2
+  li t1, 0x40900000
+  bne t0, t1, fail
+  li s5, 18
+  vfmul.vv v3, v2, v1        // 13.5
+  vmv.x.s t0, v3
+  li t1, 0x41580000
+  bne t0, t1, fail
+  li s5, 19
+  vfdiv.vv v4, v3, v2        // 3.0 through the variable-latency shared service.
+  vfmv.f.s ft2, v4
+  fmv.x.w t0, ft2
+  li t1, 0x40400000
+  bne t0, t1, fail
+  li s5, 15
+  vfcvt.rtz.x.f.v v5, v3      // 13.5 -> 13, sets NX.
+  vmv.x.s t0, v5
+  li t1, 13
+  bne t0, t1, fail
+  csrr t0, fflags
+  li t1, 1
+  bne t0, t1, fail
+  csrw fflags, zero
+  vfcvt.f.x.v v6, v5
+  vfmv.f.s ft2, v6
+  fmv.x.w t0, ft2
+  li t1, 0x41500000           // 13.0
+  bne t0, t1, fail
+  li s5, 16
+  vid.v v7
+  vmseq.vi v0, v7, 0
+  vfadd.vv v6, v1, v1, v0.t  // First element becomes 6.0; second remains 13.0.
+  la t0, vector_result
+  vse32.v v6, (t0)
+  lw t1, 0(t0)
+  li t2, 0x40c00000
+  bne t1, t2, fail
+  lw t1, 4(t0)
+  li t2, 0x41500000
+  bne t1, t2, fail
+  vle32.v v8, (t0)
+  vmv.v.i v9, 0
+  vfredosum.vs v10, v8, v9
+  vfmv.f.s ft2, v10
+  fmv.x.w t0, ft2
+  li t1, 0x41980000           // 6.0 + 13.0 = 19.0.
+  bne t0, t1, fail
+  csrr t0, fflags
+  bnez t0, fail
+#endif
+#ifdef __riscv_zve64d
   li s5, 10
   li t0, 0x6000               // Enable FP only on the FP-capable preset.
   csrs mstatus, t0
@@ -174,8 +240,12 @@ plic_claim_supervisor:
   fmv.x.d t0, ft1
   li t1, 0x4000000000000000
   bne t0, t1, fail
+#endif
+#ifdef __riscv_zvfh
   li s5, 11
-  fcvt.h.d ft2, ft0           // Scalar Zfh plus vector Zvfh.
+  li t0, 0x3f800000
+  fmv.w.x ft0, t0
+  fcvt.h.s ft2, ft0           // Scalar Zfh plus vector Zvfh.
   vsetivli zero, 8, e16, m1, ta, ma
   vfmv.v.f v1, ft2
   vfadd.vv v2, v1, v1

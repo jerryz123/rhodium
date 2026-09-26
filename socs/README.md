@@ -45,28 +45,30 @@ one hart binding, shape configuration, architectural description, and UDB
 projection. Canonical identities are `<shape>-<core>-<isa>`.
 
 `RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
-not a claim of complete RVA23U64/S64 conformance. `RV32Max` describes the
-maximal non-FP RV32/Zve32x/VLEN=64 architecture. Both RV5Stage and Spike
-bind this exact profile. Mini and Simple support both bindings; their common BootROM
+not a claim of complete RVA23U64/S64 conformance. `RV32Int` selects the
+integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
+Zfa, or half precision. Both use VLEN=64, ELEN=32 and Bare translation and retain
+the same integer/system extensions. RV5Stage uses a 32-bit SIMD lane for both.
+Both RV5Stage and Spike bind these exact profiles. Mini and Simple support all four RV32 bindings; their common BootROM
 detects XLEN at runtime using shared RV32/RV64 reset code, while the boot-entry
 register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
 address range. Simple retains its 1-GiB external RAM window at `0x80000000`
-and its inclusive LLC with either RV32 hart. Both Mini RV32Max bindings
-participate in simulation CI; both Simple RV32Max products select platform,
+and its inclusive LLC with either RV32 hart. All Mini RV32 bindings
+participate in simulation CI; all Simple RV32 products select platform,
 native ISA, and ACT lanes. See the [ACT guide](../sims/README.md#architectural-certification-tests)
 for reference-model restrictions and qualification status.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
 preserves this broad profile and implementation-specific parameters; see the
 [Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
 
-The only presets are `RV32Max` and `RVA23`. Product selection requires an
+The presets are `RV32Int`, `RV32Max`, and `RVA23`. Product selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
 shape/core-only architectural fallback. Concrete source specializations author
 their preset explicitly. Cache geometry,
 multiplier choice, and queue depths remain shape-specific implementation
 policy. See the [simulation inventory](../sims/test-products.rhm) for the
-ten explicitly selected test products; selection is not a passing-suite claim.
+fourteen explicitly selected test products; selection is not a passing-suite claim.
 
 ### Composition choices
 

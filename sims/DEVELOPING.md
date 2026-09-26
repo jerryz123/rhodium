@@ -26,10 +26,10 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all ten
+Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all fourteen
 products explicitly and publishes one exact-commit simulator and target
-descriptor per product. Software-only changes build the four Single products;
-simulation changes build all ten, including both Mini RV32Max cores. The host emitter
+descriptor per product. Software-only changes build the six Single products;
+simulation changes build all fourteen, including all four Mini RV32 bindings. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
@@ -43,7 +43,7 @@ Make selectors and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
 architectural choices. `test-products.rhm` is the explicit typed
-ten-product inventory, separate from implementation support and workload
+fourteen-product inventory, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
 must match the selected product. Product-independent
@@ -444,14 +444,14 @@ benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own 
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-Both Simple RV32Max products additionally select their full native ISA inventory
+All four Simple RV32 products additionally select their full native ISA inventory
 and ACT in CI. Native suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
 RV64 benchmark ports remain outside RV32 coverage. ACT projects XLEN, physical
 addressability, indexed-memory EEW and vector geometry independently. RV32
 products use 32-bit physical addresses and disable PMP; both retain the platform's
 44-bit CHI fabric. Generate each core's own Sail
 expectations; never reuse one implementation's WARL/PMP claims for the other.
-The four CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
+The six CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
 Tiled products additionally own the focused upstream multihart benchmark selection. The
 adapter materializes a private build-tree view of the pinned benchmark sources
 for each supported two-, four-, or eight-hart run, changes only the copied
@@ -490,20 +490,22 @@ to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
 exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses
 the same FESVR and prebuilt-simulator path in CI; no alternate loader or harness
 is involved.
-Both RV32Max core bindings use the same payload's integer-vector branch with
-VLEN64/ELEN32. `tests/programs/xlen.h` selects register-sized loads/stores for
+All RV32 bindings use the same payload's integer-vector branch with
+VLEN64/ELEN32. RV32Max also selects FP32 coverage through `__riscv_zve32f`;
+double and half coverage use their own compiler capability macros, not preset
+names. `tests/programs/xlen.h` selects register-sized loads/stores for
 platform payloads. The boot register and HTIF mailboxes remain eight bytes:
 RV32 payload termination writes the low word of a zero-initialized mailbox, and the MMIO signature test
 explicitly writes both boot-register word lanes. Keep the smoke's boot-register
 readback coverage for both XLENs and run RV64 smoke after changing this shared
-assembly. Both Mini RV32Max cores run this integer-vector smoke in CI alongside
+assembly. All four Mini RV32 bindings run this smoke in CI alongside
 boot, host MMIO, UART PTY, and ISA smoke.
 
-Simple RV32Max uses these same width-selected platform payloads on both cores,
+Simple RV32Int/RV32Max use these same width-selected platform payloads on both cores,
 but the external-memory shape runs the full applicable native ISA inventory
 with `isa-test`. Keep architectural selection identical while preserving
 RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
-CI inventory now includes both products. Their native ISA and ACT lanes retain
+CI inventory includes all four products. Their native ISA and ACT lanes retain
 the same shape/ISA selection policy; selecting a lane does not claim ACT qualification.
 
 The architectural `zihintntl-test` checks translated integer/FP hinted loads and

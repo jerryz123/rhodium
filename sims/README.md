@@ -16,7 +16,7 @@ Contributors changing a harness, binding, or build rule should read
 ## Choose a harness
 
 `SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
-the hart implementation; `ISA=rv32max|rva23` is required. There is no implicit
+the hart implementation; `ISA=rv32int|rv32max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. `single` remains a
 spelling alias for the `simple` shape. Shape and core default to `simple` and
@@ -36,11 +36,11 @@ configuration generation do not imply full ACT qualification. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
 
-Mini's RV32 platform bring-up bindings are `SOC=mini-spike-rv32max` and
-`SOC=mini-rv5stage-rv32max`.
+Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
 The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
-ELF32/ILP32 for that ISA. The smoke additionally exercises Zve32x/VLEN64 and
-Zvbb without floating-point instructions. For example:
+ELF32/ILP32 for both ISAs. Both smoke variants exercise integer vectors and
+Zvbb with VLEN64. RV32Max additionally exercises scalar F and Zve32f;
+RV32Int has no floating point. For example:
 
 ```sh
 make -C sims smoke SOC=mini-spike-rv32max
@@ -49,12 +49,11 @@ make -C sims smoke SOC=mini-spike-rv32max HTIF_ARGS=+load-through-chi
 make -C sims boot-test host-mmio-test uart-pty-test SOC=mini-spike-rv32max
 ```
 
-This is bounded platform and integer-vector bring-up, not ACT qualification,
-with both Mini RV32Max core bindings required in simulation CI.
-CI runs the integer-vector smoke, boot, host MMIO,
-UART PTY, and capability-filtered ISA smoke on the exact RV32Max product.
+Substitute `rv32int` to run the integer-only preset. This is bounded platform
+and vector bring-up, not ACT qualification. All four Mini RV32 bindings run
+smoke, boot, host MMIO, UART PTY, and capability-filtered ISA smoke in CI.
 
-Simple also accepts both RV32Max bindings with its inclusive LLC and 1-GiB
+Simple also accepts all four RV32 bindings with its inclusive LLC and 1-GiB
 external memory. Qualify the platform and complete applicable native ISA
 inventory through the same FESVR path:
 
@@ -65,9 +64,10 @@ make -C sims isa-test SOC=simple CORE=rv5stage ISA=rv32max
 make -C sims isa-test SOC=simple CORE=spike ISA=rv32max
 ```
 
-Both bindings are selected in CI with platform tests, the full applicable native
-ISA inventory, and ACT. They use Bare translation, VLEN64/ELEN32, and no floating
-point. The existing RV64-only benchmark ports are not selected for RV32.
+Both cores and both RV32 presets are selected in CI with platform tests, the full
+applicable native ISA inventory, and ACT. They use Bare translation and
+VLEN64/ELEN32. Native FP tests are selected for RV32Max only. The existing
+RV64-only benchmark ports are not selected for RV32.
 
 The host emitters require an explicit third architectural selector:
 
@@ -140,8 +140,10 @@ make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-CI uses the ten canonical product names `mini-rv5stage-rv32max`, `mini-spike-rv32max`,
+CI uses fourteen canonical product names: `mini-rv5stage-rv32int`, `mini-spike-rv32int`,
+`mini-rv5stage-rv32max`, `mini-spike-rv32max`,
 `mini-rv5stage-rva23`, `mini-spike-rva23`,
+`simple-rv5stage-rv32int`, `simple-spike-rv32int`,
 `simple-rv5stage-rv32max`, `simple-spike-rv32max`,
 `simple-rv5stage-rva23`, `simple-spike-rva23`, `tiled-rv5stage-rva23`, and
 `tiled-spike-rva23`. Each has its own target descriptor, simulator attestation,
@@ -732,7 +734,7 @@ The reference configuration maps UDB's `ASID_WIDTH` to Sail's `memory.asidlen`,
 so `satp.ASID` expectations match the configured core's implemented width.
 
 Selection is not a claim that every candidate has passed. The reference adapter
-projects RV32Max and RVA23, including their exact vector geometry; it is not a
+projects RV32Int, RV32Max, and RVA23, including their exact vector geometry; it is not a
 universal UDB-to-Sail projection. ACT's `include_priv_tests` is always true: privileged
 tests are selected by the same UDB extension and parameter constraints as all
 other tests, without a separate harness exclusion.
@@ -777,8 +779,10 @@ make -C sims boot-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
 The ordinary smoke payload follows ISA selection, independent of core: RVA23
-exercises integer, vector, Zvbb and vector FP, while RV32Max uses integer-vector
-operations without FP. The supported traced SingleCoreRV5StageSoC
+exercises integer, vector, Zvbb and vector FP; RV32Max exercises integer vectors
+and FP32, while RV32Int uses integer-vector operations without FP. The FP32 smoke
+checks shared scalar/vector arithmetic, conversions and flags, masked updates,
+memory round-trips, and ordered reduction. The supported traced SingleCoreRV5StageSoC
 build adds one compressed instruction for its disassembly check.
 
 Run the LR/SC progress qualification through normal FESVR loading and coherent

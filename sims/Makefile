@@ -78,16 +78,17 @@ SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),
 SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
 SMOKE_MARCH := $(if $(filter 1,$(TRACE)),rv64ic_zicsr,rv64i_zicsr)
 SMOKE_CPPFLAGS := $(if $(filter 1,$(TRACE)),-DRHODIUM_SMOKE_COMPRESSED_SENTINEL=1)
-PLATFORM_MARCH := $(if $(filter rv32max,$(SOC_ISA)),rv32i_zicsr,rv64i_zicsr)
-PLATFORM_MABI := $(if $(filter rv32max,$(SOC_ISA)),ilp32,lp64)
-ifeq ($(SOC_ISA),rv32max)
-SMOKE_MARCH := $(PLATFORM_MARCH)
-endif
+PLATFORM_MARCH := $(if $(filter rv32int rv32max,$(SOC_ISA)),rv32i_zicsr,rv64i_zicsr)
+PLATFORM_MABI := $(if $(filter rv32int rv32max,$(SOC_ISA)),ilp32,lp64)
 ifeq ($(SOC_ISA),rva23)
 SMOKE_MARCH := rv64gcv_zvbb_zvfh
-SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1 -DRHODIUM_SMOKE_RVA23=1
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1
 endif
 ifeq ($(SOC_ISA),rv32max)
+SMOKE_MARCH := rv32imafcb_zicsr_zve32f_zvl64b_zvbb
+SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1
+endif
+ifeq ($(SOC_ISA),rv32int)
 SMOKE_MARCH := rv32imacb_zicsr_zve32x_zvl64b_zvbb
 SMOKE_CPPFLAGS += -DRHODIUM_SMOKE_VECTOR=1
 endif

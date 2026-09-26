@@ -24,7 +24,7 @@ fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5Stage
   def profile = RV5StageConfig(
     ~xlen: architecture.isa.xlen,
     ~extensions: RV5StageExtensions(
-      ~floating_point: if has("d") | FloatingPointProfile.D | FloatingPointProfile.None,
+      ~floating_point: cond | has("d"): FloatingPointProfile.D | has("f"): FloatingPointProfile.F | ~else: FloatingPointProfile.None,
       ~half_precision: if has("zfh") | HalfPrecisionProfile.Zfh | HalfPrecisionProfile.None,
       ~zfa: has("zfa"),
       ~ziccif: has("ziccif"), ~ziccamoa: has("ziccamoa"), ~ziccrse: has("ziccrse"),

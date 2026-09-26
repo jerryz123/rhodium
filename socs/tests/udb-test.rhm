@@ -10,12 +10,17 @@ import:
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
 
 for (core in ["rv5stage", "spike"]):
-  def rv32 = riscv_udb_configuration("simple-" ++ core ++ "-rv32max")
-  def yaml = rv32.to_yaml()
-  for (parameter in ["MXLEN: 32", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):
-    check: yaml.contains("  " ++ parameter) ~is #true
-  check: yaml.contains("  PHYS_ADDR_WIDTH: 32") ~is #true
-  check: yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
+  for (isa in ["rv32int", "rv32max"]):
+    def rv32 = riscv_udb_configuration("simple-" ++ core ++ "-" ++ isa)
+    def yaml = rv32.to_yaml()
+    for (parameter in ["MXLEN: 32", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):
+      check: yaml.contains("  " ++ parameter) ~is #true
+    check: yaml.contains("  PHYS_ADDR_WIDTH: 32") ~is #true
+    check: yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
+    for (name in ["F", "Zcf", "Zve32f"]):
+      check: (for any (entry in rv32.extensions): entry.name == name) ~is (isa == "rv32max")
+    for (name in ["D", "V", "Zfh", "Zfa", "Zvfh"]):
+      check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 
 def single_core_gnu_target = gnu_isa_target(
   single_core_rv5stage_soc_core_profile.xlen,

@@ -98,7 +98,7 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>ten exact products for simulation;<br/>four Single products for software only"]
+    Compile --> Simulators["Reusable simulator workflow<br/>fourteen exact products for simulation;<br/>six Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["OpenSBI qualification"]
@@ -138,12 +138,12 @@ Both RVA23 single-core software matrices independently select ISA tests, benchma
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
 The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
-publishes its diagnostics. Both Simple RV32Max products select native ISA tests;
+publishes its diagnostics. All four Simple RV32 products select native ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
-All four Simple products select their own ACT generation and
+All six Simple products select their own ACT generation and
 four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
-adapter/source changes select the owning lane. All four CI Mini and both Tiled
+adapter/source changes select the owning lane. All six CI Mini and both Tiled
 products receive capability-filtered ISA smoke; both Tiled cores run the
 two-, four-, and eight-hart benchmark manifests in CI. Software selection is a
 function of SoC shape and ISA, never core identity. No timeout or prior failure

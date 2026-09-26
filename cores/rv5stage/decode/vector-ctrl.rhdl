@@ -1171,7 +1171,7 @@ circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, prof
   def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
   def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & (!control.mask_select ||| merge_sources_legal)
   def fp_width_legal = Bool(vector_profile_supports_fp32(profile)) & (fp_e8_legal ||| fp_e16_legal ||| mux(Bool(vector_profile_supports_fp64(profile)), config.sew >= bits(2, 2), config.sew === bits(2, 2)))
-  def fp_legal = control.floating_point & Bool(xlen == XLen.X64) & fp_width_legal & mux(control.fp_service, fp_service_legal, fp_move_legal)
+  def fp_legal = control.floating_point & fp_width_legal & mux(control.fp_service, fp_service_legal, fp_move_legal)
   def multiply_divide_sources_legal = mux(widening, widening_legal, source2_aligned & (!vector_operand ||| source1_aligned))
   def restricted_elen64_multiply = !control.divide & !control.multiply_accumulate & control.multiply_result.is_one_of(VectorMultiplyResult.High, VectorMultiplyResult.Fractional)
   def multiply_profile_legal = Bool(vector_profile_is_v(profile)) ||| !((config.sew === bits(3, 2)) & restricted_elen64_multiply)

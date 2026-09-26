@@ -52,8 +52,8 @@ instruction catalogs before hardware is generated:
 | RV64, FP disabled | RV64I plus the RV64 forms of M, A, and B, followed by Zicond, Zimop, Zicsr, Zifencei, and the supported privileged instructions |
 | RV32F | The RV32 core rows plus the RV32F catalog |
 | RV64D | The RV64 core rows plus the RV64F and RV64D catalogs |
-| RV64 Zve32x/Zve64x | The selected scalar rows plus integer, memory, mask, and permutation vector rows |
-| RV64 Zve32f/Zve64f/Zve64d/V | The selected scalar rows plus the complete vector rows; runtime legality enforces the profile's ELEN and FP widths |
+| RV32 Zve32x; RV64 Zve32x/Zve64x | The selected scalar rows plus integer, memory, mask, and permutation vector rows |
+| RV32F Zve32f; RV64 Zve32f/Zve64f/Zve64d/V | The selected scalar rows plus the complete vector rows; runtime legality enforces the profile's ELEN and FP widths |
 
 This low-level decoder parameter selects rows; it is not by itself an
 architectural claim. `RV5StageConfig` validates RV5Stage's supported XLEN and

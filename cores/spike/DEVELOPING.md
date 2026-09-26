@@ -37,7 +37,8 @@ keep the standalone configuration's PMP support independent of that policy.
 With PMP enabled, Spike's CSR masks use 56 physical bits on RV64 and 34 on
 RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
 32-bit physical addresses. RV32 retains nine ASID bits.
-`tests/udb-test.rhm` covers scalar, RVA23, and integer-vector RV32Max projections.
+`tests/udb-test.rhm` covers scalar, RVA23, and RV32Int projections;
+`socs/tests/udb-test.rhm` checks the paired RV32Int/RV32Max FP and vector closures.
 Compressed FP implications follow actual F/D support. FS remains writable
 with S mode even without F, as in Spike's `sstatus_csr_t` implementation.
 Keep extension/version mapping fail-closed and expand only architectural

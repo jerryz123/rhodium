@@ -181,8 +181,6 @@ fun check_rv5stage_vector_profile(xlen :: XLen,
   validate_vector_extensions(vector, vector_extensions)
   when vector_profile_supports_integer64(vector) && xlen != XLen.X64
   | error(~who: #'check_rv5stage_vector_profile, "64-bit vector elements require RV64")
-  when vector_profile_supports_fp32(vector) && xlen != XLen.X64
-  | error(~who: #'check_rv5stage_vector_profile, "integrated vector floating point requires RV64")
   when vector_profile_supports_fp64(vector) && !floating_point_supports_d(floating_point)
   | error(~who: #'check_rv5stage_vector_profile, "Zve64d and V require scalar D")
   when vector_profile_supports_fp32(vector) && !floating_point_supports_f(floating_point)

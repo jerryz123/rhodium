@@ -45,8 +45,8 @@ ifeq ($(filter $(SOC_CORE),rv5stage spike),)
 $(error Unsupported core '$(SOC_CORE)')
 endif
 ifneq ($(SOC_ISA),)
-ifeq ($(filter $(SOC_ISA),rv32max rva23),)
-$(error Unsupported ISA '$(SOC_ISA)'; expected rv32max or rva23)
+ifeq ($(filter $(SOC_ISA),rv32int rv32max rva23),)
+$(error Unsupported ISA '$(SOC_ISA)'; expected rv32int, rv32max, or rva23)
 endif
 endif
 
@@ -56,7 +56,7 @@ PRODUCT_INDEPENDENT_GOALS := %setup %adapter-test arch-test-source arch-test-tes
   spike-core-test spike-lowering-test chi-dpi-memory-test transport-test
 ifneq ($(filter-out $(PRODUCT_INDEPENDENT_GOALS),$(or $(MAKECMDGOALS),all)),)
 ifeq ($(SOC_ISA),)
-$(error ISA is required; use ISA=rva23, ISA=rv32max, or SOC=shape-core-isa)
+$(error ISA is required; use ISA=rva23, ISA=rv32int, ISA=rv32max, or SOC=shape-core-isa)
 endif
 endif
 

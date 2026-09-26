@@ -149,6 +149,22 @@ class ArchTestConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
 
+    def test_rv32_single_precision_vector_projection(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        udb["implemented_extensions"] = [entry for entry in udb["implemented_extensions"]
+                                         if entry["name"] in {"Sm", "Zve32x", "Zve32f", "Zvl32b", "Zvl64b", "Zvbb", "Zvkb", "Zvkt"}]
+        udb["implemented_extensions"].append({"name": "F", "version": "= 2.2.0"})
+        udb["params"].update(MXLEN=32, VLEN=64, ELEN=32, PHYS_ADDR_WIDTH=32,
+                             VECTOR_LS_INDEX_MAX_EEW="32", MSTATUS_FS_LEGAL_VALUES=[0, 1, 2, 3])
+        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        vector = config["extensions"]["V"]
+        self.assertEqual((vector["support_level"], vector["vlen_exp"], vector["elen_exp"]),
+                         ("Float_single", 6, 5))
+        self.assertEqual(config["base"]["xlen"], 32)
+        self.assertTrue(config["extensions"]["F"]["supported"])
+        self.assertFalse(config["extensions"]["D"]["supported"])
+
     def test_spike_pmp_projection_preserves_entry_count_and_granularity(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         params = architecture_params(asid_width=16)

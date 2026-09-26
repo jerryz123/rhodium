@@ -6,10 +6,14 @@ import:
   lib("socs/products/selection.rhm") open
 
 def TestProducts :: List.of(SoCSelection) = [
+  SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Int),
+  SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Int),
   SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Max),
   SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Max),
   SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RVA23),
   SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RVA23),
+  SoCSelection(SoCShape.Simple, CoreKind.RV5Stage, IsaPreset.RV32Int),
+  SoCSelection(SoCShape.Simple, CoreKind.Spike, IsaPreset.RV32Int),
   SoCSelection(SoCShape.Simple, CoreKind.RV5Stage, IsaPreset.RV32Max),
   SoCSelection(SoCShape.Simple, CoreKind.Spike, IsaPreset.RV32Max),
   SoCSelection(SoCShape.Simple, CoreKind.RV5Stage, IsaPreset.RVA23),

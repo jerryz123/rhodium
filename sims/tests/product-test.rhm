@@ -13,10 +13,14 @@ import:
 def names = TestProducts.map(fun (product :: SoCSelection): product.key)
 check:
   names ~is [
+    "mini-rv5stage-rv32int",
+    "mini-spike-rv32int",
     "mini-rv5stage-rv32max",
     "mini-spike-rv32max",
     "mini-rv5stage-rva23",
     "mini-spike-rva23",
+    "simple-rv5stage-rv32int",
+    "simple-spike-rv32int",
     "simple-rv5stage-rv32max",
     "simple-spike-rv32max",
     "simple-rv5stage-rva23",
@@ -29,7 +33,7 @@ for (product in TestProducts):
     named_soc_selection(product.key) ~is product
     names.filter(~keep: fun (name): name == product.key).length() ~is 1
 
-for (isa in [IsaPreset.RV32Max, IsaPreset.RVA23]):
+for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
   def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.Spike]):
     def product = resolve_soc_product(SoCSelection(SoCShape.Simple, core, isa))
     def platform = ActPlatform(product.description)

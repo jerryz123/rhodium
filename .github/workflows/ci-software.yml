@@ -131,7 +131,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]
+        configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -221,7 +221,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]
+        configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]
         shard: [0, 1, 2, 3]
     steps:
       - name: Check out Rhodium

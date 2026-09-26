@@ -19,7 +19,7 @@ import:
   lib("riscv/isa/vector-profile.rhm").VectorProfile
   lib("riscv/gnu-toolchain.rhm").gnu_isa_target
 
-def rv32 = soc_architecture(IsaPreset.RV32Max)
+def rv32 = soc_architecture(IsaPreset.RV32Int)
 def rv32_compiler = gnu_isa_target(rv32.isa.xlen, rv32.isa.isa_extensions)
 check:
   rv32.isa.xlen ~is XLen.X32
@@ -69,6 +69,7 @@ check:
   parse_soc_shape("single") ~is SoCShape.Simple
   parse_soc_shape("simple") ~is SoCShape.Simple
   parse_core_kind("spike") ~is CoreKind.Spike
+  parse_isa_preset("rv32int") ~is IsaPreset.RV32Int
   parse_isa_preset("rv32max") ~is IsaPreset.RV32Max
   parse_isa_preset("rva23") ~is IsaPreset.RVA23
   parse_isa_preset("typo") ~throws "unsupported ISA preset"
@@ -85,10 +86,10 @@ check:
   riscv_udb_configuration("simple-spike-rva23").to_yaml().contains("  CACHE_BLOCK_SIZE: 64") ~is #true
 
 // Both hart implementations project the same RV32 architecture and platform geometry.
-def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Max))
+def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Int))
 def rv32_mini :: MiniSoCConfig = rv32_product.configuration()
 def rv32_description = rv32_product.description
-def rv32_rtl = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Max))
+def rv32_rtl = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Int))
 check:
   rv32_rtl.description.hart.isa_profile ~is rv32.isa
   rv32_rtl.description.hart.vector.vlen ~is 64
@@ -102,13 +103,13 @@ check:
   rv32_description.memory_regions[0].base ~is 0x80000000
   rv32_description.memory_regions[0].size_bytes ~is 0x10000
   rv32_description.to_device_tree().to_dts().contains("rv32i") ~is #true
-  rv32_description ~is simulator_soc_description("mini-spike-rv32max")
+  rv32_description ~is simulator_soc_description("mini-spike-rv32int")
   riscv_soc_boot_config().image_for(rv32_description).bytes ~is rv32_mini.boot.image_for(rv32_description).bytes
   riscv_soc_boot_config(~payload_address: 0x100000000).image_for(rv32_description) ~throws "XLEN"
 
 // Simple keeps its full external memory and fabric widths with either RV32 hart.
 for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
-  def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Max)
+  def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Int)
   def product = resolve_soc_product(selection)
   def config = product.configuration()
   def description = config.description
@@ -125,3 +126,23 @@ for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
     config.params.fabric.boot.image_for(description).size_bytes <= config.params.fabric.boot.window_bytes ~is #true
     simulator_soc_description(selection.key) ~is description
     description.to_device_tree().to_dts().contains("rv32i") ~is #true
+
+// The FP preset adds F/Zve32f to the shared integer architecture on either core.
+def rv32max = soc_architecture(IsaPreset.RV32Max)
+def rv32max_compiler = gnu_isa_target(rv32max.isa.xlen, rv32max.isa.isa_extensions)
+check:
+  rv32max.vector ~is VectorProfile.Zve32f
+  rv32max.vector_length ~is 64
+  rv32max_compiler.march.starts_with("rv32imafcb_") ~is #true
+  rv32max_compiler.mabi ~is "ilp32f"
+  rv32max.isa.misa_extension_bits ~is 0x141127
+  rv32max.isa.isa_extensions.filter(~keep: fun (name): name != "f" && name != "zve32f") ~is rv32.isa.isa_extensions
+for (shape in [SoCShape.Mini, SoCShape.Simple]):
+  for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+    def product = resolve_soc_product(SoCSelection(shape, core, IsaPreset.RV32Max))
+    check:
+      product.description.hart.isa_profile ~is rv32max.isa
+      product.description.hart.vector.elen ~is 32
+      product.description.hart.vector.vlen ~is 64
+      product.description.hart.mmu_type ~is RiscvMmuType.Bare
+      product.udb().to_yaml().contains("{ name: \"Zcf\",") ~is #true

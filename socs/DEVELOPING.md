@@ -59,9 +59,10 @@ detects XLEN at runtime and selects its entry load. Image finalization validates
 boot addresses against the hart description and embeds its device tree.
 The boot-entry register remains 64 bits, with RV32 reading its low word. Preserve
 the full physical-address CHI interfaces rather than narrowing the fabric to
-the scalar register width. `mini-spike-rv32max` and
-`mini-rv5stage-rv32max` exercise this platform path with the same integer-vector
-smoke payload and participate in the same shape/ISA-selected software policy.
+the scalar register width. Both cores' `rv32int` and `rv32max` products exercise
+this platform path with the same capability-selected smoke payload and
+participate in the same shape/ISA-selected software policy. Keep their common
+integer/system architecture shared; only RV32Max adds F and Zve32f.
 Simple accepts the same RV32 hart bindings without narrowing its CHI fabric,
 boot-entry register, LLC, or external-memory service. Its default RAM window
 is `0x80000000..0xbfffffff`; target addresses are zero-extended at the hart's

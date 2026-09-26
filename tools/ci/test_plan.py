@@ -72,7 +72,8 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(plan["simulation_matrix"]["include"],
                          [simulation_entry(*product) for product in SIMULATOR_PRODUCTS])
         self.assertEqual({entry["soc"] for entry in expected},
-                         {"mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
+                         {"mini-rv5stage-rv32int", "mini-spike-rv32int", "simple-rv5stage-rv32int", "simple-spike-rv32int",
+                          "mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
                           "simple-spike-rva23", "simple-rv5stage-rv32max", "simple-spike-rv32max", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
         for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
             with self.subTest(path=path):
@@ -89,8 +90,9 @@ class PlanTest(unittest.TestCase):
     def test_rv32_native_inventory_is_paired_without_rv64_only_ports(self):
         entries = self.plan("sims/Makefile")["program_matrix"]["include"]
         for core in ("rv5stage", "spike"):
-            self.assertEqual([entry["suite"] for entry in entries
-                              if entry["soc"] == f"simple-{core}-rv32max"], ["isa"])
+            for isa in ("rv32int", "rv32max"):
+                self.assertEqual([entry["suite"] for entry in entries
+                                  if entry["soc"] == f"simple-{core}-{isa}"], ["isa"])
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
@@ -288,7 +290,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
-        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 2)
+        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 2)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 
 

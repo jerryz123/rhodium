@@ -70,18 +70,25 @@ NATIVE_SUITES = ("isa", "benchmark", "coremark", "embench", "bringup")
 PLATFORM_TESTS = ("smoke", "host-mmio-test", "boot-test", "uart-pty-test")
 # Software policy has exactly two axes. Core choice only selects the DUT.
 SOFTWARE_TESTS = {
+    ("mini", "rv32int"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rv32max"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
     ("single", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
+    ("single", "rv32int"): PLATFORM_TESTS,
     ("single", "rv32max"): PLATFORM_TESTS,
     ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
 }
-NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES, ("single", "rv32max"): ("isa",)}
+NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES,
+                   ("single", "rv32int"): ("isa",), ("single", "rv32max"): ("isa",)}
 SIMULATOR_PRODUCTS = (
+    ("mini-rv5stage-rv32int", "mini", "rv5stage"),
+    ("mini-spike-rv32int", "mini", "spike"),
     ("mini-rv5stage-rv32max", "mini", "rv5stage"),
     ("mini-spike-rv32max", "mini", "spike"),
     ("mini-rv5stage-rva23", "mini", "rv5stage"),
     ("mini-spike-rva23", "mini", "spike"),
+    ("simple-rv5stage-rv32int", "single", "rv5stage"),
+    ("simple-spike-rv32int", "single", "spike"),
     ("simple-rv5stage-rv32max", "single", "rv5stage"),
     ("simple-spike-rv32max", "single", "spike"),
     ("simple-rv5stage-rva23", "single", "rv5stage"),

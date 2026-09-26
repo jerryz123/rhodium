@@ -13,10 +13,10 @@ separate default VLEN of 128 bits. Every enabled profile advertises its implied
 Zve closure and cumulative `Zvl<N>b` closure through its selected VLEN. Zve32
 profiles select ELEN=32; Zve64 profiles and V select ELEN=64. FP32 profiles
 require scalar FP support, while Zve64d and
-V require scalar D. RV32 supports Zve32x with a 32-bit lane and
+V require scalar D. RV32 supports Zve32x, or Zve32f with scalar F, with a 32-bit lane and
 VLEN starting at 64; RV64 uses a 64-bit lane with VLEN starting at 128.
-FP-capable vector profiles remain restricted to RV64D pending RV32 FP
-qualification. Only V advertises `V 1.0` and `misa.V`;
+RV32 shares the scalar F execution service for vector FP32, with 32-bit operands,
+results, and VRF rows; 64-bit elements still require RV64. Only V advertises `V 1.0` and `misa.V`;
 it does not imply Zvbb. Selecting `VectorExtension.Zvbb` independently enables
 the ratified vector basic bit-manipulation instruction set for any enabled
 vector profile and advertises its required `Zvkb` subset.
@@ -672,8 +672,8 @@ the macro captures at WB launch; exact sign, min/max, and comparison operations
 do not depend on `frm`; fixed-RTZ conversions also ignore it. `Zvfhmin`
 restricts SEW16 to its two FP-to-FP conversions; full `Zvfh` admits same-width
 FP16 arithmetic, comparisons, reductions, moves, slides, and all applicable
-widening/narrowing forms. RV32 vector FP qualification remains separate from
-the RV32Max integer-vector product bring-up.
+widening/narrowing forms. The RV32Max product selects F/Zve32f only;
+its native-width FP32 operations share the scalar F service.
 `vfredusum.vs`, `vfredosum.vs`,
 `vfredmin.vs`, and `vfredmax.vs` fold FP32 or FP64 elements through the shared
 service in element order. `vfwredusum.vs` and `vfwredosum.vs` exactly promote

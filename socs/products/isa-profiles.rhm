@@ -1,5 +1,5 @@
 #lang rhombus
-// Authors implementation-independent RV32Max and RVA23 product architectures.
+// Authors implementation-independent integer RV32, floating-point RV32, and RVA23 architectures.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,12 +22,15 @@ def IntegerMisa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtens
 
 fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
   match preset
-  | IsaPreset.RV32Max:
-      def scalar = ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse"]
-      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ ["zve32x", "zvkb", "zvbb", "zvl32b", "zvl64b", "zvkt"]
+  | IsaPreset.RV32Int || IsaPreset.RV32Max:
+      def fp = preset == IsaPreset.RV32Max
+      def vector = if fp | VectorProfile.Zve32f | VectorProfile.Zve32x
+      def extensions = vector_extensions(VectorExtension.Zvbb)
+      def scalar = ["i", "m", "a"] ++ (if fp | ["f"] | []) ++ ["c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse"]
+      def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ vector_profile_isa_extensions(vector, 64, extensions) ++ ["zvkt"]
       SoCArchitecture(
-        RiscvIsaProfile(XLen.X32, names, IntegerMisa ++ [MisaExtension.C]),
-        RiscvMmuType.Bare, VectorProfile.Zve32x, [VectorExtension.Zvbb], 64
+        RiscvIsaProfile(XLen.X32, names, IntegerMisa ++ (if fp | [MisaExtension.F] | []) ++ [MisaExtension.C]),
+        RiscvMmuType.Bare, vector, extensions, 64
       )
   | IsaPreset.RVA23:
       // Product selection, not a claim of RVA23U64/S64 conformance.

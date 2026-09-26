@@ -488,7 +488,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def id_cbo_permission :: CboManagementPermission() = wb_csrs.cbo_permission
   def id_memory_operation = mux(id_management & (id_cbo_permission.operation === CboManagementOperation.Flush), RV5StageMemoryOperation.CacheBlockFlush, id_control.memory.access)
   def id_vector_instruction = id_control.vector.integer ||| id_control.vector.memory ||| id_control.vector.floating_point ||| id_control.vector.multiply_divide
-  def id_illegal = id_control.vector.floating_point & (Bool(profile != FloatingPointProfile.D) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| (
+  def id_illegal = id_control.vector.floating_point & (Bool(!floating_point_supports_f(profile)) ||| !wb_csrs.fp_enabled ||| (id_control.vector.fp_service & id_control.vector.fp_execution.uses_rounding_mode & (wb_csrs.frm > bits(4, 3)))) ||| id_decode_bits.compressed_illegal ||| !id_decoder.valid ||| (id_vector_instruction & !wb_csrs.vector_enabled) ||| (
     (id_control.system.action === RV5StageSystemOperation.VectorConfig) & !wb_csrs.vector_enabled
   ) ||| (
     id_control.memory.access.is_cache_block_zero() & !wb_csrs.cbo_zero_enabled

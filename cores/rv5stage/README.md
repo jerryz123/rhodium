@@ -41,8 +41,8 @@ Vector memory arbitrates for scalar LSU lookup and dispatch across unit-stride,
 strided, indexed, segmented, and fault-only-first forms, with tagged
 completion slots, precise element restart, and fault-only-first VL truncation. The host profile's
 `~vector_completion_slots` selects a power-of-two depth, default eight,
-independently of VLEN. RV64D also shares scalar FP execution for same-width
-FP32/FP64 vector add, subtract, and multiply, with locally accepted operands and
+independently of VLEN. RV32F/Zve32f and RV64D share scalar FP execution for
+FP32 and FP32/FP64 respectively, with locally accepted operands and
 scheduled VRF writes and completion-time flag updates. Vectors also share the profile-selected
 integer multiplier and iterative divider for SEW8/16/32/64 `.vv` and `.vx`
 operations, with independent arbitration and reserved completion ownership.
@@ -849,7 +849,7 @@ runs the same cross-field validation as direct construction.
 |---|---|
 | `profile.xlen` | Required `XLen.X32` or `XLen.X64` architectural width |
 | `profile.extensions` | Floating-point, compressed, cache-block, memory-guarantee, hint, and pointer-masking selections; optional features default to disabled |
-| `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; ELEN cannot exceed XLEN; FP-capable profiles currently require RV64D |
+| `profile.vector` | `VectorProfile.None` by default, or `Zve32x`, `Zve32f`, `Zve64x`, `Zve64f`, `Zve64d`, or `V`; ELEN cannot exceed XLEN; Zve32f supports RV32F, while FP64 requires RV64D |
 | `profile.vector_extensions` | Orthogonal vector extensions; empty by default, with `Zvfhmin` enabling two SEW=16 conversions, `Zvfh` enabling full vector half precision, and `Zvbb` enabling vector basic bit manipulation |
 | `profile.vector_length` | VLEN in bits; a power of two through 65536; enabled profiles require at least twice XLEN |
 | `profile.vector_completion_slots` | Power-of-two capacity for deferred vector memory and execution completions; defaults to eight |

@@ -21,9 +21,12 @@ For physical-width changes, run the RV32 and RV64 sequencer and packed-memory
 fixtures, plus overlap, reduction, and shared mul/div fixtures. Check layout,
 profile, and product host tests with the repository Racket wrappers. The
 integrated minimum-geometry check is `make -C sims smoke
-SOC=mini-rv5stage-rv32max`: it executes integer-vector load/store, arithmetic,
+SOC=mini-rv5stage-rv32int`: it executes integer-vector load/store, arithmetic,
 reduction, Zvbb, mul/div, and widening multiply through the normal FESVR flow
-with VLEN64 and 32-bit rows. This does not qualify RV32 vector FP or expand CI.
+with VLEN64 and 32-bit rows. Also run `SOC=mini-rv5stage-rv32max` when changing
+RV32 FP integration: its capability-selected smoke covers scalar F producer
+forwarding, vector arithmetic/division, conversions and flags, masked writes,
+FP memory round-trips, and ordered reduction through the shared F service.
 
 ## State ownership and reading order
 

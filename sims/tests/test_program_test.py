@@ -347,7 +347,7 @@ class ProductSelectionTest(unittest.TestCase):
 
     def test_platform_payloads_follow_selected_xlen(self):
         with tempfile.TemporaryDirectory() as directory:
-            for isa, xlen, abi in (('rv32max', 32, 'ilp32'), ('rva23', 64, 'lp64')):
+            for isa, xlen, abi in (('rv32int', 32, 'ilp32'), ('rv32max', 32, 'ilp32'), ('rva23', 64, 'lp64')):
                 product = f'mini-spike-{isa}'
                 for payload in ('smoke', 'boot_2000', 'host_mmio', 'uart_pty'):
                     with self.subTest(isa=isa, payload=payload):
@@ -361,19 +361,21 @@ class ProductSelectionTest(unittest.TestCase):
         result = self.dry_run('ISA=', target='setup')
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_mini_rv32max_smoke_requires_integer_vector_payload(self):
+    def test_rv32_smoke_distinguishes_integer_and_floating_point(self):
         with tempfile.TemporaryDirectory() as directory:
-            product = 'mini-rv5stage-rv32max'
-            result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
-                                  target=f'{directory}/{product}/smoke.elf')
-            self.assertEqual(result.returncode, 0, result.stderr)
-            self.assertIn('-march=rv32imacb_zicsr_zve32x_zvl64b_zvbb', result.stdout)
-            self.assertIn('-mabi=ilp32', result.stdout)
-            self.assertIn('-DRHODIUM_SMOKE_VECTOR=1', result.stdout)
+            for isa, march in (('rv32int', 'rv32imacb_zicsr_zve32x_zvl64b_zvbb'),
+                               ('rv32max', 'rv32imafcb_zicsr_zve32f_zvl64b_zvbb')):
+                product = f'mini-rv5stage-{isa}'
+                result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
+                                      target=f'{directory}/{product}/smoke.elf')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f'-march={march}', result.stdout)
+                self.assertIn('-mabi=ilp32', result.stdout)
+                self.assertIn('-DRHODIUM_SMOKE_VECTOR=1', result.stdout)
 
     def test_smoke_isa_and_payload_flags_do_not_depend_on_core(self):
         with tempfile.TemporaryDirectory() as directory:
-            for isa in ('rv32max', 'rva23'):
+            for isa in ('rv32int', 'rv32max', 'rva23'):
                 commands = []
                 for core in ('rv5stage', 'spike'):
                     product = f'mini-{core}-{isa}'
@@ -401,7 +403,7 @@ class ProductSelectionTest(unittest.TestCase):
     def test_act_and_harness_use_the_same_explicit_product(self):
         result = self.dry_run('ACT_CONFIGURATION=simple-rv5stage-rva23', target='arch-test-config')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn('RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23', result.stdout)
+        self.assertIn('sims/arch-test/write-platform.rhm "simple-rv5stage-rva23"', result.stdout)
         self.assertIn('test "simple-rv5stage-rva23" = "simple-rv5stage-rva23"', result.stdout)
 
 
