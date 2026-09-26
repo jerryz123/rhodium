@@ -547,7 +547,7 @@ for (instruction in VectorMaskMemoryInstructions, index in 0..2):
     value(field(core_control(instruction), "operand"), "uses_rs2") ~is 0
 
 for (vlen in [128, 256, 512, 65536]):
-  def micro = RV5StageVectorMicroOp(vlen, Bits(4))
+  def micro = RV5StageVectorMicroOp(XLen.X64, vlen, Bits(4))
   def feedback = RV5StageVectorFeedback(XLen.X64, vlen, Bits(4))
   def beat = micro.field("beat").type
   check:

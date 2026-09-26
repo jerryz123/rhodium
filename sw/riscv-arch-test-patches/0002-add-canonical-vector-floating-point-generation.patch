@@ -514,13 +514,13 @@ index 0000000000000000000000000000000000000000..105f6055d59d24ba4159ffe0a37ed015
 +    params: InstructionParams,
 +) -> tuple[list[str], list[str], list[str]]:
 +    setup, test, check = formatter()
-+    setup.insert(0, "fsflagsi 0b00000 # clear all fflags")
++    setup.insert(1 if setup and setup[0].startswith("#if") else 0, "fsflagsi 0b00000 # clear all fflags")
 +    if params.frm is not None:
 +        frm = params.csr_frm_val if params.frm == "dyn" else {"rne": 0, "rtz": 1, "rdn": 2, "rup": 3, "rmm": 4}[params.frm]
 +        assert frm is not None
 +        setup.append(f"fsrmi {frm}")
-+        check.append("fsrmi 0x0")
-+    check.append(write_sigupd(None, test_data, "fflags"))
++        check.insert(-1 if check and check[-1] == "#endif" else len(check), "fsrmi 0x0")
++    check.insert(-1 if check and check[-1] == "#endif" else len(check), write_sigupd(None, test_data, "fflags"))
 +    return setup, test, check
 +
 +

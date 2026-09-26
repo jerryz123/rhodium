@@ -34,6 +34,9 @@ _start:
   or t0, t0, t1
   csrw satp, t0
   sfence.vma
+  // MPP may already be M; clear both bits before selecting S for MPRV.
+  li t0, 0x1800
+  csrc mstatus, t0
   li t0, 0x20800
   csrs mstatus, t0
   la s0, resident
