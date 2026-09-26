@@ -57,6 +57,9 @@ transaction.
 LR/SC checks the complete RTL-owned physical-memory range for atomic support
 and the operation's read or write permission before testing reservation state.
 An SC to a faulting region therefore traps even when its reservation has failed.
+Cacheable AMOs acquire unique coherent ownership before reading and complete
+their read-modify-write without yielding the model; accesses outside the atomic
+PMA or to uncached regions trap rather than silently losing atomicity.
 CBO.ZERO likewise checks the full 64-byte block against the RTL-owned physical
 map. On a permitted cacheable region, it acquires a unique coherent line and
 marks the zeroed line dirty; a region without cache-block-zero permission traps.

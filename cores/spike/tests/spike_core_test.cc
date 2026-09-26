@@ -1,4 +1,4 @@
-// Checks Spike coroutine transport, cache visibility, and block-zero PMA enforcement.
+// Checks Spike coroutine transport, coherent atomics, cache visibility, and block-zero PMA enforcement.
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_core.h"
 
@@ -277,6 +277,70 @@ int main() {
       assert(response.snoop_response_pass_dirty);
       assert(response.snoop_response_has_data);
       for (std::uint64_t word : response.snoop_response_line) assert(word == 0);
+    }
+  }
+
+  // An AMO must request a unique line before reading it, complete its update
+  // without another RTL transaction, and reject a region without atomic PMA.
+  std::array<std::unique_ptr<SpikeCoreModel>, 2> amo_models;
+  for (bool allowed : {true, false}) {
+    Configuration amo_configuration;
+    amo_configuration.reset_vector = 0x1000;
+    amo_configuration.isa = "rv64ima_zicsr";
+    amo_configuration.privilege = "msu";
+    amo_models[allowed] = std::make_unique<SpikeCoreModel>(amo_configuration);
+    auto& amo_model = *amo_models[allowed];
+    Inputs amo_inputs;
+    std::size_t amo_classifications = 0;
+    std::size_t amo_acquires = 0;
+    bool amo_trapped = false;
+    for (std::size_t cycle = 0; cycle < 96; ++cycle) {
+      const Outputs amo_outputs = amo_model.tick(amo_inputs);
+      Inputs next;
+      if (amo_outputs.address_request_valid) {
+        next.address_request_ready = true;
+        next.address_response_valid = true;
+        next.address_response_cacheable = true;
+        next.address_response_instruction_cacheable = true;
+        if (amo_outputs.address_request_address == 0x2000) {
+          assert(amo_outputs.address_request_size == 2);
+          next.address_response_atomic = allowed;
+          ++amo_classifications;
+        }
+        amo_trapped |= amo_outputs.address_request_address == 0;
+      }
+      if (amo_outputs.instruction_request_valid) {
+        next.instruction_request_ready = true;
+        next.instruction_response_valid = true;
+        next.instruction_response_line[0] = 0x00100113000020b7ULL;
+        next.instruction_response_line[1] = 0x0000006f0020a1afULL;
+      }
+      if (amo_outputs.acquire_request_valid) {
+        assert(allowed);
+        assert(amo_outputs.acquire_request_address == 0x2000);
+        assert(amo_outputs.acquire_request_unique);
+        ++amo_acquires;
+        next.acquire_request_ready = true;
+        next.acquire_response_valid = true;
+        next.acquire_response_state = 2;
+        next.acquire_response_line[0] = 7;
+      }
+      amo_inputs = next;
+      if (amo_trapped) break;
+    }
+    assert(amo_classifications == 2);
+    assert(amo_acquires == (allowed ? 1U : 0U));
+    assert(amo_trapped == !allowed);
+    if (allowed) {
+      Inputs snoop;
+      snoop.snoop_valid = true;
+      snoop.snoop_address = 0x2000;
+      snoop.snoop_invalidate = true;
+      snoop.snoop_return_to_source = true;
+      const Outputs response = amo_model.tick(snoop);
+      assert(response.snoop_response_valid);
+      assert(response.snoop_response_pass_dirty);
+      assert(response.snoop_response_line[0] == 8);
     }
   }
 }

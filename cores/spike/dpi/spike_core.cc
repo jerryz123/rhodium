@@ -148,6 +148,34 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return !attributes.fault && attributes.atomic;
   }
 
+  bool amo_begin(reg_t address, std::size_t length) override {
+    assert(!amo_active_);
+    if ((length != 1 && length != 2 && length != 4 && length != 8 && length != 16) ||
+        (address & (kLineBytes - 1)) + length > kLineBytes)
+      return false;
+    for (std::size_t offset = 0; offset < length; offset += 8) {
+      const std::size_t chunk = std::min<std::size_t>(length - offset, 8);
+      const AddressResponse readable = classify(address + offset, chunk, false, false);
+      const AddressResponse writable = classify(address + offset, chunk, true, false);
+      if (readable.fault || writable.fault || !readable.atomic || !writable.atomic ||
+          !readable.cacheable || !writable.cacheable) return false;
+    }
+    CacheLine* line = acquire_data_line(address & ~(kLineBytes - 1), true);
+    if (line == nullptr || (line->state != CacheState::kUniqueClean &&
+                            line->state != CacheState::kUniqueDirty)) return false;
+    amo_line_ = line;
+    amo_address_ = address;
+    amo_length_ = length;
+    amo_active_ = true;
+    return true;
+  }
+
+  void amo_end() override {
+    assert(amo_active_);
+    amo_active_ = false;
+    amo_line_ = nullptr;
+  }
+
   bool mmio_fetch(reg_t address, std::size_t length, std::uint8_t* bytes) override {
     const AddressResponse attributes = classify(address, length, false, true);
     if (attributes.fault) return false;
@@ -157,6 +185,11 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   bool mmio_load(reg_t address, std::size_t length, std::uint8_t* bytes) override {
+    if (amo_active_) {
+      if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
+      std::memcpy(bytes, amo_line_->bytes.data() + (address & (kLineBytes - 1)), length);
+      return true;
+    }
     const AddressResponse attributes = classify(address, length, false, false);
     if (attributes.fault) return false;
     return attributes.cacheable ? data_read(address, length, bytes)
@@ -164,6 +197,12 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   bool mmio_store(reg_t address, std::size_t length, const std::uint8_t* bytes) override {
+    if (amo_active_) {
+      if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
+      std::memcpy(amo_line_->bytes.data() + (address & (kLineBytes - 1)), bytes, length);
+      amo_line_->state = CacheState::kUniqueDirty;
+      return true;
+    }
     const AddressResponse attributes = classify(address, length, true, false);
     if (attributes.fault) return false;
     return attributes.cacheable ? data_write(address, length, bytes)
@@ -195,7 +234,13 @@ class SpikeCoreModel::Implementation final : public simif_t {
 
   void yield() {
     assert(host_ != nullptr);
+    assert(!amo_active_);
     host_->switch_to();
+  }
+
+  bool amo_contains(std::uint64_t address, std::size_t length) const {
+    return length <= amo_length_ && address >= amo_address_ &&
+           address - amo_address_ <= amo_length_ - length;
   }
 
   void accept_previous_outputs() {
@@ -563,6 +608,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
   std::vector<CacheLine> data_cache_;
   std::vector<std::size_t> instruction_next_way_;
   std::vector<std::size_t> data_next_way_;
+  CacheLine* amo_line_ = nullptr;
+  std::uint64_t amo_address_ = 0;
+  std::size_t amo_length_ = 0;
+  bool amo_active_ = false;
 
   bool address_request_valid_ = false;
   std::uint64_t address_request_address_ = 0;

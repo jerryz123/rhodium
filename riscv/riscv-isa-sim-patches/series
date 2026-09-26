@@ -9,3 +9,4 @@
 0007-separate-supervisor-interrupt-pins.patch
 0008-check-lrsc-physical-access.patch
 0009-route-cbo-zero-through-simif.patch
+0010-scope-amo-memory-access.patch

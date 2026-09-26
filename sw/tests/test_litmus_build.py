@@ -1,7 +1,9 @@
-# Tests litmus source selection, bare-metal adaptation, and model outcome mapping.
+# Tests litmus selection, bare-metal adaptation, stream binding, and model outcomes.
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
 from pathlib import Path
+import shutil
+import subprocess
 import tempfile
 import unittest
 
@@ -110,6 +112,25 @@ const char *instruction = "amoadd.w";
             path.write_text(generated.replace('__sync_add_and_fetch', '__atomic_fetch_add'))
             with self.assertRaisesRegex(ValueError, 'unrecognized litmus7 barrier template'):
                 BUILDER.adapt_litmus7_runtime(path)
+
+    def test_litmus7_streams_do_not_reference_newlib_stdio_state(self):
+        compiler = shutil.which('riscv64-unknown-elf-gcc')
+        nm = shutil.which('riscv64-unknown-elf-nm')
+        if not compiler or not nm:
+            self.skipTest('RISC-V GCC and nm are required for the bare-metal stream check')
+        with tempfile.TemporaryDirectory() as directory:
+            source = Path(directory) / 'streams.c'
+            object_file = Path(directory) / 'streams.o'
+            source.write_text('#include <stdio.h>\n'
+                              'FILE *litmus_out(void) { return stdout; }\n'
+                              'int litmus_error(void) { return fprintf(stderr, "%d", 1); }\n')
+            subprocess.run([compiler, '-O2', '-fno-builtin-fprintf', '-include',
+                            str(ROOT / 'sw/litmus-riscv-baremetal/litmus7-streams.h'),
+                            '-c', str(source), '-o', str(object_file)], check=True)
+            undefined = subprocess.check_output([nm, '-u', str(object_file)], text=True)
+            self.assertNotIn('_impure_ptr', undefined)
+            self.assertIn('litmus_baremetal_stdout_stream', undefined)
+            self.assertIn('litmus_baremetal_stderr_stream', undefined)
 
     def test_unknown_instruction_is_rejected_instead_of_silently_removed(self):
         source = (SOURCE / 'tests' / PATHS['MP']).read_text()

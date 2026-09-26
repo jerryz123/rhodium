@@ -344,7 +344,8 @@ def main():
                  riscv_tests / 'env/encoding.h', model):
         key_bytes += hashlib.sha256(path.read_bytes()).digest()
     if litmus7:
-        for path in (runtime / 'litmus7-port.c', runtime / 'litmus7-main.c'):
+        for path in (runtime / 'litmus7-port.c', runtime / 'litmus7-main.c',
+                     runtime / 'litmus7-streams.h'):
             key_bytes += hashlib.sha256(path.read_bytes()).digest()
     for name in selected:
         key_bytes += cases[name][0].read_bytes()
@@ -423,6 +424,8 @@ def main():
                         build_failures.append(dict(name=name, source=str(path.relative_to(source)), stage='runtime adaptation'))
                         continue
                     compile_test = flags + [f'-I{generated}', '-Dmain=litmus_generated_main',
+                                            '-fno-builtin-fprintf', '-include',
+                                            str(runtime / 'litmus7-streams.h'),
                                             '-c', str(generated / f'{name}.c'), '-o', str(test_object)]
                     log.write(' '.join(compile_test) + '\n')
                     result = subprocess.run(compile_test, stdout=log, stderr=subprocess.STDOUT)

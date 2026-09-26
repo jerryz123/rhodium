@@ -16,6 +16,12 @@ the RTL-owned `RiscvPhysicalMemoryMap`.
 The patched Spike `lrsc_accessible` hook supplies the full access size and
 read/write direction before reservation matching; keep its physical-map
 classification and atomic support bit aligned with the typed DPI response.
+The patched AMO scope supplies a translated full-width physical operand before
+Spike's load/store pair. The DPI model must finish all classification and
+exclusive-line acquisition before activating that scope, then serve every
+enclosed byte access without yielding or accepting a snoop. Do not hold the
+scope while waiting for CHI ownership; the coroutine must continue serving
+snoops during that wait.
 The pinned Spike CBO.ZERO hook must keep the full-block PMA check and coherent
 unique-line update in `dpi/spike_core.cc`; never expose private cache storage
 through `addr_to_mem` as a shortcut.

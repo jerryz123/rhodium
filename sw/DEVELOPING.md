@@ -79,6 +79,10 @@ removes the generated `fflush` after its directly emitted HTIF output. It does
 not rewrite generated test instructions or outcome code. The port forwards only
 the test identity and complete histogram with one HTIF write per line;
 litmus7's witness and provenance footer is not used by the model checker.
+Compile the generated test body with the port's `litmus7-streams.h` shim so
+its `stdout` and `stderr` identities do not evaluate Newlib's stream globals.
+The port ignores these stream arguments; do not let generated output pull in
+Newlib stdio's medlow-only objects at the high RAM address.
 Keep histogram-header parsing local and bounded: formatted input from Newlib
 pulls stdio and allocator objects whose medlow relocations cannot link into
 the high-address bare-metal memory image.

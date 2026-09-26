@@ -6,6 +6,10 @@
 #include <string.h>
 #include "utils.h"
 
+// litmus7's stream arguments are identities only; emit_char ignores them.
+FILE litmus_baremetal_stdout_stream;
+FILE litmus_baremetal_stderr_stream;
+
 #ifndef LITMUS_HARTS
 #error LITMUS_HARTS must name the fixed litmus7 worker count
 #endif

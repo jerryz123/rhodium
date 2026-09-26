@@ -35,6 +35,8 @@ The queue is ordered so each change can be reviewed and removed independently:
    full LR/SC physical range and permissions before testing reservation state.
 9. `0009-route-cbo-zero-through-simif.patch` lets embedded coherent caches
    perform CBO.ZERO without exposing a direct host-memory pointer.
+10. `0010-scope-amo-memory-access.patch` gives embedded coherent caches the full
+    physical AMO operand and an exception-safe scope around Spike's load/store.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

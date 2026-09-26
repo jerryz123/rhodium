@@ -1,0 +1,70 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Scope embedded AMO memory access around the complete operand
+Purpose: Let an embedded coherent cache retain exclusive ownership across Spike's AMO load and store.
+SPDX-License-Identifier: Apache-2.0
+
+Spike computes AMOs with separate load and store calls. An embedded memory
+model may yield between those calls, losing coherent ownership and atomicity.
+Give the model the translated physical address and complete operand width
+before the load, and end the scope even when a trigger or access traps. Normal
+direct-backed simulators retain their existing behavior through no-op hooks.
+
+diff --git a/riscv/simif.h b/riscv/simif.h
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -20,6 +20,9 @@ public:
+   virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
+   // Return true after zeroing a block owned by an embedded memory model.
+   virtual bool cache_block_zero(reg_t, size_t) { return false; }
+   // used for MMIO addresses
++  // Embedded coherent models may hold ownership across an AMO's load and store.
++  virtual bool amo_begin(reg_t, size_t) { return true; }
++  virtual void amo_end() {}
+   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
+   virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -190,11 +190,33 @@ class mmu_t : public abstract_device_t {
+     return true;
+   }
+
++  struct amo_guard_t {
++    simif_t* sim;
++    explicit amo_guard_t(simif_t* sim) : sim(sim) {}
++    amo_guard_t(const amo_guard_t&) = delete;
++    amo_guard_t& operator=(const amo_guard_t&) = delete;
++    ~amo_guard_t() { sim->amo_end(); }
++  };
++
++  amo_guard_t begin_amo(reg_t addr, size_t len, xlate_flags_t flags = {}) {
++    // The store preflight has already checked write access. Check read access
++    // before acquiring ownership, and use the complete physical operand even
++    // when a permitted misaligned AMO is split into byte MMIO callbacks.
++    auto access_info = generate_access_info(addr, LOAD, flags);
++    reg_t paddr = translate(access_info, len);
++    if (!flags.is_special_access())
++      refill_tlb(addr, paddr, sim->addr_to_mem(paddr), LOAD);
++    if (!sim->amo_begin(paddr, len))
++      throw trap_store_access_fault(access_info.effective_virt, access_info.transformed_vaddr, 0, 0);
++    return amo_guard_t(sim);
++  }
++
+   // template for functions that perform an atomic memory operation
+   template<typename T, typename op>
+   T amo(reg_t addr, op f) {
+     convert_load_traps_to_store_traps({
+       store_slow_path(addr, sizeof(T), nullptr, {}, false, enforce_amo_alignment(addr, sizeof(T)));
++      auto amo_guard = begin_amo(addr, sizeof(T));
+       auto lhs = load<T>(addr);
+       store<T>(addr, f(lhs));
+       return lhs;
+@@ -215,6 +237,7 @@ class mmu_t : public abstract_device_t {
+   T amo_compare_and_swap(reg_t addr, T comp, T swap) {
+     convert_load_traps_to_store_traps({
+       store_slow_path(addr, sizeof(T), nullptr, {}, false, enforce_amo_alignment(addr, sizeof(T)));
++      auto amo_guard = begin_amo(addr, sizeof(T));
+       auto lhs = load<T>(addr);
+       if (lhs == comp)
+         store<T>(addr, swap);
