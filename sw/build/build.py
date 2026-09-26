@@ -23,7 +23,7 @@ MULTIHART_BENCHMARK_REQUIREMENTS = {'mt-vvadd': frozenset(('d',)),
                                     'mt-matmul': frozenset(),
                                     'mt-memcpy': frozenset()}
 FLAGS = ('-U_FORTIFY_SOURCE -DPREALLOCATE=0 -mcmodel=medany -static -std=gnu99 '
-         '-O2 -ffast-math -fno-common -fno-builtin-printf '
+         '-O3 -ffast-math -fno-common -fno-builtin-printf '
          '-fno-tree-loop-distribute-patterns -Wno-implicit-int '
          '-Wno-implicit-function-declaration')
 BASELINE_MARCH = 'rv64imafdc_zicsr_zifencei'
@@ -352,7 +352,8 @@ def main():
         manifest['selection'] = args.isa_selection
     if args.suite == 'benchmark':
         manifest.update(benchmark_mode=args.benchmark_mode, march=march, mabi=mabi,
-                        benchmark_selection=args.benchmark_selection, compiler_arch=compiler_arch)
+                        benchmark_selection=args.benchmark_selection, compiler_arch=compiler_arch,
+                        compiler_flags=f'{FLAGS} -mabi={mabi}')
         if args.benchmark_selection == 'multihart':
             manifest['benchmark_hart_count'] = args.benchmark_hart_count
         (output / 'instruction-report.json').write_text(json.dumps({

@@ -8,6 +8,10 @@ Rhodium bare-metal ports, downstream source patches, and ELF builders. The
 upstream submodules remain pristine. Generated sources, firmware, and ELFs live
 under the build roots, not in this directory.
 
+The RISC-V, CoreMark, Embench-IoT, and Bringup-Bench performance workloads use
+`-O3`. CoreMark-scalar also disables auto-vectorization. The generated manifests
+record the compiler flags and identify each binary's target and source revision.
+
 | Software | Source and adaptation |
 |---|---|
 | RISC-V ISA tests and benchmarks | [`riscv-isa-tests/`](riscv-isa-tests/) and [`build/`](build/) |

@@ -25,7 +25,7 @@ FORBIDDEN_OUTPUT = ('ERROR! list crc', 'ERROR! matrix crc', 'ERROR! state crc',
                     'ERROR! Rhodium CoreMark platform type mismatch',
                     'ERROR: ee_u32 is not a 32b datatype!',
                     'Cannot validate operation')
-COMMON_FLAGS = ('-O2', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding', '-fno-common',
+COMMON_FLAGS = ('-O3', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding', '-fno-common',
                 '-fno-builtin', '-fno-pie', '-ffunction-sections', '-fdata-sections')
 SCALAR_FLAGS = ('-fno-tree-vectorize',)
 
@@ -131,6 +131,7 @@ def main():
         tests.append(test)
         report.append(dict(name=name, elf_arch=elf_arch, **instruction_inventory(objdump, elf)))
     manifest = dict(suite=args.variant, revision=revision, compiler=version, cache_key=key,
+                    compiler_flags=flag_text,
                     iterations=args.iterations, march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
                     target_fingerprint=target_fingerprint(target), tests=tests)

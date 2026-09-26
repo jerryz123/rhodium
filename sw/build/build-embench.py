@@ -22,7 +22,7 @@ BENCHMARKS = ('aha-mont64', 'crc32', 'depthconv', 'edn', 'huffbench', 'matmult-i
 FUNCTIONAL_PROFILES = dict(
     xgboost=dict(sample_indices=(3, 2, 1, 18, 4, 8, 11, 0, 61, 7), expected_correct=9))
 SUPPORT_SOURCES = ('support/main.c', 'support/beebsc.c')
-COMMON_FLAGS = ('-O2', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding',
+COMMON_FLAGS = ('-O3', '-mcmodel=medany', '-static', '-std=gnu99', '-ffreestanding',
                 '-fno-common', '-fno-builtin', '-fno-pie', '-ffunction-sections',
                 '-fdata-sections', '-fno-tree-loop-distribute-patterns')
 
@@ -213,6 +213,8 @@ def main():
             report.append(dict(name=benchmark, elf_arch=elf_arch,
                                **instruction_inventory(objdump, elf)))
     manifest = dict(suite='embench', revision=revision, compiler=version, cache_key=key,
+                    compiler_flags=' '.join((*COMMON_FLAGS, f'-march={target["march"]}',
+                                             f'-mabi={target["mabi"]}')),
                     mode='functional', scoring=False, scale=args.scale,
                     local_scale=args.local_scale, upstream_local_scales=upstream_scales,
                     functional_profiles=FUNCTIONAL_PROFILES,

@@ -17,7 +17,7 @@ from program_target import (elf_architecture, instruction_inventory, load_target
                             probe_compiler, readelf_for, target_fingerprint)
 from riscv.patched_submodule import materialize, read_series
 
-COMMON_FLAGS = ('-O2', '-std=gnu99', '-mcmodel=medany', '-static', '-ffreestanding',
+COMMON_FLAGS = ('-O3', '-std=gnu99', '-mcmodel=medany', '-static', '-ffreestanding',
                 '-fno-common', '-fno-builtin', '-fno-pie', '-fno-tree-loop-distribute-patterns',
                 '-DLIBMIN_MALLOC_ALIGN_BYTES=8', '-DTARGET_RHODIUM')
 HASH_PATTERN = re.compile(r'\*\* hashval = 0x([0-9a-fA-F]{16})\n?\Z')
@@ -249,6 +249,8 @@ def main():
                           load_segments=check_elf_memory(elf, target['ram'])))
         report.append(dict(name=name, elf_arch=elf_arch, **instruction_inventory(objdump, elf)))
     manifest = dict(suite='bringup-bench', revision=revision, compiler=version, cache_key=key,
+                    compiler_flags=' '.join((*COMMON_FLAGS, f'-march={target["march"]}',
+                                             f'-mabi={target["mabi"]}')),
                     patch_series_sha256=hashlib.sha256(series.read_bytes()).hexdigest(),
                     patches=[dict(name=patch.name, sha256=hashlib.sha256(patch.read_bytes()).hexdigest())
                              for patch in patches],
