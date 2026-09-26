@@ -22,7 +22,7 @@ check:
   rv64.outputs.map(fun (port): port.name) ~is [
     "redirect_out", "interrupt_request", "retired", "wfi_retired", "wfi_wake",
     "writeback_valid", "writeback_value", "privilege", "mstatus", "satp",
-    "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_enabled", "cbo_permission", "translation_flush",
+    "frm", "fp_enabled", "vector_enabled", "vector_state", "cbo_zero_enabled", "cbo_permission", "translation_flush", "pbmte",
     "pointer_masking", "pointer_masking_changed"
   ]
   rv64.find_input("interrupts").type.field("machine_timer").type.packed_width() ~is 1
@@ -34,6 +34,8 @@ check:
   rv32.find_input("vector_truncate_in").type.field("bits").type.width ~is 32
   rv64.find_output("writeback_value").type.width ~is 64
   rv32.find_output("satp").type.width ~is 32
+  rv64.find_output("pbmte").type.type_equal(Bool) ~is #true
+  rv32.find_output("pbmte").type.type_equal(Bool) ~is #true
   rv64.find_output("pointer_masking").type.type_equal(PointerMaskControl()) ~is #true
   rv32.find_output("pointer_masking").type.type_equal(PointerMaskControl()) ~is #true
   rv64.find_output("pointer_masking_changed").type.type_equal(Bool) ~is #true

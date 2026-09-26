@@ -313,6 +313,16 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(software.count("configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 2)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 
+    def test_arch_jobs_restore_and_check_every_spike_runtime(self):
+        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
+        arch_job = workflow.split("  arch:\n", 1)[1]
+        for step_name in ("Install Spike runtime dependencies", "Restore pinned Spike runtime libraries"):
+            with self.subTest(step=step_name):
+                step = arch_job.split(f"      - name: {step_name}\n", 1)[1]
+                self.assertTrue(step.startswith("        if: startsWith(matrix.configuration, 'simple-spike-')\n"))
+        self.assertIn('library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"', arch_job)
+        self.assertIn('if [[ "$library_bindings" == *"not found"* ]]; then', arch_job)
+
 
 if __name__ == "__main__":
     unittest.main()
