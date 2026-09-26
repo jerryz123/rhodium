@@ -21,8 +21,8 @@ SELECT
     (EXTRACT_ARG(parent_args,'debug.packed') IS NOT EXTRACT_ARG(child_args,'debug.packed') OR
      EXTRACT_ARG(parent_args,'debug.op_index') IS NOT EXTRACT_ARG(child_args,'debug.op_index'))) AND
   (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/s1.access') AND
-  (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/s1.tags') AND
-  (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/s1.memory') AND
+  (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/arrays.tags') AND
+  (SELECT count(DISTINCT track_id)=1 FROM events WHERE name='dcache/arrays.data') AND
   (SELECT count(*)>0 FROM edges WHERE src='core/s3.execute' AND dst='dcache/s1.access') AND
   (SELECT count(*)>0 FROM edges WHERE src='vector/s2.issue' AND dst='dcache/s1.access') AND
   (SELECT count(*)=0 FROM edges WHERE dst='dcache/s1.access' AND

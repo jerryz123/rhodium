@@ -85,13 +85,13 @@ arbitration with post-eviction work, not on a separate numbered stage.
 The shared `dcache/s1.access` checkpoint belongs on physical resolution before
 the response/store-candidate fork. Capture outcome and reason there for both
 scalar and vector traffic. L1D returns load results combinationally in S1;
-`dcache/s1.tags` and `dcache/s1.memory` instead annotate the actual tag and
-data SRAM request ports. They fire on every port use, including snoop, refill,
-gather, and mutation owners, and expose the winning owner without treating a
-rejected speculative lookup as an SRAM access. Their request-cycle timestamps
-precede the corresponding S1 response by one cycle; the `s1` prefix names the
-stage those synchronous arrays feed, not a new pipeline register.
-the scalar `dcache/s2.resp` annotation observes the existing caller-owned WB
+`dcache/arrays.tags` and `dcache/arrays.data` instead annotate the actual tag
+and data SRAM request ports. They fire on every port use, including snoop,
+refill, gather, and mutation owners, and expose the winning owner without
+treating a rejected speculative lookup as an SRAM access. A core lookup uses
+these ports in S0; their request-cycle timestamps precede the corresponding S1
+response by one cycle. The stage-neutral names also cover non-core port owners.
+The scalar `dcache/s2.resp` annotation observes the existing caller-owned WB
 capture outside this module, not a new cache register or a fake S2 delay.
 Translation faults and arbitration losses may produce S2 responses without S1
 cache accesses.

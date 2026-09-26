@@ -316,8 +316,8 @@ Cache events describe shared resolution and the caller's response capture:
 
 | Label | Observation |
 | --- | --- |
-| `dcache/s1.tags` | Actual tag SRAM request, including snoop and refill ownership; captures array index, read/write direction, and owner. An S0 read feeding S1 appears in its request cycle. |
-| `dcache/s1.memory` | Actual data SRAM request, including lookup, gather, refill, mutation, and store-drain ownership; captures array index, read/write direction, and owner. |
+| `dcache/arrays.tags` | Actual tag SRAM request, including snoop and refill ownership; captures array index, read/write direction, and owner. A core S0 read feeding S1 appears in its request cycle. |
+| `dcache/arrays.data` | Actual data SRAM request, including lookup, gather, refill, mutation, and store-drain ownership; captures array index, read/write direction, and owner. |
 | `dcache/s1.access` | Shared physical-tag/data resolution; captures physical address, access kind, width, byte mask, outcome, and reason. Scalar and vector lookups use the same site. |
 | `dcache/s2.resp` | Scalar response captured at WB; captures PC, instruction, effective address, outcome, fault, replay, and slow-path `admitted`. |
 | `vector/memory.result` | Vector adapter's captured decision; captures PC, effective address, completion slot, outcome, fault, replay, and slow-path `admitted`. |

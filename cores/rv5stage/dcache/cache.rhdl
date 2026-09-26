@@ -740,7 +740,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     mask: install_way_mask
   def traced_tag_port = (
     inject_flow(Valid(ReadWriteRequest(set_width, Bits(tag_width), ways)), ~valid: array_lookup_issue ||| install_refill ||| snoop_lookup_start, ~bits: tag_port_request)
-      |> trace_valid_event("dcache/s1.tags", ~fields: request):
+      |> trace_valid_event("dcache/arrays.tags", ~fields: request):
         index: request.address
         write: request.write
         owner(~format: "enum"): tag_port_owner
@@ -795,7 +795,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     )
   def traced_data_port = (
     inject_flow(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
-      |> trace_valid_event("dcache/s1.memory", ~fields: request):
+      |> trace_valid_event("dcache/arrays.data", ~fields: request):
         index: request.address
         write: request.write
         owner(~format: "enum"): data_port_owner
