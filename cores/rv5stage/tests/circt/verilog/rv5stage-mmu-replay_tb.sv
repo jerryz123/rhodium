@@ -143,6 +143,8 @@ module rv5stage_mmu_replay_tb;
   logic [63:0] manual_pte_data = 0;
   integer manual_pte_requests = 0;
   bit vector_phase = 0, vector_superpage = 0, vector_bad_second = 0, vector_no_dirty = 0;
+  bit vector_napot = 0;
+  logic [63:0] napot_fetch_expected = 0;
   logic [63:0] vector_scalar_address = 0;
   integer vector_pte_requests = 0;
   bit priority_phase = 0, priority_pipeline_slow = 0;
@@ -244,7 +246,9 @@ module rv5stage_mmu_replay_tb;
           if (data_memory_out.request.bits.writeback == 0) begin
             vector_pte_requests <= vector_pte_requests + 1;
             pte_response_valid <= 1;
-            case (data_memory_out.request.bits.address)
+            if (vector_napot && data_memory_out.request.bits.address >= 64'h3000 && data_memory_out.request.bits.address < 64'h4000)
+              pte_response_data <= 64'h80000000000220cf; // One 64-KiB mapping at PA 0x80000.
+            else case (data_memory_out.request.bits.address)
               64'h1000: pte_response_data <= vector_superpage ? 64'hcf : LEVEL_2_POINTER;
               64'h2000: pte_response_data <= LEVEL_1_POINTER;
               64'h3020: pte_response_data <= vector_no_dirty ? 64'h2047 : 64'h20c7; // VA 0x4000 -> PA 0x8000, RWA[D].
@@ -327,7 +331,8 @@ module rv5stage_mmu_replay_tb;
     instruction_return_replay <= instruction_blocked;
     if (instruction_phase && !instruction_flush) begin
       if (instruction_memory_out.request.valid && !instruction_blocked) begin
-        assert (detached_walk_phase ? instruction_memory_out.request.bits.address == PHYSICAL_ADDRESS :
+        assert (vector_napot ? instruction_memory_out.request.bits.address == napot_fetch_expected :
+                detached_walk_phase ? instruction_memory_out.request.bits.address == PHYSICAL_ADDRESS :
                 instruction_requests_seen < (instruction_translation_phase ? 5 : 2) &&
                 instruction_memory_out.request.bits.address ==
                   (instruction_requests_seen == 4 ? 64'ha000 : 64'h8000 + 4 * 64'(instruction_requests_seen % 2)))
@@ -1187,7 +1192,39 @@ module rv5stage_mmu_replay_tb;
     // A TLB hit still checks this macro's store permission, including D.
     certify_range(64'h4000, 64'h40ff, 1, 0, 0, 1);
     release_window();
-    $display("RV5Stage frontend-owned ITLB replay, detached walks, DTLB demand, faults, and pipelined prefetch translation passed");
+    // One NAPOT leaf authorizes both 4-KiB window pages and fills a compact DTLB entry.
+    clear_translations();
+    vector_napot = 1; vector_bad_second = 0; vector_no_dirty = 0;
+    certify_range(64'h4fc0, 64'h503f, 1, 1, 3);
+    pipeline_vector = 1;
+    check_load_pipeline(64'h4ff8, 1, 64'h84ff8);
+    check_load_pipeline(64'h5000, 1, 64'h85000);
+    pipeline_vector = 0;
+    release_window();
+    check_load_pipeline(64'heff8, 1, 64'h8eff8);
+    check_isolated_hint(64'hc080, 2'd2, 1, 64'h8c080);
+    // A 64-KiB boundary needs a second leaf, even when both leaves use the same PPN.
+    clear_translations();
+    certify_range(64'hffc0, 64'h1003f, 0, 1, 6);
+    pipeline_vector = 1;
+    check_load_pipeline(64'hfff8, 1, 64'h8fff8);
+    check_load_pipeline(64'h10000, 1, 64'h80000);
+    pipeline_vector = 0;
+    release_window();
+    clear_translations();
+    // ITLB misses use the same compact mapping, then every subpage hits without walking.
+    instruction_phase = 1;
+    begin
+      automatic int before_ptes = vector_pte_requests;
+      for (int page = 0; page < 16; page++) begin
+        napot_fetch_expected = 64'h80000 + 64'(page * 4096);
+        fetch_word(64'(page * 4096));
+      end
+      assert (vector_pte_requests == before_ptes + 3) else $fatal(1, "ITLB did not retain compact NAPOT mapping");
+      check_isolated_hint(64'hd080, 2'd1, 1, 64'h8d080);
+    end
+    instruction_phase = 0;
+    $display("RV5Stage ITLB/DTLB replay, Svnapot, faults, prefetch and vector translation passed");
     $finish;
   end
 endmodule

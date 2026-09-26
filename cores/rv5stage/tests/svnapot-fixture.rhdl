@@ -1,0 +1,105 @@
+#lang rhodium
+// Exposes Svnapot leaf validation and production walker/TLB demand and probe behavior.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../mmu/walker.rhdl" open
+  "../mmu/tlb.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../csr.rhdl".PrivilegeMode
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageSvnapotFixture():
+  input command_valid: Bool
+  output command_ready: Bool
+  input address: Bits(64)
+  input access: Sv39Access
+  input privilege: PrivilegeMode
+  input sum: Bool
+  input mxr: Bool
+  input pbmte: Bool
+  input cancel: Bool
+  input memory_ready: Bool
+  input memory_fault: Bool
+  input response_valid: Bool
+  input pte: Bits(64)
+  output memory_valid: Bool
+  output memory_address: Bits(64)
+  input completion_ready: Bool
+  output completed: Bool
+  output fault: Bool
+  output access_fault: Bool
+  output result_address: Bits(56)
+  output result_base_ppn: Bits(44)
+  output result_size: Sv39PageSize
+  output result_pbmt: PageMemoryType
+  input validation_level: Bits(2)
+  output pte_valid: Bool
+  output disabled_pte_valid: Bool
+  input lookup_address: Bits(64)
+  input enabled: Bool
+  input invalidate: Bool
+  output hit: Bool
+  output tlb_fault: Bool
+  output tlb_address: Bits(56)
+  output tlb_size: Sv39PageSize
+  output tlb_pbmt: PageMemoryType
+  output probe_hit: Bool
+  output probe_fault: Bool
+  output probe_address: Bits(56)
+  output probe_pbmt: PageMemoryType
+
+  pte_valid <== sv39_pte_structurally_valid(pte.into(Sv39Pte()), ~level: validation_level, ~svnapot: #true, ~pbmte: pbmte)
+  disabled_pte_valid <== sv39_pte_structurally_valid(pte.into(Sv39Pte()), ~level: validation_level, ~pbmte: pbmte)
+  inst walker(RV5StagePageTableWalker(~svnapot: #true))
+  walker.cancel <== cancel
+  walker.request.valid <== command_valid
+  walker.request.bits <== RV5StageTranslationRequest():
+    virtual_address: address
+    root_ppn: bits(1, 44)
+    access: access
+    privilege: privilege
+    sum: sum
+    mxr: mxr
+    pbmte: pbmte
+  command_ready <== walker.request.ready
+  walker.memory.request.ready <== memory_ready
+  walker.memory.request_access_fault <== memory_fault
+  walker.memory.response.valid <== response_valid
+  walker.memory.response.bits <== pte
+  memory_valid <== walker.memory.request.valid
+  memory_address <== walker.memory.request.bits
+  completed <== walker.completion.valid
+  fault <== walker.completion.bits.fault
+  access_fault <== walker.completion.bits.access_fault
+  result_address <== walker.completion.bits.physical_address
+  result_base_ppn <== walker.completion.bits.base_ppn
+  result_size <== walker.completion.bits.page_size
+  result_pbmt <== walker.completion.bits.pbmt
+
+  inst tlb(RV5StageTlb(2))
+  walker.completion |> gate_flow(completion_ready & !cancel) |> to_valid() |> tlb.fill
+  tlb.virtual_address <== lookup_address
+  tlb.access <== access
+  tlb.privilege <== privilege
+  tlb.sum <== sum
+  tlb.mxr <== mxr
+  tlb.enabled <== enabled
+  tlb.invalidate_all <== invalidate
+  tlb.probe_virtual_address <== lookup_address
+  tlb.probe_privilege <== privilege
+  tlb.probe_sum <== sum
+  tlb.probe_mxr <== mxr
+  tlb.probe_enabled <== enabled
+  hit <== tlb.hit
+  tlb_fault <== tlb.fault
+  tlb_address <== tlb.physical_address
+  tlb_size <== tlb.translation.page_size
+  tlb_pbmt <== tlb.translation.pbmt
+  probe_hit <== tlb.probe_hit
+  probe_fault <== tlb.probe_fault
+  probe_address <== tlb.probe_physical_address
+  probe_pbmt <== tlb.probe_pbmt
+
+export RV5StageSvnapotFixture

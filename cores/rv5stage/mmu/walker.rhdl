@@ -15,7 +15,7 @@ hardware_enum RV5StagePageWalkState:
   Response
   Complete
 
-sync_circuit RV5StagePageTableWalker():
+sync_circuit RV5StagePageTableWalker(~svnapot: svnapot :: Boolean = #false):
   interface request(Decoupled(RV5StageTranslationRequest()), ~role: consumer)
   interface completion(Irrevocable(RV5StageTranslationResult()), ~role: producer)
   interface memory(RV5StagePageTableMemory(), ~role: requester)
@@ -44,12 +44,14 @@ sync_circuit RV5StagePageTableWalker():
   def memory_response_received = memory.response.valid & waiting_for_memory
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = pte.sv39_leaf()
-  def structural_fault = !sv39_pte_structurally_valid(pte, ~pbmte: operation.pbmte) ||| (
+  def structural_fault = !sv39_pte_structurally_valid(pte, ~level: level, ~svnapot: svnapot, ~pbmte: operation.pbmte) ||| (
     leaf & !pte.sv39_superpage_aligned(level)
   ) ||| (!leaf & ((level === bits(0, 2)) ||| pte.dirty ||| pte.accessed ||| pte.user))
   def permission_fault = leaf & !pte.sv39_permission_valid(operation.access, operation.privilege === PrivilegeMode.User, operation.privilege === PrivilegeMode.Supervisor, operation.sum, operation.mxr)
   def completes_walk = structural_fault ||| leaf
   def walk_fault = structural_fault ||| permission_fault
+  def page_size = sv39_page_size(pte, level)
+  def base_ppn = sv39_base_ppn(pte.ppn, page_size)
 
   completion.valid <== state === RV5StagePageWalkState.Complete
   completion.bits <== result
@@ -72,8 +74,8 @@ sync_circuit RV5StagePageTableWalker():
       result <== RV5StageTranslationResult():
         virtual_address: request.bits.virtual_address
         physical_address: bits(0, 56)
-        ppn: bits(0, 44)
-        level: bits(0, 2)
+        base_ppn: bits(0, 44)
+        page_size: Sv39PageSize.Page4KiB
         user: Bool(#false)
         read: Bool(#false)
         write: Bool(#false)
@@ -89,8 +91,8 @@ sync_circuit RV5StagePageTableWalker():
     result <== RV5StageTranslationResult():
       virtual_address: operation.virtual_address
       physical_address: bits(0, 56)
-      ppn: bits(0, 44)
-      level: level
+      base_ppn: bits(0, 44)
+      page_size: Sv39PageSize.Page4KiB
       user: Bool(#false)
       read: Bool(#false)
       write: Bool(#false)
@@ -109,9 +111,9 @@ sync_circuit RV5StagePageTableWalker():
       result <== RV5StageTranslationResult():
         virtual_address: operation.virtual_address
         pbmt: mux(walk_fault, PageMemoryType.PMA, pte.pbmt)
-        physical_address: sv39_physical_address(operation.virtual_address, pte, level)
-        ppn: pte.ppn
-        level: level
+        physical_address: sv39_physical_address(operation.virtual_address, base_ppn, page_size)
+        base_ppn: base_ppn
+        page_size: page_size
         user: pte.user
         read: pte.read
         write: pte.write

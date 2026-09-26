@@ -32,6 +32,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
                          mmu_mode :: RV5StageMmuMode,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8,
+                         ~svnapot: svnapot :: Boolean = #false,
                          ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
   interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
@@ -58,7 +59,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   inst itlb(RV5StageTlb(tlb_entries))
   inst dtlb(RV5StageTlb(tlb_entries))
-  inst walker(RV5StagePageTableWalker())
+  inst walker(RV5StagePageTableWalker(~svnapot: svnapot))
   inst vector_window(RV5StageVectorWindow(physical_map))
   vector_precheck |> vector_window.check
   def page_probe = vector_window.translation

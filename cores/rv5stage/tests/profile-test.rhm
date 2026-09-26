@@ -134,6 +134,10 @@ for (xlen in [XLen.X32, XLen.X64]):
 
 check:
   RV5StageCacheLineBytes ~is 64
+  (RV5StageExtensions() with (svnapot = #true)).svnapot ~is #true
+  RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~svnapot: #true)).extensions.svnapot ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~svnapot: #true)) ~throws "Svnapot requires RV64 Sv39"
+  RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Bare, ~extensions: RV5StageExtensions(~svnapot: #true)) ~throws "Svnapot requires RV64 Sv39"
   RV5StageCacheConfig(32, 1).capacity_bytes ~is 2048
   RV5StageCacheConfig(64, 1).capacity_bytes ~is 4096
   RV5StageCacheConfig(64, 4).capacity_bytes ~is 16384

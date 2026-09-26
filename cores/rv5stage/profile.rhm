@@ -56,6 +56,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          ssnpm :: Boolean,
                          supm :: Boolean,
                          svpbmt :: Boolean,
+                         svnapot :: Boolean,
                          zawrs :: Boolean,
                          zihintpause :: Boolean,
                          zihintntl :: Boolean,
@@ -74,14 +75,15 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~ssnpm: ssnpm :: Boolean = #false,
                ~supm: supm :: Boolean = #false,
                ~svpbmt: svpbmt :: Boolean = #false,
+               ~svnapot: svnapot :: Boolean = #false,
                ~zawrs: zawrs :: Boolean = #false,
                ~zihintpause: zihintpause :: Boolean = #false,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, zawrs, zihintpause, zihintntl, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, zawrs, zihintpause, zihintntl, compressed)
 
   reconstructor (floating_point, half_precision, zfa, zicbop, zicboz,
-                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, zawrs,
+                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, zawrs,
                  zihintpause, zihintntl, compressed):
     RV5StageExtensions(
       ~floating_point: floating_point,
@@ -96,6 +98,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
       ~ssnpm: ssnpm,
       ~supm: supm,
       ~svpbmt: svpbmt,
+      ~svnapot: svnapot,
       ~zawrs: zawrs,
       ~zihintpause: zihintpause,
       ~zihintntl: zihintntl,
@@ -108,6 +111,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
   method names(xlen :: XLen) :: NonemptyList.of(String):
     // Svpbmt currently selects CSR/translation component qualification only;
     // advertise it after physical routing and CHI support are integrated.
+    // Svnapot remains opt-in RTL pending architectural qualification/advertisement.
     def mutable single_letter = ["i", "m", "a"]
     when floating_point_supports_f(floating_point)
     | single_letter := single_letter ++ ["f"]
@@ -237,6 +241,8 @@ class RV5StageConfig(xlen :: XLen,
     | error(~who: #'RV5StageConfig, "RV32 profiles support only Bare translation")
     when extensions.svpbmt && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
     | error(~who: #'RV5StageConfig, "Svpbmt requires RV64 Sv39")
+    when extensions.svnapot && (xlen != XLen.X64 || mmu_mode != RV5StageMmuMode.Sv39)
+    | error(~who: #'RV5StageConfig, "Svnapot requires RV64 Sv39")
     check_rv5stage_vector_profile(xlen, extensions.floating_point, extensions.half_precision, vector, vector_extensions)
     when vector_profile_enabled(vector) && vector_length < 2 * xlen.width
     | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")

@@ -969,7 +969,11 @@ more ways increase total capacity without adding virtual index bits. Physical
 tags retain every address bit above the set index, including page-offset bits
 not consumed by smaller geometries. MiniRV5StageSoC's 32-set, one-way caches remain 2 KiB.
 
-RV64 supports Bare and Sv39 translation; RV32 remains Bare. Early virtual
+RV64 supports Bare and Sv39 translation; RV32 remains Bare. Sv39
+translation can optionally support 64 KiB mappings with
+`RV5StageExtensions(~svnapot: #true)`; see the
+[MMU contract](mmu/README.md#supported-sv39-behavior-and-deliberate-limits).
+This opt-in is not yet an ISA/UDB or SoC-profile claim. Early virtual
 lookups reach the SRAMs independently of translation and physical-region checks.
 A permitted physical request is paired with the read at the clock edge; only
 that resolved token can initiate an authorized transaction. For ordinary loads/stores,
@@ -1148,7 +1152,7 @@ successor PC. Clock gating and hypervisor modes are not implemented.
   controllers remain outside this slice.
 - `WFI` quiesces instruction issue but does not gate the core clock; physical
   clock gating and always-on wake distribution remain platform policy.
-- Sv48/Sv57, nonzero ASIDs, hardware A/D updates, PBMT, NAPOT, multi-hart
+- Sv48/Sv57, nonzero ASIDs, hardware A/D updates, integrated PBMT, multi-hart
   shootdown, and speculative page-table walks are not implemented.
 - `SFENCE.VMA` and `satp` writes conservatively flush both TLBs completely.
 - Zicbop translation is TLB-hit-only and never launches a page-table walk;

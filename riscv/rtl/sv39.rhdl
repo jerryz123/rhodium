@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines Sv39 values and demand, cache-management, and prefetch permission helpers.
+// Defines Sv39/Svnapot mapping geometry and demand, management, and prefetch permissions.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,12 @@ hardware_enum Sv39Access:
   Load
   Store
   CacheManagement
+
+hardware_enum Sv39PageSize:
+  Page4KiB
+  Page64KiB
+  Page2MiB
+  Page1GiB
 
 bundle Sv39Pte():
   napot: Bool
@@ -47,19 +53,40 @@ fun sv39_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(9):
 fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
   pte.read ||| pte.execute
 
-fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
+fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~level: level :: Bits(2) = bits(0, 2), ~svnapot: svnapot :: Boolean = #false, ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
   def pbmt_valid = (pte.pbmt === PageMemoryType.PMA) ||| (pbmte & sv39_leaf(pte) & (pte.pbmt =/= PageMemoryType.Reserved))
-  pte.valid & !(pte.write & !pte.read) & !pte.napot & !pte.reserved.or_reduce() & pbmt_valid
+  def napot_valid = !pte.napot ||| (Bool(svnapot) & sv39_leaf(pte) & (level === bits(0, 2)) & (pte.ppn[0..4] === bits(8, 4)))
+  pte.valid & !(pte.write & !pte.read) & napot_valid & !pte.reserved.or_reduce() & pbmt_valid
 
 fun sv39_superpage_aligned(pte :: Sv39Pte(), level :: Bits(2)) :~ Bool:
   mux_lookup(level, ~default: !pte.ppn[0..18].or_reduce()):
     0: Bool(#true)
     1: !pte.ppn[0..9].or_reduce()
 
-fun sv39_physical_address(virtual_address :: Bits(64), pte :: Sv39Pte(), level :: Bits(2)) :~ Bits(56):
-  mux_lookup(level, ~default: concat(pte.ppn[18..44], virtual_address[12..30], virtual_address[0..12])):
-    0: (pte.ppn ++ virtual_address[0..12])
-    1: concat(pte.ppn[9..44], virtual_address[12..21], virtual_address[0..12])
+// Only structurally valid, aligned leaves reach mapping construction.
+fun sv39_page_size(pte :: Sv39Pte(), level :: Bits(2)) :~ Sv39PageSize:
+  mux_lookup(level, ~default: Sv39PageSize.Page1GiB):
+    0: mux(pte.napot, Sv39PageSize.Page64KiB, Sv39PageSize.Page4KiB)
+    1: Sv39PageSize.Page2MiB
+
+fun sv39_base_ppn(ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(44):
+  mux_lookup(page_size, ~default: ppn):
+    Sv39PageSize.Page64KiB: ppn[4..44] ++ bits(0, 4)
+    Sv39PageSize.Page2MiB: ppn[9..44] ++ bits(0, 9)
+    Sv39PageSize.Page1GiB: ppn[18..44] ++ bits(0, 18)
+
+fun sv39_same_page(left :: Bits, right :: Bits(left.type.packed_width()), page_size :: Sv39PageSize) :~ Bool:
+  def width = left.type.packed_width()
+  mux_lookup(page_size, ~default: left[12..width] === right[12..width]):
+    Sv39PageSize.Page64KiB: left[16..width] === right[16..width]
+    Sv39PageSize.Page2MiB: left[21..width] === right[21..width]
+    Sv39PageSize.Page1GiB: left[30..width] === right[30..width]
+
+fun sv39_physical_address(virtual_address :: Bits(64), base_ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(56):
+  mux_lookup(page_size, ~default: base_ppn ++ virtual_address[0..12]):
+    Sv39PageSize.Page64KiB: base_ppn[4..44] ++ virtual_address[0..16]
+    Sv39PageSize.Page2MiB: base_ppn[9..44] ++ virtual_address[0..21]
+    Sv39PageSize.Page1GiB: base_ppn[18..44] ++ virtual_address[0..30]
 
 fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
                           user_mode :: Bool, supervisor_mode :: Bool,
@@ -93,6 +120,7 @@ fun sv39_prefetch_permission_valid(pte :: Sv39Pte(),
 export:
   PageMemoryType
   Sv39Access
+  Sv39PageSize
   Sv39Pte
   Sv39Translation
   sv39_canonical
@@ -100,6 +128,9 @@ export:
   sv39_leaf
   sv39_pte_structurally_valid
   sv39_superpage_aligned
+  sv39_page_size
+  sv39_base_ppn
+  sv39_same_page
   sv39_physical_address
   sv39_permission_valid
   sv39_prefetch_permission_valid

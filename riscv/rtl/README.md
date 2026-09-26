@@ -218,8 +218,16 @@ not part of this reusable combinational layer.
 
 `Sv39Pte()` separates the N bit, PBMT field, and remaining reserved bits.
 `sv39_pte_structurally_valid(pte, ~pbmte: enabled)` accepts NC and IO only on
-leaf PTEs with PBMTE enabled; reserved PBMT, non-leaf overrides, NAPOT, and
-other reserved bits remain faults. The default PBMTE is false.
+leaf PTEs with PBMTE enabled; reserved PBMT, non-leaf overrides, and other
+reserved bits remain faults. The default PBMTE is false. Svnapot is separately
+opted into with `~svnapot: #true` and the current `~level`: N=1 is legal only
+on a level-zero leaf with PPN[3:0]=8, encoding a 64 KiB mapping. It faults by
+default. See the [Svnapot 1.0 rules](https://docs.riscv.org/reference/isa/v20240411/priv/svnapot.html).
+
+`Sv39PageSize` distinguishes 4 KiB, 64 KiB, 2 MiB, and 1 GiB mappings from
+walker levels. `sv39_page_size` and `sv39_base_ppn` normalize a validated leaf;
+`sv39_same_page` compares mapping coverage, and `sv39_physical_address` combines
+its base PPN with the virtual offset. Validation must precede these helpers.
 
 [`svpbmt.rhdl`](svpbmt.rhdl) implements the
 [Svpbmt 1.0 attribute rules](https://docs.riscv.org/reference/isa/v20240411/priv/svpbmt.html).

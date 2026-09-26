@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's public boundary, CMO and main-memory guarantees, and configuration rejection.
+// Checks RV5Stage's public boundary, Svnapot composition, memory guarantees, and configuration rejection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,7 +20,7 @@ def rv64_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(
     core_profile.RV5StageConfig(
       ~xlen: XLen.X64,
-      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
+      ~extensions: core_profile.RV5StageExtensions(~zicbom: #true, ~ziccif: #true, ~ziccamoa: #true, ~ziccrse: #true, ~svnapot: #true, ~compressed: compressed_extensions(CompressedExtension.Zca)),
       ~mmu_mode: core_profile.RV5StageMmuMode.Sv39,
       ~data_cache_service_queue_depth: 3
     ),

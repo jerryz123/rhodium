@@ -240,7 +240,7 @@ completion geometry. No memory adapter imports a cache implementation.
 `vector/precheck.rhdl` imports vector descriptor/control types, the named MMU
 precheck protocol, pure vector/XLEN geometry, and the public pointer-mask
 adapter. `mmu/vector-window.rhdl` imports that MMU protocol, public RISC-V PMA
-descriptors, and Flow; it imports no vector implementation. The MMU protocol
+descriptors, Sv39 mapping geometry, and Flow; it imports no vector implementation. The MMU protocol
 owns the range/probe interfaces, keeping dependency direction from vector to
 translation contracts rather than from translation into vector execution.
 `vector/fp.rhdl` imports those FP bundles and decode

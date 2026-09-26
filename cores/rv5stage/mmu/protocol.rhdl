@@ -20,8 +20,8 @@ bundle RV5StageTranslationRequest():
 bundle RV5StageTranslationResult():
   virtual_address: Bits(64)
   physical_address: Bits(56)
-  ppn: Bits(44)
-  level: Bits(2)
+  base_ppn: Bits(44)
+  page_size: Sv39PageSize
   user: Bool
   read: Bool
   write: Bool

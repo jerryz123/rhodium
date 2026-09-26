@@ -144,6 +144,21 @@ recovery distinct from `walker.cancel` when extending this instrumentation.
 
 ## Focused validation
 
+Mapping geometry belongs in the public Sv39 adapter. Keep walker `level`
+separate from result/entry `page_size`, and normalize `base_ppn` at leaf
+construction. A 64 KiB NAPOT entry has one permission/A/D snapshot from its
+source PTE; do not scan aliases or add hardware A/D updates. Vector certificates
+remain 4 KiB physical-page certificates, not mapping-base PPNs.
+
+For Svnapot, run `rv5stage-svnapot`, `rv5stage-mmu-replay`, and
+`rv5stage-walk-trace`, plus the profile, MMU, and `rv5stage-test.rhm` composition
+host checks. The direct fixture covers every subpage, malformed encodings,
+current permissions, PBMT, compact
+replacement, held results, and invalidation. The integrated replay fixture
+covers scalar/fetch/prefetch reuse and two-page vector authorization both
+within and across 64 KiB boundaries. Keep ISA/UDB advertisement separate until
+supervisor-level software qualification is complete.
+
 For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `rv5stage-csr`,
 and `rv5stage-mmu-replay`. PBMTE is captured at walk admission; do not sample
 the caller's next request while validating later PTE replies. PBMT travels

@@ -87,7 +87,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~chi: config :: RiscvHartCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
-  when profile.extensions.svpbmt
+  unless !profile.extensions.svpbmt
   | error(~who: #'RV5Stage, "Svpbmt translation support requires pending PBMT-aware memory routing and CHI integration")
   unless config.cache_line_bytes == RV5StageCacheLineBytes
   | error(~who: #'RV5Stage,
@@ -119,7 +119,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
 
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
-  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~vector_completion_slots: vector_completion_slots))
+  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots))
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
   inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~vector_completion_slots: vector_completion_slots))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))

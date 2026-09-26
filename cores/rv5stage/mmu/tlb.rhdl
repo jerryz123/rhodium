@@ -12,8 +12,8 @@ import:
 bundle RV5StageTlbEntry():
   valid: Bool
   vpn: Bits(27)
-  ppn: Bits(44)
-  level: Bits(2)
+  base_ppn: Bits(44)
+  page_size: Sv39PageSize
   user: Bool
   read: Bool
   write: Bool
@@ -24,20 +24,11 @@ bundle RV5StageTlbEntry():
   pbmt: PageMemoryType
 
 fun rv5stage_tlb_entry_matches(entry :: RV5StageTlbEntry(), virtual_address :: Bits(64)) :~ Bool:
-  def vpn = virtual_address[12..39]
-  def level_matches = mux_lookup(
-    entry.level,
-    ~default: entry.vpn === vpn,
-    [
-      [1, entry.vpn[9..27] === vpn[9..27]],
-      [2, entry.vpn[18..27] === vpn[18..27]]
-    ]
-  )
-  entry.valid & level_matches
+  entry.valid & sv39_same_page(entry.vpn ++ bits(0, 12), virtual_address[0..39], entry.page_size)
 
 fun rv5stage_tlb_entry_pte(entry :: RV5StageTlbEntry()) :~ Sv39Pte():
   Sv39Pte():
-    ppn: entry.ppn
+    ppn: entry.base_ppn
     napot: Bool(#false)
     pbmt: entry.pbmt
     reserved: bits(0, 7)
@@ -90,13 +81,13 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   def selected_hit = enabled & virtual_address.sv39_canonical() & matches.or_reduce()
   hit <== !enabled ||| selected_hit
   fault <== enabled & selected_hit & !selected_pte.sv39_permission_valid(access, privilege === PrivilegeMode.User, privilege === PrivilegeMode.Supervisor, sum, mxr)
-  physical_address <== mux(enabled, sv39_physical_address(virtual_address, selected_pte, selected.level), virtual_address[0..56])
+  physical_address <== mux(enabled, sv39_physical_address(virtual_address, selected.base_ppn, selected.page_size), virtual_address[0..56])
   translation <== RV5StageTranslationResult():
     pbmt: mux(enabled, selected.pbmt, PageMemoryType.PMA)
     virtual_address: virtual_address
     physical_address: physical_address
-    ppn: mux(enabled, selected.ppn, virtual_address[12..56])
-    level: mux(enabled, selected.level, bits(0, 2))
+    base_ppn: mux(enabled, selected.base_ppn, virtual_address[12..56])
+    page_size: mux(enabled, selected.page_size, Sv39PageSize.Page4KiB)
     user: selected.user
     read: selected.read
     write: selected.write
@@ -119,7 +110,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   probe_fault <== probe_enabled & selected_probe_hit & !probe_pte.sv39_prefetch_permission_valid(probe_privilege === PrivilegeMode.User, probe_privilege === PrivilegeMode.Supervisor, probe_sum, probe_mxr)
   probe_physical_address <== mux(
     probe_enabled,
-    sv39_physical_address(probe_virtual_address, probe_pte, probe_selected.level),
+    sv39_physical_address(probe_virtual_address, probe_selected.base_ppn, probe_selected.page_size),
     probe_virtual_address[0..56]
   )
 
@@ -132,8 +123,8 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
       RV5StageTlbEntry():
         valid: Bool(#true)
         vpn: fill.bits.virtual_address[12..39]
-        ppn: fill.bits.ppn
-        level: fill.bits.level
+        base_ppn: fill.bits.base_ppn
+        page_size: fill.bits.page_size
         user: fill.bits.user
         read: fill.bits.read
         write: fill.bits.write

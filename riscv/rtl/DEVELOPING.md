@@ -70,6 +70,10 @@ implementation.
 
 ## Focused validation
 
+For Svnapot and mapping geometry, run `rv5stage-svnapot` and
+`rv5stage-mmu-replay`. They cover compact 64 KiB mappings, reserved encodings,
+permissions, ordinary superpages, prefetch probes, and vector-window reuse.
+
 The `rv5stage-svpbmt` fixture combines the reusable Svpbmt helpers with the
 production walker/TLB and checks all PBMT encodings, PMA overrides, reserved
 bits, held results, superpages, Bare bypass, and invalidation. Pair it with

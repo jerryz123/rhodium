@@ -29,7 +29,7 @@ request unaccepted; the core retains its hint across replay.
 |---|---|
 | Translation modes | RV64 Bare or Sv39; RV32 always Bare |
 | Translation caches | Separate eight-entry, fully associative ITLB and DTLB |
-| Page sizes | 4 KiB, 2 MiB, and 1 GiB Sv39 leaves |
+| Page sizes | 4 KiB, 2 MiB, and 1 GiB Sv39 leaves; optional 64 KiB Svnapot mappings |
 | Miss service | One shared, serialized walk; pending WB vector prechecks precede instruction misses, which precede ordinary data misses |
 | Page-table traffic | One 64-bit physical load at a time through the ordinary data-memory path |
 | Data-miss recovery | A miss starts the walker and leaves the WB request unaccepted; the core refetches it through ordered replay |
@@ -289,11 +289,12 @@ response rules remain in the [L1D guide](../dcache/README.md#core-facing-protoco
 [`tlb.rhdl`](tlb.rhdl) implements the same combinational lookup and synchronous
 fill policy for the ITLB and DTLB:
 
-- entries retain VPN, PPN, leaf level, `U/R/W/X/G/A/D`, and validity;
-- a 4 KiB entry matches all 27 VPN bits, a 2 MiB entry ignores VPN[0], and a
-  1 GiB entry ignores VPN[1:0];
-- the leaf level reconstructs the correct page offset or lower VPN fields in
-  the 56-bit physical address;
+- entries retain VPN, normalized base PPN, `Sv39PageSize`, PBMT,
+  `U/R/W/X/G/A/D`, and validity;
+- a 4 KiB entry matches all 27 VPN bits; 64 KiB, 2 MiB, and 1 GiB entries
+  ignore respectively the lowest 4, 9, and 18 VPN bits;
+- the page size reconstructs the correct offset in the 56-bit physical address
+  independently of the walker's page-table level;
 - a hit re-evaluates permissions using the current access kind, privilege,
   `SUM`, and `MXR` rather than caching a prior permission decision;
 - a successful walk fills the next entry in a cyclic replacement sequence;
@@ -362,6 +363,18 @@ Trap priority and
 
 ## Supported Sv39 behavior and deliberate limits
 
+`RV5StageExtensions(~svnapot: #true)` opts an RV64 Sv39 core into 64 KiB
+Svnapot mappings; the default remains disabled. The walker accepts N=1 only
+for level-zero leaves with PPN[3:0]=8. One fetched PTE fills one compact TLB
+entry covering all sixteen 4 KiB subpages; it does not read the other fifteen
+PTEs. Software must maintain consistent aliases and follow Svnapot fencing
+rules. The fetched PTE supplies permissions and A/D state: existing Svade
+fault behavior remains, with no hardware A/D updates or alias aggregation.
+Whole-TLB invalidation removes every alias together. Vector authorization
+still certifies at most two 4 KiB pages and independently checks their PMAs,
+but reuses one mapping when both lie within the same 64 KiB region. This
+opt-in RTL implementation is not yet advertised in ISA/UDB or SoC profiles.
+
 The standalone walker and TLB retain Svpbmt page types. The walker captures
 `request.bits.pbmte` with each accepted request; successful completion, TLB
 refill, demand lookup, and prefetch probe preserve the leaf type. Bare lookup
@@ -392,7 +405,7 @@ Deliberate limits are:
 - nonzero ASIDs, ASID- or address-selective `SFENCE.VMA`, and retention of
   global entries across invalidation are not implemented;
 - hardware A/D-bit updates are not implemented;
-- integrated PBMT access policy, Svnapot/NAPOT translations, PMP, and multi-hart
+- integrated PBMT access policy, PMP, and multi-hart
   shootdown remain outside this MMU;
 - walks are neither speculative nor concurrent, and there is no independent
   page-table-memory port or page-walk cache; and

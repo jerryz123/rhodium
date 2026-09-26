@@ -27,7 +27,7 @@ def mmu_module = mmu_design.modules.find(fun (module_def): module_def.name == "R
 check:
   tlb_module.find_input("virtual_address").type.width ~is 64
   tlb_module.find_output("physical_address").type.width ~is 56
-  tlb_module.find_input("fill_in").type.field("bits").type.field("ppn").type.width ~is 44
+  tlb_module.find_input("fill_in").type.field("bits").type.field("base_ppn").type.width ~is 44
   type_equal(
     tlb_module.find_input("fill_in").type.field("bits").type.field("global_mapping").type,
     bool.Bool

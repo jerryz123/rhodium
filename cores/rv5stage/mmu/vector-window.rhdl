@@ -5,6 +5,7 @@
 import:
   "protocol.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
+  "../../../riscv/rtl/sv39.rhdl".sv39_same_page
   lib("flow/main.rhdl") open
 
 hardware_enum RV5StageVectorWindowState:
@@ -59,7 +60,7 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
     physical_addresses[index] <== (mux(page === first_page, first_ppn, last_ppn) ++ address[0..12]).zext(64)
 
   def result = translation.response.bits
-  def same_leaf = mux_lookup(result.level, ~default: Bool(#false), [[1, lookup_span.first[21..64] === lookup_span.last[21..64]], [2, lookup_span.first[30..64] === lookup_span.last[30..64]]])
+  def same_leaf = sv39_same_page(lookup_span.first, lookup_span.last, result.page_size)
   def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
   def next_page = result_page + bits(4096, 64)
   def success = !result.fault & !result.access_fault & vector_page_permitted(physical_map, result_page, lookup_span.store)

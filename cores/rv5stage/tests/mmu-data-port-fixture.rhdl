@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes the MMU and physical data arbiter for cycle-level walk and replay tests.
+// Composes an Svnapot-capable MMU and physical arbiter for walk, replay, and vector tests.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -39,7 +39,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   input invalidate_all: Bool
   input ordered_busy: Bool
 
-  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map))
+  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map, ~svnapot: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))
   instruction |> mmu.instruction
   data |> mmu.data
