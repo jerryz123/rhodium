@@ -645,15 +645,17 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // State observers must also wait for older launches that have not reached
   // the vector sink yet; its registered active flag cannot cover those tokens.
   def id_vector_launch_pending = id_vector_launch_matches(fun (_control, _rd): Bool(#true))
-  // Preserve pre-admission memory ordering while independent scalar work
-  // speculates on a one-page certificate that MEM and WB may establish.
+  // Preserve scalar memory ordering before vector admission. Vector memory
+  // descriptors retain their own order through the FIFO and sequencer.
   def id_vector_load_launch_pending = id_vector_launch_matches(fun (control :: RV5StageVectorControl(), _rd): control.memory & !control.store)
   def id_vector_store_launch_pending = id_vector_launch_matches(fun (control :: RV5StageVectorControl(), _rd): control.memory & control.store)
-  def id_vector_memory_order_pending = (id_vector_load_launch_pending & id_memory_operation.needs_unique()) ||| (id_vector_store_launch_pending & id_memory_operation.is_memory())
+  def id_scalar_memory = !id_control.vector.memory & id_memory_operation.is_memory()
+  def id_scalar_needs_unique = !id_control.vector.memory & id_memory_operation.needs_unique()
+  def id_vector_memory_order_pending = (id_vector_load_launch_pending & id_scalar_needs_unique) ||| (id_vector_store_launch_pending & id_scalar_memory)
   // A nonzero vstart still waits for the older WB reset.
   def id_vector_start_pending = id_vector_instruction & wb_csrs.vector_state.vstart.or_reduce() & id_vector_launch_pending
   def id_vector_fp_pending = wb_vector_fp_pending ||| id_vector_launch_matches(fun (control :: RV5StageVectorControl(), _rd): control.floating_point)
-  def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_memory_operation.needs_unique()) ||| (wb_vector_stores_pending & id_memory_operation.is_memory()) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
+  def id_vector_wait = wb_vector_certification_pending ||| wb_vector_slow_admission ||| id_vector_memory_order_pending ||| id_vector_start_pending ||| (id_vector_instruction & wb_vector_integer_write_pending) ||| ((wb_vector_active ||| id_vector_launch_pending) & (core_serializing_operation(id_control.system, id_control.fence) ||| id_management)) ||| (wb_vector_loads_pending & id_scalar_needs_unique) ||| (wb_vector_stores_pending & id_scalar_memory) ||| ((wb_vector_fp_write_pending ||| id_vector_fp_pending) & id_control.floating_point_valid)
   def id_hazard_reasons = RV5StageHazardReasons():
     deferred_dependency: id_deferred_dependency_hazard
     scoreboard_raw: id_scoreboard_raw_hazard

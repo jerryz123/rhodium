@@ -165,6 +165,8 @@ After certification, independent scalar work can execute and retire while
 the vector sequencer remains active. Vector/state observers, fences, translation
 changes, and trap/interrupt entry wait for drain. Younger scalar stores wait
 for vector loads or stores; younger scalar loads wait for vector stores.
+Younger vector memory instructions may enter the ordered descriptor FIFO while
+an older vector store is still draining, subject to certification and capacity.
 Deferred scalar destinations retain their GPR/FPR scoreboard reservations.
 Younger scalar FP work also waits for outstanding vector FP state updates.
 Without an early certificate, successful authorization of the final element

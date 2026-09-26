@@ -303,6 +303,13 @@ module rv5stage_vector_memory_tb;
       emit(vmem(0,sew,8,8));
       emit(vint(0,16,8,1,3)); // packed vadd.vi, between memory macros
       emit(vmem(1,sew,16,9));
+      if (sew == 3) begin
+        // The adjacent younger store must win, including for vector readback.
+        emit(vmem(1,sew,8,9));
+        emit(vmem(0,sew,24,9));
+        emit(vmem(1,sew,24,9));
+        for (int i = 0; i < 16; i++) values[i] = 64'(i+1);
+      end
       check_memory('h2000+sew*256,16<<sew,values);
       // Warm-cache vector loads must sustain one element per cycle.
       if (sew == 3) begin
@@ -658,7 +665,7 @@ module rv5stage_vector_memory_tb;
     pc=before_mask_handler;
     li(1,'h600); emit(csr('h300,0,1)); emit(csr(8,7,0,2)); mask_fault_reset_signature=expected_count; signature(7,0);
     emit(32'h0000006f);
-    assert(continuation < 1792 && whole_continuation < 1856 && before_mask_handler < 2112) else $fatal(1,"program overlaps handler");
+    assert(before_handler < 1792 && before_whole_handler < 1856 && before_fof_handler < 1920 && before_mask_handler < 2112) else $fatal(1,"program overlaps handler");
     repeat(4) @(negedge clock);
     reset=0;
   end

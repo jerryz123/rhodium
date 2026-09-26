@@ -869,7 +869,8 @@ element-zero fault-only-first precise trap, and an indexed segmented Sv39
 page-boundary fault repaired and restarted from `vstart`. It also requires
 warm-hit throughput, hits completing ahead of a delayed miss, a scalar hit
 during certified vector sequencing, scalar-load overlap with a vector-load tail,
-and both asymmetric scalar/store barriers. The configuration bench checks
+back-to-back vector stores and vector readback of those addresses, and both
+asymmetric scalar/store barriers. The configuration bench checks
 scalar WB before the last packed vector beat, younger precise exceptions,
 and exact traced WB-to-sequencer ownership. Use `rv5stage-mmu-replay` for pinned
 split-page/superpage translations, permission failure, and DTLB replacement.

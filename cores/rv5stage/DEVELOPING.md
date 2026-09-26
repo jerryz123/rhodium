@@ -72,9 +72,12 @@ each other; share external transaction machinery through the CHI package.
    State observers wait for older vector launches in EX/MEM/WB as well as
    admitted vector work; the vector sink's registered active flag alone leaves
    an admission gap before effects such as accrued FP flags become visible.
-   Deferred GPR/FPR dependencies and memory ordering likewise cover those
-   pre-admission tokens; speculative capacity admission must not bypass a
-   dependency merely because its WB scoreboard reservation has not happened yet.
+   Deferred GPR/FPR dependencies and scalar memory ordering likewise cover
+   those pre-admission tokens; speculative capacity admission must not bypass
+   a dependency merely because its WB scoreboard reservation has not happened
+   yet. Vector memory launches instead retain program order through their
+   descriptor FIFO and sequencer, without waiting in ID for an older vector
+   store to drain.
    Independent younger work may pass ID behind a vector memory launch.
    EX adds the snapshot `vstart` byte offset with the scalar ALU; MEM uses
    the ordinary DTLB read for a speculative one-page certificate. WB validates
