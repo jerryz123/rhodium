@@ -71,9 +71,11 @@ All RV64 products select the same authored `RVA23` architectural preset without
 copying one another's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture
 and exact vector geometry. Its ACT/UDB projection retains implementation-owned
-PMP, CSR and vector choices; reference-model limitations are documented by the
+CSR and vector choices. All SoC Spike profiles explicitly disable PMP, matching
+the RV5Stage products; standalone Spike configurations retain their own PMP policy.
+Reference-model limitations are documented by the
 [Spike package](../cores/spike/README.md). Do not substitute a scalar profile. The intended
-eight-product test inventory belongs in `sims/test-products.rhm`, not in
+paired-product test inventory belongs in `sims/test-products.rhm`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and

@@ -1,0 +1,20 @@
+#lang rhombus
+// Writes platform settings and the implementation-specific UDB for one ACT product.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  lib("socs/products/selection.rhm") open
+  lib("socs/products/resolve.rhm").resolve_soc_product
+  "platform.rhm".ActPlatform
+
+def arguments = current_command_line()
+unless arguments.length() == 2
+| error(~who: #'write_act_platform, "expected a shape-core-isa product key and output directory")
+def selection = named_soc_selection(arguments[0])
+unless selection.shape == SoCShape.Simple
+| error(~who: #'write_act_platform, "ACT currently supports the Simple SoC shape")
+def product = resolve_soc_product(selection)
+def platform = ActPlatform(product.description)
+filesystem.write_string(arguments[1] ++ "/platform.json", platform.to_json(product.key), ~exists: #'truncate)
+filesystem.write_string(arguments[1] ++ "/udb.yaml", product.udb().to_yaml(), ~exists: #'truncate)

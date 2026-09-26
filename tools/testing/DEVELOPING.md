@@ -98,13 +98,13 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>eight exact products for simulation;<br/>two Single products for software only"]
+    Compile --> Simulators["Reusable simulator workflow<br/>ten exact products for simulation;<br/>four Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["OpenSBI qualification"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
-    Simulators --> ActRun["Both-profile ACT execution<br/>four disjoint shards each"]
+    Simulators --> ActRun["Four-profile ACT execution<br/>four disjoint shards each"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
@@ -134,11 +134,13 @@ the two functional shards, `cores-vector` adds configurations, and `cores`
 still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
 
-Both single-core software matrices independently select ISA tests, benchmarks,
+Both RVA23 single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
 The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
-publishes its diagnostics. Both profiles select their own ACT generation and
+publishes its diagnostics. Both Simple RV32Max products select native ISA tests;
+the existing RV64-only benchmark ports remain outside their coverage.
+All four Simple products select their own ACT generation and
 four-shard execution. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All four CI Mini and both Tiled

@@ -73,14 +73,17 @@ SOFTWARE_TESTS = {
     ("mini", "rv32max"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
     ("single", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
+    ("single", "rv32max"): PLATFORM_TESTS,
     ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
 }
-NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES}
+NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES, ("single", "rv32max"): ("isa",)}
 SIMULATOR_PRODUCTS = (
     ("mini-rv5stage-rv32max", "mini", "rv5stage"),
     ("mini-spike-rv32max", "mini", "spike"),
     ("mini-rv5stage-rva23", "mini", "rv5stage"),
     ("mini-spike-rva23", "mini", "spike"),
+    ("simple-rv5stage-rv32max", "single", "rv5stage"),
+    ("simple-spike-rv32max", "single", "spike"),
     ("simple-rv5stage-rva23", "single", "rv5stage"),
     ("simple-spike-rva23", "single", "spike"),
     ("tiled-rv5stage-rva23", "tiled", "rv5stage"),
@@ -88,6 +91,11 @@ SIMULATOR_PRODUCTS = (
 )
 SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
                          if (shape, soc.rsplit("-", 1)[1]) in NATIVE_SOFTWARE)
+
+
+def native_products(suite):
+    return tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
+                 if suite in NATIVE_SOFTWARE.get((shape, soc.rsplit("-", 1)[1]), ()))
 
 
 def simulation_entry(soc, shape, core):

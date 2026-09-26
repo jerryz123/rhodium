@@ -59,6 +59,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(wildcard sims/tests/*.rhm sims/tests/*.rhdl) \
   $(wildcard sims/emit-*.rhm) \
   $(wildcard sims/program-test/*.rhm) \
+  $(wildcard sims/arch-test/*.rhm) \
   tools/testing/circt/load-example.rkt tools/testing/run-negative.rkt \
   noc/tests/language/run-negative.rkt tools/check-parameter-annotations.rkt)
 

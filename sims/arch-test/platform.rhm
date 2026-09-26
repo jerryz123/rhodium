@@ -1,0 +1,39 @@
+#lang rhombus
+// Derives ACT payload memory and an unmapped fault window from a SoC description.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("socs/platform/description.rhm") open
+
+class ActPlatform(ram :: SoCAddressRegion, test_base :: Nat, access_fault_address :: Nat, access_fault_bytes :: PosInt):
+  constructor (description :: RiscvSoCDescription):
+    def ram = description.memory_regions.filter(~keep: fun (region): region.contains(description.boot.payload_address))[0]
+    def mutable mapped = description.memory_regions ++ [description.boot.rom, description.aclint.region]
+    when description.boot.address_register is_a SoCAddressRegion
+    | mapped := mapped ++ [description.boot.address_register]
+    when description.plic is_a RiscvPlicDescription
+    | mapped := mapped ++ [description.plic.region]
+    when description.uart is_a RiscvUartDescription
+    | mapped := mapped ++ [description.uart.region]
+    // Each overlap advances past at least one region; one page covers ACT's
+    // scalar and vector fault probes for the supported SoC presets.
+    def size = 4096
+    def mutable address = 0
+    for (_index in 0..mapped.length()):
+      for (region in mapped):
+        when address < region.base + region.size_bytes && region.base < address + size
+        | address := math.ceiling((region.base + region.size_bytes) / size) * size
+    unless address + size <= (1 bits.(<<) description.hart.xlen.width)
+    | error(~who: #'ActPlatform, "no addressable page is available for ACT fault tests")
+    super(ram, description.boot.payload_address, address, size)
+
+  method to_json(name :: String) :: String:
+    String.join([
+      "{\"name\":\"" ++ name ++ "\",\"ram_origin\":" ++ to_string(ram.base),
+      ",\"ram_bytes\":" ++ to_string(ram.size_bytes) ++ ",\"test_base\":" ++ to_string(test_base),
+      ",\"access_fault_address\":" ++ to_string(access_fault_address),
+      ",\"access_fault_bytes\":" ++ to_string(access_fault_bytes) ++ "}\n"
+    ], "")
+
+export:
+  ActPlatform

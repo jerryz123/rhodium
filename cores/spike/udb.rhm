@@ -30,8 +30,6 @@ fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(B
 def BaseCounters = [#true, #true, #true] ++ for List (_index in 0..29): #false
 def InhibitableCounters = [#true, #false, #true] ++ for List (_index in 0..29): #false
 def NoHpmCounters = for List (_index in 0..32): #false
-// Spike's processor_t::paddr_bits() is 56 for RV64, independently of the CHI fabric width.
-def SpikeRV64PhysicalAddressWidth = 56
 
 // ISA spellings and versions are explicit: an unmodeled claim must fail closed.
 def SpikeUdbExtensions = [
@@ -96,10 +94,14 @@ fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension
   // Expand architectural implication without borrowing another core's policies.
   result := result ++ [
     extension("Zmmul", "1.0.0"), extension("Zaamo", "1.0.0"), extension("Zalrsc", "1.0.0"),
-    extension("Zca", "1.0.0"), extension("Zcd", "1.0.0"),
+    extension("Zca", "1.0.0"),
     extension("U", "1.0.0"), extension("S", "1.13.0"), extension("Sm", "1.13.0"),
     extension("Svbare", "1.0.0")
   ]
+  when advertised.contains("c") && advertised.contains("d")
+  | result := result ++ [extension("Zcd", "1.0.0")]
+  when advertised.contains("c") && advertised.contains("f") && profile.hart_description.xlen == XLen.X32
+  | result := result ++ [extension("Zcf", "1.0.0")]
   when advertised.contains("zfh")
   | result := result ++ [extension("Zfhmin", "1.0.0")]
   when advertised.contains("zvfh") && !advertised.contains("zvfhmin")
@@ -115,14 +117,15 @@ fun spike_udb_configuration(profile :: SpikeConfig,
                             description :: NonemptyString) :: UdbConfiguration:
   def advertised = profile.hart_description.isa_profile.isa_extensions
   fun has(name :: String) :: Boolean: advertised.contains(name)
-  unless profile.hart_description.xlen == XLen.X64 && (
-    for all (name in ["i", "m", "a", "f", "d", "c", "zicsr", "zifencei", "zicntr", "zihpm"]): has(name)
-  )
-  | error(~who: #'spike_udb_configuration, "the Spike ACT projection requires RV64IMAFDC with base counters and Zihpm")
+  def width = profile.hart_description.xlen.width
+  unless for all (name in ["i", "m", "a", "c", "zicsr", "zifencei", "zicntr", "zihpm"]): has(name)
+  | error(~who: #'spike_udb_configuration, "the Spike ACT projection requires IMAC with base counters and Zihpm")
   unless profile.pmp_regions == 0 || profile.pmp_regions == 16 || profile.pmp_regions == 64
   | error(~who: #'spike_udb_configuration, "Sail models 0, 16, or 64 PMP entries")
   def mutable parameters = [
-     natural_parameter("MXLEN", 64), natural_parameter("PHYS_ADDR_WIDTH", SpikeRV64PhysicalAddressWidth),
+     // Bare RV32 addresses need 32 bits; enabled PMP exposes Spike's wider CSR masks.
+     natural_parameter("MXLEN", width),
+     natural_parameter("PHYS_ADDR_WIDTH", if width == 32 | (if profile.pmp_regions == 0 | 32 | 34) | 56),
      natural_parameter("PMA_GRANULARITY", 3),
      boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
      boolean_parameter("TRAP_ON_ECALL_FROM_M", #true), boolean_parameter("TRAP_ON_EBREAK", #true),
@@ -138,7 +141,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_ACCESS_FAULT", #true),
      boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_ACCESS_FAULT", #true),
      boolean_parameter("REPORT_ENCODING_IN_MTVAL_ON_ILLEGAL_INSTRUCTION", #true),
-     natural_parameter("MTVAL_WIDTH", 64),
+     natural_parameter("MTVAL_WIDTH", width),
      boolean_parameter("MARCHID_IMPLEMENTED", #true), natural_parameter("ARCH_ID_VALUE", 5),
      boolean_parameter("MIMPID_IMPLEMENTED", #true), natural_parameter("IMP_ID_VALUE", 0),
      natural_parameter("CONFIG_PTR_ADDRESS", 0), natural_parameter("VENDOR_ID_BANK", 0),
@@ -156,11 +159,6 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_list_parameter("HPM_COUNTER_EN", NoHpmCounters),
      boolean_list_parameter("MCOUNTENABLE_EN", BaseCounters),
      natural_parameter("NUM_PMP_ENTRIES", profile.pmp_regions),
-     natural_parameter("NUM_USABLE_PMP_ENTRIES", profile.pmp_regions),
-     natural_parameter("PMP_GRANULARITY", 2),
-     boolean_parameter("PMP_NA4_SUPPORTED", profile.pmp_regions != 0),
-     boolean_parameter("PMP_NAPOT_SUPPORTED", profile.pmp_regions != 0),
-     boolean_parameter("PMP_TOR_SUPPORTED", profile.pmp_regions != 0),
      boolean_parameter("MUTABLE_MISA_M", #true), boolean_parameter("MUTABLE_MISA_A", #true),
      boolean_parameter("MISALIGNED_AMO", #false),
      string_parameter("LRSC_RESERVATION_STRATEGY", "reserve exactly enough to cover the access"),
@@ -169,10 +167,10 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_parameter("LRSC_FAIL_ON_NON_EXACT_LRSC", #true),
      boolean_parameter("TIME_CSR_IMPLEMENTED", #true),
      boolean_parameter("MUTABLE_MISA_U", #false),
-     string_parameter("U_MODE_ENDIANNESS", "little"), natural_list_parameter("UXLEN", [64]),
+     string_parameter("U_MODE_ENDIANNESS", "little"), natural_list_parameter("UXLEN", [width]),
      boolean_parameter("TRAP_ON_ECALL_FROM_U", #true),
-     boolean_parameter("MUTABLE_MISA_S", #false), natural_parameter("ASID_WIDTH", 16),
-     string_parameter("S_MODE_ENDIANNESS", "little"), natural_list_parameter("SXLEN", [64]),
+     boolean_parameter("MUTABLE_MISA_S", #false), natural_parameter("ASID_WIDTH", if width == 32 | 9 | 16),
+     string_parameter("S_MODE_ENDIANNESS", "little"), natural_list_parameter("SXLEN", [width]),
      boolean_parameter("REPORT_VA_IN_MTVAL_ON_LOAD_PAGE_FAULT", #true),
      boolean_parameter("REPORT_VA_IN_MTVAL_ON_STORE_AMO_PAGE_FAULT", #true),
      boolean_parameter("REPORT_VA_IN_MTVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
@@ -187,7 +185,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_parameter("REPORT_VA_IN_STVAL_ON_STORE_AMO_PAGE_FAULT", #true),
      boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
      boolean_parameter("REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION", #true),
-     natural_parameter("STVAL_WIDTH", 64),
+     natural_parameter("STVAL_WIDTH", width),
      boolean_list_parameter("SCOUNTENABLE_EN", BaseCounters),
      natural_list_parameter("STVEC_MODES", [0, 1]),
      natural_parameter("STVEC_BASE_ALIGNMENT_VECTORED", 4),
@@ -195,9 +193,23 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
      natural_list_parameter("MSTATUS_VS_LEGAL_VALUES", if profile.vector_length > 0 | [0, 1, 2, 3] | [0]),
      natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", [0, 1, 2, 3]),
-     boolean_parameter("MUTABLE_MISA_F", #true), boolean_parameter("MUTABLE_MISA_D", #true),
-     boolean_parameter("MUTABLE_MISA_C", #true),
-     string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")]
+     boolean_parameter("MUTABLE_MISA_C", #true)]
+  when profile.pmp_regions > 0
+  | parameters := parameters ++ [
+      natural_parameter("NUM_USABLE_PMP_ENTRIES", profile.pmp_regions),
+      natural_parameter("PMP_GRANULARITY", 2),
+      boolean_parameter("PMP_NA4_SUPPORTED", #true),
+      boolean_parameter("PMP_NAPOT_SUPPORTED", #true),
+      boolean_parameter("PMP_TOR_SUPPORTED", #true)
+    ]
+  when has("f")
+  | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_F", #true), string_parameter("HW_MSTATUS_FS_DIRTY_UPDATE", "precise")]
+  when has("d")
+  | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_D", #true)]
+  when has("v")
+  | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_V", #true)]
+  when profile.hart_description.mmu_type == RiscvMmuType.Bare
+  | parameters := parameters ++ [boolean_parameter("TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY", #true)]
   when has("b")
   | parameters := parameters ++ [boolean_parameter("MUTABLE_MISA_B", #true)]
   when has("zic64b") || has("zicbom") || has("zicboz")
@@ -229,7 +241,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       string_parameter("VECTOR_FF_UPDATE_PAST_TRIM", "update_none"),
       boolean_parameter("VECTOR_LOAD_PAST_TRAP", #false),
       string_parameter("VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT", "no_overwrite"),
-      string_parameter("VECTOR_LS_INDEX_MAX_EEW", "64"),
+      string_parameter("VECTOR_LS_INDEX_MAX_EEW", to_string(math.min(width, profile.vector_element_width))),
       boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #false),
       boolean_parameter("VECTOR_LS_SEG_PARTIAL_ACCESS", #true),
       boolean_parameter("VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL", #false),
@@ -238,8 +250,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       // v_ext_macros.h canonicalizes an inactive NaN seed and flags sNaN.
       string_parameter("VFREDUSUM_NAN", "custom"),
       string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
-      boolean_parameter("VSSTATUS_VS_EXISTS", #false),
-      boolean_parameter("MUTABLE_MISA_V", #true)
+      boolean_parameter("VSSTATUS_VS_EXISTS", #false)
     ]
   UdbConfiguration(name, description, spike_udb_extensions(profile), parameters)
 

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks scalar and exact RVA23 Spike UDB projections, including implementation-owned vector and PMP choices.
+// Checks scalar, RVA23 and RV32Max Spike UDB projections with implementation-owned vector and PMP choices.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -47,3 +47,27 @@ check:
   rva23_yaml.contains("  ZAWRS_NTO_IS_NOP: true") ~is #true
   rva23_yaml.contains("  RESERVED_VSET_X0X0_VLMAX_CHANGE: \"always\"") ~is #true
   rva23_yaml.contains("  VFREDUSUM_NAN: \"custom\"") ~is #true
+
+def rv32 = spike_udb_configuration(spike_product_profile(IsaPreset.RV32Max), "spike-rv32max", "Exact Spike RV32Max preset")
+def rv32_yaml = rv32.to_yaml()
+for (name in ["I", "M", "A", "C", "Zca", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "Zvkt", "Zihpm", "Svbare"]):
+  check: (for any (entry in rv32.extensions): entry.name == name) ~is #true
+for (name in ["F", "D", "Zcf", "Zcd", "V", "Zve64x", "Zvl128b", "Sv39"]):
+  check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
+for (parameter in ["MXLEN: 32", "PHYS_ADDR_WIDTH: 32", "MTVAL_WIDTH: 32", "STVAL_WIDTH: 32", "ASID_WIDTH: 9", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):
+  check: rv32_yaml.contains("  " ++ parameter) ~is #true
+
+for (preset in [IsaPreset.RVA23, IsaPreset.RV32Max]):
+  def product = spike_product_profile(preset)
+  def product_yaml = spike_udb_configuration(product, "no-pmp", "SoC without PMP").to_yaml()
+  check:
+    product.pmp_regions ~is 0
+    product_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
+  // UDB defines the remaining PMP parameters only when PMP entries exist.
+  for (parameter in ["NUM_USABLE_PMP_ENTRIES", "PMP_GRANULARITY", "PMP_NA4_SUPPORTED", "PMP_NAPOT_SUPPORTED", "PMP_TOR_SUPPORTED"]):
+    check: product_yaml.contains("  " ++ parameter ++ ":") ~is #false
+
+// Standalone Spike configurations may still expose native RV32 PMP address bits.
+def rv32_pmp = SpikeConfig(spike_product_profile(IsaPreset.RV32Max).hart_description, ~pmp_regions: 16)
+check:
+  spike_udb_configuration(rv32_pmp, "rv32-pmp", "Standalone PMP projection").to_yaml().contains("  PHYS_ADDR_WIDTH: 34") ~is #true

@@ -26,10 +26,10 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all eight
+Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all ten
 products explicitly and publishes one exact-commit simulator and target
-descriptor per product. Software-only changes build just the two Single products;
-simulation changes build all eight, including both Mini RV32Max cores. The host emitter
+descriptor per product. Software-only changes build the four Single products;
+simulation changes build all ten, including both Mini RV32Max cores. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
@@ -43,7 +43,7 @@ Make selectors and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
 architectural choices. `test-products.rhm` is the explicit typed
-eight-product inventory, separate from implementation support and workload
+ten-product inventory, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
 must match the selected product. Product-independent
@@ -264,14 +264,18 @@ transaction distinction when checking expected traffic.
 
 ### Other simulation contracts
 
-The ACT flow is included from `arch-test/Makefile.inc`. Each
-`arch-test/configs/<name>.mk` selects a UDB catalog entry, a simulator, and the
-platform RAM window. A platform that supports architectural access faults also
-declares its unmapped fault-test window there; `configure.py` validates that the
-window is large enough for scalar and vector tests, fits the physical address
-width, and does not overlap a Sail memory region before publishing
-`RVMODEL_ACCESS_FAULT_ADDRESS`. Add future platforms through these entries;
-processor extension policy stays in the owning core's UDB projection. The common
+The ACT flow is included from `arch-test/Makefile.inc`.
+`arch-test/write-platform.rhm` resolves the selected product once and writes its
+implementation-specific UDB alongside generated `platform.json`.
+`arch-test/platform.rhm` derives the payload RAM window and entry point from
+the SoC description and finds a page-sized hole outside its described RAM,
+BootROM, boot register, and devices. `configure.py` validates that the hole
+is large enough for scalar and vector tests, fits the physical address width,
+and does not overlap a Sail memory region before publishing
+`RVMODEL_ACCESS_FAULT_ADDRESS`. No per-core or per-ISA Make configuration is
+authored. ACT currently accepts the Simple shape; adding another shape requires
+qualifying its platform macros and memory capacity, not adding a product table.
+Processor extension policy stays in the owning core's UDB projection. The common
 `configure.py` writes generated UDB consumer files, using the pinned Sail
 default schema and explicit UDB mappings. Reject unsupported architecture
 shapes before producing reference results. Always give ACT the full test
@@ -338,6 +342,10 @@ tests; the architecture-test CI lane uses this same target. When changing the dr
 and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
 current coverage limits.
+
+`sims/tests/product-test.rhm` checks ACT platform equivalence across core
+bindings and relocation through the SoC description. The ACT writer is in the
+root Racket compilation manifest so configuration generation can reuse CI bytecode.
 
 ### LR/SC system qualification
 
@@ -436,6 +444,13 @@ benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own 
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
+Both Simple RV32Max products additionally select their full native ISA inventory
+and ACT in CI. Native suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
+RV64 benchmark ports remain outside RV32 coverage. ACT projects XLEN, physical
+addressability, indexed-memory EEW and vector geometry independently. RV32
+products use 32-bit physical addresses and disable PMP; both retain the platform's
+44-bit CHI fabric. Generate each core's own Sail
+expectations; never reuse one implementation's WARL/PMP claims for the other.
 The four CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
 Tiled products additionally own the focused upstream multihart benchmark selection. The
 adapter materializes a private build-tree view of the pinned benchmark sources
@@ -488,8 +503,8 @@ Simple RV32Max uses these same width-selected platform payloads on both cores,
 but the external-memory shape runs the full applicable native ISA inventory
 with `isa-test`. Keep architectural selection identical while preserving
 RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
-CI inventory and RV32 UDB/Sail projection are separate rollout gates; local
-bring-up does not silently add a CI product or claim ACT qualification.
+CI inventory now includes both products. Their native ISA and ACT lanes retain
+the same shape/ISA selection policy; selecting a lane does not claim ACT qualification.
 
 The architectural `zihintntl-test` checks translated integer/FP hinted loads and
 dirty-data preservation on both single-core implementations. The separately

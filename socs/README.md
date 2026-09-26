@@ -53,8 +53,9 @@ register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
 address range. Simple retains its 1-GiB external RAM window at `0x80000000`
 and its inclusive LLC with either RV32 hart. Both Mini RV32Max bindings
-participate in simulation CI; Simple RV32Max is available for explicit local
-platform and native ISA qualification. RV32 ACT projection remains a separate step.
+participate in simulation CI; both Simple RV32Max products select platform,
+native ISA, and ACT lanes. See the [ACT guide](../sims/README.md#architectural-certification-tests)
+for reference-model restrictions and qualification status.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
 preserves this broad profile and implementation-specific parameters; see the
 [Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
@@ -65,7 +66,7 @@ shape/core-only architectural fallback. Concrete source specializations author
 their preset explicitly. Cache geometry,
 multiplier choice, and queue depths remain shape-specific implementation
 policy. See the [simulation inventory](../sims/test-products.rhm) for the
-eight intended test products, which is not a claim that all are enabled yet.
+ten explicitly selected test products; selection is not a passing-suite claim.
 
 ### Composition choices
 
@@ -165,9 +166,10 @@ or connect a simulation PTY.
 
 [`udb.rhm`](products/udb.rhm) catalogs concrete RISC-V Unified Database configurations
 for repository SoC and processor combinations. It joins a named core's UDB
-projection with platform facts. RV5Stage's physical-address width comes from
-the CHI fabric; Spike's 56-bit PMP-visible width comes from its own processor
-model, even though its SoC fabric has a narrower mapped address range. The
+projection with platform facts. Both core bindings disable PMP in SoC products.
+RV32 Bare products use 32-bit physical addresses; RV64 RV5Stage projects the
+CHI fabric width and Spike projects its model's 56-bit physical limit, even
+though its SoC fabric has a narrower mapped address range. The
 generic writer and Make target know only the catalog key, so a
 future processor adds its own projection and a catalog entry rather than a new
 command.

@@ -7,7 +7,7 @@ from pathlib import Path
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, simulation_entry
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -61,7 +61,7 @@ class PlanTest(unittest.TestCase):
 
     def test_native_matrix_covers_both_products_and_coremark_variants(self):
         plan = self.plan("sw/build/build-coremark.py")
-        expected = [(soc, suite) for suite in ("coremark", "coremark_scalar") for soc in SINGLE_CORE_SOCS]
+        expected = [(soc, suite) for suite in ("coremark", "coremark_scalar") for soc in native_products("coremark")]
         self.assertEqual(program_entries(plan), expected)
 
     def test_simulation_builds_and_runs_all_qualified_products(self):
@@ -73,7 +73,7 @@ class PlanTest(unittest.TestCase):
                          [simulation_entry(*product) for product in SIMULATOR_PRODUCTS])
         self.assertEqual({entry["soc"] for entry in expected},
                          {"mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
-                          "simple-spike-rva23", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
+                          "simple-spike-rva23", "simple-rv5stage-rv32max", "simple-spike-rv32max", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
         for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
             with self.subTest(path=path):
                 self.assertIn(simulation_entry("mini-rv5stage-rv32max", "mini", "rv5stage"),
@@ -85,6 +85,12 @@ class PlanTest(unittest.TestCase):
             products = [entry for entry in entries if (entry["shape"], entry["isa"]) == (shape, isa)]
             self.assertEqual({entry["core"] for entry in products}, {"rv5stage", "spike"})
             self.assertEqual({entry["software_tests"] for entry in products}, {" ".join(tests)})
+
+    def test_rv32_native_inventory_is_paired_without_rv64_only_ports(self):
+        entries = self.plan("sims/Makefile")["program_matrix"]["include"]
+        for core in ("rv5stage", "spike"):
+            self.assertEqual([entry["suite"] for entry in entries
+                              if entry["soc"] == f"simple-{core}-rv32max"], ["isa"])
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
@@ -140,6 +146,9 @@ class PlanTest(unittest.TestCase):
             "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
             "examples/rfpl/circuit-pair.rhdl": ("example-rfpl", "circt-rfpl", "host-hygiene"),
             "tools/write-riscv-udb-config.rhm": ("host-models", "host-cores", "host-socs", "host-hygiene"),
+            "sims/arch-test/platform.rhm": ("host-socs", "host-hygiene"),
+            "sims/arch-test/write-platform.rhm": ("host-socs", "host-hygiene"),
+            "sims/tests/product-test.rhm": ("host-socs", "host-hygiene"),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
@@ -279,7 +288,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
-        self.assertEqual(software.count("configuration: [simple-rv5stage-rva23, simple-spike-rva23]"), 2)
+        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 2)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 
 

@@ -65,9 +65,9 @@ make -C sims isa-test SOC=simple CORE=rv5stage ISA=rv32max
 make -C sims isa-test SOC=simple CORE=spike ISA=rv32max
 ```
 
-These are explicit bring-up selections, not new CI lanes yet. They use Bare
-translation, VLEN64/ELEN32, and no floating point. RV32 ACT projection is not
-enabled by this platform support.
+Both bindings are selected in CI with platform tests, the full applicable native
+ISA inventory, and ACT. They use Bare translation, VLEN64/ELEN32, and no floating
+point. The existing RV64-only benchmark ports are not selected for RV32.
 
 The host emitters require an explicit third architectural selector:
 
@@ -78,9 +78,9 @@ tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm simple rv5stage
 Run this command from the repository root. The same three selectors are
 accepted by `emit-soc-harness.rhm`; it emits MLIR to standard output.
 Both use the [shared product resolver](../socs/README.md#typed-product-selection).
-The [eight-product inventory](test-products.rhm) describes intended test
-coverage, including currently blocked products. It does not enable those
-products or expand the existing CI matrix. Make, software targets, simulator
+The [paired-product inventory](test-products.rhm) describes the ten test
+products. Workload selection depends on shape and ISA, not core implementation.
+Make, software targets, simulator
 attestations, and ACT configurations include ISA in their product keys.
 Setup and product-independent adapter tests do not require an ISA.
 
@@ -140,8 +140,9 @@ make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-CI uses the eight canonical product names `mini-rv5stage-rv32max`, `mini-spike-rv32max`,
+CI uses the ten canonical product names `mini-rv5stage-rv32max`, `mini-spike-rv32max`,
 `mini-rv5stage-rva23`, `mini-spike-rva23`,
+`simple-rv5stage-rv32max`, `simple-spike-rv32max`,
 `simple-rv5stage-rva23`, `simple-spike-rva23`, `tiled-rv5stage-rva23`, and
 `tiled-spike-rva23`. Each has its own target descriptor, simulator attestation,
 and build directory. The `SOC`/`CORE` selectors above remain available locally;
@@ -672,8 +673,10 @@ Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
 
 ```sh
 make -C sims arch-test-setup
-make -C sims arch-test ACT_CONFIGURATION=simple-rv5stage-rva23
-make -C sims arch-test ACT_CONFIGURATION=simple-spike-rva23
+make -C sims arch-test SOC=simple-rv5stage-rva23
+make -C sims arch-test SOC=simple-spike-rva23
+make -C sims arch-test SOC=simple-rv5stage-rv32max
+make -C sims arch-test SOC=simple-spike-rv32max
 ```
 
 Spike ACT retains the full selected ISA and reports known Sail reference-model
@@ -688,6 +691,12 @@ On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
 working around the pinned UDB installer's Linux-only library download.
 
 `arch-test-config` only prepares and validates the Sail/platform files.
+The selected product supplies its core-specific UDB and a generated
+`platform.json`; RAM bounds and the entry point come from the shared SoC
+description, not per-core Make files. Both cores use the same platform policy
+for a given shape and ISA, while reference expectations retain implementation
+choices such as writable CSRs and ASID width. ACT currently supports the
+Simple shape. Configuration and ELF outputs remain keyed by the full product.
 `arch-test-source` copies the clean pinned ACT checkout into the build root and
 applies Rhodium's adjacent
 [`riscv-arch-test-patches`](../sw/riscv-arch-test-patches/) series there.
@@ -722,16 +731,16 @@ constraints; there is no separate extension list or selection wrapper in Make.
 The reference configuration maps UDB's `ASID_WIDTH` to Sail's `memory.asidlen`,
 so `satp.ASID` expectations match the configured core's implemented width.
 
-Selection is not a claim that every candidate has passed. The initial reference
-adapter was validated with RV64I and M-mode startup; it is not yet a complete
-UDB-to-Sail projection. ACT's `include_priv_tests` is always true: privileged
+Selection is not a claim that every candidate has passed. The reference adapter
+projects RV32Max and RVA23, including their exact vector geometry; it is not a
+universal UDB-to-Sail projection. ACT's `include_priv_tests` is always true: privileged
 tests are selected by the same UDB extension and parameter constraints as all
 other tests, without a separate harness exclusion.
 Generation attempts all selected tests even if some fail, and reports an overall
 failure in that case. `arch-test-run` can exercise the ELFs that did build.
 The full DUT device and PMA map is not modeled for this stage. Sail retains its
-reference interrupt devices, while the DUT macros use SingleCoreRV5StageSoC's ACLINT and
-direct UART/PLIC MMIO; the checked-in zero-PMP configuration permits those
+reference interrupt devices, while the DUT macros use the shared Simple SoC's ACLINT and
+direct UART/PLIC MMIO; the selected zero-PMP configurations permit those
 physical accesses from every tested privilege. Build, reference-model, and DUT
 failures in newly selected suites are surfaced normally, not silently excluded;
 they need diagnosis before claiming coverage.

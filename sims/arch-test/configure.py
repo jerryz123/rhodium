@@ -18,6 +18,23 @@ def encoded_integer(value):
     return int(value["value"], 0)
 
 
+def platform_settings(platform, name):
+    """Check the generated platform identity and payload memory contract."""
+    if platform["name"] != name:
+        raise ValueError("ACT platform must match the selected product")
+    settings = {key: platform[key] for key in (
+        "ram_origin", "ram_bytes", "test_base", "access_fault_address", "access_fault_bytes"
+    )}
+    if any(type(value) is not int or value < 0 for value in settings.values()):
+        raise ValueError("ACT platform addresses and sizes must be natural integers")
+    origin, size, entry = (settings[key] for key in ("ram_origin", "ram_bytes", "test_base"))
+    if size == 0 or not origin <= entry < origin + size:
+        raise ValueError("test entry must lie in a nonempty RAM window")
+    if origin % 4096 or size % 4096:
+        raise ValueError("Sail RAM regions must be page aligned")
+    return settings
+
+
 def validate_access_fault_region(config, params, address, size):
     """Validate an optional platform hole used by architectural fault tests."""
     if (address is None) != (size is None):
@@ -79,7 +96,6 @@ VECTOR_PARAMETER_VALUES = {
     "VECTOR_FF_UPDATE_PAST_TRIM": "update_none",
     "VECTOR_LOAD_PAST_TRAP": False,
     "VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT": "no_overwrite",
-    "VECTOR_LS_INDEX_MAX_EEW": "64",
     "VECTOR_LS_MISALIGNED_LEGAL": False,
     "VECTOR_LS_SEG_PARTIAL_ACCESS": True,
     "VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL": False,
@@ -104,7 +120,7 @@ def reference_model_differences(params):
             for name, value in fixed.items() if name in params and params[name] != value}
 
 
-def validate_reservation_bounds(reservation, extensions):
+def validate_reservation_bounds(reservation, extensions, xlen):
     # Sail 0.14.1 has naturally aligned, fixed-size reservation sets, not switches
     # for these guarantees. Retain its chosen size; the extensions are bounds,
     # not requests to enlarge reservations to a cache line.
@@ -114,8 +130,9 @@ def validate_reservation_bounds(reservation, extensions):
         if extensions[name] != "1.0.0":
             raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
         size_exp = reservation["reservation_set_size_exp"]
-        if type(size_exp) is not int or not 3 <= size_exp <= maximum_exp:
-            raise ValueError(f"{name} requires an RV64 Sail reservation size between 8 and {1 << maximum_exp} bytes")
+        minimum_exp = (xlen // 8).bit_length() - 1
+        if type(size_exp) is not int or not minimum_exp <= size_exp <= maximum_exp:
+            raise ValueError(f"{name} requires a Sail reservation size between {xlen // 8} and {1 << maximum_exp} bytes")
 
 
 def power_of_two_exp(name, value):
@@ -193,6 +210,8 @@ def project_vector(model_extensions, extensions, params):
     vector["vlen_exp"] = vlen_exp
     vector["elen_exp"] = elen_exp
     max_index_eew = params["MXLEN"] if params["VECTOR_LS_INDEX_MAX_EEW"] == "XLEN" else int(params["VECTOR_LS_INDEX_MAX_EEW"])
+    if max_index_eew not in (8, 16, 32, 64) or max_index_eew > params["ELEN"]:
+        raise ValueError("VECTOR_LS_INDEX_MAX_EEW must be a supported width no greater than ELEN")
     vector["max_index_eew_exp"] = power_of_two_exp("VECTOR_LS_INDEX_MAX_EEW", max_index_eew)
     vector["vl_use_ceil"] = False
     vector["reserved_behavior"]["illegal_vtype"] = "IllegalVtype_SetVill" if vill else "IllegalVtype_Illegal"
@@ -224,8 +243,8 @@ def sail_config(default, udb, origin, size):
     """Project modeled UDB settings; surface remaining model/platform gaps in ACT."""
     params = udb["params"]
     extensions = {entry["name"]: str(entry["version"]).removeprefix("= ") for entry in udb["implemented_extensions"]}
-    if params["MXLEN"] != 64:
-        raise ValueError("ACT adapter requires RV64")
+    if params["MXLEN"] not in (32, 64):
+        raise ValueError("ACT adapter requires RV32 or RV64")
     pmp_count = params["NUM_PMP_ENTRIES"]
     pmp_usable_count = params.get("NUM_USABLE_PMP_ENTRIES", pmp_count)
     pmp_granularity = params.get("PMP_GRANULARITY", 2)
@@ -248,6 +267,8 @@ def sail_config(default, udb, origin, size):
     for name, options in model_extensions.items():
         if "supported" in options:
             options["supported"] = name in extensions
+    if "TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY" in params:
+        model_extensions["Svbare"]["sfence_vma_illegal_if_svbare_only"] = params["TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY"]
     if "Zawrs" in extensions:
         model_extensions["Zawrs"]["nto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
         model_extensions["Zawrs"]["sto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
@@ -326,7 +347,7 @@ def sail_config(default, udb, origin, size):
     platform["impid"] = params.get("IMP_ID_VALUE", 0) if params.get("MIMPID_IMPLEMENTED", False) else 0
     platform["vendorid"] = (params.get("VENDOR_ID_BANK", 0) << 7) | params.get("VENDOR_ID_OFFSET", 0)
     platform["reservation"]["require_exact_reservation_addr"] = params["LRSC_FAIL_ON_NON_EXACT_LRSC"]
-    validate_reservation_bounds(platform["reservation"], extensions)
+    validate_reservation_bounds(platform["reservation"], extensions, params["MXLEN"])
     return default
 
 
@@ -347,23 +368,19 @@ def main():
     parser.add_argument("--compiler", required=True)
     parser.add_argument("--objdump", required=True)
     parser.add_argument("--sail", required=True)
-    for name in ("ram-origin", "ram-bytes", "test-base"):
-        parser.add_argument("--" + name, type=lambda value: int(value, 0), required=True)
-    for name in ("access-fault-address", "access-fault-bytes"):
-        parser.add_argument("--" + name, type=lambda value: int(value, 0))
+    parser.add_argument("--platform", type=Path, required=True)
     args = parser.parse_args()
-    if args.ram_bytes <= 0 or not args.ram_origin <= args.test_base < args.ram_origin + args.ram_bytes:
-        parser.error("test entry must lie in a nonempty RAM window")
-    if args.ram_origin % 4096 or args.ram_bytes % 4096:
-        parser.error("Sail RAM regions must be page aligned")
+    for key, value in platform_settings(json.loads(args.platform.read_text()), args.name).items():
+        setattr(args, key, value)
     sail = shutil.which(args.sail)
     if not sail:
         parser.error(f"Sail executable not found: {args.sail}; run arch-test-setup")
     version = subprocess.check_output([sail, "--version"], text=True).strip()
     if version != "0.14.1":
         parser.error(f"expected Sail 0.14.1, got {version}")
-    default = pyjson5.decode(subprocess.check_output([sail, "--print-default-config"], text=True))
     udb = YAML(typ="safe").load(args.udb)
+    model_width = ["--rv32"] if udb["params"]["MXLEN"] == 32 else []
+    default = pyjson5.decode(subprocess.check_output([sail, *model_width, "--print-default-config"], text=True))
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)
     validate_access_fault_region(config, udb["params"], args.access_fault_address, args.access_fault_bytes)
     args.output.mkdir(parents=True, exist_ok=True)

@@ -42,7 +42,8 @@ class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementat
     | CoreKind.RV5Stage:
         def profile :: RV5StageConfig = hart.profile
         def pmlen = if profile.extensions.ssnpm | 7 | 0
-        rv5stage_udb_configuration(profile, name, "Rhodium " ++ key, rhodium_soc_flit.request_address_width, ~pmlen: pmlen)
+        def physical_address_width = math.min(profile.xlen.width, rhodium_soc_flit.request_address_width)
+        rv5stage_udb_configuration(profile, name, "Rhodium " ++ key, physical_address_width, ~pmlen: pmlen)
     | CoreKind.Spike:
         def profile :: SpikeConfig = hart.profile
         spike_udb_configuration(profile, name, "Rhodium " ++ key)

@@ -1,18 +1,24 @@
 #lang rhombus
-// Checks the exact non-Cartesian test-product inventory and its canonical identities.
+// Checks product identities and core-independent ACT platform projection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../test-products.rhm".TestProducts
   lib("socs/products/selection.rhm") open
+  lib("socs/products/resolve.rhm").resolve_soc_product
+  lib("socs/platform/description.rhm") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  "../arch-test/platform.rhm".ActPlatform
 
 def names = TestProducts.map(fun (product :: SoCSelection): product.key)
 check:
   names ~is [
     "mini-rv5stage-rv32max",
+    "mini-spike-rv32max",
     "mini-rv5stage-rva23",
     "mini-spike-rva23",
     "simple-rv5stage-rv32max",
+    "simple-spike-rv32max",
     "simple-rv5stage-rva23",
     "simple-spike-rva23",
     "tiled-rv5stage-rva23",
@@ -22,3 +28,33 @@ for (product in TestProducts):
   check:
     named_soc_selection(product.key) ~is product
     names.filter(~keep: fun (name): name == product.key).length() ~is 1
+
+for (isa in [IsaPreset.RV32Max, IsaPreset.RVA23]):
+  def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+    def product = resolve_soc_product(SoCSelection(SoCShape.Simple, core, isa))
+    def platform = ActPlatform(product.description)
+    check:
+      platform.ram.base ~is 0x80000000
+      platform.ram.size_bytes ~is 0x40000000
+      platform.test_base ~is product.description.boot.payload_address
+      platform.access_fault_address ~is 0
+      platform.access_fault_bytes ~is 4096
+    platform.to_json("same-platform")
+  check: platforms[0] ~is platforms[1]
+
+// Relocation and a second RAM window must follow the description, not a product table.
+def base = resolve_soc_product(named_soc_selection("simple-spike-rv32max")).description
+def relocated = base with (
+  memory_regions = [SoCAddressRegion(AddressSet(0, 0xfff)), SoCAddressRegion(AddressSet(0x90000000, 0xfffff))],
+  boot = RiscvBootLayout(
+    ~rom: base.boot.rom, ~reset_address: base.boot.reset_address,
+    ~payload_address: 0x90001000, ~address_register: base.boot.address_register
+  )
+)
+def relocated_platform = ActPlatform(relocated)
+check:
+  relocated_platform.ram.base ~is 0x90000000
+  relocated_platform.ram.size_bytes ~is 0x100000
+  relocated_platform.test_base ~is 0x90001000
+  relocated_platform.access_fault_address >= 0x1000 ~is #true
+  relocated_platform.access_fault_address < base.boot.rom.base ~is #true

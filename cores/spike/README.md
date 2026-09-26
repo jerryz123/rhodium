@@ -31,6 +31,11 @@ canonicalizes it and flags signaling NaNs. No tests are removed to hide this
 legal implementation difference; generating a configuration is not full ACT
 qualification.
 
+The SoC profiles explicitly disable PMP for both RV32Max and RVA23. RV32Max
+uses Bare mode, 32-bit physical addresses, Zve32x, VLEN64/ELEN32, and no
+floating point. Its ACT configuration uses unmodified Sail and UDB.
+Standalone `SpikeConfig` configurations can still enable PMP.
+
 The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
 and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits
 are also read-only zero; only the base counter-control bits remain writable.

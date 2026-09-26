@@ -44,6 +44,7 @@ def sail_default():
         "extensions": {
             "F": {"supported": False}, "D": {"supported": False},
             "Svade": {"supported": False}, "Zihpm": {"supported": False},
+            "Svbare": {"supported": False, "sfence_vma_illegal_if_svbare_only": False},
             "Zicfilp": {"supported": False}, "Zicfiss": {"supported": False},
             "V": {
                 "support_level": "Disabled", "vlen_exp": 3, "elen_exp": 3,
@@ -106,6 +107,48 @@ def vector_udb():
 
 
 class ArchTestConfigTest(unittest.TestCase):
+    def test_generated_platform_identity_and_memory(self):
+        settings = runpy.run_path(str(RUNNER.with_name("configure.py")))["platform_settings"]
+        platform = dict(name="simple-spike-rv32max", ram_origin=0x90000000,
+                        ram_bytes=0x100000, test_base=0x90001000,
+                        access_fault_address=0, access_fault_bytes=4096)
+        projected = settings(platform, platform["name"])
+        self.assertEqual(projected["ram_origin"], 0x90000000)
+        self.assertEqual(projected["test_base"], 0x90001000)
+        with self.assertRaises(ValueError):
+            settings(platform, "simple-rv5stage-rv32max")
+        for change in (dict(test_base=0), dict(ram_bytes=0), dict(ram_origin=-1),
+                       dict(ram_bytes=4097), dict(test_base=True)):
+            with self.subTest(change=change), self.assertRaises(ValueError):
+                settings({**platform, **change}, platform["name"])
+
+    def test_rv32_integer_vector_projection(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        udb["implemented_extensions"] = [entry for entry in udb["implemented_extensions"]
+                                         if entry["name"] in {"Sm", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "Zvkb", "Zvkt"}]
+        for sfence_illegal in (False, True):
+            udb["params"].update(MXLEN=32, VLEN=64, ELEN=32, PHYS_ADDR_WIDTH=32,
+                                 TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY=sfence_illegal,
+                                 VECTOR_LS_INDEX_MAX_EEW="32", MSTATUS_FS_LEGAL_VALUES=[0])
+            config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+            self.assertEqual(config["base"]["xlen"], 32)
+            self.assertEqual(config["memory"]["physaddr_bits"], 32)
+            vector = config["extensions"]["V"]
+            self.assertEqual((vector["support_level"], vector["vlen_exp"], vector["elen_exp"], vector["max_index_eew_exp"]),
+                             ("Integer", 6, 5, 5))
+            self.assertFalse(config["extensions"]["F"]["supported"])
+            self.assertFalse(config["extensions"]["D"]["supported"])
+            self.assertEqual(config["extensions"]["Svbare"]["sfence_vma_illegal_if_svbare_only"], sfence_illegal)
+
+        bounds = {"Za64rs": "1.0.0"}
+        configure["validate_reservation_bounds"]({"reservation_set_size_exp": 2}, bounds, 32)
+        with self.assertRaises(ValueError):
+            configure["validate_reservation_bounds"]({"reservation_set_size_exp": 1}, bounds, 32)
+        udb["params"]["VECTOR_LS_INDEX_MAX_EEW"] = "64"
+        with self.assertRaises(ValueError):
+            configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+
     def test_spike_pmp_projection_preserves_entry_count_and_granularity(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         params = architecture_params(asid_width=16)
@@ -360,17 +403,26 @@ class ArchTestConfigTest(unittest.TestCase):
                     reservation = {"reservation_set_size_exp": size_exp}
                     extensions = dict.fromkeys(names, "1.0.0")
                     if type(size_exp) is int and 3 <= size_exp <= maximum:
-                        validate(reservation, extensions)
+                        validate(reservation, extensions, 64)
                         self.assertEqual(reservation["reservation_set_size_exp"], size_exp)
                     else:
                         with self.assertRaisesRegex(ValueError, "reservation size"):
-                            validate(reservation, extensions)
+                            validate(reservation, extensions, 64)
             with self.assertRaisesRegex(ValueError, "version"):
-                validate({"reservation_set_size_exp": 3}, dict.fromkeys(names, "2.0.0"))
-        validate({"reservation_set_size_exp": 12}, {})
+                validate({"reservation_set_size_exp": 3}, dict.fromkeys(names, "2.0.0"), 64)
+        validate({"reservation_set_size_exp": 12}, {}, 64)
 
 
 class ArchTestGenerationTest(unittest.TestCase):
+    def test_make_rejects_cross_product_configuration_before_generation(self):
+        result = subprocess.run(
+            ["make", "arch-test-config", "SOC=simple-spike-rv32max",
+             "ACT_CONFIGURATION=simple-rv5stage-rv32max"],
+            cwd=RUNNER.parents[1], capture_output=True, text=True,
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("must match the selected", result.stdout + result.stderr)
+
     def test_shards_cover_inventory_exactly_once_and_replace_stale_links(self):
         spec = importlib.util.spec_from_file_location('act_shard', RUNNER.with_name('shard.py'))
         sharder = importlib.util.module_from_spec(spec)

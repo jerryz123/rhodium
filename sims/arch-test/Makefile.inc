@@ -26,10 +26,7 @@ ACT_ELF_DIR = $(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs
 ACT_RUN_ELF_DIR = $(if $(filter 1,$(ACT_SHARDS)),$(ACT_ELF_DIR),$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/shards/$(ACT_SHARD)/elfs)
 ACT_TIMEOUT ?= 300
 ACT_MAX_CYCLES ?= 10000000
-ACT_ACCESS_FAULT_OPTIONS = $(if $(ACT_ACCESS_FAULT_ADDRESS),--access-fault-address $(ACT_ACCESS_FAULT_ADDRESS)) $(if $(ACT_ACCESS_FAULT_BYTES),--access-fault-bytes $(ACT_ACCESS_FAULT_BYTES))
-ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(ACT_SOC)/obj/VTestDriver)
-ACT_PLATFORM := $(CURDIR)/arch-test/configs/$(ACT_CONFIGURATION).mk
--include $(ACT_PLATFORM)
+ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(SOC_ID)/obj/VTestDriver)
 
 .PHONY: arch-test-setup arch-test-source arch-test-config arch-test-tests arch-test-elfs arch-test arch-test-run arch-test-adapter-test
 arch-test-setup:
@@ -40,13 +37,13 @@ arch-test-source:
 	  --series "$(ACT_PATCH_SERIES)" --output "$(ACT_SOURCE_DIR)"
 
 arch-test-config:
-	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)
-	@test "$(ACT_SOC)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
-	$(MAKE) -C $(REPO_DIR) riscv-udb-config RISCV_UDB_CONFIGURATION=$(ACT_UDB_CONFIGURATION) RISCV_UDB_OUTPUT=$(ACT_CONFIG_DIR)/udb.yaml
+	@test "$(ACT_CONFIGURATION)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
+	@mkdir -p "$(ACT_CONFIG_DIR)"
+	cd "$(REPO_DIR)" && RACKET="$(RACKET)" tools/run-racket.sh -S "$(REPO_DIR)" \
+	  sims/arch-test/write-platform.rhm "$(SOC_ID)" "$(ACT_CONFIG_DIR)"
 	$(ACT_PYTHON) arch-test/configure.py --udb $(ACT_CONFIG_DIR)/udb.yaml --output $(ACT_CONFIG_DIR) \
 	  --name $(ACT_CONFIGURATION) --compiler $(RISCV_CC) --objdump $(ACT_OBJDUMP) --sail $(ACT_SAIL) \
-	  --ram-origin $(ACT_RAM_ORIGIN) --ram-bytes $(ACT_RAM_BYTES) --test-base $(ACT_TEST_BASE) \
-	  $(ACT_ACCESS_FAULT_OPTIONS)
+	  --platform $(ACT_CONFIG_DIR)/platform.json
 
 arch-test-tests: arch-test-source
 	rm -rf "$(ACT_TEST_DIR)"
@@ -65,12 +62,12 @@ arch-test: arch-test-elfs
 	$(MAKE) arch-test-run
 
 arch-test-run:
-	@test -f "$(ACT_PLATFORM)" || (echo "Unknown ACT configuration: $(ACT_CONFIGURATION)" >&2; exit 2)
-	@test "$(ACT_SOC)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
+	@test "$(ACT_CONFIGURATION)" = "$(SOC_ID)" || (echo "ACT configuration must match the selected SoC/core/ISA" >&2; exit 2)
+	@test "$(SOC_SHAPE)" = simple || (echo "ACT currently supports the Simple SoC shape" >&2; exit 2)
 	@test -d "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" && \
 	  test -n "$$(find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -name '*.elf' -type f -print -quit)" || \
 	  (echo "No ACT ELFs; run arch-test-elfs first" >&2; exit 2)
-	$(MAKE) simulator SOC=$(ACT_SOC)
+	$(MAKE) simulator SOC=$(SOC_ID)
 	$(if $(filter 1,$(ACT_SHARDS)),@true,$(PYTHON) arch-test/shard.py --elf-dir "$(ACT_ELF_DIR)" --output "$(ACT_RUN_ELF_DIR)" --index $(ACT_SHARD) --count $(ACT_SHARDS))
 	rm -f "$(ACT_RUN_ELF_DIR)/../summary.log"
 	@status=0; $(ACT_PYTHON) $(ACT_DIR)/run_tests.py --jobs $(ACT_JOBS) --timeout $(ACT_TIMEOUT) \

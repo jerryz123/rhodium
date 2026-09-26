@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, simulation_entry
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry
 
 
 def matches(path, *patterns):
@@ -40,7 +40,7 @@ class Selection:
     def classify(self, path):
         documentation = matches(path, "*.md", "LICENSE", "LICENSE.*", "NOTICE", "DCO", "AGENTS.md", ".gitignore", ".gitattributes")
 
-        # Native workloads and ACT cover both single-core products independently
+        # Native workloads and ACT cover selected single-core products independently
         # of host, example, and CIRCT checks.
         if documentation or matches(path, "tools/emacs/*"):
             pass
@@ -76,6 +76,8 @@ class Selection:
             return
         elif matches(path, ".github/workflows/*", ".github/actions/*", "tools/ci/*"):
             self.all()
+        elif matches(path, "sims/arch-test/*.rhm", "sims/tests/product-test.rhm"):
+            self.add_checks("host-socs")
         elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py",
                      "sw/build/build-coremark.py", "sw/build/build-embench.py",
                      "sw/build/build-bringup-bench.py", "sw/coremark", "sw/coremark/*",
@@ -200,9 +202,9 @@ class Selection:
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
                 continue
-            suites["include"].extend({"soc": soc, "suite": suite} for soc in SINGLE_CORE_SOCS)
+            suites["include"].extend({"soc": soc, "suite": suite} for soc in native_products(suite))
             if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar"} for soc in SINGLE_CORE_SOCS)
+                suites["include"].extend({"soc": soc, "suite": "coremark_scalar"} for soc in native_products(suite))
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch

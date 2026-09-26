@@ -15,7 +15,8 @@ fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
     RiscvHartDescription(architecture.isa, architecture.mmu,
                          RiscvCacheDescription(64, 64, 16384), RiscvCacheDescription(64, 64, 16384),
                          ~cbo_block_bytes: 64,
-                         ~vector: RiscvVectorDescription(architecture.vector_length, vector_profile_elen_bits(architecture.vector)))
+                         ~vector: RiscvVectorDescription(architecture.vector_length, vector_profile_elen_bits(architecture.vector))),
+    ~pmp_regions: 0
   )
 
 def single_core_spike_soc_core_profile = spike_product_profile(IsaPreset.RVA23)

@@ -32,9 +32,14 @@ the DPI bridge in sync when changing interrupt delivery.
 [`udb.rhm`](udb.rhm) owns the pinned Spike implementation's ACT/UDB projection.
 Keep its ISA, CSR, counter, PMP, and trap claims aligned with the configured
 Spike revision and [`profile.rhm`](profile.rhm); the SoC UDB catalog adds only
-integration-owned platform facts. In particular, Spike's RV64 PMP CSR mask
-uses its 56-bit physical-address limit, not the fabric's 44-bit CHI address
-width. `tests/udb-test.rhm` covers both scalar and production RVA23 projections.
+integration-owned platform facts. SoC factories explicitly set zero PMP entries;
+keep the standalone configuration's PMP support independent of that policy.
+With PMP enabled, Spike's CSR masks use 56 physical bits on RV64 and 34 on
+RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
+32-bit physical addresses. RV32 retains nine ASID bits.
+`tests/udb-test.rhm` covers scalar, RVA23, and integer-vector RV32Max projections.
+Compressed FP implications follow actual F/D support. FS remains writable
+with S mode even without F, as in Spike's `sstatus_csr_t` implementation.
 Keep extension/version mapping fail-closed and expand only architectural
 implications; do not import RV5Stage policy. Vector parameters follow the pinned
 `vector_unit.cc` and `v_ext_macros.h`, including reserved vset choices and
