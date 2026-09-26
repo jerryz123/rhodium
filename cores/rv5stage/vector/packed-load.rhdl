@@ -32,8 +32,8 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   input accepted_slots: Vec(slots, Bool)
   input closed_owners: Vec(owner_count, Bool)
   output(busy_rows, foreign_rows): Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
-  output(active, drain_blocked, resolved_last): Bool
-  output replay_cursor: RV5StageVectorPackedCursor(xlen, vlen)
+  output(active, drain_blocked): Bool
+  output resolved: Entry
   def wb = commit |> map_valid(event => event.tag)
   def successful = commit.valid & (commit.bits.disposition === RV5StageVectorDisposition.Authorized)
   inst loads(RV5StageVectorLoadResponse(xlen, slots))
@@ -51,8 +51,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   def carry_has_slots = vec(for List (s in 0..slots): accepted_slots[s] & (entries[s].owner === carry_owner)).as_bits().or_reduce()
   def carry_pending = carry_valid & closed_owners[carry_owner.as_bits()] & !carry_has_slots
   def flush_carry = carry_pending & write_available
-  resolved_last <== entries[wb.bits].layout.last
-  replay_cursor <== entries[wb.bits].layout.before
+  resolved <== entries[wb.bits]
   drain_blocked <== carry_pending
 
   // Completed words drain in request order, regardless of response arrival order.

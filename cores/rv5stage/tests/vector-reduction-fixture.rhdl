@@ -41,6 +41,7 @@ sync_circuit RV5StageVectorReductionFixture(xlen :: XLen, vlen :: VectorLength):
       RV5StageVectorDescriptor(xlen):
         pc: bits(0x100, xlen.width)
         precertified: Bool(#false)
+        certificate: dont_care(vector.request.bits.descriptor.certificate.type)
         instruction: instruction
         state:
           RiscvVectorState(xlen):

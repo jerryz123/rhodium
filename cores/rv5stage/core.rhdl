@@ -352,6 +352,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb = wb_selection.egress |> gate_flow(mux(wb_reservation_wait_pending, wb_reservation_wait_done, mux(wb_maintenance_pending, wb_maintenance_done, Bool(#true)))) |> to_valid()
   def Array(wb_commit_path, wb_vector_launch_path, wb_vector_replay_path, wb_vector_slow_path, wb_fp_reservation_path, wb_fp_hit_path) = wb |> fork_valid(6)
   def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots) = wb.bits
+  vector_fast.candidate <== wb_offer_bits.vector_fast
   wire wb_commit_result: MemoryWriteback(xlen, vector_completion_slots)
   wire wb_vector_fast: Bool
   wire wb_vector_slow_admission: Bool
@@ -770,11 +771,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector.memory <=> memory_ports.vector
       wb_vector.pipeline <=> memory_ports.vector_pipeline
       def wb_vector_masking_unchanged = (wb_vector_context.pointer_masking.mode === wb_csrs.pointer_masking.mode) & (wb_vector_context.pointer_masking.virtual_address === wb_csrs.pointer_masking.virtual_address)
-      def wb_vector_fast_candidate = wb_offer_bits.vector_fast_valid & vector_fast.install_ready & wb_vector.fast_admission_ready & wb_vector_masking_unchanged
+      def wb_vector_fast_candidate = wb_offer_bits.vector_fast_valid & vector_fast.candidate_current & wb_vector_masking_unchanged
       def wb_vector_launch = wb_vector_launch_path |> filter_valid(operation => operation.vector_launch & !operation.replay & !operation.exception_valid)
         |> map_valid(operation => RV5StageVectorDescriptor(xlen)):
              pc: operation.pc
              precertified: wb_vector_fast_candidate
+             certificate: wb_offer_bits.vector_fast
              instruction: wb_vector_context.instruction
              state: wb_vector_context.state
              control: wb_vector_context.control
@@ -790,8 +792,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_fast <== wb_vector_accepted & wb_vector_fast_candidate & wb_vector_launch.bits.control.memory
       wb_vector_slow_admission <== wb_vector_accepted & wb_vector_launch.bits.control.memory & !wb_vector_fast
       wb_vector_slow_restart <== wb_vector_slow_admission & (mem_input.valid ||| ex_input.valid)
-      vector_fast.install.valid <== wb_vector_fast
-      vector_fast.install.bits <== wb_offer_bits.vector_fast
+      vector_fast.pipeline_physical <== wb_vector.pipeline_physical
+      vector_fast.request_physical <== wb_vector.request_physical
       wb_vector_launch |> filter_valid(_descriptor => !wb_vector_needs_fp_reservation ||| wb_fp.vector_reserve.ready) |> offer_decoupled() |> wb_vector.request
       wb_vector_launch |> filter_valid(descriptor => descriptor.control.floating_scalar_destination & wb_vector.request.ready) |> map_valid(_descriptor => wb_vector_vd) |> offer_decoupled() |> wb_fp.vector_reserve
       wb_vector_replay <== wb_vector_launch.valid & !wb_vector_sink_ready
@@ -826,8 +828,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_vector_fast <== Bool(#false)
       wb_vector_slow_admission <== Bool(#false)
       wb_vector_slow_restart <== Bool(#false)
-      vector_fast.install.valid <== Bool(#false)
-      vector_fast.install.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
+      vector_fast.pipeline_physical <== Bool(#false)
+      vector_fast.request_physical <== Bool(#false)
       memory_ports.vector.request.valid <== Bool(#false)
       memory_ports.vector.request.bits <== dont_care(RV5StageDataReq(xlen, vector_completion_slots))
       memory_ports.vector.response.ready <== Bool(#true)

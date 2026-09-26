@@ -81,28 +81,30 @@ the EEW64 high-half and fractional multiply operations reserved for full V.
 ### Event tracing
 
 The optional event compiler observes sequencing and beat milestones:
-`vector/s1.sequence` marks an accepted elementwise read and its fixed downstream
+`vector/s1.sequence` marks an accepted compute or memory beat and its fixed downstream
 resource schedule, `vector/s2.issue` records the resulting nonstallable execution
 attempt after operand capture, and `vector/complete` records a mature or
-authorized beat's actual completion/writeback. Packed memory has no separate
-elementwise read request and begins its beat trace at `vector/s2.issue`.
-The `vector/s1.sequence.stall` observation records a pending read request that could
+authorized beat's actual completion/writeback. Packed loads sequence with their
+read enables clear; packed stores sequence their data reads or prepared bytes.
+Every final sequence transfer reaches `s2.issue` one cycle later unless canceled
+by replay. Dependent gather-index and multi-read store preparation precede that transfer.
+The `vector/s1.sequence.stall` observation records a pending beat that could
 not launch. Its fields report all failing acceptance conditions in that cycle:
 `setup_wait`, `vs2_wait` and `vs1_wait` for the architectural source rows,
 the destination-row and gather hazards, and downstream resource `fetch_wait`.
 Several fields may be true at once; they are not
 priority-encoded. Idle, completed, and canceled plans do
 not generate a sequencing stall.
-Each elementwise issue inherits its exact sequencing occurrence, and every
+Each issue inherits its exact sequencing occurrence, and every
 completion inherits its exact issue.
 Retries create fresh issue occurrences, while rejected and flushed attempts
 have no completion. Masked and empty beats can complete without a VRF write.
 Completion is distinct from scalar macro retirement.
 
 The sequencer has no duration event. Sequencing captures PC and instruction on
-each accepted elementwise read request; Perfetto names its slices from the decoded
+each accepted beat; Perfetto names its slices from the decoded
 instruction. Retry creates another occurrence with the same instruction bits.
-Sequencing and elementwise issue capture the macro-local operation index, exclusive
+Sequencing and issue capture the macro-local operation index, exclusive
 element range, and last/empty flags;
 the operation index can repeat on retry and is not an event identity. Completion
 captures destination and VRF-write enable. Backpressure observations share
@@ -139,8 +141,13 @@ macros and encoded-`rs2=x0` non-segmented strided loads can certify after a
 page-level precheck of at most two 4 KiB pages. The latter check only the one
 element's aligned transfer word and retain their single-read splat execution. The
 one-page fast path uses the scalar ALU in EX for the first address, including
-the `vstart` byte offset, and the normal DTLB in MEM. WB installs the captured
-translation into the same owned page window and retires the macro on admission.
+the `vstart` byte offset, and the normal DTLB in MEM. WB carries the captured
+translation in the admitted descriptor and retires the macro without waiting
+for the previous page-window owner. Each issued request uses that captured
+translation independently of the shared fallback window. Certified ordinary
+memory hands off the sequencer after its final scheduled beat; downstream
+request retention handles cache retries without flushing younger vector work.
+Dependent instructions still wait for actual load data to reach the VRF.
 The original `rs1` base remains in its descriptor for sequencing. When this
 speculative check cannot certify, WB restarts younger work and the existing
 precheck or element-wise path retains precise fault ownership. The
@@ -214,13 +221,19 @@ from an incoming or speculative descriptor. Operand fetch retains each plan's
 controls and owner through VRF latency and issue backpressure, independently of
 sequencer replacement. Independent single-beat instructions can therefore read
 and issue on consecutive cycles. The completion-slot owner ring retains older
-issued work. Elementwise memory can also enter the sequencer while older
+issued work. Elementwise memory, including encoded-zero-stride loads, can also enter the sequencer while older
 ordinary compute beats remain in operand fetch; those beats issue first.
-Memory, dependent scans, and compression instead retain the descriptor through
-final feedback because they carry replay or checkpointed cross-beat state. An
+MEM-certified ordinary memory uses the same final-read handoff as compute;
+captured physical requests retain downstream cache-retry ownership. Uncertified
+memory, dependent scans, and compression retain the descriptor through
+final feedback because they carry precise replay or checkpointed cross-beat state. An
 authorized final ordinary memory beat can admit the next descriptor on that same
-edge; the encoded-zero-stride load specialization retains vector admission until
-its row writes drain. Retry or fault feedback cannot admit a successor. Index scans
+edge. An encoded-zero-stride load likewise releases sequencing on read
+capture for MEM-certified work, or cache authorization on the fallback path,
+while its retained response and row writes finish independently.
+Younger work waits only for conflicting destination or mask rows; another
+zero-stride splat waits for the single splat engine to drain. Retry or fault
+feedback cannot admit a successor. Index scans
 release on their final read like ordinary compute. Reductions release at their
 tail read while owner-local recurrence and completion state finish independently. A dependent
 consumer waits for each needed XLEN-bit VRF row rather than the entire older
@@ -591,7 +604,9 @@ each issued beat carries its post-beat suffix, element count, and destination
 position as a speculative checkpoint. Result maturity advances the committed
 checkpoint, and cancellation discards only speculative state. A final flush
 beat writes a partial retained suffix when necessary. Every VRF write follows
-result maturity, and no extra read or write port is added.
+result maturity, and no extra read or write port is added. Source chunks can
+sequence every cycle; a final suffix uses the common S1/S2 path with no reads
+and issues two cycles after its generating source beat.
 
 ## Shared integer multiply/divide
 

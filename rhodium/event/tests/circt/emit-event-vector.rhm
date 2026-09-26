@@ -13,9 +13,12 @@ def sequence_path = traced.manifest.sites.find(fun (site): site.label == "vector
 def execution_path = sequence_path.take(sequence_path.length() - 1)
 for (label in ["vector/s2.issue", "vector/complete", "vector/s2.issue.stall"]):
   def sites = traced.manifest.sites.filter(~keep: fun (site): site.label == label)
-  def packed_path = execution_path ++ (if label == "vector/complete" | ["packed", "assembly"] | ["packed"])
-  unless sites.length() == 2 && sites.map(fun (site): site.instance_path).contains(packed_path)
-  | error("expected shared vector labels across execution paths")
+  def expected_paths = if label == "vector/complete" | [execution_path ++ ["completions"], execution_path ++ ["packed"]] | [execution_path]
+  unless sites.length() == expected_paths.length()
+  | error("expected unified vector issue and independently owned completion paths")
+  for (path in expected_paths):
+    unless sites.map(fun (site): site.instance_path).contains(path)
+    | error("unexpected vector event owner")
   for (site in sites):
     unless site.fields.map(fun (field): field.name).contains("packed")
     | error("expected beat geometry metadata")

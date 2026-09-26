@@ -14,10 +14,6 @@ hardware_enum RV5StageVectorWindowState:
   Complete
   Owned
 
-bundle RV5StageVectorWindowInstall():
-  range: RV5StageVectorRange()
-  ppn: Bits(44)
-
 fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), store :: Bool) :~ Bool:
   def mutable permitted = Bool(#false)
   for (region in physical_map.regions):
@@ -32,8 +28,6 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
 sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   interface check(RV5StageVectorPrecheck(), ~role: responder)
   interface translation(RV5StagePageProbe(), ~role: requester)
-  interface fast_install(Valid(RV5StageVectorWindowInstall()), ~role: consumer)
-  output fast_ready: Bool
   input addresses: Vec(2, Bits(64))
   output physical_addresses: Vec(2, Bits(64))
   output hits: Vec(2, Bool)
@@ -45,13 +39,12 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   reg last_ppn(Bits(44))
   reg safe(~init: Bool(#false))
   def admitting = state === RV5StageVectorWindowState.Idle
-  fast_ready <== admitting
   def lookup_span = mux(admitting, check.request.bits, span)
   def lookup_second = !admitting & second
   def first_page = span.first[12..64]
   def last_page = span.last[12..64]
   def split = lookup_span.first[12..64] =/= lookup_span.last[12..64]
-  check.request.ready <== admitting & !fast_install.valid
+  check.request.ready <== admitting
   check.response.valid <== state === RV5StageVectorWindowState.Complete
   check.response.bits <== safe
   translation.request.valid <== (state === RV5StageVectorWindowState.Request) ||| (admitting & check.request.valid)
@@ -74,14 +67,6 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   when (check.release.valid):
     state <== RV5StageVectorWindowState.Idle
     safe <== Bool(#false)
-  elsewhen (fast_install.valid):
-    assert(admitting & !check.request.valid, "vector_fast_install_has_idle_window")
-    state <== RV5StageVectorWindowState.Owned
-    span <== fast_install.bits.range
-    first_ppn <== fast_install.bits.ppn
-    last_ppn <== fast_install.bits.ppn
-    safe <== Bool(#true)
-    second <== Bool(#false)
   elsewhen (translation.response.valid):
     assert((state === RV5StageVectorWindowState.Response) ||| translation.request.fire(), "vector_page_result_has_owner")
     when (check.request.fire()):
@@ -105,5 +90,4 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
 
 export:
   RV5StageVectorWindow
-  RV5StageVectorWindowInstall
   vector_page_permitted

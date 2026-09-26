@@ -1,10 +1,11 @@
 #lang rhodium
-// Fetches and packs statically scheduled operands without a post-read result queue.
+// Carries every scheduled beat through fixed VRF latency and forms compute or packed-memory operands.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("cores/riscv/vector-layout.rhm") open
   "bundles.rhdl" open
+  "packed-bundles.rhdl" open
   "geometry.rhdl" open
   "packing.rhdl" open
   "../decode/vector-ctrl.rhdl" open
@@ -21,23 +22,21 @@ import:
 
 sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
-  def ReadContext = RV5StageVectorReadContext(xlen, vlen, Context)
+  def SequenceContext = RV5StageVectorSequenceContext(xlen, vlen, Context)
   def MicroOp = RV5StageVectorMicroOp(xlen, vlen, Context)
-  bundle GatherRead():
-    context: Context
-    beat: RV5StageVectorBeat(xlen, vlen)
-    in_range: Bool
-  interface request(Decoupled(RV5StageVectorReadRequest(xlen, vlen, Context)), ~role: consumer)
+  interface request(Decoupled(RV5StageVectorSequenceRequest(xlen, vlen, Context)), ~role: consumer)
   interface reads[3](Valid(Address), ~role: producer)
   interface results[3](Valid(Bits(xlen.width)), ~role: consumer)
   interface mask_read(Valid(Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))), ~role: producer)
   interface mask_result(Valid(Bits(xlen.width)), ~role: consumer)
   interface issue(Decoupled(MicroOp), ~role: producer)
+  interface suffix(Decoupled(SequenceContext), ~role: producer)
+  interface alignment(Valid(RV5StageVectorAlignment(xlen)), ~role: producer)
+  input aligned: Bits(xlen.width)
   interface feedback(Valid(RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))), ~role: consumer)
   input(flush, begin_macro): Bool
-  output(active, scheduled_return, suffix_pending): Bool
-  inst context_pipe(ValidPipe(ReadContext, 1, ~flushable: #true))
-  inst gather_pipe(ValidPipe(GatherRead(), 1, ~flushable: #true))
+  output(active, scheduled_return): Bool
+  inst context_pipe(ValidPipe(SequenceContext, 1, ~flushable: #true))
   inst packing(RV5StageVectorOperands(xlen, vlen))
   reg compress_data(~init: bits(0, xlen.width))
   reg compress_count(~init: bits(0, vector_lane_count_width(xlen)))
@@ -46,7 +45,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   reg authorized_compress_count(~init: bits(0, vector_lane_count_width(xlen)))
   reg authorized_compress_destination(~init: bits(0, index_width(vlen + 1)))
   reg compress_flush(~init: Bool(#false))
-  reg compress_context(ReadContext)
+  reg compress_context(SequenceContext)
   reg compress_context_valid(~init: Bool(#false))
   reg flush_sequence(Bits(vector_sequence_width(vlen)))
   reg authorized_sequence(~init: bits(0, vector_sequence_width(vlen)))
@@ -54,11 +53,12 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def clear = flush
   def retry = feedback.valid & (feedback.bits.disposition === RV5StageVectorDisposition.Retry)
   def response = context_pipe.egress
-  def read_context = mux(compress_flush, compress_context, response.bits)
+  def read_context = response.bits
   def instruction = read_context.instruction
   def minimum = read_context.minimum
   def beat_control = read_context.beat_control
   def descriptor = instruction.descriptor
+  def packed = read_context.packed
   def vd = instruction_field(riscv_fields.rd, descriptor.instruction)
   def vs1 = instruction_field(riscv_fields.rs1, descriptor.instruction)
   def vs2 = instruction_field(riscv_fields.rs2, descriptor.instruction)
@@ -74,7 +74,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def destination_width = vector_destination_width(descriptor.control, sew)
   def index_sew = vector_index_width(descriptor.control, sew)
   def gather = descriptor.control.integer & descriptor.control.gather
-  def gather_vector = gather & (descriptor.control.operand === VectorOperandMode.Vector)
+  def gather_vector = !packed & gather & (descriptor.control.operand === VectorOperandMode.Vector)
   def scalar_index = vector_scalar_index(xlen, descriptor)
   def widening = descriptor.control.integer & descriptor.control.widening
   def narrowing = descriptor.control.integer & descriptor.control.narrowing
@@ -83,20 +83,19 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def reduction = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.reduction
   def extension = descriptor.control.integer & descriptor.control.extension
   def wide_vs2 = (descriptor.control.integer ||| descriptor.control.fp_service) & descriptor.control.wide_vs2
-  def second_source = vector_reads_second(descriptor.control)
+  def second_source = !gather_vector & vector_reads_second(descriptor.control)
   def indexed_memory = vector_indexed_memory(descriptor.control)
   def slide = descriptor.control.slide
   def scan = descriptor.control.integer & descriptor.control.scan
   def singleton = vector_single_element(descriptor.control)
   def mask_logic = descriptor.control.integer & descriptor.control.mask_logic
-  def compress = descriptor.control.integer & descriptor.control.compress
+  def compress = !packed & descriptor.control.integer & descriptor.control.compress
   def destination_source = vector_reads_destination(descriptor.control)
   def fp_narrowing = descriptor.control.fp_service & descriptor.control.narrowing
   def fp_widening = descriptor.control.fp_service & descriptor.control.widening
   def mask_select = descriptor.control.mask_select
   def carry_input = descriptor.control.integer & descriptor.control.carry_input
-  // A vector gather's second read owns port zero in the index-response cycle.
-  // The next index read can overlap the preceding data response, not its read.
+  // Gather index preparation belongs to the sequencer; this stage reads its selected data row.
   def floating_scalar_operand = descriptor.control.floating_point & (descriptor.control.operand === VectorOperandMode.FloatingScalar)
   def fp_service_scalar_operand = descriptor.control.fp_service & floating_scalar_operand
   def checked_floating_scalar = mux_lookup(sew, ~default: descriptor.floating_scalar, for List (format in 1..(vector_format_count(xlen) - 1)): [format, riscv_unbox(if format == 1 | FloatFormat.F16 | FloatFormat.F32, xlen.width, descriptor.floating_scalar).as_bits().zext(xlen.width)])
@@ -115,21 +114,17 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   def index_shift = (beat_control.first[0..vector_byte_offset_width(xlen)] << index_sew) ++ bits(0, 3)
   def index_word = results[1].bits >> index_shift
   def vector_index = mux_lookup(index_sew, ~default: index_word, for List (format in 0..(vector_format_count(xlen) - 1)): [format, index_word[0..(8 << format)].zext(xlen.width)])
-  def gather_index = mux(gather_vector, vector_index, scalar_index)
-  def gather_in_range = gather_index < geometry.vlmax.zext(xlen.width)
-  def gather_address = slide_base + mux(gather_in_range, (gather_index >> (bits(vector_byte_offset_width(xlen), 2) - sew))[0..row_base_width], bits(0, row_base_width))
+  def gather_index = scalar_index
   // Rotate the selected source element directly into its destination slot;
   // scalar gathers rotate to slot zero, then use width-selected replication.
-  def gather_offset = (gather_index[0..vector_byte_offset_width(xlen)] << sew) - mux(gather_vector, beat_control.first[0..vector_byte_offset_width(xlen)] << sew, bits(0, vector_byte_offset_width(xlen)))
-  def gather_data_read = response.valid & gather_vector & !clear
-  // A dependent gather read occupies port zero for one cycle. Its data
-  // response can overlap the next index request without losing either context.
-  def can_read = !clear & !gather_data_read & !compress_flush
+  def gather_offset = mux(gather_vector, read_context.gather_offset - (beat_control.first[0..vector_byte_offset_width(xlen)] << sew), gather_index[0..vector_byte_offset_width(xlen)] << sew)
+  def gather_in_range = mux(gather_vector, read_context.gather_in_range, gather_index < geometry.vlmax.zext(xlen.width))
+  def can_read = !clear & (!compress_flush ||| request.bits.context.suffix)
   request |> gate_flow(can_read) |> to_valid() |> map_valid(read => read.context) |> context_pipe.ingress
   context_pipe.flush <== clear
   def launch = request.fire()
-  reads[0].valid <== (launch & request.bits.enables[0].into(Bool)) ||| (gather_data_read & !beat_control.empty)
-  reads[0].bits <== mux(gather_data_read, gather_address, request.bits.addresses[0])
+  reads[0].valid <== launch & request.bits.enables[0].into(Bool)
+  reads[0].bits <== request.bits.addresses[0]
   for (port in 1..3):
     reads[port].valid <== launch & request.bits.enables[port].into(Bool)
     reads[port].bits <== request.bits.addresses[port]
@@ -247,7 +242,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
   )
   fun compression_flush_beat(state :: RV5StageVectorCompressState(xlen, vlen)) :~ RV5StageVectorBeat(xlen, vlen):
     RV5StageVectorBeat(xlen, vlen):
-      sequence: flush_sequence
+      sequence: beat_control.sequence
       first: limit
       end: limit
       destination_first: state.destination
@@ -273,49 +268,55 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
           data: bits(0, xlen.width)
           count: bits(0, vector_lane_count_width(xlen))
           destination: state.destination + state.count.zext(index_width(vlen + 1))
-  gather_pipe.flush <== clear
-  def Array(direct_response, indexed_response, compression_response) = response |> fork_valid(3)
-  (
-    indexed_response |> filter_valid(_context => gather_vector & !clear)
-      |> map_valid(context => GatherRead()):
-           context: context.instruction.context
-           beat: operands
-           in_range: gather_in_range
-  ) |> gather_pipe.ingress
-  def direct = direct_response |> filter_valid(_context => !gather_vector & !clear) |> map_valid(context => RV5StageVectorMicroOp(xlen, vlen, Context)):
+  def Array(direct_response, compression_response) = response |> fork_valid(2)
+
+  // A packed load carries metadata through this stage with every read disabled.
+  // A direct store consumes the two scheduled rows and the shared alignment slot.
+  def packed_layout = read_context.packed_layout
+  def packed_first_lane = priority_encoder(packed_layout.live)
+  def packed_rotation = packed_layout.offsets[packed_first_lane] - packed_first_lane
+  def packed_first_row = packed_layout.rows[packed_first_lane]
+  def packed_source = vec(for List (offset in 0..vector_word_bytes(xlen)):
+                            def lane = bits(offset, vector_byte_offset_width(xlen)) - packed_rotation
+                            def use_first = packed_layout.rows[lane[0..index_width(vector_word_bytes(xlen))]] === packed_first_row
+                            mux(use_first, results[0].bits[offset * 8..offset * 8 + 8], results[1].bits[offset * 8..offset * 8 + 8])).as_bits()
+  alignment.valid <== response.valid & packed & read_context.packed_store_read & !clear
+  alignment.bits <== RV5StageVectorAlignment(xlen):
+    data: packed_source
+    bytes: packed_rotation
+  def packed_operands = operands.updated(~left: mux(read_context.packed_store_read, aligned, read_context.packed_data), ~enabled: read_context.packed_mask.into(Mask(vector_word_bytes(xlen))))
+  def direct = direct_response |> filter_valid(_context => !clear) |> map_valid(context => RV5StageVectorMicroOp(xlen, vlen, Context)):
     context: context.instruction.context
-    beat: mux(compress, compress_beat, operands)
-  def gathered_read :: GatherRead() = gather_pipe.egress.bits
-  def gathered = gather_pipe.egress |> filter_valid(_value => !clear) |> map_valid(_value => RV5StageVectorMicroOp(xlen, vlen, Context)):
-    context: gathered_read.context
-    beat: gathered_read.beat.updated(~left: mux(gathered_read.in_range, results[0].bits, bits(0, xlen.width)))
+    beat: mux(read_context.suffix, compression_flush_beat(read_context.suffix_state), mux(packed, packed_operands, mux(compress, compress_beat, operands)))
+    packed: packed
+    packed_layout: read_context.packed_layout
+    byte_mask: read_context.packed_mask
   def flush_state = RV5StageVectorCompressState(xlen, vlen):
     data: compress_data
     count: compress_count
     destination: compress_destination
-  def flush_offer = compress_flush & !clear
-  def flush_operation = RV5StageVectorMicroOp(xlen, vlen, Context):
-    context: compress_context.instruction.context
-    beat: compression_flush_beat(flush_state)
-  wire flush_ready: Bool
-  def flushed = inject_flow(Decoupled(MicroOp), ~valid: flush_offer, ~bits: flush_operation, ~ready: flush_ready)
-  def capture_compression = response.valid & compress & !clear
+  suffix.valid <== compress_flush & !clear
+  suffix.bits <== compress_context.updated(
+    ~suffix: Bool(#true),
+    ~suffix_state: flush_state,
+    ~beat_control: compress_context.beat_control.updated(~sequence: flush_sequence, ~first: compress_context.beat_control.end, ~last: Bool(#true), ~empty: Bool(#false))
+  )
+  def capture_compression = response.valid & compress & !read_context.suffix & !clear
   def discard_compression = begin_macro ||| (clear & !retry)
   describe_interface_retained_storage(capture_compression, compress_context_valid & (capture_compression ||| discard_compression), compress_context_valid, ~name: "compression")
-  describe_interface_contract(compression_response, flushed, "compression-suffix", ~trace_model: interface_trace_retained(~name: "compression"))
-  def returned = Array(direct, gathered) |> valid_arbiter() |> to_decoupled()
-  Array(returned, flushed) |> arbiter() |> issue
-  def flush_enqueue = flushed.fire()
+  describe_interface_contract(compression_response, suffix, "compression-suffix", ~trace_model: interface_trace_retained(~name: "compression"))
+  def returned = direct |> to_decoupled()
+  returned |> issue
+  def flush_enqueue = suffix.fire()
   scheduled_return <== returned.valid
-  suffix_pending <== compress_flush
-  active <== response.valid ||| gather_pipe.egress.valid ||| compress_flush
+  active <== response.valid ||| compress_flush
   when (returned.valid):
     assert(returned.ready, "vector_scheduled_read_cannot_stall_after_response")
-  when (gather_pipe.egress.valid & !clear):
-    assert(gathered_read.beat.empty ||| results[0].valid, "vector_gather_data_matches_context")
-  when (response.valid & !clear):
+  when (response.valid & !clear & !packed & !read_context.suffix):
     assert(beat_control.empty ||| (results[0].valid & (!second_source ||| results[1].valid) & mask_result.valid & (!destination_source ||| results[2].valid)), "vector_read_context_matches_data_and_mask_ports")
     assert(singleton ||| mask_word ||| beat_control.empty ||| packing.legal, "vector_packed_read_is_legal")
+  when (response.valid & !clear & packed & read_context.packed_store_read):
+    assert(results[0].valid & results[1].valid, "vector_packed_store_matches_scheduled_rows")
   when discard_compression:
     compress_context_valid <== Bool(#false)
   elsewhen capture_compression:
@@ -343,7 +344,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     compress_count <== bits(0, vector_lane_count_width(xlen))
     compress_destination <== bits(0, index_width(vlen + 1))
     compress_flush <== Bool(#false)
-  elsewhen (response.valid & compress):
+  elsewhen capture_compression:
     compress_context <== response.bits
     flush_sequence <== beat_control.sequence + bits(1, vector_sequence_width(vlen))
     compress_data <== post_compress_state.data

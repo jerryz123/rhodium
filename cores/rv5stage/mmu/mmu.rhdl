@@ -61,10 +61,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst walker(RV5StagePageTableWalker())
   inst vector_window(RV5StageVectorWindow(physical_map))
   vector_precheck |> vector_window.check
-  def fast_window_install = vector_fast.install |> map_valid(certificate => RV5StageVectorWindowInstall()):
-    range: certificate.range
-    ppn: certificate.ppn
-  fast_window_install |> vector_window.fast_install
   def page_probe = vector_window.translation
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
   inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
@@ -73,6 +69,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   load_context |> load_request.ingress
   virtual_lookup |> pipeline_lookup
   def pipeline_owner = owner_context |> map_valid(_request => pipeline_vector) |> valid_pipe(1)
+  def physical_owner = pipeline.request |> map_valid(_request => pipeline_vector & vector_fast.pipeline_physical) |> valid_pipe(1)
 
   def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === bits(Sv39Mode, Satp64Mode.width)
   def root_ppn = if xlen == XLen.X32 | bits(0, Satp64PPN.width) | csr_field(satp, Satp64PPN)
@@ -85,10 +82,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg vector_invalidation_epoch(~init: bits(0, 2))
   when invalidate_all:
     vector_invalidation_epoch <== vector_invalidation_epoch + bits(1, 2)
-  // WB owns both installation and architectural invalidation, so an admitted
-  // vector instruction cannot invalidate its own candidate in this cycle.
-  vector_fast.install_ready <== vector_window.fast_ready & (vector_fast.install.bits.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.install.bits.satp === satp) & (vector_fast.install.bits.privilege === data_privilege) & (vector_fast.install.bits.sum === sum) & (vector_fast.install.bits.mxr === mxr)
-  assert(!vector_fast.install.valid ||| vector_fast.install_ready, "vector_fast_install_has_current_context")
+  // WB validates the MEM snapshot independently of the fallback page window.
+  // Certified vector requests carry their own physical address thereafter.
+  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.satp === satp) & (vector_fast.candidate.privilege === data_privilege) & (vector_fast.candidate.sum === sum) & (vector_fast.candidate.mxr === mxr)
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
@@ -104,7 +100,10 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = data.request.bits
   def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
-  def data_pinned = vector_window.owned & data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
+  def data_vector = data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
+  def data_physical = data_vector & vector_fast.request_physical
+  def data_window = vector_window.owned & data_vector & !data_physical
+  def data_pinned = data_window ||| data_physical
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 
   itlb.virtual_address <== instruction_virtual_address
@@ -118,7 +117,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // fall back instead of observing a translation belonging to another token.
   def load_virtual_address = if xlen == XLen.X32 | load_request.egress.bits.address.zext(64) | load_request.egress.bits.address
   vector_window.addresses <== vec([data_virtual_address, load_virtual_address])
-  def load_pinned = vector_window.owned & pipeline_owner.bits
+  def load_window = vector_window.owned & pipeline_owner.bits & !physical_owner.bits
+  def load_pinned = load_window ||| physical_owner.bits
   def probe_selected = page_probe.request.valid & !data.request.valid
   def fast_selected = vector_fast.request.valid & !data.request.valid & !page_probe.request.valid & !load_request.egress.valid
   dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
@@ -208,7 +208,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg walker_memory_pending(~init: Bool(#false))
   reg walker_response_expected(~init: Bool(#false))
 
-  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(load_pinned, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address))
+  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(physical_owner.bits, load_request.egress.bits.address, mux(load_window, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address)))
   def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
   // Translation contention and ordered IO replay without entering miss service.
@@ -352,7 +352,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault))
       |> gate_flow(data_pinned ||| !data_translation_enabled ||| dtlb.hit)
       |> map_flow(request => request.updated(
-        ~address: if xlen == XLen.X32 | request.address | mux(data_pinned, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address)),
+        ~address: if xlen == XLen.X32 | request.address | mux(data_physical, request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address))),
         ~access: data_memory_operation
       ))
   )
@@ -432,9 +432,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   when (walker_memory.response.valid):
     assert(walker_memory_pending, "rv5stage_mmu_pte_response_has_accepted_request")
   assert(!(invalidate_all & vector_window.owned), "vector_page_window_survives_until_macro_drain")
-  when (data.request.valid & data_pinned):
+  when (data.request.valid & data_window):
     assert(vector_window.hits[0], "vector_transaction_inside_certified_range")
-  when (load_request.egress.valid & load_pinned):
+  when (load_request.egress.valid & load_window):
     assert(vector_window.hits[1], "vector_lookup_inside_certified_range")
 
 export:

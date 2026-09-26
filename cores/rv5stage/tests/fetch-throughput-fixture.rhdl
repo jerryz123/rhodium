@@ -39,8 +39,9 @@ sync_circuit RV5StageFetchThroughput():
   mmu.vector_precheck.response.ready <== Bool(#true)
   mmu.vector_fast.request.valid <== Bool(#false)
   mmu.vector_fast.request.bits <== dont_care(RV5StageVectorRange())
-  mmu.vector_fast.install.valid <== Bool(#false)
-  mmu.vector_fast.install.bits <== dont_care(RV5StageVectorFastCertificate(XLen.X64))
+  mmu.vector_fast.candidate <== dont_care(RV5StageVectorFastCertificate(XLen.X64))
+  mmu.vector_fast.pipeline_physical <== Bool(#false)
+  mmu.vector_fast.request_physical <== Bool(#false)
   inst router(RV5StageInstructionMemoryRouter(XLen.X64))
   inst cache(RV5StageL1ICache(XLen.X64, RV5StageCacheConfig(32, 1), ~chi: test_rv5stage_chi_config))
   fetch.control.active <== active

@@ -13,6 +13,7 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/privilege.rhdl".PrivilegeMode
   "../../../riscv/rtl/pointer-masking.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
   lib("flow/main.rhdl") open
@@ -22,6 +23,7 @@ sync_circuit RV5StageVectorAdmission():
   input instruction: Bits(32)
   input(vl, vtype, scalar): Bits(64)
   input request_valid: Bool
+  input fast_valid: Bool
   input retry_last: Bool
   input retry_address: Bits(64)
   input slow_access: Bool
@@ -31,6 +33,7 @@ sync_circuit RV5StageVectorAdmission():
   interface memory_responses(Valid(RV5StageDataResp(xlen, 8)), ~role: consumer)
   output(request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
+  output pipeline_physical: Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, 128))
   vector.scalar_writeback.ready <== Bool(#true)
@@ -38,7 +41,20 @@ sync_circuit RV5StageVectorAdmission():
   vector.request.valid <== request_valid
   vector.request.bits <== RV5StageVectorDescriptor(xlen):
     pc: scalar
-    precertified: Bool(#false)
+    precertified: fast_valid
+    certificate:
+      RV5StageVectorFastCertificate(xlen):
+        range:
+          RV5StageVectorRange():
+            first: scalar
+            last: scalar ||| bits(4095, 64)
+            store: decode.control.vector.store
+        ppn: scalar[12..56] + bits(16, 44)
+        satp: bits(0, 64)
+        privilege: PrivilegeMode.Machine
+        sum: Bool(#false)
+        mxr: Bool(#false)
+        invalidation_epoch: bits(0, 2)
     instruction: instruction
     state:
       RiscvVectorState(xlen):
@@ -58,6 +74,7 @@ sync_circuit RV5StageVectorAdmission():
         mode: PointerMaskMode.Disabled
         virtual_address: Bool(#false)
   vector.precheck |> precheck
+  pipeline_physical <== vector.pipeline_physical
   def Array(observed, hit_request) = vector.pipeline.request |> fork_valid(2)
   observed |> accesses
   reg retried(~init: Bool(#false))

@@ -125,7 +125,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
       core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
       core.vector_fast.response.valid <== Bool(#false)
       core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
-      core.vector_fast.install_ready <== Bool(#false)
+      core.vector_fast.candidate_current <== Bool(#false)
   core.prefetch |> prefetch
   core.interrupts <== interrupts
   core.hart_id <== hart_id

@@ -1,4 +1,4 @@
-// Checks registered read-tail replacement, age-ordered packed issue, row chaining, ownership, and replay.
+// Checks registered sequencing handoff, autonomous splat drain, row hazards, ownership, and replay.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_overlap_tb;
   logic clock=0, reset=1;
@@ -21,6 +21,8 @@ module rv5stage_vector_overlap_tb;
   int phase10_attempts=0, phase11_attempts=0, older_issue_count=0, previous_stores=0, previous_retirements=0;
   int phase14_attempts=0, phase14_older_last=0, phase14_younger=0;
   int overlap_older_attempts=0, overlap_memory_attempts=0;
+  int independent_packed_attempts=0;
+  int splat_older_last=0, splat_first_attempt=0;
   logic [63:0] overlap_older_context=0, overlap_memory_context=0;
   int fp_tags[8], memory_tags[8];
   logic [63:0] stores[8];
@@ -38,6 +40,9 @@ module rv5stage_vector_overlap_tb;
   endfunction
   function automatic logic [31:0] store_insn(input int rs);
     return 32'h02007027 | (32'(rs)<<7);
+  endfunction
+  function automatic logic [31:0] splat_insn(input int rd, input bit masked=0);
+    return 32'h08007007 | (masked ? 32'b0 : 32'h02000000) | (32'(rd)<<7);
   endfunction
   function automatic logic [31:0] reduction_insn(input int vd);
     return 32'h02002057 | (32'd8<<20) | (32'd3<<15) | (32'(vd)<<7);
@@ -77,6 +82,7 @@ module rv5stage_vector_overlap_tb;
         fp_tags[fp_count++]=int'(fp_request_out.bits.tag);
       end
       if (attempt_out.valid && !cancel) begin
+        if (phase==20 && attempt_out.bits.context_0==64'h180) independent_packed_attempts++;
         if (phase==14) begin
           if (attempt_out.bits.context_0==64'he00) begin
             assert(phase14_attempts<2) else $fatal(1,"extra older row-progress beat");
@@ -97,13 +103,15 @@ module rv5stage_vector_overlap_tb;
           assert(attempt_out.bits.context_0==(phase11_attempts==0 ? 64'hb00 : 64'hb80)) else $fatal(1,"younger packed store issued ahead of older compute");
           phase11_attempts++;
         end
-        if (phase==18 || phase==19) begin
+        if (phase==18 || phase==19 || phase==25) begin
           if (attempt_out.bits.context_0==overlap_older_context) begin
             assert(!attempt_out.bits.memory && overlap_memory_attempts==0 && overlap_older_attempts<2) else $fatal(1,"older compute was lost or overtaken by memory");
             overlap_older_attempts++;
+            if (phase==25 && attempt_out.bits.last) splat_older_last=cycle;
           end else begin
-            assert(attempt_out.bits.context_0==overlap_memory_context && attempt_out.bits.memory && overlap_older_attempts==2) else $fatal(1,"younger memory overtook prepared compute");
+            assert(attempt_out.bits.context_0==overlap_memory_context && attempt_out.bits.memory && overlap_older_attempts==2) else $fatal(1,"younger memory overtook prepared compute: phase=%0d context=%h older=%0d memory=%0b",phase,attempt_out.bits.context_0,overlap_older_attempts,attempt_out.bits.memory);
             overlap_memory_attempts++;
+            if (phase==25 && overlap_memory_attempts==1) splat_first_attempt=cycle;
           end
         end
         if (retry) retried=1;
@@ -168,15 +176,15 @@ module rv5stage_vector_overlap_tb;
     launch(load_insn(8),64'h100,0); drain();
     launch(load_insn(10),64'h180,1); drain();
 
-    // Packed admission waits for the older FP operand stream to issue, while
-    // neither service result has returned. The dependent store then chains
+    // Packed admission replaces the older FP descriptor on its final S1
+    // transfer, before that beat issues. The dependent store then chains
     // on each completed 64-bit register row.
     phase=3;
     launch(32'h02001057 | (32'd8<<20) | (32'd10<<15) | (32'd12<<7),64'h200,0);
     instruction=store_insn(12); scalar=64'h300; packed_memory=1; request_valid=1;
     do begin
       tick();
-      assert(!launch_seen || done_count==3) else $fatal(1,"packed admission overtook FP operand preparation");
+      assert(!launch_seen || (sequence_done_seen && done_count==2)) else $fatal(1,"packed admission missed the registered FP tail handoff");
     end while(!launch_seen);
     request_valid=0;
     assert(active) else $fatal(1,"FP tail lost ownership");
@@ -395,7 +403,122 @@ module rv5stage_vector_overlap_tb;
     request_valid=0;
     drain();
     assert(overlap_older_attempts==2 && overlap_memory_attempts==2 && done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"gather-to-memory overlap lost ordering or completion");
-    $display("Vector overlap passed: direct independent completion, row RAW/WAW, tail handoff, compute-to-memory admission, packed issue, reductions, replay, slot wrap, and canceled carry");
+    // The first authorized zero-stride read releases sequencing even while its
+    // response is held. Independent packed work proceeds; a consumer still
+    // waits for both splat rows, with no dependency on the new sequencing ID.
+    reset=1; tick(); reset=0;
+    phase=20; vl=2; vtype=24; memory_count=0; store_count=0; slow=1;
+    previous_retirements=retired_count;
+    launch(splat_insn(8),64'h100,0);
+    instruction=load_insn(10); scalar=64'h180; packed_memory=1; request_valid=1;
+    do tick(); while(!launch_seen);
+    assert(sequence_done_seen && memory_count==1) else $fatal(1,"splat authorization did not hand off before its response");
+    request_valid=0; slow=0;
+    repeat(10) tick();
+    assert(independent_packed_attempts==2 && retired_count==previous_retirements) else $fatal(1,"independent packed work failed to issue or retired past a live splat");
+    launch(store_insn(8),64'h400,0);
+    repeat(6) tick();
+    assert(store_count==0) else $fatal(1,"consumer read an unfinished splat");
+    return_memory(0,64'hfeedface12345678); drain();
+    assert(store_count==2 && stores[0]==64'hfeedface12345678 && stores[1]==64'hfeedface12345678) else $fatal(1,"splat data lost after sequencer replacement");
+    launch(store_insn(10),64'h380,0); drain();
+    assert(store_count==4 && stores[2]==64'h1180 && stores[3]==64'h1188) else $fatal(1,"independent packed work lost data");
+
+    // A younger destination intent must wait for the splat, not deadlock its
+    // older writer. Repeat across owner-ring wrap and verify the younger wins.
+    for(int pass=0;pass<4;pass++) begin
+      phase=21; memory_count=0; store_count=0; slow=1;
+      launch(splat_insn(8),64'h100,0);
+      while(memory_count<1) tick();
+      slow=0; older_issue_count=done_count;
+      launch(index_insn(8),64'h200,0);
+      repeat(5) tick();
+      assert(done_count==older_issue_count) else $fatal(1,"younger WAW passed the splat");
+      return_memory(0,64'hffffffffffffffff); drain();
+      launch(store_insn(8),64'h400,0); drain();
+      assert(store_count==2 && stores[0]==0 && stores[1]==1) else $fatal(1,"splat WAW age ordering failed");
+    end
+
+    // Mask words remain read-owned by the old splat after its read is accepted.
+    // A younger v0 writer cannot clobber them or block that owner's drain.
+    phase=22; slow=0;
+    launch(32'h5e003057 | (32'd31<<15),64'h40,0); drain();
+    memory_count=0; store_count=0; slow=1;
+    launch(splat_insn(8,1),64'h100,0);
+    while(memory_count<1) tick();
+    slow=0; older_issue_count=done_count;
+    launch(index_insn(0),64'h200,0);
+    repeat(5) tick();
+    assert(done_count==older_issue_count) else $fatal(1,"younger writer clobbered splat mask storage");
+    return_memory(0,64'habcdef); drain();
+    launch(store_insn(8),64'h400,0); drain();
+    assert(store_count==2 && stores[0]==64'habcdef && stores[1]==64'habcdef) else $fatal(1,"masked splat used younger v0 data");
+
+    // The one-value splat engine still backpressures a second splat, rather
+    // than replacing the pending response's descriptor or destination.
+    phase=23; memory_count=0; store_count=0; slow=1;
+    launch(splat_insn(8),64'h100,0);
+    while(memory_count<1) tick();
+    instruction=splat_insn(10); scalar=64'h180; request_valid=1; slow=0;
+    repeat(5) begin
+      tick();
+      assert(!launch_seen) else $fatal(1,"second splat overwrote a live owner");
+    end
+    return_memory(0,64'h1234);
+    do tick(); while(!launch_seen);
+    request_valid=0; drain();
+    launch(store_insn(8),64'h400,0); drain();
+    launch(store_insn(10),64'h480,0); drain();
+    assert(store_count==4 && stores[0]==64'h1234 && stores[1]==64'h1234 && stores[2]==64'h1180 && stores[3]==64'h1180) else $fatal(1,"successive splats lost their owners");
+
+    // A splat that has released sequencing still waits for older writers of
+    // its later rows. The younger store may consume each completed splat row.
+    reset=1; tick(); reset=0;
+    phase=24; fp_count=0; memory_count=0; store_count=0; slow=1;
+    launch(32'h02001057 | (32'd12<<20) | (32'd14<<15) | (32'd8<<7),64'h200,0);
+    while(fp_count<2) tick();
+    launch(splat_insn(8),64'h100,0);
+    repeat(5) tick();
+    assert(memory_count==0) else $fatal(1,"splat probe passed an older destination writer");
+    return_fp(0,64'h1111);
+    while(memory_count<1) tick();
+    slow=0;
+    launch(store_insn(8),64'h400,0);
+    return_memory(0,64'hface);
+    while(store_count<1) tick();
+    repeat(5) tick();
+    assert(store_count==1 && stores[0]==64'hface) else $fatal(1,"splat did not retain its older-row dependency after handoff");
+    return_fp(1,64'h2222); drain();
+    assert(store_count==2 && stores[1]==64'hface) else $fatal(1,"older late writer overwrote a splat row");
+
+    // Capture a splat on the older compute's final S1 edge, while that
+    // compute still has a registered operand response to issue. The splat's
+    // first attempt follows it without a bubble; neither captures the other's
+    // descriptor or owner. Also retry a masked splat after this handoff.
+    for(int masked=0;masked<2;masked++) begin
+      reset=1; tick(); reset=0;
+      phase=0; vl=2; vtype=24; slow=0;
+      launch(32'h5e003057 | (32'd31<<15),64'h40,0); drain();
+      // The delayed public attempt observer outlives local-compute retirement.
+      repeat(4) tick();
+      phase=25; overlap_older_context=64'h220; overlap_memory_context=64'h230;
+      overlap_older_attempts=0; overlap_memory_attempts=0;
+      splat_older_last=0; splat_first_attempt=0; retried=0; retry_last=1'(masked);
+      older_issue_count=done_count; previous_retirements=retired_count;
+      launch(index_insn(8),overlap_older_context,0);
+      instruction=splat_insn(10,1'(masked)); scalar=overlap_memory_context; request_valid=1;
+      do tick(); while(!launch_seen);
+      assert(sequence_done_seen && done_count==older_issue_count) else $fatal(1,"splat waited for older operand fetch instead of replacing the compute tail");
+      request_valid=0; drain();
+      assert(overlap_older_attempts==2 && overlap_memory_attempts==1+masked && retried==1'(masked)) else $fatal(1,"compute-to-splat handoff lost or duplicated an attempt");
+      assert(splat_first_attempt==splat_older_last+1) else $fatal(1,"compute-to-splat issue inserted a bubble");
+      assert(done_count==older_issue_count+2 && retired_count==previous_retirements+2) else $fatal(1,"compute-to-splat handoff lost completion ownership");
+      phase=0; retry_last=0; store_count=0;
+      launch(store_insn(8),64'h400,0); drain();
+      launch(store_insn(10),64'h480,0); drain();
+      assert(store_count==4 && stores[0]==0 && stores[1]==1 && stores[2]==64'h1230 && stores[3]==64'h1230) else $fatal(1,"compute-to-splat handoff corrupted captured data");
+    end
+    $display("Vector overlap passed: independent splat drain, mask WAR, row RAW/WAW, tail handoff, packed issue, reductions, replay, slot wrap, and canceled carry");
     $finish;
   end
 endmodule

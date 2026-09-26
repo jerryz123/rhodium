@@ -77,9 +77,12 @@ each other; share external transaction machinery through the CHI package.
    dependency merely because its WB scoreboard reservation has not happened yet.
    Independent younger work may pass ID behind a vector memory launch.
    EX adds the snapshot `vstart` byte offset with the scalar ALU; MEM uses
-   the ordinary DTLB read for a speculative one-page certificate. WB installs
-   the captured mapping with descriptor admission or restarts the younger
-   stream before any of it reaches WB. A slower admitted macro restores the
+   the ordinary DTLB read for a speculative one-page certificate. WB validates
+   and enqueues the captured mapping with the descriptor, retiring the macro
+   independently of the older vector window. Issued requests carry the physical
+   mapping into a downstream retry owner, without acquiring that window.
+   If no certificate was captured, WB restarts
+   younger work before any of it reaches WB. A slower admitted macro restores the
    certification barrier. A younger vector launch still waits for an older
    launch to clear nonzero `vstart` before legality checking.
 3. Add architectural state and serialization rules before integrating an

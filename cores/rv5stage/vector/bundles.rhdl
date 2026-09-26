@@ -7,16 +7,15 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("hardfloat/main.rhdl").RoundingMode
   "csr.rhdl" open
+  "packed-bundles.rhdl" open
   "register-file.rhdl" open
   "../decode/vector-ctrl.rhdl" open
+  "../mmu/protocol.rhdl".RV5StageVectorFastCertificate
   "../../simd-alu.rhdl" open
   "../../../riscv/isa/vector.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
-
-fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
-  index_width(vlen + 1) + 3
 
 // A second client of the existing full-word SIMD rotate slot; no private barrel shifter.
 bundle RV5StageVectorAlignment(xlen :: XLen):
@@ -26,6 +25,7 @@ bundle RV5StageVectorAlignment(xlen :: XLen):
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   precertified: Bool
+  certificate: RV5StageVectorFastCertificate(xlen)
   instruction: Bits(32)
   state: RiscvVectorState(xlen)
   control: RV5StageVectorControl()
@@ -48,6 +48,9 @@ bundle RV5StageVectorCompressState(xlen :: XLen, vlen :: VectorLength):
 
 // Local attempt stages retain macro context and memory metadata, not SIMD operands.
 bundle RV5StageVectorToken(xlen :: XLen, Context :: DataType, vector_completion_slots :: Pow2Int):
+  precertified: Bool
+  physical_address: Bits(xlen.width)
+  store: Bool
   byte_mask: Bits(vector_word_bytes(xlen))
   context: Context
   last: Bool
@@ -86,6 +89,9 @@ bundle RV5StageVectorBeat(xlen :: XLen, vlen :: VectorLength):
 bundle RV5StageVectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: Context
   beat: RV5StageVectorBeat(xlen, vlen)
+  packed: Bool
+  packed_layout: RV5StageVectorPackedLayout(xlen, vlen)
+  byte_mask: Bits(vector_word_bytes(xlen))
 
 bundle RV5StageVectorResultBeat(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
@@ -138,6 +144,7 @@ hardware_enum RV5StageVectorDisposition:
 // end is exclusive architectural position, not the number of active lanes.
 // Authorized is not a result completion; accepted effects must never be retried.
 bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  packed_layout: RV5StageVectorPackedLayout(xlen, vlen)
   context: Context
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
@@ -160,14 +167,23 @@ bundle RV5StageVectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   destination: Bits(5)
 
 // Capture the instruction descriptor with beat control and restart bounds across VRF latency.
-bundle RV5StageVectorReadContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+bundle RV5StageVectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   instruction: RV5StageVectorInstruction(xlen, Context)
   minimum: Bits(index_width(vlen + 1))
+  gather_in_range: Bool
+  gather_offset: Bits(vector_byte_offset_width(xlen))
+  suffix: Bool
+  suffix_state: RV5StageVectorCompressState(xlen, vlen)
+  packed: Bool
+  packed_layout: RV5StageVectorPackedLayout(xlen, vlen)
+  packed_mask: Bits(vector_word_bytes(xlen))
+  packed_data: Bits(xlen.width)
+  packed_store_read: Bool
   beat_control: RV5StageVectorBeatControl(xlen, vlen)
   slide_valid: Bits(vector_slide_bytes(xlen))
 
-bundle RV5StageVectorReadRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
-  context: RV5StageVectorReadContext(xlen, vlen, Context)
+bundle RV5StageVectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
+  context: RV5StageVectorSequenceContext(xlen, vlen, Context)
   enables: Bits(3)
   addresses: Vec(3, Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth)))
   mask_enable: Bool
@@ -205,8 +221,8 @@ export:
   RV5StageVectorSlotAllocation
   RV5StageVectorSlotState
   RV5StageVectorBeatControl
-  RV5StageVectorReadContext
-  RV5StageVectorReadRequest
+  RV5StageVectorSequenceContext
+  RV5StageVectorSequenceRequest
   RV5StageVectorAlignment
   vector_sequence_width
   RV5StageVectorDescriptor

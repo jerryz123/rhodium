@@ -199,12 +199,13 @@ compute/memory demultiplexing, fixed-cycle local acceptance, and macro outcomes.
 `vector/pipeline.rhdl` imports Flow for atomic issue fanout, operand storage,
 and accepted shared-service request queues; it additionally imports the named
 writeback calendar, integer
-register-write and FP contracts, vector mask-scan controls, and pure FP profiles.
+register-write and FP contracts, vector mask-scan controls, pointer normalization,
+and pure FP profiles.
 `vector/slots.rhdl` and
 `vector/load-response.rhdl` import Flow for ownership and completion events.
 `vector/sequencer.rhdl` imports vector bundles, destination-group dependency helpers, named decode controls,
 pure ISA geometry and instruction fields, the RISC-V
-vector RTL adapter, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
+vector and pointer-normalization RTL adapters, bit helpers, and Flow. `vector/operand-fetch.rhdl` additionally
 imports vector packing, shared SIMD contracts, the RISC-V FP unboxing adapter, and HardFloat formats;
 the sequencer does not depend on operand fetch. Both import the inline
 `vector/geometry.rhdl` helpers for beat geometry and operand requirements. Those
@@ -217,14 +218,16 @@ Flow for instruction lifetime and row hazards. `vector/completion.rhdl` imports
 the slot tracker, mul/div result adapters,
 register-write and FP contracts, pure profiles, bit helpers, and Flow for
 persistent completion ownership and architectural result streams.
-`vector/packed-memory.rhdl` imports the vector bundles and VRF contracts,
-footprint arithmetic, vector decode/ISA geometry, public bit helpers,
-and Flow. It composes `vector/packed-load.rhdl`, which imports shared
+`vector/sequencer.rhdl` also imports `vector/packed-prepare.rhdl` and the
+packed layout contracts. The preparation helper imports vector bundles,
+footprint arithmetic, vector decode/ISA geometry, public bit helpers, and Flow;
+the sequencer owns its cursor and preparation phase. Vector bundles import the
+dependency-neutral packed layout contracts. `vector/packed-load.rhdl` imports shared
 `vector/packed-bundles.rhdl` layouts, the load-response adapter, VRF contracts,
 pure geometry, bit helpers, and Flow. Packed layouts depend only on pure
 XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the
-packed path with the existing execution engine
-and imports the reusable load/store byte-mask helper. `vector/execute.rhdl`
+common sequencer and operand-fetch path with independently retained packed response assembly
+and imports physical word geometry and the reusable load/store byte-mask helper. `vector/execute.rhdl`
 imports public ready-valid types for its shared SIMD alignment client.
 `vector/dependencies.rhdl` imports vector bundles, named decode controls, and
 the pure vector/XLEN models plus the RISC-V vector RTL adapter; the execution

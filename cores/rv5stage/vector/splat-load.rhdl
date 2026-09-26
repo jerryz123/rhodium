@@ -27,7 +27,8 @@ sync_circuit RV5StageVectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :
   interface mask_result(Valid(Bits(xlen.width)), ~role: consumer)
   interface write(Valid(VectorRegisterWrite(xlen, vlen)), ~role: producer)
   input blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
-  input write_available: Bool
+  input(write_available, mask_read_available): Bool
+  output pending_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   output(active, probing, probe_pending): Bool
   output owner: Owner
 
@@ -58,8 +59,16 @@ sync_circuit RV5StageVectorSplatLoad(xlen :: XLen, vlen :: VectorLength, slots :
   def needed_mask = (first_element >> vector_bit_offset_width(xlen))[0..index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register)]
   def mask_ready = !instruction.masked ||| (mask_cached & (mask_index === needed_mask))
   def address = (vd.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth)) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)) + row[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth)]
-  mask_read.valid <== value_valid & instruction.masked & !mask_ready & !mask_waiting & (row < row_limit[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)]) & !blocked_rows[needed_mask.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth))]
+  mask_read.valid <== value_valid & instruction.masked & !mask_ready & !mask_waiting & (row < row_limit[0..index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)]) & !blocked_rows[needed_mask.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth))] & mask_read_available
   mask_read.bits <== needed_mask
+  // Retain destination writes and unread mask words after sequencing releases.
+  // Younger work must not overwrite v0 while this owner still consumes it.
+  def destination_base = vd.zext(Row.width) << bits.length(VectorRegisterLayout(vlen, xlen.width).rows_per_register - 1)
+  pending_rows <== vec(for List (r in 0..VectorRegisterLayout(vlen, xlen.width).depth):
+                        def offset = bits(r, Row.width) - destination_base
+                        def destination = (offset >= row) & (offset < row_limit[0..Row.width])
+                        def mask_source = instruction.masked & Bool(r < VectorRegisterLayout(vlen, xlen.width).rows_per_register)
+                        occupied & (destination ||| mask_source))
 
   def replications = for List (format in 0..(vector_format_count(xlen) - 1)):
     [format, vec(for List (_ in 0..(vector_word_bytes(xlen) >> format)): value[0..(8 << format)]).as_bits()]

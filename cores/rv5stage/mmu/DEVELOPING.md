@@ -104,10 +104,15 @@ invalidate translations or cancel accepted page-table response ownership.
    The speculative one-page MEM check shares the demand DTLB read and its
    normal access-permission evaluation, but cannot displace a committed demand,
    existing precheck, or ordinary pipeline lookup. It never walks or touches
-   L1D. Capture its physical page and context in MEM/WB; WB may install them
-   directly into an idle vector window only with accepted descriptor admission.
-   Check both context equality and the invalidation epoch so intervening TLB
-   replacement is harmless while SFENCE invalidation rejects the certificate.
+   L1D. Capture its physical page and context in MEM/WB; WB validates and carries
+   them with an accepted descriptor without requiring an idle vector window.
+   Each certified request carries its physical address, derived from the
+   captured page, and bypasses both the DTLB and the fallback page window.
+   The vector-physical sidebands are qualified by the selected lookup/request
+   owner; they must never bypass translation for scalar traffic. Check context
+   equality and the invalidation epoch at WB. A mismatch before WB rejects the speculative
+   certificate; admitted vector ownership keeps the context stable thereafter.
+   DTLB replacement alone does not invalidate the carried translation.
    Page probes reuse the demand DTLB and serialized walker, including ordinary
    A/D checks; unsuccessful probes reply false rather than populating the
    architectural fault latch. They never issue data accesses. A matching

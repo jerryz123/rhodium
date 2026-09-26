@@ -149,6 +149,7 @@ module rv5stage_mmu_replay_tb;
   integer priority_core_requests = 0, priority_pte_requests = 0;
 
   logic pipeline_vector = 0;
+  logic pipeline_physical = 0;
   typedef struct packed {logic [63:0] first, last; logic store;} range_t;
   typedef struct packed {logic valid; range_t bits;} range_request_t;
   typedef struct packed {logic valid;} pulse_t;
@@ -1148,6 +1149,13 @@ module rv5stage_mmu_replay_tb;
       repeat(2) tick();
     end
     check_load_pipeline(64'h4000, 0, 0, PIPE_SLOW);
+    // A carried physical mapping bypasses replacement and a different live
+    // fallback window, but the same sideband must never bypass a scalar lookup.
+    pipeline_physical = 1;
+    check_load_pipeline(64'h4000, 0, 0, PIPE_SLOW);
+    pipeline_vector = 1;
+    check_load_pipeline(64'hc000, 1, 64'hc000);
+    pipeline_physical = 0;
     pipeline_vector = 1;
     check_load_pipeline(64'h4ff8, 1, 64'h8ff8);
     check_load_pipeline(64'h5000, 1, 64'ha000);

@@ -23,12 +23,17 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   interface finished(Valid(RV5StageVectorIssueFinished(vector_completion_slots)), ~role: consumer)
   interface resolved(Valid(Result), ~role: consumer)
   interface compute_maturity(Valid(Result), ~role: consumer)
+  interface packed_finished(Valid(Bits(tag_width)), ~role: consumer)
   interface cancel(Pulse(), ~role: consumer)
   interface retire(Pulse(), ~role: producer)
   input slots: Vec(vector_completion_slots, RV5StageVectorSlotState(xlen, vlen, vector_completion_slots))
   input packed_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
+  input splat_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
+  input splat_owner: Bits(tag_width)
+  input splat_active: Bool
   input(packed_memory, packed_drain_blocked, memory_drained): Bool
   output blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
+  output splat_blocked_rows: Vec(VectorRegisterLayout(vlen, xlen.width).depth, Bool)
   output(allocate_id, sequencing_id): Bits(tag_width)
   output(closed, serial, memory): Vec(vector_completion_slots, Bool)
   output(available, active, loads_pending, stores_pending, fp_pending): Bool
@@ -62,7 +67,7 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   def special_geometry = requested_control.mask_destination ||| requested_control.mask_logic ||| requested_control.widening ||| requested_control.narrowing ||| requested_control.extension ||| requested_control.wide_vs2
   def progressive_write = (requested_control.integer ||| requested_control.fp_service ||| requested_control.multiply_divide) & !requested_control.memory & !requested_control.scalar_destination & !requested_control.floating_scalar_destination & !special_schedule & !special_geometry
   def owner_has_slots = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & (slots[slot].owner === drain_owner)).as_bits().or_reduce()
-  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked
+  def macro_complete = macro_valid[drain_owner] & macro_issued[drain_owner] & !owner_has_slots & !packed_drain_blocked & !(splat_active & (splat_owner === drain_owner))
   for (owner in 0..vector_completion_slots):
     def owner_tag = bits(owner, tag_width)
     def unauthorized = vec(for List (slot in 0..vector_completion_slots): slots[slot].allocated & !slots[slot].accepted & (slots[slot].owner === owner_tag)).as_bits().or_reduce()
@@ -87,15 +92,23 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   when macro_complete:
     drain_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | drain_owner + bits(1, tag_width)
   def mutable foreign :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = packed_rows.as_bits()
+  foreign := foreign ||| mux(splat_active & (splat_owner =/= current_owner), splat_rows.as_bits(), bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+  // The sequencer is youngest; a draining splat is not. Compare ring age from
+  // the retirement frontier so a younger dependent writer cannot block it.
+  def mutable splat_older :: Bits(VectorRegisterLayout(vlen, xlen.width).depth) = bits(0, VectorRegisterLayout(vlen, xlen.width).depth)
   for (owner in 0..vector_completion_slots):
+    def older_than_splat = (bits(owner, tag_width) - drain_owner) < (splat_owner - drain_owner)
     for (row in 0..VectorRegisterLayout(vlen, xlen.width).depth):
       def future_row = !macro_progressive[owner] ||| (bits(row, row_frontier_width) >= macro_row_frontier[owner])
       def pending_row = macro_valid[owner] & !macro_classified[owner] & macro_destinations[owner][row div VectorRegisterLayout(vlen, xlen.width).rows_per_register].into(Bool) & future_row
       foreign := foreign ||| mux(pending_row & (bits(owner, tag_width) =/= current_owner), bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << row, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+      splat_older := splat_older ||| mux(pending_row & older_than_splat, bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << row, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
   for (slot in 0..vector_completion_slots):
     def rows = mux(slots[slot].allocated & !slots[slot].packed & slots[slot].writes, bits(1, VectorRegisterLayout(vlen, xlen.width).depth) << slots[slot].write_address, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
     foreign := foreign ||| mux(slots[slot].owner =/= current_owner, rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
+    splat_older := splat_older ||| mux((slots[slot].owner - drain_owner) < (splat_owner - drain_owner), rows, bits(0, VectorRegisterLayout(vlen, xlen.width).depth))
   blocked_rows <== foreign.as_vec(Bool)
+  splat_blocked_rows <== splat_older.as_vec(Bool)
   when (request.valid):
     current_owner <== next_owner
     next_owner <== if vector_completion_slots == 1 | bits(0, tag_width) | next_owner + bits(1, tag_width)
@@ -113,7 +126,9 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   for (owner in 0..vector_completion_slots):
     def owner_tag = bits(owner, tag_width)
     when (request.valid & (next_owner === owner_tag)):
-      macro_classified[owner] <== packed_memory
+      macro_classified[owner] <== Bool(#false)
+    elsewhen (packed_finished.valid & (packed_finished.bits === owner_tag)):
+      macro_classified[owner] <== Bool(#true)
     elsewhen (element_resolved & resolution_beat.last & (resolution_owner === owner_tag)):
       macro_classified[owner] <== Bool(#true)
     when (request.valid & (next_owner === owner_tag)):

@@ -23,6 +23,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   interface data(RV5StageDataAccess(xlen, slots), ~role: responder)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
+  input pipeline_physical: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
@@ -46,8 +47,9 @@ sync_circuit RV5StageMmuDataPortFixture():
   vector_precheck |> mmu.vector_precheck
   mmu.vector_fast.request.valid <== Bool(#false)
   mmu.vector_fast.request.bits <== dont_care(RV5StageVectorRange())
-  mmu.vector_fast.install.valid <== Bool(#false)
-  mmu.vector_fast.install.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
+  mmu.vector_fast.candidate <== dont_care(RV5StageVectorFastCertificate(xlen))
+  mmu.vector_fast.pipeline_physical <== pipeline_physical
+  mmu.vector_fast.request_physical <== Bool(#false)
   mmu.pipeline_vector <== pipeline_vector
   mmu.pipeline_memory |> pipeline_memory
   mmu.pipeline_lookup |> pipeline_lookup

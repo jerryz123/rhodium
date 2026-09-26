@@ -39,6 +39,7 @@ sync_circuit RV5StageVectorOverlap():
       RV5StageVectorDescriptor(xlen):
         pc: scalar
         precertified: Bool(#false)
+        certificate: dont_care(vector.request.bits.descriptor.certificate.type)
         instruction: instruction
         state:
           RiscvVectorState(xlen):

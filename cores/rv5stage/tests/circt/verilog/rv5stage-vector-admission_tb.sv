@@ -1,10 +1,11 @@
-// Checks flow-through admission, head-owned certification, and page-window lifetime through replay.
+// Checks certified request handoff, local retry, and precise fallback page-window lifetime.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_admission_tb;
   logic clock=0, reset=1;
   logic [31:0] instruction=0;
   logic [63:0] vl=1, vtype=24, scalar=0;
   logic request_valid=0;
+  logic fast_valid=0;
   logic retry_last=0;
   logic [63:0] retry_address=0;
   logic slow_access=0;
@@ -20,9 +21,11 @@ module rv5stage_vector_admission_tb;
   wire request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending;
   wire retired, outcome_valid, fp_offered;
   wire [63:0] outcome_pc;
+  wire pipeline_physical;
   RV5StageVectorAdmission dut(.*);
   int cycle=0, launches=0, completions=0, outcomes=0, checks=0, releases=0, accesses=0, memory_requests=0;
   logic [63:0] addresses[256], data[256], last_outcome;
+  int access_cycles[256];
   RV5StageDataReq pending_memory[8];
   bit accepted;
   bit watch_window=0;
@@ -58,6 +61,7 @@ module rv5stage_vector_admission_tb;
       if(accesses_out.valid) begin
         assert(accesses<256) else $fatal(1,"too many accesses");
         addresses[accesses]=accesses_out.bits.address;
+        access_cycles[accesses]=cycle;
         data[accesses]=accesses_out.bits.data;
         accesses++;
       end
@@ -71,7 +75,7 @@ module rv5stage_vector_admission_tb;
     assert(cycle<4000) else $fatal(1,"admission timeout: accepted=%0d completed=%0d checks=%0d outcomes=%0d",launches,completions,checks,outcomes);
   endtask
   task automatic clear;
-    reset=1; request_valid=0; retry_last=0; retry_address=0; slow_access=0; watch_window=0; precheck_in='0; memory_responses_in='0; tick(); reset=0;
+    reset=1; request_valid=0; fast_valid=0; retry_last=0; retry_address=0; slow_access=0; watch_window=0; precheck_in='0; memory_responses_in='0; tick(); reset=0;
     launches=0; completions=0; outcomes=0; checks=0; releases=0; accesses=0; memory_requests=0;
     #1;
     assert(!active && !loads_pending && !stores_pending && !fp_pending && !certification_pending)
@@ -129,6 +133,53 @@ module rv5stage_vector_admission_tb;
       assert(accepted) else $fatal(1,"single-beat stream suffered admission bubble");
     end
     request_valid=0; drain();
+
+    // Distinct captured mappings need no shared-window installation, and
+    // independent loads start on consecutive cycles before either hit returns.
+    clear();
+    fast_valid=1;
+    launch(memory_insn(8,0),64'h1000,1,24);
+    launch(memory_insn(16,0),64'h2000,1,24);
+    fast_valid=0;
+    drain();
+    assert(checks==0 && outcomes==0 && releases==0 && accesses==2 && addresses[0]==64'h11000 && addresses[1]==64'h12000 && access_cycles[1]==access_cycles[0]+1)
+      else $fatal(1,"certified requests lost mappings or consecutive execution");
+    fast_valid=1;
+    launch(memory_insn(8,1),64'h3000,1,24);
+    launch(memory_insn(16,1),64'h4000,1,24);
+    fast_valid=0; drain();
+    assert(accesses==4 && addresses[2]==64'h13000 && addresses[3]==64'h14000 && data[2]==64'h11000 && data[3]==64'h12000)
+      else $fatal(1,"certified load/store owner data crossed mappings");
+
+    // A cache rejection must retry retained requests, not flush the successor.
+    clear(); fast_valid=1; retry_last=1; retry_address=64'h11000;
+    launch(memory_insn(8,0),64'h1000,1,24);
+    launch(memory_insn(16,0),64'h2000,1,24);
+    fast_valid=0;
+    launch(move_insn(24,7),64'h30,1,24);
+    drain();
+    assert(outcomes==0 && checks==0 && releases==0 && accesses==4 && addresses[0]==64'h11000 && addresses[1]==64'h12000 && addresses[2]==64'h11000 && addresses[3]==64'h12000)
+      else $fatal(1,"certified retry lost or duplicated an owner");
+
+    clear(); fast_valid=1; retry_last=1; retry_address=64'h11008;
+    launch(memory_insn(8,0),64'h1000,2,24);
+    launch(memory_insn(16,0),64'h2000,1,24);
+    fast_valid=0; drain();
+    assert(accesses==5 && addresses[0]==64'h11000 && addresses[1]==64'h11008 && addresses[2]==64'h12000 && addresses[3]==64'h11008 && addresses[4]==64'h12000)
+      else $fatal(1,"final-beat retry reissued an accepted prefix or lost the successor");
+
+    // Pending slow responses do not retain sequencing ownership. Both macros
+    // use their own physical page even with multiple unresolved returns.
+    clear(); fast_valid=1; slow_access=1;
+    launch(memory_insn(8,0),64'h1000,1,24);
+    launch(memory_insn(16,0),64'h2000,1,24);
+    fast_valid=0;
+    launch(move_insn(24,7),64'h30,1,24);
+    while(memory_requests<2) tick();
+    repeat(4) tick();
+    assert(!sequencing && active && pending_memory[0].address==64'h11000 && pending_memory[1].address==64'h12000)
+      else $fatal(1,"pending certified responses retained sequencing or lost mappings");
+    return_memory(1); return_memory(0); drain();
 
     // A long current macro blocks a same-destination head. The second waiting
     // entry is FP: its status must be visible before it reaches the sequencer.

@@ -37,20 +37,20 @@ lifetimes; they do not introduce additional pipeline stages.
 |---|---|---|
 | Parent `../vector.rhdl` | Two-entry WB admission FIFO and head-only page certification | The head dispatches to execution |
 | `instructions.rhdl` | Instruction IDs, pending-kind summaries, destination-row intents, progressive row frontier, and store-drain barrier | Sequencing/issue is closed and all owned slots and carry have drained |
-| `sequencer.rhdl` | One descriptor, beat cursor, address setup, and authorized restart checkpoint | Final read-request transfer for ordinary compute, final feedback for serialized work |
-| `operand-fetch.rhdl` | Fixed-latency read context, gather return, packing, and compression suffix | Scheduled operand issues or unauthorized preparation is flushed |
+| `sequencer.rhdl` | One descriptor, compute/element/transport cursors, preparation phases, and precise restart checkpoint | Final sequence transfer for compute and MEM-certified ordinary memory; first captured active splat probe; final authorization for faultable memory |
+| `memory.rhdl` | Certified physical request retention, cache retry cursor, and precise fallback attempts | Each request is accepted by the cache or completes directly |
+| `operand-fetch.rhdl` | Fixed-latency sequence context, operand packing, and compression data | Scheduled beat issues or unauthorized preparation is flushed |
 | `pipeline.rhdl` | Composition, existing private execution registers, recurrence state, and shared-service request queues | Each beat reaches compute maturity or a memory decision |
 | `completion.rhdl` / `slots.rhdl` | Slot ownership metadata, direct result writes, and ordered metadata reclamation | A result writes; its metadata is reclaimed at the head; replay drops only unaccepted slots |
-| `packed-memory.rhdl` | Packed request cursor, masks, store reads, and request preparation | Final packed acceptance, or replay restores the rejected cursor |
+| `packed-prepare.rhdl` | Combinational packed layouts and scratch mask/store data, under sequencer-controlled progress | A prepared beat transfers through the common sequence port |
 | `packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
 | `splat-load.rhdl` | One faultable encoded-zero-stride read value, mask-word cache, and row-wise VRF writes | The final row drains, all elements are masked, or the read faults |
 
 `geometry.rhdl` provides focused combinational helpers for beat limits, widths,
-lane counts, and VRF operand requirements. There is no schedule payload or
-additional scheduling state. `bundles.rhdl` separates instruction descriptors,
+lane counts, and VRF operand requirements. `bundles.rhdl` separates instruction descriptors,
 operand-free `BeatControl`, operand-bearing beats, owned results, and drain
 events. `BeatControl` carries only beat-specific progress, address, mask, and
-destination. The read context captures its instruction descriptor once;
+destination. The sequence context captures its instruction descriptor once;
 operand fetch derives widths, rounding modes, and decoded controls from that
 captured descriptor, never from the sequencer's current instruction.
 `packed-bundles.rhdl` supplies transport layouts shared by packed preparation
@@ -70,9 +70,15 @@ compose transfers; fixed-latency context pairing must not acquire new queues or
 waiting joins during a readability change.
 
 There is one in-order sequencer: `sequencer.rhdl` retains exactly one accepted
-descriptor and never alternates among instructions. `operand-fetch.rhdl` is a
+descriptor and never alternates among instructions. Its common sequence request
+describes compute, elementwise memory, or packed transport, with explicit read
+enables. Unmasked packed loads are ordinary sequence transfers with no VRF reads.
+The sequencer owns packed byte/field/address progress and preparation phases;
+the packed helper cannot advance a cursor or independently issue a beat.
+`operand-fetch.rhdl` is a
 separate downstream stage that owns synchronous VRF reads, response alignment,
-operand packing, dependent gather reads, and compression carry. The sequencer
+operand packing, and compression carry. The sequencer controls dependent gather
+index reads and retains the index while the final data-read schedule is blocked. The sequencer
 advances only when the read, projected completion slot, downstream issue path,
 recurrence permission, and any fixed writeback reservation are admitted together.
 There is no post-read operand queue or credit window. An
@@ -81,18 +87,18 @@ accept its replacement; the replacement's first read comes from those registers
 in the following cycle. There is no incoming-descriptor read bypass, prepared
 successor, or second instruction slot inside the sequencer. Fixed-latency read
 contexts can overlap adjacent macros and issue on consecutive cycles.
-Memory retains its descriptor through the final external decision and may accept
+Uncertified memory retains its descriptor through the final external decision and may accept
 its successor on the authorized final-feedback edge; dependent scans and
 compression retain theirs through internal result maturity. Stateless
 index scans release on their final read-request transfer like ordinary compute.
 Reductions release their descriptor at the tail read and retain recurrence in
-owner-indexed state. Packed memory, reductions, dependent scans, and compression
+owner-indexed state. Reductions, dependent scans, and compression
 wait for older operand preparation to drain before admission. Ordinary compute
-and elementwise memory can overlap it: the fixed read pipeline issues older
+and elementwise memory, including zero-stride splats, can overlap it: the fixed read pipeline issues older
 scheduled beats before a younger memory beat can receive replay feedback.
-A packed admission coincident with an older final read retains its descriptor, but packed
-VRF activity and issue wait for that read's reservation to clear. The packed-memory
-schedule consumes the same accepted descriptor; it is not another sequencer. `vector.rhdl` owns a two-entry
+A packed successor uses the same sequence-stage slot projection as ordinary
+compute. A direct store also reserves the shared alignment cycle before its reads.
+`vector.rhdl` owns a two-entry
 descriptor FIFO so WB admission and head-only page-range certification can overlap
 the active owner. The FIFO has empty-queue flow-through and same-cycle full
 replacement; an idle sequencer can accept a WB descriptor on its admission edge.
@@ -108,9 +114,9 @@ Empty memory retires at dispatch without acquiring a page window. The scalar
 certification barrier starts at enqueue, including for a tail entry, and clears
 on an early certificate or final successful elementwise authorization. A
 WB-precertified single-page descriptor skips that barrier because its MMU
-translation was captured and pinned on the admission edge. It releases the
-window when sequencing finishes, without another precheck or retirement
-outcome. The scalar certification barrier is separate from the vector-admission
+translation travels with the accepted descriptor. Each MEM-certified request
+uses its captured physical page without acquiring the shared fallback window
+or emitting another retirement outcome. The scalar certification barrier is separate from the vector-admission
 barrier, which remains until the registered
 retirement outcome. Per-kind enqueue/dequeue counts cover all queued loads, stores, and FP
 work; transfer to execution must not create a cycle without pending ownership.
@@ -147,8 +153,8 @@ dependent second read waits for older writes before starting its nonstallable
 read pair. There is no renaming, out-of-order instruction selection, or
 interleaved instruction sequencing.
 
-Certified contiguous macros select `packed-memory.rhdl` after the page check,
-before execution allocation. Its byte/field cursor maps aligned XLEN requests
+Certified contiguous macros select packed geometry after the page check,
+before execution allocation. The sequencer's byte/field cursor maps aligned XLEN requests
 onto XLEN-bit VRF rows without an element-address multiplier. Fast stores schedule
 two contributing VRF reads only when the next completion slot and shared SIMD
 alignment slice are available. The fixed response aligns and issues without a
@@ -163,7 +169,8 @@ priority over scheduled store alignment, then buffered load alignment.
 Scheduled ordinary returns and final carry flush arbitrate the sole VRF write port
 without lossy Valid arbitration; there is no second barrel shifter or VRF.
 
-Packed retry restores the rejected beat's complete byte/field/address cursor,
+Fallback packed authorization and retry are normalized into the standard sequencer feedback.
+Fallback packed retry restores the rejected beat's complete byte/field/address cursor,
 drops younger read preparation and reservations, and retains accepted responses
 and the partial-row carry. The aligned transport envelope must remain inside
 the MMU certificate. A false certificate selects the original elementwise
@@ -176,8 +183,23 @@ the splat.
 Masked prefix probes return registered sequencer feedback without allocating
 completion slots; the first active probe owns the one read slot. The retained
 EEW value drains through the sole VRF write port one selected row at a time.
-The splat owner blocks new vector admission until that drain finishes, while
-older packed carries retain write-port priority and older rows block writes.
+Final read authorization releases the sequencer even while the splat response
+or row writes remain pending. Only another splat waits for the single splat
+engine. The retained splat owner publishes unfinished destination rows and
+conservatively retains masked v0 read ownership until drain; younger reads and
+writes use those claims through the ordinary sequencer hazard check.
+Its own hazard query compares instruction-ring age from the retirement frontier,
+so younger destination intents cannot deadlock an older splat. Accepted packed
+rows are already exact and cannot overlap a younger write past the splat's
+claim. Older packed carries retain write-port priority. Scheduled mask reads
+have priority over splat mask fetches, whose response routing remains registered.
+Only the splat's own instruction retirement is blocked by its retained state.
+The overlap fixture holds a splat response while independent packed work runs,
+then checks dependent reads, same-destination writes across owner-ring wrap,
+older delayed row writes, a younger v0 writer against masked splat drain, and
+backpressure between successive splats. Compute-to-splat cases require capture
+on the older final sequence edge and consecutive issue, preserving both owners'
+data through unmasked execution and a masked splat retry.
 The `rv5stage-vector-packed` and `rv5stage-vector-packed-rv32` fixtures
 check byte-accurate loads/stores, every legal head offset, masks, segments,
 whole/mask transfers, replay, reordered returns, and sustained common-path issue.
@@ -188,12 +210,42 @@ under backpressure, both certificate results, empty bodies, tail pending flags,
 captured instruction operands, delayed older load responses, final packed-beat
 replay, and reset with queued work.
 
+## MEM-certified request handoff
+
+A MEM-certified ordinary load or store releases the sequencer on its final S1
+transfer. Its fixed S2 token carries the captured physical address and store
+direction. The LSU retains requests in a completion-slot-bounded retry ring;
+capture resolves slot ownership at execute, on the same boundary as compute.
+Cache Replay, blocked store commit, or unavailable slow-request admission
+rewinds only that ring's unaccepted suffix. It does not flush operand fetch,
+release completion slots, or consult the current descriptor. A successful
+transaction leaves the request ring exactly once, retaining its completion tag
+until its response drains. A load hit writes directly; if its consumer is not ready,
+the side-effect-free lookup retries instead of buffering a completed result.
+Store commit never depends on result-port readiness: accepted store hits retain
+only a per-slot acknowledgement bit until their completion tag transfers.
+These bits carry no result data and cannot cause an accepted store to replay.
+
+Packed slots become durable at request capture, before cache acceptance. Keep
+whole-group destination intent through the final capture, then hand it to the
+exact packed rows. This covers the S1-to-S2 replacement edge before the final
+slot metadata exists. Independent younger work may sequence while a cache
+request retries; dependent reads still wait for actual VRF writes and carry.
+Zero-stride splats keep mask-prefix sequencing, releasing on early capture of
+their first active probe. Their existing splat owner retains the later drain.
+
+Fallback two-page and potentially faulting operations retain the shared page
+window and precise sequencer checkpoint. They dispatch after older certified
+requests leave the retry ring; older accepted responses may still drain.
+Do not reinterpret cache acceptance as permission checking or architectural
+retirement. See [the implementation plan](MEMORY-HANDOFF-PLAN.md).
+
 ## Event ownership
 
 `pipeline.rhdl` keeps the admitted descriptor's retained-storage contract
 before the schedule fork, without emitting an admission or residency event.
 The scope uses the existing sequencer occupancy and mode-specific sequencing release:
-final read-request transfer for ordinary compute, final feedback for serialized
+final read-request transfer for ordinary compute and MEM-certified ordinary memory, final feedback for serialized
 operations. A read transferred on the replacement edge still belongs to the old
 descriptor; the following cycle's read belongs to its replacement.
 Accepted slots and packed carry can outlive sequencing. The parent `vector.rhdl`
@@ -206,9 +258,10 @@ sequencer fixture. The sequencer-owned `vector/s1.sequence` checkpoint records t
 actual transfer and captures the instruction for slice naming; its stall
 companion captures setup, `vs2_wait`/`vs1_wait` source-row, and aggregate
 resource-admission failures without changing launch timing.
-Operand fetch carries that occurrence through its fixed VRF response to
-elementwise issue without a post-read stall. Packed memory has no equivalent elementwise read request.
-Elementwise issue remains in `pipeline.rhdl`; direct completion is owned by
+Operand fetch carries every sequence occurrence through its fixed response stage
+to the common issue stream without a post-read stall. Packed loads carry their
+metadata through the same stage, with reads disabled. Compression suffixes also
+return through the sequencer before issue. Issue remains in `pipeline.rhdl`; direct completion is owned by
 `completion.rhdl`.
 Both paths use the stable `vector/s2.issue` and `vector/complete` labels, with a
 `packed` field distinguishing their beat geometry. Packed events additionally
@@ -216,13 +269,13 @@ carry transport byte count, store direction, byte mask, and slot metadata.
 Site identity includes the instance path; consumers must not assume a label
 uniquely identifies a site. These are micro-op/beat milestones, not whole-vector
 instruction completion.
-In `packed-memory.rhdl`, retained macro ownership reaches each offer. The fixed
-attempt pipe reaches acceptance; `packed-load.rhdl` owns the accepted FIFO
+The standard sequencer's retained macro ownership reaches each packed offer.
+The fixed attempt pipe reaches acceptance; `packed-load.rhdl` owns the accepted FIFO
 contract through ordered beat release. A completion denotes
 transfer into the masked row carry/write path, not raw response arrival.
-`sequencer.rhdl` declares the retained descriptor's request-to-read-request
-relation. Operand fetch carries that lineage through its fixed read-context
-pipe and optional gather pipe. Compression's optional
+`sequencer.rhdl` declares the retained descriptor's request-to-sequence-request
+relation. Operand fetch carries that lineage through its single fixed context
+pipe, including prepared gathers and packed loads with no VRF reads. Compression's optional
 suffix retains its generating read context. These paths preserve lineage through
 stalls and explicit flush. Capture on macro acceptance, preserve across retry,
 and release only on the actual occupied-to-idle conditions. Never use the PC or
@@ -231,8 +284,9 @@ the replayable operation index as an occurrence identity.
 Every ordinary local-compute completion follows the one-stage private execute
 path and writes on its reserved cycle. FP and multiply reserve at shared-service
 acceptance; variable services and ordinary slow loads retain their response
-until an unreserved write opportunity. Memory hits reserve the fixed decision
-cycle. Completed result data is not retained in the slot ring: only routing,
+until an unreserved write opportunity. Faultable memory hits reserve the fixed
+decision cycle; certified hits use the backpressurable completion path and retry
+their lookup if a fixed write owns that cycle. Completed result data is not retained in the slot ring: only routing,
 ownership, pending write rows, and multiply addends outlive execution.
 Metadata is reclaimed in allocation order independently of actual write order.
 Slow-memory trace ownership is retained per slot, allowing tagged returns in
@@ -242,7 +296,9 @@ The completion checkpoint denotes actual completion/writeback, not metadata
 reclamation. Packed assembly keeps its separate ordered transport storage.
 
 `memory.rhdl` explicitly forks the lookup/context, request/decision, and
-feedback/outcome branches. The private execute boundary supplies compute
+feedback/outcome branches. Each retained request-ring entry declares its own
+capture-to-attempt lifetime; retries preserve the original S2 issue occurrence.
+The private execute boundary supplies compute
 maturity or a shared-service request directly.
 Pair the optional LSU response with the same-cycle lookup context before the
 existing decision pipe; a context-owned
@@ -309,12 +365,15 @@ execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.
 [`pipeline.rhdl`](pipeline.rhdl) owns the sequencer/VRF/SIMD composition and shared
 service operands. An atomic fork couples local attempt admission to operand
 capture. Compute has one fixed execute stage before local maturity or service
-request acceptance. Memory has that execute stage plus two private stages to
-its external decision. A rejected memory decision flushes younger attempts;
+request acceptance. MEM-certified memory becomes durable at that execute
+boundary; its cache attempts and retries belong to the downstream request ring.
+Fallback memory has two additional private stages to its external decision.
+A rejected fallback decision flushes younger attempts;
 accepted results and service requests retain their ownership.
 [`memory.rhdl`](memory.rhdl) owns address/lookup, result classification, and
-transaction acceptance. Its replay flushes younger attempts and operand results,
-then restores the sequencer checkpoint. It never replays an accepted transaction.
+transaction acceptance. Fallback replay flushes younger attempts and operand results,
+then restores the sequencer checkpoint. Certified retry rewinds only retained
+requests. Neither path replays an accepted transaction.
 [`completion.rhdl`](completion.rhdl) owns direct writeback and ordered ownership
 reclamation. Its [`slots.rhdl`](slots.rhdl) separates reserved slots from accepted
 owners: replay releases only the former. Register-row hazards belong to
@@ -432,7 +491,7 @@ the scalar one-entry WB queue independent of vector admission: Decode's
 reservation is for queue space, not an idle shared execution unit.
 Before shared-service acceptance, fixed multiplication and FP reserve their
 actual return cycle. Elementwise private compute and memory reads reserve their
-future write cycle at S1 sequencing; compression suffixes reserve when emitted.
+future write cycle at S1 sequencing, including prepared compression suffixes.
 An older unrelated memory, divide, or FP operation does not block a fixed
 product merely because its metadata is at the ring head. Variable returns
 yield to occupied cycles, and packed assembly consumes only leftover cycles.
@@ -633,11 +692,11 @@ group/source/mask legality and the shared-FP fixture for common sequencer change
 
 Gather keeps index and destination geometry separate. Decode owns EEW16 index
 EMUL, group alignment, and physical interval overlap checks. The sequencer
-retains the index-read beat and its mask through a second flushable Valid pipe;
-this context reserves the eventual issue slot before either read. Port zero
-belongs to the dependent data read in the index-response cycle, so the next
-index read may overlap the preceding data response but not its request.
-Cancellation flushes both read contexts and the pending issue queue together.
+retains the current beat while preparing its index on VRF port one. Once the
+index is available, S1 checks resources and schedules the selected data row on
+port zero through the same one-cycle context stage as every other beat.
+There is no independently advancing gather stage or operand queue.
+Cancellation clears pending index preparation and the common context stage.
 Never truncate an unsigned index before comparing it with data VLMAX.
 
 The vector gather beat carries the raw source word and a rotation displacement
@@ -658,12 +717,16 @@ reserved overlap. Keep the shared-FP fixture as a common-read-path regression.
 `rv5stage-vector-sequencer-1024` checks valid scalar and EI16 indices above 255,
 which smaller legal EI16 groups cannot reach.
 
-Compression owns cross-word state in `sequencer.rhdl`, not in the reusable SIMD
-component. `SimdCompress` returns only a compacted XLEN-bit word and selected
-element count. The sequencer appends that word to a retained suffix and places
+Compression retains cross-word data in `operand-fetch.rhdl`, with instruction
+progress controlled by `sequencer.rhdl`. `SimdCompress` returns only a compacted
+XLEN-bit word and selected element count. Operand fetch appends that word to a retained suffix and places
 at most one full destination chunk on each source-read beat. If the final
-source beat emits a full chunk and leaves a suffix, a backpressurable flush
-beat emits the remaining partial chunk without consuming another VRF read.
+source beat emits a full chunk and leaves a suffix, the prepared suffix returns
+to the standard sequencer. Its sequence transfer reserves the downstream slot
+and write cycle, then the common response stage issues the partial chunk with
+VRF reads disabled. Source chunks retain one-per-cycle throughput; an optional
+final suffix issues two cycles after its generating source beat because the
+registered prepared suffix must first pass S1.
 
 Keep speculative and mature compression checkpoints separate. Every beat
 carries its post-beat suffix, count, and destination element; only ordered

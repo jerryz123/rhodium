@@ -6,6 +6,7 @@ import:
   lib("cores/riscv/vector-layout.rhm").VectorRegisterLayout
   "../../../riscv/isa/vector-profile.rhm" open
   "../vector/bundles.rhdl" open
+  "../vector/packed-bundles.rhdl" open
   "../vector/csr.rhdl" open
   "../vector/operand-fetch.rhdl" open
   "../vector/sequencer.rhdl" open
@@ -36,8 +37,12 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
   inst sequencer(RV5StageVectorSequencer(xlen, vlen, Bits(xlen.width)))
   sequencer.blocked_rows <== bits(0, VectorRegisterLayout(vlen, xlen.width).depth).as_vec(Bool)
   sequencer.packed_memory <== Bool(#false)
-  sequencer.packed_done.valid <== Bool(#false)
+  sequencer.alignment_available <== Bool(#false)
+  sequencer.aligned <== bits(0, xlen.width)
+  sequencer.prepare_mask_result.valid <== Bool(#false)
+  sequencer.prepare_mask_result.bits <== bits(0, xlen.width)
   inst operand_fetch(RV5StageVectorOperandFetch(xlen, vlen, Bits(xlen.width)))
+  operand_fetch.aligned <== bits(0, xlen.width)
   inst bank(RV5StageVectorRegisterFile(xlen, vlen))
   inst execute(RV5StageVectorExecute(xlen, vlen))
   execute.alignment.valid <== Bool(#false)
@@ -56,6 +61,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
       RV5StageVectorDescriptor(xlen):
         pc: bits(0x100, xlen.width)
         precertified: Bool(#false)
+        certificate: dont_care(sequencer.request.bits.descriptor.certificate.type)
         instruction: instruction
         state:
           RiscvVectorState(xlen):
@@ -74,11 +80,15 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
           PointerMaskControl():
             mode: PointerMaskMode.Disabled
             virtual_address: Bool(#false)
-  sequencer.read_request |> gate_flow(issue_ready) |> operand_fetch.request
+  sequencer.sequence_request |> gate_flow(issue_ready) |> operand_fetch.request
   operand_fetch.flush <== sequencer.read_flush
+  operand_fetch.suffix |> sequencer.suffix
   operand_fetch.begin_macro <== sequencer.request.fire()
-  operand_fetch.reads <=> bank.reads
-  bank.results <=> operand_fetch.results
+  for (port in 0..3):
+    Array(operand_fetch.reads[port], sequencer.prepare_reads[port]) |> valid_arbiter() |> bank.reads[port]
+    def Array(operand_result, preparation_result) = bank.results[port] |> fork_valid(2)
+    operand_result |> operand_fetch.results[port]
+    preparation_result |> sequencer.prepare_results[port]
   operand_fetch.mask_read |> bank.mask_read
   bank.mask_result |> operand_fetch.mask_result
   sequencer.cancel.valid <== cancel
@@ -103,6 +113,7 @@ sync_circuit RV5StageVectorSequencerFixture(xlen :: XLen, vlen :: VectorLength, 
     fault_address: bits(0, xlen.width)
     last: pipeline.egress.bits.last
     compress_state: pipeline.egress.bits.compress_state
+    packed_layout: dont_care(RV5StageVectorPackedLayout(xlen, vlen))
   sequencer.feedback.valid <== operand_fetch.feedback.valid
   sequencer.feedback.bits <== operand_fetch.feedback.bits
   bank.write.valid <== initialize.valid ||| (authorization & pipeline.egress.bits.write.mask.or_reduce())

@@ -226,8 +226,11 @@ Writeback residency separately parents its requests, data, and post-eviction
 refill. Its incoming gather ancestry remains explicitly unknown.
 For a vector-memory workload such as vec-daxpy, additionally load
 `tests/check-vector-memory-events.sql` after the track preamble. It requires
+every vector issue to have exactly one S1 sequence parent one cycle earlier,
+preserving the beat index and packed/elementwise geometry. It also requires
 scalar and vector traffic on one cache-resolution site, vector load/store hits,
-issue-to-cache timing, one-cycle return capture, identical issue occurrence
+minimum issue-to-cache timing (retained certified requests may retry later),
+one-cycle return capture, identical issue occurrence
 parents on both paths, and admitted vector continuation into S3. It is not a
 requirement on the scalar-only smoke or workloads without vector memory.
 Restrict those pipeline checks to transfer sites. `tests/check-stall-events.sql`

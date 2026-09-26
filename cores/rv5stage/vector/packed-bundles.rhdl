@@ -11,6 +11,9 @@ import:
 fun vector_transport_bytes(xlen :: XLen) :: PosInt:
   xlen.width / 8
 
+fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
+  index_width(vlen + 1) + 3
+
 bundle RV5StageVectorPackedCursor(xlen :: XLen, vlen :: VectorLength):
   address: Bits(xlen.width)
   element: Bits(index_width(vlen + 1))
@@ -28,6 +31,7 @@ bundle RV5StageVectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
   last: Bool
 
 bundle RV5StageVectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
+  sequence: Bits(vector_sequence_width(vlen))
   layout: RV5StageVectorPackedLayout(xlen, vlen)
   mask: Bits(vector_transport_bytes(xlen))
   store: Bool
@@ -39,6 +43,7 @@ bundle RV5StageVectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots
   entry: RV5StageVectorPackedEntry(xlen, vlen, owners)
 
 export:
+  vector_sequence_width
   RV5StageVectorPackedCursor
   RV5StageVectorPackedLayout
   RV5StageVectorPackedEntry

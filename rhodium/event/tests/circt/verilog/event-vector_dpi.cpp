@@ -214,7 +214,7 @@ extern "C" void vector_trace_check() {
       const auto sequence=only_parent(event.ref,vector_sites::sequence);
       if(!expected_issue_macro || !sequence_owners.count(sequence) || sequence_owners.at(sequence)!=*expected_issue_macro)
         fail("issue inherited the wrong sequencing occurrence");
-      if(graph.nodes.at(sequence).cycle>=cycle ||
+      if(graph.nodes.at(sequence).cycle+1!=cycle ||
           graph.field(sequence,"op_index").unsigned_value()!=expected_index ||
           graph.field(sequence,"first").unsigned_value()!=graph.field(event.ref,"first").unsigned_value() ||
           graph.field(sequence,"end").unsigned_value()!=graph.field(event.ref,"end").unsigned_value() ||

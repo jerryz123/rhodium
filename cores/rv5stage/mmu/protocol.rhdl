@@ -40,8 +40,8 @@ bundle RV5StageVectorRange():
   last: Bits(64)
   store: Bool
 
-// A speculative single-page proof is installed only when its instruction
-// reaches WB under the same translation context and an idle vector window.
+// A speculative single-page proof travels with its instruction from MEM;
+// each vector request uses its captured mapping independently of the fallback window.
 bundle RV5StageVectorFastCertificate(xlen :: XLen):
   range: RV5StageVectorRange()
   ppn: Bits(44)
@@ -57,10 +57,12 @@ interface RV5StageVectorFastCheck(xlen :: XLen):
   provider requester
   requester -> responder:
     request: Valid(RV5StageVectorRange())
-    install: Valid(RV5StageVectorFastCertificate(xlen))
+    candidate: RV5StageVectorFastCertificate(xlen)
+    pipeline_physical: Bool
+    request_physical: Bool
   responder -> requester:
     response: Valid(RV5StageVectorFastCertificate(xlen))
-    install_ready: Bool
+    candidate_current: Bool
 
 bundle RV5StagePageProbeRequest():
   address: Bits(64)

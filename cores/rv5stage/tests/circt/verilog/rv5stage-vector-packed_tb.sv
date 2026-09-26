@@ -1,4 +1,4 @@
-// Checks packed memory geometry, rotation, replay, reordered completions, and write-port contention.
+// Checks unified packed sequencing, geometry, replay, reordered completions, and write-port contention.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_packed_tb;
   logic clock=0, reset=1;
@@ -12,7 +12,10 @@ module rv5stage_vector_packed_tb;
   struct packed {logic valid; VectorRegisterWrite bits;} initialize_in, written_out;
   struct packed {logic valid; RV5StageVectorToken bits;} attempt_out;
   RV5StageVectorToken token;
-  logic request_ready, active, issued, retired;
+  logic request_ready, active, issued, retired, sequenced;
+  logic [$bits(response_in.bits.data)-1:0] sequence_address;
+  bit prior_sequence=0;
+  logic [$bits(response_in.bits.data)-1:0] prior_sequence_address;
   RV5StageVectorPackedFixture dut(.*);
   localparam int SLOTS = 1 << $bits(token.completion_tag);
   localparam int BYTES = $bits(response_in.bits.data)/8;
@@ -54,6 +57,10 @@ module rv5stage_vector_packed_tb;
       end
     #1;
     if (!reset) begin
+      assert(issued == (prior_sequence && !retry))
+        else $fatal(1,"packed issue must follow the common sequencer by exactly one cycle");
+      if (issued) assert(token.address == prior_sequence_address)
+        else $fatal(1,"packed issue lost its scheduled address");
       if (issued) begin
         requests++;
         consecutive++;
@@ -89,6 +96,8 @@ module rv5stage_vector_packed_tb;
       end
       if (retired) retired_count++;
     end
+    prior_sequence = !reset && sequenced;
+    prior_sequence_address = sequence_address;
     #3 clock=1; #1 clock=0; #4;
     cycle++;
   endtask

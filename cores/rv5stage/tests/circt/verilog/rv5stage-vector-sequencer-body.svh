@@ -240,7 +240,10 @@
             else $fatal(1,"compress checkpoint data=%h/%h count=%0d/%0d destination=%0d/%0d",result.compress_data,tx_compress_buffer[XLEN-1:0],result.compress_count,tx_compress_count,result.compress_destination,tx_compress_destination);
         end
         if (tx_dense && tx_beats != 0)
-          assert (last_commit_cycle + (tx_gather_vector ? 2 : 1) == cycles) else $fatal(1, "bubble in an unstalled vector stream");
+          // A final compression suffix becomes prepared at the source response,
+          // then traverses S1/S2 with no reads. Body chunks remain consecutive.
+          assert (last_commit_cycle + ((tx_gather_vector || (tx_compress && first==tx_vl)) ? 2 : 1) == cycles)
+            else $fatal(1, "unexpected sequence gap op=%0d mode=%0d first=%0d vl=%0d gap=%0d", tx_opcode, tx_mode, first, tx_vl, cycles-last_commit_cycle);
         tx_beats++;
         if (last_commit_cycle + 1 == cycles) consecutive++;
         last_commit_cycle = cycles;
