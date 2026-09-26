@@ -110,7 +110,7 @@ class Selection:
             self.add_checks(*HOST_CHECKS, *EXAMPLE_CHECKS)
             self.simulation = True
             self.all_programs()
-        elif matches(path, "tools/run-racket.sh", "tools/racket-build-cache.sh", "tools/invalidate-racket-build-cache.rkt"):
+        elif matches(path, "tools/run-racket.sh", "tools/racket-build-cache.sh", "tools/refresh-racket-project-cache.sh", "tools/invalidate-racket-build-cache.rkt"):
             self.add_checks(*HOST_CHECKS, *CIRCT_CHECKS, *EXAMPLE_CHECKS)
             self.simulation = True
             self.all_programs()

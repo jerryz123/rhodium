@@ -177,69 +177,18 @@ dependency_root="$dependency_entry/root"
 dependency_complete="$dependency_entry/complete"
 workspace_entry="$cache_base/workspaces/$environment_key/$workspace_key"
 compiled_root="$workspace_entry/root"
-source_manifest="$workspace_entry/source-paths"
-content_manifest="$workspace_entry/source-content"
 workspace_lock="$workspace_entry.lock"
 
-write_source_manifest() {
-  git -C "$repo_dir" ls-files --cached --others --exclude-standard -- \
-    '*.rkt' '*.rhm' '*.rhdl' | LC_ALL=C sort -u | while IFS= read -r source; do
-      if [[ -f "$repo_dir/$source" ]]; then
-        printf '%s\n' "$source"
-      fi
-    done
-}
-
-write_content_manifest() {
-  local paths="$1"
-  local hashes
-  hashes="$(mktemp "$workspace_entry/.source-hashes.XXXXXX")"
-  git -C "$repo_dir" hash-object --stdin-paths < "$paths" > "$hashes"
-  paste "$paths" "$hashes"
-  rm -f -- "$hashes"
-}
-
 prepare_locked() {
-  local next_manifest
-  local next_content
-  local changed_sources
-  local changed_arguments=()
-  local project_subtree="$compiled_root/${repo_dir#/}"
   require_safe_directory "$compiled_root"
-  require_safe_directory "$project_subtree"
   mkdir -p "$workspace_entry"
-  next_manifest="$(mktemp "$workspace_entry/.source-paths.XXXXXX")"
-  next_content="$(mktemp "$workspace_entry/.source-content.XXXXXX")"
-  write_source_manifest > "$next_manifest"
-  write_content_manifest "$next_manifest" > "$next_content"
-
   if [[ ! -d "$compiled_root" ]]; then
     mkdir -p "$compiled_root"
     if [[ -f "$dependency_complete" && -d "$dependency_root" ]]; then
       cp -a "$dependency_root"/. "$compiled_root"/
     fi
-  elif [[ ! -f "$source_manifest" ]] || ! cmp -s "$source_manifest" "$next_manifest"; then
-    # A moved or deleted source can leave loadable orphan bytecode behind. Clear
-    # only this checkout's mirrored subtree and retain compiled dependencies.
-    rm -rf -- "$project_subtree"
-  elif [[ ! -f "$content_manifest" ]] || ! cmp -s "$content_manifest" "$next_content"; then
-    changed_sources="$(mktemp "$workspace_entry/.changed-sources.XXXXXX")"
-    awk -F '\t' 'NR == FNR { previous[$1] = $2; next }
-      previous[$1] != $2 { print $1 }' "$content_manifest" "$next_content" \
-      > "$changed_sources"
-    if [[ -s "$changed_sources" && -d "$project_subtree" ]]; then
-      while IFS= read -r changed_source; do
-        changed_arguments+=("$repo_dir/$changed_source")
-      done < "$changed_sources"
-      env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
-        "$racket_command" "$repo_dir/tools/invalidate-racket-build-cache.rkt" \
-        "$repo_dir" "$next_manifest" "${changed_arguments[@]}"
-    fi
-    rm -f -- "$changed_sources"
   fi
-
-  mv "$next_manifest" "$source_manifest"
-  mv "$next_content" "$content_manifest"
+  "$repo_dir/tools/refresh-racket-project-cache.sh" "$repo_dir" "$compiled_root" "$workspace_entry"
   printf '%s\n' "$repo_dir" > "$workspace_entry/workspace"
 }
 

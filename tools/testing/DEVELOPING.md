@@ -84,8 +84,14 @@ Cache access is serialized within one worktree. The wrapper supervises the
 cached command, releases its lock on interruption, reports long-running phases,
 and fails without an uncached retry when the cache is unavailable or busy.
 Callers that deliberately provide `PLTCOMPILEDROOTS` retain full ownership of
-that root, while CI continues to use its separately verified exact-commit
-bytecode artifact.
+that root. CI separately caches only the checkout's mirrored project bytecode
+and source manifests across runs with a key scoped to the Racket/Rhombus
+environment and cache-invalidation implementation. Before compiling, it applies
+the same source-path and transitive content invalidation as the local wrapper;
+the dependency-bytecode cache seeds the rest of the root. The cross-run cache is
+only a compilation starting point. Downstream jobs still consume a newly
+published, exact-commit bytecode artifact and verify its environment and
+absolute workspace path.
 
 ```mermaid
 flowchart TD

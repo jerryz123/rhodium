@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies worktree isolation, interruption recovery, reuse, invalidation, and cleanup.
+# Verifies worktree and CI bytecode-cache reuse, invalidation, recovery, and cleanup.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -26,9 +26,13 @@ trap cleanup EXIT
 
 mkdir -p "$fixture_dir/packages" "$fixture_repo/tools" "$second_fixture_repo/tools"
 cp "$repo_dir/tools/racket-build-cache.sh" "$fixture_repo/tools/racket-build-cache.sh"
+cp "$repo_dir/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo/tools/refresh-racket-project-cache.sh"
 cp "$repo_dir/tools/invalidate-racket-build-cache.rkt" \
   "$fixture_repo/tools/invalidate-racket-build-cache.rkt"
 cp "$repo_dir/tools/racket-build-cache.sh" "$second_fixture_repo/tools/racket-build-cache.sh"
+cp "$repo_dir/tools/refresh-racket-project-cache.sh" \
+  "$second_fixture_repo/tools/refresh-racket-project-cache.sh"
 cp "$repo_dir/tools/invalidate-racket-build-cache.rkt" \
   "$second_fixture_repo/tools/invalidate-racket-build-cache.rkt"
 git -C "$fixture_repo" init -q
@@ -237,6 +241,24 @@ EOF
 
 rm -f -- "$dependency_source" "$importer_source" "$runner_source"
 "${cache_command[@]}" path >/dev/null
+
+ci_compiled_root="$fixture_dir/ci-compiled"
+ci_metadata_dir="$fixture_dir/ci-project-cache"
+ci_project_subtree="$ci_compiled_root/${fixture_repo#/}"
+mkdir -p "$ci_project_subtree"
+touch "$ci_project_subtree/orphan"
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
+[[ ! -e "$ci_project_subtree/orphan" ]]
+mkdir -p "$ci_project_subtree"
+touch "$ci_project_subtree/reused"
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
+[[ -f "$ci_project_subtree/reused" ]]
+printf '#lang racket/base\n;; Adds a source to the restored CI cache.\n' > "$probe_source"
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
+[[ ! -e "$ci_project_subtree/reused" ]]
 
 "${cache_command[@]}" clean
 [[ ! -d "$compiled_root" ]]
