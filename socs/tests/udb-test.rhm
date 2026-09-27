@@ -17,6 +17,8 @@ for (core in ["rv5stage", "spike"]):
       check: yaml.contains("  " ++ parameter) ~is #true
     check: yaml.contains("  PHYS_ADDR_WIDTH: 32") ~is #true
     check: yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
+    check: yaml.contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
+    check: yaml.contains("  HPM_COUNTER_EN: [false, false, false, true, false") ~is #true
     for (name in ["S", "Sm"]):
       check: yaml.contains("{ name: \"" ++ name ++ "\", version: \"= 1.13.0\" }") ~is #true
     for (name in ["F", "Zcf", "Zve32f"]):
@@ -30,6 +32,8 @@ for (core in ["rv5stage", "spike"]):
     for (name in ["H", "Sha", "Smstateen", "Ssstateen", "Shcounterenw", "Shvstvala", "Shtvala", "Shvstvecd", "Shvsatpa", "Shgatpa", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in configuration.extensions): entry.name == name) ~is #true
     check: configuration.to_yaml().contains("  VSSTATUS_VS_EXISTS: true") ~is #true
+    check: configuration.to_yaml().contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
+    check: configuration.to_yaml().contains("  HCOUNTENABLE_EN: [true, true, true, true, false") ~is #true
     for (name in ["S", "Sm"]):
       check: configuration.to_yaml().contains("{ name: \"" ++ name ++ "\", version: \"= 1.13.0\" }") ~is #true
 

@@ -72,6 +72,12 @@ multiplier choice, and queue depths remain shape-specific implementation
 policy. See the [simulation inventory](../sims/test-products.rhm) for the
 fourteen explicitly selected test products; selection is not a passing-suite claim.
 
+All three ISA presets enable Sscofpmf with one implemented HPM counter on both
+cores. Counter 3 supports mode filtering and overflow interrupts; the
+[RV5Stage](../cores/rv5stage/README.md) and [Spike](../cores/spike/README.md)
+contracts define their implementation-specific cycle events. The shared ISA
+does not imply equal performance counts between hardware and a functional model.
+
 ### Composition choices
 
 The Make entrypoints accept three independent host-side axes:

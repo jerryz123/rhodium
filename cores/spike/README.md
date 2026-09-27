@@ -53,9 +53,19 @@ The patched Spike model retains writable `mstatus.MXR` and `sstatus.MXR`
 with S-mode in Bare configurations; the bit has no permission effect without
 paging. `SUM` remains read-only zero when translation is unavailable.
 
-The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
-and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits
-are also read-only zero; only the base counter-control bits remain writable.
+The shared RV32Int, RV32Max, and RVA23 SoC presets enable Zihpm and Sscofpmf.
+The downstream Spike patch implements 64-bit counter 3, its enable/inhibit
+controls, all implemented privilege-mode filters, RV32 low/high halves, and
+sticky overflow with M/S local interrupt delivery. Event 0 disables counting,
+event 1 counts instruction execution attempts (including synchronous traps),
+and event 2 counts retired instructions. Unsupported event encodings become 0.
+Functional cycles are not simulator clock ticks: cache stalls and idle WFI
+do not increment this counter. Privilege is sampled before each instruction,
+including returns and traps; writing the counter or selector suppresses that
+instruction's increment. Slots 4–31 and their controls remain read-only zero.
+Standalone configurations without Sscofpmf retain zero implemented HPM counters.
+Sail 0.14.1 does not generate HPM events or overflow interrupts; ACT reports
+this reference-model limitation without substituting a different DUT profile.
 The pinned Spike's `WRS.NTO` is not an unconditional no-op: in S/U mode with
 `mstatus.TW` set, it raises an illegal-instruction trap. Its ACT/UDB projection
 describes that behavior rather than claiming a no-op implementation.

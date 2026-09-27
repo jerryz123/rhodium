@@ -1268,8 +1268,8 @@ boundary. M may delegate to S/HS; direct VS delivery (`Shlcofideleg`) is not
 implemented. HS virtual interrupts outrank HS counter overflow.
 
 ISA strings, hart descriptions, and UDB counter/permission claims follow this
-option. Shared SoC ISA presets do not yet enable it: their Spike binding still
-has zero HPM counters. Sail 0.14.1 projects the writable counter and filter
+option. Shared RV32Int, RV32Max, and RVA23 SoC ISA presets enable it for both
+RV5Stage and Spike. Sail 0.14.1 projects the writable counter and filter
 CSRs, but does not increment implementation-defined HPM events. Directed RTL
 tests, not ACT signatures alone, therefore qualify event counting and overflow.
 

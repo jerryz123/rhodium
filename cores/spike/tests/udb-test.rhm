@@ -63,6 +63,12 @@ for (preset in [IsaPreset.RVA23, IsaPreset.RV32Int, IsaPreset.RV32Max]):
   check:
     product.pmp_regions ~is 0
     product_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
+    product_yaml.contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
+    product_yaml.contains("  HPM_EVENTS: [0, 1, 2]") ~is #true
+    product_yaml.contains("  HPM_COUNTER_EN: [false, false, false, true, false") ~is #true
+    product_yaml.contains("  MCOUNTENABLE_EN: [true, true, true, true, false") ~is #true
+    product_yaml.contains("  SCOUNTENABLE_EN: [true, true, true, true, false") ~is #true
+    product_yaml.contains("  COUNTINHIBIT_EN: [true, false, true, true, false") ~is #true
   // UDB defines the remaining PMP parameters only when PMP entries exist.
   for (parameter in ["NUM_USABLE_PMP_ENTRIES", "PMP_GRANULARITY", "PMP_NA4_SUPPORTED", "PMP_NAPOT_SUPPORTED", "PMP_TOR_SUPPORTED"]):
     check: product_yaml.contains("  " ++ parameter ++ ":") ~is #false

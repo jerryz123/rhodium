@@ -30,6 +30,7 @@ fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5Stage
       ~ziccif: has("ziccif"), ~ziccamoa: has("ziccamoa"), ~ziccrse: has("ziccrse"),
       ~zicbop: has("zicbop"), ~zicbom: has("zicbom"), ~zicboz: has("zicboz"),
       ~ssnpm: has("ssnpm"), ~supm: has("supm"),
+      ~sscofpmf: has("sscofpmf"),
       ~svpbmt: has("svpbmt"), ~svnapot: has("svnapot"),
       ~hypervisor: has("h"), ~sstc: has("sstc"), ~smstateen: has("smstateen"), ~svinval: has("svinval"),
       ~zawrs: has("zawrs"), ~zihintpause: has("zihintpause"), ~zihintntl: has("zihintntl"),

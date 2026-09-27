@@ -79,6 +79,14 @@ Sail configuration generation as well as UDB serialization.
 
 ## Focused validation
 
+The ordered Spike patch series owns HPM counter 3. Keep its pre-instruction
+privilege/inhibit snapshot and counter/selector write suppression together.
+Sscofpmf execution revisits the interrupt boundary after each instruction,
+independently of the embedding model's retirement budget. The native
+`tests/spike_hpm_test.cc` regression executes real CSR, trap, return, and
+ordinary instructions in RV32, RV64, and RV64H, both cached and logged paths.
+It runs inside the existing `spike-core-test` target and CI lane.
+
 Run the focused host contract check with:
 
 ```sh

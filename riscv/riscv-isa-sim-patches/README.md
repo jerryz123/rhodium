@@ -55,6 +55,14 @@ The queue is ordered so each change can be reviewed and removed independently:
     interrupt sources (GEILEN=0).
 18. `0018-gate-stateen-csrind-on-sscsrind.patch` exposes the state-enable CSRIND
     bit only when the controlled supervisor indirect CSRs exist.
+19. `0019-implement-sscofpmf-counter.patch` adds counter 3 when Sscofpmf is
+    selected, with 64-bit state, privilege filtering, RV32 halves, sticky
+    overflow and precise local interrupt delivery. It extends patch 0006's
+    enable mask only for this implemented slot. Event 1 counts functional
+    execution attempts and event 2 counts retirement; other slots stay zero.
+20. `0020-fix-hs-overflow-interrupt-priority.patch` places HS counter overflow
+    below guest-external and virtual interrupt sources, preserving the H
+    extension's specified order without changing target-privilege arbitration.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

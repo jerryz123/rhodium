@@ -1,0 +1,203 @@
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Implement instruction-precise Sscofpmf counter 3
+Purpose: Supplies a functional HPM counter with filtering and overflow interrupts.
+SPDX-License-Identifier: Apache-2.0
+
+Implement one 64-bit counter when Sscofpmf is selected. Event 1 counts
+execution attempts (functional cycles); event 2 counts retired instructions.
+Keep slots 4 through 31 absent. Sample privilege and inhibit before each
+instruction, preserve CSR write priority, and deliver overflow at the next
+instruction boundary even during multi-instruction processor steps.
+
+
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -96,8 +96,13 @@
+     const reg_t which_mcounterh = CSR_MHPMCOUNTER3H + i;
+     const reg_t which_counter = CSR_HPMCOUNTER3 + i;
+     const reg_t which_counterh = CSR_HPMCOUNTER3H + i;
+-    mevent[i] = std::make_shared<mevent_csr_t>(proc, which_mevent);
+-    auto mcounter = std::make_shared<const_csr_t>(proc, which_mcounter, 0);
++    auto selector = std::make_shared<mevent_csr_t>(proc, which_mevent);
++    mevent[i] = selector;
++    csr_t_p full_counter = std::make_shared<const_csr_t>(proc, which_mcounter, 0);
++    if (i == 0 && proc->extension_enabled_const(EXT_SSCOFPMF))
++      full_counter = hpmcounter3 = std::make_shared<hpm_counter_csr_t>(proc, selector);
++    csr_t_p mcounter = xlen == 32
++      ? std::make_shared<rv32_low_csr_t>(proc, which_mcounter, full_counter) : full_counter;
+     add_csr(which_mcounter, mcounter);
+ 
+     auto counter = std::make_shared<counter_proxy_csr_t>(proc, which_counter, mcounter);
+@@ -105,7 +110,7 @@
+ 
+     if (xlen == 32) {
+       add_csr(which_mevent, std::make_shared<rv32_low_csr_t>(proc, which_mevent, mevent[i]));
+-      auto mcounterh = std::make_shared<const_csr_t>(proc, which_mcounterh, 0);
++      auto mcounterh = std::make_shared<rv32_high_csr_t>(proc, which_mcounterh, full_counter);
+       add_csr(which_mcounterh, mcounterh);
+       add_const_ext_csr(EXT_ZIHPM, which_counterh, std::make_shared<counter_proxy_csr_t>(proc, which_counterh, mcounterh));
+       add_const_ext_csr(EXT_SSCOFPMF, which_meventh, std::make_shared<rv32_high_csr_t>(proc, which_meventh, mevent[i]));
+@@ -197,7 +202,8 @@
+   } else {
+     add_supervisor_csr(CSR_MIDELEG, mideleg);
+   }
+-  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0);
++  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0)
++    | (proc->extension_enabled_const(EXT_SSCOFPMF) ? 0x8UL : 0x0);
+   add_user_csr(CSR_MCOUNTEREN, mcounteren = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTEREN, counteren_mask, 0));
+   add_csr(CSR_MCOUNTINHIBIT, mcountinhibit = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTINHIBIT, counteren_mask & (~MCOUNTEREN_TIME), 0));
+   add_supervisor_csr(CSR_SCOUNTEREN, scounteren = std::make_shared<masked_csr_t>(proc, CSR_SCOUNTEREN, counteren_mask, 0));
+
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -1442,11 +1442,47 @@
+ }
+ 
+ bool mevent_csr_t::unlogged_write(const reg_t val) noexcept {
+-  const reg_t mask = proc->extension_enabled(EXT_SSCOFPMF) ? MHPMEVENT_OF | MHPMEVENT_MINH
++  ++write_version;
++  const bool implemented = address == CSR_MHPMEVENT3 && proc->extension_enabled_const(EXT_SSCOFPMF);
++  const reg_t mask = implemented ? MHPMEVENT_OF | MHPMEVENT_MINH
+     | (proc->extension_enabled_const('U') ? MHPMEVENT_UINH : 0)
+     | (proc->extension_enabled_const('S') ? MHPMEVENT_SINH : 0)
+     | (proc->extension_enabled('H') ? MHPMEVENT_VUINH | MHPMEVENT_VSINH : 0) : 0;
+-  return basic_csr_t::unlogged_write(val & mask);
++  const reg_t event = val & ((reg_t(1) << 56) - 1);
++  return basic_csr_t::unlogged_write((val & mask) | (implemented && event <= 2 ? event : 0));
++}
++
++hpm_counter_csr_t::hpm_counter_csr_t(processor_t* proc, std::shared_ptr<mevent_csr_t> selector):
++  basic_csr_t(proc, CSR_MHPMCOUNTER3, 0), selector(selector) {}
++
++bool hpm_counter_csr_t::unlogged_write(reg_t val) noexcept {
++  written = true;
++  return basic_csr_t::unlogged_write(val);
++}
++
++void hpm_counter_csr_t::begin_instruction() noexcept {
++  written = false;
++  selector_version = selector->write_version;
++  const reg_t config = selector->read();
++  const reg_t filter = state->prv == PRV_M ? MHPMEVENT_MINH
++    : state->prv == PRV_S ? (state->v ? MHPMEVENT_VSINH : MHPMEVENT_SINH)
++    : (state->v ? MHPMEVENT_VUINH : MHPMEVENT_UINH);
++  event = state->debug_mode || (config & filter) || (state->mcountinhibit->read() & 8)
++    ? 0 : config & ((reg_t(1) << 56) - 1);
++}
++
++void hpm_counter_csr_t::finish_instruction(bool retired, bool attempted) noexcept {
++  // Event 1 is a functional-model execution cycle, not a platform clock tick.
++  // Capture privilege before xRET/traps, and suppress either CSR's write cycle.
++  if (written || selector_version != selector->write_version ||
++      !((event == 1 && attempted) || (event == 2 && retired)))
++    return;
++  const reg_t next = read() + 1;
++  basic_csr_t::unlogged_write(next);
++  if (next == 0 && !(selector->read() & MHPMEVENT_OF)) {
++    selector->write(selector->read() | MHPMEVENT_OF);
++    state->mip->backdoor_write_with_mask(MIP_LCOFIP, MIP_LCOFIP);
++  }
+ }
+ 
+ hypervisor_csr_t::hypervisor_csr_t(processor_t* const proc, const reg_t addr):
+
+--- a/riscv/csrs.h
++++ b/riscv/csrs.h
+@@ -645,8 +645,24 @@
+ class mevent_csr_t: public basic_csr_t {
+  public:
+   mevent_csr_t(processor_t* const proc, const reg_t addr);
++  uint64_t write_version = 0;
+  protected:
+   virtual bool unlogged_write(const reg_t val) noexcept override;
++};
++
++// One instruction-precise, 64-bit performance counter, with RV32 CSR aliases.
++class hpm_counter_csr_t: public basic_csr_t {
++ public:
++  hpm_counter_csr_t(processor_t* proc, std::shared_ptr<mevent_csr_t> selector);
++  void begin_instruction() noexcept;
++  void finish_instruction(bool retired, bool attempted) noexcept;
++ protected:
++  bool unlogged_write(reg_t val) noexcept override;
++ private:
++  std::shared_ptr<mevent_csr_t> selector;
++  uint64_t selector_version = 0;
++  reg_t event = 0;
++  bool written = false;
+ };
+ 
+ // For machine-level CSRs that only exist with Hypervisor
+
+--- a/riscv/execute.cc
++++ b/riscv/execute.cc
+@@ -225,6 +225,11 @@
+ 
+   while (n > 0) {
+     size_t instret = 0;
++    // HPM samples each instruction's original privilege and CSR-write priority.
++    // Also revisit interrupt delivery immediately after a counter overflow.
++    const size_t batch = state.hpmcounter3 ? 1 : n;
++    bool hpm_attempt = false;
++    bool hpm_trap = false;
+     reg_t pc = state.pc;
+     state.prv_changed = false;
+     state.v_changed = false;
+@@ -249,10 +254,15 @@
+ 
+       check_if_lpad_required();
+ 
++      if (state.hpmcounter3 && !in_wfi) {
++        state.hpmcounter3->begin_instruction();
++        hpm_attempt = true;
++      }
++
+       if (unlikely(slow_path()))
+       {
+         // Main simulation loop, slow path.
+-        while (instret < n)
++        while (instret < batch)
+         {
+           if (unlikely(!state.serialized && state.single_step == state.STEP_STEPPED)) {
+             state.single_step = state.STEP_NONE;
+@@ -299,10 +309,10 @@
+           }
+         }
+       }
+-      else while (instret < n)
++      else while (instret < batch)
+       {
+         // Main simulation loop, fast path.
+-        for (auto ic_entry = _mmu->access_icache(pc); instret < n; instret++) {
++        for (auto ic_entry = _mmu->access_icache(pc); instret < batch; instret++) {
+           auto fetch = ic_entry->data;
+           ic_entry = ic_entry->next;
+           auto new_pc = execute_insn_fast(this, pc, fetch);
+@@ -321,6 +331,7 @@
+     }
+     catch(trap_t& t)
+     {
++      hpm_trap = true;
+       take_trap(t, pc);
+       n = instret;
+ 
+@@ -368,6 +379,8 @@
+     }
+ 
+ serialize:
++    if (hpm_attempt)
++      state.hpmcounter3->finish_instruction(instret != 0, instret != 0 || hpm_trap);
+     state.minstret->bump((state.mcountinhibit->read() & MCOUNTINHIBIT_IR) ? 0 : instret);
+ 
+     // Model a hart whose CPI is 1.
+
+--- a/riscv/processor.h
++++ b/riscv/processor.h
+@@ -113,6 +113,7 @@
+   csr_t_p mcounteren;
+   csr_t_p mcountinhibit;
+   csr_t_p mevent[N_HPMCOUNTERS];
++  std::shared_ptr<hpm_counter_csr_t> hpmcounter3;
+   csr_t_p mnstatus;
+   csr_t_p mnepc;
+   csr_t_p scounteren;
