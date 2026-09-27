@@ -8,6 +8,8 @@ It owns retry-aware cache transactions, snoop responses, dirty-line writeback,
 and the one-outstanding RN-I implementation. The implementation-neutral
 physical-region, Home mapping, requester capability, and placement contract is
 owned by [`cores/riscv/chi-hart.rhdl`](../../riscv/chi-hart.rhdl).
+Contributors should read [DEVELOPING.md](DEVELOPING.md) for engine ownership
+and validation.
 
 ## Configuration and identity
 
@@ -138,6 +140,3 @@ bytes and serializes eight zero-valued, full-mask 64-bit writes. Only the
 last acknowledged write produces a core response. No other request can
 interleave, and `drained` stays false until the entire operation completes.
 The engine does not recheck PMAs; the upstream router owns block-wide permission.
-
-See [`DEVELOPING.md`](DEVELOPING.md) for source ownership, dependency rules,
-and focused validation.

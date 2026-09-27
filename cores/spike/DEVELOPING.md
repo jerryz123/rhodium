@@ -3,10 +3,27 @@
 
 # Developing the Spike-backed core
 
-Read the package [README](README.md) for the public surface. Keep Spike runtime,
-DPI, private-cache, and transaction policy in this named-core package. Reuse pure
-architectural descriptions from `riscv/` and implementation-neutral attachment
+Read the package [README](README.md) for the public surface. This guide owns
+source placement, the native/RTL boundary, and validation.
+
+## Architecture and dependency boundary
+
+Keep Spike runtime, DPI, private-cache, and transaction policy in this named-core
+package. Reuse pure architectural descriptions from `riscv/` and implementation-neutral attachment
 contracts from `cores/riscv/`; do not add Spike policy to either shared layer.
+
+## Implementation map
+
+| Area | Owner |
+|---|---|
+| Profile and architectural projection | [`profile.rhm`](profile.rhm) |
+| Core protocol and composition | [`protocol.rhdl`](protocol.rhdl), [`spike.rhdl`](spike.rhdl) |
+| CHI transaction engines | [`chi/`](chi/) |
+| Typed RTL/native ABI and runtime | [`dpi/`](dpi/) |
+| ACT/UDB projection | [`udb.rhm`](udb.rhm) |
+| Focused host and native checks | [`tests/`](tests/) |
+
+## Change workflow
 
 The DPI ABI in [`dpi/spike-dpi.rhdl`](dpi/spike-dpi.rhdl) and
 [`dpi/spike_dpi.h`](dpi/spike_dpi.h) is one contract. Keep their argument and
@@ -59,6 +76,8 @@ inactive NaN canonicalization. `sims/arch-test/configure.py` records fixed Sail
 behavior differences separately in `reference-model-differences.json`; it must
 not rewrite the DUT's parameters or filter tests to hide them. Validate actual
 Sail configuration generation as well as UDB serialization.
+
+## Focused validation
 
 Run the focused host contract check with:
 

@@ -3,6 +3,16 @@
 
 # RV5Stage decode
 
+RV5Stage maps each selected instruction encoding directly to the structured
+`RV5StageControl` consumed by the core. There is no intermediate
+instruction-kind enum. Integer, floating-point, vector, and optional hint
+rows compose into one hardware decode relation for the selected profile.
+Pipeline behavior and execution ordering belong to the
+[parent RV5Stage contract](../README.md). Contributors changing decode
+ownership or instruction coverage should read [DEVELOPING.md](DEVELOPING.md).
+
+## Vector and hint overlays
+
 `~vector: VectorProfile...` selects the standard Zve or V 1.0 rows in the same
 decoder. Integer-only Zve profiles omit floating-point rows; FP-capable profiles
 retain them and rely on the profile-aware legality boundary for supported
@@ -27,17 +37,6 @@ aliases to these same words. PAUSE and NTL overlays share one combined decoder.
 The [core's opt-in NTL support](../README.md#non-temporal-locality-hints)
 associates the decoded selector with its target at WB. Decoder selection does
 not choose cache allocation or replacement policy; SoCs remain unchanged.
-
-RV5Stage maps each selected instruction encoding directly to the structured
-`RV5StageControl` consumed by the core. There is no intermediate
-instruction-kind enum. Integer and floating-point rows are composed at host
-elaboration time and emitted as one hardware decode relation for the selected
-core profile. Pipeline behavior, hazards, and execution ordering belong to the
-[parent RV5Stage contract](../README.md); this document owns the decode
-composition and control-column boundaries.
-
-Contributors changing decode ownership or instruction coverage should read
-[`DEVELOPING.md`](DEVELOPING.md).
 
 ## Select a decode specialization
 
@@ -82,6 +81,9 @@ configuration contains one `ValidDecodeGen` over the combined core and FP rows.
 With FP disabled, the prebuilt RV32 or RV64 core relation is selected instead.
 
 ## Follow a row from catalog to hardware
+
+This diagram illustrates the current host-side row composition and the one
+hardware decode relation emitted for a selected specialization.
 
 ```mermaid
 flowchart LR
@@ -150,11 +152,6 @@ The core derives this switch from `RV5StageExtensions(~zawrs: #true)` for
 advertisement, and UDB claims. The decoder switch alone does not implement
 execution semantics.
 
-## Change the owning control column
-
-Control-column ownership and the instruction-extension workflow moved to
-[`DEVELOPING.md`](DEVELOPING.md#control-column-ownership).
-
 ## Read care masks and don't-cares
 
 Decode rows state only what downstream hardware observes. `partial_pattern`
@@ -196,8 +193,3 @@ instructions occupy subregions of `ORI`. Its override rows select the shared
 adder, `rs1`, the descriptor-owned prefetch immediate, no scalar writeback or
 ordinary memory operation, and a `CachePrefetchOperation`. No instruction-kind
 decoder or row-priority mux is introduced.
-
-## Find implementation and tests
-
-Source ownership and contributor validation moved to
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map).

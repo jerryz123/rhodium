@@ -79,6 +79,22 @@ S0 admission depends on registered refill/installation state, not S1 tag
 comparison. Installation and SRAM lookup are mutually exclusive.
 A prefetch reuses the blocking refill path without producing a response.
 
+This diagram illustrates the current lookup/refill flow. A miss reports
+replay immediately; the completed line is installed before a later frontend
+attempt can hit. Accepted CHI work is never canceled by a fetch flush.
+
+```mermaid
+flowchart LR
+    S0["S0 virtual index"] --> Array["Synchronous tag/data read"]
+    Array --> S1["S1 translated tag match"] --> S2["S2 word, fault, or replay"]
+    S2 -->|hit or fault| Frontend["Frontend result"]
+    S2 -->|miss: replay| Frontend
+    S2 -->|miss: acquire line| Read["ReadOnce or ROM ReadNoSnp"]
+    Read --> Install["Install one XLEN word per cycle"]
+    Install -->|publish tag last| Array
+    Frontend -->|later retry| S0
+```
+
 ## Refill and replacement
 
 Every coherent-RAM miss issues one 64-byte `ReadOnce`. The [snapshot engine](../chi/README.md#instruction-snapshot-read)

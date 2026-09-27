@@ -3,6 +3,12 @@
 
 # Reusable RISC-V integration development
 
+Read the package [README](README.md) for the component mappings, attachment
+contract, and vector row layout. This guide owns source placement and
+validation for their shared implementation boundary.
+
+## Dependency direction
+
 Files here may depend on architectural catalogs under `riscv/` and reusable
 components directly under `cores/`. Implementation-neutral attachment contracts
 may also depend on shared protocols such as CHI. They must not import a named
@@ -12,11 +18,33 @@ profile or transaction implementation.
 Keep complete instruction-set composition, pipeline controls, and
 microarchitectural policy in the named core.
 
-`vector-layout.rhm` owns physical vector-row mapping over the architectural
+## Implementation map
+
+[`alu-decode.rhdl`](alu-decode.rhdl),
+[`branch-decode.rhdl`](branch-decode.rhdl),
+[`multiply-decode.rhdl`](multiply-decode.rhdl), and
+[`divide-decode.rhdl`](divide-decode.rhdl) own the reusable component-control
+relations. A named core completes its selected instruction domain and combines
+the columns without importing another named core.
+
+[`vector-layout.rhm`](vector-layout.rhm) owns physical vector-row mapping over the architectural
 bit positions in `riscv/isa/vector.rhm`. Keep it pure host code and require an
-explicit row width. Its focused checks live in `cores/tests/vector-layout-test.rhm`.
+explicit row width.
 
 [`chi-hart.rhdl`](chi-hart.rhdl) owns physical-region/Home mapping, generic
 instruction, data, and uncached requester capabilities, placement parameters,
 and the hardware identity bundle. Named cores retain refill, writeback, snoop,
 cache-maintenance, and uncached transaction state machines.
+
+## Focused validation
+
+Run the mapping checks after changing their shared decode relations, or the
+pure vector-layout check after changing row geometry:
+
+```sh
+tools/run-racket-tests.sh cores/riscv/tests/alu-decode-test.rhm cores/riscv/tests/multiply-decode-test.rhm cores/riscv/tests/divide-decode-test.rhm
+tools/run-racket-tests.sh cores/tests/vector-layout-test.rhm
+```
+
+Run `bash cores/check-boundaries.sh` after changing imports or package layout.
+The named core's DEVELOPING guide owns its composed decode and CHI fixtures.

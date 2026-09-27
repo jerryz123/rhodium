@@ -33,6 +33,8 @@ Selecting `VectorExtension.Zvfh` with scalar `Zfhmin` or `Zfh` instead enables
 the complete vector FP surface at SEW=16 and the standard six SEW=8 widening
 and narrowing integer-conversion forms.
 The reusable arithmetic stays in [`SimdALU`](../../README.md#packed-simd-integer-alu).
+Contributors should read [DEVELOPING.md](DEVELOPING.md) for state ownership,
+source placement, and validation.
 
 ## Configuration and decode
 
@@ -77,6 +79,24 @@ profiles admit only their supported FP widths, and the Zve64 profiles reject
 the EEW64 high-half and fractional multiply operations reserved for full V.
 
 ## WB allocation and autonomous execution
+
+This diagram illustrates the current resource ownership, not a new issue or
+retirement guarantee. A macro enters from scalar WB, but its beats stay in the
+vector path; completion slots can outlive the sequencer's ownership of that
+macro. The [execution contract](#execution-ownership) defines when memory
+certification, replay, and architectural retirement occur.
+
+```mermaid
+flowchart LR
+    WB["Scalar WB"] --> FIFO["Descriptor FIFO"] --> Seq["One sequencer"]
+    Seq --> Fetch["Operand fetch and VRF reads"]
+    Fetch --> SIMD["Packed SIMD execution"] --> Slots["Completion slots"]
+    Fetch --> Shared["Shared FP, multiply, divide"] --> Slots
+    Seq --> Memory["Vector memory attempts"] --> LSU["Scalar LSU arbitration"] --> Slots
+    Slots -->|mature result| VRF["VRF writes"]
+    Slots -->|in order| Reclaim["Metadata reclaim"]
+    Memory -->|certification or precise outcome| WB
+```
 
 ### Event tracing
 
@@ -915,5 +935,3 @@ geometry and ordinary data-overlap rules, not an instruction decoder.
 Writes are accepted inputs. The bank and packing adapters do not decide macro
 allocation, compute maturity, or memory replay; the vector execution owner
 supplies that policy after scalar WB has allocated the macro.
-
-See [DEVELOPING.md](DEVELOPING.md) for ownership and focused validation.

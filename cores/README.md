@@ -1,4 +1,4 @@
-<!-- Defines ownership and dependency boundaries for reusable processor components and named cores. -->
+<!-- Introduces reusable processor components and the named cores built from them. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Processor components and cores
@@ -8,12 +8,7 @@ similarly named [`rhodium/core/`](../rhodium/core/README.md) owns the
 frontend-independent hardware IR.
 
 Contributors adding components or named cores should read
-[`DEVELOPING.md`](DEVELOPING.md).
-
-## Choose the right home
-
-Contributor placement and dependency rules are documented in
-[`DEVELOPING.md`](DEVELOPING.md#choose-the-right-home).
+[`DEVELOPING.md`](DEVELOPING.md) for placement, dependency, and validation rules.
 
 ## Pick a reusable component
 
@@ -178,14 +173,3 @@ independent instruction, coherent-data, and uncached CHI ports.
 with the shared coherent single-core platform. See
 [`spike/README.md`](spike/README.md) for the adapter, private-cache, and
 simulation contracts.
-
-## Preserve dependency direction
-
-The enforced implementation dependency graph moved to
-[`DEVELOPING.md`](DEVELOPING.md#dependency-direction). This heading remains for
-existing links.
-
-## Verify a change
-
-Contributor test selection and boundary checking are documented in
-[`DEVELOPING.md`](DEVELOPING.md#focused-validation).

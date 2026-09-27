@@ -7,6 +7,8 @@ RV5Stage's optional floating-point subsystem provides architectural FP
 register state, fixed-latency arithmetic, retained division and square root,
 load/store integration, destination tracking, and completion arbitration. The
 core supports RV32F or RV64D, with optional Zfhmin, Zfh, and Zfa behavior.
+Contributors should read [DEVELOPING.md](DEVELOPING.md) for implementation
+ownership and validation.
 
 ## Shared operand execution
 
@@ -96,5 +98,4 @@ the scalar pipeline replays the store instead of holding EX.
 The scalar pipeline owns dispatch and memory requests; the FP subsystem owns
 FPR hazards and execution after acceptance. FP loads and stores share the
 ordinary scalar address, translation, PMA, cache, and uncached paths while
-carrying exact precision metadata. See [`DEVELOPING.md`](DEVELOPING.md) for
-source ownership and contributor validation.
+carrying exact precision metadata.

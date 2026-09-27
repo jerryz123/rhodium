@@ -572,6 +572,8 @@ The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen, hyperv
 `frontend_control` for activity, redirects, invalidation, and predictor training.
 `RV5Stage` connects those ports to the frontend; the frontend's `memory` port
 connects to the MMU's fixed-latency fetch-attempt interface.
+The diagram illustrates the current composition; the stage and transfer
+contracts below define its observable behavior.
 
 ```mermaid
 flowchart LR
@@ -917,7 +919,9 @@ flush and architectural cache invalidation remain distinct operations.
 ## System-facing composition
 
 [`rv5stage.rhdl`](rv5stage.rhdl) combines `RV5StageCore` and `RV5StageFrontend` with address translation,
-physical-region routing, private caches, and CHI transaction boundaries:
+physical-region routing, private caches, and CHI transaction boundaries. The
+diagram illustrates the current composition; port and transaction contracts
+are specified below.
 
 ```mermaid
 flowchart LR
@@ -927,7 +931,7 @@ flowchart LR
     IDENTITY --> UNCACHED
 
     CORE -->|"architectural fetch control"| FRONTEND["RV5StageFrontend"]
-    FRONTEND -->|"assembled instructions"| CORE
+    FRONTEND -->|"raw fetch packets"| CORE
     FRONTEND -->|"virtual fetch attempts"| MMU["MMU<br/>ITLB, DTLB, Sv39 walker"]
     CORE -->|"virtual data access"| MMU
     CORE -->|"privilege, mstatus, satp,<br/>translation flush"| MMU
@@ -1229,23 +1233,6 @@ them. There is no HPM storage, event selection, or counting datapath. The
 [privileged architecture source](https://github.com/riscv/riscv-isa-manual/blob/main/src/priv/machine.adoc#hardware-performance-monitor)
 permits these zero-valued counter/selector pairs.
 
-## Implementation map
-
-Source ownership and dependency enforcement moved to
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map). This heading remains for
-existing links.
-
-## Generated detailed diagrams
-
-Contributor diagram generation moved to
-[`DEVELOPING.md`](DEVELOPING.md#generated-detailed-diagrams).
-
-## Verification
-
-Contributor host, CIRCT, and Verilator workflows are documented in
-[`DEVELOPING.md`](DEVELOPING.md#focused-validation). SoC-level architectural
-and FESVR simulation belongs to the [simulation guide](../../sims/README.md).
-
 ## Pause hint
 
 `RV5StageExtensions(~zihintpause: #true)` selects Zihintpause 2.0. The generic
@@ -1298,5 +1285,6 @@ successor PC. Clock gating is not implemented.
 - Zicbop translation is TLB-hit-only and never launches a page-table walk;
   hints may be dropped under translation, PMA, lookup, refill, snoop, response
   capacity, or dirty-victim pressure.
-- The private caches do not implement hit-under-miss or autonomous prefetching;
-  detailed cache-specific limits are maintained in their owning READMEs.
+- L1I has no hit-under-miss; L1D admits independent load hits and same-line
+  waiters under one miss but cannot start a second miss. Neither cache has an
+  autonomous prefetcher. See their owning READMEs for the full limits.

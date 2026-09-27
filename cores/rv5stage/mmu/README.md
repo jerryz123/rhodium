@@ -159,9 +159,9 @@ flowchart LR
   FAULT --> LSU
 ```
 
-The diagram shows logical result paths. Only the TLB selected by the miss owner
-receives a successful refill, and an access-fault completion never reaches
-either TLB.
+The diagram illustrates logical result paths in the current MMU composition.
+Only the TLB selected by the miss owner receives a successful refill, and an
+access-fault completion never reaches either TLB.
 
 ## Follow an instruction request
 
@@ -520,13 +520,3 @@ does. A request discarded on the cancellation edge does not start a residency.
 This interval measures walker ownership, not the lifetime of a saved fault or
 of a TLB entry. Upstream gaps remain explicitly partial where the MMU's
 request-selection logic has no Flow contract.
-
-## Implementation map
-
-Source ownership moved to
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map).
-
-## Focused validation
-
-Contributor test selection and coverage limits are documented in
-[`DEVELOPING.md`](DEVELOPING.md#focused-validation).

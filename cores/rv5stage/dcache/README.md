@@ -210,7 +210,8 @@ one-outstanding CHI limit remain in the [shared engine](../chi/README.md#uncache
 ## Data path and arrays
 
 [`cache.rhdl`](cache.rhdl) keeps the hit path short and moves line transactions
-into shared engines:
+into shared engines. This diagram illustrates the current pipeline and resource
+arrangement; the handshake and ordering contracts are described above.
 
 ```mermaid
 flowchart LR
@@ -218,9 +219,9 @@ flowchart LR
   SRAM --> MEM["S1 / MEM physical tag + permissions + byte hazards"]
   TRANSLATE["Parallel DTLB + PMA permission"] --> MEM
   MEM -->|"permitted hit"| WB["S2 / WB<br/>Core MEM/WB register"]
-  WB -->|"authorize owned store"| Stores["Two committed stores"]
+  WB -->|"authorize owned store"| Stores["Four-entry committed store buffer"]
   Stores -->|"scheduled byte write"| Arrays
-  Core["S2 authorized request<br/>Decoupled"] --> Queue["Two-entry request Queue<br/>structural acceptance"]
+  Core["S2 authorized request<br/>Decoupled"] --> Queue["Configurable request queue<br/>structural acceptance"]
   Core -->|"empty buffer + available SRAM"| Lookup
   Virtual["Early virtual index"] --> Lookup
   Queue --> Lookup["S3 lookup Pipe<br/>tag + state + XLEN word SRAMs"]

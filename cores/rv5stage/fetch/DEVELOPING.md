@@ -53,5 +53,5 @@ paths remain. Fetch and predictor behavior is covered by the `rv5stage-btb`,
 `rv5stage-ras`, `rv5stage-instruction-buffer`, `rv5stage-fetch-prediction`,
 `rv5stage-fetch-throughput`, `rv5stage-return-prediction`,
 `rv5stage-branch-prediction`, `rv5stage-fetch`, `rv5stage-core`, and
-`event-frontend` CIRCT fixtures. Use the persistent worktree-specific
-`PLTCOMPILEDROOTS` through the repository wrappers.
+`event-frontend` CIRCT fixtures. Run Racket and Rhombus checks through the
+repository wrappers so they use the managed worktree cache.

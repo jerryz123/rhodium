@@ -3,6 +3,13 @@
 
 # Spike-backed core
 
+The Spike-backed core provides a simulator-only RISC-V hart with the same
+architectural description and CHI-facing shape used by the hardware core.
+Contributors should read [DEVELOPING.md](DEVELOPING.md) for the DPI ABI,
+source ownership, and validation workflow.
+
+## Configuration and profiles
+
 [`profile.rhm`](profile.rhm) defines `SpikeConfig`, the implementation-owned
 configuration for the simulator-backed core. Its
 `hart_description` projection uses the same implementation-neutral
@@ -53,6 +60,8 @@ The pinned Spike's `WRS.NTO` is not an unconditional no-op: in S/U mode with
 `mstatus.TW` set, it raises an illegal-instruction trap. Its ACT/UDB projection
 describes that behavior rather than claiming a no-op implementation.
 
+## Core and memory boundary
+
 [`spike.rhdl`](spike.rhdl) exposes the same architectural inputs and independent
 instruction, coherent-data, and uncached CHI ports used by a RISC-V hart. The
 core contains a typed DPI boundary, RTL-owned PMA classification, and
@@ -78,6 +87,8 @@ marks the zeroed line dirty; a region without cache-block-zero permission traps.
 CBO.CLEAN, CBO.INVAL, and CBO.FLUSH check full-block physical access through a
 separate hook: either readable or writable access permits the operation, while
 a region permitting neither raises a store access fault.
+
+## SoC integration and limits
 
 [`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
 to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and

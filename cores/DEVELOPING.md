@@ -74,7 +74,7 @@ When adding a named core, create `cores/<name>/` and keep its decode, datapath,
 architectural state, adapters, documentation, and tests together. Give it a
 public README and companion DEVELOPING guide before adding system integration.
 
-## Focused validation
+## Packed SIMD implementation
 
 The packed integer unit in `simd-alu.rhdl` takes `XLen.X32` or `XLen.X64` and
 specializes to that architectural width. Guard
@@ -96,12 +96,15 @@ the public operation and widening contracts are in [README.md](README.md#packed-
 `SimdWidenOperands` independently sign- or zero-extends source halves, or
 passes an already destination-width left source alongside one extended source,
 without adding another ALU or coupling widening to instruction decode.
-`SimdCompress` performs only
-stable word-local element compaction and returns its selected-element count;
-cross-word suffixes and architectural progress belong to the caller. Keep RVV
-register layout and architectural policy outside these reusable components. Their direct fixture
-checks exhaustive byte operand pairs and directed/random wider elements,
-including rotation with dirty fill controls, zero counts, byte permutations,
+`SimdCompress` performs only stable word-local element compaction and returns
+its selected-element count; cross-word suffixes and architectural progress
+belong to the caller. Keep RVV register layout and architectural policy outside
+these reusable components.
+
+## Focused validation
+
+The direct SIMD fixture checks exhaustive byte operand pairs and directed or
+random wider elements, including rotation with dirty fill controls, zero counts, byte permutations,
 both widening halves, compaction masks, and enable remapping against independent
 per-element models:
 

@@ -12,6 +12,28 @@ complete processor pipeline or a named core's extension mix.
 Named cores import these mappings and compose them with their own complete
 decode relation.
 
+For source ownership and extension rules, see [DEVELOPING.md](DEVELOPING.md).
+
+## Decode mappings
+
+The [ALU](alu-decode.rhdl), [branch](branch-decode.rhdl),
+[multiply](multiply-decode.rhdl), and [divide](divide-decode.rhdl) modules map
+selected RV32/RV64 instruction catalogs to the already-decoded controls of
+their reusable `cores/` components. Named cores may compose those case lists
+into a wider decode relation; the mappings do not select a complete ISA profile
+or pipeline policy.
+
+## CHI hart attachment
+
+[`RiscvHartCHIConfig`](chi-hart.rhdl) derives the physical-memory and CHI Home
+maps from one nonempty region list. `RiscvHartCHIParams` validates distinct
+requester and Home NodeIDs; `RiscvHartCHIAttachment` describes the RN-I
+instruction/uncached and RN-F data endpoints for SoC composition. The hardware
+`RiscvHartCHIIdentity` carries placement-specific IDs into an instance. A
+named core still owns its transaction engines and supported capabilities.
+
+## Vector row layout
+
 [`VectorRegisterLayout(vlen, row_bits)`](vector-layout.rhm) maps architectural
 vector elements and mask bits into physical rows. Row width must divide VLEN;
 an element must fit within one row. The layout exposes `rows_per_register`,
