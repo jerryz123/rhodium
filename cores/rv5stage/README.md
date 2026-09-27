@@ -206,7 +206,10 @@ VRF save/restore; there is no separate guest register bank.
 
 This is **not a complete H or Sha conformance claim**. Guest pointer masking,
 Sstc, and the current feature set's state-enable controls are integrated;
-the exact requirements audit and broader end-to-end H/Sha qualification remain.
+the broader requirements audit and end-to-end H/Sha qualification remain.
+The [supervisor qualification ledger](HYPERVISOR_PLAN.md#supervisor-guarantees)
+maps Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl to implementation,
+directed execution tests, SoC memory-map constraints, and coverage limits.
 The RVA23 preset publishes matching ISA, MISA, device-tree, and UDB capabilities;
 this does not establish full RVA23 conformance. ACT uses that exact profile,
 without hiding missing tests or reference-model limitations.
@@ -1059,8 +1062,8 @@ implemented. MXR relaxes
 explicit loads, never the implicit VS page-table reads checked by G-stage
 translation. PBMTE changes serialize architectural state and invalidate
 translations; page-table A/D updates remain software-managed through Svade.
-This base-version claim is not a claim of complete RVA23 compliance or of
-optional extensions such as Sscofpmf.
+This base-version claim alone does not establish complete RVA23 compliance;
+Sscofpmf is selected and qualified separately below.
 
 RV32 `medelegh` reads zero and ignores writes: all implemented delegation
 causes are below 32, and high-half writes preserve the low half. This CSR is

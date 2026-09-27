@@ -1,4 +1,4 @@
-// Checks integrated HPM event accounting, permissions, overflow, and interrupt delivery.
+// Checks HPM accounting, writable S/H counter enables, permissions, overflow, and interrupts.
 // SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed {
@@ -178,9 +178,23 @@
     // OF does not directly drive pending, and scountovf is read only.
     rd('h344, 0);
     illegal_access('hda0, 1, 1);
+    // Sscounterenw/Shcounterenw: independently writable enables, including
+    // counter 3 with real nonzero storage. Zero slots need no writable enable.
+    for (int index = 0; index < 32; ++index) begin
+      wr('h106, word_t'(1) << index);
+      rd('h106, index < 4 ? word_t'(1) << index : 0);
+      wr('h106, 0); rd('h106, 0);
+      if (HYPERVISOR) begin
+        wr('h606, word_t'(1) << index);
+        rd('h606, index < 4 ? word_t'(1) << index : 0);
+        wr('h606, 0); rd('h606, 0);
+      end
+    end
     wr('h306, '1); rd('h306, 15);
     wr('h106, '1); rd('h106, 15);
     enter_mode(1);
+    wr('h106, 0); rd('h106, 0);
+    wr('h106, 8); rd('h106, 8);
     rd('hda0, 8); rd('hc03, word_t'(64'h123456789abcdef0));
     illegal_access('hc04);
     wr('h306, 0);

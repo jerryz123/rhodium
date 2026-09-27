@@ -1,5 +1,5 @@
 #lang rhombus
-// Audits Ziccif/Ziccamoa/Ziccrse PMA prerequisites and complete coherent-memory coverage in concrete SoCs.
+// Audits Ssccptr/Ziccif/Ziccamoa/Ziccrse PMAs and complete coherent-memory coverage in concrete SoCs.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -37,6 +37,9 @@ for ([config, description] in systems):
       attributes.atomic ~is #true
       attributes.read_idempotent ~is #true
       attributes.device ~is #false
+      // Ssccptr: every naturally aligned eight-byte Sv39 PTE stays in the
+      // same readable, idempotent coherent region, including sparse banks.
+      region.physical.address_set.mask bits.and 7 ~is 7
       // All bytes of every line must select the same coherent Home.
       region.physical.address_set.mask bits.and 63 ~is 63
       contained ~is #true

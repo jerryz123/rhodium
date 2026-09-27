@@ -1,4 +1,4 @@
-// Verifies RV5Stage integer/FP CSR state, retirement qualification, traps, and privilege returns.
+// Verifies RV5Stage CSR state, supervisor guarantees, retirement, traps, and privilege returns.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_csr_tb;
   logic [1:0] cbo_operation = 0;
@@ -372,6 +372,29 @@ module rv5stage_csr_tb;
 
   initial begin
     reset_dut();
+
+    // Sstvecd: no hidden alignment or truncation of the Direct base. Exercise
+    // every Bare address bit and both halves of the canonical Sv39 space;
+    // check the actual trap redirect, not only CSR readback.
+    for (int index = 2; index < 64; index++) begin
+      automatic logic [63:0] target = 64'd1 << index;
+      csr_access(CSR_WRITE, CSR_MEDELEG, 64'd1 << 9, 0);
+      enter_supervisor(0);
+      csr_access(CSR_WRITE, CSR_STVEC, target, 0);
+      csr_access(CSR_SET, CSR_STVEC, 0, target);
+      csr_access(CSR_SET, CSR_SSTATUS, 0, RV64_SSTATUS_FIXED);
+      system_action(SYSTEM_ECALL, 64'h40, target);
+      csr_access(CSR_SET, CSR_SEPC, 0, 64'h40);
+      reset_dut();
+    end
+    for (int index = 2; index < 38; index++) begin
+      automatic logic [63:0] target = 64'hffffffc000000000 | (64'd1 << index);
+      csr_access(CSR_WRITE, CSR_MEDELEG, 64'd1 << 9, 0);
+      csr_access(CSR_WRITE, CSR_STVEC, target, 0);
+      enter_supervisor(0);
+      system_action(SYSTEM_ECALL, 64'h44, target);
+      reset_dut();
+    end
 
     // Privileged 1.13: MXL is read-only, and fixed RV64 SXL/UXL cannot
     // admit UXLEN > SXLEN, including through the supervisor alias.

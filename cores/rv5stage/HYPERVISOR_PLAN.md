@@ -1,4 +1,4 @@
-<!-- Tracks the staged native H implementation and later Sha qualification for RV5Stage. -->
+<!-- Tracks RV5Stage H/Sha implementation and supervisor qualification evidence and limits. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Native hypervisor implementation plan
@@ -127,7 +127,8 @@ from denied stores. No H/Sha advertisement or virtual interrupt work here.
    trap/return, and memory drain.
    Guest FP/vector status, shared execution, and vector authorization are integrated.
    FIOM/CMO and PBMT guest environment controls are integrated. Remaining:
-   other environment controls and full qualification; guest pointer masking is integrated.
+   an audit of all applicable environment-control requirements and full
+   qualification; guest pointer masking is integrated.
    Validate HS-qualified virtual-instruction versus illegal-instruction rules.
 6. **Sha qualification.** Audit the eight constituents below. Sstc and Svinval
    are separate RVA23S64 requirements, not constituents of Sha.
@@ -146,8 +147,8 @@ certificate. Profile enablement and ACT limitations are tracked below.
 | Constituent | Requirement | Implementation and focused evidence |
 |---|---|---|
 | H | Guest privilege, translation, traps, CSRs, and instructions | `csr.rhdl`, `mmu/`, and the integrated core path; `rv5stage-hypervisor-csr`, `rv5stage-nested-walker`, `rv5stage-guest-translation`, and `rv5stage-hypervisor-core`. Full architectural qualification remains open. |
-| Ssstateen | Supervisor and hypervisor state-enable views | Optional `smstateen` specialization in `csr.rhdl`; CSR hierarchy and paged guest access regressions. Must be selected for any future Sha profile. |
-| Shcounterenw | Writable enables for nonzero HPM counters | Base enable bits are writable; HPM3–31 and their enables are hardwired zero. The CSR bench checks writable enables and zero-counter writes/readback. |
+| Ssstateen | Supervisor and hypervisor state-enable views | `smstateen` specialization in `csr.rhdl`, selected by the RVA23 preset; CSR hierarchy and paged guest access regressions. |
+| Shcounterenw | Writable enables for nonzero HPM counters | With Sscofpmf, counter 3 is real 64-bit storage and `hcounteren[3]` is writable; counters 4–31 and their enables remain zero. `rv5stage-sscofpmf-rv64h` walks each enable bit, checks guest access denial/permission, and exercises overflow. The no-Sscofpmf `rv5stage-hypervisor-csr` specialization separately checks zero HPM counters. |
 | Shvstvala | Required address/instruction trap values | VS delegation preserves captured trap values; CSR exception sweep and integrated illegal/compressed/straddled fetch cases. |
 | Shtvala | Required faulting guest-physical address | MMU provenance distinguishes explicit accesses from implicit VS PTE reads; core tests check `htval=GPA>>2`, including second-half fetch faults. |
 | Shvstvecd | Any valid four-byte-aligned direct vector | Full-width VSTVEC base with mode zero; CSR bench writes each Sv39 address bit and actually takes a delegated trap. |
@@ -168,6 +169,37 @@ Twelve data cases route load/store page faults, access faults, and misalignment
 to HS or VS and verify precise values, PCs, and absence of store effects.
 CSR-only trap injection checks state capture; it does not replace these
 execution-level checks.
+
+### Supervisor guarantees
+
+The following ledger covers RV5Stage's directed qualification, not a blanket
+RVA23 or Spike conformance claim. These are behavioral guarantees, not new
+datapaths or optional CSR switches. Ss1p13 remains represented by the S/Sm
+1.13 versions in the UDB projection. This qualification does not change ISA
+strings or add a full-profile advertisement.
+
+| Guarantee | Implementation and executable evidence |
+|---|---|
+| Ssccptr | `mmu/mmu.rhdl` issues aligned eight-byte physical PTE loads through `data-port-arbiter.rhdl` and the ordinary `memory-router.rhdl` cache path. `rv5stage-memory-router` sweeps every doubleword offset of a coherent RAM region with walker ownership and checks response ownership. `run_supervisor` in `rv5stage-hypervisor-core` executes translations with roots in six readable physical regions, including non-executable RAM, and checks the actual root request. `socs/tests/main-memory-test.rhm` proves readable/idempotent HN-F coverage of all described Mini/Single/Tiled RAM, including sparse banks and complete PTE granules. `rv5stage-lrsc-core-progress` additionally exercises paged execution through production private caches and a coherent Home. |
+| Sstvecd | `csr.rhdl` retains the complete XLEN-wide `stvec` base with only the low two bits cleared. `rv5stage-csr` writes each Bare address bit and canonical upper Sv39 bases, reads back bases and checks actual delegated trap redirects. The integrated host cases execute the handler and record its trap CSRs. |
+| Sstvala | `run_supervisor` executes host load/store page, access and alignment faults, instruction page/access faults, and illegal 16/32-bit instructions; it checks `scause`, exact `stval`, `sepc`, and younger-store suppression. Existing Sha cases cover page-straddled fetch values, guest/virtual instructions and HS/VS delegation. C makes instruction-address-misaligned exceptions unreachable in the RVA23 specialization; no hardware breakpoint trigger is implemented. Software EBREAK/C.EBREAK are exempt from the breakpoint-address requirement. CSR injection alone is not execution-level evidence. |
+| Sscounterenw | `csr.rhdl` derives the writable mask from implemented base counters and optional HPM3. `rv5stage-sscofpmf-rv32`, `-rv64`, and `-rv64h` walk all enable bits, write/read `scounteren` in S mode, and verify denial versus successful U reads of a nonzero HPM3. The zero-counter specializations remain covered by `rv5stage-zihpm-*`. |
+| Ssu64xl | `rv5stage-csr` sweeps all SXL/UXL write encodings and checks fixed RV64 readback through both `mstatus` and `sstatus`. The integrated host test enters paged U mode, executes a shift by 40 and LD/SD preserving upper bits, then checks a delegated U ECALL (cause 8), proving execution in U rather than merely CSR readback. |
+
+Run the focused gate from the repository root:
+
+```sh
+tools/run-racket-tests.sh socs/tests/main-memory-test.rhm
+FIXTURES='rv5stage-csr rv5stage-sscofpmf-rv32 rv5stage-sscofpmf-rv64 rv5stage-sscofpmf-rv64h rv5stage-hypervisor-csr rv5stage-hypervisor-core rv5stage-memory-router rv5stage-lrsc-core-progress' bash tools/testing/circt/run.sh --simulate-only
+```
+
+The directed address sweeps are not an exhaustive simulation of every RAM
+byte or every virtual address. Complete region coverage comes from the host
+map audit plus the common PTE load path; the component fixture deliberately
+uses a delayed physical-memory model and is not a full-SoC coherence test.
+H/Sha's broader requirements audit and system qualification remain open.
+ACT generation is not runtime evidence, and Sail's lack of HPM event increments
+and overflow generation requires the directed Sscofpmf tests even with ACT.
 
 ### RVA23 enablement and ACT
 

@@ -1,4 +1,4 @@
-// Runs paged guests with precise privileged faults, invalidation, and WB-owned effects.
+// Qualifies host/guest translation, supervisor trap values, RV64 user execution, and WB effects.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_hypervisor_core_tb;
   logic clock = 0, reset = 1;
@@ -29,6 +29,8 @@ module rv5stage_hypervisor_core_tb;
   int expected_type, expected_pte_type, pbmt_data_reads;
   logic [63:0] pbmt_code, pbmt_data;
   bit pending;
+  int supervisor_root_address = 0;
+  bit supervisor_root_seen;
   logic [63:0] reply;
   int cursor, literal_cursor;
   logic [63:0] expected_pc;
@@ -118,6 +120,7 @@ module rv5stage_hypervisor_core_tb;
       interrupts <= 0;
       time_counter <= 100;
       stores = 0; walks = 0; flushes = 0; traps = 0;
+      supervisor_root_seen = 0;
       cmo_count = 0; last_cmo = 0; cmo_completed = 0;
     end else begin
       cycle <= cycle + 1;
@@ -143,7 +146,12 @@ module rv5stage_hypervisor_core_tb;
         end
         assert (!pending) else $fatal(1, "overlapping physical transaction");
         assert (memory_address < 196608) else $fatal(1, "untranslated request %h", memory_address);
-        if (memory_walker) walks++;
+        if (memory_walker) begin
+          walks++;
+          assert (!memory_write && memory_address[2:0] == 0 && memory_mask == 8'hff)
+            else $fatal(1, "PTE access is not an aligned doubleword read");
+        end
+        if (memory_walker && memory_address == 64'(supervisor_root_address)) supervisor_root_seen = 1;
         if (memory_operation >= 6) begin
           cmo_count++; last_cmo = int'(memory_operation);
           assert ((memory_address & ~64'd63) == 'h19000 && read64('h19080) == 'h66)
@@ -1067,6 +1075,79 @@ module rv5stage_hypervisor_core_tb;
       else $fatal(1,"faulting/younger store escaped kind=%0d",kind);
   endtask
 
+  // Sstvala/Ssu64xl and the MMU side of Ssccptr. Real instructions generate
+  // faults through host translation, not injected CSR exception payloads.
+  // Move the root across readable PMA regions, including non-executable RAM.
+  // The SoC main-memory audit separately proves complete coherent RAM coverage.
+  task automatic run_supervisor(input int kind, input int root = 'h8000,
+                                input logic [63:0] virtual_base = GVA);
+    logic [63:0] cause, value, pc;
+    bit user_mode;
+    @(negedge clock); prepare(0); reset = 1;
+    supervisor_root_address = root+int'(virtual_base[38:30])*8;
+    user_mode = kind == 10;
+    machine_boot();
+    csrw('h305, 'h2000); csrw('h105, 'h3000); csrw('h302, 'hffffff);
+    csrw('h180, 64'h8000000000000000 | 64'(root >> 12));
+    csrw('h300, user_mode ? 0 : 'h800); csrw('h341, virtual_base);
+    constant(10, virtual_base+'h1000); constant(11, virtual_base+'h2000); emit(32'h30200073);
+    // Identity-map firmware/handler data; map S/U code and data separately.
+    write64(root, 'hcf);
+    write64(root+int'(virtual_base[38:30])*8, ('h9 << 10) | 1);
+    write64('h9000, ('ha << 10) | 1);
+    write64('ha000, ('h5 << 10) | (user_mode ? 'hdb : 'hcb));
+    write64('ha008, ('h19 << 10) | (user_mode ? 'hd7 : 'hc7));
+    write64('ha010, 0);
+    if (kind == 0) write64('ha008, 0);
+    if (kind == 1) write64('ha008, ('h19 << 10) | 'hc3);
+    if (kind inside {2,3}) scenario = 13; // Physical data response denial.
+    if (kind == 7) write64('ha010, ('h1a << 10) | 'hcb); // PMA denies fetch.
+    cursor = 'h5000; pc = virtual_base;
+    case (kind)
+      0, 2, 4: begin
+        cause = kind == 0 ? 13 : kind == 2 ? 5 : 4;
+        value = virtual_base+'h1000+(kind == 4 ? 1 : 0);
+        emit(ld(12, 10, kind == 4 ? 1 : 0));
+      end
+      1, 3, 5: begin
+        cause = kind == 1 ? 15 : kind == 3 ? 7 : 6;
+        value = virtual_base+'h1000+(kind == 5 ? 1 : 0);
+        emit(sd(0, 10, kind == 5 ? 1 : 0));
+      end
+      6, 7: begin
+        cause = kind == 6 ? 12 : 1; value = virtual_base+'h2000; pc = value;
+        emit(32'h00058067); // jalr x0,x11: jump to a faulting page.
+      end
+      8: begin
+        cause = 2; value = 'h8000;
+        ram[cursor] = 0; ram[cursor+1] = 'h80; cursor += 2;
+      end
+      9: begin cause = 2; value = 'hb; emit(32'h0000000b); end
+      10: begin
+        // RV64-only shift and LD/SD in U mode must preserve upper data bits.
+        emit(addi(12, 0, 1)); emit(32'h02861613); // slli x12,x12,40
+        emit(addi(12, 12, 'h123)); emit(sd(12, 10, 8));
+        emit(ld(13, 10, 8)); emit(sd(13, 10, 16));
+        cause = 8; value = 0; pc = virtual_base+24; emit(32'h00000073);
+      end
+      default: $fatal(1, "unknown supervisor qualification case");
+    endcase
+    emit(sd(0, 10, 32)); emit(32'h0000006f);
+    repeat (5) @(negedge clock); reset = 0;
+    for (int limit = 0; limit < 30000; limit++) begin
+      @(negedge clock); if (traps == 1) break;
+    end
+    assert (traps == 1 && read64(SIGNATURE) == cause &&
+            read64(SIGNATURE+8) == value && read64(SIGNATURE+40) == pc)
+      else $fatal(1, "supervisor kind=%0d root=%h cause=%h tval=%h pc=%h", kind, root,
+                  read64(SIGNATURE), read64(SIGNATURE+8), read64(SIGNATURE+40));
+    assert (walks >= 3 && supervisor_root_seen && !virtualized && read64('h19020) == 'hfeed)
+      else $fatal(1, "supervisor walk/precise squash kind=%0d root=%h", kind, root);
+    if (user_mode)
+      assert (read64('h19008) == 64'h10000000123 && read64('h19010) == 64'h10000000123)
+        else $fatal(1, "RV64 user arithmetic or LD/SD truncated");
+  endtask
+
   // Exercise the retained WB owner with a cache-supplied live reservation.
   // wake: 0 = timeout, 1 = early reservation loss, 2 = late loss, 3 = MTIP.
   task automatic run_wrs(input bit guest, input bit user_mode, input bit tw,
@@ -1143,6 +1224,16 @@ module rv5stage_hypervisor_core_tb;
 
   initial begin
     int selected;
+    for (int kind = 0; kind <= 10; kind++) begin
+      run_supervisor(kind);
+      run_supervisor(kind, 'h8000, 64'hffffffc000000000);
+    end
+    run_supervisor(10, 'h11000);
+    run_supervisor(10, 'h18000);
+    run_supervisor(10, 'h1a000);
+    run_supervisor(10, 'h1c000);
+    run_supervisor(10, 'h2f000);
+    $display("27 host supervisor/RV64 user/relocated page-table cases passed");
     for (int user_mode = 0; user_mode < 2; user_mode++) begin
       for (int controls = 0; controls < 4; controls++) begin
         run_wrs(1,1'(user_mode),controls[0],controls[1],0,controls == 0 ? 2 : 0);

@@ -1,4 +1,4 @@
-// Verifies AMO PMA admission/rejection, IO-MSHR admission, and data ordering.
+// Verifies PTE/AMO PMA routing, IO-MSHR admission, and data ordering.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_memory_router_tb;
@@ -121,6 +121,25 @@ module rv5stage_memory_router_tb;
 
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
     check_request(32'h00001000, STORE, 1'b1, 1'b0, 1'b0);
+    // Ssccptr admission: walker-origin doubleword reads use the ordinary
+    // coherent cache path at every aligned offset, without losing ownership.
+    // This fixture checks routing; the core/MMU fixture consumes actual PTEs.
+    core_in.request.bits.memory.origin = 1;
+    core_in.request.bits.memory.width = 3;
+    for (int address = 'h1000; address < 'h2000; address += 8) begin
+      check_request(32'(address), LOAD, 1, 0, 0);
+      assert (cache_out.request.bits.address == 32'(address) && cache_out.request.bits.origin)
+        else $fatal(1, "page-table read lost physical address or walker ownership");
+    end
+    cache_in.response.valid = 1;
+    cache_in.response.bits.origin = 1;
+    cache_in.response.bits.data = 32'h12345678;
+    #1;
+    assert (core_out.response.valid && core_out.response.bits.origin && core_out.response.bits.data == 32'h12345678)
+      else $fatal(1, "page-table response lost walker ownership");
+    cache_in.response = '0;
+    core_in.request.bits.memory.origin = 0;
+    core_in.request.bits.memory.width = 0;
     // Attribute overrides alter routing and ordering, never physical permission.
     for (int kind = 1; kind <= 2; kind++) begin
       core_in.request.bits.pbmt = 2'(kind);
