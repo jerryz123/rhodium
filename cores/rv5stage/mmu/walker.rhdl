@@ -76,8 +76,8 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def user = !virtual_stage ||| (operation.context.privilege === PrivilegeMode.User)
   def supervisor = virtual_stage & (operation.context.privilege === PrivilegeMode.Supervisor)
   def sum = virtual_stage & operation.context.vs_sum
-  def mxr = operation.context.hs_mxr ||| (virtual_stage & operation.context.vs_mxr)
-  // HLVX checks X for the explicit load, never for implicit VS PTE reads.
+  // MXR and HLVX relax explicit loads, never implicit VS page-table reads.
+  def mxr = !implicit_access & (operation.context.hs_mxr ||| (virtual_stage & operation.context.vs_mxr))
   def permission_fault = leaf & !sv39_permission_valid(pte, checked_access, user, supervisor, sum, mxr, operation.execute_read & !implicit_access)
   def page_size = sv39_page_size(pte, frame.level)
   def translated_address = sv39_physical_address(frame.address, sv39_base_ppn(pte.ppn, page_size), page_size)

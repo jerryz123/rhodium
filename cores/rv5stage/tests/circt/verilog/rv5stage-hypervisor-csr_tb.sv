@@ -639,6 +639,13 @@ module rv5stage_hypervisor_csr_tb;
   endtask
 
   initial begin
+    // The fixed MISA includes B and full V (and H), independently of FS/VS.
+    reset_dut();
+    csr(0, 'h301, 0, 64'h80000000003411ab);
+    csr(1, 'h301, 0);
+    csr(0, 'h301, 0, 64'h80000000003411ab);
+    csr(1, 'h301, ~64'd0);
+    csr(0, 'h301, 0, 64'h80000000003411ab);
     sha_csr_contracts();
     invalidation_permissions();
     state_enables();

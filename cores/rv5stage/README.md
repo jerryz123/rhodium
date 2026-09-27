@@ -1051,10 +1051,23 @@ core's integration rather than `RV5StageConfig`. When Ssnpm is selected, the
 UDB environment's active PMLEN is likewise an explicit input; it must be 0, 7,
 or 16 and is omitted when Ssnpm is absent.
 
-The projection declares `S` and `Sm` 1.12, matching the environment-configuration
-CSRs and trap-return behavior. `mconfigptr` reads as zero (no configuration
-structure), and RV32 `mstatush` and `menvcfgh` are fixed at zero with writes ignored. Sv39
-profiles also declare `Svade`: unset PTE A/D bits cause page faults instead of
+RV32 and RV64 project `S` and `Sm` 1.13 together, expressing the `Ss1p13`
+supervisor base-version requirement without adding an instruction-set switch.
+MXLEN, SXLEN, and UXLEN are fixed at the configured XLEN; `misa` is read-only
+and includes B and V exactly when the corresponding complete extensions are
+implemented. MXR relaxes
+explicit loads, never the implicit VS page-table reads checked by G-stage
+translation. PBMTE changes serialize architectural state and invalidate
+translations; page-table A/D updates remain software-managed through Svade.
+This base-version claim is not a claim of complete RVA23 compliance or of
+optional extensions such as Sscofpmf.
+
+RV32 `medelegh` reads zero and ignores writes: all implemented delegation
+causes are below 32, and high-half writes preserve the low half. This CSR is
+inaccessible on RV64 and from S/U modes. `mconfigptr` reads as zero (no
+configuration structure). RV32 `mstatush` is fixed zero; `menvcfgh` exposes
+STCE when Sstc is configured and otherwise reads zero. Sv39 profiles also
+declare `Svade`: unset PTE A/D bits cause page faults instead of
 hardware page-table updates. Reference models derive these behaviors from UDB.
 
 Generate the configuration for one checked-in SoC composition from the

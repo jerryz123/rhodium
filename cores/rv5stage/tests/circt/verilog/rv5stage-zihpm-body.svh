@@ -1,4 +1,4 @@
-// Sweeps zero-valued HPM, Bare-mode status CSRs, write intent, XLEN, and S/U permissions.
+// Sweeps zero-valued HPM, privileged-base CSRs, write intent, XLEN, and S/U permissions.
 // SPDX-License-Identifier: Apache-2.0
   typedef logic [XLEN-1:0] word_t;
   typedef struct packed {
@@ -28,9 +28,10 @@
   word_t writeback_value, mstatus, satp;
   logic [1:0] privilege;
   logic [2:0] frm;
-  logic fp_enabled, cbo_zero_enabled, translation_flush;
+  logic fp_enabled, translation_flush;
+  logic [1:0] cbo_zero_access;
   logic [1:0] cbo_operation = 0;
-  logic [2:0] cbo_permission;
+  logic [3:0] cbo_permission;
 
   RV5StageCsrFile dut (.pbmte(), .retired(), .vector_state(), .vector_enabled(), .vector_retire_in('0), .vector_saturate_in('0), .vector_fault_start_in('0), .vector_truncate_in('0), .pointer_masking(), .pointer_masking_changed(), .*);
   always #5 clock = ~clock;
@@ -138,6 +139,13 @@
     #1;
     reset = 0;
     assert (privilege == 3) else $fatal(1, "CSR reset privilege mismatch");
+    // Both base widths have fixed MXL and read-only architectural MISA bits.
+    for (int value = 0; value < 2; value++) begin
+      access_csr('h301, 1, value != 0 ? '1 : '0, 1, 0,
+                 XLEN == 32 ? word_t'('h40141103) : word_t'('h8000000000141103));
+      access_csr('h301, 2, 0, 0, 0,
+                 XLEN == 32 ? word_t'('h40141103) : word_t'('h8000000000141103));
+    end
     // A permanently Bare implementation hardwires SUM to zero, while MXR and
     // TVM remain writable status controls even though paging is unavailable.
     access_csr('h300, 1, word_t'('h1c0000), 1, 0, 0, 0);
@@ -148,9 +156,14 @@
     readonly_zero('hf15); // No configuration structure is provided.
     if (XLEN == 32) begin
       writable_zero('h310); // Little-endian, non-hypervisor mstatush.
+      access_csr('h302, 1, 4, 1); // Preserve the low delegation half.
+      writable_zero('h312); // No supported exception causes above 31.
+      access_csr('h302, 2, 0, 0, 0, 4);
+      access_csr('h302, 1, 0, 1, 0, 4);
       writable_zero('h31a); // No implemented high menvcfg fields.
     end else begin
       illegal_access('h310);
+      illegal_access('h312);
       illegal_access('h31a);
     end
     for (int index = 3; index <= 31; index++) begin
@@ -177,6 +190,8 @@
       if (XLEN == 32) begin
         enter_mode(2'(mode));
         illegal_access('h310);
+        enter_mode(2'(mode));
+        illegal_access('h312);
         enter_mode(2'(mode));
         illegal_access('h31a);
       end

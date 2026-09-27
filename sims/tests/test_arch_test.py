@@ -265,7 +265,7 @@ class ArchTestConfigTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("act_configure", RUNNER.with_name("configure.py"))
         configure = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(configure)
-        architectures = ((0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False))
+        architectures = ((0, "= 1.13.0", True), (0, "= 1.12.0", True), (7, "1.12", False), (16, "1.11", False))
         cache_blocks = ((None, None), ("Zicboz", 32), ("Zicboz", 64), ("Zicbom", 128), ("Zicbop", 16),
                         ("Zic64b", 64), ("Zic64b", 32), ("Zic64b", 128),
                         ("Zicboz", 0), ("Zicboz", -64), ("Zicboz", 48), ("Zicboz", True))
@@ -298,7 +298,7 @@ class ArchTestConfigTest(unittest.TestCase):
                                  block_size.bit_length() - 1 if cache_extension else 9)
                 self.assertEqual(config["memory"]["asidlen"], width)
                 self.assertEqual(config["base"]["privileged_isa_version"],
-                                 "Privileged_ISA_1_11" if version == "1.11" else "Privileged_ISA_1_12")
+                                 "Privileged_ISA_1_" + version.removeprefix("= ").split(".")[1])
                 self.assertIs(config["extensions"]["Svade"]["supported"], svade)
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})

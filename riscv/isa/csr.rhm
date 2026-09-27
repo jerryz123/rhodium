@@ -40,6 +40,7 @@ enum CsrId
 | Menvcfgh
 | Misa
 | Medeleg
+| Medelegh
 | Mideleg
 | Mie
 | Mtvec
@@ -336,7 +337,7 @@ def CsrIds = [
   CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth,
   CsrId.Mstatus, CsrId.Misa, CsrId.Medeleg, CsrId.Mideleg,
   CsrId.Mie, CsrId.Mtvec, CsrId.Mcounteren, CsrId.Menvcfg,
-  CsrId.Mstatush, CsrId.Menvcfgh,
+  CsrId.Mstatush, CsrId.Medelegh, CsrId.Menvcfgh,
   CsrId.Mscratch, CsrId.Mepc, CsrId.Mcause, CsrId.Mtval, CsrId.Mip,
   CsrId.Mcycle, CsrId.Minstret, CsrId.Mcycleh, CsrId.Minstreth,
   CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid, CsrId.Mconfigptr
@@ -398,6 +399,7 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Menvcfgh: 0x31a
   | CsrId.Misa: 0x301
   | CsrId.Medeleg: 0x302
+  | CsrId.Medelegh: 0x312
   | CsrId.Mideleg: 0x303
   | CsrId.Mie: 0x304
   | CsrId.Mtvec: 0x305

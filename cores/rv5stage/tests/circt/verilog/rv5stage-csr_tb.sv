@@ -373,6 +373,19 @@ module rv5stage_csr_tb;
   initial begin
     reset_dut();
 
+    // Privileged 1.13: MXL is read-only, and fixed RV64 SXL/UXL cannot
+    // admit UXLEN > SXLEN, including through the supervisor alias.
+    csr_access(CSR_WRITE, CSR_MISA, 64'd0, RV64_MISA_DC);
+    csr_access(CSR_WRITE, CSR_MISA, ~64'd0, RV64_MISA_DC);
+    csr_access(CSR_SET, CSR_MISA, 64'd0, RV64_MISA_DC);
+    for (int widths = 0; widths < 16; widths++) begin
+      csr_access(CSR_WRITE, CSR_MSTATUS, 64'(widths) << 32, RV64_MSTATUS_FIXED);
+      csr_access(CSR_SET, CSR_MSTATUS, 64'd0, RV64_MSTATUS_FIXED);
+      csr_access(CSR_WRITE, CSR_SSTATUS, 64'(widths & 3) << 32, RV64_SSTATUS_FIXED);
+      csr_access(CSR_SET, CSR_SSTATUS, 64'd0, RV64_SSTATUS_FIXED);
+    end
+    reset_dut();
+
     // WARL fields follow the configured privilege profile: UIE is absent,
     // reserved MPP=2 is legalized, and C makes instruction misalignment
     // impossible while the standard software-check causes remain delegatable.

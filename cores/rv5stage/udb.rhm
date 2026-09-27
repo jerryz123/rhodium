@@ -129,8 +129,8 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
     extension("Zimop", "1.0.0"),
     extension("Zkt", ZktVersion),
     extension("U", "1.0.0"),
-    extension("S", "1.12.0"),
-    extension("Sm", "1.12.0"),
+    extension("S", "1.13.0"),
+    extension("Sm", "1.13.0"),
     extension("Svbare", "1.0.0")
   ]
   when profile.mmu_mode == RV5StageMmuMode.Sv39

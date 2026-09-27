@@ -141,6 +141,17 @@ module rv5stage_nested_walker_tb;
     reply('h4000, entry(0, GR)); reply('h1000, entry(0, VR));
     reply('h4000, 0); finish(GUEST, 'h1234, LOAD, 0, 'h1234);
 
+    // MXR relaxes explicit loads only, never an implicit VS page-table read.
+    // Preserve the original access cause and PTE GPA for every MXR setting.
+    for (int mxr_bits = 0; mxr_bits < 4; mxr_bits++) begin
+      for (int kind = 0; kind < 3; kind++) begin
+        defaults(); vs_mode = 1; g_mode = 1;
+        hs_mxr = mxr_bits[0]; vs_mxr = mxr_bits[1];
+        launch('h1234, kind[1:0]);
+        reply('h4000, entry(0, GX)); finish(GUEST, 'h1234, kind[1:0], 0, 'h1000, 1);
+      end
+    end
+
     // G requires U even for VS PTE reads. VS MXR cannot relax G permissions.
     defaults(); vs_mode = 1; g_mode = 1; launch('h1234, LOAD);
     reply('h4000, entry(0, VR)); finish(GUEST, 'h1234, LOAD, 0, 'h1000, 1);

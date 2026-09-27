@@ -497,6 +497,9 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     read CsrId.Mconfigptr: zero
     // RV32 status high fields are fixed zero without hypervisor or big-endian support.
     read CsrId.Mstatush: zero
+    // All implemented delegation causes are below 32; the RV32 upper half
+    // is accessible, reads zero, and ignores writes without changing medeleg.
+    read CsrId.Medelegh: zero
     csr CsrId.Menvcfgh:
       read: csr_field_value(EnvcfghSTCE, machine_timer_enabled.as_bits(), width)
       write value:
@@ -653,7 +656,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
   def fp_access_enabled = Bool(floating_point_supports_f(profile)) & fp_csrs.status.or_reduce() & (!virtualized ||| guest_fp_status.or_reduce())
   assert(!fp_update.valid ||| fp_access_enabled, "rv5stage_fp_update_enabled")
-  def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Menvcfgh))
+  def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Medelegh), csr_bits(CsrId.Menvcfgh))
   def vector_csr = csr.is_one_of([CsrId.Vstart, CsrId.Vxrm, CsrId.Vxsat, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_bits))
   def vector_access_enabled = vector_csrs.status.or_reduce() & (!virtualized ||| guest_vector_status.or_reduce())
   def csr_recognized = (bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected) & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
