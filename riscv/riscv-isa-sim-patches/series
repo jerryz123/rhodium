@@ -11,3 +11,4 @@
 0009-route-cbo-zero-through-simif.patch
 0010-scope-amo-memory-access.patch
 0011-check-cbo-management-physical-access.patch
+0012-keep-mxr-writable-with-bare-supervisor.patch

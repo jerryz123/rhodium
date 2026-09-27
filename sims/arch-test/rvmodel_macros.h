@@ -9,6 +9,7 @@
   .pushsection .tohost,"aw",@progbits; \
   .balign 8; .global tohost; tohost: .dword 0; \
   .balign 8; .global fromhost; fromhost: .dword 0; \
+  .balign 64; rvmodel_console_request: .zero 64; \
   .popsection;
 
 #define STANDARD_SM_SUPPORTED
@@ -17,14 +18,32 @@
 #define RVMODEL_HALT_FAIL \
   la t0, tohost; li t1, 3; sw zero, 4(t0); sw t1, 0(t0); 1: j 1b;
 
-// Failure handlers send their first mismatch and trap context through HTIF's
-// terminal device. Wait for each character to be consumed before reusing tohost.
+// FESVR's syscall request is eight 64-bit words. RV32 publishes its aligned
+// address with one atomic store, avoiding split 64-bit console commands.
+#if __riscv_xlen == 64
+#define RVMODEL_HTIF_STORE64(_VALUE, _BASE, _LOW, _HIGH) sd _VALUE, _LOW(_BASE);
+#define RVMODEL_HTIF_PUBLISH(_VALUE, _BASE) sd _VALUE, 0(_BASE);
+#else
+#define RVMODEL_HTIF_STORE64(_VALUE, _BASE, _LOW, _HIGH) \
+  sw _VALUE, _LOW(_BASE); sw zero, _HIGH(_BASE);
+#define RVMODEL_HTIF_PUBLISH(_VALUE, _BASE) sw _VALUE, 0(_BASE);
+#endif
 #define RVMODEL_IO_INIT(_R1, _R2, _R3)
 #define RVMODEL_IO_WRITE_STR(_R1, _R2, _R3, _STR_PTR) \
-  1: lbu _R1, 0(_STR_PTR); beqz _R1, 3f; \
-  la _R2, tohost; sw _R1, 0(_R2); li _R3, 0x01010000; sw _R3, 4(_R2); \
-  2: lw _R3, 4(_R2); bnez _R3, 2b; \
-  addi _STR_PTR, _STR_PTR, 1; j 1b; 3:
+  mv _R3, _STR_PTR; \
+  1: lbu _R1, 0(_R3); beqz _R1, 2f; addi _R3, _R3, 1; j 1b; \
+  2: sub _R3, _R3, _STR_PTR; beqz _R3, 4f; \
+  la _R1, rvmodel_console_request; \
+  li _R2, 64; RVMODEL_HTIF_STORE64(_R2, _R1, 0, 4) \
+  li _R2, 1; RVMODEL_HTIF_STORE64(_R2, _R1, 8, 12) \
+  RVMODEL_HTIF_STORE64(_STR_PTR, _R1, 16, 20) \
+  RVMODEL_HTIF_STORE64(_R3, _R1, 24, 28) \
+  fence rw, rw; \
+  la _R2, tohost; RVMODEL_HTIF_PUBLISH(_R1, _R2) \
+  la _R2, fromhost; \
+  3: lw _R1, 0(_R2); beqz _R1, 3b; sw zero, 0(_R2); \
+  fence rw, rw; \
+  4:
 
 // SingleCoreRV5StageSoC's ACLINT exposes hart 0's timer compare and the shared time counter.
 // Its architectural timebase advances every clock cycle.

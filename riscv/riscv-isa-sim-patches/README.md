@@ -37,6 +37,10 @@ The queue is ordered so each change can be reviewed and removed independently:
    perform CBO.ZERO without exposing a direct host-memory pointer.
 10. `0010-scope-amo-memory-access.patch` gives embedded coherent caches the full
     physical AMO operand and an exception-safe scope around Spike's load/store.
+11. `0011-check-cbo-management-physical-access.patch` checks full-block CBO
+    management permissions independently of LR/SC reservation support.
+12. `0012-keep-mxr-writable-with-bare-supervisor.patch` retains MXR CSR
+    readback with S-mode even when paging is unavailable, while SUM stays zero.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

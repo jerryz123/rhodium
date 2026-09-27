@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Keep MXR writable with Bare supervisor mode
+Purpose: Separates architectural MXR writability from whether paging is active.
+SPDX-License-Identifier: Apache-2.0
+
+MXR has no effect on memory permission checks in Bare mode, but its CSR field
+remains writable when S-mode is present. SUM, unlike MXR, is read-only zero
+when satp.MODE is read-only Bare. Preserve that distinction in Spike's status
+write mask so the embedded Bare-mode hart reports its actual CSR state.
+
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -589,6 +589,6 @@ reg_t base_status_csr_t::compute_sstatus_write_mask() const noexcept {
+   const bool has_vs = proc->any_vector_extensions();
+   return 0
+-    | (proc->extension_enabled('S') ? (SSTATUS_SIE | SSTATUS_SPIE | SSTATUS_SPP) : 0)
+-    | (has_page || proc->extension_enabled_const(EXT_SSPMP)? (SSTATUS_SUM | SSTATUS_MXR) : 0)
++    | (proc->extension_enabled('S') ? (SSTATUS_SIE | SSTATUS_SPIE | SSTATUS_SPP | SSTATUS_MXR) : 0)
++    | (has_page || proc->extension_enabled_const(EXT_SSPMP) ? SSTATUS_SUM : 0)
+     | (has_fs ? SSTATUS_FS : 0)
+     | (proc->any_custom_extensions() ? SSTATUS_XS : 0)

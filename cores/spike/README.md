@@ -36,6 +36,9 @@ The SoC profiles explicitly disable PMP. RV32Int and RV32Max use Bare mode,
 RV32Max adds F and Zve32f, without D or half precision.
 Their ACT configurations use unmodified Sail and UDB.
 Standalone `SpikeConfig` configurations can still enable PMP.
+The patched Spike model retains writable `mstatus.MXR` and `sstatus.MXR`
+with S-mode in Bare configurations; the bit has no permission effect without
+paging. `SUM` remains read-only zero when translation is unavailable.
 
 The SoC specialization enables Zihpm with 29 read-only-zero HPM counters
 and event selectors. Their `mcounteren`, `scounteren`, and `mcountinhibit` bits

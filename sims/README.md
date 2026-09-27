@@ -751,9 +751,11 @@ failures in newly selected suites are surfaced normally, not silently excluded;
 they need diagnosis before claiming coverage.
 
 The runner translates confirmed HTIF completion into ACT's `RVCP-SUMMARY`
-protocol. ACT failure handlers send their first mismatch and trap context
-through HTIF's terminal device before reporting failed completion; the per-ELF
-log retains those diagnostics.
+protocol. ACT sends diagnostic strings through FESVR's buffered HTIF `write`
+syscall, using one mailbox command per string. On RV32, a single aligned pointer
+store publishes the request atomically, unlike a split 64-bit console command.
+The target waits for `fromhost` acknowledgment before reporting pass or fail;
+the per-ELF log retains the first mismatch and trap context.
 `ACT_MAX_CYCLES` defaults to ten million cycles; `ACT_TIMEOUT` defaults to 300
 seconds per ELF. `ACT_JOBS` defaults to one simulator at a time;
 `ACT_BUILD_JOBS` defaults to two compilation/reference tasks at a time. The shared
