@@ -3,11 +3,29 @@
 
 # Developing CHI transaction mechanisms
 
-Read [README.md](README.md) and the parent
-[CHI developer guide](../DEVELOPING.md) before changing this area.
-The parent owns package-wide boundaries; this guide owns component extension and validation.
+Read the [transactions README](README.md) for the public contract and the
+[parent guide](../DEVELOPING.md) for package-wide boundaries. This guide owns
+checker, retry, and requester-engine maintenance.
 
-These modules contain both checking and execution mechanisms; they are not all monitors. Preserve each transaction lifetime and keep endpoint-specific policy with its caller.
+## Architecture and ownership
+
+These modules contain checking and execution mechanisms; they are not all
+monitors. Preserve each transaction lifetime and keep endpoint-specific
+policy with its caller. Directory boundaries add no RTL hierarchy or facade.
+
+## Implementation map
+
+| Files | Responsibility |
+|---|---|
+| [`monitor.rhdl`](monitor.rhdl), [`data-checks.rhdl`](data-checks.rhdl) | Link/channel attachments and shared packet assertions |
+| [`transaction.rhdl`](transaction.rhdl), [`coherent-transaction.rhdl`](coherent-transaction.rhdl) | Bounded non-coherent and coherent transaction checkers |
+| [`retryable-transaction.rhdl`](retryable-transaction.rhdl) | Response profiles and Protocol Credit/retry association |
+| [`read-once.rhdl`](read-once.rhdl), [`read-stream.rhdl`](read-stream.rhdl) | Snapshot line reads and ordered streaming reads |
+| [`cache-maintenance.rhdl`](cache-maintenance.rhdl) | Dataless maintenance requester |
+
+## Change workflow
+
+### Requester engines
 
 `read-once.rhdl` owns one complete RN-I snapshot-read lifetime: retry
 association, packet receipt, DBID consistency, `CompAck`, and retained
@@ -19,17 +37,9 @@ remain outside the engine.
 combined outstanding/reorder slot lifetime, restart handling for late CHI
 completions, consumer-deadline underflow, fixed TxnID-to-engine mapping, channel
 arbitration, and RSP/DAT routing. It composes `CHIReadOnce` rather than exposing
-an intermediate memory protocol. Validate changes with the `chi-read-stream`
-fixture.
+an intermediate memory protocol.
 
-Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
-benches in [`../tests/circt/`](../tests/circt/).
-For source moves, update direct consumers, package documentation, and build/CI
-paths together. Run `make check-boundaries` and the affected host and behavioral
-checks through the persistent isolated build cache. Directory boundaries do not add RTL
-hierarchy or per-directory facade modules.
-
-## Extension and focused validation
+### Monitor attachments and transaction checks
 
 Monitoring attachments in `chi/transactions/monitor.rhdl` separate credited transport checks,
 shared packet checks, and accepted-event transaction attachment. Both credited
@@ -51,15 +61,6 @@ coverage during packet-API cleanup. Internal non-coherent transaction tables
 use typed zero literals for their Free state, matching coherent tables;
 allocation and progression remain explicit record construction/updates.
 
-The `chi-transaction`, `chi-transaction-sn`, and `chi-coherent` fixtures
-mirror credited events through ready-valid attachments. The
-`chi-channel-monitor` fixture checks stalls, reset, and retirement from both
-requester and subordinate viewpoints; its negative cases check accepted
-duplicate TxnIDs, wrong identity, and early DAT. Host
-`chi/tests/channel-monitor-test.rhm` checks incompatible contracts, unsupported
-requested coverage, and explicit opt-out. Keep transport activation tests
-in `chi-monitor`.
-
 `data-checks.rhdl` owns shared unelided-DAT and full-copyback mask/state assertions. Callers pass concrete
 flits and retain event gating, assertion prefixes, and profile-specific DataID
 restrictions. It owns no receipt state or transaction lifetime.
@@ -67,13 +68,33 @@ restrictions. It owns no receipt state or transaction lifetime.
 The coherent checker observes accepted RX RSP events as well as REQ/DAT to
 associate copyback grants. Keep capability coverage limited to the delivered
 no-retry copyback lifetime; specialized retry engines remain separate.
-`chi-coherent` mirrors copyback through credited and ready-valid attachments.
-Both Home fixtures test complete and Invalid returns; negative cases cover
-early data, duplicate IDs, inconsistent state, malformed masks, and backing errors.
+
+### Retry response profiles
 
 Response effect decoding and milestone testing belong to `CHIResponseProfile`.
 Keep public free-function compatibility entry points delegating to the methods.
 Milestone names are nonempty; constructor checks retain declaration membership,
-uniqueness, reserved opcodes, and retry-only profiles. Run the response-profile
-host test, `chi-response-profile`, `chi-retryable-transaction`, `chi-cache-maintenance`, and RV5Stage
-D-cache fixture when changing this API or its consumers.
+uniqueness, reserved opcodes, and retry-only profiles.
+
+## Focused validation
+
+Keep host tests and authoring fixtures in [`../tests/`](../tests/), and
+behavioral benches in [`../tests/circt/`](../tests/circt/).
+
+- Monitor changes: `chi-transaction`, `chi-transaction-sn`, and `chi-coherent`
+  mirror credited events through ready-valid attachments. `chi-channel-monitor`
+  covers stalls, reset, retirement, duplicate TxnIDs, wrong identity, and early
+  DAT. The channel-monitor host test covers incompatible contracts, unsupported
+  requested coverage, and opt-out; keep transport activation in `chi-monitor`.
+- Copyback checking: `chi-coherent` plus both Home fixtures cover complete and
+  Invalid returns, early data, duplicate IDs, inconsistent state, masks, and
+  backing errors.
+- Requester engines: `chi-read-stream` for sequencing/restart/reorder policy;
+  `chi-read-once` for retry, packet receipt, and `CompAck`.
+- Response profiles: the response-profile host test,
+  `chi-response-profile`, `chi-retryable-transaction`,
+  `chi-cache-maintenance`, and RV5Stage D-cache fixture.
+
+For source moves, update direct consumers, docs, and build/CI paths together.
+Run `make check-boundaries` after module or dependency changes and use the
+repository wrappers for affected checks.

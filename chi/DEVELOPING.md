@@ -37,55 +37,27 @@ The facade remains available for convenient external use and compatibility
 coverage in `chi/tests/`; do not remove or rename its existing exports.
 Use the existing owners before introducing another aggregation layer.
 
-For import-only migrations, check that declarations and RTL bodies are unchanged
-apart from namespace qualification. Run affected host contracts, device/cache
-behavioral fixtures, and MiniRV5StageSoC/SingleCoreRV5StageSoC/TiledSoC smoke tests for consumers that
-span those compositions through the persistent compiled cache. Inspect transitive imports
-when claiming narrower loading; a selective name import still loads its module.
-
 ## Implementation map
 
 The six production directories express source ownership, not RTL hierarchy.
-`protocol/` owns shared wire and endpoint/service contracts; `transactions/`
-contains transaction models, checks, retry control, and maintenance.
-`home/` and `subordinate/` own their respective engines, `adapters/` owns
-transaction-preserving boundary transformations, and `noc/` owns CHI-specific
-network integration. Its pure authoring module remains independent of Rhodium.
-Keep the public facade and all host tests and authoring fixtures at the package
-root and in `tests/`, respectively. Do not duplicate facade modules in each
-directory. The boundary audit recursively enumerates production sources while
-excluding `tests/`; `bash chi/tests/check-boundaries.sh` covers nested imports,
-the pure bridge, and search/enumeration failure propagation.
+The child guides own file-level maps and local extension rules:
 
-| Area | Owning modules | Responsibility |
-|---|---|---|
-| Wire | [`protocol/params.rhdl`](protocol/params.rhdl), [`protocol/flits.rhdl`](protocol/flits.rhdl), [`protocol/protocol.rhdl`](protocol/protocol.rhdl), [`protocol/coherence.rhdl`](protocol/coherence.rhdl) | Physical configuration, packed payloads, packet helpers, and coherent state vocabulary |
-| Messages | [`protocol/messages.rhdl`](protocol/messages.rhdl) | Stateless requester write data, subordinate/Home responses, and metadata-preserving REQ/DAT transforms; no allocator or endpoint state |
-| Shared Home support | [`home/home-common.rhdl`](home/home-common.rhdl) | HN-F configuration, placement validation, runtime identity, request legality, and Home-specific message policy; no state machine |
-| Home completion acknowledgements | [`home/home-comp-ack.rhdl`](home/home-comp-ack.rhdl) | Bounded Home DBID reservation, final-DAT publication, and late `CompAck` retirement independent of the LLC datapath |
-| Inclusive victim writebacks | [`home/inclusive-victim-writeback.rhdl`](home/inclusive-victim-writeback.rhdl) | Bounded dirty-victim ownership, backing write sequencing, and completion/rollback data independent of replacement refill progress |
-| Home snoop targets | [`home/home-snoop-targets.rhdl`](home/home-snoop-targets.rhdl) | Pending-target mask, priority selection, accepted-target removal, and remembered responder NodeID; no response sequencing |
-| Single-beat devices | [`subordinate/single-beat-subordinate.rhdl`](subordinate/single-beat-subordinate.rhdl) | One-outstanding MMIO sequencing, saved request/read snapshot, common write association, and response backpressure |
-| Shared memory control | [`subordinate/memory-controller.rhdl`](subordinate/memory-controller.rhdl) | Memory configuration and identity, multibeat transaction sequencing, response arbitration, and request/data checks; no storage backend |
-| Endpoint and service | [`protocol/link.rhdl`](protocol/link.rhdl), [`protocol/channels.rhdl`](protocol/channels.rhdl), [`protocol/fabric.rhdl`](protocol/fabric.rhdl) | Credited links, ready-valid engine boundaries, capabilities, services, and address maps |
-| Checking and control | [`transactions/monitor.rhdl`](transactions/monitor.rhdl), [`transactions/transaction.rhdl`](transactions/transaction.rhdl), [`transactions/coherent-transaction.rhdl`](transactions/coherent-transaction.rhdl), [`transactions/retryable-transaction.rhdl`](transactions/retryable-transaction.rhdl), [`transactions/read-once.rhdl`](transactions/read-once.rhdl), [`transactions/read-stream.rhdl`](transactions/read-stream.rhdl) | Link assertions, bounded transaction checks, reusable retry association, complete-line RN-I reads, and ordered CHI streaming reads |
-| Homes and storage | [`subordinate/subordinate-slots.rhdl`](subordinate/subordinate-slots.rhdl), [`home/home.rhdl`](home/home.rhdl), [`home/coherent-home.rhdl`](home/coherent-home.rhdl), [`home/inclusive-home.rhdl`](home/inclusive-home.rhdl), [`subordinate/ram.rhdl`](subordinate/ram.rhdl), [`subordinate/dpi-memory.rhdl`](subordinate/dpi-memory.rhdl), [`adapters/transfer-fragmenter.rhdl`](adapters/transfer-fragmenter.rhdl), [`adapters/address-projector.rhdl`](adapters/address-projector.rhdl) | Transaction allocation, Home engines, backing memory, fragmentation, and address projection |
-| NoC | [`noc/noc-authoring.rhm`](noc/noc-authoring.rhm), [`noc/noc-adapter.rhdl`](noc/noc-adapter.rhdl), [`noc/noc-router.rhdl`](noc/noc-router.rhdl) | Logical connections, validated channel plans, adapters, and router-family composition |
-| Facade | [`main.rhdl`](main.rhdl) | Public exports for the supported package surface |
-| Cache maintenance | [`transactions/cache-maintenance.rhdl`](transactions/cache-maintenance.rhdl) | One dataless requester composed with retry control; cache arrays and downstream completion remain Home-owned |
-| Host coverage | [`tests/`](tests/) | Protocol models, parameters, routing plans, and invalid connections |
-| External-tool coverage | [`tests/circt/`](tests/circt/) | CIRCT fixtures and Verilator benches |
+| Directory | Responsibility |
+|---|---|
+| [`protocol/`](protocol/DEVELOPING.md) | Wire, endpoint, message, capability, and service contracts |
+| [`transactions/`](transactions/DEVELOPING.md) | Monitoring, transaction checks, retry control, and requester engines |
+| [`home/`](home/DEVELOPING.md) | Noncaching and inclusive Home engines and their shared policy |
+| [`subordinate/`](subordinate/DEVELOPING.md) | Device sequencing and memory controller/storage backends |
+| [`adapters/`](adapters/DEVELOPING.md) | Transaction-preserving fragmentation and address projection |
+| [`noc/`](noc/DEVELOPING.md) | Pure CHI-to-NoC compilation and CHI-specific RTL attachment |
+| [`main.rhdl`](main.rhdl) | Compatibility facade; no per-directory facades |
+| [`tests/`](tests/) | Host tests, invalid cases, CIRCT fixtures, and Verilator benches |
+
+The boundary audit recursively enumerates production sources while excluding
+`tests/`; `bash chi/tests/check-boundaries.sh` covers nested imports, the pure
+bridge, and search/enumeration failure propagation.
 
 ## Extend a protocol layer
-
-Component-specific mechanisms and validation live with their owners:
-
-- [subordinate](subordinate/DEVELOPING.md)
-- [noc](noc/DEVELOPING.md)
-- [transactions](transactions/DEVELOPING.md)
-- [protocol](protocol/DEVELOPING.md)
-- [adapters](adapters/DEVELOPING.md)
-- [home](home/DEVELOPING.md)
 
 1. Confirm the behavior's owner: physical field, packet helper, link contract,
    service/capability description, monitor, transaction engine, storage
@@ -107,6 +79,12 @@ Component-specific mechanisms and validation live with their owners:
    invalid connections. Test observable hardware behavior in a backend fixture;
    do not duplicate it with internal-shape assertions. Update
    [README.md](README.md) when the supported public profile changes.
+
+For import-only migrations, check that declarations and RTL bodies are unchanged
+apart from namespace qualification. Inspect transitive imports before claiming
+narrower loading: a selective name import still loads its module. Run affected
+host contracts, device/cache fixtures, and the Mini, Single, or Tiled SoC smoke
+tests when consumers span those compositions.
 
 ## Focused validation
 

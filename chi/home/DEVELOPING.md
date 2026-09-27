@@ -3,20 +3,30 @@
 
 # Developing CHI Home engines
 
-Read [README.md](README.md) and the parent
-[CHI developer guide](../DEVELOPING.md) before changing this area.
-The parent owns package-wide boundaries; this guide owns component extension and validation.
+Read the [Home README](README.md) for public behavior and the
+[parent guide](../DEVELOPING.md) for package-wide boundaries. This guide owns
+the implementation and focused checks for Home engines.
 
-Keep the Home engines independent. Shared configuration, message policy, and target bookkeeping do not justify merging their distinct state machines or storage ownership.
+## Architecture and ownership
 
-Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
-benches in [`../tests/circt/`](../tests/circt/).
-For source moves, update direct consumers, package documentation, and build/CI
-paths together. Run `make check-boundaries` and the affected host and behavioral
-checks through the persistent isolated build cache. Directory boundaries do not add RTL
-hierarchy or per-directory facade modules.
+Keep the Home engines independent. Shared configuration, message policy, and
+target bookkeeping do not justify merging their distinct state machines or
+storage ownership. Directory boundaries add no RTL hierarchy or facade.
 
-## Extension and focused validation
+## Implementation map
+
+| File | Responsibility |
+|---|---|
+| [`home-common.rhdl`](home-common.rhdl) | Shared HN-F configuration, identity, and policy wrappers |
+| [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl) | Pending target selection and accepted-target bookkeeping |
+| [`home-comp-ack.rhdl`](home-comp-ack.rhdl) | Bounded DBID reservation and delayed `CompAck` retirement |
+| [`home.rhdl`](home.rhdl), [`coherent-home.rhdl`](coherent-home.rhdl) | Non-coherent and noncaching coherent Home engines |
+| [`inclusive-home.rhdl`](inclusive-home.rhdl) | Inclusive LLC, directory, transaction slots, and shared array arbitration |
+| [`inclusive-victim-writeback.rhdl`](inclusive-victim-writeback.rhdl) | Independent dirty-victim backing writes and rollback data |
+
+## Change workflow
+
+### Shared policy and snoop targets
 
 Home REQ/DAT forwarding uses immutable field replacement to retain untouched
 metadata, including optional fields. `chi/home/home-common.rhdl` keeps the policy
@@ -44,10 +54,9 @@ target must advance only when the corresponding outgoing snoop transfers.
 Control and data responses clear only their encoded outstanding target, and a
 slot leaves snoop processing only after both target masks are empty. Keep
 receipt masks and completion decisions in the Home engines. Mask loading and
-dispatch are phase-exclusive in both callers. Run both Home fixtures and both
-maintenance fixtures when changing this bookkeeping; the shared maintenance
-bench checks target order, stalled dispatch stability, and reset before and
-after a dispatch.
+dispatch are phase-exclusive in both callers.
+
+### Inclusive LLC and transaction slots
 
 `CHIInclusiveHNF` owns `resident_lines` and `may_write_lines`, indexed by LLC
 set/way and configured RN-F order. Possible writers are a subset of possible
@@ -100,6 +109,8 @@ resident read or write lookups touch it; failed fills, maintenance, and
 copyback leave recency unchanged. Invalid-first selection remains owned by the
 shared standard-library policy.
 
+### Victim writeback and copyback
+
 `CHIInclusiveVictimWritebackBuffer` owns replacement write REQ/DBID/DAT/Comp
 state after the parent slot has resolved every victim snoop. Its entries use
 subordinate transaction IDs immediately above the demand-slot range, retain
@@ -123,27 +134,16 @@ its single transaction until its full-line backing write completes. Once
 `CompDBIDResp` transfers, it cannot report a second requester completion to
 recover from a backing error; such failures are fatal in this profile.
 
-Use `chi-read-once-home` for the focused `ReadOnce` allocation matrix: LLC-only
-hits, clean and dirty RN-F intervention, allocating fills, nonallocating bypass,
-backpressure, response errors, delayed `CompAck`, and streaming preservation of
-unrelated LLC lines. Pair it with `chi-read-once` for requester-side retry and
-Protocol Credit behavior and with `rv5stage-icache-coherence` for CPU-write and
-`FENCE.I` visibility through real L1 caches. Keep `chi-inclusive-home` as the
-broader residency, shared/unique grant, silent-eviction, partial-dirty-packet,
-and copyback regression. The maintenance bench establishes inclusive L1 copies
-through actual read grants, not test-only injection behind the directory. Run
-`chi-maintenance-inclusive`, the I-cache coherence fixtures, and cache-level
-LR/SC progress after changing target selection. Rerun SingleCoreRV5StageSoC vvadd with
-unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
-keep correctness and reduced traffic distinct from a cycle-count prediction.
+### Event ownership
 
 Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
 the admission checkpoint to requester RSP/DAT with the named `request` retained
 bank. Its capture predicates use `allocation_slot`; RSP selects `advance_slot`
 and DAT selects `response_data_slot`. Release predicates must qualify both the
 real finishing operation and its owning slot, allowing independent slots to
-finish together. Keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
-or final data. Do not release on the first data beat, DBID response, subordinate
+finish together. Keep ownership throughout the real FSM lifetime, releasing
+on copyback finish, terminal completion, or final data. Do not release on the
+first data beat, DBID response, subordinate
 response, or delayed acknowledgement; `CompAck` has no requester output and is
 owned by the separate DBID table after final DAT.
 Both requester output channels read the selected retained owner; Flow infers
@@ -151,20 +151,44 @@ network transit. `home/transaction[slot]` is the only Home-owned checkpoint in
 this slice, with one residency lane per slot. Do not add hit/miss at admission:
 lookup has not established it yet. `chi/tests/home-trace-fixture.rhdl` supplies
 test-only boundary checkpoints around the production two-slot configuration.
-Run `event-home` for exact per-cycle graph comparison against public transfers,
-including overlapping slots, hit/miss data, repeated IDs, backpressure, and pending reset, then
-the SingleCoreRV5StageSoC trace smoke for the composed router/queue paths.
-Read/write residency ends are checked against final public transfers. Copyback
-has no final public output, so its oracle checks full incoming packet receipt
-before release rather than predicting private array scheduling. The generic
-`event-retained-bank` fixture separately scores every capture/release cycle,
-concurrent readers/releases, same-edge replacement, and pending reset.
+Shared opcode classification stays in `chi/protocol/coherence.rhdl`; each Home
+retains its own SRAM, transaction, and dirty-data lifetime. Maintain error
+state until completion.
 
-For maintenance changes, run the `chi-cache-maintenance`,
-`chi-maintenance-home`, and `chi-maintenance-inclusive` backend fixtures. The
-last two share a behavioral bench with independent RN-F caches and backing
-RAM, rather than using coherent reads as evidence of memory visibility.
-Include `chi-coherent-home`, `chi-inclusive-home`, and `rv5stage-dcache` when
-changing the data-preserving versus discard snoop policy. Shared opcode
-classification stays in `chi/protocol/coherence.rhdl`; each Home retains its own SRAM,
-transaction, and dirty-data lifetime. Maintain error state until completion.
+## Focused validation
+
+Keep host tests and authoring fixtures in [`../tests/`](../tests/), and
+behavioral benches in [`../tests/circt/`](../tests/circt/). Select checks by
+the changed ownership boundary:
+
+- Snoop-target bookkeeping: both Home and maintenance fixtures; the shared
+  maintenance bench checks order, stalled dispatch stability, and reset on
+  either side of dispatch.
+- `ReadOnce`/LLC policy: `chi-read-once-home` for hits, interventions, fills,
+  bypass, stalls, errors, and delayed `CompAck`; pair with `chi-read-once` and
+  `rv5stage-icache-coherence` for requester retry and CPU-write/`FENCE.I`
+  visibility. Retain `chi-inclusive-home` for residency, grants, silent
+  eviction, dirty packets, and copyback.
+- Maintenance: `chi-cache-maintenance`, `chi-maintenance-home`, and
+  `chi-maintenance-inclusive`. The latter two use independent RN-F caches and
+  backing RAM, not coherent reads as a proxy for memory visibility. Include
+  `chi-coherent-home`, `chi-inclusive-home`, and `rv5stage-dcache` when changing
+  data-preserving versus discard snoop policy. For target selection also run
+  I-cache coherence and cache-level LR/SC progress; establish inclusive L1
+  copies through real read grants, not test-only directory injection.
+- Event ownership: `event-home` compares exact per-cycle graphs across slots,
+  repeated IDs, stalls, and reset; the SingleCoreRV5StageSoC trace smoke checks
+  composed router/queue paths. The oracle checks read/write release against
+  final public transfers and copyback against full incoming packet receipt.
+  `event-retained-bank` covers capture/release, replacement, and pending reset.
+
+Rerun SingleCoreRV5StageSoC vvadd with unchanged host polling after Home
+targeting changes; inspect `tohost` snoops and pipeline replay counts, keeping
+correctness distinct from a cycle-count prediction. The standalone instrumented
+two-slot Home fixture passes interleaved responses and out-of-order fills;
+complete SingleCoreRV5StageSoC D-cache return ancestry remains unvalidated.
+[Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
+has a queued-crossbar regression, and SingleCoreRV5StageSoC partial
+instrumentation, CIRCT IR verification, and SystemVerilog lowering pass.
+For source moves, update direct consumers, docs, and build/CI paths, then run
+`make check-boundaries` and affected checks through repository wrappers.

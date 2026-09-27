@@ -3,8 +3,27 @@
 
 # CHI transaction mechanisms
 
-Bounded transaction models and monitors, opt-in endpoint checking, retry
-control, and reusable requester engines.
+Use `chi/transactions/` for opt-in endpoint checking, bounded transaction
+models, retry association, and reusable requester engines. These mechanisms
+do not assign a service map or endpoint ID policy. Contributors should read
+[DEVELOPING.md](DEVELOPING.md).
+
+## Get started
+
+Import the defining module for the mechanism you need, or use the package-wide
+[`chi/main.rhdl`](../main.rhdl) facade. Choose a
+[physical or channel monitor](../README.md#monitoring-and-transaction-control)
+to check an endpoint, `CHIRetryableTransactionControl` for reusable retry
+association, [`CHIReadOnce`](read-once.rhdl) for a complete-line RN-I snapshot,
+or [`CHIReadStream`](read-stream.rhdl) for ordered streaming reads.
+
+## Public contract
+
+Monitors attach explicitly to an endpoint and check the profile it advertises;
+transaction checking is enabled unless the caller selects field/link-only
+checking. Retry control associates `RetryAck` and `PCrdGrant` but leaves
+payload storage and final completion policy with its caller. Read requesters
+retain caller-supplied IDs and routing rather than allocating them.
 
 ## Complete-line ReadOnce requester
 
@@ -22,9 +41,11 @@ Its RN-I endpoint must advertise `ReadOnce` and `CompAck`, accept
 `RetryAck`/`PCrdGrant` and `CompData`, and reserve the supplied transaction ID
 until completion transfers.
 
-Import the defining modules directly, or use the package-wide
-[`chi/main.rhdl`](../main.rhdl) facade. See the
-[CHI package guide](../README.md) for public APIs, supported profiles, and limits.
+## Limits and navigation
 
-Contributor ownership and validation are described in
-[DEVELOPING.md](DEVELOPING.md).
+The bounded checkers do not cover every Issue H transaction merely because
+its opcode exists. Unsupported advertised coverage fails attachment unless
+transaction checks are explicitly disabled; specialized engines still own
+their own lifetimes. See the
+[delivered transaction profiles](../README.md#delivered-profile-and-limits)
+and [Home engines](../home/README.md) for the matching execution boundary.

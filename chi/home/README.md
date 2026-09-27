@@ -3,17 +3,27 @@
 
 # CHI Home engines
 
-Non-coherent, coherent, and inclusive Home engines, shared Home policy, and snoop-target bookkeeping.
-
-Import the defining modules directly, or use the package-wide
-[`chi/main.rhdl`](../main.rhdl) facade. See the
-[CHI package guide](../README.md) for public APIs, supported profiles, and limits.
-
-Contributor ownership and validation are described in
+Choose a non-coherent, coherent, or inclusive Home for the requester-to-
+subordinate boundary. Shared Home configuration and snoop-target contracts
+support these distinct engines. Contributors should read
 [DEVELOPING.md](DEVELOPING.md).
 
-`CHIInclusiveHNFPhase` names internal implementation states, not protocol
-states defined by CHI. It remains exported only for source compatibility.
+## Get started
+
+Import the defining modules directly, or use the package-wide
+[`chi/main.rhdl`](../main.rhdl) facade. The
+[engine selection table](../README.md#choose-the-transaction-engine) and
+[end-to-end path](../README.md#build-an-end-to-end-path) show where each Home
+fits; the [delivered profile](../README.md#initial-coherent-home-engines)
+defines the supported request and snoop families.
+
+## Public contract
+
+`CHIHNI` selects one or more SN-I services for non-coherent traffic. `CHIHNF`
+provides a single-transaction coherent Home without an LLC. `CHIInclusiveHNF`
+adds bounded transaction slots, set-associative storage, resident tracking,
+and buffered dirty-victim writebacks. All three preserve the distinction
+between the requester-side Home map and the subordinate service selection.
 
 `CHIInclusiveHNFConfig` defaults to four outstanding completion-
 acknowledgement entries. Set `~comp_ack_entries` to size this bounded DBID table
@@ -55,24 +65,28 @@ that table entry and ends the same-set grant reservation. Other sets can
 continue lookup, snoop, refill, and response work while acknowledgements are
 outstanding; the granted set cannot be probed or replaced before receipt.
 Ordinary elaboration adds no event instrumentation or functional buffering.
-The focused instrumented Home fixture uses two slots, including interleaved
-responses and out-of-order fills. These are transaction lifetimes, not a trace
-of every internal FSM state. Separate victim-writeback and CompAck residencies
-are not yet annotated.
+These are transaction lifetimes, not a trace of every internal FSM state.
+Separate victim-writeback and CompAck residencies are not yet annotated.
 
 These edges describe request ownership, not backing-memory data provenance.
 Subordinate traffic and incoming snoop/data contributions are not separately
 represented in this graph yet.
 
-Current integration limit: the standalone instrumented Home regression passes,
-but complete SingleCoreRV5StageSoC D-cache return ancestry has not been validated.
-[Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
-has a dedicated queued-crossbar regression. The SingleCoreRV5StageSoC emitter enables
+Current integration limit: complete SingleCoreRV5StageSoC D-cache return
+ancestry has not been validated.
+The SingleCoreRV5StageSoC emitter enables
 [partial tracing](../../rhodium/event/README.md), so missing contracts such as
 the uncached engine's ownership become explicit ancestry gaps instead of
 blocking all instrumentation. IO-MSHR and uncached ownership remain unannotated.
-Checkpoints can supply parents to downstream annotations without a leaf
-declaration. SingleCoreRV5StageSoC partial instrumentation, CIRCT IR verification, and
-SystemVerilog lowering pass.
 Full NoC graph coverage still requires runtime integration validation;
 partial tracing does not change the Home's functional request/response behavior.
+
+## Limits and navigation
+
+`CHIInclusiveHNFPhase` names internal implementation states, not CHI protocol
+states; it remains exported only for source compatibility. The noncaching
+Home remains single-transaction and broadcast-based. General ordering,
+broader retry use, same-set parallelism, and additional coherent request
+families are outside the delivered profile. See the
+[Home engine limits](../README.md#initial-coherent-home-engines) and
+[cache maintenance](../README.md#cache-maintenance) contracts for details.

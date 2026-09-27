@@ -3,32 +3,40 @@
 
 # Developing CHI subordinate engines and storage
 
-Read [README.md](README.md) and the parent
-[CHI developer guide](../DEVELOPING.md) before changing this area.
-The parent owns package-wide boundaries; this guide owns component extension and validation.
+Read the [subordinate README](README.md) for the public contract and the
+[parent guide](../DEVELOPING.md) for package-wide boundaries. This guide owns
+engine, controller, and storage-backend maintenance.
 
-Keep sequencing in the shared engines and storage behavior in its backend. The C++ DPI implementation lives in dpi/; platform register policy remains in devices/.
+## Architecture and ownership
 
-Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
-benches in [`../tests/circt/`](../tests/circt/).
-For source moves, update direct consumers, package documentation, and build/CI
-paths together. Run `make check-boundaries` and the affected host and behavioral
-checks through the persistent isolated build cache. Directory boundaries do not add RTL
-hierarchy or per-directory facade modules.
+Keep sequencing in shared engines and storage behavior in each backend. The
+C++ DPI implementation lives in `dpi/`; platform register policy remains in
+[`devices/`](../../devices/DEVELOPING.md). Directory boundaries add no RTL
+hierarchy or per-directory facade.
 
-## Extension and focused validation
+## Implementation map
+
+| File | Responsibility |
+|---|---|
+| [`subordinate-slots.rhdl`](subordinate-slots.rhdl) | Transaction occupancy, DBID association, and packet receipt |
+| [`memory-controller.rhdl`](memory-controller.rhdl) | Shared configuration, native multibeat scheduling, and request checks |
+| [`ram.rhdl`](ram.rhdl) | `SyncRam1RW` backend and compatibility re-exports |
+| [`dpi-memory.rhdl`](dpi-memory.rhdl), [`dpi/chi_memory.cc`](dpi/chi_memory.cc) | DPI bridge and bounded sparse native byte store |
+| [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | Common one-outstanding MMIO phases and responses |
+
+## Change workflow
+
+### Memory transactions and backends
 
 `CHISNTransactionSlots` updates receipt masks with independent indexed register
 writes. Allocation selects a free slot in current occupancy; accepted DAT
 selects an occupied slot, so the writes cannot collide. Do not introduce
-same-cycle occupancy bypass without revisiting that invariant. The `chi-ram`
-bench covers simultaneous allocation/DAT, receipt-mask reuse, and reset of an
-incomplete transaction.
+same-cycle occupancy bypass without revisiting that invariant.
 
-`chi/subordinate/memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
+`memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
 `CHIRamIdentity`, operation/completion payloads, and `build_chi_ram_controller`.
-`chi/subordinate/ram.rhdl` owns only the `SyncRam1RW` backend and re-exports the shared bindings
-for existing importers. `chi/subordinate/dpi-memory.rhdl` imports the controller directly and
+`ram.rhdl` owns only the `SyncRam1RW` backend and re-exports shared bindings
+for existing importers. `dpi-memory.rhdl` imports the controller directly and
 owns the DPI ABI, access enable/reset policy, and model-status assertion.
 `dpi/chi_memory.{h,cc}` owns the bounded sparse byte store shared by DPI and
 native simulation adapters. Its process-local model ID is independent of the
@@ -56,17 +64,12 @@ Static configuration checks run in the shared constructors; request alignment,
 range, mask, and poison assertions remain runtime controller checks. Do not
 repeat constructor invariants in either concrete memory circuit.
 
-For memory-controller changes, run the RAM configuration and DPI ABI host tests,
-`chi-ram` simulation and its expected invalid-request assertion, the native DPI
-memory test, and MiniRV5StageSoC/SingleCoreRV5StageSoC smoke tests. These cover the SRAM and DPI
-consumers without adding tests of incidental hierarchy or internal instance counts.
-
 RAM range checks use the protocol-neutral `transfer_in_range` helper from
 `rhodium/std/interconnect.rhdl`. It widens exclusive ends, allowing a valid
 window and transfer to end exactly at the address-space boundary. Keep size
-and alignment policy in the controller. RAM and BootROM benches cover a
-relocated top-of-address-space window; generic arithmetic coverage belongs to
-the standard-library `transfer-range` fixture.
+and alignment policy in the controller.
+
+### Single-beat devices and event ownership
 
 `CHISingleBeatSubordinate` owns the shared five-phase MMIO transaction lifetime.
 Its port remains `CHISNChannels`; devices forward their native port directly.
@@ -82,15 +85,32 @@ read-to-clear effects, interrupt state, and FIFO backpressure device-owned.
 Boot-address, ACLINT, PLIC, and UART16550 all use this engine. Preserve their
 existing gating versus assertion-only mask policies; sharing sequencing is
 not permission to strengthen protocol checks. BootROM's multibeat read engine
-and RAM's queued transactions are separate. Run all four device simulations;
-boot-address negatives also exercise the shared association/early-DAT checks.
+and RAM's queued transactions are separate.
 
 The engine's intrinsic `responses` tracing contract connects one input to both
 outputs using the named `request` retained scope. Capture on `request_fire`, not unqualified REQ
 fire; release on final RSP or read DAT, never DBID or incoming write DAT. Keep
-these metadata declarations beside the production phase controls. The
-`event-subordinate` backend fixture observes the production engine's external
-transfers and compares exact occurrence graphs, with reused IDs, credit
-returns while idle/busy, write readiness, response stalls, and pending reset in
-all four non-idle phases. Run it alongside the four device simulations, then
-retry SingleCoreRV5StageSoC instrumentation for composed network coverage.
+these metadata declarations beside the production phase controls.
+
+## Focused validation
+
+Keep host tests and authoring fixtures in [`../tests/`](../tests/), and
+behavioral benches in [`../tests/circt/`](../tests/circt/).
+
+- Slot/controller changes: RAM configuration and DPI ABI host tests,
+  `chi-ram` including simultaneous allocation/DAT, incomplete reset, and the
+  expected invalid-request assertion; native DPI memory; Mini/Single SoC smoke.
+  Test public behavior, not incidental hierarchy or instance counts.
+- Range handling: RAM and BootROM top-of-address-space windows, plus the
+  standard-library `transfer-range` arithmetic fixture.
+- Single-beat sequencing: boot-address, ACLINT, PLIC, and UART simulations;
+  boot-address negatives cover association and early DAT.
+- Event ownership: `event-subordinate` compares the production engine's
+  external occurrence graph across reused IDs, credit returns, write stalls,
+  response stalls, and reset in all four non-idle phases. Run it with device
+  simulations, then retry SingleCoreRV5StageSoC instrumentation for composed
+  network coverage.
+
+For source moves, update direct consumers, docs, and build/CI paths together.
+Run `make check-boundaries` after module or dependency changes and use the
+repository wrappers for affected host and behavioral checks.

@@ -1,36 +1,48 @@
-<!-- Guides changes to CHI transaction adapters. -->
+<!-- Maps CHI adapter ownership, metadata preservation, and focused validation. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing CHI transaction adapters
 
-Read [README.md](README.md) and the parent
-[CHI developer guide](../DEVELOPING.md) before changing this area.
-The parent owns package-wide boundaries; this guide owns component extension and validation.
+Read the [adapter README](README.md) for the public boundary and the
+[parent guide](../DEVELOPING.md) for package-wide dependency and test policy.
+This guide owns adapter changes.
 
-Preserve transaction identity and unaffected packet metadata. These adapters do not define an alternative memory protocol or own generic flow machinery.
+## Architecture and ownership
 
-Keep tests and authoring fixtures in [`../tests/`](../tests/), and behavioral
-benches in [`../tests/circt/`](../tests/circt/).
-For source moves, update direct consumers, package documentation, and build/CI
-paths together. Run `make check-boundaries` and the affected host and behavioral
-checks through the persistent isolated build cache. Directory boundaries do not add RTL
-hierarchy or per-directory facade modules.
+Adapters retain native CHI channels and transaction identity. They do not
+define another memory protocol, own generic Flow machinery, or calculate
+striped-bank geometry. `StripedAddressLayout` in
+[`rhodium/std/interconnect.rhdl`](../../rhodium/std/interconnect.rhdl) owns that
+geometry; inclusive Homes and SoCs use it directly.
 
-## Extension and focused validation
+## Implementation map
 
-Bank geometry belongs to `StripedAddressLayout` in
-`rhodium/std/interconnect.rhdl`. Inclusive Homes and SoCs use it directly.
-`CHIAddressProjectorConfig` retains its existing constructor as a CHI-width
-validation wrapper with a `layout` property; the adapter owns native-channel
-forwarding and runtime base translation, not stripe arithmetic.
+| File | Responsibility |
+|---|---|
+| [`transfer-fragmenter.rhdl`](transfer-fragmenter.rhdl) | Serialized child transfers and parent DataID/DBID/completion restoration |
+| [`address-projector.rhdl`](address-projector.rhdl) | CHI-width validation and native-channel REQ address projection |
 
-Fragmenter DAT/RSP translations stay private to `chi/adapters/transfer-fragmenter.rhdl` and
-use immutable field replacement. DAT forwarding clears `replicate` and `num_dat`
-and substitutes the child TxnID; completion forwarding restores the parent
-DBID. Preserve every other field, including optional metadata, without copying
-the flit schema. Run `chi-fragmenter-metadata` for complete-packet comparisons
-at all DAT widths with options enabled/disabled, reverse-order input packets,
-distinct child DBIDs, and stalled requests/data/responses. Its randomized
-metadata checks transparency, not additional protocol-profile support. Keep
-`chi-transfer-fragmenter` for the RAM-backed write/read behavior and the host
-fragmenter test for service configuration and invalid transfer limits.
+`CHIAddressProjectorConfig` retains its constructor and exposes a `layout`
+property. The adapter translates runtime base addresses; it does not duplicate
+stripe arithmetic.
+
+## Change workflow
+
+Preserve every unaffected packet field, including optional metadata, by
+immutable replacement rather than copying the flit schema. Fragmenter DAT
+forwarding clears `replicate` and `num_dat` and substitutes the child TxnID;
+completion forwarding restores the parent DBID. Keep these transforms private
+to the adapter. For source moves, update direct consumers, docs, and build/CI
+paths together; directory boundaries add no RTL hierarchy or facade module.
+
+## Focused validation
+
+Tests and authoring fixtures live in [`../tests/`](../tests/); behavioral
+benches live in [`../tests/circt/`](../tests/circt/). Run the host fragmenter
+test for service configuration and invalid transfer limits,
+`chi-fragmenter-metadata` for complete packets at all DAT widths and optional
+field settings under reordering/stalls, and `chi-transfer-fragmenter` for
+RAM-backed writes and reads. Metadata randomization checks transparency, not
+additional protocol-profile support. Run `make check-boundaries` after source
+or dependency changes; use the [parent guide](../DEVELOPING.md#focused-validation)
+for broader CHI checks.

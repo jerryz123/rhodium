@@ -19,6 +19,19 @@ authoritative delivered profiles are collected under
 Contributors extending the package should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
+## Get started
+
+Import the compatibility facade when exploring the package:
+
+```rhombus
+import:
+  lib("chi/main.rhdl") open
+```
+
+For a narrower dependency, import a defining module instead. See
+[Package boundary and import](#package-boundary-and-import) for an example and
+[Build an end-to-end path](#build-an-end-to-end-path) to select an engine.
+
 ## At a glance
 
 | Layer | Delivered surface | Key boundary |
@@ -70,14 +83,7 @@ flowchart TB
 
 ## Package boundary and import
 
-Import the entire implemented public surface with:
-
-```rhombus
-import:
-  lib("chi/main.rhdl") open
-```
-
-For a component that needs only part of CHI, import its defining modules instead.
+For a component that needs only part of CHI, import its defining modules.
 Modules are grouped under `protocol/`, `transactions/`, `home/`,
 `subordinate/`, `adapters/`, and `noc/`. The root facade keeps its existing
 exports; direct imports use these owning paths, with no old-path forwarding
@@ -795,16 +801,14 @@ checks response lifetime, retry association, identity, and completion; Homes
 check snoop identities, states, and packet accounting. Merely adding an opcode
 to a capability list does not instantiate an execution engine.
 
-## Source map
+## Component guides
 
-Source ownership moved to the contributor
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map). This heading remains for
-existing links.
-
-## Validation
-
-Contributor test selection, negative cases, and backend fixture ownership are
-documented in [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
+For a focused entry point, continue with [protocol contracts](protocol/README.md),
+[transaction mechanisms](transactions/README.md), [Home engines](home/README.md),
+[subordinate engines and storage](subordinate/README.md),
+[transaction adapters](adapters/README.md), or [NoC integration](noc/README.md).
+The [development guide](DEVELOPING.md) owns source placement, test selection,
+negative cases, and backend fixtures.
 
 ## Specification references
 

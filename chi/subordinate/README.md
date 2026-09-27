@@ -3,14 +3,29 @@
 
 # CHI subordinate engines and storage
 
-Single-beat device sequencing, transaction slots, shared memory control, SRAM backing, and DPI-backed simulation memory.
+Use `chi/subordinate/` for native SN channel sequencing: one-outstanding
+single-beat devices or multibeat RAM with synthesizable and DPI-backed storage.
+Contributors should read [DEVELOPING.md](DEVELOPING.md).
+
+## Get started
 
 Import the defining modules directly, or use the package-wide
-[`chi/main.rhdl`](../main.rhdl) facade. See the
-[CHI package guide](../README.md) for public APIs, supported profiles, and limits.
+[`chi/main.rhdl`](../main.rhdl) facade. Choose
+[`CHISingleBeatSubordinate`](single-beat-subordinate.rhdl) for MMIO registers,
+[`CHIRam`](ram.rhdl) for synthesizable storage, or
+[`CHIDPIMemory`](dpi-memory.rhdl) for sparse simulation memory. The
+[backing-memory guide](../README.md#shape-the-backing-memory-boundary)
+describes their configuration and shared channel contract.
 
-Contributor ownership and validation are described in
-[DEVELOPING.md](DEVELOPING.md).
+## Public contract
+
+`CHISingleBeatSubordinate` retains the request and read snapshot, validates
+write association, exposes precise read/write acceptance pulses for device
+effects, and holds responses under backpressure. `CHIRam` and `CHIDPIMemory`
+share one multibeat controller and native `CHISNChannels` semantics but own
+different storage backends. Their configuration supports native transfers
+from one physical DAT beat through 64 bytes; a narrower service can use the
+[transfer fragmenter](../adapters/README.md).
 
 ## Single-beat request tracing
 
@@ -24,3 +39,11 @@ not separate write-data provenance edges.
 The contracts add no checkpoints or functional buffering. Place event
 annotations on surrounding Flow routes; optional compiler instrumentation
 provides metadata storage and DPI emission.
+
+## Limits and navigation
+
+The single-beat engine does not implement retry, coherence, or multibeat
+storage. SN-F selection does not make RAM coherent; a Home owns coherence
+before issuing non-snoopable subordinate requests. See the
+[non-coherent profile](../README.md#initial-non-coherent-profile) and the
+[device guide](../../devices/README.md) for platform register policy.
