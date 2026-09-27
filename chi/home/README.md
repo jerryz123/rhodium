@@ -41,22 +41,24 @@ single-core and tiled SoCs select two.
 
 ## Inclusive Home event tracing
 
-For a one-slot configuration, the optional event compiler carries incoming
-request ancestry to requester response and data transfers using the retained
-transaction ownership.
-The Home emits no checkpoints of its own: caller annotations connect across it
-without adding intermediate Home tracks.
-The same request remains the parent across LLC misses, snoops, and writebacks;
-transaction IDs may be reused without confusing occurrences. Request ownership
-ends at its final response or DAT transfer, or reset. For reads that require
+The optional event compiler emits `home/transaction[slot]` residency for every
+configured transaction slot. Admission captures the request address, symbolic
+opcode, TxnID, and SrcID once. Incoming Flow ancestry enters that residency;
+requester RSP and DAT inherit the actual selected slot's occurrence. Overlapping
+transactions occupy distinct Perfetto lanes, and reused transaction IDs do not
+merge occurrences. Residency includes lookup, snoops, refill/writeback waits,
+and output backpressure; it ends on final DAT, terminal completion, copyback
+retirement, or epoch reset, not on the first response beat. For reads that require
 `CompAck`, `CHIInclusiveHNF` assigns a DBID from its configured acknowledgement
 table and releases the LLC datapath after final DAT. A later `CompAck` retires
 that table entry and ends the same-set grant reservation. Other sets can
 continue lookup, snoop, refill, and response work while acknowledgements are
 outstanding; the granted set cannot be probed or replaced before receipt.
 Ordinary elaboration adds no event instrumentation or functional buffering.
-Multi-slot retained-event ancestry is not yet represented by the event model;
-the focused instrumented Home fixture therefore uses the one-slot configuration.
+The focused instrumented Home fixture uses two slots, including interleaved
+responses and out-of-order fills. These are transaction lifetimes, not a trace
+of every internal FSM state. Separate victim-writeback and CompAck residencies
+are not yet annotated.
 
 These edges describe request ownership, not backing-memory data provenance.
 Subordinate traffic and incoming snoop/data contributions are not separately

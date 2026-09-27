@@ -1,0 +1,66 @@
+#lang rhodium
+// Exercises indexed owners, independent outputs, residency, and local/instance contracts.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+
+sync_circuit RetainedBank(intrinsic :: Boolean, residency :: Boolean, invalid :: String):
+  interface command(Decoupled(Bits(8)), ~role: consumer)
+  interface attempts[2](Valid(Bits(8)), ~role: producer)
+  input allocation: Bits(2)
+  input release: Vec(3, Bool)
+  input selection: Vec(2, Bits(2))
+  input emit: Vec(2, Bool)
+  reg occupied(~init: vec(for List (_ in 0..3): Bool(#false)))
+  reg payload(Vec(3, Bits(8)))
+  def admitted = if residency | command |> trace_event("resident", ~residency: "owners", ~payload: #true) | command
+  admitted.ready <== (allocation < bits(3, 2)) & (!occupied[allocation] ||| release[allocation])
+  def captures = for List (index in 0..3): admitted.fire() & (allocation === bits(index, 2))
+  def releases = for List (index in 0..3): release[index] & occupied[index]
+  for (index in 0..3):
+    when (captures[index]):
+      occupied[index] <== Bool(#true)
+      payload[index] <== admitted.bits
+    elsewhen (releases[index]):
+      occupied[index] <== Bool(#false)
+  def outputs = for Array (index in 0..2):
+    if invalid in ["parents", "label"]
+    | def link = interface_link(Valid(Bits(8)), "attempt" ++ to_string(index))
+      link.right |> trace_valid_event(if invalid == "label" | "resident[" ++ to_string(index) ++ "]" | "selected" ++ to_string(index), ~parents: [admitted]) |> attempts[index]
+      link.left
+    | attempts[index]
+  for (index in 0..2):
+    outputs[index].field("valid") <== emit[index] & (selection[index] < bits(3, 2)) & occupied[selection[index]]
+    outputs[index].field("bits") <== payload[selection[index]]
+  def grants = for List (output in 0..2):
+    for List (index in 0..3): emit[output] & (selection[output] === bits(index, 2))
+  describe_interface_retained_bank(if invalid == "length" | captures.take(2) | captures,
+                                   releases,
+                                   if invalid == "width" | [allocation, allocation, allocation] | (for List (index in 0..3): occupied[index]),
+                                   ~grants: if invalid == "grants" | [[Bool(#false)]] | grants,
+                                   ~name: "owners")
+  if intrinsic
+  | describe_interface_contract(admitted, if invalid == "outputs" | outputs[0] | outputs, "attempts", ~trace_model: interface_trace_retained_bank(~name: "owners"))
+  | #void
+
+sync_circuit EventRetainedBank(intrinsic :: Boolean = #true, residency :: Boolean = #true, invalid :: String = ""):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sinks[2](Valid(Bits(8)), ~role: producer)
+  input allocation: Bits(2)
+  input release: Vec(3, Bool)
+  input selection: Vec(2, Bits(2))
+  input emit: Vec(2, Bool)
+  inst bank(RetainedBank(intrinsic, residency, invalid))
+  bank.allocation <== allocation
+  bank.release <== release
+  bank.selection <== selection
+  bank.emit <== emit
+  source |> trace_event("parent", ~payload: #true) |> bank.command
+  unless intrinsic
+  | describe_interface_transform(InterfaceHandle(bank.command, bank.attempts), "bank", {}, if invalid == "owner" | #false | bank, ~trace_model: interface_trace_retained_bank(bank, ~name: "owners"))
+  for (index in 0..2):
+    bank.attempts[index] |> trace_valid_event("child" ++ to_string(index), ~payload: #true) |> sinks[index]
+
+fun bank(intrinsic :: Boolean = #true, residency :: Boolean = #true, invalid :: String = ""):
+  elaborate_with_top(EventRetainedBank(intrinsic, residency, invalid))
+export bank

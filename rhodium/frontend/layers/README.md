@@ -1299,6 +1299,21 @@ this is not an atomic fork or an exactly-once broadcast. Declare one contract
 over the whole output array, not competing contracts over the same input.
 The model requires exactly one input and an ordered route to every output.
 
+For independently allocated owners, declare
+`describe_interface_retained_bank(captures, releases, actives, ~grants: grants, ~name: "owners")`
+and bind `interface_trace_retained_bank(~name: "owners")` (or pass the immediate
+child instance, just like scalar retained storage). The three nonempty lists
+have one local one-bit control per entry. Allocation is exclusive for the one
+input; entries may release independently and concurrently. `grants` has one
+nonempty row per output and one one-bit selection per entry in each row.
+Use the functional owner's actual grants, qualified for that output, not a
+reconstructed priority policy. At most one entry may be selected per output;
+different outputs may simultaneously read different entries or the same entry.
+Outputs do not consume ownership. Capture after simultaneous release replaces
+the old owner, while same-cycle outputs still read the old one. The contract
+supports named local relations and immediate-child adapters without rewiring
+the functional payload. `retained_bank()` exposes its storage and owner.
+
 For a retained relationship that is not expressible as one input/output Flow
 transform, use `describe_interface_trace_edge(parent, child, ~scope: "data")`.
 `parent` and `child` must be distinct annotated event output endpoints in the
@@ -1446,7 +1461,9 @@ checkpoint; [event instrumentation](../../event/README.md#stall-observations)
 owns its runtime meaning.
 
 `~residency: "owner"` names a local retained-storage declaration, resolved after
-elaboration. It cannot be combined with `~stalls`. The
+elaboration. A retained bank expands it into `label[0]`, `label[1]`, and so on,
+with exclusive admission and independent durations/lineage. A scalar scope
+retains the unsuffixed label. Residency cannot be combined with `~stalls`. The
 [event residency contract](../../event/README.md#retained-owner-residency)
 defines the capture/release checks and duration instrumentation; the interface
 layer only records the association.

@@ -240,7 +240,8 @@ fun instrument_events(logical :: DesignElaboration,
     def local_view = view.module(occurrence.original.name)
     def annotations = local_view.blocks.filter(~keep: fun (candidate): candidate.event_annotation != #false)
     def visible = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path && site.kind != "stall")
-    unless annotations.length() == visible.length()
+    def expected = for values(count = 0) (block in annotations): count + (block.event_annotation.residency_bank()?.entries?.length() || 1)
+    unless expected == visible.length()
     | error(~who: #'instrument_events, "event annotations are hidden behind a transform implementation: " ++ String.join(occurrence.path, "/"))
   def design = Design([], logical.design.next_id)
   def builder = Builder(design)
@@ -353,7 +354,18 @@ fun instrument_events(logical :: DesignElaboration,
         | def ready = builder.cast(module_def, copied.values[annotation.ready.id], Bits(1))
           builder.bit_and(module_def, valid, if site.kind == "stall" | builder.bit_not(module_def, ready) | ready)
         | valid
-      def fire = builder.bit_and(module_def, active, transfer)
+      def allocated:
+        if site.residency_index != #false
+        | builder.bit_and(module_def, transfer, builder.cast(module_def, copied.values[annotation.residency_storage(site.residency_index).capture.id], Bits(1)))
+        | transfer
+      when site.residency_index == 0
+      | def captures = annotation.residency_bank().entries.map(fun (entry): builder.cast(module_def, copied.values[entry.capture.id], Bits(1)))
+        def mutable any = builder.constant(module_def, Bits(1), 0)
+        for (capture in captures, index in 0..captures.length()):
+          builder.assert(module_def, builder.bit_not(module_def, builder.bit_and(module_def, any, capture)), clock, reset, yes, ref_name("__event_residency_exclusive_", site) ++ "_" ++ to_string(index))
+          any := builder.bit_or(module_def, any, capture)
+        builder.assert(module_def, builder.eq(module_def, transfer, any), clock, reset, yes, ref_name("__event_residency_allocation_", site))
+      def fire = builder.bit_and(module_def, active, allocated)
       fires[site.id] := fire
       def sequence = builder.register(module_def, ref_name("__event_sequence_", site), Bits(64), clock, reset, zero)
       sequences[site.id] := sequence.current
@@ -406,7 +418,7 @@ fun instrument_events(logical :: DesignElaboration,
       | error(~who: #'instrument_events, "event payload requires a canonical packed width: " ++ site.id)
       builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)
       when site.kind == "residency"
-      | def storage = annotation.residency_storage()
+      | def storage = annotation.residency_storage(site.residency_index)
         fun control(value :: Value): builder.cast(module_def, copied.values[value.id], Bits(1))
         def capture = control(storage.capture)
         def release = control(storage.release)

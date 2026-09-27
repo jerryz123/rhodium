@@ -280,6 +280,11 @@ declared output indices as the fanout certificate. Repeated or independent
 outputs do not recapture the live input or consume the owner; only the declared
 release ends its lifetime. Duplicate observers of the same output still require
 a separate certified divergence.
+Indexed retained banks expand to an exclusive allocation router, one scalar
+retained stage per entry, certified output replication per resident, and one
+selection per output. Reuse those plan nodes and the existing scalar runtime
+assertions; do not introduce a Home-specific stage or transaction-ID matcher.
+Keep per-output grants relative to the storage owner for child adapters.
 Joins combine the accepted lineages without creating a visible node.
 
 ## Extend trace coverage
@@ -329,6 +334,16 @@ identity-qualified `rheg_end` on release. Simultaneous replacement emits the old
 sequence before next-state capture. Reset clears both shadow registers and the
 normal occurrence epoch; never use a reset-suppressed end callback to order host
 reset. RHEG's existing streaming epoch boundary remains explicit.
+
+A bank residency expands into entry-qualified sites with a shared local
+annotation index and distinct `residency_index` values. Occurrence IDs and labels
+gain `[index]`; the existing native descriptor and end ABI remain unchanged.
+Its input routes by the actual captures and its output selects the captured
+site, preserving a normal checkpoint in the Flow path. Resolve scalar controls
+from that index during lowering and check allocation exclusivity/completeness
+even for a root checkpoint. Explicit upstream selection of the bank checkpoint
+means the selected entry, not an all-entry join. Validate expanded label
+uniqueness before emitting the manifest.
 
 ## Stall observation lowering
 
@@ -389,6 +404,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
 | `event-offer` | Best-effort Valid offers, qualified transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
 | `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with unknown traffic, and independent public-state checks |
+| `event-retained-bank` | Three independent owners, two simultaneous readers, exact residency endpoints, concurrent releases, same-edge reuse, repeated payloads, pending reset, and local/child contract diagnostics |
 
 The `event-runtime` runner includes the standalone collector test. `event-join`
 binds a descriptor generated from the same instrumented result as its RTL, adding

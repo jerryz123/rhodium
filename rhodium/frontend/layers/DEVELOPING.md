@@ -170,6 +170,13 @@ Retained models may connect one input to multiple outputs sharing the same
 named lifetime. Validate complete ordered output coverage in the model, keeping
 endpoint-ownership overlap checks unchanged. Occurrence expansion reuses the
 same retained controls for each route; instrumentation shares their shadow owner.
+Retained banks keep entry control triples and a per-output grant matrix in
+module-owned metadata. `interface_trace_retained_bank` binds that declaration
+locally or through one immediate child, using the same endpoint ownership
+validation as scalar retained contracts. Bank residency resolves after
+elaboration; event analysis expands entries into ordinary retained/selection
+plans and distinct sites. Do not create functional routing or storage while
+declaring these contracts.
 
 | Public area | Owning layer | Shared machinery | Representative tests |
 |---|---|---|---|

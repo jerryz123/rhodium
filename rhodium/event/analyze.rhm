@@ -70,6 +70,16 @@ fun same_dependency(left :: EventDependency,
                     right :: EventDependency):
   left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path && left.latency_cycles == right.latency_cycles
 
+// A banked checkpoint denotes its selected entry, not a join of all entries.
+fun matches_event(event :: EventSite, wanted :: maybe(String)):
+  cond
+  | !wanted: #true
+  | event.id == wanted: #true
+  | event.residency_index != #false:
+      def indexed = wanted ++ "[" ++ to_string(event.residency_index) ++ "]"
+      event.id == indexed
+  | ~else: #false
+
 fun infer_event_manifest(logical :: DesignElaboration,
                          ~dynamic: dynamic :: Boolean = #false,
                          ~partial: partial :: Boolean = #false):
@@ -190,18 +200,38 @@ fun infer_event_manifest(logical :: DesignElaboration,
                                  annotation.location.describe(),
                                  captures,
                                  if annotation.residency_storage() | "residency" | "transfer")
-            sites := sites ++ [site]
-            when annotation.parents
-            | selected_parents[site.id] := annotation.parents.map(fun (index): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(index))
-            when annotation.stalls | stalled_sites.add(site.id)
-            site_inputs[site.id] := input_ports.map(
-              fun (port): terminal_id(instance_path, flow_block.id, port.id)
-            )
-            for (port in output_ports):
-              event_by_output[terminal_id(instance_path, flow_block.id, port.id)] := site
-              // Explicit parent searches may pass through a checkpoint's
-              // transparent wiring; ordinary nearest searches still stop here.
-              add_arc(site_inputs[site.id][0], terminal_id(instance_path, flow_block.id, port.id))
+            def bank = annotation.residency_bank()
+            def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
+            def output = terminal_id(instance_path, flow_block.id, output_ports[0].id)
+            if bank
+            | block:
+                def captures = bank.entries.map(fun (entry): entry.capture)
+                def entry_outputs = for List (entry in bank.entries, index in 0..bank.entries.length()):
+                  def suffix = "[" ++ to_string(index) ++ "]"
+                  def resident = site with (id = site.id ++ suffix, label = site.label ++ suffix, residency_index = index)
+                  sites := sites ++ [resident]
+                  def entry_input = input ++ suffix
+                  def entry_output = output ++ suffix
+                  routings[entry_input] := FlowRouting(instance_path, site.id, captures, input, index)
+                  add_arc(input, entry_input)
+                  site_inputs[resident.id] := [entry_input]
+                  when annotation.parents
+                  | selected_parents[resident.id] := annotation.parents.map(fun (parent): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(parent))
+                  event_by_output[entry_output] := resident
+                  add_arc(entry_input, entry_output)
+                  add_arc(entry_output, output)
+                  entry_output
+                selections[output] := FlowSelection(instance_path, captures, entry_outputs, #false)
+            | block:
+                sites := sites ++ [site]
+                when annotation.parents
+                | selected_parents[site.id] := annotation.parents.map(fun (index): occurrence_prefix(instance_path) ++ "/event:" ++ to_string(index))
+                when annotation.stalls | stalled_sites.add(site.id)
+                site_inputs[site.id] := [input]
+                event_by_output[output] := site
+                // Explicit parent searches may pass through a checkpoint's
+                // transparent wiring; ordinary nearest searches still stop here.
+                add_arc(input, output)
         | if trace_model && (!dynamic || trace_model.dynamic)
           | def stages:
               cond
@@ -210,6 +240,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
               | trace_model.routing_predicates(): #false
               | trace_model.atomic_fork_outputs(): #false
               | trace_model.broadcast_storage(): #false
+              | trace_model.retained_bank(): #false
               | trace_model.window_storage():
                   def storage = trace_model.window_storage()
                   [EventTraceWindow(instance_path ++ trace_model.owner_path(), storage.depth, storage.enqueue,
@@ -265,7 +296,31 @@ fun infer_event_manifest(logical :: DesignElaboration,
               for (port in output_ports, index in 0..output_count):
                 def broadcast = FlowBroadcast(owner_path, broadcast_id, storage.accept, storage.pending[index], input, index)
                 broadcasts[terminal_id(instance_path, flow_block.id, port.id)] := broadcast
-            for (route in trace_model.routes):
+            // Expand indexed ownership into ordinary routed scalar owners and
+            // independently selected outputs. No new runtime storage semantics.
+            when trace_model.retained_bank()
+            | def bank = trace_model.retained_bank().storage
+              def owner_path = instance_path ++ trace_model.owner_path()
+              def input = terminal_id(instance_path, flow_block.id, input_ports[0].id)
+              def captures = bank.entries.map(fun (entry): entry.capture)
+              def bank_id = occurrence_prefix(instance_path) ++ "/" ++ flow_block.id
+              def residents = for List (entry in bank.entries, index in 0..bank.entries.length()):
+                def allocated = input ++ ":allocate:" ++ to_string(index)
+                def resident = input ++ ":resident:" ++ to_string(index)
+                routings[allocated] := FlowRouting(owner_path, bank_id, captures, input, index)
+                add_arc(input, allocated)
+                add_arc(allocated, resident, bank_id, #false, [EventTraceRetained(owner_path, entry.capture, entry.release, entry.active)])
+                resident
+              for (port in output_ports, output_index in 0..output_count):
+                def output = terminal_id(instance_path, flow_block.id, port.id)
+                def branches = for List (resident in residents, index in 0..residents.length()):
+                  def branch = resident ++ ":output:" ++ to_string(output_index)
+                  replications[branch] := FlowReplication(resident, resident, output_index)
+                  add_arc(resident, branch)
+                  add_arc(branch, output)
+                  branch
+                selections[output] := FlowSelection(owner_path, bank.grants[output_index], branches, #false)
+            for (route in (if trace_model.retained_bank() | [] | trace_model.routes)):
               def input_port = input_ports[route.input_index]
               def output_port = output_ports[route.output_index]
               if retained_output
@@ -314,6 +369,12 @@ fun infer_event_manifest(logical :: DesignElaboration,
   | error(~who: #'infer_event_manifest,
           "event analysis cannot find top module " ++ logical.top.name)
   expand(top, [logical.top.name])
+  def labels = MutableSet{}
+  for (site in sites):
+    def key = [site.instance_path, site.label]
+    when key in labels
+    | error(~who: #'infer_event_manifest, "expanded event label must be unique within a module: " ++ site.label)
+    labels.add(key)
 
   fun nearest_events(vertex :: String,
                      visiting :: List.of(String) = [],
@@ -323,7 +384,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
                      wanted :: maybe(String) = #false):
     def event = event_by_output.get(vertex, #false)
     cond
-    | event && (!wanted || event.id == wanted): [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
+    | event && matches_event(event, wanted): [EventCandidate(event, reverse_transform_path.reverse(), latency_cycles, trace_stages)]
     | wanted && vertex in roots && incoming.get(vertex, []).length() == 0: []
     | gap_reason(vertex):
         record_gap(vertex)
@@ -366,7 +427,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
     fun visit(vertex :: String, reverse_path :: List = []):
       def event = event_by_output.get(vertex, #false)
       cond
-      | event && (!wanted || event.id == wanted):
+      | event && matches_event(event, wanted):
           unless event.id in found
           | found.add(event.id)
             candidates := candidates ++ [EventCandidate(event, reverse_path.reverse(), #false, #false)]
@@ -445,7 +506,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
           def broadcast = broadcasts.get(vertex, #false)
           def plan:
             cond
-            | event && (!wanted || event.id == wanted): EventTraceSource(event.id)
+            | event && matches_event(event, wanted): EventTraceSource(event.id)
             | wanted && vertex in roots && arcs.length() == 0: EventTraceSource(#false, #false, #true)
             | gap_reason(vertex): EventTraceSource(#false, vertex)
             | join: EventTraceJoin(join.map(fun (input): trace_plan(input, visiting ++ [vertex], wanted)))
@@ -496,7 +557,9 @@ fun infer_event_manifest(logical :: DesignElaboration,
         unless candidates.length() > 0
         | error(~who: #'infer_event_manifest, "selected parent is not upstream: " ++ parent)
         for (candidate in candidates):
-          dependencies := dependencies ++ [EventDependency(parent, site.id, candidate.transform_path, candidate.latency_cycles, candidate.trace_stages)]
+          def dependency = EventDependency(candidate.site.id, site.id, candidate.transform_path, candidate.latency_cycles, candidate.trace_stages)
+          unless dependencies.find(fun (existing): same_dependency(existing, dependency))
+          | dependencies := dependencies ++ [dependency]
       when dynamic
       | def inputs = requested.map(fun (parent): EventTraceRequire(trace_plan(site_inputs[site.id][0], [], parent)))
         def plan = if inputs.length() == 1 | inputs[0] | EventTraceJoin(inputs)

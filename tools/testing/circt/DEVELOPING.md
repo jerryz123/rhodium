@@ -114,10 +114,15 @@ downstream elastic storage against a public fill/release model. `event-frontend`
 runs the existing fetch bench against an instrumented production frontend;
 its public memory/instruction scoreboard checks exact occurrence parents and
 captures, not generated controls or payload-equality matching.
-`event-home` runs the inclusive-Home bench with its production retained contract
+`event-home` runs the two-slot inclusive-Home bench with its production retained bank
 and caller-owned checkpoints in `chi/tests/home-trace-fixture.rhdl`. It checks
 every emitted request/response/data occurrence against public port
-transfers, with reused IDs, hit/miss responses, stalls, and pending reset.
+transfers, with overlapping owners, out-of-order fills, reused IDs, hit/miss
+responses, stalls, and pending reset. Its read/write residency ends are scored
+against public completion; copyback must have received every packet before its
+internal retirement. `event-retained-bank` independently scores exact per-entry
+residency and output ancestry from public controls, including concurrent readers
+and releases, same-cycle replacement, equal payloads, and reset.
 `event-subordinate` checks intrinsic retained-request contracts on the shared
 single-beat MMIO engine. Its public-transfer scoreboard requires exact parents
 through DBID and delayed write data, ignores credit returns, and tests reset

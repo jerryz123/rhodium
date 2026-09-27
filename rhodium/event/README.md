@@ -164,6 +164,15 @@ as for other events; streaming reset retains the existing end-stream requirement
 An unfinished residency stays visibly open in Perfetto, rather than acquiring an
 invented release at export finalization. Residency cannot use `~stalls`.
 
+For multiple independently allocated owners, use the same annotation with a
+named `describe_interface_retained_bank` declaration. A bank expands one
+checkpoint into `label[0]`, `label[1]`, etc., so concurrent owners have separate
+Perfetto lanes. Only the allocated entry emits at admission; each entry closes
+on its own release. `interface_trace_retained_bank` carries those identities to
+outputs using the functional per-output selection grants. This is ownership
+tracing, not host-side matching by payload or transaction ID. See the
+[bank contract](../frontend/layers/README.md#interfaces-and-topology) for the declaration API.
+
 ### Stall observations
 
 Enable per-cycle backpressure observations on a ready-valid checkpoint:

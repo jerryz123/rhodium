@@ -10,6 +10,7 @@ import:
   lib("rhodium/std/sync-ram.rhdl").SyncRam1RW
   lib("flow/circular-priority.rhdl") open
   lib("flow/queue.rhdl").Queue
+  lib("flow/event.rhdl") open
   lib("chi/protocol/params.rhdl") open
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
@@ -162,6 +163,11 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   input identity: CHIHNFIdentity(p)
   interface port(CHIHNChannels(p), ~role: home)
   def requester = port.requester
+  def admitted_requests = requester.requests |> trace_event("home/transaction", ~residency: "request", ~fields: flit):
+    address: flit.address
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
   def subordinate = port.subordinate
   def home_id = identity.home_node_id
   def subordinate_id = identity.subordinate_node_id
@@ -260,7 +266,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   reg subordinate_data_writeback_owner(~init: Bool(#false))
   reg subordinate_data_prefers_writeback(~init: Bool(#true))
 
-  def incoming_request = requester.requests.bits
+  def incoming_request = admitted_requests.bits
   def incoming_set = cache_set(incoming_request.address)
   def incoming_requester_data_txn = requester.request_data.bits.txn_id
   def incoming_requester_data_is_snoop = requester.request_data.bits.opcode.is_one_of(
@@ -318,12 +324,12 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
       pending_grants[index] & (pending_grant_sets[index] === incoming_set)
   )
   def incoming_comp_ack_available = !incoming_request.exp_comp_ack ||| comp_acks.available
-  requester.requests.ready <== allocation_available & !set_conflict & incoming_comp_ack_available
+  admitted_requests.ready <== allocation_available & !set_conflict & incoming_comp_ack_available
   def request_fire = requester.requests.fire()
   comp_acks.reserve.valid <== request_fire & incoming_request.exp_comp_ack
   comp_acks.reserve.bits <== incoming_request.src_id
 
-  when (requester.requests.valid & requester.requests.ready):
+  when (admitted_requests.valid & admitted_requests.ready):
     assert(chi_hnf_source_known(p, home_config, incoming_request),
            "chi_inclusive_hnf_request_source_known")
     assert(incoming_request.tgt_id === home_id,
@@ -1486,23 +1492,19 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   when (writer_work_update ||| grant_write_permission):
     may_write_lines <== mux(grant_write_permission, may_write_lines_after_grant, may_write_lines_after_work)
 
-  def trace_contract:
-    if slots == 1
-    | block:
-        def release_request = finish_copyback ||| (
-          requester_output_response_fire & send_requester_completion
-        ) ||| (cached_data_fire & final_response_data)
-        describe_interface_retained_storage(request_fire,
-                                            release_request,
-                                            occupied[0],
-                                            ~name: "request")
-        describe_interface_contract(requester.requests,
-                                    Array(requester.responses, requester.response_data),
-                                    "request-outputs",
-                                    ~trace_model: interface_trace_retained(~name: "request", ~outputs: 2))
-        #void
-    | #void
-  trace_contract
+  // Final DAT ends transaction residency; the separate CompAck table may outlive it.
+  describe_interface_retained_bank(
+    for List (index in 0..slots): request_fire & (allocation_slot === bits(index, slot_width)),
+    for List (index in 0..slots):
+      (cached_data_fire & final_response_data & (response_data_slot === bits(index, slot_width))) ||| (work_valid & (work_slot === bits(index, slot_width)) & (finish_copyback ||| (requester_output_response_fire & send_requester_completion))),
+    for List (index in 0..slots): occupied[index],
+    ~grants: [
+      for List (index in 0..slots): requester.responses.valid & (advance_slot === bits(index, slot_width)),
+      for List (index in 0..slots): requester.response_data.valid & (response_data_slot === bits(index, slot_width))
+    ],
+    ~name: "request"
+  )
+  describe_interface_contract(admitted_requests, Array(requester.responses, requester.response_data), "request-outputs", ~trace_model: interface_trace_retained_bank(~name: "request"))
 
 export:
   CHIInclusiveHNFConfig

@@ -117,9 +117,10 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   import "DPI-C" function void event_home_bind();
   import "DPI-C" function void event_home_sample(input int unsigned reset,
     input int unsigned request_fire, input longint unsigned address,
-    input int unsigned request_opcode, request_txn, request_src,
-    input int unsigned response_fire, response_opcode, response_txn, response_tgt,
+    input int unsigned request_opcode, request_txn, request_src, return_txn, return_nid, request_size,
+    input int unsigned response_fire, response_opcode, response_txn, response_tgt, response_dbid,
     input int unsigned data_fire, data_opcode, data_txn, data_tgt, data_id,
+    input int unsigned request_data_fire, request_data_opcode, request_data_txn, request_data_id,
     input int unsigned backing_fire, output_stalled);
   import "DPI-C" function void event_home_check();
   import "DPI-C" function void event_home_finish();
@@ -128,11 +129,16 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     event_home_sample(32'(reset), 32'(requester_requests_in.valid && port_out.requester.requests.ready),
       64'(requester_requests_in.bits.address), 32'(requester_requests_in.bits.opcode),
       32'(requester_requests_in.bits.txn_id), 32'(requester_requests_in.bits.src_id),
+      32'(requester_requests_in.bits.return_txn_id_or_stash_lpid),
+      32'(requester_requests_in.bits.return_nid_or_stash_nid_or_data_target), 32'(requester_requests_in.bits.size_or_num_req),
       32'(port_out.requester.responses.valid && requester_responses_ready_in.ready),
       32'(port_out.requester.responses.bits.opcode), 32'(port_out.requester.responses.bits.txn_id), 32'(port_out.requester.responses.bits.tgt_id),
+      32'(port_out.requester.responses.bits.dbid_or_group_id),
       32'(port_out.requester.response_data.valid && response_data_ready_in.ready),
       32'(port_out.requester.response_data.bits.opcode), 32'(port_out.requester.response_data.bits.txn_id),
       32'(port_out.requester.response_data.bits.tgt_id), 32'(port_out.requester.response_data.bits.data_id),
+      32'(request_data_in.valid && port_out.requester.request_data.ready), 32'(request_data_in.bits.opcode),
+      32'(request_data_in.bits.txn_id), 32'(request_data_in.bits.data_id),
       32'(port_out.subordinate.req.valid && subordinate_requests_ready_in.ready),
       32'((port_out.requester.responses.valid && !requester_responses_ready_in.ready) ||
           (port_out.requester.response_data.valid && !response_data_ready_in.ready)));
@@ -637,7 +643,6 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     tick();
     reset = 1'b0;
 
-`ifndef CHI_HOME_TRACE
     // A stalled autonomous output retains its owner while an unrelated input
     // event advances another slot.
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h701, 12'h711);
@@ -856,7 +861,6 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     reset = 1'b1;
     tick();
     reset = 1'b0;
-`endif
 
     // Allocating ReadOnce misses install and subsequently hit.
     send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
@@ -1060,7 +1064,6 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
     accept_cached_packet(2'd2, 128'h42);
     accept_cached_packet(2'd3, 128'h43);
 
-`ifndef CHI_HOME_TRACE
     if (INVALID_CASE == 0) begin
       // A completed writeback must be able to release a full victim buffer
       // even while the next dirty replacement owns the stalled advance lane.
@@ -1141,7 +1144,6 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       assert(second_victim_memory_txn == victim_memory_txn)
         else $fatal(1, "released victim buffer entry changed transaction ID");
     end
-`endif
 
     // A resident hit updates tree-PLRU state: after filling LINE0 then LINE2,
     // touching LINE0 makes LINE2 the victim for LINE3.

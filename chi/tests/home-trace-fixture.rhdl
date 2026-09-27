@@ -1,5 +1,5 @@
 #lang rhodium
-// Places caller-owned checkpoints around an unannotated inclusive Home's retained contract.
+// Places caller checkpoints around the two-slot inclusive Home and its transaction residencies.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
@@ -7,7 +7,7 @@ import:
   "inclusive-home-fixture.rhdl" as fixture
 
 sync_circuit EventHome():
-  def config = fixture.inclusive_home_serial_config
+  def config = fixture.inclusive_home_config
   def p = config.home.flit
   input identity: CHIHNFIdentity(p)
   interface port(CHIHNChannels(p), ~role: home)

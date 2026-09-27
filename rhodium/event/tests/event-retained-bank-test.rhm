@@ -1,0 +1,28 @@
+#lang rhombus
+// Verifies indexed retention's occurrence graph, compiler isolation, and contract diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../main.rhm" open
+  "../../backend/circt.rhm".emit_circt
+  "event-retained-bank-fixture.rhdl" as fixture
+
+for (residency in [#true, #false]):
+  def logical = fixture.bank(#true, residency)
+  def original = emit_circt(logical.design)
+  def traced = instrument_events(logical)
+  check:
+    emit_circt(logical.design) ~is original
+    traced.manifest.sites.filter(~keep: fun (site): site.kind == "residency").map(fun (site): site.label) ~is (if residency | ["resident[0]", "resident[1]", "resident[2]"] | [])
+    traced.manifest.dependencies.length() ~is (if residency | 9 | 2)
+    traced.manifest.gaps ~is []
+def inline = instrument_events(fixture.bank(#false, #false))
+def selected = instrument_events(fixture.bank(#true, #true, "parents"))
+check:
+  inline.manifest.dependencies.length() ~is 2
+  fixture.bank(#true, #true, "length") ~throws "matching lengths"
+  fixture.bank(#true, #true, "width") ~throws "local one-bit"
+  fixture.bank(#true, #true, "grants") ~throws "one grant per entry"
+  fixture.bank(#true, #true, "outputs") ~throws "one input and one ordered route per output"
+  fixture.bank(#false, #false, "owner") ~throws "trace model must match the transform implementation"
+  infer_event_manifest(fixture.bank(#true, #true, "label")) ~throws "expanded event label must be unique"
+  selected.manifest.dependencies.length() ~is 11

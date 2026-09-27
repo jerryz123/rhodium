@@ -48,7 +48,8 @@ class EventSite(id :: String,
                 source_location :: String,
                 fields :: List.of(EventField) = [],
                 kind :: String = "transfer",
-                observation_of :: maybe(String) = #false)
+                observation_of :: maybe(String) = #false,
+                residency_index :: maybe(Nat) = #false)
 
 // Empty controls mean an unconditional one-cycle delay. Optional flush cancels
 // pending lineage at the edge; controls retain their original occurrence identity.

@@ -137,21 +137,28 @@ LR/SC progress after changing target selection. Rerun SingleCoreRV5StageSoC vvad
 unchanged host polling and inspect `tohost` snoops and pipeline replay counts;
 keep correctness and reduced traffic distinct from a cycle-count prediction.
 
-One-slot inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
-requester REQ to requester RSP/DAT with the named `request` retained scope.
-Keep visible checkpoints in callers, not the Home. Capture on accepted requester
-REQ; keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
+Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
+the admission checkpoint to requester RSP/DAT with the named `request` retained
+bank. Its capture predicates use `allocation_slot`; RSP selects `advance_slot`
+and DAT selects `response_data_slot`. Release predicates must qualify both the
+real finishing operation and its owning slot, allowing independent slots to
+finish together. Keep ownership throughout the real FSM lifetime, releasing on copyback finish, terminal completion,
 or final data. Do not release on the first data beat, DBID response, subordinate
 response, or delayed acknowledgement; `CompAck` has no requester output and is
 owned by the separate DBID table after final DAT.
-Both requester output channels share this lifetime; Flow infers network transit.
-`chi/tests/home-trace-fixture.rhdl` supplies test-only boundary checkpoints.
-The retained-event model does not yet express dynamically selected owners, so
-this fixture deliberately constructs a one-slot Home while the behavioral Home
-fixture uses two slots.
+Both requester output channels read the selected retained owner; Flow infers
+network transit. `home/transaction[slot]` is the only Home-owned checkpoint in
+this slice, with one residency lane per slot. Do not add hit/miss at admission:
+lookup has not established it yet. `chi/tests/home-trace-fixture.rhdl` supplies
+test-only boundary checkpoints around the production two-slot configuration.
 Run `event-home` for exact per-cycle graph comparison against public transfers,
-including hit/miss data, repeated IDs, backpressure, and pending reset, then
+including overlapping slots, hit/miss data, repeated IDs, backpressure, and pending reset, then
 the SingleCoreRV5StageSoC trace smoke for the composed router/queue paths.
+Read/write residency ends are checked against final public transfers. Copyback
+has no final public output, so its oracle checks full incoming packet receipt
+before release rather than predicting private array scheduling. The generic
+`event-retained-bank` fixture separately scores every capture/release cycle,
+concurrent readers/releases, same-edge replacement, and pending reset.
 
 For maintenance changes, run the `chi-cache-maintenance`,
 `chi-maintenance-home`, and `chi-maintenance-inclusive` backend fixtures. The

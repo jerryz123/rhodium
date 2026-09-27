@@ -129,7 +129,7 @@ event-test: check-boundaries
 	tools/run-racket-tests.sh $(EVENT_TESTS)
 
 event-runtime-test: check-boundaries
-	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-partial event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-offer-register event-parents event-retained" bash tools/testing/circt/run.sh
+	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-partial event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-offer-register event-parents event-retained event-retained-bank" bash tools/testing/circt/run.sh
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(BACKEND_TESTS)

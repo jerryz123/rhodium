@@ -242,7 +242,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:rv5stage-retirement-trace|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution:rv5stage-retirement-trace|cores-execution:event-frontend|cores-execution:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -522,7 +522,7 @@ verify_fixture() {
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
-  if [[ "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
+  if [[ "$fixture" == event-retained-bank || "$fixture" == rv5stage-copyback || "$fixture" == rv5stage-walk-trace || "$fixture" == rv5stage-multiply || "$fixture" == event-instance || "$fixture" == rv5stage-retirement-trace ]]; then
     dpi_sources+=("$repo_dir/rheg/runtime/rheg.cc")
   fi
 
@@ -777,6 +777,7 @@ direct_fixture_specs=(
   'event-stall|event_stall_tb'
   'event-offer|event_offer_tb'
   'event-retained|event_retained_tb'
+  'event-retained-bank|event_retained_bank_tb'
   'aclint|aclint_tb'
   'bootrom|bootrom_tb'
   'fesvr-mmio|fesvr_mmio_tb'
