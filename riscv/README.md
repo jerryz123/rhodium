@@ -24,6 +24,14 @@ VLEN; individual implementations can impose narrower limits.
 
 ## Find what you need
 
+The pure [H 1.0 catalog](isa/h.rhm) describes RV32/RV64 hypervisor loads,
+stores, and translation fences, including HLVX. [CSR](isa/csr.rhm),
+[exception](isa/trap.rhm), and [interrupt](isa/interrupt.rhm) catalogs include
+H/VS addresses, named status/root fields, and guest causes. These descriptors
+do not imply that any core implements or advertises H or Sha.
+Encodings follow the [ratified H specification](https://docs.riscv.org/reference/isa/v20240411/priv/hypervisor.html)
+and [canonical opcodes](https://github.com/riscv/riscv-opcodes/blob/master/extensions/rv_h).
+
 | Task | Start here |
 |---|---|
 | Define a field, encoding, format, or instruction | [Pure model](#pure-model) |
@@ -393,12 +401,19 @@ F/D profile, and its `None` default adds no half-precision operations.
 | [`isa/trap.rhm`](isa/trap.rhm) | Synchronous `ExceptionCause` members, architectural codes, and cause-set masks |
 | [`isa/interrupt.rhm`](isa/interrupt.rhm) | Standard supervisor and machine interrupt causes and codes |
 | [`isa/privileged.rhm`](isa/privileged.rhm) | Exact `MRET`, `SRET`, `WFI`, and `SFENCE.VMA` encodings |
+| [`isa/svinval.rhm`](isa/svinval.rhm) | Svinval 1.0: `SINVAL.VMA`, `SFENCE.W.INVAL`, `SFENCE.INVAL.IR`, and the H-dependent `HINVAL.VVMA/GVMA` companions |
 | [`isa/sv39.rhm`](isa/sv39.rhm) | Pure Sv39 geometry and canonical-address helpers |
 
 Sparse identifiers stay host-side until the [adapter](rtl/README.md) produces a
 typed hardware value. Pending interrupt sources, delegation, privilege, CSR
 WARL behavior, translation state, and exception selection remain integration
 policy.
+
+The [ratified Svinval specification](https://docs.riscv.org/reference/isa/v20240411/priv/svinval.html)
+defines invalidation separately from ordering. `Svinval` contains the three
+instructions available without H; `SvinvalH` also contains both HINVAL forms.
+Both catalogs apply to RV32 and RV64. Core implementations own ordering,
+invalidation scope, privilege checks, and extension selection.
 
 ## Compressed-instruction expansion
 

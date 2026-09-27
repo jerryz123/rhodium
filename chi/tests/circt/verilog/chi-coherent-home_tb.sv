@@ -354,19 +354,21 @@ module chi_coherent_home_tb #(parameter bit COPYBACK_ERROR = 0);
     assert (port_out.requester.requests.ready)
       else $fatal(1, "HN-F did not retire the RN-I read without CompAck");
 
-    send_request(DATA_ID, WRITE_UNIQUE_PTL, 6'd3, 1'b0);
+    // Both caching and nonallocating requesters can update coherent memory.
+    for (int writer = 0; writer < 2; writer++) begin
+    send_request(writer == 0 ? DATA_ID : HTIF_ID, WRITE_UNIQUE_PTL, 6'd3, 1'b0);
     requester_responses_ready_in.ready = 1'b1;
     #1;
     assert (port_out.requester.responses.valid &&
             port_out.requester.responses.bits.opcode == DBID_RESP &&
-            port_out.requester.responses.bits.tgt_id == DATA_ID)
+            port_out.requester.responses.bits.tgt_id == (writer == 0 ? DATA_ID : HTIF_ID))
       else $fatal(1, "HN-F did not allocate its requester DBID");
     tick();
     requester_responses_ready_in = '0;
 
     request_data_in.bits = '0;
     request_data_in.bits.opcode = NON_COPY_BACK_WRITE_DATA;
-    request_data_in.bits.src_id = DATA_ID;
+    request_data_in.bits.src_id = writer == 0 ? DATA_ID : HTIF_ID;
     request_data_in.bits.tgt_id = HOME_ID;
     request_data_in.bits.txn_id = 12'h000;
     request_data_in.bits.byte_enable = 16'h00ff;
@@ -392,6 +394,21 @@ module chi_coherent_home_tb #(parameter bit COPYBACK_ERROR = 0);
     tick();
     requester_responses_in = '0;
     tick();
+
+    if (writer == 1) begin
+      accept_snoop(DATA_ID, SNP_CLEAN_INVALID);
+      requester_responses_in.bits = '0;
+      requester_responses_in.bits.opcode = SNP_RESP;
+      requester_responses_in.bits.src_id = DATA_ID;
+      requester_responses_in.bits.tgt_id = HOME_ID;
+      requester_responses_in.valid = 1;
+      #1;
+      assert (port_out.requester.requester_responses.ready)
+        else $fatal(1, "HN-F did not accept RN-I write invalidation response");
+      tick();
+      requester_responses_in = '0;
+      tick();
+    end
 
     accept_subordinate_request(WRITE_NO_SNP_PTL);
     subordinate_responses_in.bits = '0;
@@ -436,12 +453,14 @@ module chi_coherent_home_tb #(parameter bit COPYBACK_ERROR = 0);
     assert (port_out.requester.responses.valid &&
             port_out.requester.responses.bits.opcode == COMP &&
             port_out.requester.responses.bits.src_id == HOME_ID &&
-            port_out.requester.responses.bits.tgt_id == DATA_ID)
+            port_out.requester.responses.bits.tgt_id == (writer == 0 ? DATA_ID : HTIF_ID))
       else $fatal(1, "HN-F did not complete the requester write");
     tick();
     assert (port_out.requester.requests.ready)
       else $fatal(1, "HN-F did not retire the write");
     requester_responses_ready_in = '0;
+
+    end
 
     send_request(HTIF_ID, WRITE_NO_SNP_FULL, 6'd6, 1'b0);
     requester_responses_ready_in.ready = 1'b1;

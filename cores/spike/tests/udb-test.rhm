@@ -36,7 +36,7 @@ check:
 def rva23_profile = spike_product_profile(IsaPreset.RVA23)
 def rva23 = spike_udb_configuration(rva23_profile, "spike-rva23", "Exact Spike RVA23 preset")
 def rva23_yaml = rva23.to_yaml()
-for (name in ["B", "Zcb", "Zcmop", "Zfa", "Zfh", "Zfhmin", "V", "Zve32x", "Zve64d", "Zvbb", "Zvkb", "Zvfh", "Zvfhmin", "Zvkt", "Zvl128b", "Ssnpm", "Supm", "Zicbom", "Zicboz", "Za64rs"]):
+for (name in ["B", "Zcb", "Zcmop", "Zfa", "Zfh", "Zfhmin", "V", "Zve32x", "Zve64d", "Zvbb", "Zvkb", "Zvfh", "Zvfhmin", "Zvkt", "Zvl128b", "Ssnpm", "Supm", "Zicbom", "Zicboz", "Za64rs", "Svpbmt", "Svnapot"]):
   check: (for any (entry in rva23.extensions): entry.name == name) ~is #true
 check:
   rva23_yaml.contains("  VLEN: 128") ~is #true

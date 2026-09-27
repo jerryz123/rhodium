@@ -15,3 +15,4 @@
 0013-keep-tvm-writable-with-bare-supervisor.patch
 0014-expose-rv32-medelegh.patch
 0015-keep-medeleg-page-fault-bits-in-bare-mode.patch
+0016-recognize-sha-properties.patch

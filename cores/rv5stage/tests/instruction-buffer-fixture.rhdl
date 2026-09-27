@@ -12,9 +12,9 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageInstructionBufferFixture():
-  interface packets(Decoupled(RV5StageFetchPacket(XLen.X64)), ~role: consumer)
+  interface packets(Decoupled(RV5StageFetchPacket(XLen.X64, #false)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface fetched(Decoupled(FetchDecode(XLen.X64)), ~role: producer)
+  interface fetched(Decoupled(FetchDecode(XLen.X64, #false)), ~role: producer)
   inst buffer(RV5StageInstructionBuffer(RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
   packets |> buffer.packets
   clear |> buffer.clear

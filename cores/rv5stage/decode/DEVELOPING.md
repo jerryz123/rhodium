@@ -32,7 +32,7 @@ execution and retirement behavior.
 | [`../../riscv/divide-decode.rhdl`](../../riscv/divide-decode.rhdl), [`divide-ctrl.rhdl`](divide-ctrl.rhdl) | Reusable M divide controls; RV5Stage catalog completion |
 | [`writeback-ctrl.rhdl`](writeback-ctrl.rhdl) | Scalar architectural write enable and result source |
 | [`system-ctrl.rhdl`](system-ctrl.rhdl) | Zicsr operation, ECALL, EBREAK, WFI, MRET, SRET, and decode-only WRS.NTO/WRS.STO actions |
-| [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | FENCE, FENCE.I, and SFENCE.VMA actions |
+| [`fence-ctrl.rhdl`](fence-ctrl.rhdl) | Memory, instruction, host/guest translation fences and Svinval ordering-only actions |
 | [`hint-ctrl.rhdl`](hint-ctrl.rhdl) | Nonarchitectural PAUSE and NTL selectors, separate from fence/system serialization |
 | [`fp-ctrl.rhdl`](fp-ctrl.rhdl) | FP register-bank use, destination bank, execution unit, precisions, rounding-mode use, and operation modifiers |
 | [`vector-ctrl.rhdl`](vector-ctrl.rhdl) | Zve/V configuration, packed SIMD controls, operand modes, profile ELEN/FP restrictions, and same-/mixed-width register-group legality |

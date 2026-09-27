@@ -1,0 +1,17 @@
+#lang rhombus
+// Emits the opt-in H CSR specialization for architectural state qualification.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../../../riscv/isa/fp-profile.rhm" open
+  "../../../../riscv/isa/vector-profile.rhm" open
+  "../../csr.rhdl" as csr
+  "../../profile.rhm" open
+
+def design = embedded.run_elaboration(
+  fun (): csr.RV5StageCsrFile(RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~hypervisor: #true, ~floating_point: FloatingPointProfile.D, ~smstateen: #true, ~sstc: #true, ~ssnpm: #true, ~svpbmt: #true, ~zicbom: #true, ~zicboz: #true), ~vector: VectorProfile.V, ~vector_length: 128))
+)
+print(emit_circt(design))

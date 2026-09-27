@@ -41,7 +41,7 @@ class CHIHNFConfig(flit :: CHIFlitParams,
               "requester NodeIDs must fit the physical NodeID width")
       def allowed_requests:
         if endpoint.kind == CHINodeKind.RNI
-        | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp,
+        | [CHIReqOpcode.ReadOnce, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp,
            CHIReqOpcode.WriteNoSnpFull,
            CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid]
         | [CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadClean,

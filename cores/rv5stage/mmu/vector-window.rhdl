@@ -5,6 +5,7 @@
 import:
   "protocol.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
+  "../../../riscv/rtl/svpbmt.rhdl".PageMemoryType
   "../../../riscv/rtl/sv39.rhdl".sv39_same_page
   lib("flow/main.rhdl") open
 
@@ -63,7 +64,7 @@ sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   def same_leaf = sv39_same_page(lookup_span.first, lookup_span.last, result.page_size)
   def result_page = (result.physical_address[12..56] ++ bits(0, 12)).zext(64)
   def next_page = result_page + bits(4096, 64)
-  def success = !result.fault & !result.access_fault & vector_page_permitted(physical_map, result_page, lookup_span.store)
+  def success = !result.fault & !result.access_fault & (result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, result_page, lookup_span.store)
   def needs_second = success & !lookup_second & split & !same_leaf
   when (check.release.valid):
     state <== RV5StageVectorWindowState.Idle

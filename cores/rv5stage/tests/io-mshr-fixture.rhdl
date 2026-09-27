@@ -7,7 +7,7 @@ import:
   "../memory-router.rhdl".RV5StageMemoryRouter
   "../chi/uncached.rhdl".RV5StageUncached
   "../dcache/protocol.rhdl".RV5StageDataAccess
-  "../uncached-protocol.rhdl".RV5StagePhysicalInstructionAccess
+  "../uncached-protocol.rhdl" open
   "params.rhdl".test_rv5stage_uncached_config
   lib("riscv/isa/xlen.rhm").XLen
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
@@ -15,7 +15,7 @@ import:
 sync_circuit RV5StageIOMSHRFixture(~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def config = test_rv5stage_uncached_config
   input node_id: Bits(config.flit.node_id_width)
-  interface core(RV5StageDataAccess(XLen.X64, vector_completion_slots), ~role: responder)
+  interface core(RV5StagePhysicalDataAccess(XLen.X64, vector_completion_slots), ~role: responder)
   interface cache(RV5StageDataAccess(XLen.X64, vector_completion_slots), ~role: requester)
   interface instruction(RV5StagePhysicalInstructionAccess(XLen.X64), ~role: responder)
   interface chi(CHIRNIChannels(config.flit), ~role: node)

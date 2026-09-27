@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Recognize augmented hypervisor profile properties
+Purpose: Accepts Sha and its opcode-free guarantees while enabling H and state-enable execution.
+SPDX-License-Identifier: Apache-2.0
+
+The pinned implementation already supplies these H architectural guarantees.
+Ssstateen selects the existing complete Smstateen implementation. No instruction
+or CSR behavior is replaced by this parser extension.
+
+diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+--- a/disasm/isa_parser.cc
++++ b/disasm/isa_parser.cc
+@@ -94,2 +94,10 @@ static const extension_info_t extension_infos[] = {
+   {"h", {'H'}},
++  {"sha", {}, {"h", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"}},
++  {"ssstateen", {}, {"smstateen"}},
++  {"shcounterenw"},
++  {"shvstvala"},
++  {"shtvala"},
++  {"shvstvecd"},
++  {"shvsatpa"},
++  {"shgatpa"},
+   {"zfh", {EXT_ZFH}, {"zfhmin"}},

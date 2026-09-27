@@ -12,6 +12,7 @@ enum MisaExtension
 | C
 | D
 | F
+| H
 | I
 | M
 | S
@@ -25,6 +26,7 @@ fun misa_extension_index(extension :: MisaExtension) :: Nat:
   | MisaExtension.C: 2
   | MisaExtension.D: 3
   | MisaExtension.F: 5
+  | MisaExtension.H: 7
   | MisaExtension.I: 8
   | MisaExtension.M: 12
   | MisaExtension.S: 18

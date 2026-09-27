@@ -12,8 +12,8 @@ import:
 
 sync_circuit RV5StageFetchFixture(profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
   interface control(RV5StageFrontendControl(profile.xlen), ~role: frontend)
-  interface memory(RV5StageFetchAccess(profile.xlen), ~role: requester)
-  interface fetched(Decoupled(FetchDecode(profile.xlen)), ~role: producer)
+  interface memory(RV5StageFetchAccess(profile.xlen, #false), ~role: requester)
+  interface fetched(Decoupled(FetchDecode(profile.xlen, #false)), ~role: producer)
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
   inst instructions(RV5StageInstructionBuffer(profile))
   control |> frontend.control

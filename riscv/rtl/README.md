@@ -53,10 +53,12 @@ Dependency enforcement and extension workflow are documented in
 | [`vector.rhdl`](vector.rhdl) | `RiscvVectorState`, `vector_type`, `vector_configure` | Define the architectural vector-state value and profile-selected vtype legality; no state storage |
 | [`atomic.rhdl`](atomic.rhdl) | `RiscvAtomicOperation`, `RiscvAtomicALU` | Implement reusable RV32/RV64 AMO update semantics |
 | [`zihintntl.rhdl`](zihintntl.rhdl) | `RiscvMemoryLocality` | Carry the architectural NTL selector independently of cache policy |
-| [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | M/S/U CMO permission, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
+| [`cmo.rhdl`](cmo.rhdl) | `CboManagementOperation`, `CboInvalidateMode`, `CboAccess`, `CboManagementPermission`, and `cbo_*`/`cmo_*` helpers | Host/guest CMO permission, trap classification, invalidate-to-flush conversion, xenvcfg WARL fields, and physical permission |
 | [`privilege.rhdl`](privilege.rhdl) | `PrivilegeMode`, `effective_data_privilege` | Shared M/S/U values and MPRV/MPP selection for explicit accesses |
 | [`pointer-masking.rhdl`](pointer-masking.rhdl) | `PointerMaskMode`, `PointerMaskControl`, and pointer-mask helpers | RV64 Ssnpm WARL controls and explicit-address normalization |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
+| [`timer.rhdl`](timer.rhdl) | `RiscvTimerAccess`, `sstc_access`, `sstc_pending` | Stateless Sstc machine/guest denial priority and unsigned wrapping-time comparison; callers own CSR selection, storage, and pending-bit composition |
+| [`state-enable.rhdl`](state-enable.rhdl) | `RiscvStateEnableAccess`, `state_enable_access` | Stateless M/H SE and ENVCFG access hierarchy with machine-denial priority; callers own implemented CSR selection, state, WARL masks, and base privilege checks |
 | [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits` | Select and delegate synchronous exceptions without owning state |
 | [`interrupt.rhdl`](interrupt.rhdl) | `RiscvInterrupts`, `resolve_riscv_interrupt`, `interrupt_cause_bits` | Materialize pending bits and standard M/S priority and delegation without owning state |
 | [`pma.rhdl`](pma.rhdl) | `RiscvPhysicalMemoryAttributes`, `RiscvPhysicalMemoryRegion`, `RiscvPhysicalMemoryMap`, `RiscvPhysicalMemoryLookup` | Validate host-authored regions and perform hardware access lookup |
@@ -65,6 +67,33 @@ Dependency enforcement and extension workflow are documented in
 | [`floating-point.rhdl`](floating-point.rhdl) | `FloatSignOperation`, `RiscvRoundingMode`, Zfa immediate constants, and `riscv_*` helpers | Apply RISC-V policy around HardFloat values |
 
 ## Decode descriptors
+
+### Guest execution and fault context
+
+[`privilege.rhdl`](privilege.rhdl) separates nominal U/S/M privilege from
+virtualization in `RiscvExecutionContext`; `RiscvTrapTarget` names M, HS,
+and VS trap destinations. Trap and interrupt decisions carry that typed
+`target`, rather than a supervisor Boolean. [`hypervisor.rhdl`](hypervisor.rhdl) provides
+S-to-VS CSR substitution and two-level synchronous delegation.
+`RiscvGuestMemoryAccess` distinguishes ordinary execution-context accesses,
+explicit guest accesses, and HLVX execute-permission reads. This intent is not
+a physical cache operation: HLVX remains a load for fault classification.
+`interrupt.rhdl` provides `resolve_riscv_hypervisor_interrupt` for the RV64,
+GEILEN=0 baseline: physical M/HS and injected VS sources, destination-first
+priority, global enables, and VS cause renumbering. It allocates no CSR state
+and includes no AIA or timer-comparator mechanism.
+`RiscvGuestFault` carries captured GVA provenance, the original GPA, and
+explicit-access versus implicit VS page-table-read provenance. The CSR consumer
+qualifies it with the trapping instruction, shifts GPA by two for xTVAL2/HTVAL,
+and uses the RV64 page-table-read pseudo-instruction for xTINST.
+It does not perform translation or allocate architectural state.
+
+`RiscvGuestTranslationContext` captures effective U/S guest privilege, typed
+VS Bare/Sv39 and G Bare/Sv39x4 modes, roots, and per-stage permission controls.
+`sv39x4_address_valid` and `sv39x4_vpn` provide unsigned 41-bit GPA validation
+and the widened root index. The enums describe supported translation modes,
+not the raw SATP/HGATP CSR encoding. Saved walker continuations and completion
+ownership belong to the consuming core, not this adapter.
 
 ### Patterns
 
@@ -169,6 +198,13 @@ supplies the precise `retire` event and owns CSR recognition, privilege and
 [ratified pointer-masking transformation](https://docs.riscv.org/reference/isa/v20260120/priv/zpm.html).
 `user_pointer_mask_control` selects `senvcfg.PMM` for effective U-mode accesses
 (including MPRV), with MXR suppressing masking even in Bare mode.
+`hypervisor_pointer_mask_control` extends this policy to effective VS/VU and
+explicit HLV/HSV accesses, using `henvcfg.PMM`, shared `senvcfg.PMM`, and the
+U-mode explicit-access override `hstatus.HUPMM`. HLVX and either effective
+HS/VS MXR disable guest masking. The active SATP/VSATP mode determines the
+address transformation; HGATP does not turn a guest-physical address into a
+virtual one. CSR owners combine `pointer_mask_hstatus_fields` with other
+HSTATUS fields and capture the selected control with each operation.
 `apply_pointer_mask` replaces the upper 7 or 16 bits with zeros for physical
 addresses or the next bit's sign for virtual addresses; disabled mode and
 RV32 preserve the address. Remaining canonicality and permission checks belong
@@ -240,6 +276,9 @@ lookup remains authoritative for mapping, permissions, atomic capabilities,
 and Home selection: this helper neither grants access nor implements a cache
 or transport policy. `svpbmt_envcfg_fields` preserves only PBMTE for enabled
 RV64 implementations; disabled and RV32 specializations return zero.
+`compose_page_memory_type(stage_one, stage_two)` applies the non-default
+stage-one override after the stage-two override; callers supply PMA for Bare
+stages. It does not combine permissions or change either stage's fault class.
 
 `Sv39Pte()` uses the 64-bit PTE encoding as its packed representation. Convert
 raw `Bits(64)` with `raw.into(Sv39Pte())`; use `pte.as_bits()` to recover the
@@ -255,14 +294,18 @@ not MPRV's effective data privilege. M bypasses xenvcfg restrictions; S obeys
 menvcfg; U obeys both menvcfg and senvcfg. CBIE enables invalidate or converts
 it into a flush, with either applicable flush setting taking precedence.
 CBCFE gates clean/flush independently of CBIE. A false `~zicbom` denies all
-three instructions even in M-mode. Hypervisor modes are outside this helper.
+three instructions even in M-mode. Optional `~virtualized` and `~henvcfg`
+arguments add VS/VU policy. The result's `access: CboAccess` distinguishes
+Allowed, IllegalInstruction and VirtualInstruction. M denial wins; HS denial
+or VU's senvcfg denial is virtual. All applicable CBIE Flush settings participate
+in conversion. Shared senvcfg is software-switched, not banked by this helper.
 
 `cmo_envcfg_fields` returns only the implemented CBIE/CBCFE/CBZE fields for
 RV32 or RV64. It maps reserved CBIE=10 writes to 00 and zeros fields for
 disabled extensions. It does not gate writes to one xenvcfg based on another;
 the hierarchy applies at instruction execution. Callers merge any other
-implemented xenvcfg fields separately. `cbo_zero_permitted` provides the
-corresponding hierarchical CBZE rule.
+implemented xenvcfg fields separately. `cbo_zero_permission` returns `CboAccess`
+for the corresponding hierarchical CBZE rule, with the same guest arguments.
 
 `Sv39Access.CacheManagement` uses the **effective data-access privilege**,
 SUM, and MXR. It permits load or store access, requires A, and ignores D.
@@ -272,9 +315,9 @@ read or write permission regardless of cacheability, device classification,
 atomic support, or CBO.ZERO capability. Supply the complete aligned block to
 the physical-map lookup; PMP permission remains a separate caller check.
 
-The integrating core must classify a denied CSR operation as illegal, a
-translation denial as a store page fault, and a physical denial as a store
-access fault. Keep the original rs1 value for tval, align only the maintenance
+The integrating core must retain the typed instruction-denial classification.
+Translation and physical denials use the store page/access fault classes
+(including guest-page faults when appropriate). Keep the original rs1 value for tval, align only the maintenance
 address, and do not generate an alignment exception. These helpers neither
 issue a transaction nor enable Zicbom in a processor profile. RV5Stage's
 [opt-in integration](../../cores/rv5stage/README.md#cache-block-management)

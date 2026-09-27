@@ -1,0 +1,25 @@
+#lang rhodium
+// Defines stateless Sstc comparator and privilege-gate policy; storage is core-owned.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "privilege.rhdl" open
+
+bundle RiscvTimerAccess():
+  illegal: Bool
+  virtual_instruction: Bool
+
+fun sstc_access(context :: RiscvExecutionContext(), machine_enable :: Bool, machine_counter_enable :: Bool, guest_enable :: Bool, guest_counter_enable :: Bool) :~ RiscvTimerAccess():
+  def illegal = (context.privilege =/= PrivilegeMode.Machine) & !(machine_enable & machine_counter_enable)
+  RiscvTimerAccess():
+    illegal: illegal
+    virtual_instruction: context.virtualized & !illegal & !(guest_enable & guest_counter_enable)
+
+// Addition wraps at 64 bits; the virtual timer remains live outside V=1.
+fun sstc_pending(time :: Bits(64), delta :: Bits(64), compare :: Bits(64)) :~ Bool:
+  (time + delta) >= compare
+
+export:
+  RiscvTimerAccess
+  sstc_access
+  sstc_pending

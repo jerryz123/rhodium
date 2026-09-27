@@ -31,5 +31,6 @@ check:
   rv64_vector_timing.march ~is "rv64imav_zvkt"
   rv64_cache_block_management.march ~is "rv64i_zicbom"
   rv64_pointer_masking.march ~is "rv64ima"
+  gnu_isa_target(XLen.X64, ["i", "h", "sha", "smstateen", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa", "sstc", "svinval"]).march ~is "rv64ih_svinval"
   gnu_isa_target(XLen.X64, ["m"]) ~throws "base I"
   gnu_isa_target(XLen.X64, ["i", "future_extension"]) ~throws "no GNU toolchain spelling"

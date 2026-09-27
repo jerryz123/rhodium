@@ -3,10 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl") open
   "bpd/protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
 
-bundle RV5StageFetchPacket(xlen :: XLen):
+bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
   pc: Bits(xlen.width)
   word: Bits(32)
   mask: Bits(2)

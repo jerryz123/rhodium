@@ -18,17 +18,20 @@ Reuse the public RISC-V Sv39 adapter for PTE layout, canonicality, permissions,
 superpages, and physical-address construction. Keep translation state in the
 MMU and core-first physical arbitration in the parent
 [`data-port-arbiter.rhdl`](../data-port-arbiter.rhdl), not in the pure RISC-V
-model or caches. The MMU tracks a pending accepted PTE through cancellation:
-an orphan reply is discarded, and a new walk cannot issue its PTE until that
-reply has returned. This is response correlation, not whole-port ownership.
+model or caches. The shared walker retains an accepted PTE through cancellation
+and drains its orphan reply before admitting another walk. The MMU forwards all
+accepted replies, even after invalidation, and tracks the physical pending read.
+This is response correlation, not whole-port ownership.
 
 ## Implementation map
 
 | File | Ownership |
 |---|---|
 | [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
-| [`tlb.rhdl`](tlb.rhdl) | Fully associative demand/probe matching, permission recheck, physical-address construction, refill, and invalidation |
-| [`walker.rhdl`](walker.rhdl) | Serialized three-level PTE fetch, structural and permission checks, cancellation, and completion |
+| [`tlb.rhdl`](tlb.rhdl) | One host/guest entry bank, combinational demand/probe matching, separate stage permissions, refill, and host-port adapter |
+| [`walker.rhdl`](walker.rhdl) | One host/nested walk FSM, saved VS continuation, PTE checks, cancellation/drain, and host-port adapter |
+| [`translation.rhdl`](translation.rhdl) | Shared host/guest lookup, mapping, fill, PTE-memory contracts, and host-port value projections |
+| [`../tests/translation-service.rhdl`](../tests/translation-service.rhdl) | Test-only serialized command driver for the shared TLB/walker |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and separate core/PTE physical offers |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
@@ -79,8 +82,8 @@ invalidate translations or cancel accepted page-table response ownership.
    response. Select the matching early virtual/physical L1D lookup with each
    physical request, independently of downstream readiness. Route immediate
    admission faults to the granted requester and delayed completions by the
-   explicit `RV5StageDataOrigin`, not by writeback kind or address. The MMU's
-   pending-PTE bit prevents a canceled reply from satisfying a later walk.
+   explicit `RV5StageDataOrigin`, not by writeback kind or address. The shared walker's
+   drain state prevents a canceled reply from satisfying a later walk.
    Ordinary fetch recovery detaches the instruction consumer without resetting
    the walker or an accepted PTE request. Retain successful ITLB fills, but
    suppress fault capture for the detached consumer, including a flush on the
@@ -112,6 +115,13 @@ invalidate translations or cancel accepted page-table response ownership.
    owner; they must never bypass translation for scalar traffic. Check context
    equality and the invalidation epoch at WB. A mismatch before WB rejects the speculative
    certificate; admitted vector ownership keeps the context stable thereafter.
+   Certificates include virtualization and the complete shared translation
+   context: both modes/root PPNs, effective privilege, SUM/MXR and PBMTE controls.
+   A host SATP tag alone cannot authorize a guest mapping. Construct the context
+   for normal data access, independently of concurrent scalar explicit-guest
+   intent. Guest entries are composed 4 KiB mappings, so a two-page window must
+   establish both pages. A failed precheck only selects elementwise execution;
+   that exact element owns any architectural guest fault and GPA/PTE provenance.
    DTLB replacement alone does not invalidate the carried translation.
    Page probes reuse the demand DTLB and serialized walker, including ordinary
    A/D checks; unsuccessful probes reply false rather than populating the
@@ -127,6 +137,10 @@ invalidate translations or cancel accepted page-table response ownership.
    maps. Failed conservative coverage selects element-wise execution.
 6. Keep prefetch probes non-faulting and independent of walker ownership; they
    may use Bare translation or an existing TLB entry but must not check A/D.
+   For composed mappings, intersect VS/G permissions for each access class
+   before taking the fetch/load/store union. Independent per-stage unions can
+   incorrectly authorize disjoint permissions. Apply the G PBMT override,
+   followed by any non-PMA stage-one override.
    Keep address, operation, and validity registered on both sides of the probe;
    cancellation is synchronous so demand squash cannot reach cache admission
    through a combinational prefetch-valid gate.
@@ -136,13 +150,49 @@ invalidate translations or cancel accepted page-table response ownership.
    fault, and invalidation behavior in compiled simulations, then update
    [README.md](README.md) for observable changes.
 
-The walker binds `mmu/walk` to its original non-Idle state, request acceptance
+The walker binds `mmu/walk` to its active state (excluding Idle and Drain), request acceptance
 qualified by cancellation priority, and active completion/cancel release.
 One retained contract covers its PTE requests and completion; no new functional
 owner state or inferred address matching is needed. Keep ordinary instruction
 recovery distinct from `walker.cancel` when extending this instrumentation.
 
 ## Focused validation
+
+Select `rv5stage-guest-translation` for the test-only composed translation service. Its public
+memory/completion scoreboard checks cold walks, warm hits without PTE traffic,
+host/guest coexistence at the same VA, host superpage reach, guest 4 KiB slicing, replacement, current permissions, byte-exact GPA
+faults, root/mode/environment changes, captured caller context, physical faults,
+held completion, cancellation, and invalidation during accepted reads and
+completion. Pair it with `rv5stage-nested-walker` when shared walk/result
+contracts change. The precise cause helper consumes the original access class;
+its test covers fetch/load/store/cache-management implicit-PTE faults.
+Keep this command sequencer under tests; production ITLB/DTLB hits remain combinational.
+The production MMU uses the shared ports directly. The optional guest context
+comes from the CSR owner; current privilege/MPRV/MPV chooses fetch/data stage
+contexts separately. The core retains the paired request/MEM fault metadata,
+while S2 captures fetch provenance alongside its response. Keep the physical
+cache ABI independent of guest translation. Run `rv5stage-hypervisor-core` for
+this end-to-end boundary.
+Explicit guest requests carry a typed mode in the virtual MMU protocol; cache
+protocols remain physical. Register pipeline translation mode alongside its
+request, and give the WB transaction's mode the same DTLB priority as its
+address. SPVP, not MPRV or live V, chooses explicit guest privilege. Recheck
+HLVX execute permission on warm hits at both stages and physical R/X permission
+before admission; nested PTE reads retain ordinary read permissions.
+TLB invalidation and walk-owner removal happen at the invalidation edge;
+the walker's cancel notification is registered to avoid a WB-to-arbiter ready
+loop. Reads accepted on that edge remain real transactions and must drain.
+
+For nested translation, select `rv5stage-nested-walker`. Its public-interface
+fixture checks all Bare/paged combinations, the 15-read cold nested walk,
+Sv39x4 root geometry, mixed superpages, captured context, per-stage privilege,
+MXR/SUM/PBMTE and A/D checks, exact guest-fault provenance, physical rejection,
+backpressure, zero-latency responses, and cancellation/draining. The saved VS
+frame owns the continuation while the active frame runs G translation; no
+second walker or nested memory requester is instantiated. Keep memory-response
+ownership in the shared walker; the MMU must not filter replies on invalidation.
+Shared PTE/address helpers remain in `riscv/rtl`; retained frames and arbitration
+remain here. Keep H profile publication separate from component qualification.
 
 Mapping geometry belongs in the public Sv39 adapter. Keep walker `level`
 separate from result/entry `page_size`, and normalize `base_ppn` at leaf
@@ -156,16 +206,23 @@ host checks. The direct fixture covers every subpage, malformed encodings,
 current permissions, PBMT, compact
 replacement, held results, and invalidation. The integrated replay fixture
 covers scalar/fetch/prefetch reuse and two-page vector authorization both
-within and across 64 KiB boundaries. Keep ISA/UDB advertisement separate until
-supervisor-level software qualification is complete.
+within and across 64 KiB boundaries. ISA/UDB publication follows the selected
+Svnapot/Svpbmt flags; the shared RVA23 preset selects both. Keep component
+qualification and exact-profile ACT projection distinct from full RVA23
+conformance, which enabling these extensions alone does not establish.
 
 For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `rv5stage-csr`,
 and `rv5stage-mmu-replay`. PBMTE is captured at walk admission; do not sample
 the caller's next request while validating later PTE replies. PBMT travels
 with translation results and TLB entries, including the prefetch probe.
-Do not enable it in the composed MMU before the shared attribute resolver is
-used by demand/fetch/prefetch routing, vector authorization, and CHI service.
-That integration must preserve PTE-response draining across cancellation.
+The composed MMU resolves demand/fetch/prefetch attributes with the shared
+adapter and rejects NC/IO vector certificates, keeping their effects on the
+ordinary element path. The physical request wrapper owns PBMT through
+arbitration; never recover it from live CSR state at response time. Preserve
+PTE-response draining across cancellation. Use `rv5stage-hypervisor-core` for
+both-stage and Bare guest execution, implicit-PTE attributes, scalar/vector
+fallback and faults; `rv5stage-memory-router`, `rv5stage-io-mshr` and
+`rv5stage-uncached` cover routing, retained ordering and physical-domain opcodes.
 
 Run the MMU-owned host check from the repository root:
 

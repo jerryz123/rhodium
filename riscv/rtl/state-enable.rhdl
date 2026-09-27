@@ -1,0 +1,35 @@
+#lang rhodium
+// Resolves architectural state-enable CSR access gates without owning privileged state.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/csr.rhm" open
+  "csr.rhdl" open
+  "privilege.rhdl" open
+
+bundle RiscvStateEnableAccess():
+  illegal: Bool
+  virtual_instruction: Bool
+
+// The caller separately checks CSR implementation, XLEN, and base privilege.
+// Machine denial wins even when a guest access would otherwise be virtual.
+fun state_enable_access(context :: RiscvExecutionContext(), address :: Bits(12), machine :: Vec(4, Bits(64)), hypervisor :: Vec(4, Bits(64))) :~ RiscvStateEnableAccess():
+  def mutable machine_allowed = Bool(#true)
+  def mutable guest_allowed = Bool(#true)
+  for (index in 0..4):
+    def supervisor_register = address === csr_bits(SupervisorStateEnableIds[index])
+    def hypervisor_register = address.is_one_of(csr_bits(HypervisorStateEnableIds[index]), csr_bits(HypervisorStateEnableHighIds[index]))
+    machine_allowed := machine_allowed & (!(supervisor_register ||| hypervisor_register) ||| csr_flag(machine[index], StateenSE))
+    guest_allowed := guest_allowed & (!supervisor_register ||| csr_flag(hypervisor[index], StateenSE))
+  def supervisor_environment = address === csr_bits(CsrId.Senvcfg)
+  def hypervisor_environment = address.is_one_of(csr_bits(CsrId.Henvcfg), csr_bits(CsrId.Henvcfgh))
+  machine_allowed := machine_allowed & (!(supervisor_environment ||| hypervisor_environment) ||| csr_flag(machine[0], StateenENVCFG))
+  guest_allowed := guest_allowed & (!supervisor_environment ||| csr_flag(hypervisor[0], StateenENVCFG))
+  def illegal = (context.privilege =/= PrivilegeMode.Machine) & !machine_allowed
+  RiscvStateEnableAccess():
+    illegal: illegal
+    virtual_instruction: context.virtualized & !illegal & !guest_allowed
+
+export:
+  RiscvStateEnableAccess
+  state_enable_access

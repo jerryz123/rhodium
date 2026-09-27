@@ -65,9 +65,10 @@ sync_circuit RV5StageFetchThroughput():
   router.cache |> cache.core
   router.uncached.request.ready <== Bool(#true)
   router.uncached.response.valid <== Bool(#false)
-  router.uncached.response.bits <== literal(RV5StageInstructionResp(), 0)
+  router.uncached.response.bits <== literal(RV5StageInstructionResp(#false), 0)
   mmu.privilege <== PrivilegeMode.Machine
   mmu.mstatus <== bits(0, 64)
+  mmu.pbmte <== Bool(#false)
   mmu.satp <== bits(0, 64)
   mmu.invalidate_all <== Bool(#false)
   mmu.ordered_busy <== Bool(#false)

@@ -45,7 +45,9 @@ one hart binding, shape configuration, architectural description, and UDB
 projection. Canonical identities are `<shape>-<core>-<isa>`.
 
 `RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
-not a claim of complete RVA23U64/S64 conformance. `RV32Int` selects the
+not a claim of complete RVA23U64/S64 conformance. It enables Svpbmt and Svnapot
+on both core implementations; see the [RV5Stage MMU contract](../cores/rv5stage/mmu/README.md#supported-sv39-behavior-and-deliberate-limits).
+`RV32Int` selects the
 integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
 Zfa, or half precision. Both use VLEN=64, ELEN=32 and Bare translation and retain
 the same integer/system extensions. RV5Stage uses a 32-bit SIMD lane for both.

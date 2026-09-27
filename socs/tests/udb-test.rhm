@@ -19,8 +19,15 @@ for (core in ["rv5stage", "spike"]):
     check: yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
     for (name in ["F", "Zcf", "Zve32f"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is (isa == "rv32max")
-    for (name in ["D", "V", "Zfh", "Zfa", "Zvfh"]):
+    for (name in ["D", "V", "Zfh", "Zfa", "Zvfh", "H", "Sha", "Smstateen", "Ssstateen", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
+
+for (core in ["rv5stage", "spike"]):
+  for (shape in ["mini", "simple", "tiled"]):
+    def configuration = riscv_udb_configuration(shape ++ "-" ++ core ++ "-rva23")
+    for (name in ["H", "Sha", "Smstateen", "Ssstateen", "Shcounterenw", "Shvstvala", "Shtvala", "Shvstvecd", "Shvsatpa", "Shgatpa", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
+      check: (for any (entry in configuration.extensions): entry.name == name) ~is #true
+    check: configuration.to_yaml().contains("  VSSTATUS_VS_EXISTS: true") ~is #true
 
 def single_core_gnu_target = gnu_isa_target(
   single_core_rv5stage_soc_core_profile.xlen,
@@ -32,6 +39,8 @@ for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_p
     profile.isa_profile.isa_extensions.contains("ziccif") ~is #true
     profile.isa_profile.isa_extensions.contains("ziccamoa") ~is #true
     profile.extensions.ziccrse ~is #true
+    profile.extensions.svpbmt ~is #true
+    profile.extensions.svnapot ~is #true
     profile.isa_profile.isa_extensions.contains("ziccrse") ~is #true
     profile.isa_profile.isa_extensions.contains("zic64b") ~is #true
     profile.isa_profile.isa_extensions.contains("za64rs") ~is #true
@@ -75,6 +84,8 @@ for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rv
 
 check:
   single_core_gnu_target.march.contains("zicbom") ~is #true
+  single_core_gnu_target.march.contains("svpbmt") ~is #false
+  single_core_gnu_target.march.contains("svnapot") ~is #false
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true
   riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true
   riscv_udb_configuration("mini-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true

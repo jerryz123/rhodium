@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/rtl/hypervisor.rhdl" open
+  "../../../riscv/isa/h.rhm" open
+  "../../../riscv/isa/svinval.rhm" open
   "../../../riscv/isa/zawrs.rhm" open
   "../../alu.rhdl" open
   "../../branch-resolver.rhdl" open
@@ -56,6 +59,7 @@ import:
   lib("rhodium/std/decode.rhdl") open
 
 bundle RV5StageControl():
+  guest_access: RiscvGuestMemoryAccess
   alu: AluControl()
   operand: RV5StageOperandControl()
   branch: RiscvBranchControl()
@@ -107,6 +111,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
       DecodeCase(
         input,
         pattern(RV5StageControl()):
+          guest_access: RiscvGuestMemoryAccess.Normal
           alu: component_output(alu_cases, input)
           operand: component_output(operand_cases, input)
           branch: component_output(branch_cases, input)
@@ -171,6 +176,7 @@ fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
       DecodeCase(
         input,
         pattern(RV5StageControl()):
+          guest_access: RiscvGuestMemoryAccess.Normal
           alu: alu_control
           operand: operand_control
           branch: inactive_branch_control
@@ -206,6 +212,7 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
   DecodeCase(
     instruction_pattern(instruction),
     pattern(RV5StageControl()):
+      guest_access: RiscvGuestMemoryAccess.Normal
       alu: scalar_address_alu
       operand: zicbop_operand_control
       branch: inactive_branch_control
@@ -223,10 +230,11 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
   )
 
 // Hint overlays preserve intent without introducing register use or architectural effects.
-fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperation):
+fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperation, ~fence: fence :: RV5StageFenceOperation = RV5StageFenceOperation.None):
   DecodeCase(
     instruction_pattern(instruction),
     partial_pattern(RV5StageControl()):
+      guest_access: RiscvGuestMemoryAccess.Normal
       operand:
         partial_pattern(RV5StageOperandControl()):
           uses_rs1: Bool(#false)
@@ -236,12 +244,75 @@ fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperat
       prefetch: CachePrefetchOperation.None
       writeback: inactive_writeback_control
       system: inactive_system_control
-      fence: inactive_fence_control
+      fence:
+        pattern(RV5StageFenceControl()):
+          action: fence
       hint: hint
       floating_point_valid: Bool(#false)
       vector: NoVectorControl
   )
 def ZihintpauseCoreControlCases = [hint_control_case(PAUSE, RV5StageHintOperation.Pause)]
+def HypervisorFenceControlCases = [
+  hint_control_case(HFENCE_VVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
+  hint_control_case(HFENCE_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
+]
+
+// Full-order invalidations reuse WB's existing SFENCE/HFENCE paths. Ordering
+// instructions remain distinct solely for their privilege-only access checks.
+def SvinvalControlCases = [
+  hint_control_case(SINVAL_VMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.AddressTranslation),
+  hint_control_case(SFENCE_W_INVAL, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.TranslationOrder),
+  hint_control_case(SFENCE_INVAL_IR, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.TranslationOrder)
+]
+def SvinvalHypervisorControlCases = [
+  hint_control_case(HINVAL_VVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestVirtualTranslation),
+  hint_control_case(HINVAL_GVMA, RV5StageHintOperation.None, ~fence: RV5StageFenceOperation.GuestPhysicalTranslation)
+]
+
+// Guest memory uses the scalar address adder and load/store datapath. Only
+// translation intent differs; HLVX remains a load for faults and writeback.
+def HypervisorMemoryControlCases = for List ([instruction, store, memory_width, unsigned, execute_read] in [
+  [HLV_B, #false, MemoryWidth.Byte, #false, #false],
+  [HLV_BU, #false, MemoryWidth.Byte, #true, #false],
+  [HLV_H, #false, MemoryWidth.Half, #false, #false],
+  [HLV_HU, #false, MemoryWidth.Half, #true, #false],
+  [HLV_W, #false, MemoryWidth.Word, #false, #false],
+  [HLV_WU, #false, MemoryWidth.Word, #true, #false],
+  [HLV_D, #false, MemoryWidth.Double, #false, #false],
+  [HLVX_HU, #false, MemoryWidth.Half, #true, #true],
+  [HLVX_WU, #false, MemoryWidth.Word, #true, #true],
+  [HSV_B, #true, MemoryWidth.Byte, #false, #false],
+  [HSV_H, #true, MemoryWidth.Half, #false, #false],
+  [HSV_W, #true, MemoryWidth.Word, #false, #false],
+  [HSV_D, #true, MemoryWidth.Double, #false, #false]
+]):
+  def control = partial_pattern(RV5StageControl()):
+    guest_access: if execute_read | RiscvGuestMemoryAccess.GuestExecuteRead | RiscvGuestMemoryAccess.Guest
+    alu: scalar_address_alu
+    operand:
+      pattern(RV5StageOperandControl()):
+        uses_rs1: Bool(#true)
+        uses_rs2: Bool(store)
+        left: OperandASelect.Register
+        right: OperandBSelect.Immediate
+        immediate: RV5StageImmediateSelect.None
+    branch: inactive_branch_control
+    memory:
+      partial_pattern(RV5StageMemoryControl()):
+        access: if store | RV5StageMemoryOperation.Store | RV5StageMemoryOperation.Load
+        width: memory_width
+        unsigned: if store | pattern(Bool, _) | Bool(unsigned)
+    prefetch: CachePrefetchOperation.None
+    writeback:
+      partial_pattern(RV5StageWritebackControl()):
+        enable: Bool(!store)
+        source: if store | pattern(RV5StageWritebackSelect, _) | RV5StageWritebackSelect.Memory
+    system: inactive_system_control
+    fence: inactive_fence_control
+    hint: RV5StageHintOperation.None
+    floating_point_valid: Bool(#false)
+    vector: NoVectorControl
+  DecodeCase(instruction_pattern(instruction), control)
 
 // Scalar effects for vector rows live only at this composition boundary.
 fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
@@ -301,6 +372,7 @@ fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
     DecodeCase(
       input,
       partial_pattern(RV5StageControl()):
+        guest_access: RiscvGuestMemoryAccess.Normal
         alu: if memory | scalar_address_alu | unused_scalar_alu
         operand: operand_control
         branch: inactive_branch_control
@@ -401,13 +473,15 @@ fun rv5stage_instructions(xlen :: XLen,
                           ~zihintpause: zihintpause_enabled :: Boolean = #false,
                           ~zihintntl: zihintntl_enabled :: Boolean = #false,
                           ~zicbom: zicbom_enabled :: Boolean = #false,
-                          ~zicboz: zicboz_enabled :: Boolean = #false) :: List.of(InstructionSpec):
+                          ~zicboz: zicboz_enabled :: Boolean = #false,
+                          ~svinval: svinval_enabled :: Boolean = #false,
+                          ~hypervisor: hypervisor :: Boolean = #false) :: List.of(InstructionSpec):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
   def base_integer_instructions = if xlen == XLen.X32 | RV32RV5StageInstructions | RV64RV5StageInstructions
   def integer_instructions = base_integer_instructions ++ (if zicbop_enabled | zicbop.ZicbopInstructions | []) ++ (if zicboz_enabled | ZicbozInstructions | []) ++ (if zicbom_enabled | ZicbomInstructions | []) ++ (if zawrs_enabled | ZawrsInstructions | []) ++ (if zihintpause_enabled | ZihintpauseInstructions | []) ++ (if zihintntl_enabled | ZihintntlInstructions | [])
-  if profile == FloatingPointProfile.None
-  | integer_instructions
-  | integer_instructions ++ rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled)
+  integer_instructions ++ (if hypervisor | RV64HInstructions | []) ++ (
+    if svinval_enabled | SvinvalInstructions ++ (if hypervisor | SvinvalHypervisorInstructions | []) | []
+  ) ++ (if profile == FloatingPointProfile.None | [] | rv5stage_floating_point_instructions(xlen, profile, half_precision, ~zfa: zfa_enabled))
 def RV32RV5StageControlCases = compose_control_cases(
   RV32RV5StageInstructions,
   RV32RV5StageAluCases,
@@ -460,7 +534,9 @@ circuit RV5StageInstructionDecoder(
   ~zihintntl: zihintntl_enabled :: Boolean = #false,
   ~zicbom: zicbom_enabled :: Boolean = #false,
   ~zicboz: zicboz_enabled :: Boolean = #false,
+  ~svinval: svinval_enabled :: Boolean = #false,
   ~vector: vector_profile :: VectorProfile = DefaultVectorProfile,
+  ~hypervisor: hypervisor :: Boolean = #false,
   ~vector_extensions: vector_extensions :: List.of(VectorExtension) = DefaultVectorExtensions
 ):
   check_rv5stage_floating_point_profile(xlen, profile, half_precision, ~zfa: zfa_enabled)
@@ -483,11 +559,15 @@ circuit RV5StageInstructionDecoder(
       )
   def base_vector_cases = if !vector_profile_enabled(vector_profile) | [] | (if vector_profile_supports_fp32(vector_profile) | VectorCoreControlCases | VectorIntegerCoreControlCases)
   def vector_cases = base_vector_cases ++ (if vector_extensions_support_zvbb(vector_extensions) | VectorZvbbCoreControlCases | [])
-  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases)(instruction)
+  def invalidation_cases = if svinval_enabled | SvinvalControlCases ++ (if hypervisor | SvinvalHypervisorControlCases | []) | []
+  def decoded :: DecodeResult(RV5StageControl()) = ValidDecodeGen(selected_cases ++ vector_cases ++ invalidation_cases ++ (if hypervisor | HypervisorFenceControlCases ++ HypervisorMemoryControlCases | []))(instruction)
   valid <== decoded.valid
   control <== decoded.value
 
 export:
+  SvinvalControlCases
+  SvinvalHypervisorControlCases
+  HypervisorMemoryControlCases
   VectorCoreControlCases
   VectorIntegerCoreControlCases
   VectorZvbbCoreControlCases

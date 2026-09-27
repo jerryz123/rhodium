@@ -42,5 +42,5 @@ check:
   ) ~throws "executable hart regions must permit idempotent reads"
   params.test_rv5stage_uncached_params.uncached_node.kind ~is CHINodeKind.RNI
   params.test_rv5stage_uncached_params.uncached_node.emits.req ~is [
-    CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl
+    CHIReqOpcode.ReadOnce, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl
   ]

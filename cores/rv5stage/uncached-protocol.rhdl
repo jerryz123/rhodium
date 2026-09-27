@@ -7,12 +7,32 @@ import:
   "dcache/protocol.rhdl" open
   "icache/protocol.rhdl" open
   "../../riscv/isa/xlen.rhm".XLen
+  "../../riscv/rtl/svpbmt.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
 bundle RV5StagePhysicalInstructionReq(xlen :: XLen):
   address: Bits(xlen.width)
   cacheable: Bool
   device: Bool
+
+// Translation attributes travel with the same accepted request as its address.
+// The physical router consumes them before the unchanged private-cache ABI.
+bundle RV5StagePhysicalDataReq(xlen :: XLen, slots :: Pow2Int):
+  memory: RV5StageDataReq(xlen, slots)
+  pbmt: PageMemoryType
+
+interface RV5StagePhysicalDataAccess(xlen :: XLen, slots :: Pow2Int):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(RV5StagePhysicalDataReq(xlen, slots))
+  responder -> requester:
+    request_fault: Bool
+    request_access_fault: Bool
+    response: Decoupled(RV5StageDataResp(xlen, slots))
+    drained: Bool
+    reservation_valid: Bool
 
 interface RV5StagePhysicalInstructionAccess(xlen :: XLen):
   role requester
@@ -25,7 +45,7 @@ interface RV5StagePhysicalInstructionAccess(xlen :: XLen):
     request: Decoupled(RV5StagePhysicalInstructionReq(xlen))
 
   responder -> requester:
-    response: Irrevocable(RV5StageInstructionResp())
+    response: Irrevocable(RV5StageInstructionResp(#false))
 
 bundle RV5StageUncachedDataReq(xlen :: XLen, vector_completion_slots :: Pow2Int):
   request: RV5StageDataReq(xlen, vector_completion_slots)
@@ -46,6 +66,8 @@ interface RV5StageUncachedDataAccess(xlen :: XLen, vector_completion_slots :: Po
     drained: Bool
 
 export:
+  RV5StagePhysicalDataReq
+  RV5StagePhysicalDataAccess
   RV5StagePhysicalInstructionReq
   RV5StagePhysicalInstructionAccess
   RV5StageUncachedDataReq

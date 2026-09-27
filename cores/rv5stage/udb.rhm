@@ -135,6 +135,9 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
   ]
   when profile.mmu_mode == RV5StageMmuMode.Sv39
   | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
+  for ([name, spelling] in [["h", "H"], ["sstc", "Sstc"], ["svinval", "Svinval"], ["svpbmt", "Svpbmt"], ["svnapot", "Svnapot"], ["smstateen", "Smstateen"], ["ssstateen", "Ssstateen"], ["sha", "Sha"], ["shcounterenw", "Shcounterenw"], ["shvstvala", "Shvstvala"], ["shtvala", "Shtvala"], ["shvstvecd", "Shvstvecd"], ["shvsatpa", "Shvsatpa"], ["shgatpa", "Shgatpa"]]):
+    when advertises(name)
+    | result := result ++ [extension(spelling, "1.0.0")]
   result
 
 fun rv5stage_udb_parameters(profile :: RV5StageConfig,
@@ -238,6 +241,33 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   | result := result ++ [natural_parameter("PMLEN", pmlen)]
   when selected.zawrs
   | result := result ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
+  when selected.smstateen
+  | result := result ++ [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")]
+  when selected.hypervisor
+  | block:
+      result := result ++ [
+        boolean_parameter("MUTABLE_MISA_H", #false), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
+        string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 0),
+        natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0]),
+        boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
+        boolean_list_parameter("HCOUNTENABLE_EN", BaseCountersDelegatable),
+        boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_VA_IN_VSTVAL_ON_BREAKPOINT", #false)
+      ]
+      for (kind in ["LOAD", "STORE_AMO", "INSTRUCTION"]):
+        for (cause in ["MISALIGNED", "ACCESS_FAULT", "PAGE_FAULT"]):
+          result := result ++ [boolean_parameter("REPORT_VA_IN_VSTVAL_ON_" ++ kind ++ "_" ++ cause, #true)]
+        result := result ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_" ++ kind ++ "_GUEST_PAGE_FAULT", #true), string_parameter("TINST_VALUE_ON_FINAL_" ++ kind ++ "_GUEST_PAGE_FAULT", "always zero")]
+      result := result ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_INTERMEDIATE_GUEST_PAGE_FAULT", #true)]
+      result := result ++ [boolean_parameter("IGNORE_INVALID_VSATP_MODE_WRITES_WHEN_V_EQ_ZERO", #true), boolean_parameter("TRAP_ON_ECALL_FROM_VS", #true)]
+      for (mode in ["SV39", "SV48", "SV57"]):
+        result := result ++ [boolean_parameter(mode ++ "X4_TRANSLATION", mode == "SV39"), boolean_parameter(mode ++ "_VSMODE_TRANSLATION", mode == "SV39")]
+      for (cause in ["BREAKPOINT", "INSTRUCTION_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_ADDRESS_MISALIGNED", "LOAD_PAGE_FAULT", "MCALL", "SCALL", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_PAGE_FAULT", "UCALL", "VIRTUAL_INSTRUCTION", "VSCALL"]):
+        result := result ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
+      when selected.smstateen
+      | result := result ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
   when floating_point_supports_f(selected.floating_point)
   | result := result ++ [
       boolean_parameter("MUTABLE_MISA_F", #false),
@@ -274,7 +304,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
       string_parameter("VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR", "copy"),
       string_parameter("VFREDUSUM_NAN", "no_change"),
       string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
-      boolean_parameter("VSSTATUS_VS_EXISTS", #false)
+      boolean_parameter("VSSTATUS_VS_EXISTS", selected.hypervisor)
     ]
   when vector_profile_is_v(profile.vector)
   | result := result ++ [boolean_parameter("MUTABLE_MISA_V", #false)]

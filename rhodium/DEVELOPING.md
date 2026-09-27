@@ -188,8 +188,45 @@ plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.
 `sv39.rhdl` imports its page-memory-type representation and retains its existing
 `std/bits.rhdl` dependency. RV5Stage CSR storage and translation components
 consume these adapters without moving implementation policy into `riscv/`.
+`riscv/rtl/hypervisor.rhdl` imports pure CSR/trap descriptors and the CSR
+and privilege adapters; it adds no direct Rhodium-library import. The optional
+RV5Stage CSR specialization consumes its execution, substitution, delegation,
+and fault-provenance contracts. Hypervisor state remains core-owned.
+`riscv/rtl/timer.rhdl` imports the privilege adapter for stateless Sstc access
+and comparison policy. RV5Stage's CSR module consumes it and owns timer state;
+the adapter adds no direct Rhodium-library imports.
+`riscv/rtl/state-enable.rhdl` imports pure CSR descriptors and the CSR/privilege
+adapters for stateless hierarchical access decisions. RV5Stage CSR storage
+consumes it; neither module adds a direct Rhodium-library dependency.
+The core, fetch protocols/assembly, and instruction-response protocol import
+the same public adapter for optional guest metadata. `vector.rhdl` and
+`vector/memory.rhdl` also import it for conditional retirement provenance;
+they add no new direct Rhodium-library dependency. The production MMU imports
+it and the shared translation contract directly; decode additionally imports
+the pure `riscv/isa/h.rhm` and `riscv/isa/svinval.rhm` instruction descriptors and the public hypervisor
+RTL access-mode enum. `mmu/protocol.rhdl` imports that enum, the physical
+dcache protocols, and `std/bits.rhdl` to define virtual guest request wrappers.
+These edges stay within the
+existing core-to-architecture dependency direction.
+The CSR specialization reads MISA from the existing RV5Stage profile projection,
+which owns the pure `riscv/isa/profile.rhm` catalog dependency.
+RV5Stage's `mmu/translation.rhdl` imports the host protocol, public hypervisor,
+privilege, Sv39 and trap adapters, pure exception descriptors, and
+`std/ready-valid.rhdl`. Shared `mmu/tlb.rhdl` and `mmu/walker.rhdl`
+consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
+Both host adapters are wiring-only; entry storage, permission checking, and
+walker continuation/response ownership belong to those shared implementations.
+The serialized composition lives under `tests/translation-service.rhdl`;
+production never imports it. PTE reads retain the G-stage memory attribute for
+implicit VS reads. No implementation state moves into the RISC-V architecture package.
+The translation projection, TLB probes, MMU and physical router also import
+the public Svpbmt adapter for one attribute composition/resolution policy.
+`mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast
+certificates. `uncached-protocol.rhdl` defines the physical request wrapper
+carrying PBMT alongside the unchanged D-cache request; the physical arbiter
+imports that wrapper and the router consumes it. No dependency direction changes.
 `riscv/rtl/pointer-masking.rhdl` imports the pure CSR fields and XLEN plus
-the CSR and privilege adapters. Its PMM encoding belongs to its hardware enum,
+the CSR and privilege adapters and the hypervisor explicit-access enum. Its PMM encoding belongs to its hardware enum,
 not a duplicate host enum and integer converter.
 
 The `cores/rv5stage/vector/` package imports public `std/bits.rhdl` for

@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks RV5Stage's public boundary, Svnapot composition, memory guarantees, and configuration rejection.
+// Checks RV5Stage's public boundary, host/guest composition, memory guarantees, and configuration rejection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -31,8 +31,15 @@ def rv64_design = embedded.run_elaboration(
 def rv32_design = embedded.run_elaboration(
   fun (): rv5stage.RV5Stage(core_profile.RV5StageConfig(~xlen: XLen.X32, ~extensions: extensions), ~chi: config, ~reset_address: 0)
 )
+def guest_design = embedded.run_elaboration(
+  fun (): rv5stage.RV5Stage(
+    core_profile.RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: core_profile.RV5StageMmuMode.Sv39, ~extensions: core_profile.RV5StageExtensions(~svpbmt: #true, ~hypervisor: #true)),
+    ~chi: config, ~reset_address: 0
+  )
+)
 def rv64 = rv64_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 def rv32 = rv32_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
+def guest = guest_design.modules.find(fun (module_def): module_def.name == "RV5Stage")
 
 // Valid custom PMAs may omit a capability, but cannot advertise its guarantee.
 for ([attributes, diagnostic] in [
@@ -75,6 +82,8 @@ check:
   rv64.outputs.map(fun (port): port.name) ~is [
     "imem_out", "dmem_out", "umem_out"
   ]
+  guest.inputs.map(fun (port): port.name) ~is rv64.inputs.map(fun (port): port.name)
+  guest.outputs.map(fun (port): port.name) ~is rv64.outputs.map(fun (port): port.name)
   rv32.find_output("dmem_out").type.field("request_data").type.field("bits").type.field("data").type.width ~is 128
   embedded.run_elaboration(
     fun (): rv5stage.RV5Stage(

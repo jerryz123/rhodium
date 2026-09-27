@@ -12,6 +12,7 @@ import:
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/compressed.rhdl" open
+  lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
@@ -21,16 +22,17 @@ bundle RV5StageFetchParcel(xlen :: XLen):
   prediction: RV5StagePrediction(xlen)
 
 sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
+  def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def extensions = core_profile.extensions
   def profile = extensions.floating_point
   def compressed_extensions = extensions.compressed
-  def supported_instruction_names = rv5stage_instructions(xlen, profile, extensions.half_precision, ~zfa: extensions.zfa, ~zicbop: extensions.zicbop, ~zicboz: extensions.zicboz, ~zicbom: extensions.zicbom, ~zawrs: extensions.zawrs, ~zihintpause: extensions.zihintpause, ~zihintntl: extensions.zihintntl).map(fun (instruction): instruction.name)
+  def supported_instruction_names = rv5stage_instructions(xlen, profile, extensions.half_precision, ~zfa: extensions.zfa, ~zicbop: extensions.zicbop, ~zicboz: extensions.zicboz, ~zicbom: extensions.zicbom, ~svinval: extensions.svinval, ~hypervisor: hypervisor, ~zawrs: extensions.zawrs, ~zihintpause: extensions.zihintpause, ~zihintntl: extensions.zihintntl).map(fun (instruction): instruction.name)
   def width = xlen.width
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
-  interface packets(Decoupled(RV5StageFetchPacket(xlen)), ~role: consumer)
+  interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
   interface clear(Pulse(), ~role: consumer)
-  interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
+  interface fetched(Decoupled(FetchDecode(xlen, hypervisor)), ~role: producer)
 
   reg residual_valid(~init: Bool(#false))
   reg residual(RV5StageFetchParcel(xlen))
@@ -63,17 +65,27 @@ sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def prediction = mux(continuation_prediction, packets.bits.prediction, mux(residual_valid, residual.prediction, packets.bits.prediction))
   def predicted_taken = prediction.valid & (prediction.pc === pc) & !page_fault & !access_fault & !(instruction_is_compressed & !compressed_legal)
   fetched.valid <== available & !clear.valid
-  fetched.bits <== FetchDecode(xlen):
-    pc: pc
-    instruction: expanded_instruction
-    raw_instruction: raw
-    sequential_pc: sequential_pc
-    predicted_next_pc: mux(predicted_taken, prediction.target, sequential_pc)
-    predicted_ras_action: mux(predicted_taken, prediction.ras_action, RV5StageRasAction.None)
-    compressed_illegal: instruction_is_compressed & !compressed_legal
-    instruction_page_fault: page_fault
-    instruction_access_fault: access_fault
-    instruction_fault_address: mux(straddle & (packets.bits.page_fault ||| packets.bits.access_fault), packets.bits.pc.align_down(4), pc)
+  fetched.bits.pc <== pc
+  fetched.bits.instruction <== expanded_instruction
+  fetched.bits.raw_instruction <== raw
+  fetched.bits.sequential_pc <== sequential_pc
+  fetched.bits.predicted_next_pc <== mux(predicted_taken, prediction.target, sequential_pc)
+  fetched.bits.predicted_ras_action <== mux(predicted_taken, prediction.ras_action, RV5StageRasAction.None)
+  fetched.bits.compressed_illegal <== instruction_is_compressed & !compressed_legal
+  fetched.bits.instruction_page_fault <== page_fault
+  fetched.bits.instruction_access_fault <== access_fault
+  fetched.bits.instruction_fault_address <== mux(straddle & (packets.bits.page_fault ||| packets.bits.access_fault), packets.bits.pc.align_down(4), pc)
+
+  if hypervisor
+  | block:
+      // A fault on the upper parcel names that byte, but an implicit PTE fault
+      // must retain the PTE GPA rather than replacing its low bits with the PC.
+      def fault_pc = fetched.bits.instruction_fault_address
+      def details = packets.bits.guest.details
+      fetched.bits.guest <== packets.bits.guest.updated(~details: details.updated(
+        ~guest_physical_address: mux(details.access === RiscvGuestFaultAccess.Explicit, details.guest_physical_address.align_down(4) ||| fault_pc[0..2].zext(64), details.guest_physical_address)
+      ))
+  | #void
 
   // An incomplete upper-half instruction may enter residual storage without
   // issuing to Decode. A retained compressed instruction consumes no new packet.

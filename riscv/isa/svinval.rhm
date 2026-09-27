@@ -1,0 +1,37 @@
+#lang rhombus
+// Defines Svinval 1.0 invalidation and ordering instructions, including H companions.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../support/annotations.rhm" open
+  "integer-common.rhm" open
+  "../model/main.rhm" open
+
+def InvalidationFormat = InstructionFormat("translation invalidation", [
+  RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")
+])
+fun invalidate(name :: NonemptyString, function :: Nat):
+  instruction(name, InvalidationFormat, [
+    opcode.constrain(SYSTEM), funct3.constrain(0), funct7.constrain(function), rd.constrain(0)
+  ])
+
+def SINVAL_VMA = invalidate("SINVAL.VMA", 0x0b)
+def SFENCE_W_INVAL = system_instruction("SFENCE.W.INVAL", 0x180)
+def SFENCE_INVAL_IR = system_instruction("SFENCE.INVAL.IR", 0x181)
+def HINVAL_VVMA = invalidate("HINVAL.VVMA", 0x13)
+def HINVAL_GVMA = invalidate("HINVAL.GVMA", 0x33)
+def SvinvalInstructions = [SINVAL_VMA, SFENCE_W_INVAL, SFENCE_INVAL_IR]
+def SvinvalHypervisorInstructions = [HINVAL_VVMA, HINVAL_GVMA]
+def Svinval = InstructionCatalog("Svinval", "Svinval 1.0", SvinvalInstructions)
+def SvinvalH = InstructionCatalog("Svinval with H", "Svinval 1.0 / H 1.0", SvinvalInstructions ++ SvinvalHypervisorInstructions)
+
+export:
+  SINVAL_VMA
+  SFENCE_W_INVAL
+  SFENCE_INVAL_IR
+  HINVAL_VVMA
+  HINVAL_GVMA
+  SvinvalInstructions
+  SvinvalHypervisorInstructions
+  Svinval
+  SvinvalH

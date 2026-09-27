@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises CMO CSR policy, physical permissions, and all Sv39 demand access classes.
+// Exercises host/guest CMO CSR policy, physical permissions, and Sv39 access classes.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,8 @@ circuit RiscvCmoFixture():
   input supervisor_mode: Bool
   input menvcfg: Bits(64)
   input senvcfg: Bits(64)
+  input henvcfg: Bits(64)
+  input virtualized: Bool
   input raw_pte: Bits(64)
   input access: Sv39Access
   input sum: Bool
@@ -29,6 +31,8 @@ circuit RiscvCmoFixture():
   output fields_disabled: Bits(64)
   output zero_permitted: Bool
   output zero_disabled: Bool
+  output guest_permission: CboManagementPermission()
+  output guest_zero_access: CboAccess
   output translation_permitted: Bool
   output physical_permitted: Bool
 
@@ -40,8 +44,10 @@ circuit RiscvCmoFixture():
   fields_management <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #true, ~zicboz: #false)
   fields_zero <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #false, ~zicboz: #true)
   fields_disabled <== cmo_envcfg_fields(XLen.X64, menvcfg, ~zicbom: #false, ~zicboz: #false)
-  zero_permitted <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #true)
-  zero_disabled <== cbo_zero_permitted(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #false)
+  zero_permitted <== cbo_zero_permission(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #true) === CboAccess.Allowed
+  zero_disabled <== cbo_zero_permission(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #false) === CboAccess.Allowed
+  guest_permission <== cbo_management_permission(XLen.X64, operation, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicbom: #true, ~virtualized: virtualized, ~henvcfg: henvcfg)
+  guest_zero_access <== cbo_zero_permission(XLen.X64, user_mode, supervisor_mode, menvcfg, senvcfg, ~zicboz: #true, ~virtualized: virtualized, ~henvcfg: henvcfg)
   translation_permitted <== sv39_permission_valid(raw_pte.into(Sv39Pte()), access, user_mode, supervisor_mode, sum, mxr)
   physical_permitted <== cbo_management_physical_permission(physical)
 

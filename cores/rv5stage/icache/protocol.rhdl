@@ -3,26 +3,29 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
 
 bundle RV5StageInstructionReq(xlen :: XLen):
   address: Bits(xlen.width)
 
-bundle RV5StageInstructionResp():
+bundle RV5StageInstructionResp(hypervisor :: Boolean):
   word: Bits(32)
   page_fault: Bool
   access_fault: Bool
+  if hypervisor:
+    guest: RiscvGuestException()
 
-bundle RV5StageFetchResult():
-  response: RV5StageInstructionResp()
+bundle RV5StageFetchResult(hypervisor :: Boolean):
+  response: RV5StageInstructionResp(hypervisor)
   replay: Bool
 
 // Each accepted S0 request has exactly one S2 result unless a later flush or
 // s1_kill cancels it. A request transferred together with flush starts the new
 // fetch epoch and survives that flush. The requester captures its own context
 // at request transfer. Replay is an outcome, not a promise of a later response.
-interface RV5StageFetchAccess(xlen :: XLen):
+interface RV5StageFetchAccess(xlen :: XLen, hypervisor :: Boolean):
   role requester
   role responder
   provider requester
@@ -34,7 +37,7 @@ interface RV5StageFetchAccess(xlen :: XLen):
     request: Decoupled(RV5StageInstructionReq(xlen))
 
   responder -> requester:
-    response: Valid(RV5StageFetchResult())
+    response: Valid(RV5StageFetchResult(hypervisor))
 
 // Physical S1 resolution produces a registered S2 outcome. Long-lived work
 // survives local replay; flush detaches its consumer, not accepted bus traffic.
@@ -50,7 +53,7 @@ interface RV5StageInstructionLookup(RequestType :: HardwareType):
     request: Valid(RequestType)
 
   responder -> requester:
-    response: Valid(RV5StageFetchResult())
+    response: Valid(RV5StageFetchResult(#false))
 
 
 export:

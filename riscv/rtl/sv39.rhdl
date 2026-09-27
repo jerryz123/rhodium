@@ -90,7 +90,8 @@ fun sv39_physical_address(virtual_address :: Bits(64), base_ppn :: Bits(44), pag
 
 fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
                           user_mode :: Bool, supervisor_mode :: Bool,
-                          sum :: Bool, mxr :: Bool) :~ Bool:
+                          sum :: Bool, mxr :: Bool,
+                          execute_read :: Bool = Bool(#false)) :~ Bool:
   def privilege_valid = mux(
     user_mode,
     pte.user,
@@ -100,7 +101,7 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
   // PTE structural validity remains the caller's separate leaf check.
   def access_valid = mux_lookup(access, ~default: pte.write & pte.dirty):
     Sv39Access.Fetch: pte.execute
-    Sv39Access.Load: pte.read ||| (mxr & pte.execute)
+    Sv39Access.Load: mux(execute_read, pte.execute, pte.read ||| (mxr & pte.execute))
     Sv39Access.CacheManagement: pte.read ||| pte.write ||| (mxr & pte.execute)
   privilege_valid & access_valid & pte.accessed
 

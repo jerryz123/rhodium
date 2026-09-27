@@ -19,6 +19,19 @@ enum ExceptionCause
 | StorePageFault
 | SoftwareCheck
 | HardwareError
+| EnvironmentCallFromVirtualSupervisor
+| InstructionGuestPageFault
+| LoadGuestPageFault
+| VirtualInstruction
+| StoreGuestPageFault
+
+def HypervisorExceptionCauses = [
+  ExceptionCause.EnvironmentCallFromVirtualSupervisor,
+  ExceptionCause.InstructionGuestPageFault,
+  ExceptionCause.LoadGuestPageFault,
+  ExceptionCause.VirtualInstruction,
+  ExceptionCause.StoreGuestPageFault
+]
 
 def DelegatableExceptionCauses = [
   ExceptionCause.InstructionAddressMisaligned,
@@ -56,6 +69,11 @@ fun exception_code(cause :: ExceptionCause) :: Nat:
   | ExceptionCause.StorePageFault: 15
   | ExceptionCause.SoftwareCheck: 18
   | ExceptionCause.HardwareError: 19
+  | ExceptionCause.EnvironmentCallFromVirtualSupervisor: 10
+  | ExceptionCause.InstructionGuestPageFault: 20
+  | ExceptionCause.LoadGuestPageFault: 21
+  | ExceptionCause.VirtualInstruction: 22
+  | ExceptionCause.StoreGuestPageFault: 23
 
 fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
   def mutable mask = 0
@@ -66,5 +84,6 @@ fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
 export:
   ExceptionCause
   DelegatableExceptionCauses
+  HypervisorExceptionCauses
   exception_code
   exception_mask

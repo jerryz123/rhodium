@@ -1,0 +1,78 @@
+#lang rhombus
+// Defines the H 1.0 guest-memory and hypervisor translation-fence catalogs.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../support/annotations.rhm" open
+  "integer-common.rhm" open
+  "../model/main.rhm" open
+
+def HypervisorLoadFormat = InstructionFormat("hypervisor load", [
+  RegisterOperand("rd", rd, "destination"), RegisterOperand("rs1", rs1, "source")
+])
+def HypervisorStoreFormat = InstructionFormat("hypervisor store", [
+  RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")
+])
+def HypervisorFenceFormat = InstructionFormat("hypervisor fence", [
+  RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")
+])
+
+fun guest_load(name :: NonemptyString, function :: Nat, extension :: Nat):
+  instruction(name, HypervisorLoadFormat, [
+    opcode.constrain(SYSTEM), funct3.constrain(4), funct7.constrain(function), rs2.constrain(extension)
+  ])
+
+fun guest_store(name :: NonemptyString, function :: Nat):
+  instruction(name, HypervisorStoreFormat, [
+    opcode.constrain(SYSTEM), funct3.constrain(4), funct7.constrain(function), rd.constrain(0)
+  ])
+
+fun guest_fence(name :: NonemptyString, function :: Nat):
+  instruction(name, HypervisorFenceFormat, [
+    opcode.constrain(SYSTEM), funct3.constrain(0), funct7.constrain(function), rd.constrain(0)
+  ])
+
+def HFENCE_VVMA = guest_fence("HFENCE.VVMA", 0x11)
+def HFENCE_GVMA = guest_fence("HFENCE.GVMA", 0x31)
+def HLV_B = guest_load("HLV.B", 0x30, 0)
+def HLV_BU = guest_load("HLV.BU", 0x30, 1)
+def HLV_H = guest_load("HLV.H", 0x32, 0)
+def HLV_HU = guest_load("HLV.HU", 0x32, 1)
+def HLVX_HU = guest_load("HLVX.HU", 0x32, 3)
+def HLV_W = guest_load("HLV.W", 0x34, 0)
+def HLVX_WU = guest_load("HLVX.WU", 0x34, 3)
+def HSV_B = guest_store("HSV.B", 0x31)
+def HSV_H = guest_store("HSV.H", 0x33)
+def HSV_W = guest_store("HSV.W", 0x35)
+def HLV_WU = guest_load("HLV.WU", 0x34, 1)
+def HLV_D = guest_load("HLV.D", 0x36, 0)
+def HSV_D = guest_store("HSV.D", 0x37)
+
+def RV32HInstructions = [HFENCE_VVMA, HFENCE_GVMA, HLV_B, HLV_BU, HLV_H, HLV_HU, HLVX_HU, HLV_W, HLVX_WU, HSV_B, HSV_H, HSV_W]
+def RV64HInstructions = RV32HInstructions ++ [HLV_WU, HLV_D, HSV_D]
+def RV32H = InstructionCatalog("RV32H", "H 1.0", RV32HInstructions)
+def RV64H = InstructionCatalog("RV64H", "H 1.0", RV64HInstructions)
+
+export:
+  RV32H
+  RV64H
+  RV32HInstructions
+  RV64HInstructions
+  HypervisorLoadFormat
+  HypervisorStoreFormat
+  HypervisorFenceFormat
+  HFENCE_VVMA
+  HFENCE_GVMA
+  HLV_B
+  HLV_BU
+  HLV_H
+  HLV_HU
+  HLVX_HU
+  HLV_W
+  HLV_WU
+  HLVX_WU
+  HLV_D
+  HSV_B
+  HSV_H
+  HSV_W
+  HSV_D

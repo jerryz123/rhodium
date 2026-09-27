@@ -280,6 +280,39 @@ module rv5stage_uncached_tb;
     #1;
     assert (core_out.drained) else $fatal(1, "device store did not drain");
 
+    // Non-cacheable aliases of coherent RAM retain the physical snoop domain.
+    for (int device = 0; device < 2; device++) begin
+      core_in.request.valid = 1;
+      core_in.request.bits.request.address = 'h1000;
+      core_in.request.bits.request.access = LOAD;
+      core_in.request.bits.request.width = 3;
+      core_in.request.bits.device = 1'(device);
+      tick(); core_in.request.valid = 0; #1;
+      assert (chi_out.req.valid && chi_out.req.bits.opcode == 7'h03 &&
+              chi_out.req.bits.tgt_id == 1 && chi_out.req.bits.snp_attr_or_do_dwt &&
+              !chi_out.req.bits.mem_attr.cacheable && !chi_out.req.bits.mem_attr.allocate &&
+              chi_out.req.bits.mem_attr.device == 1'(device)) else $fatal(1,"PBMT read lost coherence/attributes");
+      tick(); present_read_data(128'habcdef);
+      chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid = 1;
+      tick(); chi_in.dat.response.valid = 0;
+      core_in.request.valid = 1;
+      core_in.request.bits.request.access = 2;
+      core_in.request.bits.request.byte_mask = 'hff;
+      tick(); core_in.request.valid = 0; #1;
+      assert (chi_out.req.valid && chi_out.req.bits.opcode == 7'h18 &&
+              chi_out.req.bits.snp_attr_or_do_dwt && !chi_out.req.bits.mem_attr.allocate)
+        else $fatal(1,"PBMT write lost coherence");
+      tick(); chi_in.rsp.response.valid = 1;
+      chi_in.rsp.response.bits = '0;
+      chi_in.rsp.response.bits.opcode = 6; chi_in.rsp.response.bits.src_id = 1;
+      chi_in.rsp.response.bits.dbid_or_group_id = 'h234;
+      tick(); chi_in.rsp.response.valid = 0; #1;
+      assert (chi_out.dat.request.valid && chi_out.dat.request.bits.txn_id == 'h234 &&
+              chi_out.dat.request.bits.tgt_id == 1) else $fatal(1,"coherent write data ownership");
+      tick(); chi_in.rsp.response.valid = 1; chi_in.rsp.response.bits.opcode = 4;
+      tick(); chi_in.rsp.response.valid = 0;
+      assert (core_out.drained) else $fatal(1,"coherent alias did not drain");
+    end
     $display("RV5Stage shared uncached instruction/data path passed");
     $finish;
   end

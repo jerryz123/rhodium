@@ -1,0 +1,48 @@
+#lang rhombus
+// Checks H 1.0 opcodes, operand constraints, CSR fields, and guest cause encodings.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/h.rhm" open
+  "../isa/csr.rhm" open
+  "../isa/trap.rhm" open
+  "../isa/interrupt.rhm" open
+  "../isa/privileged.rhm" open
+  "../model/main.rhm" open
+
+def reference = [
+  0x22000073, 0x62000073, 0x60004073, 0x60104073, 0x64004073,
+  0x64104073, 0x64304073, 0x68004073, 0x68304073, 0x62004073,
+  0x66004073, 0x6a004073, 0x68104073, 0x6c004073, 0x6e004073
+]
+def catalog = InstructionCatalog("privileged and H", "test", PrivilegedInstructions ++ RV64HInstructions)
+check:
+  RV64HInstructions.map(fun (spec): spec.encoding.value) ~is reference
+  RV32HInstructions.length() ~is 12
+  RV64HInstructions.length() ~is 15
+  HLV_D.encode([rd.constrain(3), rs1.constrain(5)]) ~is 0x6c02c1f3
+  HSV_D.encode([rs1.constrain(5), rs2.constrain(3)]) ~is 0x6e32c073
+  HFENCE_GVMA.encode([rs1.constrain(5), rs2.constrain(3)]) ~is 0x62328073
+  HLV_D.encode([rs1.constrain(5)]) ~throws ""
+  HSV_D.encode([rs1.constrain(5), rs2.constrain(3), rd.constrain(1)]) ~throws ""
+  HypervisorExceptionCauses.map(exception_code) ~is [10, 20, 21, 22, 23]
+  HypervisorInterruptCauses.map(interrupt_code) ~is [2, 6, 10, 12]
+  MstatusMPV.mask() ~is 0x8000000000
+  MstatusGVA.mask() ~is 0x4000000000
+  HstatusSPV.mask() ~is 0x80
+  HstatusSPVP.mask() ~is 0x100
+  HstatusVSXL.mask() ~is 0x300000000
+  Hgatp64VMID.mask() ~is 0x3fff00000000000
+  Hgatp64PPN.width ~is 44
+
+for (spec in RV64HInstructions):
+  check:
+    catalog.matching(spec.encoding.value) === spec ~is #true
+  for (bit in 0..32):
+    when (spec.encoding.care bits.and (1 bits.(<<) bit)) != 0
+    | check:
+        spec.matches(spec.encoding.value bits.xor (1 bits.(<<) bit)) ~is #false
+
+for (id in CsrIds):
+  check:
+    CsrIds.filter(~keep: fun (other): csr_address(id) == csr_address(other)).length() ~is 1

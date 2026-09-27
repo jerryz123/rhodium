@@ -87,6 +87,132 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
+## Experimental hypervisor integration
+
+`RV5StageExtensions(~hypervisor: #true)` selects the RV64 guest path with the
+Sv39 MMU. The core, frontend, CSR unit, and top-level composition derive H from
+the same `RV5StageConfig`; runtime `misa.H` and the published ISA agree.
+The `rva23` preset enables H/Sha, state-enable, Sstc, and Svinval. RV32 presets
+are unchanged. Standalone MMU and protocol generators retain an explicit H
+parameter. See the [qualification ledger](HYPERVISOR_PLAN.md#architectural-qualification-ledger).
+The CSR specialization adds the execution-context output and
+commit-qualified `guest_fault` input, guest entry/exit through MRET/SRET,
+HS/VS status and trap-state separation, synchronous two-level delegation,
+virtual-instruction restrictions, H counter permissions/time offset, and
+GPA/PTE-read fault provenance. Physical M/HS interrupts can preempt guests.
+VSATP supports Bare/Sv39 and HGATP Bare/Sv39x4, with zero ASID/VMID bits.
+Instruction fetch and scalar loads/stores use the shared ITLB/DTLB and nested
+walker, including MPRV/MPV accesses. Fault class and GPA/PTE-read provenance
+travel with the instruction through retirement; HS/VS synchronous delegation
+and MRET/SRET retain their commit-owned behavior. HFENCE.VVMA/GVMA serialize at
+WB and conservatively invalidate both banks and outstanding translation work.
+Accepted PTE responses remain owned until drained.
+
+`RV5StageExtensions(~svinval: #true)` optionally enables Svinval for RV32/RV64;
+HINVAL forms additionally require the RV64 hypervisor specialization.
+SINVAL.VMA and HINVAL.VVMA/GVMA use the existing fully ordered SFENCE/HFENCE
+paths, including conservative whole-bank invalidation and canceled-response
+draining. SFENCE.W.INVAL and SFENCE.INVAL.IR retire without additional MMU
+effects, since each invalidation already provides the complete ordering.
+They still use the normal serialization boundary and trap in U/VU, but are
+unaffected by TVM/VTVM. Invalidation instructions retain the permissions and
+precise exceptions of their corresponding SFENCE/HFENCE instructions. This is
+the simple implementation permitted by the
+[Svinval specification](https://docs.riscv.org/reference/isa/v20240411/priv/svinval.html).
+The option defaults off and does not change advertised SoC profiles.
+
+HLV/HLVX/HSV reuse the scalar load/store path. Explicit guest access selects
+VS/VU permissions through `hstatus.SPVP`, independently of live V and MPRV.
+`hstatus.HU` controls U-mode use; execution with V=1 traps as a virtual
+instruction. HLVX checks execute permission in both page-table stages while
+remaining a load for faults, and requires physical read and execute access.
+Ssnpm composes with this specialization: `henvcfg.PMM` controls VS accesses,
+and shared `senvcfg.PMM` controls VU accesses. Explicit HLV/HSV uses SPVP;
+VU accesses issued from U use `hstatus.HUPMM` instead of `senvcfg.PMM`.
+HLVX and accesses with effective MXR are unmasked. VSATP, not HGATP, selects
+virtual sign-extension versus guest-physical zero-extension. Fetch and implicit
+page-table reads are never pointer-masked. Controls are captured for scalar and
+vector memory owners; CSR updates use the existing drained serializing restart.
+
+`henvcfg` implements FIOM and the configured Zicbom/Zicboz controls. Its CMO
+fields are independently writable, not masked by `menvcfg`. M restrictions
+take illegal-instruction priority; HS restrictions and VU's shared `senvcfg`
+restrictions raise virtual-instruction. Applicable CBIE Flush settings convert
+invalidate to flush. Denied operations never reach the memory service.
+`senvcfg` is shared and software-switched, not a new VS CSR bank. FIOM is
+satisfied by the existing full-drain fences; the uncached IO path rejects atomics.
+With the opt-in Svpbmt configuration, `henvcfg.PBMTE` enables VS-stage PBMT
+under `menvcfg.PBMTE`; unlike CMO controls, it reads zero when the machine
+enable is clear. NC/IO attributes propagate through guest fetch, scalar/vector
+data and implicit PTE reads. See the [MMU contract](mmu/README.md).
+Unsupported `henvcfg` fields remain zero.
+
+`RV5StageExtensions(~sstc: #true)` enables the optional Sstc 1.0 timer path;
+standalone defaults remain disabled, while the RVA23 preset enables it. `stimecmp` is 64 bits
+on both XLENs (`stimecmph` supplies the RV32 high half). With H, `vstimecmp`
+compares against the 64-bit wrapping sum of platform `time_counter` and
+`htimedelta`, including while V=0. VS accesses `stimecmp` as an alias of that
+guest register. M/H STCE and counter-enable TM gates enforce illegal versus
+virtual-instruction priority. `menvcfgh.STCE` owns the RV32 enable.
+When enabled, the host comparator replaces legacy STIP sources, while the
+guest comparator ORs with `hvip.VSTIP`. Disabling STCE restores legacy behavior.
+Reset clears comparator storage and enables; firmware programs the compare
+values before enabling delivery. No new platform timer or interrupt port is
+required. See the [ratified Sstc specification](https://docs.riscv.org/reference/isa/v20250508/priv/sstc.html).
+
+`RV5StageExtensions(~smstateen: #true)` enables the optional Smstateen/Ssstateen
+CSR hierarchy. All four `mstateen`/`sstateen` registers exist, with RV32 machine
+high halves; H specializations add all four `hstateen` registers. SE (bit 63)
+controls the corresponding lower-level state-enable CSR accesses; ENVCFG in
+register zero controls lower-level environment CSR access. Other bits are
+read-only zero for the current feature set, so `sstateen0–3` need no storage.
+Writable M/H state resets to zero. Firmware must initialize access before
+entering lower privilege modes. H readback is masked by M state; M denial
+raises illegal-instruction before any guest virtual-instruction classification.
+H denial produces virtual-instruction for the applicable guest accesses.
+This controls access to environment CSRs, not the ongoing use of their settings.
+FS/VS and Sstc's STCE/TM retain their independent roles. No separate VS state-enable
+bank exists. Standalone defaults remain disabled; the RVA23 preset enables
+Smstateen/Ssstateen with H/Sha. See the
+[state-enable specification](https://docs.riscv.org/reference/isa/v20250508/priv/smstateen.html).
+
+HS can inject VS software, timer, and external interrupts through `hvip`.
+`hip`/`hie` and `vsip`/`vsie` are masked aliases of pending/enabled state;
+`hideleg` selects HS versus VS delivery. M, HS, and VS destinations are
+prioritized in that order. Delivery uses the existing drained WB boundary,
+with VS cause-number translation and trap/return state. Locally enabled pending
+interrupts wake WFI even when globally masked. GEILEN is zero: no direct-assigned
+guest interrupt files are implemented. The optional Sstc comparator uses this
+same delivery and retirement path.
+
+Guest F/D uses the existing shared FP register file, execution pipeline, and
+`fcsr`. Independent HS and VS FS fields gate guest instructions and FP CSR
+access; either Off field raises illegal-instruction, not virtual-instruction.
+Guest FP modifications dirty both fields, while host modifications leave guest
+FS unchanged. Each status bank derives its own SD summary. Software owns FP
+context save/restore. Accepted FP work drains before trap/return or status
+changes; scalar FP memory uses the existing two-stage translation and precise
+fault path.
+
+Guest vectors share the ordinary VRF, vector CSRs, sequencer, and execution
+services. Independent HS/VS VS fields gate vector instructions and CSR access;
+guest changes dirty both banks. Vector FP additionally requires both FS fields.
+Page-wise authorization and speculative certificates retain the complete
+two-stage translation context. Uncertified memory faults retain guest cause,
+GPA and implicit-PTE provenance through precise retirement and `vstart` restart.
+Certified work can overlap scalar execution, but context changes, fences and
+trap/interrupt entry wait for accepted vector effects to drain. Software owns
+VRF save/restore; there is no separate guest register bank.
+
+This is **not a complete H or Sha conformance claim**. Guest pointer masking,
+Sstc, and the current feature set's state-enable controls are integrated;
+the exact requirements audit and broader end-to-end H/Sha qualification remain.
+The RVA23 preset publishes matching ISA, MISA, device-tree, and UDB capabilities;
+this does not establish full RVA23 conformance. ACT uses that exact profile,
+without hiding missing tests or reference-model limitations.
+See the [shared translation contract](mmu/README.md#shared-host-and-guest-translation)
+and [implementation plan](HYPERVISOR_PLAN.md).
+
 ## Cache-block and reservation bounds
 
 Every RV32 and RV64 profile advertises **Zic64b 1.0.0** and **Za64rs 1.0.0**,
@@ -442,7 +568,7 @@ owns Decode through Writeback. Scalar tokens issue and reach WB in order, while
 selected register-producing operations may complete later through explicit
 scoreboards and a completion arbiter.
 
-The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen))` and supplies
+The execution core consumes `packets: Decoupled(RV5StageFetchPacket(xlen, hypervisor))` and supplies
 `frontend_control` for activity, redirects, invalidation, and predictor training.
 `RV5Stage` connects those ports to the frontend; the frontend's `memory` port
 connects to the MMU's fixed-latency fetch-attempt interface.
@@ -882,7 +1008,7 @@ bits.
 
 ### User pointer masking
 
-`RV5StageExtensions(~ssnpm: #true)` enables the initial RV64 Ssnpm hardware.
+`RV5StageExtensions(~ssnpm: #true)` enables RV64 Ssnpm hardware.
 It defaults off and is rejected for RV32 profiles. `senvcfg.PMM[33:32]` resets
 to zero and accepts PMLEN 0, 7, and 16; the reserved encoding reads back as
 disabled. Its writes preserve the independently implemented CMO fields.
@@ -890,11 +1016,13 @@ The existing CSR privilege checks let S-mode manage U-mode policy.
 
 Effective U-mode explicit accesses use this policy, including MPRV accesses,
 integer/FP loads and stores, LR/SC/AMO, CMOs, and all three prefetch hints.
-MXR disables masking, including with Bare translation. S- and M-mode's own
+MXR disables masking, including with Bare translation. Nonvirtual S- and M-mode's own
 accesses, instruction fetches, page-table walks, branch targets, and software
 CSR values are unchanged. Hardware address-fault values contain the transformed
 address. Translation, access permissions, alignment, and memory ordering remain
 unchanged; masking does not make all tagged addresses legal.
+The [experimental hypervisor integration](#experimental-hypervisor-integration)
+extends the same datapath to VS/VU and explicit guest accesses.
 
 A committed PMM change restarts younger work and clears queued prefetches without
 invalidating TLB entries or I-cache contents. Selecting Ssnpm projects that
@@ -949,7 +1077,7 @@ and Sail configuration, and the execution command remain simulation-owned.
 | `chi_identity` | Placement-specific instruction RN-I, data RN-F, and uncached RN-I NodeIDs |
 | `interrupts` | Controller-independent supervisor and machine software, timer, and external interrupt levels |
 | `hart_id` | Platform hart identity exposed through `mhartid` |
-| `time_counter` | Platform 64-bit time source exposed through `time` and RV32 `timeh` |
+| `time_counter` | Platform 64-bit time source for `time`/RV32 `timeh` and optional Sstc comparators |
 | `imem` | Instruction-cache CHI RN-I coherent snapshot reads |
 | `dmem` | Data-cache CHI RN-F channels |
 | `umem` | Shared instruction/data uncached CHI RN-I channels |
@@ -979,7 +1107,8 @@ hardwire `mstatus.SUM`/`sstatus.SUM` to zero while retaining writable `MXR`
 and `TVM` status fields. Sv39 translation can optionally support 64 KiB mappings with
 `RV5StageExtensions(~svnapot: #true)`; see the
 [MMU contract](mmu/README.md#supported-sv39-behavior-and-deliberate-limits).
-This opt-in is not yet an ISA/UDB or SoC-profile claim. Early virtual
+The shared RVA23 SoC preset enables and advertises both Svnapot and Svpbmt;
+standalone configurations retain explicit extension selection. Early virtual
 lookups reach the SRAMs independently of translation and physical-region checks.
 A permitted physical request is paired with the read at the clock edge; only
 that resolved token can initiate an authorized transaction. For ordinary loads/stores,
@@ -1003,7 +1132,9 @@ L1I is a nonsnooping, software-synchronized, one-hit-per-cycle instruction cache
 and response state. PMA `instruction_cacheable` defaults to data cacheability;
 immutable BootROM can opt in independently and fill L1I with 64-byte HN-I
 `ReadNoSnp` reads. Other executable regions bypass L1I as aligned four-byte
-`ReadNoSnp` requests. All executable regions must be read-idempotent. See the
+`ReadNoSnp` requests; PBMT-overridden coherent RAM uses nonallocating `ReadOnce`
+instead, preserving its physical coherence domain. All executable regions must
+be read-idempotent. See the
 [instruction-cache contract](icache/README.md). L1D is a single-miss write-back/
 write-allocate cache supporting loads, stores, LR/SC, and AMOs, with independent
 pipeline load hits permitted under ordinary demand misses. All
@@ -1023,7 +1154,8 @@ containing `rs1`. It uses the ordinary store-translation path, with no scalar
 alignment requirement or register result. M-mode may always execute it;
 S-mode requires `menvcfg.CBZE`, and U-mode requires both `menvcfg.CBZE` and
 `senvcfg.CBZE`. These bit-7 fields reset to zero and are read-only zero when
-the extension is disabled. `menvcfg.FIOM` and `senvcfg.FIOM` are writable; the
+the extension is disabled. `menvcfg.FIOM`, `senvcfg.FIOM`, and (with H enabled)
+`henvcfg.FIOM` are writable; the
 core's fully serializing fences already order both memory and device accesses,
 and device PMA entries do not permit atomics. Other environment-configuration
 fields remain zero.
@@ -1145,11 +1277,13 @@ before entry as well as during waiting; completing WRS does not clear LR state.
 
 `WRS.STO` completes after at most 4,096 pending cycles. `WRS.NTO` has no normal
 timeout, but below M-mode with `mstatus.TW=1` the same bound raises an illegal
-instruction exception with the original PC and instruction. Wake wins over
-timeout on the same cycle. Both instructions are legal in U-mode, and TW does
-not restrict STO. Successful completion retires exactly once; a timeout trap
+instruction exception with the original PC and instruction. In VS/VU, when
+`mstatus.TW=0` and `hstatus.VTW=1`, that bound instead raises a virtual-instruction
+exception. Wake wins over timeout on the same cycle. Both instructions are legal
+in U-mode, and neither TW nor VTW restricts STO. Successful completion retires
+exactly once; a timeout trap
 does not retire. An interrupt taken after a successful wake records the
-successor PC. Clock gating and hypervisor modes are not implemented.
+successor PC. Clock gating is not implemented.
 
 ## Deliberate limits
 
@@ -1158,7 +1292,7 @@ successor PC. Clock gating and hypervisor modes are not implemented.
   controllers remain outside this slice.
 - `WFI` quiesces instruction issue but does not gate the core clock; physical
   clock gating and always-on wake distribution remain platform policy.
-- Sv48/Sv57, nonzero ASIDs, hardware A/D updates, integrated PBMT, multi-hart
+- Sv48/Sv57, nonzero ASIDs, hardware A/D updates, multi-hart
   shootdown, and speculative page-table walks are not implemented.
 - `SFENCE.VMA` and `satp` writes conservatively flush both TLBs completely.
 - Zicbop translation is TLB-hit-only and never launches a page-table walk;

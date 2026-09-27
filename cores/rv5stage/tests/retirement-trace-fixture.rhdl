@@ -34,7 +34,7 @@ sync_circuit RV5StageRetirementTrace():
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)
   core.packets.valid <== packet_valid
-  core.packets.bits <== RV5StageFetchPacket(XLen.X64):
+  core.packets.bits <== RV5StageFetchPacket(XLen.X64, #false):
     pc: pc
     word: instruction
     mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))

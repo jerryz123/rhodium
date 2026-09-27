@@ -21,11 +21,12 @@ import:
   "../../riscv/isa/vector.rhm" open
   "../../riscv/isa/xlen.rhm" open
   "../../riscv/rtl/pointer-masking.rhdl" open
+  "../../riscv/rtl/hypervisor.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false):
+sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
   def MultiplyTag = RV5StageVectorMultiplyTag(slots)
@@ -57,7 +58,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
 
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
   execution.schedule_enable <== Bool(#true)
-  inst access(RV5StageVectorMemory(xlen, slots))
+  inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
+  if hypervisor
+  | block:
+      input(request_guest_fault, pipeline_guest_fault): RiscvGuestException()
+      access.request_guest_fault <== request_guest_fault
+      access.pipeline_guest_fault <== pipeline_guest_fault
+  | #void
   // Pending descriptor policy is independent of the older execution owner's
   // LSU policy, so prechecking the next macro cannot perturb active issue.
   reg store(~init: Bool(#false))
@@ -109,7 +116,24 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
   def final_outcome = access.outcome |> filter_valid(_event => !execution_certified)
-  Array(early_outcome, final_outcome) |> valid_arbiter() |> valid_pipe(1) |> outcome
+  bundle Retirement():
+    value: RV5StageVectorCommit(xlen, slots)
+    if hypervisor:
+      guest: RiscvGuestException()
+  fun retirement(value :: RV5StageVectorCommit(xlen, slots), early :: Boolean) :~ Retirement():
+    if hypervisor
+    | Retirement():
+        value: value
+        guest: if early | literal(RiscvGuestException(), 0) | access.outcome_guest
+    | Retirement():
+        value: value
+  def retired = Array(early_outcome |> map_valid(event => retirement(event, #true)), final_outcome |> map_valid(event => retirement(event, #false))) |> valid_arbiter() |> valid_pipe(1)
+  retired |> map_valid(event => event.value) |> outcome
+  if hypervisor
+  | block:
+      output outcome_guest: RiscvGuestException()
+      outcome_guest <== retired.bits.guest
+  | #void
   when (request.fire() & request.bits.control.memory & !request.bits.precertified):
     waiting_retirement <== Bool(#true)
   elsewhen (outcome.valid):

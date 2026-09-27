@@ -51,7 +51,11 @@ module rv5stage_io_mshr_tb;
   logic [6:0] node_id = 7'd5;
   instruction_in_t instruction_in;
   instruction_out_t instruction_out;
-  data_requester_t core_in, cache_out;
+  data_requester_t cache_out;
+  struct packed {
+    struct packed {logic valid; RV5StagePhysicalDataReq bits;} request;
+    struct packed {logic ready;} response;
+  } core_in;
   data_responder_t core_out, cache_in;
   chi_in_t chi_in;
   chi_out_t chi_out;
@@ -115,12 +119,12 @@ module rv5stage_io_mshr_tb;
     tick(); // Fetch reaches CHI; its response is delayed.
     core_in.request.valid = 1;
     core_in.request.bits = '0;
-    core_in.request.bits.address = 64'h8004;
-    core_in.request.bits.access = 4'd1;
-    core_in.request.bits.width = 2'd2;
-    core_in.request.bits.byte_mask = 8'hf0;
-    core_in.request.bits.unsigned_0 = 1;
-    core_in.request.bits.writeback = expected_writeback;
+    core_in.request.bits.memory.address = 64'h8004;
+    core_in.request.bits.memory.access = 4'd1;
+    core_in.request.bits.memory.width = 2'd2;
+    core_in.request.bits.memory.byte_mask = 8'hf0;
+    core_in.request.bits.memory.unsigned_0 = 1;
+    core_in.request.bits.memory.writeback = expected_writeback;
     #1;
     assert (core_out.request.ready && !core_out.request_access_fault)
       else $fatal(1, "instruction-owned RN-I blocked data admission");
@@ -129,15 +133,15 @@ module rv5stage_io_mshr_tb;
     // Live WB inputs may change after acceptance. Neither another IO request
     // nor a cached request may replace or pass the retained operation.
     core_in.request.bits = '0;
-    core_in.request.bits.address = 64'h8010;
-    core_in.request.bits.access = 4'd2;
+    core_in.request.bits.memory.address = 64'h8010;
+    core_in.request.bits.memory.access = 4'd2;
     repeat (4) begin
       #1;
       assert (!core_out.request.ready && !core_out.drained && !chi_out.req.valid)
         else $fatal(1, "IO-MSHR failed to hold a queued data operation");
       tick();
     end
-    core_in.request.bits.address = 64'h1000;
+    core_in.request.bits.memory.address = 64'h1000;
     instruction_in.flush = flush_fetch;
     tick();
     instruction_in.flush = 0;
@@ -224,11 +228,11 @@ module rv5stage_io_mshr_tb;
     fetch();
     core_in.request.valid = 1;
     core_in.request.bits = '0;
-    core_in.request.bits.address = 64'h8004;
-    core_in.request.bits.access = 4'd2;
-    core_in.request.bits.width = 2'd2;
-    core_in.request.bits.byte_mask = 8'hf0;
-    core_in.request.bits.data = 64'h12345678;
+    core_in.request.bits.memory.address = 64'h8004;
+    core_in.request.bits.memory.access = 4'd2;
+    core_in.request.bits.memory.width = 2'd2;
+    core_in.request.bits.memory.byte_mask = 8'hf0;
+    core_in.request.bits.memory.data = 64'h12345678;
     #1;
     assert (core_out.request.ready) else $fatal(1, "store slot not available behind fetch");
     tick();
@@ -281,8 +285,8 @@ module rv5stage_io_mshr_tb;
     fetch();
     tick();
     core_in.request.valid = 1;
-    core_in.request.bits.address = 64'h8000;
-    core_in.request.bits.access = 4'd1;
+    core_in.request.bits.memory.address = 64'h8000;
+    core_in.request.bits.memory.access = 4'd1;
     tick();
     reset = 1;
     core_in = '0;

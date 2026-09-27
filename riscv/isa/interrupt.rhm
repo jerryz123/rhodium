@@ -9,6 +9,16 @@ enum InterruptCause
 | MachineTimer
 | SupervisorExternal
 | MachineExternal
+| VirtualSupervisorSoftware
+| VirtualSupervisorTimer
+| VirtualSupervisorExternal
+| SupervisorGuestExternal
+
+def VirtualSupervisorInterruptCauses = [
+  InterruptCause.VirtualSupervisorSoftware, InterruptCause.VirtualSupervisorTimer,
+  InterruptCause.VirtualSupervisorExternal
+]
+def HypervisorInterruptCauses = VirtualSupervisorInterruptCauses ++ [InterruptCause.SupervisorGuestExternal]
 
 def InterruptCauses = [
   InterruptCause.SupervisorSoftware,
@@ -33,6 +43,10 @@ fun interrupt_code(cause :: InterruptCause) :: Nat:
   | InterruptCause.MachineTimer: 7
   | InterruptCause.SupervisorExternal: 9
   | InterruptCause.MachineExternal: 11
+  | InterruptCause.VirtualSupervisorSoftware: 2
+  | InterruptCause.VirtualSupervisorTimer: 6
+  | InterruptCause.VirtualSupervisorExternal: 10
+  | InterruptCause.SupervisorGuestExternal: 12
 
 fun interrupt_mask(causes :: List.of(InterruptCause)) :: Nat:
   def mutable mask = 0
@@ -43,6 +57,8 @@ fun interrupt_mask(causes :: List.of(InterruptCause)) :: Nat:
 export:
   InterruptCause
   InterruptCauses
+  HypervisorInterruptCauses
+  VirtualSupervisorInterruptCauses
   SupervisorInterruptCauses
   interrupt_code
   interrupt_mask

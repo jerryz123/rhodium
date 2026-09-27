@@ -106,7 +106,7 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
       uncached_node_id,
       CHINodeKind.RNI,
       ~emits: CHIChannelCapabilities(
-        ~req: [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl],
+        ~req: [CHIReqOpcode.ReadOnce, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl],
         ~dat: [CHIDatOpcode.NonCopyBackWriteData]
       ),
       ~supports: CHIChannelCapabilities(

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Ssnpm WARL controls and explicit-address masking without changing low address bits.
+// Resolves host/guest Ssnpm controls and explicit-address masking without changing low address bits.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
   "../isa/xlen.rhm" open
   "csr.rhdl" open
   "privilege.rhdl" open
+  "hypervisor.rhdl".RiscvGuestMemoryAccess
 
 hardware_enum PointerMaskMode(~width: 2):
   Disabled = 0
@@ -17,12 +18,19 @@ bundle PointerMaskControl():
   mode: PointerMaskMode
   virtual_address: Bool
 
+fun pointer_mask_mode_bits(value :: Bits(2)) :~ PointerMaskMode:
+  def mode = value.into(PointerMaskMode)
+  mux(enum_valid(mode), mode, PointerMaskMode.Disabled)
+
 fun pointer_mask_mode(xlen :: XLen, envcfg :: Bits(xlen.width)) :~ PointerMaskMode:
   if xlen == XLen.X32
   | PointerMaskMode.Disabled
-  | block:
-      def mode = csr_field(envcfg, EnvcfgPMM).into(PointerMaskMode)
-      mux(enum_valid(mode), mode, PointerMaskMode.Disabled)
+  | pointer_mask_mode_bits(csr_field(envcfg, EnvcfgPMM))
+
+fun pointer_mask_hstatus_fields(value :: Bits(64), ~enabled: enabled :: Boolean) :~ Bits(64):
+  if enabled
+  | csr_field_value(HstatusHUPMM, pointer_mask_mode_bits(csr_field(value, HstatusHUPMM)).as_bits(), 64)
+  | bits(0, 64)
 
 fun pointer_mask_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
   if xlen == XLen.X32 || !enabled
@@ -39,6 +47,21 @@ fun user_pointer_mask_control(xlen :: XLen, privilege :: PrivilegeMode, mstatus 
       PointerMaskControl():
         mode: mux((effective === PrivilegeMode.User) & !csr_flag(mstatus, MstatusMXR), pointer_mask_mode(xlen, senvcfg), PointerMaskMode.Disabled)
         virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(satp, Satp64Mode).or_reduce()
+
+// Shared senvcfg controls U/VU. HUPMM is only the U-mode HLV/HSV override;
+// VS accesses use henvcfg. HLVX and either effective MXR bypass masking.
+fun hypervisor_pointer_mask_control(context :: RiscvExecutionContext(), mstatus :: Bits(64), satp :: Bits(64), senvcfg :: Bits(64), hstatus :: Bits(64), vsstatus :: Bits(64), vsatp :: Bits(64), henvcfg :: Bits(64), access :: RiscvGuestMemoryAccess, ~enabled: enabled :: Boolean) :~ PointerMaskControl():
+  def explicit_guest = access =/= RiscvGuestMemoryAccess.Normal
+  def normal_privilege = effective_data_privilege(XLen.X64, context.privilege, mstatus)
+  def mprv = (context.privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV)
+  def guest = explicit_guest ||| mux(mprv, csr_flag(mstatus, MstatusMPV) & (normal_privilege =/= PrivilegeMode.Machine), context.virtualized)
+  def effective = mux(explicit_guest, mux(csr_flag(hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User), normal_privilege)
+  def user_mode = mux(explicit_guest & (context.privilege === PrivilegeMode.User), pointer_mask_mode_bits(csr_field(hstatus, HstatusHUPMM)), pointer_mask_mode(XLen.X64, senvcfg))
+  def mode = mux(effective === PrivilegeMode.User, user_mode, mux(guest & (effective === PrivilegeMode.Supervisor), pointer_mask_mode(XLen.X64, henvcfg), PointerMaskMode.Disabled))
+  def mxr = csr_flag(mstatus, MstatusMXR) ||| (guest & csr_flag(vsstatus, MstatusMXR))
+  PointerMaskControl():
+    mode: mux(Bool(enabled) & !mxr & (access =/= RiscvGuestMemoryAccess.GuestExecuteRead), mode, PointerMaskMode.Disabled)
+    virtual_address: (effective =/= PrivilegeMode.Machine) & csr_field(mux(guest, vsatp, satp), Satp64Mode).or_reduce()
 
 fun apply_pointer_mask(xlen :: XLen, address :: Bits(xlen.width), control :: PointerMaskControl()) :~ Bits(xlen.width):
   if xlen == XLen.X32
@@ -58,4 +81,6 @@ export:
   pointer_mask_mode
   pointer_mask_envcfg_fields
   user_pointer_mask_control
+  hypervisor_pointer_mask_control
+  pointer_mask_hstatus_fields
   apply_pointer_mask

@@ -19,7 +19,7 @@ import:
 sync_circuit RV5StageMmuDataPortFixture():
   def xlen = XLen.X64
   def slots = 8
-  interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
+  interface instruction(RV5StageFetchAccess(xlen, #false), ~role: responder)
   interface data(RV5StageDataAccess(xlen, slots), ~role: responder)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
@@ -28,7 +28,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
-  interface data_memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface data_memory(RV5StagePhysicalDataAccess(xlen, slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(64)), ~role: producer)
   interface data_lookup(Valid(Bits(64)), ~role: producer)
   interface prefetch(Valid(CachePrefetchReq(64)), ~role: consumer)
@@ -36,6 +36,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   input privilege: PrivilegeMode
   input mstatus: Bits(64)
   input satp: Bits(64)
+  input pbmte: Bool
   input invalidate_all: Bool
   input ordered_busy: Bool
 
@@ -65,6 +66,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   mmu.physical_prefetch |> physical_prefetch
   mmu.privilege <== privilege
   mmu.mstatus <== mstatus
+  mmu.pbmte <== pbmte
   mmu.satp <== satp
   mmu.invalidate_all <== invalidate_all
   mmu.ordered_busy <== ordered_busy

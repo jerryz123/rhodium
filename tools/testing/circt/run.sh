@@ -260,7 +260,7 @@ fixture_in_group() {
     cores-execution:rv5stage-fp-*|cores-execution:rv5stage-register-file|cores-execution:rv5stage-csr|cores-execution:rv5stage-zihpm-*|cores-execution:rv5stage-access-fault|cores-execution:rv5stage-fetch|cores-execution:rv5stage-btb|cores-execution:rv5stage-ras|cores-execution:rv5stage-return-prediction|cores-execution:rv5stage-instruction-buffer|cores-execution:rv5stage-fetch-prediction|cores-execution:rv5stage-fetch-throughput|cores-execution:rv5stage-branch-prediction|cores-execution:rv5stage-core|cores-execution:rv5stage-zcb|cores-execution:rv5stage-mop|cores-execution:rv5stage-zkt-*|cores-execution:rv5stage-core-rv32f|cores-execution:rv5stage-core-rv64d|cores-execution:rv5stage-data-fault|cores-execution:rv5stage-interrupt|cores-execution:rv5stage-wfi|cores-execution:rv5stage-zawrs|cores-execution:rv5stage-pause|cores-execution:rv5stage-integer-execution|cores-execution:rv5stage-multiply|cores-execution:rv5stage-divide)
       return 0
       ;;
-    cores-execution:rv5stage-writeback)
+    cores-execution:rv5stage-writeback|cores-execution:rv5stage-hypervisor-csr|cores-execution:rv5stage-hypervisor-core|cores-execution:rv5stage-sstc-rv32)
       return 0
       ;;
     cores-vector-functional-1:rv5stage-vector|cores-vector-functional-1:event-vector|cores-vector-functional-1:rv5stage-vector-control|cores-vector-functional-1:rv5stage-vector-config|cores-vector-functional-1:rv5stage-vector-fp|cores-vector-functional-1:rv5stage-vector-muldiv)
@@ -275,7 +275,7 @@ fixture_in_group() {
     cores-memory:rv5stage-memory-arbiter|cores-memory:rv5stage-chi-*|cores-memory:rv5stage-compack|cores-memory:rv5stage-copyback|cores-memory:rv5stage-pointer-masking|cores-memory:rv5stage-zicboz|cores-memory:rv5stage-zicbom|cores-memory:rv5stage-mmu-replay|cores-memory:rv5stage-walk-trace|cores-memory:rv5stage-svpbmt|cores-memory:rv5stage-ntl|cores-memory:rv5stage-instruction-memory-router|cores-memory:rv5stage-memory-router|cores-memory:rv5stage-uncached|cores-memory:rv5stage-io-mshr|cores-memory:rv5stage-io-boot)
       return 0
       ;;
-    cores-memory:rv5stage-svnapot)
+    cores-memory:rv5stage-svnapot|cores-memory:rv5stage-nested-walker|cores-memory:rv5stage-guest-translation)
       return 0
       ;;
     cores-cache:rv5stage-load-hit|cores-cache:rv5stage-icache*|cores-cache:rv5stage-dcache*|cores-cache:rv5stage-store-buffer|cores-cache:rv5stage-lrsc-*)
@@ -872,6 +872,9 @@ direct_fixture_specs=(
   'rv5stage-fp-scheduled|rv5stage_fp_service_tb'
   'rv5stage-register-file|rv5stage_register_file_tb'
   'rv5stage-csr|rv5stage_csr_tb'
+  'rv5stage-hypervisor-csr|rv5stage_hypervisor_csr_tb'
+  'rv5stage-sstc-rv32|rv5stage_sstc_rv32_tb'
+  'rv5stage-hypervisor-core|rv5stage_hypervisor_core_tb'
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'
   'rv5stage-zihpm-rv32|rv5stage_zihpm_rv32_tb'
   'rv5stage-zihpm-rv64|rv5stage_zihpm_rv64_tb'
@@ -901,6 +904,8 @@ direct_fixture_specs=(
   'rv5stage-mmu-replay|rv5stage_mmu_replay_tb'
   'rv5stage-svpbmt|rv5stage_svpbmt_tb'
   'rv5stage-svnapot|rv5stage_svnapot_tb'
+  'rv5stage-nested-walker|rv5stage_nested_walker_tb'
+  'rv5stage-guest-translation|rv5stage_guest_translation_tb'
   'rv5stage-interrupt|rv5stage_interrupt_tb'
   'rv5stage-wfi|rv5stage_wfi_tb'
   'rv5stage-zawrs|rv5stage_zawrs_tb'

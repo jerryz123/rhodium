@@ -1,0 +1,154 @@
+#lang rhodium
+// Executes paged guests, environment permissions, and timed interrupts through the core and MMU.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../load-store.rhdl" open
+  "../core.rhdl" open
+  "../fetch/frontend.rhdl" open
+  "../mmu/mmu.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../data-port-arbiter.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../icache/protocol.rhdl" open
+  "../memory.rhdl" open
+  "../uncached-protocol.rhdl" open
+  lib("riscv/rtl/svpbmt.rhdl") open
+  "../profile.rhm" open
+  "params.rhdl" open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/c.rhm") open
+  lib("riscv/isa/fp-profile.rhm") open
+  lib("riscv/isa/vector-profile.rhm") open
+  lib("riscv/rtl/interrupt.rhdl") open
+  lib("riscv/rtl/pma.rhdl") open
+  lib("rhodium/std/interconnect.rhdl").AddressSet
+  lib("flow/main.rhdl") open
+
+sync_circuit RV5StageHypervisorCoreFixture():
+  def xlen = XLen.X64
+  def profile = RV5StageConfig(~xlen: xlen, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~hypervisor: #true, ~floating_point: FloatingPointProfile.D, ~compressed: [CompressedExtension.C], ~svinval: #true, ~smstateen: #true, ~sstc: #true, ~ssnpm: #true, ~svpbmt: #true, ~zicbom: #true, ~zicboz: #true, ~zawrs: #true), ~vector: VectorProfile.V, ~vector_length: 128)
+  def physical_map = RiscvPhysicalMemoryMap(44, [
+    RiscvPhysicalMemoryRegion(AddressSet(0, 0xffff), test_rv5stage_memory_attributes),
+    RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0x7fff), test_rv5stage_memory_attributes),
+    RiscvPhysicalMemoryRegion(AddressSet(0x18000, 0x1fff), test_rv5stage_memory_attributes),
+    RiscvPhysicalMemoryRegion(AddressSet(0x1a000, 0xfff), RiscvPhysicalMemoryAttributes(#true, #true, #false, #true, #true, #false, #true)),
+    RiscvPhysicalMemoryRegion(AddressSet(0x1b000, 0xfff), RiscvPhysicalMemoryAttributes(#false, #true, #true, #true, #true, #false, #true)),
+    RiscvPhysicalMemoryRegion(AddressSet(0x1c000, 0x3fff), test_rv5stage_memory_attributes),
+    RiscvPhysicalMemoryRegion(AddressSet(0x20000, 0xffff), test_rv5stage_memory_attributes)
+  ])
+  input instruction_word: Bits(32)
+  output instruction_valid: Bool
+  output instruction_address: Bits(64)
+  output instruction_cacheable: Bool
+  output instruction_device: Bool
+  input memory_ready: Bool
+  input memory_fault: Bool
+  input reservation_valid: Bool
+  input response_valid: Bool
+  input response_data: Bits(64)
+  output memory_valid: Bool
+  output memory_address: Bits(64)
+  output memory_write: Bool
+  output memory_operation: RV5StageMemoryOperation
+  output memory_data: Bits(64)
+  output memory_mask: Bits(8)
+  output memory_walker: Bool
+  output memory_pbmt: PageMemoryType
+  output response_ready: Bool
+  output translation_flush: Bool
+  output virtualized: Bool
+  input interrupts: RiscvInterrupts()
+  input time_counter: Bits(64)
+  inst core(RV5StageCore(profile, ~reset_address: 0x1000))
+  inst frontend(RV5StageFrontend(profile, ~btb_entries: 0, ~ras_entries: 0))
+  inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, physical_map, ~hypervisor: #true))
+  inst arbiter(RV5StageDataPortArbiter(xlen, 8))
+  core.frontend_control |> frontend.control
+  frontend.packets |> core.packets
+  frontend.memory |> mmu.instruction
+  core.data_access |> mmu.data
+  core.pipeline_access |> mmu.pipeline
+  core.vector_precheck |> mmu.vector_precheck
+  core.vector_fast |> mmu.vector_fast
+  core.prefetch |> mmu.prefetch
+  mmu.pipeline_vector <== core.pipeline_vector
+  mmu.privilege <== core.privilege
+  mmu.mstatus <== core.mstatus
+  mmu.pbmte <== core.pbmte
+  mmu.satp <== core.satp
+  mmu.guest_translation <== core.guest_translation
+  core.request_guest_fault <== mmu.request_guest_fault
+  core.pipeline_guest_fault <== mmu.pipeline_guest_fault
+  mmu.invalidate_all <== core.translation_flush
+  mmu.ordered_busy <== Bool(#false)
+  core.interrupts <== interrupts
+  core.hart_id <== bits(0, 64)
+  core.time_counter <== time_counter
+  translation_flush <== core.translation_flush
+  virtualized <== core.guest_translation.virtualized
+  mmu.instruction_lookup.ready <== Bool(#true)
+  instruction_valid <== mmu.instruction_memory.request.valid
+  instruction_address <== mmu.instruction_memory.request.bits.address
+  instruction_cacheable <== mmu.instruction_memory.request.bits.cacheable
+  instruction_device <== mmu.instruction_memory.request.bits.device
+  (mmu.instruction_memory.request |> map_valid(_request => RV5StageFetchResult(#false)):
+    response:
+      RV5StageInstructionResp(#false):
+        word: instruction_word
+        page_fault: Bool(#false)
+        access_fault: Bool(#false)
+    replay: Bool(#false)
+  ) |> valid_pipe(1) |> mmu.instruction_memory.response
+  // Force physical accesses through the WB transaction path. TLB permission
+  // faults still exercise MEM's paired fault metadata before that fallback.
+  (mmu.pipeline_memory.request |> map_valid(_request => RV5StagePipelineResult(xlen)):
+    outcome: RV5StagePipelineOutcome.Slow
+    reason: RV5StagePipelineReason.Translation
+    data: bits(0, 64)
+  ) |> mmu.pipeline_memory.response
+  mmu.pipeline_memory.commit_ready <== Bool(#true)
+  mmu.core_memory |> arbiter.core
+  mmu.walker_memory |> arbiter.walker
+  mmu.core_lookup |> arbiter.core_lookup
+  mmu.walker_lookup |> arbiter.walker_lookup
+  def memory = arbiter.memory
+  reg owner(RV5StageDataReq(xlen, 8))
+  reg pending(~init: Bool(#false))
+  inst load(LoadGen(xlen))
+  inst store(StoreGen(xlen))
+  load.address <== owner.address
+  load.data <== response_data
+  load.width <== owner.width
+  load.unsigned_load <== owner.unsigned
+  store.address <== memory.request.bits.memory.address
+  store.value <== memory.request.bits.memory.data
+  store.width <== memory.request.bits.memory.width
+  memory.request.ready <== memory_ready & !pending
+  memory.request_fault <== Bool(#false)
+  memory.request_access_fault <== memory_fault
+  memory.drained <== !pending
+  memory.reservation_valid <== reservation_valid
+  memory_valid <== memory.request.valid & !pending
+  memory_address <== memory.request.bits.memory.address
+  memory_write <== memory.request.bits.memory.access === RV5StageMemoryOperation.Store
+  memory_operation <== memory.request.bits.memory.access
+  memory_data <== store.data
+  memory_mask <== memory.request.bits.memory.byte_mask
+  memory_walker <== memory.request.bits.memory.origin === RV5StageDataOrigin.Walker
+  memory_pbmt <== memory.request.bits.pbmt
+  memory.response.valid <== response_valid & pending
+  memory.response.bits <== RV5StageDataResp(xlen, 8):
+    access_fault: Bool(#false)
+    data: load.value
+    writeback: owner.writeback
+    origin: owner.origin
+  response_ready <== memory.response.ready & pending
+  when (memory.request.fire() & !memory_fault):
+    pending <== Bool(#true)
+    owner <== memory.request.bits.memory
+  elsewhen (memory.response.fire()):
+    pending <== Bool(#false)
+
+export:
+  RV5StageHypervisorCoreFixture

@@ -13,6 +13,7 @@ import:
   "../../../riscv/isa/vector-profile.rhm" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/vector.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../riscv/rtl/privilege.rhdl".PrivilegeMode
   "../../../riscv/rtl/pointer-masking.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
@@ -50,10 +51,19 @@ sync_circuit RV5StageVectorAdmission():
             last: scalar ||| bits(4095, 64)
             store: decode.control.vector.store
         ppn: scalar[12..56] + bits(16, 44)
-        satp: bits(0, 64)
-        privilege: PrivilegeMode.Machine
-        sum: Bool(#false)
-        mxr: Bool(#false)
+        virtualized: Bool(#false)
+        context:
+          RiscvGuestTranslationContext():
+            vs_mode: RiscvVSMode.Bare
+            g_mode: RiscvGMode.Bare
+            vs_root_ppn: bits(0, 44)
+            g_root_ppn: bits(0, 44)
+            privilege: PrivilegeMode.Machine
+            vs_sum: Bool(#false)
+            vs_mxr: Bool(#false)
+            hs_mxr: Bool(#false)
+            vs_pbmte: Bool(#false)
+            g_pbmte: Bool(#false)
         invalidation_epoch: bits(0, 2)
     instruction: instruction
     state:

@@ -1,14 +1,16 @@
-// Exhaustively checks M/S/U CMO controls, WARL normalization, Sv39 permissions, and PMAs.
+// Exhaustively checks host/guest CMO controls, trap priority, WARL, Sv39 permissions, and PMAs.
 // SPDX-License-Identifier: Apache-2.0
 module riscv_cmo_tb;
   logic [1:0] operation = 0, access = 0;
   logic user_mode = 0, supervisor_mode = 0, sum = 0, mxr = 0;
-  logic [63:0] menvcfg = 0, senvcfg = 0, raw_pte = 0;
+  logic [63:0] menvcfg = 0, senvcfg = 0, henvcfg = 0, raw_pte = 0;
+  logic virtualized = 0;
+  logic [1:0] guest_zero_access;
   struct packed {
     logic mapped, readable, writable, executable, cacheable, atomic_0, device, read_idempotent, cache_block_zero, instruction_cacheable;
   } physical;
-  typedef struct packed { logic permitted; logic [1:0] operation; } permission_t;
-  permission_t permission64, permission32, disabled;
+  typedef struct packed { logic [1:0] access; logic [1:0] operation; } permission_t;
+  permission_t permission64, permission32, disabled, guest_permission;
   logic [63:0] fields64, fields_management, fields_zero, fields_disabled;
   logic [31:0] fields32;
   logic zero_permitted, zero_disabled, translation_permitted, physical_permitted;
@@ -38,9 +40,9 @@ module riscv_cmo_tb;
               expected_flush = 0;
             end
             #1;
-            assert (permission64.permitted == expected_permitted && permission32 == permission64) else $fatal(1, "CMO privilege mismatch mode=%0d m=%0h s=%0h op=%0d", privilege, m, s, op);
+            assert (permission64.access == (expected_permitted ? 0 : 1) && permission32 == permission64) else $fatal(1, "CMO privilege mismatch mode=%0d m=%0h s=%0h op=%0d", privilege, m, s, op);
             assert (permission64.operation == 2'(expected_flush ? 2 : op)) else $fatal(1, "invalidate-to-flush policy mismatch");
-            assert (!disabled.permitted && !zero_disabled) else $fatal(1, "disabled extension permitted");
+            assert (disabled.access == 1 && !zero_disabled) else $fatal(1, "disabled extension permitted");
             assert (fields64 == expected_fields && fields32 == 32'(expected_fields)) else $fatal(1, "CMO WARL mismatch");
             assert (fields_management == (expected_fields & 64'h70) && fields_zero == (expected_fields & 64'h80) && fields_disabled == 0) else $fatal(1, "CMO extension masks mismatch");
             assert (zero_permitted == ((privilege == 2 || (m & 8) != 0) && (privilege != 0 || (s & 8) != 0))) else $fatal(1, "CBZE mismatch");
@@ -67,6 +69,33 @@ module riscv_cmo_tb;
           end
         end
       end
+    end
+    for (int mode = 0; mode < 5; mode++) begin
+      user_mode = mode == 0 || mode == 3;
+      supervisor_mode = mode == 1 || mode == 4;
+      virtualized = mode >= 3;
+      for (int m = 0; m < 16; m++)
+        for (int h = 0; h < 16; h++)
+          for (int s = 0; s < 16; s++) begin
+            menvcfg = 64'(m) << 4; henvcfg = 64'(h) << 4; senvcfg = 64'(s) << 4;
+            for (int op = 0; op < 3; op++) begin
+              bit me, he, se, illegal, virt, flush;
+              operation = 2'(op);
+              me = op == 0 ? (m & 1) != 0 : (m & 4) != 0;
+              he = op == 0 ? (h & 1) != 0 : (h & 4) != 0;
+              se = op == 0 ? (s & 1) != 0 : (s & 4) != 0;
+              illegal = (mode != 2 && !me) || (mode == 0 && !se);
+              virt = virtualized && (!he || (mode == 3 && !se));
+              flush = op == 0 && ((mode != 2 && (m & 3) == 1) ||
+                       (user_mode && (s & 3) == 1) || (virtualized && (h & 3) == 1));
+              #1;
+              assert (guest_permission.access == (illegal ? 1 : virt ? 2 : 0) && guest_permission.operation == 2'(flush ? 2 : op))
+                else $fatal(1,"guest CMO mode=%0d m/h/s=%h/%h/%h op=%0d",mode,m,h,s,op);
+              illegal = (mode != 2 && (m & 8) == 0) || (mode == 0 && (s & 8) == 0);
+              virt = virtualized && ((h & 8) == 0 || (mode == 3 && (s & 8) == 0));
+              assert (guest_zero_access == (illegal ? 1 : virt ? 2 : 0)) else $fatal(1,"guest CBZE priority");
+            end
+          end
     end
     // Ignore cacheability, device type, atomic support and CBZE capability.
     for (int attrs = 0; attrs < 512; attrs++) begin

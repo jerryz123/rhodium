@@ -6,9 +6,14 @@ module riscv_pointer_masking_tb;
   logic [2:0] policy;
   logic [63:0] masked, warl, disabled_warl, disabled_address;
   logic [31:0] rv32_warl, rv32_address;
+  logic virtualized;
+  logic [63:0] hstatus, vsstatus, vsatp, henvcfg, guest_masked, hstatus_warl;
+  logic [1:0] access;
+  logic [2:0] guest_policy;
   PointerMaskingFixture dut (.*);
 
   initial begin
+    virtualized = 0; hstatus = 0; vsstatus = 0; vsatp = 0; henvcfg = 0; access = 0;
     for (int mode = 0; mode < 4; mode++)
       for (int priv = 0; priv < 4; priv++)
         for (int mpp = 0; mpp < 4; mpp++)
@@ -51,7 +56,39 @@ module riscv_pointer_masking_tb;
                   assert (disabled_warl == 0 && disabled_address == address && rv32_warl == 0 && rv32_address == address[31:0])
                     else $fatal(1, "disabled/RV32 specialization");
                 end
-    $display("pointer masking policy and address sweep passed");
+    // Independent oracle: all PMM triples, access kinds, privilege/MPRV/MPV
+    // combinations, MXR controls and Bare/translated stage-one modes.
+    for (int modes = 0; modes < 64; modes++)
+      for (int a = 0; a < 3; a++)
+        for (int ctx = 0; ctx < 64; ctx++)
+          for (int translation = 0; translation < 4; translation++)
+            for (int mxrs = 0; mxrs < 4; mxrs++) begin
+              automatic int ep, pm, length;
+              automatic bit guest, translated;
+              automatic logic [63:0] expected;
+              privilege = ctx[1:0] == 2 ? 3 : 2'(ctx);
+              virtualized = ctx[2] && privilege != 3;
+              mstatus = (64'(ctx[3]) << 17) | (64'(ctx[4]) << 39) | (64'(ctx[5] ? 1 : 0) << 11) | (64'(mxrs&1) << 19);
+              hstatus = (64'(modes[5:4]) << 48) | (64'(ctx[5]) << 8);
+              senvcfg = 64'(modes[1:0]) << 32; henvcfg = 64'(modes[3:2]) << 32;
+              vsstatus = 64'(mxrs>>1) << 19;
+              satp = 64'(translation&1) << 63; vsatp = 64'(translation>>1) << 63;
+              access = 2'(a);
+              address = ctx[0] ? 64'habff800040001123 : 64'hfe00000040001123;
+              ep = a != 0 ? (ctx[5] ? 1 : 0) : privilege == 3 && ctx[3] ? (ctx[5] ? 1 : 0) : int'(privilege);
+              guest = a != 0 || (privilege == 3 && ctx[3] ? ctx[4] && ep != 3 : virtualized);
+              pm = ep == 0 ? (a != 0 && privilege == 0 ? (modes>>4)&3 : modes&3) : guest && ep == 1 ? (modes>>2)&3 : 0;
+              if (pm == 1 || mxrs[0] || (guest && mxrs[1]) || a == 2) pm = 0;
+              translated = ep != 3 && (guest ? vsatp[63] : satp[63]);
+              length = pm == 2 ? 7 : pm == 3 ? 16 : 0;
+              expected = address & (~64'd0 >> length);
+              if (length != 0 && translated && address[63-length]) expected |= ~64'd0 << (64-length);
+              #1;
+              assert (guest_policy == {2'(pm),translated} && guest_masked == expected)
+                else $fatal(1,"guest PMM modes=%0d access=%0d ctx=%0d translation=%0d mxr=%0d policy=%b expected=%b/%b address=%h/%h",modes,a,ctx,translation,mxrs,guest_policy,2'(pm),translated,guest_masked,expected);
+              assert (hstatus_warl == (modes[5:4] == 1 ? 0 : 64'(modes[5:4]) << 48)) else $fatal(1,"HUPMM WARL");
+            end
+    $display("host/guest pointer masking policy and address sweeps passed");
     $finish;
   end
 endmodule

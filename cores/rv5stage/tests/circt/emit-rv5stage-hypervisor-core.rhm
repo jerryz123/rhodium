@@ -1,0 +1,9 @@
+#lang rhombus
+// Emits the production guest core/MMU composition for architectural execution tests.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../hypervisor-core-fixture.rhdl" open
+def design = embedded.run_elaboration(fun (): RV5StageHypervisorCoreFixture())
+print(emit_circt(design))

@@ -117,7 +117,10 @@ use an appropriate snoop such as `SnpUnique` or `SnpCleanInvalid`.
 
 `RV5StageUncached` arbitrates physical instruction and data requests onto one
 RN-I endpoint with at most one outstanding transaction. It emits `ReadNoSnp`
-and `WriteNoSnpPtl`, routes read data back to the accepted owner, drains flushed
+and `WriteNoSnpPtl` for physical device/ROM regions, and non-allocating `ReadOnce`
+and `WriteUniquePtl` for PBMT aliases of coherent RAM. Effective ordering is
+captured at admission, independently of the physical coherence domain. It
+routes read data back to the accepted owner, drains flushed
 instruction work without publishing it, reports unsupported data operations as
 access faults, and asserts address, Home, response, and packet invariants.
 Device writes use the Home's DBID and return write data to that Home; they do

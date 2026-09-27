@@ -12,6 +12,15 @@ hardware_enum PrivilegeMode(~width: 2):
   Supervisor = 1
   Machine = 3
 
+bundle RiscvExecutionContext():
+  privilege: PrivilegeMode
+  virtualized: Bool
+
+hardware_enum RiscvTrapTarget:
+  Machine
+  Supervisor
+  VirtualSupervisor
+
 fun mstatus_effective_mpp(mstatus :: Bits) :~ PrivilegeMode:
   mux_lookup(
     csr_field(mstatus, MstatusMPP).into(PrivilegeMode),
@@ -67,6 +76,8 @@ fun mstatus_after_sret(mstatus :: Bits) :~ Bits(mstatus.type.packed_width()):
 
 export:
   PrivilegeMode
+  RiscvExecutionContext
+  RiscvTrapTarget
   mstatus_effective_mpp
   mstatus_mret_privilege
   mstatus_sret_privilege

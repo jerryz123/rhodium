@@ -174,11 +174,11 @@ sync_circuit RV5StageL1ICache(xlen :: XLen,
          line_address: result.context.address.align_down(RV5StageCacheLineBytes)
          context: result.context
   ) |> offer_decoupled() |> refill.command
-  def s2_response = RV5StageInstructionResp():
+  def s2_response = RV5StageInstructionResp(#false):
     word: lookup.egress.bits.word
     page_fault: Bool(#false)
     access_fault: lookup.egress.bits.access_fault
-  (lookup_results |> filter_valid(result => !result.context.prefetch) |> map_valid(result => RV5StageFetchResult()):
+  (lookup_results |> filter_valid(result => !result.context.prefetch) |> map_valid(result => RV5StageFetchResult(#false)):
     response: s2_response
     replay: !result.hit & !result.access_fault
   ) |> core.response

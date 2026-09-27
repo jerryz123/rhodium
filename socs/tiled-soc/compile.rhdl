@@ -182,7 +182,7 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   for (placement in hart_placements):
     connections := connections ++ [CHIRNIConnection(placement.instruction_site, device_home_placement.requester_site)]
     for (llc_placement in llc_placements):
-      connections := connections ++ [CHIRNIConnection(placement.instruction_site, llc_placement.home_site)]
+      connections := connections ++ [CHIRNIConnection(placement.instruction_site, llc_placement.home_site), CHIRNIConnection(placement.uncached_site, llc_placement.home_site)]
   for (requester in [host_placement.site] ++ uncached_sites):
     connections := connections ++ [CHIRNIConnection(requester, device_home_placement.requester_site)]
   connections := connections ++ [
@@ -278,10 +278,11 @@ fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   for (params in hart_chi_params):
     requester_ports := requester_ports ++ [
       params.instruction_home_port(~coherent: #true),
-      params.data_node.icn_peer()
+      params.data_node.icn_peer(),
+      params.uncached_node.icn_peer()
     ]
   def uncached_ports = hart_chi_params.map(
-    fun (params): params.uncached_node.icn_peer()
+    fun (params): soc_device_home_port(params.uncached_node)
   )
 
   def instruction_device_ports = hart_chi_params.map(fun (params): params.instruction_home_port(~coherent: #false))

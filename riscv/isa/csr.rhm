@@ -19,6 +19,8 @@ enum CsrId
 | Sstatus
 | Sie
 | Stvec
+| Stimecmp
+| Stimecmph
 | Scounteren
 | Senvcfg
 | Sscratch
@@ -57,6 +59,55 @@ enum CsrId
 | Mimpid
 | Mhartid
 | Mconfigptr
+| Vsstatus
+| Vsie
+| Vstvec
+| Vstimecmp
+| Vstimecmph
+| Vsscratch
+| Vsepc
+| Vscause
+| Vstval
+| Vsip
+| Vsatp
+| Hstatus
+| Hedeleg
+| Hideleg
+| Hie
+| Htimedelta
+| Hcounteren
+| Hgeie
+| Henvcfg
+| Htimedeltah
+| Henvcfgh
+| Htval
+| Hip
+| Hvip
+| Htinst
+| Hgatp
+| Hgeip
+| Mtinst
+| Mtval2
+| Mstateen0
+| Mstateen1
+| Mstateen2
+| Mstateen3
+| Mstateen0h
+| Mstateen1h
+| Mstateen2h
+| Mstateen3h
+| Hstateen0
+| Hstateen1
+| Hstateen2
+| Hstateen3
+| Hstateen0h
+| Hstateen1h
+| Hstateen2h
+| Hstateen3h
+| Sstateen0
+| Sstateen1
+| Sstateen2
+| Sstateen3
 
 | Hpmcounter3
 | Hpmcounter4
@@ -259,10 +310,26 @@ def MachineHpmEventIds = [
   CsrId.Mhpmevent31
 ]
 
+def HypervisorCsrIds = [
+  CsrId.Vsstatus, CsrId.Vsie, CsrId.Vstvec, CsrId.Vstimecmp, CsrId.Vstimecmph, CsrId.Vsscratch, CsrId.Vsepc,
+  CsrId.Vscause, CsrId.Vstval, CsrId.Vsip, CsrId.Vsatp,
+  CsrId.Hstatus, CsrId.Hedeleg, CsrId.Hideleg, CsrId.Hie, CsrId.Htimedelta,
+  CsrId.Hcounteren, CsrId.Hgeie, CsrId.Henvcfg, CsrId.Htimedeltah, CsrId.Henvcfgh,
+  CsrId.Htval, CsrId.Hip, CsrId.Hvip, CsrId.Htinst, CsrId.Hgatp, CsrId.Hgeip,
+  CsrId.Mtinst, CsrId.Mtval2
+]
+
+def MachineStateEnableIds = [CsrId.Mstateen0, CsrId.Mstateen1, CsrId.Mstateen2, CsrId.Mstateen3]
+def MachineStateEnableHighIds = [CsrId.Mstateen0h, CsrId.Mstateen1h, CsrId.Mstateen2h, CsrId.Mstateen3h]
+def HypervisorStateEnableIds = [CsrId.Hstateen0, CsrId.Hstateen1, CsrId.Hstateen2, CsrId.Hstateen3]
+def HypervisorStateEnableHighIds = [CsrId.Hstateen0h, CsrId.Hstateen1h, CsrId.Hstateen2h, CsrId.Hstateen3h]
+def SupervisorStateEnableIds = [CsrId.Sstateen0, CsrId.Sstateen1, CsrId.Sstateen2, CsrId.Sstateen3]
+def StateEnableCsrIds = MachineStateEnableIds ++ MachineStateEnableHighIds ++ HypervisorStateEnableIds ++ HypervisorStateEnableHighIds ++ SupervisorStateEnableIds
+
 def CsrIds = [
   CsrId.Fflags, CsrId.Frm, CsrId.Fcsr,
   CsrId.Vstart, CsrId.Vxsat, CsrId.Vxrm, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb,
-  CsrId.Sstatus, CsrId.Sie, CsrId.Stvec, CsrId.Scounteren,
+  CsrId.Sstatus, CsrId.Sie, CsrId.Stvec, CsrId.Stimecmp, CsrId.Stimecmph, CsrId.Scounteren,
   CsrId.Senvcfg, CsrId.Sscratch, CsrId.Sepc, CsrId.Scause,
   CsrId.Stval, CsrId.Sip, CsrId.Satp,
   CsrId.Cycle, CsrId.Time, CsrId.Instret,
@@ -273,10 +340,30 @@ def CsrIds = [
   CsrId.Mscratch, CsrId.Mepc, CsrId.Mcause, CsrId.Mtval, CsrId.Mip,
   CsrId.Mcycle, CsrId.Minstret, CsrId.Mcycleh, CsrId.Minstreth,
   CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid, CsrId.Mconfigptr
-] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds
+] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds ++ HypervisorCsrIds ++ StateEnableCsrIds
 
 fun csr_address(id :: CsrId) :: Nat:
   match id
+  | CsrId.Mstateen0: 0x30c
+  | CsrId.Mstateen1: 0x30d
+  | CsrId.Mstateen2: 0x30e
+  | CsrId.Mstateen3: 0x30f
+  | CsrId.Mstateen0h: 0x31c
+  | CsrId.Mstateen1h: 0x31d
+  | CsrId.Mstateen2h: 0x31e
+  | CsrId.Mstateen3h: 0x31f
+  | CsrId.Hstateen0: 0x60c
+  | CsrId.Hstateen1: 0x60d
+  | CsrId.Hstateen2: 0x60e
+  | CsrId.Hstateen3: 0x60f
+  | CsrId.Hstateen0h: 0x61c
+  | CsrId.Hstateen1h: 0x61d
+  | CsrId.Hstateen2h: 0x61e
+  | CsrId.Hstateen3h: 0x61f
+  | CsrId.Sstateen0: 0x10c
+  | CsrId.Sstateen1: 0x10d
+  | CsrId.Sstateen2: 0x10e
+  | CsrId.Sstateen3: 0x10f
   | CsrId.Fflags: 0x001
   | CsrId.Frm: 0x002
   | CsrId.Fcsr: 0x003
@@ -290,6 +377,8 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Sstatus: 0x100
   | CsrId.Sie: 0x104
   | CsrId.Stvec: 0x105
+  | CsrId.Stimecmp: 0x14d
+  | CsrId.Stimecmph: 0x15d
   | CsrId.Scounteren: 0x106
   | CsrId.Senvcfg: 0x10a
   | CsrId.Sscratch: 0x140
@@ -328,6 +417,35 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Mimpid: 0xf13
   | CsrId.Mhartid: 0xf14
   | CsrId.Mconfigptr: 0xf15
+  | CsrId.Vsstatus: 0x200
+  | CsrId.Vsie: 0x204
+  | CsrId.Vstvec: 0x205
+  | CsrId.Vstimecmp: 0x24d
+  | CsrId.Vstimecmph: 0x25d
+  | CsrId.Vsscratch: 0x240
+  | CsrId.Vsepc: 0x241
+  | CsrId.Vscause: 0x242
+  | CsrId.Vstval: 0x243
+  | CsrId.Vsip: 0x244
+  | CsrId.Vsatp: 0x280
+  | CsrId.Hstatus: 0x600
+  | CsrId.Hedeleg: 0x602
+  | CsrId.Hideleg: 0x603
+  | CsrId.Hie: 0x604
+  | CsrId.Htimedelta: 0x605
+  | CsrId.Hcounteren: 0x606
+  | CsrId.Hgeie: 0x607
+  | CsrId.Henvcfg: 0x60a
+  | CsrId.Htimedeltah: 0x615
+  | CsrId.Henvcfgh: 0x61a
+  | CsrId.Htval: 0x643
+  | CsrId.Hip: 0x644
+  | CsrId.Hvip: 0x645
+  | CsrId.Htinst: 0x64a
+  | CsrId.Hgatp: 0x680
+  | CsrId.Hgeip: 0xe12
+  | CsrId.Mtinst: 0x34a
+  | CsrId.Mtval2: 0x34b
 
   | CsrId.Hpmcounter3: 0xc03
   | CsrId.Hpmcounter4: 0xc04
@@ -501,9 +619,29 @@ def MstatusTW = BitField("mstatus.TW", 21, 21)
 def MstatusTSR = BitField("mstatus.TSR", 22, 22)
 def MstatusUXL = BitField("mstatus.UXL", 33, 32)
 def MstatusSXL = BitField("mstatus.SXL", 35, 34)
+def MstatusGVA = BitField("MstatusGVA", 38, 38)
+def MstatusMPV = BitField("MstatusMPV", 39, 39)
+def HstatusVSBE = BitField("HstatusVSBE", 5, 5)
+def HstatusGVA = BitField("HstatusGVA", 6, 6)
+def HstatusSPV = BitField("HstatusSPV", 7, 7)
+def HstatusSPVP = BitField("HstatusSPVP", 8, 8)
+def HstatusHU = BitField("HstatusHU", 9, 9)
+def HstatusVGEIN = BitField("HstatusVGEIN", 17, 12)
+def HstatusVTVM = BitField("HstatusVTVM", 20, 20)
+def HstatusVTW = BitField("HstatusVTW", 21, 21)
+def HstatusVTSR = BitField("HstatusVTSR", 22, 22)
+def HstatusVSXL = BitField("HstatusVSXL", 33, 32)
+def HstatusHUPMM = BitField("HstatusHUPMM", 49, 48)
+def Hgatp64PPN = BitField("Hgatp64PPN", 43, 0)
+def Hgatp64VMID = BitField("Hgatp64VMID", 57, 44)
+def Hgatp64Mode = BitField("Hgatp64Mode", 63, 60)
 
 def EnvcfgFIOM = BitField("xenvcfg.FIOM", 0, 0)
 def EnvcfgPMM = BitField("xenvcfg.PMM", 33, 32)
+def EnvcfgSTCE = BitField("xenvcfg.STCE", 63, 63)
+def EnvcfghSTCE = BitField("xenvcfgh.STCE", 31, 31)
+def StateenSE = BitField("xstateen.SE", 63, 63)
+def StateenENVCFG = BitField("xstateen0.ENVCFG", 62, 62)
 def MenvcfgPBMTE = BitField("menvcfg.PBMTE", 62, 62)
 def CounterenCY = BitField("xcounteren.CY", 0, 0)
 def CounterenTM = BitField("xcounteren.TM", 1, 1)
@@ -524,6 +662,31 @@ fun csr_fields_mask(fields :: List.of(BitField)) :: Nat:
 export:
   CsrId
   CsrIds
+  HypervisorCsrIds
+  MachineStateEnableIds
+  MachineStateEnableHighIds
+  HypervisorStateEnableIds
+  HypervisorStateEnableHighIds
+  SupervisorStateEnableIds
+  StateEnableCsrIds
+  StateenSE
+  StateenENVCFG
+  MstatusGVA
+  MstatusMPV
+  HstatusVSBE
+  HstatusGVA
+  HstatusSPV
+  HstatusSPVP
+  HstatusHU
+  HstatusVGEIN
+  HstatusVTVM
+  HstatusVTW
+  HstatusVTSR
+  HstatusVSXL
+  HstatusHUPMM
+  Hgatp64PPN
+  Hgatp64VMID
+  Hgatp64Mode
   HpmCounterIds
   HpmCounterHighIds
   MachineHpmCounterIds
@@ -553,6 +716,8 @@ export:
   MstatusSXL
   EnvcfgFIOM
   EnvcfgPMM
+  EnvcfgSTCE
+  EnvcfghSTCE
   MenvcfgPBMTE
   CounterenCY
   CounterenTM

@@ -4,22 +4,23 @@
 
 import:
   "dcache/protocol.rhdl" open
+  "uncached-protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
-  interface core(RV5StageDataAccess(xlen, slots), ~role: responder)
-  interface walker(RV5StageDataAccess(xlen, slots), ~role: responder)
-  interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  interface core(RV5StagePhysicalDataAccess(xlen, slots), ~role: responder)
+  interface walker(RV5StagePhysicalDataAccess(xlen, slots), ~role: responder)
+  interface memory(RV5StagePhysicalDataAccess(xlen, slots), ~role: requester)
   interface core_lookup(Valid(Bits(xlen.width)), ~role: consumer)
   interface walker_lookup(Valid(Bits(xlen.width)), ~role: consumer)
   interface lookup(Valid(Bits(xlen.width)), ~role: producer)
 
-  inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
+  inst requests(Arbiter(RV5StagePhysicalDataReq(xlen, slots), 2))
   Array(core.request, walker.request) <=> requests.ingress
   def selected_walker = requests.chosen === bits(1, 1)
-  requests.egress |> map_flow(request => request.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core))) |> memory.request
+  requests.egress |> map_flow(request => request.updated(~memory: request.memory.updated(~origin: mux(selected_walker, RV5StageDataOrigin.Walker, RV5StageDataOrigin.Core)))) |> memory.request
 
   core.request_fault <== memory.request_fault & !selected_walker
   core.request_access_fault <== memory.request_access_fault & !selected_walker
@@ -39,7 +40,7 @@ sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   lookup.bits <== mux(selected_walker, walker_lookup.bits, core_lookup.bits)
   when (memory.request.valid):
     assert(lookup.valid, "rv5stage_physical_data_request_has_lookup")
-    assert(lookup.bits[0..12] === memory.request.bits.address[0..12], "rv5stage_physical_data_lookup_page_offset")
+    assert(lookup.bits[0..12] === memory.request.bits.memory.address[0..12], "rv5stage_physical_data_lookup_page_offset")
 
 export:
   RV5StageDataPortArbiter

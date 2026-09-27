@@ -43,6 +43,10 @@ def sail_default():
     return {
         "extensions": {
             "F": {"supported": False}, "D": {"supported": False},
+            "H": {"supported": False, "vsatp_modes": {"Sv39": True, "Sv48": True, "Sv57": True},
+                  "hgatp_modes": {"Sv39x4": True, "Sv48x4": True, "Sv57x4": True}},
+            "Sv39": {"supported": False}, "Sha": {"supported": False},
+            "Svpbmt": {"supported": False}, "Svnapot": {"supported": False},
             "Svade": {"supported": False}, "Zihpm": {"supported": False},
             "Svbare": {"supported": False, "sfence_vma_illegal_if_svbare_only": False},
             "Zicfilp": {"supported": False}, "Zicfiss": {"supported": False},
@@ -63,6 +67,7 @@ def sail_default():
         },
         "base": {
             "mtvec": {"direct": {}, "vectored": {}}, "stvec": {"direct": {}, "vectored": {}},
+            "vstvec": {"direct": {}, "vectored": {}},
             "mstatus": {}, "xtval_nonzero": {},
             "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}},
         },
@@ -107,6 +112,34 @@ def vector_udb():
 
 
 class ArchTestConfigTest(unittest.TestCase):
+    def test_optional_sv39_extensions(self):
+        project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
+        for svpbmt in (False, True):
+            for svnapot in (False, True):
+                with self.subTest(svpbmt=svpbmt, svnapot=svnapot):
+                    names = ["Sv39", "Svade"]
+                    names += [name for name, enabled in (("Svpbmt", svpbmt), ("Svnapot", svnapot)) if enabled]
+                    udb = {"params": architecture_params(), "implemented_extensions": [
+                        {"name": "Sm", "version": "= 1.12.0"},
+                        *({"name": name, "version": "= 1.0.0"} for name in names),
+                    ]}
+                    config = project(sail_default(), udb, 0x80000000, 0x40000000)
+                    self.assertEqual(config["extensions"]["Svpbmt"]["supported"], svpbmt)
+                    self.assertEqual(config["extensions"]["Svnapot"]["supported"], svnapot)
+
+    def test_hypervisor_schema_overlay_preserves_architecture(self):
+        project = runpy.run_path(str(RUNNER.with_name("configure.py")))["act_udb_configuration"]
+        udb = vector_udb()
+        overlay = RUNNER.parent / "udb-overlay"
+        self.assertIs(project(udb, overlay), udb)
+        udb["implemented_extensions"].append({"name": "H", "version": "= 1.0.0"})
+        udb["params"]["NUM_EXTERNAL_GUEST_INTERRUPTS"] = 0
+        result = project(udb, overlay)
+        self.assertEqual(result["params"], udb["params"])
+        self.assertEqual(result["implemented_extensions"], udb["implemented_extensions"])
+        self.assertEqual(result["arch_overlay"], str(overlay.resolve()))
+        self.assertNotIn("arch_overlay", udb)
+
     def test_generated_platform_identity_and_memory(self):
         settings = runpy.run_path(str(RUNNER.with_name("configure.py")))["platform_settings"]
         platform = dict(name="simple-spike-rv32max", ram_origin=0x90000000,
@@ -402,13 +435,49 @@ class ArchTestConfigTest(unittest.TestCase):
         cases.append((missing_zvkb, "Zvbb UDB closure is missing Zvkb"))
         stateen = vector_udb()
         stateen["implemented_extensions"].append({"name": "Smstateen", "version": "= 1.0.0"})
-        cases.append((stateen, "state-enable configurations"))
+        cases.append((stateen, "writable MSTATEEN.ENVCFG"))
         wrong_behavior = vector_udb()
         wrong_behavior["params"]["VECTOR_LS_MISALIGNED_LEGAL"] = True
         cases.append((wrong_behavior, "VECTOR_LS_MISALIGNED_LEGAL=False"))
         for udb, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 project(sail_default(), udb, 0x80000000, 0x40000000)
+
+    def test_hypervisor_vector_and_state_enable_projection(self):
+        project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
+        udb = vector_udb()
+        udb["implemented_extensions"] += [
+            {"name": name, "version": "= 1.0.0"}
+            for name in ("H", "Sha", "Smstateen", "Ssstateen", "Sv39")
+        ]
+        udb["params"].update(
+            VSSTATUS_VS_EXISTS=True, VSXLEN=[64], VUXLEN=[64], VS_MODE_ENDIANNESS="little", VU_MODE_ENDIANNESS="little",
+            VSSTAGE_MODE_BARE=True, GSTAGE_MODE_BARE=True, VMID_WIDTH=0,
+            SV39_VSMODE_TRANSLATION=True, SV39X4_TRANSLATION=True,
+            SV48_VSMODE_TRANSLATION=False, SV48X4_TRANSLATION=False,
+            SV57_VSMODE_TRANSLATION=False, SV57X4_TRANSLATION=False,
+            NUM_EXTERNAL_GUEST_INTERRUPTS=0, REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT=True,
+            HCOUNTENABLE_EN=[True, True, True] + [False] * 29, VSTVEC_MODES=[0],
+            REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION=True,
+            MSTATEEN_ENVCFG_TYPE="rw", HSTATEEN_ENVCFG_TYPE="rw",
+        )
+        result = project(sail_default(), udb, 0x80000000, 0x40000000)
+        self.assertTrue(result["extensions"]["H"]["supported"])
+        self.assertTrue(result["extensions"]["Sha"]["supported"])
+        self.assertTrue(result["extensions"]["Stateen"]["Ssstateen"]["supported"])
+        self.assertTrue(result["extensions"]["Stateen"]["Smstateen"]["supported"])
+        self.assertEqual(result["extensions"]["H"]["hgatp_modes"],
+                         {"Sv39x4": True, "Sv48x4": False, "Sv57x4": False})
+        self.assertEqual(result["extensions"]["H"]["vsatp_modes"],
+                         {"Sv39": True, "Sv48": False, "Sv57": False})
+        self.assertEqual(result["memory"]["vmidlen"], 0)
+        self.assertEqual(result["base"]["hcounteren_writable_bits"]["value"], "0x7")
+        self.assertTrue(result["base"]["vstvec"]["direct"]["supported"])
+        self.assertFalse(result["base"]["vstvec"]["vectored"]["supported"])
+        self.assertEqual(result["extensions"]["V"]["support_level"], "Full")
+        udb["params"]["VSSTATUS_VS_EXISTS"] = False
+        with self.assertRaisesRegex(ValueError, "VSSTATUS_VS_EXISTS"):
+            project(sail_default(), udb, 0x80000000, 0x40000000)
 
     def test_reservation_guarantees_validate_sail_platform(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))

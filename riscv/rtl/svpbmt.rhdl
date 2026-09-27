@@ -14,6 +14,10 @@ hardware_enum PageMemoryType(~width: 2):
   IO = 2
   Reserved = 3
 
+// Bare stages supply PMA. A non-default stage-one override wins over G-stage.
+fun compose_page_memory_type(stage_one :: PageMemoryType, stage_two :: PageMemoryType) :~ PageMemoryType:
+  mux(stage_one === PageMemoryType.PMA, stage_two, stage_one)
+
 // Permissions, atomic support, and physical Home selection remain with the PMA.
 // Both fence domains apply when PBMT changes main memory into IO or vice versa.
 bundle RiscvMemoryAccessAttributes():
@@ -45,6 +49,7 @@ fun svpbmt_enabled(xlen :: XLen, value :: Bits(xlen.width)) :~ Bool:
   if xlen == XLen.X64 | csr_flag(value, MenvcfgPBMTE) | Bool(#false)
 
 export:
+  compose_page_memory_type
   PageMemoryType
   RiscvMemoryAccessAttributes
   resolve_memory_attributes

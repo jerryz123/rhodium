@@ -34,6 +34,16 @@ def rv32_half = rv64_integer with (
 )
 
 check:
+  RV5StageExtensions().hypervisor ~is #false
+  (rv64_integer with (extensions = rv64_integer.extensions with (hypervisor = #true))).isa_profile.misa_extension_bits ~is rv64_integer.isa_profile.misa_extension_bits + 128
+  (rv64_integer with (extensions = rv64_integer.extensions with (hypervisor = #true, smstateen = #true))).isa_profile.isa_extensions.contains("sha") ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~hypervisor: #true)) ~throws "H requires RV64 Sv39"
+  (rv64_integer with (extensions = rv64_integer.extensions with (smstateen = #true))).extensions.smstateen ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~smstateen: #true)).extensions.smstateen ~is #true
+  (rv64_integer with (extensions = rv64_integer.extensions with (svinval = #true))).extensions.svinval ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~svinval: #true)).extensions.svinval ~is #true
+  (rv64_integer with (extensions = rv64_integer.extensions with (sstc = #true))).extensions.sstc ~is #true
+  RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~sstc: #true)).extensions.sstc ~is #true
   (rv64_integer with (extensions = rv64_integer.extensions with (svpbmt = #true))).extensions.svpbmt ~is #true
   RV5StageConfig(~xlen: XLen.X32, ~extensions: RV5StageExtensions(~svpbmt: #true)) ~throws "Svpbmt requires RV64 Sv39"
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~svpbmt: #true)) ~throws "Svpbmt requires RV64 Sv39"

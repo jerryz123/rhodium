@@ -22,6 +22,8 @@ import:
   "../../../riscv/isa/zifencei.rhm" open
   "../../../riscv/isa/zimop.rhm" as zimop
   "../../../riscv/isa/privileged.rhm" open
+  "../../../riscv/isa/svinval.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/d.rhm" as d
   "../../../riscv/isa/v.rhm" as vector_isa
   "../../../riscv/rtl/instruction-pattern.rhdl" open
@@ -259,6 +261,29 @@ def instruction_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.Instruction
 def address_translation_fence = fence_controls.RV5StageFenceControl():
   action: fence_controls.RV5StageFenceOperation.AddressTranslation
+
+for ([instruction, action] in [
+  [SINVAL_VMA, fence_controls.RV5StageFenceOperation.AddressTranslation],
+  [SFENCE_W_INVAL, fence_controls.RV5StageFenceOperation.TranslationOrder],
+  [SFENCE_INVAL_IR, fence_controls.RV5StageFenceOperation.TranslationOrder],
+  [HINVAL_VVMA, fence_controls.RV5StageFenceOperation.GuestVirtualTranslation],
+  [HINVAL_GVMA, fence_controls.RV5StageFenceOperation.GuestPhysicalTranslation]
+]):
+  def control = control_for_instruction(controls.SvinvalControlCases ++ controls.SvinvalHypervisorControlCases, instruction)
+  check:
+    field_pattern(field_pattern(control, "fence"), "action").value_bits ~is action.packed_value()
+    field_pattern(field_pattern(control, "operand"), "uses_rs1").value_bits ~is 0
+    field_pattern(field_pattern(control, "operand"), "uses_rs2").value_bits ~is 0
+    field_pattern(field_pattern(control, "writeback"), "enable").value_bits ~is 0
+    guarded_payloads_are_sparse(control) ~is #true
+for (xlen in [XLen.X32, XLen.X64]):
+  def catalog = controls.rv5stage_instructions(xlen, FloatingPointProfile.None, DefaultHalfPrecisionProfile, ~svinval: #true)
+  for (instruction in SvinvalInstructions):
+    check: catalog.contains(instruction) ~is #true
+for (fp in [FloatingPointProfile.None, FloatingPointProfile.D]):
+  def catalog = controls.rv5stage_instructions(XLen.X64, fp, DefaultHalfPrecisionProfile, ~svinval: #true, ~hypervisor: #true)
+  for (instruction in SvinvalH.instructions):
+    check: catalog.contains(instruction) ~is #true
 def jal_operand_a = operand_controls.RV5StageOperandControl():
   uses_rs1: bool.Bool(#false)
   uses_rs2: bool.Bool(#false)
@@ -451,7 +476,7 @@ check:
              controls.RV5StageControl()) ~is #true
   module_def.find_output("control").type.fields.map(
     fun (field): field.name
-  ) ~is ["alu", "operand", "branch", "memory", "prefetch", "multiply", "divide", "writeback", "system", "fence", "hint",
+  ) ~is ["guest_access", "alu", "operand", "branch", "memory", "prefetch", "multiply", "divide", "writeback", "system", "fence", "hint",
          "floating_point_valid", "floating_point", "vector"]
   type_equal(rv32_module.find_output("control").type,
              controls.RV5StageControl()) ~is #true

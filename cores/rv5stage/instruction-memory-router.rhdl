@@ -28,7 +28,7 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   reg pending(~init: Bool(#false))
   reg completed(~init: Bool(#false))
   reg address(Bits(xlen.width))
-  reg response(RV5StageInstructionResp())
+  reg response(RV5StageInstructionResp(#false))
   def uncached_attempt = s2.egress.valid & !s2.egress.bits.cacheable & !core.flush
   def completed_match = completed & (address === s2.egress.bits.address)
   uncached.flush <== core.flush
@@ -36,10 +36,10 @@ sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   s2.egress |> filter_valid(request => !request.cacheable & !core.flush & !pending & !completed)
     |> offer_decoupled() |> uncached.request
   def uncached_completed = uncached.response |> gate_flow(pending & !core.flush) |> to_valid()
-  def unavailable = RV5StageFetchResult():
-    response: literal(RV5StageInstructionResp(), 0)
+  def unavailable = RV5StageFetchResult(#false):
+    response: literal(RV5StageInstructionResp(#false), 0)
     replay: Bool(#true)
-  def uncached_result = RV5StageFetchResult():
+  def uncached_result = RV5StageFetchResult(#false):
     response: response
     replay: !completed_match
   // Every live S2 gets an outcome, including a retry when the selected

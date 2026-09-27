@@ -87,8 +87,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~chi: config :: RiscvHartCHIConfig,
                       ~btb_entries: btb_entries :: Nat = 32,
                       ~ras_entries: ras_entries :: Nat = 6):
-  unless !profile.extensions.svpbmt
-  | error(~who: #'RV5Stage, "Svpbmt translation support requires pending PBMT-aware memory routing and CHI integration")
+  def hypervisor = profile.extensions.hypervisor
   unless config.cache_line_bytes == RV5StageCacheLineBytes
   | error(~who: #'RV5Stage,
           "RV5Stage requires 64-byte CHI cache lines")
@@ -119,7 +118,13 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
 
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
-  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots))
+  inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor))
+  if hypervisor
+  | block:
+      mmu.guest_translation <== core.guest_translation
+      core.request_guest_fault <== mmu.request_guest_fault
+      core.pipeline_guest_fault <== mmu.pipeline_guest_fault
+  | #void
   inst l1i(RV5StageL1ICache(xlen, profile.cache_geometry.instruction, ~chi: config))
   inst l1d(RV5StageL1DCache(xlen, profile.cache_geometry.data, ~chi: config, ~service_queue_depth: profile.data_cache_service_queue_depth, ~vector_completion_slots: vector_completion_slots))
   inst instruction_memory_router(RV5StageInstructionMemoryRouter(xlen))
@@ -163,6 +168,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   memory_router.uncached |> uncached.core
   mmu.privilege <== core.privilege
   mmu.mstatus <== core.mstatus
+  mmu.pbmte <== core.pbmte
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== memory_router.ordered_busy

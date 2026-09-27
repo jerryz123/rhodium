@@ -42,7 +42,8 @@ module rv5stage_memory_router_tb;
 
   logic clock = 1'b0;
   logic reset = 1'b1;
-  requester_t core_in;
+  typedef struct packed { request_bits_t memory; logic [1:0] pbmt; } physical_bits_t;
+  struct packed { struct packed {logic valid; physical_bits_t bits;} request; ready_t response; } core_in;
   typedef struct packed { ready_t request; logic request_fault; logic request_access_fault; response_t response; logic drained; logic reservation_valid; } cached_responder_t;
   cached_responder_t cache_in;
   responder_t uncached_in;
@@ -67,11 +68,11 @@ module rv5stage_memory_router_tb;
       input logic expected_access_fault
   );
     core_in.request.valid = 1'b1;
-    core_in.request.bits.address = address;
-    core_in.request.bits.byte_mask = 4'(((1 << (1 << core_in.request.bits.width)) - 1) << (address % 4));
-    core_in.request.bits.access = access;
-    core_in.request.bits.locality = 3'd4;
-    core_in.request.bits.writeback = memory_vector(3'd5);
+    core_in.request.bits.memory.address = address;
+    core_in.request.bits.memory.byte_mask = 4'(((1 << (1 << core_in.request.bits.memory.width)) - 1) << (address % 4));
+    core_in.request.bits.memory.access = access;
+    core_in.request.bits.memory.locality = 3'd4;
+    core_in.request.bits.memory.writeback = memory_vector(3'd5);
     #1;
     assert (core_out.request.ready &&
             cache_out.request.valid == expected_cache &&
@@ -120,18 +121,31 @@ module rv5stage_memory_router_tb;
 
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
     check_request(32'h00001000, STORE, 1'b1, 1'b0, 1'b0);
+    // Attribute overrides alter routing and ordering, never physical permission.
+    for (int kind = 1; kind <= 2; kind++) begin
+      core_in.request.bits.pbmt = 2'(kind);
+      check_request(32'h1000, LOAD, 0, 1, 0);
+      assert (uncached_out.request.bits.device == (kind == 2)) else $fatal(1,"RAM PBMT ordering");
+      check_request(32'h1000, STORE, 0, 1, 0);
+      check_request(32'h2000, LOAD, 0, 1, 0);
+      assert (uncached_out.request.bits.device == (kind == 2)) else $fatal(1,"device PBMT ordering");
+      check_request(32'h3000, STORE, 0, 0, 1);
+      check_request(32'h6000, LOAD, 0, 0, 1);
+      for (int op = 7; op <= 9; op++) check_request(32'h1000,4'(op),1,0,0);
+    end
+    core_in.request.bits.pbmt = 0;
     // Every AMOArithmetic operation must reach coherent RAM, including its
     // first and last naturally aligned word, but not a non-atomic/device PMA.
-    core_in.request.bits.width = 2'd2;
+    core_in.request.bits.memory.width = 2'd2;
     for (int operation = 0; operation < 9; operation++) begin
-      core_in.request.bits.atomic = 4'(operation);
+      core_in.request.bits.memory.atomic = 4'(operation);
       check_request(32'h1000, ATOMIC, 1, 0, 0);
       check_request(32'h1ffc, ATOMIC, 1, 0, 0);
       check_request(32'h2000, ATOMIC, 0, 0, 1);
       check_request(32'h3000, ATOMIC, 0, 0, 1);
     end
-    core_in.request.bits.atomic = 0;
-    core_in.request.bits.width = 0;
+    core_in.request.bits.memory.atomic = 0;
+    core_in.request.bits.memory.width = 0;
     check_request(32'h00002000, LOAD, 1'b0, 1'b1, 1'b0);
     assert (uncached_out.request.bits.device)
       else $fatal(1, "device PMA was not forwarded to the uncached path");
@@ -144,9 +158,9 @@ module rv5stage_memory_router_tb;
       else $fatal(1, "uncached normal memory was incorrectly marked as device memory");
     check_request(32'h00006000, LOAD, 1'b0, 1'b0, 1'b1);
     check_request(32'h00011000, LOAD, 1'b0, 1'b0, 1'b1);
-    core_in.request.bits.width = 2'd3;
+    core_in.request.bits.memory.width = 2'd3;
     check_request(32'h00004000, LOAD, 1'b0, 1'b0, 1'b1);
-    core_in.request.bits.width = 2'd0;
+    core_in.request.bits.memory.width = 2'd0;
 
     // Block permission is checked at both ends, independent of rs1 alignment
     // and scalar width. Uncached RAM is legal; devices and partial blocks are not.
@@ -192,7 +206,7 @@ module rv5stage_memory_router_tb;
     uncached_in.request.ready = 1'b0;
     check_request(32'h00001000, LOAD, 1'b1, 1'b0, 1'b0);
     cache_in.drained = 1'b0;
-    core_in.request.bits.address = 32'h2000;
+    core_in.request.bits.memory.address = 32'h2000;
     #1;
     assert (!core_out.request.ready && !uncached_out.request.valid)
       else $fatal(1, "IO admission passed older cached work");
@@ -200,20 +214,20 @@ module rv5stage_memory_router_tb;
     #1;
     assert (core_out.request.ready) else $fatal(1, "busy RN-I prevented IO admission");
     tick();
-    core_in.request.bits.address = 32'h1000;
+    core_in.request.bits.memory.address = 32'h1000;
     repeat (4) begin
       #1;
       assert (!core_out.request.ready && !cache_out.request.valid &&
               !core_out.drained && uncached_out.request.valid &&
               uncached_out.request.bits.request.address == 32'h2000)
         else $fatal(1, "queued IO did not retain payload or block younger cached work");
-      core_in.request.bits.address = 32'h5001;
-      core_in.request.bits.access = 4'd8;
+      core_in.request.bits.memory.address = 32'h5001;
+      core_in.request.bits.memory.access = 4'd8;
       #1;
       assert (!core_out.request.ready && !core_out.response.valid)
         else $fatal(1, "uncached CMO bypassed an older IO-MSHR operation");
-      core_in.request.bits.address = 32'h1000;
-      core_in.request.bits.access = LOAD;
+      core_in.request.bits.memory.address = 32'h1000;
+      core_in.request.bits.memory.access = LOAD;
       tick();
     end
     uncached_in.request.ready = 1'b1;

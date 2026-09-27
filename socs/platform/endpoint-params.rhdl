@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines SoC host capabilities and Home-specific service projections.
+// Defines SoC host capabilities and Home-specific host/hart service projections.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -48,7 +48,19 @@ fun soc_host_memory_service(home :: CHIHomeParams,
     for List (request in requests.filter(~keep: fun (request): [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl].contains(request.opcode))):
       CHIRequestSupport((if request.opcode == CHIReqOpcode.ReadNoSnp | CHIReqOpcode.ReadClean | CHIReqOpcode.WriteUniquePtl), request.sizes))
 
+// A hart's uncached port may also reach coherent normal memory. Only its
+// nonsnooping opcode subset reaches the device Home.
+fun soc_device_home_port(node :: CHINodeParams) :: CHIRequesterHomeParams:
+  def peer = node.icn_peer()
+  CHIRequesterHomeParams(
+    peer,
+    ~emits: peer.emits,
+    ~supports: CHIChannelCapabilities(
+      ~req: node.emits.req.filter(~keep: fun (opcode): [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpFull, CHIReqOpcode.WriteNoSnpPtl].contains(opcode)),
+      ~dat: node.emits.dat))
+
 export:
+  soc_device_home_port
   soc_host_home_port
   soc_host_memory_service
   soc_host_node

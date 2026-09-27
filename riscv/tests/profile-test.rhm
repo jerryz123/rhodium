@@ -25,6 +25,8 @@ check:
   rv64.isa_base ~is "rv64i"
   rv64.misa_extension_bits ~is 0x112d
   rv64.misa_value ~is 0x800000000000112d
+  pack_misa_extensions([MisaExtension.H]) ~is 0x80
+  RiscvIsaProfile(XLen.X64, ["i", "h"], [MisaExtension.I, MisaExtension.H]).misa_value ~is 0x8000000000000180
   RiscvIsaProfile(XLen.X64, ["i", "i"], [MisaExtension.I]) ~throws "unique"
   RiscvIsaProfile(XLen.X64, ["i"], [MisaExtension.I, MisaExtension.I]) ~throws "unique"
   RiscvCacheDescription(64, 64, 4096).ways ~is 1

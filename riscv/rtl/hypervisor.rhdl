@@ -1,0 +1,125 @@
+#lang rhodium
+// Defines guest translation context, CSR substitution, trap routing, and fault provenance.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/csr.rhm" open
+  "../isa/trap.rhm" open
+  "csr.rhdl" open
+  "privilege.rhdl" open
+
+hardware_enum RiscvGuestFaultAccess:
+  Explicit
+  PageTableRead
+
+// Explicit guest accesses do not change live V or inherit MPRV.
+hardware_enum RiscvGuestMemoryAccess:
+  Normal
+  Guest
+  GuestExecuteRead
+
+hardware_enum RiscvVSMode:
+  Bare
+  Sv39
+
+hardware_enum RiscvGMode:
+  Bare
+  Sv39x4
+
+// Effective guest access context, captured by a translation owner at admission.
+// HS MXR affects both stages; VS MXR and SUM affect only VS translation.
+bundle RiscvGuestTranslationContext():
+  vs_mode: RiscvVSMode
+  g_mode: RiscvGMode
+  vs_root_ppn: Bits(44)
+  g_root_ppn: Bits(44)
+  privilege: PrivilegeMode
+  vs_sum: Bool
+  vs_mxr: Bool
+  hs_mxr: Bool
+  vs_pbmte: Bool
+  g_pbmte: Bool
+
+fun sv39x4_address_valid(address :: Bits(64)) :~ Bool:
+  address[41..64] === bits(0, 23)
+
+fun sv39x4_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(11):
+  mux_lookup(level, ~default: address[30..41]):
+    0: bits(0, 2) ++ address[12..21]
+    1: bits(0, 2) ++ address[21..30]
+
+// Captured with a fault, not reconstructed from a later translation context.
+// guest_physical_address is the original GPA; trap CSRs expose it shifted by two.
+bundle RiscvGuestFault():
+  guest_virtual_address: Bool
+  guest_physical_address: Bits(64)
+  access: RiscvGuestFaultAccess
+
+// Privileged registers supplied to the translation boundary. Execution and
+// effective MPRV accesses select their own stage-one and stage-two contexts.
+bundle RiscvHypervisorTranslation():
+  vs_pbmte: Bool
+  virtualized: Bool
+  hstatus: Bits(64)
+  vsstatus: Bits(64)
+  vsatp: Bits(64)
+  hgatp: Bits(64)
+
+// Accompanies an existing instruction/data fault indication through retirement.
+bundle RiscvGuestException():
+  page_fault: Bool
+  details: RiscvGuestFault()
+
+fun virtual_supervisor_csr(address :: Bits(12), virtualized :: Bool) :~ Bits(12):
+  def substituted = mux_lookup(address, ~default: address, [
+    [csr_address(CsrId.Sstatus), csr_bits(CsrId.Vsstatus)],
+    [csr_address(CsrId.Sie), csr_bits(CsrId.Vsie)],
+    [csr_address(CsrId.Stvec), csr_bits(CsrId.Vstvec)],
+    [csr_address(CsrId.Stimecmp), csr_bits(CsrId.Vstimecmp)],
+    [csr_address(CsrId.Stimecmph), csr_bits(CsrId.Vstimecmph)],
+    [csr_address(CsrId.Sscratch), csr_bits(CsrId.Vsscratch)],
+    [csr_address(CsrId.Sepc), csr_bits(CsrId.Vsepc)],
+    [csr_address(CsrId.Scause), csr_bits(CsrId.Vscause)],
+    [csr_address(CsrId.Stval), csr_bits(CsrId.Vstval)],
+    [csr_address(CsrId.Sip), csr_bits(CsrId.Vsip)],
+    [csr_address(CsrId.Satp), csr_bits(CsrId.Vsatp)]
+  ])
+  mux(virtualized, substituted, address)
+
+fun hypervisor_trap_target(context :: RiscvExecutionContext(), cause :: Bits(64),
+                           medeleg :: Bits(64), hedeleg :: Bits(64)) :~ RiscvTrapTarget:
+  def machine_delegated = mux_lookup(
+    cause, ~default: Bool(#false),
+    (DelegatableExceptionCauses ++ HypervisorExceptionCauses).map(
+      fun (candidate): [exception_code(candidate), medeleg[exception_code(candidate)].into(Bool)]
+    )
+  )
+  def guest_delegated = mux_lookup(
+    cause, ~default: Bool(#false),
+    DelegatableExceptionCauses.filter(~keep: fun (candidate): candidate != ExceptionCause.EnvironmentCallFromSupervisor).map(
+      fun (candidate): [exception_code(candidate), hedeleg[exception_code(candidate)].into(Bool)]
+    )
+  )
+  mux((context.privilege === PrivilegeMode.Machine) ||| !machine_delegated,
+      RiscvTrapTarget.Machine,
+      mux(context.virtualized & guest_delegated, RiscvTrapTarget.VirtualSupervisor, RiscvTrapTarget.Supervisor))
+
+fun guest_fault_instruction(fault :: RiscvGuestFault()) :~ Bits(64):
+  // RV64 implicit VS page-table read pseudo-instruction; explicit traps may
+  // report zero instead of providing a transformed instruction.
+  mux(fault.access === RiscvGuestFaultAccess.PageTableRead, bits(0x3000, 64), bits(0, 64))
+
+export:
+  RiscvGuestMemoryAccess
+  RiscvHypervisorTranslation
+  RiscvGuestException
+  RiscvVSMode
+  RiscvGMode
+  RiscvGuestTranslationContext
+  sv39x4_address_valid
+  sv39x4_vpn
+  RiscvGuestFaultAccess
+  RiscvGuestFault
+  virtual_supervisor_csr
+  hypervisor_trap_target
+  guest_fault_instruction

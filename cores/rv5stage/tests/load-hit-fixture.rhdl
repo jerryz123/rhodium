@@ -66,6 +66,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   router.uncached |> uncached
   mmu.privilege <== core.privilege
   mmu.mstatus <== core.mstatus
+  mmu.pbmte <== Bool(#false)
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== router.ordered_busy
@@ -78,7 +79,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   mmu.instruction.invalidate_all <== instruction.invalidate_all
   mmu.instruction_lookup.ready <== Bool(#true)
   mmu.instruction_memory.response.valid <== Bool(#false)
-  mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(), 0)
+  mmu.instruction_memory.response.bits <== literal(RV5StageFetchResult(#false), 0)
   cache.node_id <== bits(3, 7)
   def traced_requests = cache.chi.requests |> trace_event("dcache/chi.txreq", ~fields: request):
     address: request.address

@@ -19,6 +19,10 @@ defines the supported request and snoop families.
 
 ## Public contract
 
+RN-I endpoints may issue coherent non-allocating `ReadOnce` and `WriteUniquePtl`
+accesses. They snoop resident RN-F copies without creating an RN-I directory
+resident; physical noncoherent regions continue to use NoSnp requests.
+
 `CHIHNI` selects one or more SN-I services for non-coherent traffic. `CHIHNF`
 provides a single-transaction coherent Home without an LLC. `CHIInclusiveHNF`
 adds bounded transaction slots, set-associative storage, resident tracking,

@@ -284,6 +284,17 @@ The transformed address feeds speculative lookup, registered WB requests,
 explicit prefetches, replay correlation, and address-fault values. Fetch,
 branch targets, implicit PTE requests, and CSR writes never pass through it.
 
+With H enabled, the shared helper resolves ordinary effective VS/VU contexts,
+MPRV/MPV, and explicit HLV/HSV independently. CSR exposes ordinary and explicit
+guest controls; ID selects by decode and disables HLVX masking. Keep the ordinary
+output independent of live ID intent because WB vector certification consumes
+it too. `henvcfg.PMM` and `hstatus.HUPMM` use the same WARL modes as senvcfg.
+HS and VS MXR both suppress guest masking. Vector descriptors capture the control,
+and WB rejects mismatching early certificates. Existing CSR drain closes older
+vector windows before policy changes; PMM never changes PTE interpretation.
+Use the host/guest policy sweep and `rv5stage-hypervisor-csr` plus
+`rv5stage-hypervisor-core` for WARL, restart, nested memory and fault coverage.
+
 CSR serialization keeps policy stable across younger ID admissions. A committed
 PMM change uses the ordinary serializing restart, killing younger work and
 clearing the MMU's prefetch stages through the fetch-flush path. It does not
@@ -495,6 +506,163 @@ modules by name instead of flattening them.
 
 ## Focused validation
 
+Svinval's pure catalog is `riscv/isa/svinval.rhm`. The optional decode rows
+reuse the corresponding SFENCE/HFENCE actions, with no register sources because
+the MMU intentionally over-invalidates all entries. Keep the ordering-only
+`TranslationOrder` action distinct: it serializes without an MMU flush and
+must not inherit TVM/VTVM denial. Its U/VU privilege check remains in CSR
+commit policy; no speculative or denied instruction can invalidate state.
+Run `riscv/tests/svinval-test.rhm`, `cores/rv5stage/tests/core-ctrl-test.rhm`,
+and `cores/rv5stage/tests/profile-test.rhm` through `tools/run-racket-tests.sh`.
+The `rv5stage-hypervisor-csr` fixture sweeps all five operations across
+M/HS/U/VS/VU and independent TVM/VTVM settings. `rv5stage-hypervisor-core`
+checks paged VS/G remapping after delayed PTE stores, batched invalidations,
+and precise guest denial without younger stores. Pair with
+`rv5stage-guest-translation` for invalidation on refill and accepted-response
+edges and orphan-response draining, and `rv5stage-csr` for ordinary privilege
+regressions. Svinval selection does not itself advertise H, Sha, or RVA23.
+
+State-enable descriptors live in `riscv/isa/csr.rhm`; the stateless hierarchy
+and denial priority live in `riscv/rtl/state-enable.rhdl`. `csr.rhdl` generates
+four descriptor-driven banks with optional M/H storage. Only SE and ENVCFG
+are writable for the current core; S-state views are shared constant-zero CSRs,
+not virtualized duplicates. Parent-masked H bits ignore writes. Bank writes
+use the same successful WB-commit predicate as all other CSR mutation.
+When adding state controlled by another state-enable field, extend the legal
+mask and access policy together; do not enable fields for absent state.
+Use the existing hypervisor CSR fixture for independent SE gates, parent masks,
+M/HS/VS/VU denial and compatibility with FP/vector/timer controls. Its reset
+helper defaults to explicit firmware initialization; raw-reset tests opt out.
+The RV32 Sstc fixture also covers state-enable high halves and S-mode denial.
+The hypervisor core fixture executes 48 paged read/write cases, including
+precise fault PCs/values and suppression of younger stores. Its common machine
+bootstrap explicitly initializes state access for preexisting guest programs.
+
+Sstc's full-width compares and privilege-gate classification use
+`riscv/rtl/timer.rhdl`; comparator storage and CSR writes stay in `csr.rhdl`.
+Keep its optional state absent from non-Sstc specializations. RV32 low/high
+writes preserve the other half. Never use V-gated `time` CSR readback as the
+guest comparator input: virtual time advances while HS/M executes too.
+STCE switches pending-bit ownership, not just access permissions; an enabled
+host comparator replaces physical/software STIP, whereas guest comparison
+ORs with injection. Machine denial precedes guest virtual-instruction denial.
+The existing WB drain and interrupt boundary remain the only entry authority.
+Run `rv5stage-sstc-rv32`, `rv5stage-hypervisor-csr`, and
+`rv5stage-hypervisor-core`, plus ordinary `rv5stage-csr`. The guest core cases
+exercise comparator delivery during delayed loads, WFI/rearm/SRET, and vector
+completion drain. Profile and CSR catalog changes use the focused host tests.
+
+The hypervisor integration is selected by `RV5StageExtensions.hypervisor`.
+Core, frontend, instruction assembly, CSR, and top-level composition consume
+that profile; standalone MMU and protocol generators retain explicit H
+parameters. Configuration validation requires RV64 and Sv39. The shared RVA23
+preset enables H/Sha and its state-enable dependency for both core choices.
+Decode composes canonical HFENCE and HLV/HLVX/HSV rows into the existing relation.
+WB's ordinary serialization drains older work before committing fences.
+Conditional state fields avoid H storage in normal specializations. Address
+substitution selects the VS bank while access checks retain the original
+instruction's CSR address. Commit-owned trap/return events are the only
+writers of live virtualization state.
+
+The [H/Sha qualification ledger](HYPERVISOR_PLAN.md#architectural-qualification-ledger)
+maps each profile constituent to implementation and evidence. Runtime `misa.H`
+comes from the profile's MISA projection, using `riscv/isa/profile.rhm`'s shared
+bit catalog. ACT projects the same advertised profile into Sail; inventory gaps
+and unconfigurable model differences remain visible, not suite exclusions.
+The hypervisor CSR bench sweeps WARL translation modes, direct VS vector bases,
+counter enables, and delegated trap values. The core fixture enables C and
+checks page-straddled fetch faults, raw illegal instructions, load/store faults,
+VS delegation, and precise younger-store suppression. Pair changes to these paths with the
+ordinary CSR regression; use profile host tests for MISA catalog changes.
+
+`henvcfg` storage is conditional on H and uses the same FIOM/CMO WARL masks
+as the existing environment CSRs, plus opt-in PBMTE. PBMTE readback and VS
+translation are masked by machine PBMTE; both enable changes conservatively
+invalidate the MMU at WB. Unsupported extension fields stay zero.
+Do not mask CMO readback by an ancestor's enable bits. The reusable CMO adapter
+returns `CboAccess` (allowed, illegal, virtual) plus the effective management
+operation. Decode captures the decision using current privilege and V, not
+MPRV translation privilege; the normal exception token carries it to WB.
+No denied CMO can issue a cache request. `senvcfg` remains shared. Existing
+full-drain FENCE serialization is stronger than FIOM requires. Device regions
+cannot be cacheable, and the uncached IO-MSHR rejects atomic accesses, so no
+FIOM-specific request bit or new queue is needed.
+Use `riscv-cmo` for exhaustive policy checks, `rv5stage-hypervisor-csr` for
+WARL/access/readback, and `rv5stage-hypervisor-core` for paged CMO trap priority,
+WB acceptance, invalidate conversion, and delayed CBO/FENCE ordering.
+
+Guest FP shares the ordinary FPRs and `fcsr`; the conditional `guest_fp_status`
+field independently owns VS.FS while `fp_csrs` retains HS.FS. Keep both outside
+raw trap-stack status writes, and derive SD independently for each bank.
+Status writes select the substituted CSR address, so guest `sstatus` cannot
+clean HS.FS. Guest FP writes/completions dirty both banks. Do not duplicate
+the FP datapath or bank flags. Existing ID serialization, deferred scoreboards,
+and WB exception/interrupt drain keep live V stable until every accepted FP
+completion updates its owning context; a core assertion guards trap/return
+against undrained FP work. Keep this invariant when changing completion policy.
+The guest CSR fixture covers all FS combinations, shared flags, independent
+SD, and VS/VU access. The paged core fixture includes F/D arithmetic, dynamic
+rounding, two-stage FP memory faults, deferred divide/fault and interrupt
+ordering, and SRET with shared FPR state. Pair it with `rv5stage-core-rv64d` and
+`rv5stage-core-rv32f` for ordinary FP integration.
+
+The H specialization owns only `hvip` and `hideleg` as new interrupt storage.
+M/H/VS enable views share `mie`; pending views alias `hvip` and physical sources.
+Keep HS `sip`/`sie` disjoint from the virtual-interrupt bits, and keep virtual
+MIDELEG bits fixed one. `riscv/rtl/interrupt.rhdl` owns stateless destination,
+priority, enable, and cause-renumbering policy. The existing interrupt request
+stops younger admission and WB drains accepted effects before entry; never
+flush an accepted load just because an injected interrupt becomes eligible.
+`rv5stage-hypervisor-csr` checks CSR aliases and M/HS/VS selection;
+`rv5stage-hypervisor-core` runs all three injected interrupts through paged
+guest handlers, WFI wake, deferred loads, and SRET. Pair these with ordinary
+`rv5stage-csr`, `rv5stage-interrupt`, and `rv5stage-wfi` regressions.
+
+Fetch result/packet and scalar pipeline bundle generators take an explicit
+`hypervisor` argument. The false specialization omits guest metadata and its
+storage. Fence controls gain a bit for the two HFENCE actions in both
+specializations. The true specialization carries `RiscvGuestException` through S2,
+packet storage, instruction assembly, and ID/EX/MEM/WB. The MMU's
+`pipeline_guest_fault` is paired with its same-cycle MEM response;
+`request_guest_fault` is paired with the WB request fault indications. Capture
+the former in MEM/WB and the latter before pending-exception retention. Neither
+is an independently sampled global fault register. Physical cache interfaces
+stay unchanged.
+
+Guest vectors retain the same sequencer, VRF and shared execution services.
+`guest_vector_status` owns VS.VS independently of `vector_csrs.status` (HS.VS),
+with the same dual access/dirty rules as FP. Vector memory captures MEM guest
+metadata alongside its local decision; WB slow faults use their request-owned
+metadata. The macro retirement payload arbitrates and registers that provenance
+with its outcome before updating the retained scalar WB instruction. Do not
+sample it later from a live MMU sideband. Vector requests always use Normal
+translation intent, never a concurrent scalar HLV/HLVX/HSV selector.
+Existing activity/drain interlocks hold context through deferred effects, with
+an assertion at CSR redirect. Keep scalar overlap rather than serializing every
+vector instruction. Guest regressions cover status gates, FP vectors, two-page
+authorization, precise indexed restart after HFENCE, fault-first truncation,
+and interrupt draining.
+
+Explicit guest loads/stores carry `RiscvGuestMemoryAccess` from ID through WB.
+Only the hypervisor specialization wraps virtual pipeline and transaction
+requests with `RV5StageGuestMemoryReq`; the MMU consumes that intent before
+physical admission. Keep HU/V legality in ID and capture it with the instruction;
+SPVP chooses translation privilege without changing live execution state. HLVX
+retains the load fault class and unsigned result, with a separate execute-read
+permission selector. Do not turn it into an instruction fetch or apply its X
+check to implicit PTE reads. Stores retain ordinary WB authorization.
+
+Select `rv5stage-hypervisor-core` for real core/frontend/MMU execution against
+delayed physical memory, precise guest faults, delegated VS traps, HS returns,
+MPRV/MPV accesses, ordered HFENCE remapping, and explicit guest memory widths,
+HU/SPVP legality, warm permissions, and precise denied-store behavior. Pair it with the host core and
+MMU replay regressions and `rv5stage-hypervisor-csr` when changing this boundary.
+
+Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/rv5stage/tests/csr-test.rhm`
+and `FIXTURES='rv5stage-hypervisor-csr rv5stage-csr' bash tools/testing/circt/run.sh`
+when changing this boundary. The [H/Sha plan](HYPERVISOR_PLAN.md) owns the
+remaining integration sequence and advertisement gates.
+
 For shared replacement-policy changes, run `cache-replacement`,
 `rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32`. The standalone
 fixture covers four-way tree ordering, invalid-way priority, and a padded
@@ -697,7 +865,12 @@ FIXTURES='rv5stage-zawrs rv5stage-wfi rv5stage-dcache rv5stage-memory-router rv5
 
 The WRS bench checks retirement deltas through CSRs, original trap PC/value,
 globally masked and enabled interrupt wake, timeout and privilege policy, and
-invalidation before and during entry. Cache and adapter benches cover the
+invalidation before and during entry. `rv5stage-hypervisor-core` additionally
+checks VS/VU `hstatus.VTW` timeouts, `mstatus.TW` priority, short waits, and
+reservation-loss/interrupt wakeups through the retained WB owner. Guest NTO
+timeouts raise virtual-instruction only when TW does not require illegal-instruction;
+ordinary wakeups win over either timeout, and STO never traps for TW/VTW.
+Cache and adapter benches cover the
 reservation level independently of instruction waiting. Keep pending WRS
 context in the core, LR/SC state in L1D, and timer/interrupt policy independent
 of physical clock gating. Select Zawrs through `RV5StageExtensions`, keeping

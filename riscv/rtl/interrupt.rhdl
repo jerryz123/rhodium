@@ -1,5 +1,5 @@
 #lang rhodium
-// Materializes standard M/S interrupt inputs, pending bits, priority, and delegation.
+// Resolves physical M/S and software-injected VS interrupts, priority, and delegation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,7 +7,7 @@ import:
   "../isa/interrupt.rhm" open
   "../isa/xlen.rhm" open
   "csr.rhdl".csr_flag
-  "privilege.rhdl".PrivilegeMode
+  "privilege.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
 bundle RiscvInterrupts():
@@ -21,7 +21,7 @@ bundle RiscvInterrupts():
 bundle RiscvInterruptDecision(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
-  to_supervisor: Bool
+  target: RiscvTrapTarget
 
 fun riscv_interrupt_pending(xlen :: XLen,
                             interrupts :: RiscvInterrupts()) :~ Bits(xlen.width):
@@ -91,9 +91,41 @@ fun resolve_riscv_interrupt(xlen :: XLen,
   RiscvInterruptDecision(xlen):
     valid: valid
     cause: cause
-    to_supervisor: valid & to_supervisor
+    target: mux(valid & to_supervisor, RiscvTrapTarget.Supervisor, RiscvTrapTarget.Machine)
+
+// Baseline H with GEILEN=0. Virtual pending/enables use their M/H positions;
+// only delivery to VS renumbers causes. No guest controller or AIA state.
+fun resolve_riscv_hypervisor_interrupt(
+  pending :: Bits(64), enabled :: Bits(64), mideleg :: Bits(64), hideleg :: Bits(64),
+  mstatus :: Bits(64), vsstatus :: Bits(64), context :: RiscvExecutionContext()
+) :~ RiscvInterruptDecision(XLen.X64):
+  def effective_host_privilege = mux(context.virtualized, PrivilegeMode.User, context.privilege)
+  def machine = resolve_riscv_interrupt(XLen.X64, pending & !mideleg, enabled, bits(0, 64), mstatus, effective_host_privilege)
+  def supervisor = resolve_riscv_interrupt(XLen.X64, pending & mideleg, enabled, mideleg, mstatus, effective_host_privilege)
+  def hs_enabled = context.virtualized ||| (context.privilege === PrivilegeMode.User) ||| ((context.privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
+  def vs_enabled = context.virtualized & ((context.privilege === PrivilegeMode.User) ||| csr_flag(vsstatus, MstatusSIE))
+  def virtual_mask = bits(interrupt_mask(VirtualSupervisorInterruptCauses), 64)
+  def active = pending & enabled & mideleg & virtual_mask
+  fun virtual_candidate(delegated :: Boolean) :~ RiscvInterruptDecision(XLen.X64):
+    def candidates = active & (if delegated | hideleg | !hideleg)
+    def external = candidates[interrupt_code(InterruptCause.VirtualSupervisorExternal)].into(Bool)
+    def software = candidates[interrupt_code(InterruptCause.VirtualSupervisorSoftware)].into(Bool)
+    def cause = priority_mux(~default: interrupt_cause_bits(if delegated | InterruptCause.SupervisorTimer | InterruptCause.VirtualSupervisorTimer, 64)):
+      external: interrupt_cause_bits(if delegated | InterruptCause.SupervisorExternal | InterruptCause.VirtualSupervisorExternal, 64)
+      software: interrupt_cause_bits(if delegated | InterruptCause.SupervisorSoftware | InterruptCause.VirtualSupervisorSoftware, 64)
+    RiscvInterruptDecision(XLen.X64):
+      valid: candidates.or_reduce() & (if delegated | vs_enabled | hs_enabled)
+      cause: cause
+      target: if delegated | RiscvTrapTarget.VirtualSupervisor | RiscvTrapTarget.Supervisor
+  def hs_virtual = virtual_candidate(#false)
+  def vs_virtual = virtual_candidate(#true)
+  priority_mux(~default: vs_virtual):
+    machine.valid: machine
+    supervisor.valid: supervisor
+    hs_virtual.valid: hs_virtual
 
 export:
+  resolve_riscv_hypervisor_interrupt
   RiscvInterrupts
   RiscvInterruptDecision
   riscv_interrupt_pending

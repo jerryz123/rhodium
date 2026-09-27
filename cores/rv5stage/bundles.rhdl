@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("riscv/rtl/hypervisor.rhdl") open
   lib("rhodium/std/bits.rhdl").Pow2Int
   "fetch/bpd/protocol.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -90,7 +91,11 @@ bundle RV5StageVectorLaunchContext(xlen :: XLen):
   scalar: Bits(xlen.width)
   stride: Bits(xlen.width)
 
-bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int):
+bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+    guest_access: RiscvGuestMemoryAccess
+    virtual_instruction: Bool
   vector_launch: Bool
   pointer_masking: PointerMaskControl()
   pc: Bits(xlen.width)
@@ -138,7 +143,10 @@ bundle RV5StageException(xlen :: XLen):
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
 
-bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
+bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+    guest_access: RiscvGuestMemoryAccess
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_first: Bits(xlen.width)
@@ -172,7 +180,10 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int):
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
-bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int):
+bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
+  if hypervisor:
+    guest: RiscvGuestException()
+    guest_access: RiscvGuestMemoryAccess
   vector_launch: Bool
   vector_context: RV5StageVectorLaunchContext(xlen)
   vector_fast_valid: Bool

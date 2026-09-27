@@ -5,8 +5,41 @@
 import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/sv39.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "../csr.rhdl" open
+  "../dcache/protocol.rhdl" open
+  lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
+
+// Only the virtual boundary carries guest access intent. Cache requests retain
+// their physical ABI after the MMU consumes this captured instruction metadata.
+bundle RV5StageGuestMemoryReq(T):
+  memory: T
+  translation: RiscvGuestMemoryAccess
+
+interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(RV5StageGuestMemoryReq(RV5StageDataReq(xlen, slots)))
+  responder -> requester:
+    request_fault: Bool
+    request_access_fault: Bool
+    response: Decoupled(RV5StageDataResp(xlen, slots))
+    drained: Bool
+    reservation_valid: Bool
+
+interface RV5StageGuestPipelineAccess(xlen :: XLen):
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(RV5StageGuestMemoryReq(RV5StagePipelineReq(xlen)))
+    commit: Bool
+  responder -> requester:
+    response: Valid(RV5StagePipelineResult(xlen))
+    commit_ready: Bool
 
 bundle RV5StageTranslationRequest():
   virtual_address: Bits(64)
@@ -45,10 +78,8 @@ bundle RV5StageVectorRange():
 bundle RV5StageVectorFastCertificate(xlen :: XLen):
   range: RV5StageVectorRange()
   ppn: Bits(44)
-  satp: Bits(xlen.width)
-  privilege: PrivilegeMode
-  sum: Bool
-  mxr: Bool
+  virtualized: Bool
+  context: RiscvGuestTranslationContext()
   invalidation_epoch: Bits(2)
 
 interface RV5StageVectorFastCheck(xlen :: XLen):
@@ -100,6 +131,9 @@ interface RV5StagePageTableMemory():
     response: Valid(Bits(64))
 
 export:
+  RV5StageGuestMemoryReq
+  RV5StageGuestDataAccess
+  RV5StageGuestPipelineAccess
   RV5StageTranslationRequest
   RV5StageTranslationResult
   RV5StagePageTableMemory

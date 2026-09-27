@@ -325,6 +325,21 @@ the ACT submodule advances. The Sail 0.14.1 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
 
+For H profiles, also project guest translation modes, VMID width, GEILEN,
+H counter enables, VS trap-vector modes, guest-fault reporting, and the nested
+Smstateen/Ssstateen switches. VS vector status exists exactly when H does.
+The shared RVA23 preset uses this path for both RV5Stage and Spike. Enabling
+the profile does not create ACT coverage: report missing H/Sha test inventory
+separately from generation failures and runtime results. Do not replace it
+with a scalar or non-H reference profile to make a lane pass.
+`arch-test/udb-overlay/` corrects the pinned UDB 0.1.16 schema's GEILEN lower
+bound from one to zero. The ACT-local UDB copy references this supported
+overlay mechanism; its extension list and parameter values are unchanged.
+Remove the correction when the pinned UDB accepts legal zero-GEILEN harts.
+The overlay also removes UDB's erroneous Shvstvala requirement that EBREAK
+report its PC: the profile explicitly exempts EBREAK/C.EBREAK. All other
+trap-value requirements remain enforced, and DUT reporting choices stay intact.
+
 `Za64rs` and `Za128rs` are reservation bounds, not Sail extension switches.
 Validate their versions and bounds against Sail's naturally aligned reservation
 size without enlarging it. The pinned default is eight bytes: a conforming

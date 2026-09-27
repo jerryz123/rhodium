@@ -4,12 +4,16 @@
 
 import:
   "../isa/csr.rhm".EnvcfgPMM
+  "../isa/csr.rhm".HstatusHUPMM
   "../rtl/pointer-masking.rhdl".PointerMaskMode
 
 check:
   EnvcfgPMM.low ~is 32
   EnvcfgPMM.width ~is 2
   EnvcfgPMM.mask() ~is 0x300000000
+  HstatusHUPMM.low ~is 48
+  HstatusHUPMM.width ~is 2
+  HstatusHUPMM.mask() ~is 0x3000000000000
   PointerMaskMode.Disabled.packed_value() ~is 0
   PointerMaskMode.Bits7.packed_value() ~is 2
   PointerMaskMode.Bits16.packed_value() ~is 3

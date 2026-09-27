@@ -41,6 +41,8 @@ enforces this package direction.
 | CMO privilege, WARL, and physical permission policy | [`cmo.rhdl`](cmo.rhdl) |
 | Status trap/return transitions, effective explicit-access privilege, and pointer masking | [`privilege.rhdl`](privilege.rhdl), [`pointer-masking.rhdl`](pointer-masking.rhdl) |
 | Base architectural counters | [`counters.rhdl`](counters.rhdl) |
+| Stateless Sstc comparison and privilege gates | [`timer.rhdl`](timer.rhdl); comparator storage remains core-owned |
+| Stateless state-enable CSR access policy | [`state-enable.rhdl`](state-enable.rhdl); implementation masks and state remain core-owned |
 | Trap and interrupt selection, delegation, pending values, and cause conversion | [`trap.rhdl`](trap.rhdl), [`interrupt.rhdl`](interrupt.rhdl) |
 | Physical-memory attributes | [`pma.rhdl`](pma.rhdl) |
 | Sv39 combinational helpers | [`sv39.rhdl`](sv39.rhdl) |
@@ -70,6 +72,17 @@ implementation.
 
 ## Focused validation
 
+For guest execution contracts, pair `riscv/tests/hypervisor-test.rhm` and
+`riscv/tests/csr-test.rhm` with the `rv5stage-hypervisor-csr` fixture.
+Keep opcode/CSR catalogs pure, substitution/delegation helpers here, and
+commit-owned state in the core. Add nested-translation request ownership and
+continuation types with the walker consumer; do not infer fault provenance
+from live CSR values after a request has been issued.
+`rv5stage-nested-walker` exercises the captured guest context and Sv39x4
+address helpers with the production standalone walker. Keep stage mode/root
+geometry and permission representations here, but saved frames, serialized
+memory ownership, and canceled-response draining in `cores/rv5stage/mmu/`.
+
 For Svnapot and mapping geometry, run `rv5stage-svnapot` and
 `rv5stage-mmu-replay`. They cover compact 64 KiB mappings, reserved encodings,
 permissions, ordinary superpages, prefetch probes, and vector-window reuse.
@@ -81,16 +94,21 @@ bits, held results, superpages, Bare bypass, and invalidation. Pair it with
 
 For pointer masking, run `riscv/tests/pointer-masking-test.rhm` and the
 `riscv-pointer-masking` backend fixture. The latter sweeps PMM, MPRV/MPP,
-MXR, Bare/virtual sign behavior, and disabled/RV32 specialization. Integrating
+MXR, Bare/virtual sign behavior, and disabled/RV32 specialization. The H sweep
+adds independent senvcfg/henvcfg/HUPMM selection, explicit guest accesses,
+MPRV/MPV, HS/VS MXR and HLVX exclusion to that same behavioral sweep. Integrating
 cores own policy capture, serialization, replay, and architectural fault tests;
 RV5Stage covers those with `rv5stage-pointer-masking` and `rv5stage-csr`.
 
 For CMO permission changes, select the `riscv-cmo` backend fixture. It sweeps
-M/S/U privilege and both xenvcfg controls, RV32/RV64 WARL images, all Sv39 access
+M/HS/U/VS/VU privilege and all three xenvcfg controls, denial priority and
+invalidate-to-flush conversion, RV32/RV64 WARL images, all Sv39 access
 classes and low PTE permission/A/D combinations, and physical attributes.
 Include `rv5stage-csr`, `rv5stage-zicboz`, and `rv5stage-mmu-replay` when shared
 CSR or translation behavior changes. These fixtures check behavior, not IR
-shape; use the [backend guide](../../tools/testing/circt/DEVELOPING.md) for invocation.
+shape; pair with `rv5stage-hypervisor-csr` and `rv5stage-hypervisor-core` for
+guest environment storage and precise denied-operation behavior. Use the
+[backend guide](../../tools/testing/circt/DEVELOPING.md) for invocation.
 
 From the repository root, run:
 

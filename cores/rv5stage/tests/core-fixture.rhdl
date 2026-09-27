@@ -26,23 +26,23 @@ interface RV5StageTestInstructionAccess(xlen :: XLen):
     request: Decoupled(RV5StageInstructionReq(xlen))
 
   responder -> requester:
-    response: Decoupled(RV5StageInstructionResp())
+    response: Decoupled(RV5StageInstructionResp(#false))
 
 // Architectural core benches supply an ordered word memory, not SRAM timing.
 // Throughput and miss recovery are tested separately with the real MMU/L1I.
 sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
-  interface frontend(RV5StageFetchAccess(xlen), ~role: responder)
+  interface frontend(RV5StageFetchAccess(xlen, #false), ~role: responder)
   interface memory(RV5StageTestInstructionAccess(xlen), ~role: requester)
   reg s1_valid(~init: Bool(#false))
   reg s2_valid(~init: Bool(#false))
   reg s1_cached(~init: Bool(#false))
-  reg s1_response(RV5StageInstructionResp())
-  reg s2_result(RV5StageFetchResult())
+  reg s1_response(RV5StageInstructionResp(#false))
+  reg s2_result(RV5StageFetchResult(#false))
   reg pending(~init: Bool(#false))
   reg slow(~init: Bool(#false))
   reg completed(~init: Bool(#false))
   reg address(Bits(xlen.width))
-  reg response(RV5StageInstructionResp())
+  reg response(RV5StageInstructionResp(#false))
   def can_issue = !pending ||| (memory.response.valid & !slow)
   def completed_match = completed & (address === frontend.request.bits.address)
   frontend.request.ready <== mux(frontend.flush, memory.request.ready, mux(completed, completed_match, can_issue & memory.request.ready))
@@ -72,7 +72,7 @@ sync_circuit RV5StageTestInstructionMemory(xlen :: XLen):
     when frontend_admitted:
       s1_cached <== completed
       s1_response <== response
-    s2_result <== RV5StageFetchResult():
+    s2_result <== RV5StageFetchResult(#false):
       response: mux(s1_cached, s1_response, memory.response.bits)
       replay: !s1_cached & !(response_fire & !slow)
     pending <== request_fire ||| (pending & !response_fire)

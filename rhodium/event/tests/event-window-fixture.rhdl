@@ -66,8 +66,8 @@ sync_circuit EventWindow(intrinsic :: Boolean = #true, live_support :: Boolean =
 sync_circuit EventFrontend():
   def xlen = XLen.X64
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
-  interface memory(RV5StageFetchAccess(xlen), ~role: requester)
-  interface fetched(Decoupled(FetchDecode(xlen)), ~role: producer)
+  interface memory(RV5StageFetchAccess(xlen, #false), ~role: requester)
+  interface fetched(Decoupled(FetchDecode(xlen, #false)), ~role: producer)
   inst frontend(RV5StageFetchFixture(RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~compressed: CCompressedExtensions))))
   control <=> frontend.control
   memory <=> frontend.memory

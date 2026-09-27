@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's one-outstanding non-cacheable CHI RN-I transaction path.
+// Implements non-allocating coherent RAM and noncoherent device/ROM transactions on one RN-I.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -84,10 +84,15 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     CHITransferSize.Bytes4,
     mux(command_zero, CHITransferSize.Bytes8, command.width.as_bits().zext(3).into(CHITransferSize))
   )
+  // PBMT changes allocation/ordering, never the physical coherence domain.
+  def selected_physical = config.physical_map.lookup(selected_address, selected_address)
+  def selected_coherent = selected_physical.cacheable
+  def selected_read = mux(selected_coherent, CHIReqOpcode.ReadOnce, CHIReqOpcode.ReadNoSnp)
+  def selected_write = mux(selected_coherent, CHIReqOpcode.WriteUniquePtl, CHIReqOpcode.WriteNoSnpPtl)
   def selected_opcode = mux(
     select_instruction,
-    CHIReqOpcode.ReadNoSnp,
-    mux(command_access.is_store() ||| command_zero, CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.ReadNoSnp)
+    selected_read,
+    mux(command_access.is_store() ||| command_zero, selected_write, selected_read)
   )
   def selected_device = mux(select_instruction,
                             instruction_command.device,
@@ -177,7 +182,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
     | bits(0, instruction_lane_width)
     | address[2..alignment_bits(p.data_bytes)]
   instruction.response.valid <== instruction_response_valid
-  instruction.response.bits <== RV5StageInstructionResp():
+  instruction.response.bits <== RV5StageInstructionResp(#false):
     word: instruction_words[instruction_lane]
     page_fault: Bool(#false)
     access_fault: Bool(#false)
@@ -211,7 +216,7 @@ sync_circuit RV5StageUncached(xlen :: XLen,
   elsewhen (request_pending & owner_is_instruction & instruction.flush):
     state <== RV5StageUncachedState.Idle
   elsewhen request_fire:
-    state <== mux(request_opcode === CHIReqOpcode.WriteNoSnpPtl,
+    state <== mux(request_opcode.is_one_of(CHIReqOpcode.WriteNoSnpPtl, CHIReqOpcode.WriteUniquePtl),
                   RV5StageUncachedState.WriteDBID,
                   RV5StageUncachedState.ReadResponse)
   elsewhen dbid_fire:

@@ -23,13 +23,19 @@ The explicit `rva23` SoC specialization selects the shared RV64D/V architecture
 with VLEN=128 and ELEN=64, without substituting a scalar profile. This preset
 name is not a full RVA23 conformance claim. Simulator execution and ACT
 projection are separate capabilities. The ACT/UDB projection preserves this
-complete profile, including vector geometry, CBOs and pointer masking, alongside
+complete profile, including H/Sha, state-enable, Sstc, Svinval, vector geometry,
+CBOs and pointer masking, alongside
 Spike-owned PMP, CSR, reservation and trap parameters. Unknown ISA claims fail
 closed. The generated ACT configuration reports reference-model differences:
 Sail 0.14.1 preserves an inactive unordered-reduction NaN seed, while Spike
 canonicalizes it and flags signaling NaNs. No tests are removed to hide this
 legal implementation difference; generating a configuration is not full ACT
 qualification.
+
+The pinned Spike parser recognizes Sha and its opcode-free properties through
+the shared downstream patch series. ACT uses the same H-enabled profile;
+the [ACT projection guide](../../sims/DEVELOPING.md) documents the pinned UDB
+schema corrections and coverage limitations.
 
 The SoC profiles explicitly disable PMP. RV32Int and RV32Max use Bare mode,
 32-bit physical addresses and VLEN64/ELEN32. RV32Int selects Zve32x without FP;

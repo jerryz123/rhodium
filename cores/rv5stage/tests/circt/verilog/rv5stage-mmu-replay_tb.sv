@@ -73,7 +73,9 @@ module rv5stage_mmu_replay_tb;
     data_resp_t response;
     logic drained; logic reservation_valid;
   } data_memory_in_t;
-  typedef struct packed { data_req_t request; ready_t response; } data_memory_out_t;
+  typedef struct packed { data_req_bits_t memory; logic [1:0] pbmt; } physical_data_t;
+  typedef struct packed { logic valid; physical_data_t bits; } physical_data_request_t;
+  typedef struct packed { physical_data_request_t request; ready_t response; } data_memory_out_t;
 
   localparam logic [1:0] PRIVILEGE_U = 2'd0;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
@@ -107,6 +109,7 @@ module rv5stage_mmu_replay_tb;
   logic [1:0] privilege;
   logic [63:0] mstatus;
   logic [63:0] satp;
+  logic pbmte = 0;
   logic invalidate_all;
   logic instruction_flush;
   instruction_out_t instruction_out;
@@ -144,6 +147,7 @@ module rv5stage_mmu_replay_tb;
   integer manual_pte_requests = 0;
   bit vector_phase = 0, vector_superpage = 0, vector_bad_second = 0, vector_no_dirty = 0;
   bit vector_napot = 0;
+  logic [1:0] vector_pbmt = 0;
   logic [63:0] napot_fetch_expected = 0;
   logic [63:0] vector_scalar_address = 0;
   integer vector_pte_requests = 0;
@@ -213,7 +217,7 @@ module rv5stage_mmu_replay_tb;
       if (data_out.response.valid)
         assert(data_out.response.bits.writeback == memory_integer(5'd7)) else $fatal(1,"MMU lost response writeback");
       if (data_memory_out.request.valid)
-        assert(data_memory_out.request.bits.writeback == (data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND ? memory_integer(5'd7) : 9'b0))
+        assert(data_memory_out.request.bits.memory.writeback == (data_memory_out.request.bits.memory.writeback[8:7] == WRITEBACK_INTEGER_KIND ? memory_integer(5'd7) : 9'b0))
           else $fatal(1,"MMU lost request owner tag or leaked it into a page walk");
       if (pte_response_valid || manual_pte_valid)
         assert (!data_out.response.valid)
@@ -221,69 +225,69 @@ module rv5stage_mmu_replay_tb;
       assert (instruction_phase || !instruction_memory_out.request.valid)
         else $fatal(1, "data miss unexpectedly issued an instruction-memory request");
       if (data_memory_out.request.valid && data_memory_in.request.ready) begin
-        assert (data_memory_out.request.bits.locality ==
-                (data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND ? 3'd3 : 3'd0))
+        assert (data_memory_out.request.bits.memory.locality ==
+                (data_memory_out.request.bits.memory.writeback[8:7] == WRITEBACK_INTEGER_KIND ? 3'd3 : 3'd0))
           else $fatal(1, "translation lost locality or leaked it to the walker");
         assert (data_lookup_out.valid &&
-                data_lookup_out.bits[11:0] == data_memory_out.request.bits.address[11:0])
+                data_lookup_out.bits[11:0] == data_memory_out.request.bits.memory.address[11:0])
           else $fatal(1, "physical data acceptance lost its paired VIPT lookup");
         if (!data_request_valid)
-          assert (data_lookup_out.bits == data_memory_out.request.bits.address)
+          assert (data_lookup_out.bits == data_memory_out.request.bits.memory.address)
             else $fatal(1, "PTW read did not supply a physical lookup index");
         if (priority_phase) begin
-          if (data_memory_out.request.bits.origin) begin
+          if (data_memory_out.request.bits.memory.origin) begin
             assert (priority_core_requests == 1 && priority_pte_requests == 0 &&
-                    data_memory_out.request.bits.address == 64'h1000)
+                    data_memory_out.request.bits.memory.address == 64'h1000)
               else $fatal(1, "pending instruction PTE bypassed older core demand");
             priority_pte_requests <= priority_pte_requests + 1;
           end else begin
             assert (priority_core_requests == (priority_pte_requests == 0 ? 0 : 1) &&
-                    data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
+                    data_memory_out.request.bits.memory.address == PHYSICAL_ADDRESS)
               else $fatal(1, "older translated core demand lost data-port priority");
             priority_core_requests <= priority_core_requests + 1;
           end
         end else if (vector_phase) begin
-          if (data_memory_out.request.bits.writeback == 0) begin
+          if (data_memory_out.request.bits.memory.writeback == 0) begin
             vector_pte_requests <= vector_pte_requests + 1;
             pte_response_valid <= 1;
-            if (vector_napot && data_memory_out.request.bits.address >= 64'h3000 && data_memory_out.request.bits.address < 64'h4000)
+            if (vector_napot && data_memory_out.request.bits.memory.address >= 64'h3000 && data_memory_out.request.bits.memory.address < 64'h4000)
               pte_response_data <= 64'h80000000000220cf; // One 64-KiB mapping at PA 0x80000.
-            else case (data_memory_out.request.bits.address)
+            else case (data_memory_out.request.bits.memory.address)
               64'h1000: pte_response_data <= vector_superpage ? 64'hcf : LEVEL_2_POINTER;
               64'h2000: pte_response_data <= LEVEL_1_POINTER;
-              64'h3020: pte_response_data <= vector_no_dirty ? 64'h2047 : 64'h20c7; // VA 0x4000 -> PA 0x8000, RWA[D].
+              64'h3020: pte_response_data <= (vector_no_dirty ? 64'h2047 : 64'h20c7) | (64'(vector_pbmt) << 61); // VA 0x4000 -> PA 0x8000, RWA[D].
               64'h3028: pte_response_data <= vector_bad_second ? 64'd0 : 64'h28c7; // Nonadjacent PA.
               default: pte_response_data <= 64'h40c7;
             endcase
           end
         end else if (detached_walk_phase) begin
-          assert (data_memory_out.request.bits.writeback[8:7] == 0)
+          assert (data_memory_out.request.bits.memory.writeback[8:7] == 0)
             else $fatal(1, "detached walk emitted a core data transaction");
           manual_pte_requests <= manual_pte_requests + 1;
         end else if (instruction_translation_phase) begin
           case (instruction_pte_requests)
             0, 4: begin
-              assert (data_memory_out.request.bits.address == 64'h1000)
+              assert (data_memory_out.request.bits.memory.address == 64'h1000)
                 else $fatal(1, "ITLB walk lost its root");
               pte_response_data <= LEVEL_2_POINTER;
             end
             1, 5: begin
-              assert (data_memory_out.request.bits.address == 64'h2000)
+              assert (data_memory_out.request.bits.memory.address == 64'h2000)
                 else $fatal(1, "ITLB walk lost its middle level");
               pte_response_data <= LEVEL_1_POINTER;
             end
             2: begin
-              assert (data_memory_out.request.bits.address == 64'h3020)
+              assert (data_memory_out.request.bits.memory.address == 64'h3020)
                 else $fatal(1, "ITLB walk used the live input instead of the retained PC");
               pte_response_data <= 64'h204b; // Valid, readable, executable, accessed.
             end
             3: begin
-              assert (data_memory_out.request.bits.address == 64'h1000)
+              assert (data_memory_out.request.bits.memory.address == 64'h1000)
                 else $fatal(1, "canceled ITLB fault used an unexpected root");
               pte_response_data <= 0;
             end
             6: begin
-              assert (data_memory_out.request.bits.address == 64'h3028)
+              assert (data_memory_out.request.bits.memory.address == 64'h3028)
                 else $fatal(1, "post-redirect ITLB walk lost its new PC");
               pte_response_data <= 64'h284b; // Maps VA 0x5000 to PA 0xa000.
             end
@@ -292,33 +296,33 @@ module rv5stage_mmu_replay_tb;
           pte_response_valid <= 1'b1;
           instruction_pte_requests <= instruction_pte_requests + 1;
         end else if (page_fault_phase) begin
-          assert (!page_fault_pte_seen && data_memory_out.request.bits.address == 64'h1000)
+          assert (!page_fault_pte_seen && data_memory_out.request.bits.memory.address == 64'h1000)
             else $fatal(1, "faulting walk issued an unexpected PTE request");
           pte_response_valid <= 1'b1;
           pte_response_data <= 64'h0;
           page_fault_pte_seen <= 1'b1;
         end else if (pte_requests == 0) begin
-          assert (data_memory_out.request.bits.address == 64'h1000)
+          assert (data_memory_out.request.bits.memory.address == 64'h1000)
             else $fatal(1, "level-2 PTE address was incorrect");
           pte_response_valid <= 1'b1;
           pte_response_data <= LEVEL_2_POINTER;
           pte_requests <= 1;
         end else if (pte_requests == 1) begin
-          assert (data_memory_out.request.bits.address == 64'h2000)
+          assert (data_memory_out.request.bits.memory.address == 64'h2000)
             else $fatal(1, "level-1 PTE address was incorrect");
           pte_response_valid <= 1'b1;
           pte_response_data <= LEVEL_1_POINTER;
           pte_requests <= 2;
         end else if (pte_requests == 2) begin
-          assert (data_memory_out.request.bits.address == 64'h3020)
+          assert (data_memory_out.request.bits.memory.address == 64'h3020)
             else $fatal(1, "level-0 PTE address was incorrect");
           pte_response_valid <= 1'b1;
           pte_response_data <= LEVEL_0_LEAF;
           pte_requests <= 3;
         end else begin
-          assert (data_request_valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS + (management_operation != 0 ? 64'd63 : 64'd0) &&
-                  data_memory_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
-                  memory_rd(data_memory_out.request.bits.writeback) == 5'd7)
+          assert (data_request_valid && data_memory_out.request.bits.memory.address == PHYSICAL_ADDRESS + (management_operation != 0 ? 64'd63 : 64'd0) &&
+                  data_memory_out.request.bits.memory.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
+                  memory_rd(data_memory_out.request.bits.memory.writeback) == 5'd7)
             else $fatal(1, "replayed request was not translated with its metadata intact");
           translated_request_seen <= 1'b1;
         end
@@ -380,7 +384,9 @@ module rv5stage_mmu_replay_tb;
   initial begin
     wait (!reset);
     repeat (2000) @(posedge clock);
-    $fatal(1, "DTLB walk or replay did not complete");
+    $fatal(1, "MMU timeout: PTEs=%0d translated=%b instruction=%b priority=%b vector=%b detached=%b memory_valid=%b ready=%b",
+           pte_requests, translated_request_seen, instruction_phase, priority_phase,
+           vector_phase, detached_walk_phase, data_memory_out.request.valid, data_out.request.ready);
   end
 
   task automatic tick;
@@ -497,7 +503,7 @@ module rv5stage_mmu_replay_tb;
     for (int level = 0; level < 3; level++) begin
       wait (data_memory_out.request.valid);
       @(negedge clock);
-      assert (data_memory_out.request.bits.address ==
+      assert (data_memory_out.request.bits.memory.address ==
               (level == 0 ? 64'h1000 : level == 1 ? 64'h2000 : 64'h3020))
         else $fatal(1, "replay restarted the walk or changed its captured address");
       if (flush_at == 1 && level == 0) flush_fetch();
@@ -544,7 +550,7 @@ module rv5stage_mmu_replay_tb;
     @(negedge clock); instruction_request_valid = 0;
     if (fault) begin
       wait (data_memory_out.request.valid);
-      assert (data_memory_out.request.bits.address == 64'h1000 &&
+      assert (data_memory_out.request.bits.memory.address == 64'h1000 &&
               (!instruction_out.response.valid || instruction_out.response.bits.replay))
         else $fatal(1, "detached fault survived into a new fetch");
       // No PTE has been accepted for this new walk; invalidate it explicitly.
@@ -601,8 +607,14 @@ module rv5stage_mmu_replay_tb;
     tick();
     @(negedge clock);
     manual_pte_valid = 0;
+    // The shared walker owns the canceled read until this edge. The fetch
+    // offered during Drain received replay, so model the frontend retry now.
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock);
+    instruction_request_valid = 0;
     wait (data_memory_out.request.valid);
-    assert (data_memory_out.request.bits.address == 64'h1000 &&
+    assert (data_memory_out.request.bits.memory.address == 64'h1000 &&
             manual_pte_requests == accepted_before + 1)
       else $fatal(1, "old PTE reply satisfied the new walk");
     invalidate_all = 1; // Cancel the new, still-unaccepted offer.
@@ -682,12 +694,12 @@ module rv5stage_mmu_replay_tb;
     ordinary_response_valid = 1'b0;
     memory_idle = 1'b1;
     tick();
-    assert (data_memory_out.request.valid && data_memory_out.request.bits.address == 64'h1000)
+    assert (data_memory_out.request.valid && data_memory_out.request.bits.memory.address == 64'h1000)
       else $fatal(1, "walker did not retain its first PTE request");
-    stalled_request = data_memory_out.request.bits;
+    stalled_request = data_memory_out.request.bits.memory;
     repeat (3) begin
       tick();
-      assert (data_memory_out.request.valid && data_memory_out.request.bits == stalled_request && pte_requests == 0)
+      assert (data_memory_out.request.valid && data_memory_out.request.bits.memory == stalled_request && pte_requests == 0)
         else $fatal(1, "stalled PTE request changed or was accepted without readiness");
     end
     @(negedge clock);
@@ -698,10 +710,10 @@ module rv5stage_mmu_replay_tb;
     memory_ready = 1'b0;
     data_request_valid = 1'b1;
     #1;
-    stalled_request = data_memory_out.request.bits;
+    stalled_request = data_memory_out.request.bits.memory;
     repeat (2) begin
       assert (!data_out.request.ready && data_memory_out.request.valid &&
-              data_memory_out.request.bits == stalled_request && !translated_request_seen)
+              data_memory_out.request.bits.memory == stalled_request && !translated_request_seen)
         else $fatal(1, "translated request did not propagate downstream backpressure");
       tick();
     end
@@ -709,7 +721,7 @@ module rv5stage_mmu_replay_tb;
     memory_ready = 1'b1;
     #1;
     assert (data_out.request.ready && data_memory_out.request.valid &&
-            data_memory_out.request.bits.address == PHYSICAL_ADDRESS)
+            data_memory_out.request.bits.memory.address == PHYSICAL_ADDRESS)
       else $fatal(1, "replayed request did not hit the filled DTLB");
     assert (data_lookup_out.valid && data_lookup_out.bits == VIRTUAL_ADDRESS)
       else $fatal(1, "DTLB hit replaced the early virtual index with a physical address");
@@ -743,7 +755,7 @@ module rv5stage_mmu_replay_tb;
     @(negedge clock); memory_ready = 0;
     #1;
     assert (pipeline_out.response.valid && pipeline_out.response.bits.outcome == PIPE_SLOW &&
-            data_memory_out.request.valid && data_memory_out.request.bits.origin)
+            data_memory_out.request.valid && data_memory_out.request.bits.memory.origin)
       else $fatal(1, "older MEM miss was replayed while a PTE was merely offered");
     @(negedge clock); pipeline_in = '0;
     tick();
@@ -751,7 +763,7 @@ module rv5stage_mmu_replay_tb;
     data_request_valid = 1;
     memory_ready = 1;
     #1;
-    assert (data_memory_out.request.valid && data_memory_out.request.bits.address == PHYSICAL_ADDRESS &&
+    assert (data_memory_out.request.valid && data_memory_out.request.bits.memory.address == PHYSICAL_ADDRESS &&
             data_out.request.ready && data_lookup_out.bits == VIRTUAL_ADDRESS)
       else $fatal(1, "older WB demand did not win the pending PTE read");
     tick();
@@ -762,7 +774,7 @@ module rv5stage_mmu_replay_tb;
     ordinary_response_valid = 1;
     #1;
     assert (data_out.response.valid && data_out.response.bits.data == 64'hfeedface_12345678 &&
-            data_memory_out.request.valid && data_memory_out.request.bits.origin)
+            data_memory_out.request.valid && data_memory_out.request.bits.memory.origin)
       else $fatal(1, "core response was confused with the pending PTE read");
     tick();
     @(negedge clock);
@@ -775,7 +787,7 @@ module rv5stage_mmu_replay_tb;
     data_request_valid = 1;
     #1;
     assert (data_out.request.ready && data_memory_out.request.valid &&
-            !data_memory_out.request.bits.origin && !data_out.response.valid)
+            !data_memory_out.request.bits.memory.origin && !data_out.response.valid)
       else $fatal(1, "core demand could not interleave after an accepted PTE read");
     tick();
     @(negedge clock);
@@ -835,7 +847,7 @@ module rv5stage_mmu_replay_tb;
     for (int operation = 7; operation <= 9; operation++) begin
       @(negedge clock); management_operation = 4'(operation); data_request_valid = 1;
       #1;
-      assert (data_out.request.ready && !data_out.request_fault && data_memory_out.request.valid && data_memory_out.request.bits.access == 4'(operation) && data_memory_out.request.bits.address == PHYSICAL_ADDRESS + 63)
+      assert (data_out.request.ready && !data_out.request_fault && data_memory_out.request.valid && data_memory_out.request.bits.memory.access == 4'(operation) && data_memory_out.request.bits.memory.address == PHYSICAL_ADDRESS + 63)
         else $fatal(1, "CMO did not use management translation permissions");
       tick();
       @(negedge clock); data_request_valid = 0;
@@ -1224,6 +1236,24 @@ module rv5stage_mmu_replay_tb;
       check_isolated_hint(64'hd080, 2'd1, 1, 64'h8d080);
     end
     instruction_phase = 0;
+    vector_napot = 0;
+    pbmte = 1;
+    for (int kind = 1; kind <= 2; kind++) begin
+      vector_pbmt = 2'(kind);
+      clear_translations();
+      certify_range(64'h4000,64'h40ff,0,0,3);
+      release_window();
+      certify_range(64'h4000,64'h40ff,1,0,0,1);
+      release_window();
+      check_load_pipeline(64'h4000,0,0,PIPE_SLOW);
+      check_load_pipeline(64'h4000,0,0,PIPE_SLOW,4'd2);
+      check_isolated_hint(64'h4000,2'd2,0);
+      check_isolated_hint(64'h4000,2'd3,0);
+      @(negedge clock); vector_scalar_address = 'h4000; data_request_valid = 1; #1;
+      assert (data_memory_out.request.valid && data_memory_out.request.bits.pbmt == 2'(kind))
+        else $fatal(1,"warm WB request lost PBMT");
+      tick(); @(negedge clock); data_request_valid = 0;
+    end
     $display("RV5Stage ITLB/DTLB replay, Svnapot, faults, prefetch and vector translation passed");
     $finish;
   end

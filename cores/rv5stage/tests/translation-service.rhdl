@@ -1,0 +1,76 @@
+#lang rhodium
+// Serializes public test commands around the shared combinational TLB and shared host/guest walker.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../mmu/translation.rhdl" open
+  "../mmu/tlb.rhdl" open
+  "../mmu/walker.rhdl" open
+  lib("riscv/rtl/sv39.rhdl").PageMemoryType
+  lib("rhodium/std/bits.rhdl") open
+  lib("flow/main.rhdl") open
+
+hardware_enum RV5StageTranslationTestServiceState:
+  Idle
+  Lookup
+  Issue
+  Walk
+  Complete
+
+sync_circuit RV5StageTranslationTestService(entry_count :: Pow2Int = 8, ~svnapot: svnapot :: Boolean = #false):
+  interface request(Decoupled(RV5StageTlbLookup()), ~role: consumer)
+  interface completion(Irrevocable(RV5StageTlbMapping()), ~role: producer)
+  interface memory(RV5StageTranslationMemory(), ~role: requester)
+  input cancel: Bool
+  input invalidate_all: Bool
+  output probe_hit: Bool
+  output probe_fault: Bool
+  output probe_pbmt: PageMemoryType
+
+  inst tlb(RV5StageTranslationTlb(entry_count))
+  inst walker(RV5StageTranslationWalker(~svnapot: svnapot))
+  walker.memory <=> memory
+  reg state(~init: RV5StageTranslationTestServiceState.Idle)
+  reg operation(RV5StageTlbLookup())
+  reg result(RV5StageTlbMapping())
+  def killed = cancel ||| invalidate_all
+  walker.cancel <== killed
+  tlb.invalidate_all <== invalidate_all
+  tlb.lookup <== operation
+  tlb.probe <== operation
+  probe_hit <== tlb.probe_hit
+  probe_fault <== tlb.probe_fault
+  probe_pbmt <== tlb.probe_pbmt
+  // A canceled walk retains its response owner inside the walker. Do not admit
+  // even a cache hit until that owner has drained; there is only one consumer.
+  request.ready <== (state === RV5StageTranslationTestServiceState.Idle) & walker.request.ready & !killed
+  walker.request.valid <== (state === RV5StageTranslationTestServiceState.Issue) & !killed
+  walker.request.bits <== operation
+  (
+    walker.completion |> gate_flow((state === RV5StageTranslationTestServiceState.Walk) & !killed)
+      |> map_flow(completed => RV5StageTlbFill()):
+           request: operation
+           result: completed
+  ) |> to_valid() |> tlb.fill
+  completion.valid <== (state === RV5StageTranslationTestServiceState.Complete) & !killed
+  completion.bits <== result
+
+  when killed:
+    state <== RV5StageTranslationTestServiceState.Idle
+  elsewhen (request.fire()):
+    operation <== request.bits
+    state <== RV5StageTranslationTestServiceState.Lookup
+  elsewhen ((state === RV5StageTranslationTestServiceState.Lookup) & tlb.hit):
+    result <== tlb.translation
+    state <== RV5StageTranslationTestServiceState.Complete
+  elsewhen (state === RV5StageTranslationTestServiceState.Lookup):
+    state <== RV5StageTranslationTestServiceState.Issue
+  elsewhen (walker.request.fire()):
+    state <== RV5StageTranslationTestServiceState.Walk
+  elsewhen (walker.completion.fire()):
+    result <== walker.completion.bits
+    state <== RV5StageTranslationTestServiceState.Complete
+  elsewhen (completion.fire()):
+    state <== RV5StageTranslationTestServiceState.Idle
+
+export RV5StageTranslationTestService

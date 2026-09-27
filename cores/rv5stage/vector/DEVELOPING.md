@@ -8,6 +8,16 @@ Architectural geometry lives in `riscv/isa/vector.rhm`; these modules own the
 named core's physical chunk storage and adapters. Do not add instruction
 recognition to `cores/simd-alu.rhdl` or hardware dependencies to the pure model.
 
+The optional RV64 hypervisor specialization shares this entire datapath. The
+parent CSR file owns independent HS/VS vector status; the MMU owns two-stage
+certification. `memory.rhdl` retains conditional guest fault provenance with
+each MEM decision and selects WB request provenance for slow faults. The parent
+vector pipeline registers that provenance together with the architectural
+outcome. Completion slots, feedback, and physical cache protocols remain
+unchanged. Context changes wait for admitted vector effects to drain; ordinary
+certified scalar/vector overlap remains enabled. See the core
+[integration guide](../DEVELOPING.md#focused-validation) for guest regressions.
+
 Physical row counts and locations come from `cores/riscv/vector-layout.rhm`,
 not the ISA model. Thread `xlen` through storage, sequencing, packing,
 completion, and shared-service payloads; instantiate `SimdALU(xlen)` and

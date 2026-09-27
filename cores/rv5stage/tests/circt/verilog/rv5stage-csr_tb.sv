@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_csr_tb;
   logic [1:0] cbo_operation = 0;
-  logic [2:0] cbo_permission;
+  logic [3:0] cbo_permission;
   typedef struct packed {
     logic supervisor_software;
     logic machine_software;
@@ -17,7 +17,7 @@ module rv5stage_csr_tb;
     logic [3:0] action;
   } system_control_t;
   typedef struct packed {
-    logic [1:0] action;
+    logic [2:0] action;
   } fence_control_t;
   typedef struct packed {
     logic [63:0] pc;
@@ -76,8 +76,8 @@ module rv5stage_csr_tb;
   localparam logic [3:0] SYSTEM_MRET = 4'd3;
   localparam logic [3:0] SYSTEM_SRET = 4'd4;
   localparam logic [3:0] SYSTEM_WFI = 4'd5;
-  localparam logic [1:0] FENCE_NONE = 2'd0;
-  localparam logic [1:0] FENCE_ADDRESS_TRANSLATION = 2'd3;
+  localparam logic [2:0] FENCE_NONE = 3'd0;
+  localparam logic [2:0] FENCE_ADDRESS_TRANSLATION = 3'd3;
   localparam logic [1:0] PRIVILEGE_U = 2'd0;
   localparam logic [1:0] PRIVILEGE_S = 2'd1;
   localparam logic [1:0] PRIVILEGE_M = 2'd3;
@@ -113,7 +113,7 @@ module rv5stage_csr_tb;
   logic [63:0] satp;
   logic [2:0] frm;
   logic fp_enabled;
-  logic cbo_zero_enabled;
+  logic [1:0] cbo_zero_access;
   logic translation_flush;
   logic pbmte;
   logic [2:0] pointer_masking;
@@ -293,7 +293,7 @@ module rv5stage_csr_tb;
 
   task automatic privileged_action(
     input logic [3:0] system_operation,
-    input logic [1:0] fence_operation,
+    input logic [2:0] fence_operation,
     input logic [63:0] pc,
     input logic [31:0] instruction,
     input logic expect_trap,
@@ -618,7 +618,7 @@ module rv5stage_csr_tb;
 
     $display("RV5Stage CSR and privilege transitions passed");
     reset_dut();
-    assert (cbo_zero_enabled) else $fatal(1, "M mode must allow CBO.ZERO");
+    assert (cbo_zero_access == 0) else $fatal(1, "M mode must allow CBO.ZERO");
     assert (!pbmte) else $fatal(1, "PBMTE must reset disabled");
     csr_access(CSR_WRITE, CSR_MENVCFG, ~64'd0, 64'd0, 1'b1);
     assert (pbmte) else $fatal(1, "PBMTE write not retained");
@@ -630,24 +630,24 @@ module rv5stage_csr_tb;
     csr_access(CSR_WRITE, CSR_SENVCFG, ~64'd0, 64'd0);
     csr_access(CSR_SET, CSR_SENVCFG, 64'd0, 64'h300000081);
     enter_supervisor(64'd0);
-    assert (cbo_zero_enabled) else $fatal(1, "M CBZE did not enable S mode");
+    assert (cbo_zero_access == 0) else $fatal(1, "M CBZE did not enable S mode");
     csr_access(CSR_WRITE, CSR_SENVCFG, 64'd0, 64'h300000081);
-    assert (cbo_zero_enabled) else $fatal(1, "S CBZE must not restrict S mode");
+    assert (cbo_zero_access == 0) else $fatal(1, "S CBZE must not restrict S mode");
     csr_access(CSR_WRITE, CSR_SEPC, 64'h300, 64'd0);
     system_action(SYSTEM_SRET, 64'd0, 64'h300);
-    assert (privilege == PRIVILEGE_U && !cbo_zero_enabled)
+    assert (privilege == PRIVILEGE_U && cbo_zero_access == 1)
       else $fatal(1, "U mode must require S CBZE");
     reset_dut();
     csr_access(CSR_WRITE, CSR_MENVCFG, 64'h80, 64'd0);
     csr_access(CSR_WRITE, CSR_SENVCFG, 64'h80, 64'd0);
     csr_access(CSR_WRITE, CSR_MEPC, 64'h300, 64'd0);
     system_action(SYSTEM_MRET, 64'd0, 64'h300);
-    assert (privilege == PRIVILEGE_U && cbo_zero_enabled)
+    assert (privilege == PRIVILEGE_U && cbo_zero_access == 0)
       else $fatal(1, "both CBZE bits did not enable U mode");
     reset_dut();
     csr_access(CSR_WRITE, CSR_SENVCFG, 64'h80, 64'd0);
     enter_supervisor(64'd0);
-    assert (!cbo_zero_enabled) else $fatal(1, "S mode must require M CBZE");
+    assert (cbo_zero_access == 1) else $fatal(1, "S mode must require M CBZE");
     reset_dut();
     @(negedge clock);
     clear_commit();

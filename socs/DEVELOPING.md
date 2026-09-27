@@ -83,7 +83,10 @@ The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
 passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
 injection/ejection queue policy; this view adds no circuit hierarchy.
 `platform/endpoint-params.rhdl` supplies host descriptions shared with the tiled compiler;
-exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
+it also narrows hart uncached endpoints to nonsnooping opcodes for the device
+Home. The memory Home includes the complete uncached endpoint so coherent
+nonallocating accesses can reach normal memory without bypassing coherence.
+Exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
 parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects product imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
 
 ## Implementation map

@@ -20,10 +20,11 @@ fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ B
   immediate.into(SInt(12)).sext(output_width).as_bits()
 
 sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
+  def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def compressed_enabled = compressed_extensions_enabled(core_profile.extensions.compressed)
-  interface ingress(Valid(RV5StageFetchPacket(xlen)), ~role: consumer)
-  interface egress(Valid(RV5StageFetchPacket(xlen)), ~role: producer)
+  interface ingress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
+  interface egress(Valid(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
   interface repair(Valid(RV5StageFetchRepair(xlen)), ~role: producer)
   interface fallback(Valid(RV5StagePrediction(xlen)), ~role: producer)
   interface clear(Pulse(), ~role: consumer)

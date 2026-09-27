@@ -6,6 +6,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/privilege.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl".RiscvGuestMemoryAccess
 
 circuit PointerMaskingFixture():
   input address: Bits(64)
@@ -13,6 +14,15 @@ circuit PointerMaskingFixture():
   input mstatus: Bits(64)
   input satp: Bits(64)
   input senvcfg: Bits(64)
+  input virtualized: Bool
+  input hstatus: Bits(64)
+  input vsstatus: Bits(64)
+  input vsatp: Bits(64)
+  input henvcfg: Bits(64)
+  input access: RiscvGuestMemoryAccess
+  output guest_policy: PointerMaskControl()
+  output guest_masked: Bits(64)
+  output hstatus_warl: Bits(64)
   output masked: Bits(64)
   output policy: PointerMaskControl()
   output effective: PrivilegeMode
@@ -22,6 +32,13 @@ circuit PointerMaskingFixture():
   output rv32_address: Bits(32)
   output disabled_address: Bits(64)
   def control = user_pointer_mask_control(XLen.X64, privilege, mstatus, satp, senvcfg, ~enabled: #true)
+  def context = RiscvExecutionContext():
+    privilege: privilege
+    virtualized: virtualized
+  def guest_control = hypervisor_pointer_mask_control(context, mstatus, satp, senvcfg, hstatus, vsstatus, vsatp, henvcfg, access, ~enabled: #true)
+  guest_policy <== guest_control
+  guest_masked <== apply_pointer_mask(XLen.X64, address, guest_control)
+  hstatus_warl <== pointer_mask_hstatus_fields(hstatus, ~enabled: #true)
   policy <== control
   effective <== effective_data_privilege(XLen.X64, privilege, mstatus)
   masked <== apply_pointer_mask(XLen.X64, address, control)

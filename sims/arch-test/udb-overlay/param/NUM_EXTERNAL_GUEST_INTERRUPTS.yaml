@@ -1,0 +1,4 @@
+# Corrects UDB 0.1.16's lower bound to include the H extension's legal GEILEN=0 implementation.
+# SPDX-License-Identifier: Apache-2.0
+schema:
+  minimum: 0

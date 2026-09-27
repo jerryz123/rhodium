@@ -102,7 +102,6 @@ VECTOR_PARAMETER_VALUES = {
     "VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR": "copy",
     "VFREDUSUM_INACTIVE_NODE_ELEMENT_BEHAVIOR": "copy",
     "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
-    "VSSTATUS_VS_EXISTS": False,
 }
 POINTER_MASKING_VERSIONS = {"Ssnpm": "1.0.0", "Supm": "1.0.0"}
 
@@ -192,6 +191,8 @@ def project_vector(model_extensions, extensions, params):
     for name, expected in VECTOR_PARAMETER_VALUES.items():
         if params.get(name) != expected:
             raise ValueError(f"Sail vector projection requires {name}={expected!r}")
+    if params.get("VSSTATUS_VS_EXISTS") != ("H" in names):
+        raise ValueError("VSSTATUS_VS_EXISTS must match H support")
     for name, choices in {
         "RESERVED_VSET_X0X0_VILL_SET": ("never", "always"),
         "RESERVED_VSET_X0X0_VLMAX_CHANGE": ("never", "always"),
@@ -257,11 +258,9 @@ def sail_config(default, udb, origin, size):
     if params["M_MODE_ENDIANNESS"] != "little":
         raise ValueError("initial ACT adapter requires little-endian M mode")
     model_extensions = default["extensions"]
-    if extensions.keys() & {"Stateen", "Smstateen", "Ssstateen"}:
-        raise ValueError("state-enable configurations need an expanded Sail projection")
     vector_extensions = project_vector(model_extensions, extensions, params)
     pointer_masking_extensions = project_pointer_masking(model_extensions, extensions, params)
-    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
+    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm", "Smstateen", "Ssstateen"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
     for name, options in model_extensions.items():
@@ -273,7 +272,15 @@ def sail_config(default, udb, origin, size):
         model_extensions["Zawrs"]["nto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
         model_extensions["Zawrs"]["sto"]["is_nop"] = params["ZAWRS_NTO_IS_NOP"]
     for name in ("Smstateen", "Ssstateen"):
-        model_extensions["Stateen"][name]["supported"] = False
+        if name in extensions and extensions[name] != "1.0.0":
+            raise ValueError(f"{name} needs a Sail mapping for version {extensions[name]}")
+        model_extensions["Stateen"][name]["supported"] = name in extensions
+    if "Smstateen" in extensions:
+        if params.get("MSTATEEN_ENVCFG_TYPE") != "rw":
+            raise ValueError("Sail state-enable projection requires writable MSTATEEN.ENVCFG")
+        if "H" in extensions and params.get("HSTATEEN_ENVCFG_TYPE") != "rw":
+            raise ValueError("Sail state-enable projection requires writable HSTATEEN.ENVCFG")
+        model_extensions["Stateen"]["SE0_readonly_zero"] = False
     base = default["base"]
     base["xlen"] = params["MXLEN"]
     base["E"] = False
@@ -314,6 +321,23 @@ def sail_config(default, udb, origin, size):
     memory = default["memory"]
     memory["physaddr_bits"] = params["PHYS_ADDR_WIDTH"]
     memory["asidlen"] = params["ASID_WIDTH"]
+    if "H" in extensions:
+        if any(params[mode + "XLEN"] != [params["MXLEN"]] or params[mode + "_MODE_ENDIANNESS"] != "little" for mode in ("VS", "VU")):
+            raise ValueError("Sail guest projection requires native-width little-endian VS mode")
+        if not params["VSSTAGE_MODE_BARE"] or not params["GSTAGE_MODE_BARE"]:
+            raise ValueError("Sail guest projection requires Bare translation modes")
+        memory["vmidlen"] = params["VMID_WIDTH"]
+        guest = model_extensions["H"]
+        guest["geilen"] = params["NUM_EXTERNAL_GUEST_INTERRUPTS"]
+        guest["guest_page_fault_writes_htval"] = params["REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT"]
+        for mode in guest["vsatp_modes"]:
+            guest["vsatp_modes"][mode] = params.get(mode.upper() + "_VSMODE_TRANSLATION", False)
+        for mode in guest["hgatp_modes"]:
+            guest["hgatp_modes"][mode] = params.get(mode.upper() + "_TRANSLATION", False)
+        base["hcounteren_writable_bits"] = bits(sum(1 << i for i, value in enumerate(params["HCOUNTENABLE_EN"]) if value), 32)
+        base["vstvec"]["direct"]["supported"] = 0 in params["VSTVEC_MODES"]
+        base["vstvec"]["vectored"]["supported"] = 1 in params["VSTVEC_MODES"]
+        base["xtval_nonzero"]["virtual_instruction"] = params["REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION"]
     memory["pmp"]["count"] = pmp_count
     memory["pmp"]["usable_count"] = pmp_usable_count
     memory["pmp"]["grain"] = pmp_granularity - 2
@@ -355,6 +379,13 @@ def test_config(name, compiler, objdump, sail, udb):
     return dict(name=name, compiler_exe=compiler, objdump_exe=objdump,
                 ref_model_exe=str(Path(sail).resolve()), udb_config=str(Path(udb).resolve()),
                 linker_script="link.ld", dut_include_dir=".", include_priv_tests=True)
+
+
+def act_udb_configuration(udb, overlay):
+    """Apply pinned UDB schema corrections without changing DUT capabilities."""
+    if any(entry["name"] == "H" for entry in udb["implemented_extensions"]):
+        return {**udb, "arch_overlay": str(overlay.resolve())}
+    return udb
 
 
 def main():
@@ -399,7 +430,11 @@ def main():
     if differences:
         print("ACT reference-model differences (tests remain enabled): " + json.dumps(differences, sort_keys=True))
     subprocess.run([sail, "--config", str(args.output / "sail.json"), "--validate-config"], check=True)
-    act = test_config(args.name, args.compiler, args.objdump, sail, args.udb)
+    act_udb = args.output / "act-udb.yaml"
+    with act_udb.open("w") as output:
+        output.write("# Preserves the DUT profile with pinned ACT/UDB schema corrections.\n")
+        YAML().dump(act_udb_configuration(udb, source / "udb-overlay"), output)
+    act = test_config(args.name, args.compiler, args.objdump, sail, act_udb)
     with (args.output / "test_config.yaml").open("w") as output:
         output.write("# Connects generated UDB and platform files to ACT4.\n")
         YAML().dump(act, output)

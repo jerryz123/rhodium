@@ -14,11 +14,12 @@ import:
   lib("flow/main.rhdl") open
 
 sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_entries :: Nat = 32, ~ras_entries: ras_entries :: Nat = 6):
+  def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
   def packet_capacity :: PosInt = 5
   interface control(RV5StageFrontendControl(xlen), ~role: frontend)
-  interface memory(RV5StageFetchAccess(xlen), ~role: requester)
-  interface packets(Decoupled(RV5StageFetchPacket(xlen)), ~role: producer)
+  interface memory(RV5StageFetchAccess(xlen, hypervisor), ~role: requester)
+  interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: producer)
 
   def recovery = control.flush.valid ||| control.restart.valid ||| control.invalidate_all.valid
   inst repair(ValidPipe(RV5StageFetchRepair(xlen), 1, ~flushable: #true))
@@ -29,7 +30,7 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
   late_return.flush <== command
   inst source(RV5StageFetchSource(xlen, btb_entries, ras_entries))
   inst scan(RV5StageFetchScan(core_profile))
-  inst queue(ShiftQueue(RV5StageFetchPacket(xlen), packet_capacity, ~flow: #true, ~flushable: #true))
+  inst queue(ShiftQueue(RV5StageFetchPacket(xlen, hypervisor), packet_capacity, ~flow: #true, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV5StageFetchAttempt(xlen), 1, ~flushable: #true))
   queue.flush <== recovery
 
@@ -76,13 +77,18 @@ sync_circuit RV5StageFrontend(core_profile :: RV5StageConfig, ~btb_entries: btb_
     pc: attempt.pc
   lookup |> filter_valid(_attempt => !command & !replays.valid & !fallback_redirect.valid) |> s2.ingress
   (packet_outcomes |> filter_valid(_attempt => admitted)
-    |> map_valid(attempt => RV5StageFetchPacket(xlen)):
-         pc: attempt.pc
-         word: memory.response.bits.response.word
-         mask: mux(attempt.continuation, bits(1, 2), mux(attempt.pc[1].into(Bool), bits(2, 2), bits(3, 2)))
-         page_fault: memory.response.bits.response.page_fault
-         access_fault: memory.response.bits.response.access_fault
-         prediction: attempt.prediction
+    |> map_valid(attempt):
+         wire packet: RV5StageFetchPacket(xlen, hypervisor)
+         packet.pc <== attempt.pc
+         packet.word <== memory.response.bits.response.word
+         packet.mask <== mux(attempt.continuation, bits(1, 2), mux(attempt.pc[1].into(Bool), bits(2, 2), bits(3, 2)))
+         packet.page_fault <== memory.response.bits.response.page_fault
+         packet.access_fault <== memory.response.bits.response.access_fault
+         packet.prediction <== attempt.prediction
+         if hypervisor
+         | packet.guest <== memory.response.bits.response.guest
+         | #void
+         packet
   ) |> scan.ingress
   scan.egress |> to_decoupled() |> queue.ingress
   (scan.egress

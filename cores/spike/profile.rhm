@@ -18,7 +18,7 @@ fun spike_isa_string(architecture :: RiscvHartDescription) :: String:
       def length_extension = "zvl" ++ to_string(architecture.vector.vlen) ++ "b"
       unless extensions.contains(length_extension)
       | extensions := extensions ++ [length_extension]
-  def single_letter = ["m", "a", "f", "d", "c", "b", "v"]
+  def single_letter = ["m", "a", "f", "d", "c", "b", "v", "h"]
   def compact = String.join(single_letter.filter(
     ~keep: fun (extension): extensions.contains(extension)
   ), "")

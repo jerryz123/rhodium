@@ -6,7 +6,7 @@
     logic [31:0] instruction;
     logic [4:0] rd;
     struct packed { logic [1:0] csr; logic immediate; logic [3:0] action; } system;
-    struct packed { logic [1:0] action; } fence;
+    struct packed { logic [2:0] action; } fence;
     logic [11:0] csr_address;
     word_t csr_source;
     struct packed { word_t vtype; word_t avl; logic maximum; logic keep_vl; } vector_config;

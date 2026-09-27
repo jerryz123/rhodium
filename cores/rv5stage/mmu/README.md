@@ -1,4 +1,4 @@
-<!-- Specifies RV5Stage's Sv39 translation, TLB, page-walk, arbitration, and fault contracts. -->
+<!-- Specifies RV5Stage's host and experimental guest translation, walk, and fault contracts. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV5Stage MMU
@@ -297,7 +297,7 @@ fill policy for the ITLB and DTLB:
   independently of the walker's page-table level;
 - a hit re-evaluates permissions using the current access kind, privilege,
   `SUM`, and `MXR` rather than caching a prior permission decision;
-- a successful walk fills the next entry in a cyclic replacement sequence;
+- a successful walk updates a matching entry or fills the next entry in a cyclic replacement sequence;
   page-fault and access-fault completions do not allocate; and
 - `invalidate_all` clears every entry and resets replacement state, including
   entries whose accumulated `G` bit is set.
@@ -314,7 +314,7 @@ virtual address, root PPN, access kind, effective privilege, `SUM`, and `MXR`,
 then visits Sv39 levels 2, 1, and 0. At each level it issues the physical
 64-bit PTE address `table_ppn * 4096 + vpn[level] * 8` and waits for exactly one
 non-backpressured `Valid(Bits(64))` response before continuing. The response
-must arrive in a later cycle while the walker is waiting for it; there is no
+may arrive on acceptance or in a later cycle while the walker owns it; there is no
 response `ready` signal or buffering at this boundary. Cancellation may discard
 a response arriving on the cancellation edge. Walk completions remain
 irrevocable and may be backpressured.
@@ -339,7 +339,8 @@ The walk completes with a page fault for any of these conditions:
 If the physical hierarchy rejects the PTE load at request acceptance, the
 walker instead completes with an access fault. It does not reinterpret that
 failure as an invalid PTE and does not wait for a memory response. `cancel`
-returns the walker to Idle without publishing a completion.
+suppresses completion and returns the walker to Idle after any accepted PTE
+response drains. Repeated cancellation does not forget that response owner.
 
 ## Fault ownership and classification
 
@@ -364,7 +365,8 @@ Trap priority and
 ## Supported Sv39 behavior and deliberate limits
 
 `RV5StageExtensions(~svnapot: #true)` opts an RV64 Sv39 core into 64 KiB
-Svnapot mappings; the default remains disabled. The walker accepts N=1 only
+Svnapot mappings; standalone defaults remain disabled, while the shared RVA23
+SoC preset enables and advertises Svnapot and Svpbmt. The walker accepts N=1 only
 for level-zero leaves with PPN[3:0]=8. One fetched PTE fills one compact TLB
 entry covering all sixteen 4 KiB subpages; it does not read the other fifteen
 PTEs. Software must maintain consistent aliases and follow Svnapot fencing
@@ -372,8 +374,7 @@ rules. The fetched PTE supplies permissions and A/D state: existing Svade
 fault behavior remains, with no hardware A/D updates or alias aggregation.
 Whole-TLB invalidation removes every alias together. Vector authorization
 still certifies at most two 4 KiB pages and independently checks their PMAs,
-but reuses one mapping when both lie within the same 64 KiB region. This
-opt-in RTL implementation is not yet advertised in ISA/UDB or SoC profiles.
+but reuses one mapping when both lie within the same 64 KiB region.
 
 The standalone walker and TLB retain Svpbmt page types. The walker captures
 `request.bits.pbmte` with each accepted request; successful completion, TLB
@@ -381,14 +382,24 @@ refill, demand lookup, and prefetch probe preserve the leaf type. Bare lookup
 returns PMA. Page/access faults do not populate the TLB, and invalidation wins
 over a simultaneous fill.
 
-This is a translation foundation, not integrated Svpbmt support. The composed
-MMU still supplies PBMTE=false until physical routing, vector certificates,
-cache admission, and CHI honor the attributes. `RV5StageExtensions(~svpbmt:
-#true)` enables standalone CSR qualification only, requires RV64 Sv39, and is
-rejected by the complete `RV5Stage` composition. It is not an ISA/UDB claim.
-Published SoC profiles remain unchanged. The CSR component exposes PBMTE and
-conservatively requests translation invalidation on a committed change;
-firmware must still follow the architectural SFENCE/cache-maintenance rules.
+`RV5StageExtensions(~svpbmt: #true)` enables RV64 Sv39 access attributes in the
+composed MMU. `menvcfg.PBMTE` gates host/G-stage PTE interpretation and masks
+`henvcfg.PBMTE`, which gates VS-stage interpretation. Non-default VS attributes
+override G attributes; Bare stages contribute PMA. Implicit VS PTE reads carry
+their own G-stage attribute, while physical G PTE reads retain PMA.
+Demand, fetch and prefetch routing consume the shared attribute resolver.
+NC/IO loads and stores bypass speculative cache hits and use WB-authorized
+non-allocating transactions. Prefetches to NC/IO pages drop; vector certificates
+reject them and fall back to ordinary element-owned requests. Maintenance still
+visits physically cacheable aliases, independently of the access's PBMT.
+The physical-request payload retains PBMT through core/PTE arbitration; the
+uncached slot captures effective ordering. Physical permissions, Home selection
+and coherence domains do not change. Atomic operations remain unsupported on
+the uncached path and report access faults before admission.
+CSR changes conservatively invalidate translations and vector certificates;
+accepted work drains under existing context-change rules. Firmware must still
+follow architectural fence/cache-maintenance rules. ISA and UDB publication
+follow the selected extension flags; enabling support does not set PBMTE at reset.
 
 The implemented slice supports canonical Sv39 virtual addresses, all three
 standard leaf sizes, accumulated global mappings, User/Supervisor permissions,
@@ -405,11 +416,98 @@ Deliberate limits are:
 - nonzero ASIDs, ASID- or address-selective `SFENCE.VMA`, and retention of
   global entries across invalidation are not implemented;
 - hardware A/D-bit updates are not implemented;
-- integrated PBMT access policy, PMP, and multi-hart
+- PMP and multi-hart
   shootdown remain outside this MMU;
 - walks are neither speculative nor concurrent, and there is no independent
   page-table-memory port or page-walk cache; and
 - best-effort prefetch probes do not fill a TLB or initiate a background walk.
+
+## Shared host and guest translation
+
+The design follows Rocket's organization: separate instruction/data TLB
+instances for concurrent lookup, but **one TLB implementation and one shared
+walker implementation**, not separate host/guest or VS/G translation engines.
+The production MMU supplies host context by default and selects guest context
+when the core profile enables H. The standalone MMU retains an explicit
+`~hypervisor: #true` parameter; the RVA23 SoC composition derives it from its profile.
+
+[`tlb.rhdl`](tlb.rhdl) provides `RV5StageTranslationTlb`. Lookup is
+combinational, with one power-of-two associative entry bank shared by host and
+guest mappings. Host entries retain Sv39 superpage and Svnapot reach. Guest
+entries cache composed GVA-to-physical mappings at 4 KiB granularity, retaining
+the guest physical page and independent VS/G leaf permissions and PBMT.
+The same virtual address can coexist in host and guest contexts. Tags include
+virtualization, both modes/roots, PBMTE, and HS MXR. Current privilege, VS SUM/MXR,
+access class, and A/D permissions are rechecked at lookup; VS denial takes
+priority over final G denial. HS MXR changes conservatively rewalk because an
+entry does not retain the leaves authorizing implicit VS PTE reads.
+Probes ignore A/D but require at least one access class allowed by both stages.
+Their PBMT applies the G override followed by a non-PMA stage-one override,
+as specified by [Svpbmt](https://docs.riscv.org/reference/isa/v20240411/priv/svpbmt.html).
+
+[`walker.rhdl`](walker.rhdl) provides `RV5StageTranslationWalker`.
+One state machine and PTE datapath handle ordinary Sv39 and nested VS Sv39 /
+G Sv39x4 walks. Host walks read their PTEs directly. Guest walks retain a VS
+continuation while the same datapath translates each VS PTE address through
+G-stage, then translate the final GPA. Sv39x4 uses a 16 KiB root and 41-bit GPA.
+Both stages can be Bare. G permission checks use U-mode semantics; HS MXR
+applies at both stages, VS MXR/SUM only to stage one. A/D handling remains
+Svade. `~svnapot` enables the existing 64 KiB leaf rules.
+
+Shared contracts live in [`translation.rhdl`](translation.rhdl):
+`RV5StageTlbLookup`, `RV5StageTlbMapping`, and `RV5StageTlbFill`.
+The context's `vs_*` fields describe stage one: SATP/S-mode controls for host
+requests, VSATP/VS controls for guest requests. Host requests disable G-stage.
+Results distinguish page, guest-page, and physical access faults and retain
+original VA/access, precise GPA, and implicit-PTE-read provenance.
+`rv5stage_translation_fault_cause` converts a faulting result to its
+architectural instruction/load/store cause; cache management uses store causes.
+Consumers resolve effective memory attributes and final PMA/PMP authorization.
+
+`RV5StageTlb` and `RV5StagePageTableWalker` are host-port adapters for standalone
+host consumers and fixtures; they contain no independent translation storage
+or sequencing. The production MMU uses the shared components directly.
+ITLB/DTLB hit, probe, and replay paths remain direct.
+There is no serialized translation service on the hit path.
+
+The memory interface accepts at most one PTE read. Its service checks address
+and PBMT; translated VS PTE reads carry the G leaf's PBMT, and G PTE reads use
+PMA. Rejection returns `request_access_fault` on acceptance and owes no reply.
+Accepted reads return one Valid response on that edge or later. Cancellation
+suppresses architectural results, but the walker retains and drains an accepted
+read before admitting another walk. The MMU must forward replies even after
+invalidation. Reset requires the memory service to discard pre-reset responses.
+
+Whole-bank invalidation discards all entries, including global mappings, and
+wins over refill. The integrating MMU must also cancel outstanding walks and
+order prior PTE stores. Plain cancellation does not invalidate successful
+entries. The production MMU directly instantiates these banks and walker;
+it does not serialize hits through the test service. Its opt-in `~hypervisor`
+specialization accepts CSR-owned `guest_translation` state and selects separate
+instruction and effective MPRV/MPV data contexts. Guest fetch faults carry their
+class/provenance in the S2 result. HLV/HLVX/HSV wrap virtual requests with
+`RiscvGuestMemoryAccess`; the MMU consumes it before the physical boundary.
+Explicit guest accesses use SPVP permissions independently of live V/MPRV.
+HLVX checks X at both stages and physical R+X, but keeps load faults and ordinary
+PTE-read permission checks. Warm entries recheck the current access intent.
+Data faults publish paired request/MEM metadata for the core to retain through
+WB. Vector certificates include the complete VS/G context and invalidation
+epoch. Page-wise guest authorization uses composed 4 KiB mappings; failed
+prechecks fall back to element-owned precise faults rather than raising a
+speculative exception. Accepted vector ownership holds context stable until
+its effects drain. ASID/VMID tagging, selective HFENCE, and page-walk caches
+remain later work.
+
+Invalidation wins over fills at the clock edge; demand hit/readiness does not
+depend combinationally on WB invalidation. The MMU relinquishes the walk owner
+at that edge and registers the walker cancellation notification. A PTE read
+accepted on that edge is still drained, and cannot refill after invalidation.
+This keeps architectural cancellation out of WB's physical-arbiter ready loop.
+
+The test-only [translation service](../tests/translation-service.rhdl)
+serializes commands for behavioral qualification of the shared components;
+it is not a production MMU path. See the
+[implementation plan](../HYPERVISOR_PLAN.md) for the remaining integration.
 
 ## Event residency
 

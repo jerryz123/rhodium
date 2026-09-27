@@ -48,6 +48,8 @@ The queue is ordered so each change can be reviewed and removed independently:
     exception-delegation CSR on RV32 S-mode harts.
 15. `0015-keep-medeleg-page-fault-bits-in-bare-mode.patch` retains the
     page-fault delegation bits on S-mode harts even when paging is unavailable.
+16. `0016-recognize-sha-properties.patch` registers Sha and its opcode-free
+    guarantees, mapping Ssstateen to the existing state-enable implementation.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

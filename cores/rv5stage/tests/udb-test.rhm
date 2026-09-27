@@ -72,6 +72,16 @@ def rv64_vector_bitmanip_yaml = rv5stage_udb_configuration(
 
 def no_hpm_values = for List (_index in 0..32): "false"
 
+for (svpbmt in [#false, #true]):
+  for (svnapot in [#false, #true]):
+    def profile = RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~svpbmt, ~svnapot))
+    def yaml = rv5stage_udb_configuration(profile, "translation-extensions", "Selected Sv39 translation extensions", 44).to_yaml()
+    check:
+      profile.isa_profile.isa_extensions.contains("svpbmt") ~is svpbmt
+      profile.isa_profile.isa_extensions.contains("svnapot") ~is svnapot
+      yaml.contains("{ name: \"Svpbmt\", version: \"= 1.0.0\" }") ~is svpbmt
+      yaml.contains("{ name: \"Svnapot\", version: \"= 1.0.0\" }") ~is svnapot
+
 for (xlen in [XLen.X32, XLen.X64]):
   for (fetch in [#false, #true]):
     for (atomic in [#false, #true]):

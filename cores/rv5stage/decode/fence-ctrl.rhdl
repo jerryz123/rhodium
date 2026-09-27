@@ -24,6 +24,9 @@ hardware_enum RV5StageFenceOperation:
   Memory
   Instruction
   AddressTranslation
+  GuestVirtualTranslation
+  GuestPhysicalTranslation
+  TranslationOrder
 
 bundle RV5StageFenceControl():
   action: RV5StageFenceOperation
@@ -35,7 +38,7 @@ bundle RV5StageFenceControl():
     control.action === RV5StageFenceOperation.Instruction
 
   method is_address_translation_fence(control) :: Bool:
-    control.action === RV5StageFenceOperation.AddressTranslation
+    control.action.is_one_of(RV5StageFenceOperation.AddressTranslation, RV5StageFenceOperation.GuestVirtualTranslation, RV5StageFenceOperation.GuestPhysicalTranslation)
 
 def no_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.None

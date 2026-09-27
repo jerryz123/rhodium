@@ -5,13 +5,13 @@
 import:
   "../isa/trap.rhm" open
   "../isa/xlen.rhm" open
-  "privilege.rhdl".PrivilegeMode
+  "privilege.rhdl" open
 
 bundle RiscvTrapDecision(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
-  to_supervisor: Bool
+  target: RiscvTrapTarget
 
 fun exception_cause_bits(cause :: ExceptionCause,
                          width :: PosInt) :~ Bits(width):
@@ -41,7 +41,7 @@ fun resolve_riscv_trap(xlen :: XLen,
     valid: valid
     cause: cause
     value: mux(explicit_valid, explicit_value, generated_value)
-    to_supervisor: valid & (privilege =/= PrivilegeMode.Machine) & delegated
+    target: mux(valid & (privilege =/= PrivilegeMode.Machine) & delegated, RiscvTrapTarget.Supervisor, RiscvTrapTarget.Machine)
 
 export:
   RiscvTrapDecision

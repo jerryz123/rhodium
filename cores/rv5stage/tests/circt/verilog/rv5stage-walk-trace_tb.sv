@@ -51,6 +51,9 @@ module rv5stage_walk_trace_tb;
     // and while completion is held all terminate the same resident occurrence.
     start(); repeat(3) tick(); cancel=1; tick(); cancel=0;
     start(); memory_ready=1; tick(); memory_ready=0; repeat(3) tick(); cancel=1; tick(); cancel=0;
+    // Cancellation ends the trace owner, but the accepted PTE must still drain.
+    assert(!command_ready) else $fatal(1,"canceled read lost ownership");
+    response_valid=1; pte=0; tick(); response_valid=0;
     start(64'h8000000000); cancel=1; completion_ready=1; tick(); cancel=0; completion_ready=0;
     // An offered request on a cancel edge is discarded, not a zero-length residency.
     command_valid=1; cancel=1; tick(); command_valid=0; cancel=0;

@@ -1,0 +1,26 @@
+#lang rhombus
+// Checks Svinval encodings, register constraints, and coexistence with base/H fences.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/svinval.rhm" open
+  "../isa/privileged.rhm" open
+  "../isa/h.rhm" open
+  "../model/main.rhm" open
+
+def catalog = InstructionCatalog("privileged invalidation", "test", PrivilegedInstructions ++ RV64HInstructions ++ SvinvalH.instructions)
+check:
+  SvinvalInstructions.map(fun (spec): spec.encoding.value) ~is [0x16000073, 0x18000073, 0x18100073]
+  SvinvalHypervisorInstructions.map(fun (spec): spec.encoding.value) ~is [0x26000073, 0x66000073]
+  SINVAL_VMA.encode([rs1.constrain(5), rs2.constrain(3)]) ~is 0x16328073
+  HINVAL_VVMA.encode([rs1.constrain(5), rs2.constrain(3)]) ~is 0x26328073
+  HINVAL_GVMA.encode([rs1.constrain(5), rs2.constrain(3)]) ~is 0x66328073
+  SFENCE_W_INVAL.encode([]) ~is 0x18000073
+  SFENCE_INVAL_IR.encode([]) ~is 0x18100073
+  SINVAL_VMA.encode([rs1.constrain(5), rs2.constrain(3), rd.constrain(1)]) ~throws ""
+
+for (spec in SvinvalH.instructions):
+  check: catalog.matching(spec.encoding.value) === spec ~is #true
+  for (bit in 0..32):
+    when (spec.encoding.care bits.and (1 bits.(<<) bit)) != 0
+    | check: spec.matches(spec.encoding.value bits.xor (1 bits.(<<) bit)) ~is #false

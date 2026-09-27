@@ -40,6 +40,20 @@ def SpikeUdbExtensions = [
   ["d", extension("D", "2.2.0")],
   ["c", extension("C", "2.0")],
   ["b", extension("B", "1.0.0")],
+  ["h", extension("H", "1.0.0")],
+  ["sha", extension("Sha", "1.0.0")],
+  ["smstateen", extension("Smstateen", "1.0.0")],
+  ["ssstateen", extension("Ssstateen", "1.0.0")],
+  ["sstc", extension("Sstc", "1.0.0")],
+  ["svinval", extension("Svinval", "1.0.0")],
+  ["svpbmt", extension("Svpbmt", "1.0.0")],
+  ["svnapot", extension("Svnapot", "1.0.0")],
+  ["shcounterenw", extension("Shcounterenw", "1.0.0")],
+  ["shvstvala", extension("Shvstvala", "1.0.0")],
+  ["shtvala", extension("Shtvala", "1.0.0")],
+  ["shvstvecd", extension("Shvstvecd", "1.0.0")],
+  ["shvsatpa", extension("Shvsatpa", "1.0.0")],
+  ["shgatpa", extension("Shgatpa", "1.0.0")],
   ["za64rs", extension("Za64rs", "1.0.0")],
   ["zba", extension("Zba", "1.0.0")],
   ["zbb", extension("Zbb", "1.0.0")],
@@ -220,6 +234,33 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   | parameters := parameters ++ [natural_parameter("PMLEN", 16)]
   when has("zawrs")
   | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
+  when has("smstateen")
+  | parameters := parameters ++ [string_parameter("MSTATEEN_ENVCFG_TYPE", "rw")]
+  when has("h")
+  | block:
+      parameters := parameters ++ [
+        boolean_parameter("MUTABLE_MISA_H", #true), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
+        string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 14),
+        natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0, 1]),
+        boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
+        boolean_list_parameter("HCOUNTENABLE_EN", BaseCounters),
+        boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_ILLEGAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION", #true),
+        boolean_parameter("REPORT_VA_IN_VSTVAL_ON_BREAKPOINT", #true)
+      ]
+      for (kind in ["LOAD", "STORE_AMO", "INSTRUCTION"]):
+        for (cause in ["MISALIGNED", "ACCESS_FAULT", "PAGE_FAULT"]):
+          parameters := parameters ++ [boolean_parameter("REPORT_VA_IN_VSTVAL_ON_" ++ kind ++ "_" ++ cause, #true)]
+        parameters := parameters ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_" ++ kind ++ "_GUEST_PAGE_FAULT", #true), string_parameter("TINST_VALUE_ON_FINAL_" ++ kind ++ "_GUEST_PAGE_FAULT", "always zero")]
+      parameters := parameters ++ [boolean_parameter("REPORT_GPA_IN_TVAL_ON_INTERMEDIATE_GUEST_PAGE_FAULT", #true)]
+      parameters := parameters ++ [boolean_parameter("IGNORE_INVALID_VSATP_MODE_WRITES_WHEN_V_EQ_ZERO", #false), boolean_parameter("TRAP_ON_ECALL_FROM_VS", #true)]
+      for (mode in ["SV39", "SV48", "SV57"]):
+        parameters := parameters ++ [boolean_parameter(mode ++ "X4_TRANSLATION", mode == "SV39"), boolean_parameter(mode ++ "_VSMODE_TRANSLATION", mode == "SV39")]
+      for (cause in ["BREAKPOINT", "INSTRUCTION_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_ADDRESS_MISALIGNED", "LOAD_PAGE_FAULT", "MCALL", "SCALL", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_PAGE_FAULT", "UCALL", "VIRTUAL_INSTRUCTION", "VSCALL"]):
+        parameters := parameters ++ [string_parameter("TINST_VALUE_ON_" ++ cause, "always zero")]
+      when has("smstateen")
+      | parameters := parameters ++ [string_parameter("HSTATEEN_ENVCFG_TYPE", "rw")]
   when profile.vector_length > 0
   | parameters := parameters ++ [
       natural_parameter("VLEN", profile.vector_length),
@@ -250,7 +291,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
       // v_ext_macros.h canonicalizes an inactive NaN seed and flags sNaN.
       string_parameter("VFREDUSUM_NAN", "custom"),
       string_parameter("VFREDUSUM_NODE_ROUNDING_BEHAVIOR", "SEW_precision"),
-      boolean_parameter("VSSTATUS_VS_EXISTS", #false)
+      boolean_parameter("VSSTATUS_VS_EXISTS", has("h"))
     ]
   UdbConfiguration(name, description, spike_udb_extensions(profile), parameters)
 

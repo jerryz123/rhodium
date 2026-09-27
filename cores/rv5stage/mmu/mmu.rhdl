@@ -7,6 +7,8 @@ import:
   "../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
+  "translation.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "tlb.rhdl" open
   "walker.rhdl" open
   "vector-window.rhdl" open
@@ -22,6 +24,7 @@ import:
   "../../../riscv/rtl/csr.rhdl" open
   "../../../riscv/rtl/pma.rhdl" open
   "../../../riscv/rtl/sv39.rhdl" open
+  "../../../riscv/rtl/svpbmt.rhdl" open
   "../../../riscv/rtl/privilege.rhdl".effective_data_privilege
   "../../../riscv/rtl/atomic.rhdl" open
   "../../../riscv/rtl/zihintntl.rhdl" open
@@ -33,19 +36,20 @@ sync_circuit RV5StageMmu(xlen :: XLen,
                          physical_map :: RiscvPhysicalMemoryMap,
                          tlb_entries :: Pow2Int = 8,
                          ~svnapot: svnapot :: Boolean = #false,
+                         ~hypervisor: hypervisor :: Boolean = #false,
                          ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   def width = xlen.width
-  interface instruction(RV5StageFetchAccess(xlen), ~role: responder)
-  interface data(RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
-  interface pipeline(RV5StagePipelineAccess(xlen), ~role: responder)
+  interface instruction(RV5StageFetchAccess(xlen, hypervisor), ~role: responder)
+  interface data(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
+  interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | RV5StagePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
   interface vector_fast(RV5StageVectorFastCheck(xlen), ~role: responder)
   interface pipeline_memory(RV5StagePipelineAccess(xlen), ~role: requester)
   interface pipeline_lookup(Valid(RV5StagePipelineReq(xlen)), ~role: producer)
   interface instruction_memory(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: requester)
-  interface core_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
-  interface walker_memory(RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface core_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
+  interface walker_memory(RV5StagePhysicalDataAccess(xlen, vector_completion_slots), ~role: requester)
   interface instruction_lookup(Decoupled(Bits(width)), ~role: producer)
   interface core_lookup(Valid(Bits(width)), ~role: producer)
   interface walker_lookup(Valid(Bits(width)), ~role: producer)
@@ -54,38 +58,78 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   input privilege: PrivilegeMode
   input mstatus: Bits(width)
   input satp: Bits(width)
+  input pbmte: Bool
   input invalidate_all: Bool
   input ordered_busy: Bool
 
-  inst itlb(RV5StageTlb(tlb_entries))
-  inst dtlb(RV5StageTlb(tlb_entries))
-  inst walker(RV5StagePageTableWalker(~svnapot: svnapot))
+  unless (!hypervisor) || (xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39)
+  | error(~who: #'RV5StageMmu, "guest translation requires the RV64 Sv39 MMU")
+  def guest_state :: RiscvHypervisorTranslation():
+    if hypervisor
+    | block:
+        input guest_translation: RiscvHypervisorTranslation()
+        guest_translation
+    | literal(RiscvHypervisorTranslation(), 0)
+  inst itlb(RV5StageTranslationTlb(tlb_entries))
+  inst dtlb(RV5StageTranslationTlb(tlb_entries))
+  inst walker(RV5StageTranslationWalker(~svnapot: svnapot))
+  def itlb_result = rv5stage_host_result(itlb.translation)
+  def dtlb_result = rv5stage_host_result(dtlb.translation)
   inst vector_window(RV5StageVectorWindow(physical_map))
   vector_precheck |> vector_window.check
   def page_probe = vector_window.translation
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
-  inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(), 1), ~reset_when: instruction.flush)
+  inst instruction_s2(ValidPipeAlwaysCapture(RV5StageFetchResult(hypervisor), 1), ~reset_when: instruction.flush)
   inst load_request(ValidPipeAlwaysCapture(RV5StagePipelineReq(xlen), 1))
-  def Array(load_context, virtual_lookup, owner_context) = pipeline.request |> fork_valid(3)
+  def pipeline_requests = pipeline.request |> map_valid(request => if hypervisor | request.memory | request)
+  def Array(load_context, virtual_lookup, owner_context) = pipeline_requests |> fork_valid(3)
   load_context |> load_request.ingress
   virtual_lookup |> pipeline_lookup
   def pipeline_owner = owner_context |> map_valid(_request => pipeline_vector) |> valid_pipe(1)
   def physical_owner = pipeline.request |> map_valid(_request => pipeline_vector & vector_fast.pipeline_physical) |> valid_pipe(1)
+  def load_mode = pipeline.request |> map_valid(request => if hypervisor | request.translation | RiscvGuestMemoryAccess.Normal) |> valid_pipe(1)
+  def request_mode = if hypervisor | data.request.bits.translation | RiscvGuestMemoryAccess.Normal
+  def demand_mode = mux(data.request.valid, request_mode, mux(!page_probe.request.valid & load_request.egress.valid, load_mode.bits, RiscvGuestMemoryAccess.Normal))
+  def explicit_guest = demand_mode =/= RiscvGuestMemoryAccess.Normal
+  def execute_read = demand_mode === RiscvGuestMemoryAccess.GuestExecuteRead
 
   def satp_sv39 = if mmu_mode == RV5StageMmuMode.Bare || xlen == XLen.X32 | Bool(#false) | csr_field(satp, Satp64Mode) === bits(Sv39Mode, Satp64Mode.width)
   def root_ppn = if xlen == XLen.X32 | bits(0, Satp64PPN.width) | csr_field(satp, Satp64PPN)
   def supervisor_or_user = privilege =/= PrivilegeMode.Machine
-  def instruction_translation_enabled = satp_sv39 & supervisor_or_user
-  def data_privilege = effective_data_privilege(xlen, privilege, mstatus)
-  def data_translation_enabled = satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)
+  def instruction_guest = guest_state.virtualized
+  def instruction_translation_enabled = (satp_sv39 & supervisor_or_user) ||| instruction_guest
+  def normal_data_privilege = effective_data_privilege(xlen, privilege, mstatus)
+  def normal_data_guest = if !hypervisor | Bool(#false) | mux((privilege === PrivilegeMode.Machine) & csr_flag(mstatus, MstatusMPRV), csr_flag(mstatus, MstatusMPV) & (normal_data_privilege =/= PrivilegeMode.Machine), guest_state.virtualized)
+  def data_privilege = mux(explicit_guest, mux(csr_flag(guest_state.hstatus, HstatusSPVP), PrivilegeMode.Supervisor, PrivilegeMode.User), normal_data_privilege)
+  def data_guest = explicit_guest ||| normal_data_guest
+  def data_translation_enabled = (satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)) ||| data_guest
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
+  fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RV5StageTlbLookup():
+    def stages = RiscvGuestTranslationContext():
+      vs_mode: mux(mux(guest, csr_field(guest_state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
+      g_mode: mux(guest & (csr_field(guest_state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
+      vs_root_ppn: mux(guest, csr_field(guest_state.vsatp, Satp64PPN), root_ppn)
+      g_root_ppn: csr_field(guest_state.hgatp, Hgatp64PPN)
+      privilege: effective_privilege
+      vs_sum: mux(guest, csr_flag(guest_state.vsstatus, MstatusSUM), sum)
+      vs_mxr: mux(guest, csr_flag(guest_state.vsstatus, MstatusMXR), mxr)
+      hs_mxr: guest & mxr
+      vs_pbmte: mux(guest, guest_state.vs_pbmte, pbmte)
+      g_pbmte: guest & pbmte
+    RV5StageTlbLookup():
+      virtualized: guest
+      execute_read: Bool(#false)
+      virtual_address: address
+      access: access
+      context: stages
   reg vector_invalidation_epoch(~init: bits(0, 2))
   when invalidate_all:
     vector_invalidation_epoch <== vector_invalidation_epoch + bits(1, 2)
   // WB validates the MEM snapshot independently of the fallback page window.
   // Certified vector requests carry their own physical address thereafter.
-  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.satp === satp) & (vector_fast.candidate.privilege === data_privilege) & (vector_fast.candidate.sum === sum) & (vector_fast.candidate.mxr === mxr)
+  def vector_context = lookup(bits(0, 64), Sv39Access.Load, normal_data_privilege, satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine) & !normal_data_guest, normal_data_guest)
+  vector_fast.candidate_current <== (vector_fast.candidate.invalidation_epoch === vector_invalidation_epoch) & (vector_fast.candidate.virtualized === vector_context.virtualized) & (vector_fast.candidate.context.as_bits() === vector_context.context.as_bits())
   def instruction_head = instruction_s1.egress
   def instruction_address = instruction_head.bits.address
   def instruction_virtual_address = if xlen == XLen.X32 | instruction_address.zext(64) | instruction_address
@@ -98,7 +142,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   // the old S1 context; a flush without a transfer clears S1 normally.
   instruction_s1.flush <== instruction.flush & !instruction_admission.valid
   def instruction_s1_valid = instruction_head.valid & !instruction.flush & !instruction.s1_kill
-  def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = data.request.bits
+  def data_requests = data.request |> map_flow(request => if hypervisor | request.memory | request)
+  def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = data_requests.bits
   def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
   def data_vector = data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
@@ -107,12 +152,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_pinned = data_window ||| data_physical
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 
-  itlb.virtual_address <== instruction_virtual_address
-  itlb.access <== Sv39Access.Fetch
-  itlb.privilege <== privilege
-  itlb.sum <== sum
-  itlb.mxr <== mxr
-  itlb.enabled <== instruction_translation_enabled
+  itlb.lookup <== lookup(instruction_virtual_address, Sv39Access.Fetch, privilege, instruction_translation_enabled & !instruction_guest, instruction_guest)
   itlb.invalidate_all <== invalidate_all
   // Authorized WB requests own the DTLB on contention. Younger MEM loads then
   // fall back instead of observing a translation belonging to another token.
@@ -122,23 +162,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_pinned = load_window ||| physical_owner.bits
   def probe_selected = page_probe.request.valid & !data.request.valid
   def fast_selected = vector_fast.request.valid & !data.request.valid & !page_probe.request.valid & !load_request.egress.valid
-  dtlb.virtual_address <== mux(data.request.valid, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
+  def demand_address = mux(data.request.valid, data_virtual_address, mux(probe_selected, page_probe.request.bits.address, mux(load_request.egress.valid, load_virtual_address, vector_fast.request.bits.first)))
   def pipeline_is_store = load_request.egress.bits.access === RV5StageMemoryOperation.Store
-  dtlb.access <== mux(data.request.valid, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, mux(load_request.egress.valid, pipeline_is_store, vector_fast.request.bits.store)), Sv39Access.Store, Sv39Access.Load))
-  dtlb.privilege <== data_privilege
-  dtlb.sum <== sum
-  dtlb.mxr <== mxr
-  dtlb.enabled <== data_translation_enabled
+  def demand_access = mux(data.request.valid, data_access_kind, mux(mux(probe_selected, page_probe.request.bits.store, mux(load_request.egress.valid, pipeline_is_store, vector_fast.request.bits.store)), Sv39Access.Store, Sv39Access.Load))
+  dtlb.lookup <== lookup(demand_address, demand_access, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
   dtlb.invalidate_all <== invalidate_all
-  def vector_fast_page = (dtlb.translation.physical_address[12..56] ++ bits(0, 12)).zext(64)
-  vector_fast.response.valid <== fast_selected & !invalidate_all & dtlb.hit & !dtlb.fault & !dtlb.translation.access_fault & vector_page_permitted(physical_map, vector_fast_page, vector_fast.request.bits.store)
+  def vector_fast_page = (dtlb_result.physical_address[12..56] ++ bits(0, 12)).zext(64)
+  vector_fast.response.valid <== fast_selected & !invalidate_all & dtlb.hit & !dtlb_result.fault & !dtlb_result.access_fault & (dtlb_result.pbmt === PageMemoryType.PMA) & vector_page_permitted(physical_map, vector_fast_page, vector_fast.request.bits.store)
   vector_fast.response.bits <== RV5StageVectorFastCertificate(xlen):
     range: vector_fast.request.bits
-    ppn: dtlb.translation.physical_address[12..56]
-    satp: satp
-    privilege: data_privilege
-    sum: sum
-    mxr: mxr
+    ppn: dtlb_result.physical_address[12..56]
+    virtualized: vector_context.virtualized
+    context: vector_context.context
     invalidation_epoch: vector_invalidation_epoch
   when (vector_fast.request.valid):
     assert(vector_fast.request.bits.first[12..64] === vector_fast.request.bits.last[12..64], "vector_fast_range_is_one_page")
@@ -147,11 +182,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg prefetch_previous_satp(~init: bits(0, width))
   reg prefetch_previous_sum(~init: Bool(#false))
   reg prefetch_previous_mxr(~init: Bool(#false))
-  prefetch_previous_privilege <== data_privilege
+  prefetch_previous_privilege <== normal_data_privilege
   prefetch_previous_satp <== satp
   prefetch_previous_sum <== sum
   prefetch_previous_mxr <== mxr
-  def prefetch_context_changed = (prefetch_previous_privilege =/= data_privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
+  def prefetch_context_changed = (prefetch_previous_privilege =/= normal_data_privilege) ||| (prefetch_previous_satp =/= satp) ||| (prefetch_previous_sum =/= sum) ||| (prefetch_previous_mxr =/= mxr)
   def prefetch_flush = instruction.flush ||| invalidate_all ||| prefetch_context_changed
   inst virtual_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
   inst physical_prefetch_pipe(ValidPipeAlwaysCapture(CachePrefetchReq(width), 1, ~flushable: #true))
@@ -161,27 +196,22 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def prefetch_request = virtual_prefetch_pipe.egress.bits.into(CachePrefetchReq(width))
   def prefetch_virtual_address = if xlen == XLen.X32 | prefetch_request.address.zext(64) | prefetch_request.address
-  itlb.probe_virtual_address <== prefetch_virtual_address
-  itlb.probe_privilege <== data_privilege
-  itlb.probe_sum <== sum
-  itlb.probe_mxr <== mxr
-  itlb.probe_enabled <== data_translation_enabled
-  dtlb.probe_virtual_address <== prefetch_virtual_address
-  dtlb.probe_privilege <== data_privilege
-  dtlb.probe_sum <== sum
-  dtlb.probe_mxr <== mxr
-  dtlb.probe_enabled <== data_translation_enabled
+  def normal_data_translation_enabled = (satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine)) ||| normal_data_guest
+  def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal_data_privilege, normal_data_translation_enabled & !normal_data_guest, normal_data_guest)
+  itlb.probe <== probe
+  dtlb.probe <== probe
 
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
   def prefetch_translation_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_translation_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
   def prefetch_translated_address = if xlen == XLen.X32 | prefetch_request.address | mux(
-    data_translation_enabled,
+    normal_data_translation_enabled,
     mux(instruction_prefetch, itlb.probe_physical_address, dtlb.probe_physical_address).zext(64),
     prefetch_request.address
   )
   def prefetch_line_address = prefetch_translated_address.align_down(64)
   def prefetch_physical = physical_map.lookup(prefetch_line_address, prefetch_line_address +& bits(63, width))
+  def prefetch_attributes = resolve_memory_attributes(prefetch_physical, mux(instruction_prefetch, itlb.probe_pbmt, dtlb.probe_pbmt))
   def prefetch_access_permitted = mux_lookup(
     prefetch_request.operation,
     ~default: Bool(#false),
@@ -192,7 +222,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     ]
   )
   virtual_prefetch_pipe.egress
-    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & prefetch_physical.cacheable & prefetch_access_permitted)
+    |> filter_valid(_request => prefetch_request.operation.is_prefetch() & prefetch_translation_hit & !prefetch_translation_fault & mux(instruction_prefetch, prefetch_attributes.instruction_cacheable, prefetch_attributes.cacheable) & prefetch_access_permitted)
     |> map_valid(request => request.updated(~address: prefetch_line_address))
     |> physical_prefetch_pipe.ingress
   // Cancel at the clock edge without reconnecting demand squash to cache admission.
@@ -206,21 +236,23 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
   reg fault_address(Bits(64))
+  reg fault_mapping(RV5StageTlbMapping())
   reg walker_memory_pending(~init: Bool(#false))
-  reg walker_response_expected(~init: Bool(#false))
 
-  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(physical_owner.bits, load_request.egress.bits.address, mux(load_window, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.physical_address.zext(64), load_request.egress.bits.address)))
+  def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(physical_owner.bits, load_request.egress.bits.address, mux(load_window, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), load_request.egress.bits.address)))
   def load_last_offset = mux_lookup(load_request.egress.bits.width, ~default: bits(7, width), [[MemoryWidth.Byte, bits(0, width)], [MemoryWidth.Half, bits(1, width)], [MemoryWidth.Word, bits(3, width)]])
   def load_physical = physical_map.lookup(load_address, load_address +& load_last_offset)
+  def load_attributes = resolve_memory_attributes(load_physical, mux(load_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
   // Translation contention and ordered IO replay without entering miss service.
   // Pending committed cache stores do not make this translation port busy.
   def pipeline_blocked = data.request.valid ||| invalidate_all ||| ordered_busy ||| (probe_selected & !load_pinned)
   def load_translation_hit = load_pinned ||| dtlb.hit
-  def load_translation_fault = !load_pinned & dtlb.fault
-  def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable)
-  def pipeline_cacheable = load_physical.cacheable & !load_physical.device & (pipeline_is_store ||| load_physical.read_idempotent)
+  def load_translation_fault = !load_pinned & dtlb_result.fault
+  def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
+  def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable) & (!execute_read ||| load_physical.executable)
+  def pipeline_cacheable = load_attributes.cacheable & !load_attributes.strongly_ordered & (pipeline_is_store ||| load_attributes.read_idempotent)
   def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
-  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & pipeline_permitted & pipeline_cacheable
+  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & !load_translation_access_fault & pipeline_permitted & pipeline_cacheable
   physical_request |> filter_valid(_request => cache_eligible)
     |> map_valid(request => request.updated(~address: load_address)) |> pipeline_memory.request
   // WB owns squash and serialization. Rechecking its derived flush here would
@@ -234,7 +266,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     pipeline_outcome <== RV5StagePipelineOutcome.Slow
   elsewhen load_translation_fault:
     pipeline_outcome <== RV5StagePipelineOutcome.PageFault
-  elsewhen (!pipeline_permitted):
+  elsewhen (load_translation_access_fault ||| !pipeline_permitted):
     pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
   elsewhen (!pipeline_cacheable):
     pipeline_outcome <== RV5StagePipelineOutcome.Slow
@@ -259,48 +291,61 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def start_instruction_walk = can_start_walk & !start_probe_walk & instruction_miss
   def start_data_walk = can_start_walk & !start_probe_walk & !instruction_miss & data_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
-  walker.request.bits <== RV5StageTranslationRequest():
-    // Full-core enablement waits for PBMT-aware physical routing and CHI.
-    pbmte: Bool(#false)
-    virtual_address: mux(start_probe_walk, page_probe.request.bits.address, mux(start_data_walk, data_virtual_address, instruction_virtual_address))
-    root_ppn: root_ppn
-    access: mux(start_probe_walk, mux(page_probe.request.bits.store, Sv39Access.Store, Sv39Access.Load), mux(start_data_walk, data_access_kind, Sv39Access.Fetch))
-    privilege: mux(start_data_walk ||| start_probe_walk, data_privilege, privilege)
-    sum: sum
-    mxr: mxr
+  walker.request.bits <== mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup)
+  reg walk_lookup(RV5StageTlbLookup())
+  when (walker.request.fire()):
+    walk_lookup <== walker.request.bits
   def walker_request_fire = walker.request.fire()
   page_probe.request.ready <== probe_selected & !invalidate_all & (dtlb.hit ||| (start_probe_walk & walker.request.ready))
-  def probe_hit_result = inject_flow(Valid(RV5StageTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb.translation)
+  def probe_hit_result = inject_flow(Valid(RV5StageTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb_result)
   // Fetch recovery discards the consumer, not an accepted translation. Let
   // the walk warm the ITLB and retain ownership of every accepted PTE reply.
   def discard_instruction_walk = instruction.flush & walk_active & !walk_is_data & !walk_is_probe
-  walker.cancel <== invalidate_all
+  // Invalidate TLB/fault ownership at this edge, then notify the walker.
+  // A PTE accepted on the invalidation edge remains owned and must drain.
+  // This keeps WB's flush decision out of the physical arbiter's ready path.
+  reg walker_cancel(~init: Bool(#false))
+  walker_cancel <== invalidate_all
+  walker.cancel <== walker_cancel
 
   def walker_completed = walker.completion |> gate_flow(!fault_valid) |> to_valid()
   def walker_completion_fire = walker_completed.valid
-  def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe)
+  def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe) |> map_valid(result => rv5stage_host_result(result))
   Array(probe_hit_result, probe_walk_result) |> valid_arbiter() |> page_probe.response
-  def walker_fault_completion = walker_completion_fire & (
-    walker.completion.bits.fault ||| walker.completion.bits.access_fault
-  )
-  def Array(instruction_fill, data_fill) = walker_completed |> filter_valid(completion => !completion.access_fault) |> fork_valid(2)
+  def walker_fault_completion = walker_completion_fire & (walker.completion.bits.fault =/= RV5StageTranslationFault.None)
+  def fills = walker_completed |> map_valid(result => RV5StageTlbFill()):
+    request: walk_lookup
+    result: result
+  def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
   instruction_fill |> filter_valid(_completion => !walk_is_data & !walk_is_probe) |> itlb.fill
   data_fill |> filter_valid(_completion => walk_is_data ||| walk_is_probe) |> dtlb.fill
 
   def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
   def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
   def instruction_page_fault = instruction_translation_enabled & (
-    (itlb.hit & itlb.fault) ||| (latched_instruction_fault & !fault_is_access)
+    (itlb.hit & itlb_result.fault) ||| (latched_instruction_fault & !fault_is_access)
   )
   def data_page_fault = !data_pinned & data_translation_enabled & (
-    (dtlb.hit & dtlb.fault) ||| (latched_data_fault & !fault_is_access)
+    (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access)
   )
-  def instruction_walk_access_fault = instruction_translation_enabled & latched_instruction_fault & fault_is_access
-  def data_walk_access_fault = !data_pinned & data_translation_enabled & latched_data_fault & fault_is_access
+  def instruction_walk_access_fault = (latched_instruction_fault & fault_is_access) ||| (itlb.hit & itlb_result.access_fault)
+  def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault))
+  fun guest_exception(mapping :: RV5StageTlbMapping(), guest :: Bool) :~ RiscvGuestException():
+    RiscvGuestException():
+      page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault
+      details: mapping.fault_details.updated(~guest_virtual_address: guest)
+  def instruction_guest_exception = guest_exception(mux(latched_instruction_fault, fault_mapping, itlb.translation), instruction_guest)
+  if hypervisor
+  | block:
+      output request_guest_fault: RiscvGuestException()
+      output pipeline_guest_fault: RiscvGuestException()
+      request_guest_fault <== guest_exception(mux(latched_data_fault, fault_mapping, dtlb.translation), normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+      pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
+  | #void
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| latched_instruction_fault
   def instruction_physical_address = if xlen == XLen.X32 | instruction_address | mux(
     instruction_translation_enabled,
-    itlb.physical_address.zext(64),
+    itlb.translation.physical_address.zext(64),
     instruction_address
   )
   def instruction_physical = physical_map.lookup(
@@ -308,6 +353,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     instruction_physical_address +& bits(3, width)
   )
   def instruction_has_physical_address = !instruction_translation_enabled ||| itlb.hit
+  def instruction_attributes = resolve_memory_attributes(instruction_physical, itlb_result.pbmt)
   def instruction_access_fault = instruction_walk_access_fault ||| (
     instruction_has_physical_address & !instruction_page_fault & !instruction_physical.executable
   )
@@ -320,54 +366,66 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   (instruction_physical_path |> filter_valid(_request => instruction_lookup_ready & !instruction_local_fault)
     |> map_valid(_request => RV5StagePhysicalInstructionReq(xlen)):
          address: instruction_physical_address
-         cacheable: instruction_physical.instruction_cacheable
-         device: instruction_physical.device
+         cacheable: instruction_attributes.instruction_cacheable
+         device: instruction_attributes.strongly_ordered
   ) |> instruction_memory.request
   instruction_memory.flush <== instruction.flush
   instruction_memory.invalidate_all <== instruction.invalidate_all
   instruction_memory.s1_kill <== instruction.s1_kill
-  def local_response = RV5StageInstructionResp():
-    word: bits(0, 32)
-    page_fault: instruction_page_fault
-    access_fault: instruction_access_fault
-  (instruction_result_path |> map_valid(_request => RV5StageFetchResult()):
+  wire local_response: RV5StageInstructionResp(hypervisor)
+  local_response.word <== bits(0, 32)
+  local_response.page_fault <== instruction_page_fault
+  local_response.access_fault <== instruction_access_fault
+  if hypervisor
+  | local_response.guest <== instruction_guest_exception
+  | #void
+  (instruction_result_path |> map_valid(_request => RV5StageFetchResult(hypervisor)):
     response: local_response
     replay: !instruction_lookup_ready
   ) |> instruction_s2.ingress
   def s2_local = instruction_s2.egress.bits
   def s2_local_result = s2_local.replay ||| s2_local.response.page_fault ||| s2_local.response.access_fault
-  def unavailable = RV5StageFetchResult():
-    response: literal(RV5StageInstructionResp(), 0)
-    replay: Bool(#true)
-  instruction_s2.egress |> filter_valid(_result => !instruction.flush)
-    |> map_valid(result => mux(s2_local_result, result, mux(instruction_memory.response.valid, instruction_memory.response.bits, unavailable)))
-    |> instruction.response
+  def resolved = instruction_s2.egress |> filter_valid(_result => !instruction.flush) |> map_valid(result):
+    wire selected: RV5StageFetchResult(hypervisor)
+    selected.replay <== mux(s2_local_result, result.replay, !instruction_memory.response.valid ||| instruction_memory.response.bits.replay)
+    selected.response.word <== instruction_memory.response.bits.response.word
+    selected.response.page_fault <== result.response.page_fault
+    selected.response.access_fault <== result.response.access_fault ||| (!s2_local_result & instruction_memory.response.valid & instruction_memory.response.bits.response.access_fault)
+    if hypervisor
+    | selected.response.guest <== result.response.guest
+    | #void
+    selected
+  resolved |> instruction.response
 
   // Core and PTE traffic independently offer physical requests. The outer
   // arbiter tags each accepted transaction and returns it to its origin.
   data.request_fault <== data.request.valid & data_page_fault
+  def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
+  def data_last_offset = mux_lookup(data_request.width, ~default: bits(7, 64), [[MemoryWidth.Byte, bits(0, 64)], [MemoryWidth.Half, bits(1, 64)], [MemoryWidth.Word, bits(3, 64)]])
+  def data_physical_region = physical_map.lookup(data_translated_address, data_translated_address +& data_last_offset)
+  def execute_read_denied = execute_read & dtlb.hit & !(data_physical_region.readable & data_physical_region.executable)
   // Local faults consume the core attempt; unresolved translations cannot
   // issue a physical request, even while another walk is in progress.
   def core_data_request = (
-    data.request
-      |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault))
+    data_requests
+      |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault ||| execute_read_denied))
       |> gate_flow(data_pinned ||| !data_translation_enabled ||| dtlb.hit)
       |> map_flow(request => request.updated(
-        ~address: if xlen == XLen.X32 | request.address | mux(data_physical, request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.physical_address.zext(64), request.address))),
+        ~address: if xlen == XLen.X32 | request.address | mux(data_physical, request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), request.address))),
         ~access: data_memory_operation
       ))
   )
   data.request_access_fault <== data.request.valid & !data_page_fault & (
-    data_walk_access_fault ||| (core_data_request.valid & core_memory.request_access_fault)
+    data_walk_access_fault ||| execute_read_denied ||| (core_data_request.valid & core_memory.request_access_fault)
   )
   def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
   core_lookup.valid <== data.request.valid
   core_lookup.bits <== data_request.address
   walker_lookup.valid <== walker_memory_request.valid
-  walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits[0..32] | walker_memory_request.bits
-  def walker_data_request = walker_memory_request |> map_flow(address => RV5StageDataReq(xlen, vector_completion_slots)):
+  walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
+  def walker_data_request = walker_memory_request |> map_flow(pte => RV5StageDataReq(xlen, vector_completion_slots)):
     byte_mask: !bits(0, width / 8)
-    address: if xlen == XLen.X32 | address[0..32] | address
+    address: if xlen == XLen.X32 | pte.address[0..32] | pte.address
     access: RV5StageMemoryOperation.Load
     atomic: RiscvAtomicOperation.Swap
     width: MemoryWidth.Double
@@ -376,11 +434,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
     origin: RV5StageDataOrigin.Walker
     locality: RiscvMemoryLocality.Default
-  core_data_request |> core_memory.request
-  walker_data_request |> walker_memory.request
+  (core_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
+    memory: request
+    pbmt: mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt)
+  ) |> core_memory.request
+  (walker_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
+    memory: request
+    pbmt: walker_memory_request.bits.pbmt
+  ) |> walker_memory.request
   walker.memory.request_access_fault <== walker_memory.request_access_fault
   def walker_memory_request_fire = walker_memory.request.fire()
-  walker_memory.response |> filter_flow(_response => walker_response_expected & !invalidate_all) |> to_valid()
+  // The shared walker retains canceled PTE ownership until the reply drains.
+  walker_memory.response |> to_valid()
     |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
     |> walker.memory.response
   core_memory.response |> data.response
@@ -412,7 +477,8 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   when capture_walker_fault:
     fault_is_data <== walk_is_data
-    fault_is_access <== walker.completion.bits.access_fault
+    fault_is_access <== walker.completion.bits.fault === RV5StageTranslationFault.AccessFault
+    fault_mapping <== walker.completion.bits
     fault_address <== walker.completion.bits.virtual_address
 
   when walker_request_fire:
@@ -420,12 +486,6 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   elsewhen walk_active:
     when discard_instruction_walk:
       walk_instruction_discarded <== Bool(#true)
-  when invalidate_all:
-    walker_response_expected <== Bool(#false)
-  elsewhen (walker_memory_request_fire & !walker.memory.request_access_fault):
-    walker_response_expected <== Bool(#true)
-  elsewhen (walker_memory.response.fire() & walker_response_expected):
-    walker_response_expected <== Bool(#false)
   when (walker_memory_request_fire & !walker.memory.request_access_fault):
     walker_memory_pending <== Bool(#true)
   elsewhen (walker_memory.response.fire()):
