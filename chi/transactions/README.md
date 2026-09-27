@@ -41,6 +41,27 @@ Its RN-I endpoint must advertise `ReadOnce` and `CompAck`, accept
 `RetryAck`/`PCrdGrant` and `CompData`, and reserve the supplied transaction ID
 until completion transfers.
 
+The diagram illustrates the requester's transaction lifecycle, not an
+exposed state enum. `RetryAck` and a matching `PCrdGrant` may arrive in either
+order; a retry attempt is emitted only after both, and only before any data
+progress. Legal DAT packets can arrive out of order.
+
+```mermaid
+flowchart LR
+    Command["Command accepted"] --> Attempt["ReadOnce REQ attempt"]
+    Attempt --> Wait["Await retry or CompData"]
+    Wait -->|RetryAck and matching PCrdGrant| Attempt
+    Wait -->|first CompData| Assemble["Assemble complete line"]
+    Assemble -->|more CompData| Assemble
+    Assemble -->|all packets accepted| Ack["Send CompAck"]
+    Ack -->|CompAck accepted| Result["Hold result"]
+    Result -->|completion accepted| Command
+```
+
+The first attempt permits retry; the replay clears `AllowRetry`. The result
+becomes valid only after `CompAck` is accepted and remains valid under
+completion backpressure.
+
 ## Limits and navigation
 
 The bounded checkers do not cover every Issue H transaction merely because

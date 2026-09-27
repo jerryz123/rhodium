@@ -49,6 +49,32 @@ Final fill installation retains exclusive use of the shared LLC array port.
 The transaction-slot parameter defaults to one for compatibility; the complete
 single-core and tiled SoCs select two.
 
+## Inclusive Home resources
+
+This diagram illustrates the current `CHIInclusiveHNF` resource arrangement,
+not a separate port or ordering contract. Demand slots retain each live
+transaction and own a set while they access one shared LLC tag/data array,
+issue snoops, or wait for subordinate service.
+
+```mermaid
+flowchart LR
+    RN["RN requester"] --> Slots["Bounded demand slots<br/>set ownership and line state"]
+    Slots <--> LLC["Shared LLC tag/data array<br/>one array port"]
+    Slots <--> Snoop["RN-F snoop targets"]
+    Slots <--> SN["SN-I subordinate service"]
+    Slots --> Victim["Bounded dirty-victim<br/>writeback buffer"]
+    Victim --> SN
+    Slots -->|reads requiring CompAck| Ack["CompAck table<br/>granted-set reservation"]
+    RN -->|CompAck| Ack
+    Ack -. same-set admission gate .-> Slots
+    Slots --> RN
+```
+
+A buffered victim writeback can overlap its replacement refill, but the new
+line cannot be installed or returned before writeback completion. After final
+read DAT, a demand slot can be reused while its CompAck entry still excludes
+other transactions from the granted set; other sets can continue.
+
 ## Inclusive Home event tracing
 
 The optional event compiler emits `home/transaction[slot]` residency for every

@@ -27,6 +27,28 @@ different storage backends. Their configuration supports native transfers
 from one physical DAT beat through 64 bytes; a narrower service can use the
 [transfer fragmenter](../adapters/README.md).
 
+## Single-beat request lifecycle
+
+The diagram illustrates the current engine's handshake phases; these phase
+names are implementation details, not additional CHI protocol states. Each
+transition requires the indicated transfer to be accepted, so output
+backpressure holds the phase and its retained request or read snapshot.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Idle
+    Idle --> ReadResponse: read REQ accepted
+    ReadResponse --> Idle: read DAT accepted
+    Idle --> WriteDBID: write REQ accepted
+    WriteDBID --> WriteData: DBID RSP accepted
+    WriteData --> WriteResponse: write DAT accepted
+    WriteResponse --> Idle: completion RSP accepted
+```
+
+Reset returns to `Idle`; link-credit returns do not advance a transaction.
+The device read snapshot is captured with the read REQ, while the write side
+effect occurs when the write DAT is accepted.
+
 ## Single-beat request tracing
 
 `CHISingleBeatSubordinate` supplies intrinsic tracing contracts from accepted

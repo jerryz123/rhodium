@@ -93,8 +93,11 @@ For each `README.md`, use this reader-facing progression:
 3. **Public contract:** Describe the supported API, behavior, configuration,
    observable ordering and errors, and interoperability boundaries. Organize
    component-specific detail under descriptive headings rather than a fixed
-   template. A public architecture diagram is useful here only if it explains
-   how a user composes or observes the component.
+   template. Include a compact block, dataflow, or state-transition diagram
+   when it materially clarifies the delivered microarchitecture or observable
+   behavior, such as buffering, arbitration, backpressure, or transaction
+   phases. Label whether it is a guaranteed contract or an illustration of the
+   current implementation.
 4. **Limits and navigation:** State deliberate unsupported cases and relevant
    compatibility constraints. Link to child packages, examples, specifications,
    and the contributor guide without duplicating their catalogs.
@@ -117,11 +120,13 @@ For each `DEVELOPING.md`, use this contributor-facing progression:
 
 Route facts by audience, not by where they were first written. Public imports,
 semantics, configuration, usage commands, and observable limitations belong in
-README even when their implementation is described in DEVELOPING. Source maps,
-internal state machines, test-authoring instructions, CI policy, and artifact
-regeneration belong in DEVELOPING. A user-facing smoke command may appear in
-README; contributor test matrices and maintenance procedures belong in
-DEVELOPING. Link across the pair instead of copying the same table or contract.
+README even when their implementation is described in DEVELOPING. A README
+may illustrate an internal state machine at the level needed to understand the
+delivered behavior; exact register/control logic, source maps, test-authoring
+instructions, CI policy, and artifact regeneration belong in DEVELOPING. A
+user-facing smoke command may appear in README; contributor test matrices and
+maintenance procedures belong in DEVELOPING. Link across the pair instead of
+duplicating a diagram, table, or contract.
 Keep active multi-step future work in a dedicated plan only when it needs one;
 retire completed plans and move any lasting contract or maintenance rule to its
 owning guide.
