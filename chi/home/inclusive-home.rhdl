@@ -1452,9 +1452,14 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         writer_mask & !responder_mask,
         writer_mask & !work_requester_mask)
   )
-  def may_write_lines_after_work = may_write_lines.updated(
-    resident_work_set,
-    may_write_lines[resident_work_set].updated(writer_work_way, writer_after_work)
+  // A response-data grant may occur without a writer event in the work slot.
+  def may_write_lines_after_work = mux(
+    writer_work_update,
+    may_write_lines.updated(
+      resident_work_set,
+      may_write_lines[resident_work_set].updated(writer_work_way, writer_after_work)
+    ),
+    may_write_lines
   )
   def may_write_lines_after_grant = may_write_lines_after_work.updated(
     response_selected_set,

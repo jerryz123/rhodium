@@ -91,6 +91,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   integer victim_request_wait_cycles;
   bit second_victim_request_seen;
   CHIReqFlit active_request;
+  integer line0_packets;
+  integer line1_packets;
   always @(posedge clock)
     if (!reset && requester_requests_in.valid && port_out.requester.requests.ready)
       active_request <= requester_requests_in.bits;
@@ -805,6 +807,52 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       accept_routed_packet(12'h220, 2'(packet), 8'h20 + 8'(packet));
       accept_routed_packet(12'h110, 2'(packet), 8'h10 + 8'(packet));
     end
+    reset = 1'b1;
+    tick();
+    reset = 1'b0;
+
+    // A grant for another set must not clear this set's silent writer while
+    // transactions for both sets are returning cached data.
+    send_request(LINE0, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    tick();
+    fill_and_return(LINE0, 8'h91);
+    send_request(LINE1, READ_ONCE, 6'd6, HTIF_ID, 0, 1);
+    tick();
+    fill_and_return(LINE1, 8'ha1);
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID);
+    for (int packet = 0; packet < 4; packet++)
+      accept_routed_packet(12'h654, 2'(packet), 8'h91 + 8'(packet), DATA_ID);
+    send_request(LINE0, 7'h07, 6'd6, DATA_ID, 0, 0, 12'h801, 12'h811);
+    while (!port_out.requester.response_data.valid) tick();
+    send_request(LINE1, 7'h07, 6'd6, INSTRUCTION_ID, 0, 0, 12'h802, 12'h822);
+    line0_packets = 0;
+    line1_packets = 0;
+    for (int beat = 0; beat < 8; beat++) begin
+      while (!port_out.requester.response_data.valid) tick();
+      if (port_out.requester.response_data.bits.tgt_id == DATA_ID) begin
+        assert(port_out.requester.response_data.bits.txn_id == 12'h811 &&
+               port_out.requester.response_data.bits.data_id == 2'(line0_packets) &&
+               port_out.requester.response_data.bits.data == 128'(8'h91 + 8'(line0_packets)))
+          else $fatal(1, "first unique grant returned incorrect cached data");
+        line0_packets++;
+      end else begin
+        assert(port_out.requester.response_data.bits.tgt_id == INSTRUCTION_ID &&
+               port_out.requester.response_data.bits.txn_id == 12'h822 &&
+               port_out.requester.response_data.bits.data_id == 2'(line1_packets) &&
+               port_out.requester.response_data.bits.data == 128'(8'ha1 + 8'(line1_packets)))
+          else $fatal(1, "second unique grant returned incorrect cached data");
+        line1_packets++;
+      end
+      response_data_ready_in.ready = 1'b1;
+      tick();
+      response_data_ready_in = '0;
+    end
+    assert(line0_packets == 4 && line1_packets == 4)
+      else $fatal(1, "parallel unique grants did not both finish");
+    send_request(LINE0, READ_ONCE);
+    while (!port_out.requester.snoops.valid && !port_out.requester.response_data.valid) tick();
+    assert(port_out.requester.snoops.valid && port_out.requester.snoops.bits.target_id == DATA_ID)
+      else $fatal(1, "independent unique grant erased the first line's writer");
     reset = 1'b1;
     tick();
     reset = 1'b0;
