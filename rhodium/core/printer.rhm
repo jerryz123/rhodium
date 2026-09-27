@@ -248,6 +248,12 @@ fun print_operation(operation :: Operation):
                     " to ", operation.operands[1].ref(), " stages [",
                     value_refs(operation.operands.drop(2)),
                     "] promise stable_level")
+  | "construct_instance":
+      def definition = operation.attribute("definition")
+      def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "
+      String.append("    ", results, "construct.instance @", definition.identity.name,
+                    " revision ", definition.identity.revision, " as ", operation.attribute("name"),
+                    " inputs ", place_refs(operation.places))
   | "instance":
       def child = operation.attribute("module")
       def results = if operation.results == [] | "" | value_refs(operation.results) ++ " = "

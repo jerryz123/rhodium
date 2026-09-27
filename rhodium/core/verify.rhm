@@ -7,6 +7,7 @@ import:
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
+  "construct.rhm" open
   "dependencies.rhm".verify_combinational_cycles
 
 export:
@@ -14,6 +15,8 @@ export:
   verify_design_structure
   verify_design_combinational
   verify_module
+  verify_program
+  require_concrete_module
 
 def verified_designs = WeakMutableSet.by(===){}
 
@@ -655,6 +658,19 @@ fun check_operation_types(module_def :: Module,
       | fail_operation(operation, "drive source and target types differ")
       unless place.driver && place.driver.id == value.id
       | fail_operation(operation, "drive operation disagrees with the place driver")
+  | "construct_instance":
+      def definition = operation.attribute("definition", #false)
+      unless definition is_a ConstructDefinition
+      | fail_operation(operation, "construct instance requires a ConstructDefinition")
+      def signature = definition.signature
+      unless operation.places.length() == signature.inputs.length() && operation.results.length() == signature.outputs.length()
+      | fail_operation(operation, "construct instance port count does not match its signature")
+      for (place in operation.places, port in signature.inputs):
+        unless type_equal(place.type, port.type)
+        | fail_operation(operation, "construct input type does not match its signature")
+      for (value in operation.results, port in signature.outputs):
+        unless type_equal(value.type, port.type)
+        | fail_operation(operation, "construct output type does not match its signature")
   | "instance":
       def child = operation.attribute("module", #false)
       unless child is_a Module && child.finished
@@ -693,7 +709,7 @@ fun verify_module_structure(module_def :: Module):
   def memory_name_counts = MutableMap{}
   for (operation in module_def.operations):
     when operation is_a Operation
-    | when operation.opcode == "rtl.instance"
+    | when operation.opcode in ["rtl.instance", "construct.instance"]
       | increment_count(instance_name_counts, operation.attribute("name", #false))
       when operation.opcode == "rtl.sync_memory"
       | increment_count(sync_memory_name_counts, operation.attribute("name", #false))
@@ -714,7 +730,7 @@ fun verify_module_structure(module_def :: Module):
     unless operation is_a Operation && operation.module_def === module_def
     | fail("operation belongs to a different module")
     def schema = check_schema(operation)
-    when operation.opcode == "rtl.instance"
+    when operation.opcode in ["rtl.instance", "construct.instance"]
     | unless instance_name_counts.get(operation.attribute("name", #false), 0) == 1
       | fail_operation(operation,
                        "instance name " ++ operation.attribute("name") ++ " is not unique")
@@ -780,6 +796,7 @@ fun verify_module_structure(module_def :: Module):
   #void
 
 fun verify_module(module_def :: Module):
+  require_concrete_module(module_def)
   def reachable_modules = MutableList[]
   def visited_modules = MutableSet.by(===){}
   fun visit(candidate :: Module):
@@ -864,7 +881,36 @@ fun verify_design_combinational(design :: Design):
 fun verify_design(design :: Design):
   unless design in verified_designs
   | verify_design_structure(design)
+    require_concrete_modules(design.modules)
     verify_design_combinational(design)
     design.seal()
     verified_designs.add(design)
+  #void
+
+// Legacy consumers must never interpret an opaque construct as a state boundary.
+fun require_concrete_module(module_def :: Module):
+  unless module_def.design in verified_designs
+  | require_concrete_modules([module_def])
+  #void
+
+fun require_concrete_modules(module_defs :: List.of(Module)):
+  def seen = MutableSet.by(===){}
+  fun visit(candidate :: Module):
+    unless candidate in seen
+    | seen.add(candidate)
+      for (operation in candidate.operations):
+        when operation is_a Operation
+        | when operation.opcode == "construct.instance"
+          | fail_operation(operation, "retained construct requires materialize_rtl before concrete RTL consumption")
+          when operation.opcode == "rtl.instance"
+          | def child = operation.attribute("module", #false)
+            when child is_a Module | visit(child)
+  for (module_def in module_defs): visit(module_def)
+  #void
+
+// Mixed verification uses declared dependency edges and does not certify or
+// seal a design as concrete. Providers are deliberately outside this boundary.
+fun verify_program(design :: Design):
+  verify_design_structure(design)
+  verify_design_combinational(design)
   #void

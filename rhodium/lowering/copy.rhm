@@ -1,0 +1,70 @@
+#lang rhombus
+// Clones mixed module graphs into fresh concrete RTL with explicit object and metadata remapping.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../core/ir.rhm" open
+  "../core/builder.rhm".Builder
+
+export:
+  copy_module_body
+
+// The caller creates module shells and supplies child expansion. Allocation of
+// values/places precedes attribute copying, so forward references remain valid.
+fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
+                     resolve_child :: Function.of_arity(1), objects :: MutableMap,
+                     remap_import :: Function.of_arity(1)):
+  def ids = MutableMap{}
+  for (op in original.operations): ids[op.id] := builder.design.fresh_id()
+  for (value in original.values):
+    def replacement = Value(builder.design.fresh_id(), value.name, value.type, target, ids[value.defining_op_id])
+    objects[value] := replacement
+    target.add_value(replacement)
+  for (place in original.places):
+    def replacement = Place(builder.design.fresh_id(), place.name, place.type, target, ids[place.owner_op_id])
+    objects[place] := replacement
+    target.add_place(replacement)
+  for (memory in original.memories):
+    def replacement = Memory(builder.design.fresh_id(), memory.name, memory.depth, memory.element_type, target, ids[memory.defining_op_id])
+    objects[memory] := replacement
+    target.add_memory(replacement)
+
+  fun remap(value :: Boolean || String || Number || List || Map || HardwareType || Value || Place || Memory || DpiImport || Module || Operation):
+    cond
+    | value is_a Value || value is_a Place || value is_a Memory || value is_a Module || value is_a Operation:
+        unless objects.has_key(value)
+        | error(~who: #'materialize_rtl, "unmapped IR reference in attributes or metadata")
+        objects[value]
+    | value is_a DpiImport: remap_import(value)
+    | value is_a List: value.map(remap)
+    | value is_a Map:
+        for Map (key in value.keys()): values(remap(key), remap(value[key]))
+    | ~else: value
+
+  for (op in original.operations):
+    def is_instance = op.opcode in ["rtl.instance", "construct.instance"]
+    def attributes:
+      if is_instance
+      | {"name": op.attribute("name"), "module": resolve_child(op)}
+      | remap(op.attributes)
+    def operands = op.operands.map(remap)
+    def opcode = if is_instance | "rtl.instance" | op.opcode
+    def replacement = Operation(ids[op.id], opcode,
+                                target, operands, op.results.map(remap), op.places.map(remap),
+                                attributes, op.location, op.origin)
+    objects[op] := replacement
+    for (operand in operands): operand.add_user(replacement.id)
+    target.add_operation(replacement)
+  for (place in original.places):
+    when place.driver | objects[place].set_driver(remap(place.driver))
+  for (port in original.inputs):
+    def replacement = Port(port.name, "input", port.type, remap(port.value))
+    objects[port] := replacement
+    target.add_input(replacement)
+  for (port in original.outputs):
+    def replacement = Port(port.name, "output", port.type, #false, remap(port.place))
+    objects[port] := replacement
+    target.add_output(replacement)
+  for (entry in original.metadata):
+    target.add_metadata(entry.namespace, entry.payload.remap_ir(remap))
+  builder.finish(target)

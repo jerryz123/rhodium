@@ -6,6 +6,7 @@ import:
   "../../support/annotations.rhm" open
   "types.rhm" open
   "ir.rhm" open
+  "construct.rhm" open
 
 export:
   Builder
@@ -1945,6 +1946,54 @@ class Builder(design :: Design):
                               origin)
     module_def.add_operation(operation)
     Instance(operation, child, input_bindings, output_bindings)
+
+  method construct_instance(module_def :: Module,
+                            child :: ConstructDefinition,
+                            name :: AsciiIdentifier,
+                            location :: Location = Location(),
+                            origin :: Origin = Origin("instance", name)):
+    ensure_module_in_design(design, module_def, #'construct_instance)
+    ensure_open(module_def, #'construct_instance)
+    ensure_hardware_name(name, #'construct_instance)
+    ensure_unique_instance_name(module_def, name, #'construct_instance)
+    for (port in child.signature.inputs):
+      ensure_unique_hardware_name(module_def, name ++ "." ++ port.name, #'construct_instance)
+    for (port in child.signature.outputs):
+      ensure_unique_hardware_name(module_def, name ++ "." ++ port.name, #'construct_instance)
+    def operation_id = design.fresh_id()
+    def mutable input_bindings = []
+    def mutable output_bindings = []
+    def mutable places = []
+    def mutable results = []
+    for (port in child.signature.inputs):
+      def place = Place(design.fresh_id(),
+                        name ++ "." ++ port.name,
+                        port.type,
+                        module_def,
+                        operation_id)
+      module_def.add_place(place)
+      places := places ++ [place]
+      input_bindings := input_bindings ++ [Port(port.name, "input", port.type, #false, place)]
+    for (port in child.signature.outputs):
+      def value = Value(design.fresh_id(),
+                        name ++ "." ++ port.name,
+                        port.type,
+                        module_def,
+                        operation_id)
+      module_def.add_value(value)
+      results := results ++ [value]
+      output_bindings := output_bindings ++ [Port(port.name, "output", port.type, value, #false)]
+    def operation = Operation(operation_id,
+                              "construct.instance",
+                              module_def,
+                              [],
+                              results,
+                              places,
+                              {"name": name, "definition": child},
+                              location,
+                              origin)
+    module_def.add_operation(operation)
+    ConstructInstance(operation, child, input_bindings, output_bindings)
 
   // Treats the supplied name as a suggestion while `instance` itself retains
   // exact-name behavior for low-level callers that want collision errors.

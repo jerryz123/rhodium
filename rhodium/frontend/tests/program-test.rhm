@@ -1,0 +1,56 @@
+#lang rhombus
+// Checks frontend program phase boundaries and compatibility with existing elaboration results.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" as core
+  "../foundation.rhm" open
+  "../layers/hierarchy.rhm" open
+  "../kernel.rhm" as kernel
+  "program-fixture.rhdl" as fixture
+  "circuit-reference-fixture.rhm" as references
+
+for (program in fixture.programs, legacy in fixture.legacy_designs):
+  def rtl = materialize_rtl(program)
+  check:
+    rtl.design === program.design ~is #true
+    rtl.top === program.top ~is #true
+    core.dump_ir(rtl.design) ~is core.dump_ir(legacy)
+
+// Keep this test's recipe counter local: other suites also import the fixture.
+def mutable calls = 0
+def reference = CircuitReference(
+  CircuitIdentity("ProgramLeaf"), references.signature,
+  fun ():
+    calls := calls + 1
+    references.Leaf()
+)
+def program = elaborate_program(reference)
+check:
+  program is_a ElaboratedProgram ~is #true
+  program.design.sealed ~is #false
+  calls ~is 1
+def rtl = materialize_rtl(program)
+def again = materialize_rtl(program)
+check:
+  program.design.sealed ~is #true
+  calls ~is 1
+  again.top === rtl.top ~is #true
+  core.dump_ir(elaborate(references.Leaf())) ~is core.dump_ir(rtl.design)
+  core.dump_ir(elaborate_with_top(references.Leaf()).design) ~is core.dump_ir(rtl.design)
+
+// Finished hierarchy can still contain a combinational cycle. The explicit
+// program API defers whole-design checking; compatibility APIs keep rejecting it.
+circuit Cycle():
+  output result: Bits(8)
+  inst child(references.Leaf())
+  child.source <== child.result
+  result <== child.result
+
+def cyclic = elaborate_program(Cycle())
+check:
+  materialize_rtl(cyclic) ~throws "combinational cycle"
+  elaborate(Cycle()) ~throws "combinational cycle"
+  elaborate_with_top(Cycle()) ~throws "combinational cycle"
+  elaborate_program(#false) ~throws "did not select a top circuit"
+  kernel.input("outside", Bits(8)) ~throws "only be called during elaborate"

@@ -1,0 +1,102 @@
+#lang rhombus
+// Checks Builder-based expansion providers, dependency refinement, ownership, resources, and metadata remapping.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+  "../program.rhm" open
+
+def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def definition = ConstructDefinition(ConstructIdentity("Identity"), [8], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
+def omitted = ConstructDefinition(ConstructIdentity("Omitted"), [], signature, [[OutputLeafDependency([], [])]])
+def mutable calls = 0
+fun implementation(builder :: Builder, selected :: ConstructDefinition):
+  calls := calls + 1
+  def body = builder.module("Identity")
+  def source = builder.input(body, "source", Bits(8))
+  builder.drive(builder.output(body, "result", Bits(8)), source)
+  builder.finish(body)
+  ExpansionResult(body)
+def provider = ExpansionProvider(implementation)
+
+class ReferenceMetadata(value :: Value):
+  implements ModuleMetadataPayload
+  override method remap_ir(remap :: Function.of_arity(1)): ReferenceMetadata(remap(value))
+class OpaqueMetadata():
+  implements ModuleMetadataPayload
+
+fun make_program(selected :: ConstructDefinition, providers :: Map, ~opaque: opaque :: Boolean = #false):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("Top")
+  def source = builder.input(top, "source", Bits(8))
+  def child = builder.construct_instance(top, selected, "child")
+  builder.drive(child.input("source"), source)
+  builder.drive(builder.output(top, "result", Bits(8)), child.output("result"))
+  // Ordinary state and imports in the parent remain concrete and must be copied.
+  def clock = builder.input(top, "clock", Clock)
+  def address = builder.input(top, "address", Bits(2))
+  def enable = builder.input(top, "enable", Bits(1))
+  def memory = builder.memory(top, "storage", 4, Bits(8))
+  builder.memory_write(top, memory, address, child.output("result"), clock, enable)
+  builder.drive(builder.output(top, "read_data", Bits(8)), builder.memory_read_async(top, memory, address))
+  def observer = builder.dpi_import("observe", ["data"], [Bits(8)])
+  builder.dpi_call(top, observer, [child.output("result")], clock, enable)
+  top.add_metadata("reference", if opaque | OpaqueMetadata() | ReferenceMetadata(source))
+  builder.finish(top)
+  ElaboratedProgram(design, top, providers)
+
+def program = make_program(definition, {definition: provider})
+def before = dump_ir(program.design)
+def rtl = materialize_rtl(program)
+def again = materialize_rtl(program)
+check:
+  calls ~is 2
+  dump_ir(program.design) ~is before
+  rtl.top.metadata[0].payload.value === rtl.top.inputs[0].value ~is #true
+  rtl.top.memories[0].module_def === rtl.top ~is #true
+  rtl.top.memories[0] === again.top.memories[0] ~is #false
+  rtl.design.dpi_imports[0].design === rtl.design ~is #true
+  rtl.design.dpi_imports[0] === program.design.dpi_imports[0] ~is #false
+  rtl.top.operations.find(fun (op): op.opcode == "rtl.memory_write").attribute("memory") === rtl.top.memories[0] ~is #true
+  rtl.top.operations.find(fun (op): op.opcode == "sim.dpi_call").attribute("dpi_import") === rtl.design.dpi_imports[0] ~is #true
+  materialize_rtl(make_program(definition, {})) ~throws "missing portable provider"
+  materialize_rtl(make_program(omitted, {omitted: provider})) ~throws "exceeds its declared"
+  materialize_rtl(make_program(definition, {definition: provider}, ~opaque: #true)) ~throws "metadata does not support IR remapping"
+
+def foreign = ExpansionProvider(fun (builder :: Builder, selected :: ConstructDefinition): ExpansionResult(rtl.top))
+check:
+  materialize_rtl(make_program(definition, {definition: foreign})) ~throws "supplied builder"
+
+def wrong_signature = ExpansionProvider(
+  fun (builder :: Builder, selected :: ConstructDefinition):
+    def body = builder.module("Wrong")
+    builder.finish(body)
+    ExpansionResult(body)
+)
+check:
+  materialize_rtl(make_program(definition, {definition: wrong_signature})) ~throws "declared signature"
+
+def stateful = ExpansionProvider(
+  fun (builder :: Builder, selected :: ConstructDefinition):
+    def body = builder.module("Stateful")
+    def source = builder.input(body, "source", Bits(8))
+    builder.drive(builder.output(body, "result", Bits(8)), source)
+    builder.memory(body, "hidden", 4, Bits(8))
+    builder.finish(body)
+    ExpansionResult(body)
+)
+check:
+  materialize_rtl(make_program(definition, {definition: stateful})) ~throws "state or effects"
+
+// An expansion must not claim the name of a source module copied later,
+// especially when that module is the explicitly selected top.
+def collision = make_program(definition, {definition: provider})
+def collision_builder = Builder(collision.design)
+def reserved_top = collision_builder.module("Identity")
+collision_builder.finish(reserved_top)
+def renamed = materialize_rtl(ElaboratedProgram(collision.design, reserved_top, collision.providers))
+check:
+  renamed.top.name ~is "Identity"
+  renamed.top.inputs.length() ~is 0
+  renamed.design.find_module_named("Top").find_instance("child").attribute("module").name ~is "Identity_2"

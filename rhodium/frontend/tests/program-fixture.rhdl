@@ -1,0 +1,21 @@
+#lang rhodium
+// Builds program-boundary fixtures through core, kernel, composed, and standard authoring paths.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../examples/lop/adder-core.rhm" as core_adder
+  "../../../examples/lop/adder-kernel.rhm" as kernel_adder
+  "../../../examples/lop/adder-composed.rhdl" as composed_adder
+  "../../../examples/lop/adder-standard.rhdl" as standard_adder
+  "../kernel.rhm" as kernel
+
+def core_program = ElaboratedProgram(core_adder.design, core_adder.design.find_module_named("Adder"))
+def kernel_program = kernel.run_program_elaboration(fun (): kernel_adder.Adder(8))
+def composed_program = elaborate_program(composed_adder.Adder(8))
+def standard_program = elaborate_program(standard_adder.Adder(8))
+def programs = [core_program, kernel_program, composed_program, standard_program]
+def legacy_designs = [core_adder.design, kernel_adder.design, composed_adder.design, standard_adder.design]
+
+export:
+  programs
+  legacy_designs

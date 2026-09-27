@@ -10,6 +10,18 @@ downstream tools opt into an analysis when they need its policy or reports.
 Contributors changing analysis implementation or policy should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
+Temporal provenance and CDC APIs require concrete core designs and modules.
+For an `ElaboratedProgram`, call
+[`materialize_rtl(program)`](../lowering/README.md) first and analyze its
+`.design` or `.top`; a retained instance is an explicit error at temporal
+analysis entry points. Analyses never execute implementation providers.
+
+Module clock-use inventory and single-clock certification also accept the
+first retained contract: a declared pure-combinational child has no clocked
+effects. This lets sync parents certify their own concrete state during
+construction. Materialization checks that every provider actually satisfies
+that purity contract before returning concrete RTL.
+
 ## Clocking analysis
 
 Import [`clocking.rhm`](clocking.rhm), the stable public entry point, and choose

@@ -252,7 +252,9 @@ class.together:
 
   // Attaches extension-owned, nonsemantic inspection data to a finished design
   // without turning the described abstraction into a hardware operation.
-  interface ModuleMetadataPayload
+  interface ModuleMetadataPayload:
+    method remap_ir(remap :: Function.of_arity(1)):
+      error(~who: #'materialize_rtl, "module metadata does not support IR remapping")
 
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
 
@@ -312,7 +314,7 @@ class.together:
       unless operations_by_id.has_key(operation.id)
       | operations_by_id[operation.id] := operation
       operation_set.add(operation)
-      when operation.opcode == "rtl.instance"
+      when operation.opcode in ["rtl.instance", "construct.instance"]
       | def instance_name = operation.attribute("name", #false)
         unless instances_by_name.has_key(instance_name)
         | instances_by_name[instance_name] := operation
@@ -427,7 +429,7 @@ class.together:
       if indexes_complete
       | instances_by_name.get(name, #false)
       | instances_by_name.get(name, #false) || _operations.find(
-          fun (operation): operation.opcode == "rtl.instance" && operation.attribute("name", #false) == name
+          fun (operation): operation.opcode in ["rtl.instance", "construct.instance"] && operation.attribute("name", #false) == name
         )
 
     method find_drive_to(place_id :: Nat):

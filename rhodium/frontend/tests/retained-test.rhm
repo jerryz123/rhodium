@@ -1,0 +1,66 @@
+#lang rhombus
+// Checks lazy retained instances, independent expansions, nested providers, and early cycle rejection.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" as core
+  "../../analysis/clocking/module.rhm" open
+  "../foundation.rhm" open
+  "../layers/hierarchy.rhm" open
+  "retained-fixture.rhdl" as fixture
+
+def before = core.dump_ir(fixture.program.design)
+check:
+  fixture.calls_after_elaboration ~is 0
+  summarize_module_clocking(fixture.program.top) is_a Combinational ~is #true
+  summarize_module_clocking(fixture.clocked_program.top) is_a SingleClock ~is #true
+  summarize_module_temporal(fixture.program.top) ~throws "materialize_rtl"
+  fixture.program.top.find_instance("first").opcode ~is "construct.instance"
+  core.verify_program(fixture.program.design) ~is #void
+  core.verify_design(fixture.program.design) ~throws "materialize_rtl"
+  core.verify_module(fixture.program.top) ~throws "materialize_rtl"
+
+def calls_before = fixture.call_count()
+def first = materialize_rtl(fixture.program)
+def second = materialize_rtl(fixture.program)
+check:
+  fixture.call_count() ~is calls_before + 2
+  first.design === second.design ~is #false
+  first.top === second.top ~is #false
+  first.top.inputs[0].value === second.top.inputs[0].value ~is #false
+  core.dump_ir(first.design) ~is core.dump_ir(second.design)
+  core.dump_ir(fixture.program.design) ~is before
+  fixture.program.design.sealed ~is #false
+  first.design.sealed ~is #true
+  first.top.find_instance("first").attribute("module") === first.top.find_instance("second").attribute("module") ~is #true
+  first.top.find_instance("first").results[0] === first.top.find_instance("second").results[0] ~is #false
+  elaborate(fixture.Parent(#true)).sealed ~is #true
+  materialize_rtl(fixture.clocked_program).design.sealed ~is #true
+  materialize_rtl(fixture.nested_program).design.walk().find(fun (op): op.opcode == "construct.instance") ~is #false
+
+circuit Cycle():
+  input b: Bits(8)
+  output result: Bits(8)
+  inst child(fixture.reference)
+  child.a <== child.result
+  child.b <== b
+  result <== child.result
+def cyclic = elaborate_program(Cycle())
+def calls_before_cycle = fixture.call_count()
+check:
+  materialize_rtl(cyclic) ~throws "combinational cycle"
+  fixture.call_count() ~is calls_before_cycle
+
+def mutable recursive = #false
+circuit Recursive():
+  input (a, b): Bits(8)
+  output result: Bits(8)
+  inst child(recursive)
+  child.a <== a
+  child.b <== b
+  result <== child.result
+recursive := retained_circuit(ConstructDefinition(ConstructIdentity("Recursive"), [], fixture.signature, fixture.dependencies), fun (): Recursive())
+def recursive_program = elaborate_program(Recursive())
+check:
+  materialize_rtl(recursive_program) ~throws "recursive construct expansion"
+  materialize_rtl(fixture.nested_program, ~expansion_limit: 1) ~throws "expansion limit"

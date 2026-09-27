@@ -137,6 +137,7 @@ class PlanTest(unittest.TestCase):
     def test_representative_dependency_edges(self):
         cases = {
             "rhodium/core/ir.rhm": ("host-foundation", "circt-language"),
+            "rhodium/lowering/program.rhm": ("host-foundation", "host-backend", "circt-language"),
             "rhodium/event/instrument.rhm": ("host-foundation", "host-backend", "circt-language"),
             "flow/queue.rhdl": ("host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-hygiene", "circt-std", "circt-protocols", "circt-core-cache", "example-std"),
             "rhodium/backend/tests/circt/verilog/adder_tb.sv": ("host-backend", "circt-language", "circt-rfpl"),

@@ -1173,6 +1173,7 @@ fun emit_operation(operation :: Operation):
               "no CIRCT lowering for operation " ++ operation.opcode)
 
 fun emit_module_circt(module_def :: Module):
+  require_concrete_module(module_def)
   def ports:
     module_def.inputs.map(
       fun (port):

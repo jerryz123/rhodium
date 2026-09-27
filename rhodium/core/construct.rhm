@@ -1,0 +1,59 @@
+#lang rhombus
+// Defines immutable combinational construct contracts and signature-bound instances.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../support/annotations.rhm".AsciiIdentifier
+  "ir.rhm" open
+  "signature.rhm" open
+
+export:
+  ConstructIdentity
+  ConstructDefinition
+  ConstructInstance
+
+class ConstructIdentity(name :: AsciiIdentifier, revision :: String = "1")
+
+fun stable_parameter(value :: Boolean || String || Number || HardwareType || List):
+  cond
+  | value is_a List: for all (item in value): stable_parameter(item)
+  | value is_a HardwareType: type_well_formed(value)
+  | ~else: value is_a Boolean || value is_a String || value is_a Int
+
+// Each output has one dependency entry per leaf, in leaf_paths order.
+// This first contract is pure combinational: data ports, no state or effects.
+class ConstructDefinition(identity :: ConstructIdentity,
+                          parameters :: List,
+                          signature :: ModuleSignature,
+                          dependencies :: List.of(List.of(OutputLeafDependency))):
+  constructor (identity :: ConstructIdentity, parameters :: List,
+               signature :: ModuleSignature,
+               dependencies :: List.of(List.of(OutputLeafDependency))):
+    unless stable_parameter(parameters)
+    | error(~who: #'ConstructDefinition, "construct parameters must be immutable host data")
+    unless for all (port in signature.inputs ++ signature.outputs): data_type(port.type)
+    | error(~who: #'ConstructDefinition, "combinational constructs require data ports")
+    unless dependencies.length() == signature.outputs.length()
+    | error(~who: #'ConstructDefinition, "construct dependencies must describe every output")
+    for (port in signature.outputs, entries in dependencies):
+      unless entries.map(fun (entry): entry.path) == leaf_paths(port.type)
+      | error(~who: #'ConstructDefinition, "construct dependencies must describe every output leaf in order")
+      for (entry in entries):
+        for (input in entry.input_leaves):
+          unless input.input_index < signature.inputs.length() && input.path in leaf_paths(signature.inputs[input.input_index].type)
+          | error(~who: #'ConstructDefinition, "construct dependency references an invalid input leaf")
+    super(identity, parameters, signature, dependencies)
+
+class ConstructInstance(operation :: Operation,
+                        definition :: ConstructDefinition,
+                        input_bindings :: List.of(Port),
+                        output_bindings :: List.of(Port)):
+  implements HardwareEntity
+  method input(name :: String):
+    def port = input_bindings.find(fun (port): port.name == name)
+    unless port | error(~who: #'input, "construct instance has no input named " ++ name)
+    port.place
+  method output(name :: String):
+    def port = output_bindings.find(fun (port): port.name == name)
+    unless port | error(~who: #'output, "construct instance has no output named " ++ name)
+    port.value

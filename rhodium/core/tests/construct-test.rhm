@@ -1,0 +1,41 @@
+#lang rhombus
+// Checks retained port binding, aggregate dependency precision, and malformed construct contracts.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../main.rhm" open
+
+def pair = RecordType([RecordField("a", Bits(8)), RecordField("b", Bits(8))])
+def signature = ModuleSignature([PortSignature("source", pair)], [PortSignature("result", pair)])
+def dependencies = [[OutputLeafDependency(["a"], [InputLeaf(0, ["a"])]), OutputLeafDependency(["b"], [])]]
+def definition = ConstructDefinition(ConstructIdentity("Split"), [pair, 8], signature, dependencies)
+def design = Design()
+def builder = Builder(design)
+def top = builder.module("Top")
+def child = builder.construct_instance(top, definition, "child")
+def zero = builder.constant(top, Bits(8), 0)
+def a = builder.record_get(top, child.output("result"), "b")
+def source = builder.record_create(top, pair, [["a", a], ["b", zero]])
+builder.drive(child.input("source"), source)
+builder.finish(top)
+check:
+  verify_program(design) ~is #void
+  top.find_instance("child") === child.operation ~is #true
+  dump_ir(design).contains("construct.instance @Split") ~is #true
+  verify_design(design) ~throws "materialize_rtl"
+  ConstructDefinition(ConstructIdentity("Missing"), [], signature, [[]]) ~throws "every output leaf"
+  ConstructDefinition(ConstructIdentity("BadInput"), [], signature,
+                      [[OutputLeafDependency(["a"], [InputLeaf(1, [])]), OutputLeafDependency(["b"], [])]]) ~throws "invalid input leaf"
+  ConstructDefinition(ConstructIdentity("BadPath"), [], signature,
+                      [[OutputLeafDependency(["a"], [InputLeaf(0, ["missing"])]), OutputLeafDependency(["b"], [])]]) ~throws "invalid input leaf"
+
+def bad_design = Design()
+def bad_builder = Builder(bad_design)
+def bad_top = bad_builder.module("BadTop")
+def unbound = bad_builder.construct_instance(bad_top, definition, "child")
+check:
+  bad_builder.construct_instance(bad_top, definition, "child") ~throws "duplicate instance"
+  bad_builder.drive(unbound.input("source"), bad_builder.constant(bad_top, Bits(8), 0)) ~throws "type"
+bad_builder.finish(bad_top)
+check:
+  verify_program(bad_design) ~throws "undriven"

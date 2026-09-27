@@ -34,6 +34,8 @@ flowchart LR
   Support --> Kernel
   Support --> Core["core: public IR + Builder"]
   Kernel --> Core
+  Kernel --> Lowering["lowering/program.rhm"]
+  Lowering --> Core
 
   Clocking["clocking layer"] --> Analysis["analysis/*"]
   Analysis --> Core
@@ -65,7 +67,9 @@ the [clocking plan](CLOCKING_PLAN.md).
 
 ## Dependency rules
 
-- Core never imports analysis, frontend, backend, or RFPL code.
+- Core never imports lowering, analysis, frontend, backend, or RFPL code.
+- Portable lowering depends only on core. It owns program materialization;
+  backend selection and frontend construction remain outside that package.
 - Analysis consumes completed core IR and does not import authoring or lowering
   packages.
 - Frontend code never imports a backend. Frontend layers do not import sibling
@@ -89,8 +93,9 @@ the [clocking plan](CLOCKING_PLAN.md).
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
+| [`lowering/`](lowering/README.md) | Program envelope and verified concrete RTL materialization | Core IR, signatures, construct contracts, Builder, schemas, verifier, dependency summaries; local graph copier |
 | [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references, checked concrete materialization, and deferred hardware values | Core, including detached signatures |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
 | [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
@@ -139,7 +144,8 @@ may consume a backend to validate ordinary lowering.
 - Keep optional reports and policy analyses outside the core API when they can
   derive their facts from completed IR.
 - Keep backends independent of frontend syntax and metadata.
-- Use CIRCT rather than an Rhodium-owned SystemVerilog emitter.
+- Keep portable materialization separate from target emission. CIRCT is the
+  current production target; alternative targets must preserve public semantics.
 - Keep widths explicit and elaboration deterministic.
 - Keep generator parameters stable and immutable in the host language and runtime data in hardware.
 - Specify and test implicit conversion, connection, priority, or reset behavior
@@ -381,7 +387,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 | `wire.rhm` | Binding-derived forward-readable single-driver connections | kernel, field support |
 | `sequential.rhm` | Binding-derived explicit and ambient registers | kernel, clocking support, field support |
 | `conditional.rhm` | Flat hardware `when`/`elsewhen` priority chains where omitted register updates hold, plus exact-key `switch`, memory-write, and assertion effects | core IR, kernel, mux-lookup support |
-| `hierarchy.rhm` | Binding-derived instances, child-member access, and sync-child propagation | core IR, clocking support, instance-member support |
+| `hierarchy.rhm` | Binding-derived concrete/retained instances, child-member access, and sync-child propagation | core IR and construct bindings, clocking support, instance-member support |
 | `sync.rhm` | Sync circuits with ambient clock and synchronous reset | kernel, clocking support, generator-parameter support |
 | `clocking.rhm` | Root-owned timing and clock relationships, durable sync-level evidence, immediate reports, and opt-in CDC enforcement | core IR, kernel, clocking analysis, clocking support |
 

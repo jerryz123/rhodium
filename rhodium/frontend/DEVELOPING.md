@@ -23,12 +23,14 @@ flowchart TD
   Foundation --> Kernel["kernel.rhm<br/>elaboration context"]
   Layers --> Kernel
   Support --> Kernel
-  Kernel --> Core["../core/<br/>IR, Builder, verification"]
+  Kernel --> Core["../core/<br/>IR and Builder"]
+  Kernel --> Lowering["../lowering/program.rhm<br/>program materialization"]
+  Lowering --> Core
 ```
 
 | Location | Implementation responsibility |
 |---|---|
-| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, and final verification |
+| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, program construction, and compatibility materialization |
 | [`foundation.rhm`](foundation.rhm) | Export the common authoring surface: circuits, ports, connection, elaboration entry points, base hardware annotations, and public extension protocols |
 | [`support/`](support/) | Share non-profile macro and static-information machinery across the foundation and independent layers |
 | [`layers/`](layers/DEVELOPING.md) | Implement independently selectable authoring features over existing semantics |
@@ -45,10 +47,10 @@ not import one another.
 
 `foundation.rhm` expands a circuit declaration into a stable
 `CircuitIdentity`, normalized generator parameters, and a call to
-`kernel.build_circuit`. A top-level `elaborate` or `elaborate_with_top` call then
-uses the following lifecycle:
+`kernel.build_circuit`. All top-level elaboration entry points then use the
+following lifecycle:
 
-1. `frontend_elaboration` creates one core `Design`, `Builder`, and
+1. `run_program_elaboration` creates one core `Design`, `Builder`, and
    `FrontendContext`.
 2. `build_circuit` rejects live circuit-bound hardware parameters, resolves or
    creates the selected module definition, and establishes the active module.
@@ -57,14 +59,24 @@ uses the following lifecycle:
 4. Circuit finalizers resolve source-order-independent work and accumulated
    vector-register writes before the Builder finishes the module.
 5. Instantiation and top selection normalize through `circuit_reference`.
-   `materialize_circuit` realizes explicit references within the still-active
-   elaboration and checks ownership, completion, and the declared signature.
-   Core `verify_design` then checks the completed concrete design.
+   Ordinary references use `materialize_circuit` in the active context.
+   Retained children record a construct instance and its provider environment
+   without realizing the implementation.
+6. The context is deactivated on success or failure. Successful
+   `run_program_elaboration` returns an `ElaboratedProgram` with the completed
+   design and selected top.
+7. Compatibility entry points call `lowering.materialize_rtl`, which performs
+   core whole-design verification and returns `DesignElaboration`. The explicit
+   `elaborate_program` API leaves this step to its caller.
 
 Keep frontend checks close to the authoring construct when they diagnose syntax,
 static information, or an elaboration-time contract. Put representation-wide
 invariants in the core verifier so every frontend and direct Builder client is
 checked.
+
+The [lowering package](../lowering/DEVELOPING.md) owns the concrete identity
+case and portable expansion. No backend is imported by the frontend or
+materializer. Existing sync certification still occurs during construction.
 
 ## Specialization and cache safety
 
@@ -111,15 +123,24 @@ Reference realization is independent of generator specialization: do not cache
 by a display name or share live modules across elaborations. Detect recursive
 realization and remove active markers on failure. Recipes execute in the
 current elaboration and must not return modules from earlier designs. Existing
-circuit declarations still eagerly construct their bodies. Reference support
-adds no new hardware opcode or second wiring representation.
+circuit declarations still eagerly construct their bodies. Ordinary reference
+support uses concrete RTL instances; retained references use the core construct
+instance with the same Value/Place wiring representation.
 
 Sync wrappers expose their control-port names through the reference rather
 than requiring instantiation to match a particular wrapper class. Actual
 `sync_circuit` construction retains its existing clock certification. Instance
 members continue to use the concrete instance's bindings and interface-layer
-metadata. Retained instances and detached nominal interface descriptors are
-separate future changes, not implied by this reference seam.
+metadata for concrete children. Retained children use `ConstructInstance`
+bindings and do not consult concrete-module member resolvers. Detached nominal
+interface descriptors are a separate future change.
+
+`retained_circuit` packages a frontend recipe in an opaque `ExpansionProvider`.
+Its callback receives a fresh Builder, establishes a new FrontendContext, and
+returns an ExpansionResult plus nested providers. `inst` registers providers in
+the current context and constructs only the retained boundary. The final
+ElaboratedProgram snapshots that environment. No frontend callback lives in
+core IR, and portable lowering never imports the frontend.
 
 [`support/hardware-literal.rhm`](support/hardware-literal.rhm) implements the
 public `HardwareLiteral` protocol on that deferred boundary. Field, annotation,

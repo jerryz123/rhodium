@@ -75,8 +75,31 @@ hardware:
 1. A circuit call selects a module specialization from host parameters.
 2. The circuit body constructs ports, operations, state, instances, and drives.
 3. Stable equivalent calls reuse the same module definition.
-4. `elaborate` returns a core `Design`; `elaborate_with_top` also identifies its
-   explicit top module.
+4. `elaborate_program` returns an `ElaboratedProgram` with a completed design
+   and explicit top. `materialize_rtl` verifies it and returns a concrete
+   `DesignElaboration`.
+5. `elaborate` and `elaborate_with_top` include materialization, returning a
+   verified core `Design` or `DesignElaboration`, respectively.
+
+The explicit phase boundary is available in both language profiles:
+
+```rhombus
+def program = elaborate_program(Top())
+def rtl = materialize_rtl(program)
+// Existing backend and analysis APIs consume rtl.design or rtl.top.
+```
+
+Program construction completes circuit bodies and closes the frontend context.
+It checks the selected top's ownership and completion; whole-design verification
+occurs at materialization. For example, a cycle across finished instances is
+rejected by `materialize_rtl`, while legacy `elaborate` still rejects it before
+returning. Existing construction-local and sync-certification checks remain at
+their authoring boundaries.
+
+Ordinary `CircuitReference` recipes still run during program elaboration.
+Concrete-only programs preserve the identity materialization path. Programs
+with opted-in retained children expand into fresh concrete designs. See the [program API](../lowering/README.md) for direct Builder usage
+and the limits of this initial concrete identity case.
 
 ### Circuit families and explicit tops
 
@@ -114,12 +137,36 @@ implementation construction.
 
 This API preserves ordinary eager circuit elaboration. The resulting design
 still contains concrete RTL instances, so existing analyses and CIRCT emission
-remain applicable. It does not yet retain abstract instances in the IR.
+remain applicable after materialization. `CircuitReference` itself does not
+retain abstract instances; opt into the separate API below.
 Signatures describe typed physical ports; nominal interface roles, grouped
 endpoint reconstruction, and tracing metadata continue to come from the
 materialized implementation. Dynamically constructed references use ordinary
 instance member lookup; existing circuit declarations retain their richer
 expansion-time port information.
+
+`retained_circuit(definition, implementation)` pairs a core `ConstructDefinition`
+with a zero-argument circuit recipe. `inst child(reference)` records its typed
+ports and provider without executing that recipe. `elaborate_program` preserves
+these instances; legacy `elaborate` and `elaborate_with_top` expand them before
+returning. The explicit top remains an ordinary circuit module.
+
+```rhombus
+def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def definition = ConstructDefinition(ConstructIdentity("Leaf"), [8], signature,
+                                    [[OutputLeafDependency([], [InputLeaf(0, [])])]])
+def retained = retained_circuit(definition, fun (): Leaf())
+```
+
+This first retained contract is combinational, with data ports and declared
+leaf dependencies. It supports ordinary typed port access, including aggregate
+ports, and nesting inside ordinary or synchronous RTL parents. Each provider
+runs in a fresh frontend context supplied by the materializer; captured live
+modules or hardware values are invalid. No provider runs while inspecting the
+signature or elaborating the parent. Nominal grouped interface reconstruction
+and existing interface/trace metadata remapping remain future integrations.
+See the [materialization contract](../lowering/README.md) for provider reuse,
+recursion, effects, and dependency checks.
 
 A circuit declaration defines a parameterized module family. Calling it while
 elaborating creates the selected specialization once and reuses that definition

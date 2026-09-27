@@ -1,0 +1,34 @@
+#lang rhombus
+// Compares retained and eager CIRCT wiring modulo fresh SSA IDs and rejects opaque emitter inputs.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../circt.rhm" open
+  "../../core/ir.rhm".Design
+  "../../lowering/program.rhm".materialize_rtl
+  "../../frontend/tests/retained-fixture.rhdl" as fixture
+
+def rtl = materialize_rtl(fixture.program)
+def clocked = materialize_rtl(fixture.clocked_program)
+
+// Fresh designs allocate different IDs. Rename only the generated SSA names
+// used by these fixtures; preserve authored names, ports, instructions, and uses.
+fun canonical_circt(design :: Design):
+  def names = MutableMap{}
+  for (module_def in design.modules, module_index in 0..design.modules.length()):
+    def scope = to_string(module_index) ++ "_"
+    for (value in module_def.values, index in 0..module_def.values.length()):
+      names["%__rhodium_value_" ++ to_string(value.id)] := "%canonical_value_" ++ scope ++ to_string(index)
+    for (op in module_def.operations, index in 0..module_def.operations.length()):
+      names["%__rhodium_clock_" ++ to_string(op.id)] := "%canonical_clock_" ++ scope ++ to_string(index)
+  def mutable text = emit_circt(design)
+  // Longest first prevents an ID that prefixes another ID from consuming it.
+  for (name in names.keys().sort(fun (a, b): a.length() > b.length())):
+    text := text.replace(name, names[name], ~all: #true)
+  text
+
+check:
+  canonical_circt(rtl.design) ~is canonical_circt(fixture.eager.design)
+  canonical_circt(clocked.design) ~is canonical_circt(fixture.clocked_eager.design)
+  emit_circt(fixture.program.design) ~throws "materialize_rtl"
+  emit_module_circt(fixture.program.top) ~throws "materialize_rtl"

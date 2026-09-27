@@ -7,6 +7,7 @@ import:
   "../../core/ir.rhm" open
   "../../core/ops.rhm" open
   "../../core/dependencies.rhm" open
+  "../../core/verify.rhm".require_concrete_module
   "types.rhm" open
 
 export:
@@ -394,6 +395,7 @@ fun describe_classification(classification :: SinkInputClassification):
 // sink reachable through the module's instance hierarchy. The summary itself
 // is policy-neutral; closed-design callers may report it or enforce CDC rules.
 fun summarize_module_temporal(module_def :: Module):
+  require_concrete_module(module_def)
   unless module_def.finished
   | error(~who: #'summarize_module_temporal,
           "module must be finished before temporal provenance is summarized")

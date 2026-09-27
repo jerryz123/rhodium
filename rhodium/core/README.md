@@ -20,7 +20,8 @@ workflows are in [`DEVELOPING.md`](DEVELOPING.md).
   relevant tests.
 
 Frontend syntax, profiles, and elaboration policy belong to the
-[`frontend`](../frontend/README.md). Lowering belongs to the
+[`frontend`](../frontend/README.md). Portable program materialization belongs to
+[`lowering`](../lowering/README.md), while target emission belongs to the
 [`backend`](../backend/README.md). This guide specifies only the common IR
 contract between those producers and consumers.
 
@@ -92,7 +93,37 @@ design, including cross-module ownership and hierarchical combinational
 dependencies, then seals it against semantic mutation. Repeated
 `verify_design` calls on the same sealed design reuse that successful result.
 `DesignElaboration` pairs the design with an explicit, finished top module for
-downstream consumers.
+downstream consumers. Its constructor validates top ownership and completion;
+whole-design certification comes from `verify_design`, not from the result
+wrapper. These APIs accept concrete RTL. The separate
+[`ElaboratedProgram`](../lowering/README.md) envelope crosses that verification
+boundary through `materialize_rtl`.
+
+### Retained combinational constructs
+
+`ConstructIdentity(name, revision)` names a library declaration.
+`ConstructDefinition(identity, parameters, signature, dependencies)` describes
+one specialization without a body or callback. Parameters are immutable host
+booleans, strings, integers, hardware types, and recursively composed lists.
+Ports are data types; this initial contract owns no clocks, state, or effects.
+
+Dependencies contain one list per output port, and one `OutputLeafDependency`
+per aggregate leaf in `leaf_paths(type)` order. Each entry lists `InputLeaf`
+indices and paths; an empty list declares independence from all inputs.
+Invalid, missing, and misordered leaves are rejected during construction.
+
+`Builder.construct_instance(parent, definition, name)` creates a
+`construct.instance` with normal input `Place`s and output `Value`s.
+`ConstructInstance.input/output` expose those bindings. Its name participates
+in the same collision checks and `Module.find_instance` lookup as concrete
+instances. `verify_program` checks mixed IR ownership, bindings, and cycles
+using declared dependencies without invoking providers or sealing the design.
+
+`verify_design`, `verify_module`, and `require_concrete_module` reject retained
+instances at concrete consumer boundaries. Use the
+[portable materializer](../lowering/README.md) to expand them first. A descriptor
+is a trusted library contract, not a proof of behavioral equivalence; expansion
+checks signature, effects, and dependency refinement against the body.
 
 ### Values, places, and binding
 
@@ -275,7 +306,7 @@ Backend lowering choices are not part of core schemas.
 
 | Group | Core opcodes |
 |---|---|
-| Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance` |
+| Structure | `rtl.input_port`, `rtl.output_port`, `rtl.wire`, `rtl.drive`, `rtl.instance`, `construct.instance` |
 | Sources | `rtl.constant`, `rtl.dont_care` |
 | Bitwise and arithmetic | `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor`, `rtl.add`, `rtl.sub`, `rtl.mul`, `rtl.shl`, `rtl.shru`, `rtl.shrs` |
 | Comparison and selection | `rtl.eq`, `rtl.ult`, `rtl.slt`, `rtl.mux_lookup`, `rtl.onehot_mux`, `rtl.decode` |
@@ -448,7 +479,7 @@ Instance      HardwareType       Location    Origin
 Callers can walk designs, modules, and operations; follow definitions,
 drivers, and users; find direct instances by final name; and print deterministic
 text with `dump_ir`. `Module.find_instance(name)` returns the stable direct
-`rtl.instance` operation rather than relying on operation or module order.
+`rtl.instance` or `construct.instance` operation rather than relying on operation or module order.
 
 ### Builder
 

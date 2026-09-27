@@ -5,6 +5,7 @@
 import:
   rhombus/meta open
   "../../core/ir.rhm" open
+  "../../core/construct.rhm".ConstructInstance
   "../support/clocking.rhm".instantiate as clocking_inst
   "../support/clocking.rhm".instantiate_reset_when as clocking_inst_reset_when
   "../support/instance-members.rhm".InstanceMembers
@@ -17,7 +18,7 @@ export:
 
 annot.macro 'InstancePorts':
   annot_meta.pack_predicate(
-    'fun (value): value is_a Instance',
+    'fun (value): value is_a Instance || value is_a ConstructInstance',
     '(($(statinfo_meta.dot_provider_key), instance_port_dot))'
   )
 
@@ -28,7 +29,7 @@ namespace InstancePorts:
       'hardware_port_static_info_key'
     )
     annot_meta.pack_predicate(
-      'fun (value): value is_a Instance',
+      'fun (value): value is_a Instance || value is_a ConstructInstance',
       if port_infos
       | '(($(statinfo_meta.dot_provider_key), instance_port_dot),
           (hardware_port_static_info_key, $port_infos))'

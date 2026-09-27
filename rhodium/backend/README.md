@@ -4,7 +4,7 @@
 # CIRCT backend
 
 The backend is the CIRCT-specific consumer of Rhodium's public hardware IR. The
-normal entry point accepts a completed `Design`, verifies it, and emits textual
+normal entry point accepts a completed concrete-RTL `Design`, verifies it, and emits textual
 CIRCT MLIR. This directory owns CIRCT dialect selection, type representation,
 SSA names, and operation dispatch; it imports [`../core/`](../core/README.md)
 but no frontend syntax or elaboration modules.
@@ -34,6 +34,12 @@ SystemVerilog generation.
 - `emit_module_circt(module_def)` emits one `hw.module`. It does not run design
   verification or establish the design-wide record-alias scope, so callers
   producing a complete design should use `emit_circt`.
+
+For an `ElaboratedProgram`, first call
+[`materialize_rtl(program)`](../lowering/README.md), then pass its `.design`
+to `emit_circt`. Neither emission API accepts a program envelope or runs
+implementation providers. Direct Builder-created designs remain valid inputs
+without a frontend or program wrapper.
 
 An unsupported verified type or opcode is a backend error. The backend does not
 add pseudo-CIRCT operations to avoid an explicit lowering decision.

@@ -14,6 +14,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 RISCV_UDB_CONFIGURATION ?=
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
 
+LOWERING_TESTS := $(sort $(wildcard rhodium/lowering/tests/*-test.rhm))
 CORE_TESTS := $(sort $(wildcard rhodium/core/tests/*-test.rhm))
 ANALYSIS_TESTS := $(sort $(wildcard rhodium/analysis/tests/*-test.rhm))
 SUPPORT_ANNOTATION_TESTS := $(sort $(wildcard support/tests/*-test.rhm))
@@ -49,7 +50,7 @@ FORMAL_EXAMPLES := $(sort $(shell find examples/formal -type f \( -name '*.rhm' 
 RV5STAGE_EXAMPLES := $(sort $(shell find examples/rv5stage -type f \( -name '*.rhm' -o -name '*.rhdl' \)))
 EXAMPLES := $(sort $(shell find examples -path examples/formal -prune -o -type f \( -name '*.rhm' -o -name '*.rhdl' \) -print) $(RFPL_EXAMPLES))
 RACKET_COMPILE_SOURCES := $(sort \
-  $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
+  $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
   $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) \
   $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
@@ -110,7 +111,7 @@ devicetree-test:
 	bash devicetree/tests/run-dtc.sh
 
 frontend-test: check-boundaries
-	tools/run-racket-tests.sh $(CORE_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS)
+	tools/run-racket-tests.sh $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS)
 	bash rhodium/frontend/tests/run-negative.sh
 
 analysis-test: check-boundaries

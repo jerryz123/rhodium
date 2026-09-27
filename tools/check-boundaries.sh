@@ -55,20 +55,22 @@ fail_test_matches() {
   fi
 }
 
-fail_matches "core must not import analysis, frontend, backend, or formal modules" \
-  '^[[:space:]]+"[^"]*(analysis|frontend|backend|formal)/' rhodium/core
+fail_matches "core must not import lowering, analysis, frontend, backend, or formal modules" \
+  '^[[:space:]]+"[^"]*(lowering|analysis|frontend|backend|formal)/' rhodium/core
 fail_matches "analysis must depend only on core and other analysis modules" \
-  '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' rhodium/analysis
+  '^[[:space:]]+"[^"]*(lowering|frontend|backend|formal|std)/' rhodium/analysis
+fail_matches "portable lowering must depend only on core and other lowering modules" \
+  '^[[:space:]]+"[^"]*(analysis|frontend|backend|formal|std|event|diagram)/' rhodium/lowering
 fail_matches "support annotations must remain dependency-neutral" \
   '^[[:space:]]*(import[[:space:]]+)?(lib\()?"[^"]*(rhodium/|flow/|noc/|riscv/|chi/|rfpl/|cores/)' support/annotations.rhm
 fail_matches "frontend must not import backend or formal modules" \
   '^[[:space:]]+"[^"]*(backend|formal)/' rhodium/frontend
 fail_matches "frontend must not import the optional standard library" \
   '^[[:space:]]+"[^"]*std/' rhodium/frontend
-fail_matches "backend must not import frontend or formal modules" \
-  '^[[:space:]]+"[^"]*(frontend|formal)/' rhodium/backend
-fail_matches "formal engine must not import frontend, backend, or standard-library modules" \
-  '(frontend/|backend/|std/)' rhodium/formal
+fail_matches "backend must not import lowering, frontend, or formal modules" \
+  '^[[:space:]]+"[^"]*(lowering|frontend|formal)/' rhodium/backend
+fail_matches "formal engine must not import lowering, frontend, backend, or standard-library modules" \
+  '(lowering/|frontend/|backend/|std/)' rhodium/formal
 fail_matches "diagram tooling must not import backend, formal, or standard-library modules" \
   '(backend/|formal/|std/)' rhodium/diagram
 fail_matches "core must not import optional diagram tooling" \
@@ -88,7 +90,7 @@ fail_matches "diagram tooling must not import optional event tooling" \
 fail_matches "event tooling must not import backend, formal, or standard-library modules" \
   '(backend/|formal/|std/)' rhodium/event
 fail_matches "standard library must not import Rhodium implementation packages" \
-  '^[[:space:]]+.*(core/|analysis/|backend/|event/|frontend/|formal/)' rhodium/std
+  '^[[:space:]]+.*(core/|lowering/|analysis/|backend/|event/|frontend/|formal/)' rhodium/std
 fail_matches "Rhodium packages, including std, must not import the flow library" \
   '^[[:space:]]*(import[[:space:]]+)?(lib\()?"([^"]*/)?flow/' rhodium
 fail_matches "flow must use collection imports for its public library dependencies" \
@@ -126,12 +128,12 @@ for package in rhodium chi cores devices socs sims; do
   fail_matches "$package must not import post-CIRCT SRAM or VLSI policy" \
     '^[[:space:]]+.*(sram/|vlsi/)' "$package"
 done
-fail_matches "standard language assembly must not import analysis, core, backend, or formal modules" \
-  '^[[:space:]]+"[^"]*(analysis|core|backend|formal)/' rhodium/language.rhm
-fail_matches "base language assembly must not import analysis, core, backend, or formal modules" \
-  '^[[:space:]]+"[^"]*(analysis|core|backend|formal)/' rhodium/base/language.rhm
+fail_matches "standard language assembly must not import analysis, core, lowering, backend, or formal modules" \
+  '^[[:space:]]+"[^"]*(analysis|core|lowering|backend|formal)/' rhodium/language.rhm
+fail_matches "base language assembly must not import analysis, core, lowering, backend, or formal modules" \
+  '^[[:space:]]+"[^"]*(analysis|core|lowering|backend|formal)/' rhodium/base/language.rhm
 fail_matches "the standard frontend must aggregate only the foundation and frontend layers" \
-  '^[[:space:]]+"[^"]*(analysis/|core/|kernel\.rhm|support/)' rhodium/frontend/standard.rhm
+  '^[[:space:]]+"[^"]*(analysis/|core/|lowering/|kernel\.rhm|support/)' rhodium/frontend/standard.rhm
 fail_matches "the standard frontend must not implement feature behavior" \
   '^[[:space:]]*(def|fun|class|interface|operator|expr\.|defn\.|annot\.|dot\.|reducer\.)' rhodium/frontend/standard.rhm
 fail_matches "the frontend foundation must not depend on layers or the standard aggregator" \
@@ -168,10 +170,12 @@ while IFS= read -r library_file; do
   done < <(sed -n 's/.*lib("\([^\"]*\.rhdl\)").*/\1/p' "$library_file")
 done < <(find rhodium/std flow -type f -name '*.rhdl' ! -path '*/tests/*' | sort)
 
-fail_test_matches "core tests must not import analysis or backend modules" \
-  '^[[:space:]]+"[^"]*(analysis|backend)/' rhodium/core/tests
-fail_test_matches "analysis tests must not import frontend, backend, formal, or standard-library modules" \
-  '^[[:space:]]+"[^"]*(frontend|backend|formal|std)/' rhodium/analysis/tests
+fail_test_matches "core tests must not import lowering, analysis, or backend modules" \
+  '^[[:space:]]+"[^"]*(lowering|analysis|backend)/' rhodium/core/tests
+fail_test_matches "analysis tests must not import lowering, frontend, backend, formal, or standard-library modules" \
+  '^[[:space:]]+"[^"]*(lowering|frontend|backend|formal|std)/' rhodium/analysis/tests
+fail_test_matches "lowering tests must remain independent of frontend and backend modules" \
+  '^[[:space:]]+"[^"]*(frontend|backend|analysis|formal|std)/' rhodium/lowering/tests
 fail_test_matches "frontend tests must not import backend modules" \
   '^[[:space:]]+"[^"]*backend/' rhodium/frontend/tests
 

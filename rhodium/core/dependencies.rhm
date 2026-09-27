@@ -7,6 +7,8 @@ import:
   "types.rhm" open
   "ir.rhm" open
   "ops.rhm" open
+  "signature.rhm" open
+  "construct.rhm" open
 
 export:
   InputLeaf
@@ -22,8 +24,8 @@ export:
   direct_operation_dependencies
   direct_value_dependencies
   verify_combinational_cycles
+  summarize_module_dependencies
 
-class InputLeaf(input_index :: Nat, path :: List.of(String || Nat))
 class ValueLeaf(value :: Value, path :: List.of(String || Nat))
 class ValueDependencySummary(value :: Value,
                              path :: List.of(String || Nat),
@@ -34,8 +36,6 @@ class LeafLayout(paths :: List.of(List.of(String || Nat)),
 class ValueDependencyState(layout :: LeafLayout,
                            summaries :: MutableList,
                            active_indices :: MutableList)
-class OutputLeafDependency(path :: List.of(String || Nat),
-                           input_leaves :: List.of(InputLeaf))
 class ModuleDependencySummary(
       module_def :: Module,
       output_leaf_dependencies :: List.of(List.of(OutputLeafDependency))):
@@ -73,22 +73,6 @@ fun equal_index(items :: List.of(String), item :: String):
     | result := index
   result
 
-fun leaf_paths(type :: HardwareType) :: List.of(List.of(String || Nat)):
-  cond
-  | record_type(type):
-      def result = MutableList[]
-      for (field in type.fields):
-        for (path in leaf_paths(field.type)):
-          result.add([field.name] ++ path)
-      result.snapshot()
-  | vector_type(type):
-      def result = MutableList[]
-      for (index in 0..type.length):
-        for (path in leaf_paths(type.element_type)):
-          result.add([index] ++ path)
-      result.snapshot()
-  | ~else:
-      [[]]
 
 fun describe_value_path(value :: Value,
                         path :: List.of(String || Nat)):
@@ -219,7 +203,7 @@ fun direct_value_dependencies(value :: Value,
 
 // Summarizes output-to-input combinational dependencies and rejects cycles.
 // Temporal analysis consumes the same direct leaf dependency rules above.
-fun verify_combinational_cycles(module_defs :: List.of(Module)):
+fun summarize_module_dependencies(module_defs :: List.of(Module)):
   def module_summaries = MutableMap.by(===){}
   def active_modules = MutableSet.by(===){}
   def leaf_layouts = MutableMap.by(===){}
@@ -393,13 +377,15 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
                         operation
                       )
                     dependencies
-                | operation?.opcode == "rtl.instance":
+                | operation?.opcode == "rtl.instance" || operation?.opcode == "construct.instance":
                     def instance_operation = operation!!
-                    def child = instance_operation.attribute("module")
-                    def child_summary = summarize_module(child)
                     def output_index = identity_index(instance_operation.results, value)
+                    def output_dependencies:
+                      if instance_operation.opcode == "construct.instance"
+                      | (instance_operation.attribute("definition") :: ConstructDefinition).dependencies
+                      | summarize_module(instance_operation.attribute("module")).output_leaf_dependencies
                     def mutable dependencies = 0
-                    def output_leaf = child_summary.output_leaf_dependencies[output_index][leaf_index]
+                    def output_leaf = output_dependencies[output_index][leaf_index]
                     for (input_leaf in output_leaf.input_leaves):
                       def input_place = instance_operation.places[input_leaf.input_index]
                       def drive_operation :: maybe(Operation) = module_def.find_drive_to(input_place.id)
@@ -446,4 +432,8 @@ fun verify_combinational_cycles(module_defs :: List.of(Module)):
 
   for (module_def in module_defs):
     summarize_module(module_def)
+  module_summaries
+
+fun verify_combinational_cycles(module_defs :: List.of(Module)):
+  summarize_module_dependencies(module_defs)
   #void

@@ -48,6 +48,7 @@ flowchart LR
 | [`core/`](core/README.md) | Direct construction or inspection of types, IR, `Builder`, and verification results |
 | [`std/`](std/README.md) | Foundational protocols, host utilities, decode, storage, and generic generators |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and typed pipeline composition |
+| [`lowering/`](lowering/README.md) | Program construction and materialization into verified concrete RTL |
 | [`analysis/`](analysis/README.md) | Optional reports and certification over a completed design |
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
 | [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |

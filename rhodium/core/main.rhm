@@ -6,6 +6,7 @@ import:
   "types.rhm" open
   "ir.rhm" open
   "signature.rhm" open
+  "construct.rhm" open
   "ops.rhm" open
   "builder.rhm" open
   "verify.rhm" open
@@ -15,6 +16,7 @@ export:
   all_from("types.rhm")
   all_from("ir.rhm")
   all_from("signature.rhm")
+  all_from("construct.rhm")
   all_from("ops.rhm")
   all_from("builder.rhm")
   all_from("verify.rhm")

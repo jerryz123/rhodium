@@ -1,0 +1,135 @@
+#lang rhombus
+// Expands retained combinational constructs into fresh verified RTL using explicit providers.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../core/ir.rhm" open
+  "../core/signature.rhm" open
+  "../core/construct.rhm" open
+  "../core/builder.rhm".Builder
+  "../core/ops.rhm".schema_for
+  "../core/verify.rhm" open
+  "../core/dependencies.rhm".summarize_module_dependencies
+  "copy.rhm".copy_module_body
+
+export:
+  ElaboratedProgram
+  materialize_rtl
+  ExpansionProvider
+  ExpansionResult
+
+class ExpansionProvider(expand :: Function.of_arity(2))
+class ExpansionResult(module_def :: Module, providers :: Map = {})
+
+class ElaboratedProgram(design :: Design, top :: Module, providers :: Map = {}):
+  constructor (design :: Design, top :: Module, providers :: Map = {}):
+    def boundary = DesignElaboration(design, top)
+    check_providers(providers)
+    super(boundary.design, boundary.top, providers)
+
+fun check_providers(providers :: Map):
+  for (definition in providers.keys()):
+    unless definition is_a ConstructDefinition && providers[definition] is_a ExpansionProvider
+    | error(~who: #'ElaboratedProgram, "providers must map construct definitions to ExpansionProvider objects")
+
+fun check_combinational(module_def :: Module):
+  def seen = MutableSet.by(===){}
+  fun visit(candidate :: Module):
+    unless candidate in seen
+    | seen.add(candidate)
+      for (op in candidate.operations):
+        unless schema_for(op.opcode).kind in ["structural", "combinational"]
+        | error(~who: #'materialize_rtl, "combinational construct implementation contains state or effects")
+        when op.opcode == "rtl.instance" | visit(op.attribute("module"))
+  visit(module_def)
+
+fun check_dependencies(definition :: ConstructDefinition, module_def :: Module):
+  def summaries = summarize_module_dependencies([module_def])
+  def actual = summaries[module_def].output_leaf_dependencies
+  for (actual_port in actual, declared_port in definition.dependencies):
+    for (actual_leaf in actual_port, declared_leaf in declared_port):
+      for (input in actual_leaf.input_leaves):
+        unless declared_leaf.input_leaves.find(fun (candidate): candidate.input_index == input.input_index && candidate.path == input.path)
+        | error(~who: #'materialize_rtl, "construct implementation exceeds its declared combinational dependencies")
+
+// Concrete programs are the identity case: verification seals the same design,
+// preserving every IR object and metadata reference for existing consumers.
+fun materialize_rtl(program :: ElaboratedProgram, ~expansion_limit: expansion_limit :: PosInt = 256):
+  def result = DesignElaboration(program.design, program.top)
+  def retained = program.design.modules.find(
+    fun (module_def): module_def.operations.find(fun (op): op.opcode == "construct.instance")
+  )
+  if !retained
+  | block:
+      verify_design(result.design)
+      result
+  | block:
+      verify_program(program.design)
+      def builder = Builder(Design())
+      def objects = MutableMap.by(===){}
+      def providers = MutableMap.by(===){}
+      def expanded = MutableMap.by(===){}
+      def active = MutableList[]
+      def mutable expansions = 0
+      fun register(entries :: Map):
+        check_providers(entries)
+        for (definition in entries.keys()):
+          when providers.has_key(definition) && !(providers[definition] === entries[definition])
+          | error(~who: #'materialize_rtl, "conflicting portable providers for " ++ definition.identity.name)
+          providers[definition] := entries[definition]
+      register(program.providers)
+
+      fun copy_import(original :: DpiImport):
+        unless objects.has_key(original)
+        | objects[original] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
+        objects[original]
+
+      fun expand(definition :: ConstructDefinition):
+        when active.snapshot().find(fun (candidate): candidate === definition)
+        | error(~who: #'materialize_rtl, "recursive construct expansion: " ++ String.join((active.snapshot() ++ [definition]).map(fun (item): item.identity.name), " -> "))
+        unless expanded.has_key(definition)
+        | unless providers.has_key(definition)
+          | error(~who: #'materialize_rtl, "missing portable provider for " ++ definition.identity.name)
+          expansions := expansions + 1
+          when expansions > expansion_limit
+          | error(~who: #'materialize_rtl, "construct expansion limit exceeded at " ++ definition.identity.name)
+          active.add(definition)
+          try:
+            def scratch = Builder(Design())
+            def implementation = providers[definition].expand(scratch, definition)
+            unless implementation is_a ExpansionResult && implementation.module_def.design === scratch.design && scratch.design.owns_module(implementation.module_def)
+            | error(~who: #'materialize_rtl, "provider must return an ExpansionResult owned by its supplied builder")
+            def body = implementation.module_def
+            unless body.finished && signature_equal(definition.signature, module_signature(body))
+            | error(~who: #'materialize_rtl, "construct implementation does not match its declared signature")
+            register(implementation.providers)
+            verify_program(scratch.design)
+            check_combinational(body)
+            check_dependencies(definition, body)
+            def concrete = copy(body)
+            check_dependencies(definition, concrete)
+            expanded[definition] := concrete
+            ~finally:
+              active.delete(active.length() - 1)
+        expanded[definition]
+
+      fun copy(original :: Module):
+        unless objects.has_key(original)
+        | def mutable name = original.name
+          def mutable suffix = 1
+          while builder.design.find_module_named(name) || (!(original.design === program.design) && program.design.find_module_named(name)):
+            suffix := suffix + 1
+            name := original.name ++ "_" ++ to_string(suffix)
+          def target = builder.module(name)
+          objects[original] := target
+          fun child(op :: Operation):
+            if op.opcode == "construct.instance"
+            | expand(op.attribute("definition"))
+            | copy(op.attribute("module"))
+          copy_module_body(builder, original, target, child, objects, copy_import)
+        objects[original]
+
+      for (dpi in program.design.dpi_imports): copy_import(dpi)
+      for (module_def in program.design.modules): copy(module_def)
+      verify_design(builder.design)
+      DesignElaboration(builder.design, objects[program.top])

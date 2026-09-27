@@ -11,6 +11,9 @@ export:
   ModuleSignature
   module_signature
   signature_equal
+  InputLeaf
+  OutputLeafDependency
+  leaf_paths
 
 class PortSignature(name :: String, type :: HardwareType):
   constructor (name :: String, type :: HardwareType):
@@ -49,3 +52,23 @@ fun signature_ports_equal(left :: List.of(PortSignature), right :: List.of(PortS
 
 fun signature_equal(left :: ModuleSignature, right :: ModuleSignature):
   signature_ports_equal(left.inputs, right.inputs) && signature_ports_equal(left.outputs, right.outputs)
+
+class InputLeaf(input_index :: Nat, path :: List.of(String || Nat))
+class OutputLeafDependency(path :: List.of(String || Nat), input_leaves :: List.of(InputLeaf))
+
+fun leaf_paths(type :: HardwareType) :: List.of(List.of(String || Nat)):
+  cond
+  | record_type(type):
+      def result = MutableList[]
+      for (field in type.fields):
+        for (path in leaf_paths(field.type)):
+          result.add([field.name] ++ path)
+      result.snapshot()
+  | vector_type(type):
+      def result = MutableList[]
+      for (index in 0..type.length):
+        for (path in leaf_paths(type.element_type)):
+          result.add([index] ++ path)
+      result.snapshot()
+  | ~else:
+      [[]]

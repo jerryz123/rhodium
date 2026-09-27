@@ -36,6 +36,8 @@ class SyncDomain(clock :: Value, reset :: Value)
 class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
                           reset_port :: AsciiIdentifier):
   implements ModuleMetadataPayload
+  override method remap_ir(remap :: Function.of_arity(1)):
+    SyncCircuitMetadata(clock_port, reset_port)
 
 def sync_circuit_metadata_namespace = "rhodium.sync-circuit"
 
