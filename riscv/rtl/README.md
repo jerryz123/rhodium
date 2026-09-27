@@ -57,6 +57,7 @@ Dependency enforcement and extension workflow are documented in
 | [`privilege.rhdl`](privilege.rhdl) | `PrivilegeMode`, `effective_data_privilege` | Shared M/S/U values and MPRV/MPP selection for explicit accesses |
 | [`pointer-masking.rhdl`](pointer-masking.rhdl) | `PointerMaskMode`, `PointerMaskControl`, and pointer-mask helpers | RV64 Ssnpm WARL controls and explicit-address normalization |
 | [`counters.rhdl`](counters.rhdl) | `RiscvCounterWrite`, `RiscvBaseCounters` | Reusable 64-bit `mcycle` and `minstret` state for RV32/RV64 |
+| [`hpm-counter.rhdl`](hpm-counter.rhdl) | `RiscvHpmWrite`, `RiscvHpmCounter` | One RV32/RV64 64-bit event counter with Sscofpmf privilege filtering and sticky overflow |
 | [`timer.rhdl`](timer.rhdl) | `RiscvTimerAccess`, `sstc_access`, `sstc_pending` | Stateless Sstc machine/guest denial priority and unsigned wrapping-time comparison; callers own CSR selection, storage, and pending-bit composition |
 | [`state-enable.rhdl`](state-enable.rhdl) | `RiscvStateEnableAccess`, `state_enable_access` | Stateless M/H SE and ENVCFG access hierarchy with machine-denial priority; callers own implemented CSR selection, state, WARL masks, and base privilege checks |
 | [`trap.rhdl`](trap.rhdl) | `RiscvTrapDecision`, `resolve_riscv_trap`, `exception_cause_bits` | Select and delegate synchronous exceptions without owning state |
@@ -191,6 +192,31 @@ RV32 writes preserve the untouched half; an explicit machine-counter write has
 priority over the same instruction's implicit increment. The integrating core
 supplies the precise `retire` event and owns CSR recognition, privilege and
 `counteren` gating, and the platform `time` source.
+
+[`hpm-counter.rhdl`](hpm-counter.rhdl) implements one 64-bit counter and
+selector with [Sscofpmf](https://docs.riscv.org/reference/isa/v20260120/priv/sscofpmf.html)
+filtering. Its `event` is a `Valid(RiscvExecutionContext())`: the caller selects
+the event and supplies its actual execution context, not an effective memory
+privilege. `inhibit` suppresses counting independently of the mode filters.
+The `hypervisor` specialization enables separate VS/VU filters; otherwise
+those selector bits read zero and virtualization is ignored.
+
+`counter_write` and `selector_write` take `Valid(RiscvHpmWrite(xlen))`.
+RV32 adds a `high` field and preserves the untouched half; RV64 writes the
+whole register. Either write suppresses the same-cycle event, and simultaneous
+writes update both registers. Selector bits 57:56 are zero; bits 55:0 retain
+the caller's implementation-defined event encoding. The caller legalizes
+unsupported encodings and supplies no events when counting is disabled.
+
+Hardware wrap sets sticky `OF` and produces a same-cycle `overflow` pulse
+only if `OF` was clear. Counting continues with `OF` set. Counter writes
+neither set nor clear `OF`; selector writes can rearm it without producing
+overflow. Reset clears both registers. As with other synchronous event ports,
+consumers ignore events during reset.
+
+The integrating core owns counter numbering, event selection, CSR permissions,
+`scountovf` projection, and interrupt-pending storage. This standalone block
+does not enable or advertise Sscofpmf in RV5Stage.
 
 ## Privilege, memory, and translation values
 

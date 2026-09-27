@@ -7,7 +7,12 @@ import:
 
 check:
   CsrId.Mstatus is_a CsrId ~is #true
-  CsrIds.length() ~is 248
+  csr_address(CsrId.Scountovf) ~is 0xda0
+  csr_address(CsrId.Mcountinhibit) ~is 0x320
+  MachineHpmEventHighIds.map(csr_address) ~is (for List (index in 3..32): 0x720 + index)
+  [MhpmeventOF, MhpmeventMINH, MhpmeventSINH, MhpmeventUINH, MhpmeventVSINH, MhpmeventVUINH].map(fun (field): field.mask()) ~is [0x8000000000000000, 0x4000000000000000, 0x2000000000000000, 0x1000000000000000, 0x0800000000000000, 0x0400000000000000]
+  MhpmeventSelect.mask() ~is 0x00ffffffffffffff
+  CsrIds.length() ~is 279
   CsrIds.map(csr_address) ~is [
     0x001, 0x002, 0x003,
     0x008, 0x009, 0x00a, 0x00f, 0xc20, 0xc21, 0xc22,
@@ -22,7 +27,9 @@ check:
     for List (index in 3..32): 0xc80 + index
   ) ++ (for List (index in 3..32): 0xb00 + index) ++ (
     for List (index in 3..32): 0xb80 + index
-  ) ++ (for List (index in 3..32): 0x320 + index) ++ [
+  ) ++ (for List (index in 3..32): 0x320 + index) ++ (
+    for List (index in 3..32): 0x720 + index
+  ) ++ [0xda0, 0x320] ++ [
     0x200, 0x204, 0x205, 0x24d, 0x25d, 0x240, 0x241, 0x242, 0x243, 0x244, 0x280,
     0x600, 0x602, 0x603, 0x604, 0x605, 0x606, 0x607, 0x60a, 0x615,
     0x61a, 0x643, 0x644, 0x645, 0x64a, 0x680, 0xe12, 0x34a, 0x34b

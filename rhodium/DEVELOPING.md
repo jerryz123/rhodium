@@ -183,6 +183,11 @@ In `riscv/rtl/`, `decode.rhdl` imports
 `std/bits.rhdl`; these modules materialize reusable architectural values and
 policy without importing a concrete processor.
 
+`riscv/rtl/hpm-counter.rhdl` imports pure CSR/XLEN descriptors, the CSR and
+privilege adapters, and `std/ready-valid.rhdl`. It owns reusable single-counter
+filtering and overflow state; event selection, CSR access control, and local
+interrupt-pending storage remain with the integrating core.
+
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.
 `sv39.rhdl` imports its page-memory-type representation and retains its existing

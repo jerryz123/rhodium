@@ -13,6 +13,7 @@ enum InterruptCause
 | VirtualSupervisorTimer
 | VirtualSupervisorExternal
 | SupervisorGuestExternal
+| LocalCounterOverflow
 
 def VirtualSupervisorInterruptCauses = [
   InterruptCause.VirtualSupervisorSoftware, InterruptCause.VirtualSupervisorTimer,
@@ -47,6 +48,7 @@ fun interrupt_code(cause :: InterruptCause) :: Nat:
   | InterruptCause.VirtualSupervisorTimer: 6
   | InterruptCause.VirtualSupervisorExternal: 10
   | InterruptCause.SupervisorGuestExternal: 12
+  | InterruptCause.LocalCounterOverflow: 13
 
 fun interrupt_mask(causes :: List.of(InterruptCause)) :: Nat:
   def mutable mask = 0

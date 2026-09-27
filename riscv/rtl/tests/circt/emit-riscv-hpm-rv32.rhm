@@ -1,0 +1,12 @@
+#lang rhombus
+// Emits the RV32 non-hypervisor HPM counter for behavioral simulation.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../isa/xlen.rhm" open
+  "../../hpm-counter.rhdl" as hpm
+
+def design = embedded.run_elaboration(fun (): hpm.RiscvHpmCounter(XLen.X32, ~hypervisor: #false))
+print(emit_circt(design))

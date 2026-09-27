@@ -248,6 +248,9 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
+    cores-components:riscv-hpm-*)
+      return 0
+      ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
       return 0
       ;;
@@ -864,6 +867,8 @@ direct_fixture_specs=(
   'iterative-divider|iterative_divider_tb'
   'cache-replacement|cache_replacement_tb'
   'riscv-counters-rv32|riscv_counters_rv32_tb'
+  'riscv-hpm-rv32|riscv_hpm_rv32_tb'
+  'riscv-hpm-rv64|riscv_hpm_rv64_tb'
   'riscv-floating-point|riscv_floating_point_tb'
   'riscv-compressed|riscv_compressed_tb'
   'rv5stage-fp-register-file|rv5stage_fp_register_file_tb'

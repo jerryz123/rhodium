@@ -22,6 +22,7 @@ enum CsrId
 | Stimecmp
 | Stimecmph
 | Scounteren
+| Scountovf
 | Senvcfg
 | Sscratch
 | Sepc
@@ -45,6 +46,7 @@ enum CsrId
 | Mie
 | Mtvec
 | Mcounteren
+| Mcountinhibit
 | Menvcfg
 | Mscratch
 | Mepc
@@ -255,6 +257,35 @@ enum CsrId
 | Mhpmevent29
 | Mhpmevent30
 | Mhpmevent31
+| Mhpmevent3h
+| Mhpmevent4h
+| Mhpmevent5h
+| Mhpmevent6h
+| Mhpmevent7h
+| Mhpmevent8h
+| Mhpmevent9h
+| Mhpmevent10h
+| Mhpmevent11h
+| Mhpmevent12h
+| Mhpmevent13h
+| Mhpmevent14h
+| Mhpmevent15h
+| Mhpmevent16h
+| Mhpmevent17h
+| Mhpmevent18h
+| Mhpmevent19h
+| Mhpmevent20h
+| Mhpmevent21h
+| Mhpmevent22h
+| Mhpmevent23h
+| Mhpmevent24h
+| Mhpmevent25h
+| Mhpmevent26h
+| Mhpmevent27h
+| Mhpmevent28h
+| Mhpmevent29h
+| Mhpmevent30h
+| Mhpmevent31h
 
 def HpmCounterIds = [
   CsrId.Hpmcounter3, CsrId.Hpmcounter4, CsrId.Hpmcounter5, CsrId.Hpmcounter6,
@@ -311,6 +342,17 @@ def MachineHpmEventIds = [
   CsrId.Mhpmevent31
 ]
 
+def MachineHpmEventHighIds = [
+  CsrId.Mhpmevent3h, CsrId.Mhpmevent4h, CsrId.Mhpmevent5h, CsrId.Mhpmevent6h,
+  CsrId.Mhpmevent7h, CsrId.Mhpmevent8h, CsrId.Mhpmevent9h, CsrId.Mhpmevent10h,
+  CsrId.Mhpmevent11h, CsrId.Mhpmevent12h, CsrId.Mhpmevent13h, CsrId.Mhpmevent14h,
+  CsrId.Mhpmevent15h, CsrId.Mhpmevent16h, CsrId.Mhpmevent17h, CsrId.Mhpmevent18h,
+  CsrId.Mhpmevent19h, CsrId.Mhpmevent20h, CsrId.Mhpmevent21h, CsrId.Mhpmevent22h,
+  CsrId.Mhpmevent23h, CsrId.Mhpmevent24h, CsrId.Mhpmevent25h, CsrId.Mhpmevent26h,
+  CsrId.Mhpmevent27h, CsrId.Mhpmevent28h, CsrId.Mhpmevent29h, CsrId.Mhpmevent30h,
+  CsrId.Mhpmevent31h
+]
+
 def HypervisorCsrIds = [
   CsrId.Vsstatus, CsrId.Vsie, CsrId.Vstvec, CsrId.Vstimecmp, CsrId.Vstimecmph, CsrId.Vsscratch, CsrId.Vsepc,
   CsrId.Vscause, CsrId.Vstval, CsrId.Vsip, CsrId.Vsatp,
@@ -341,7 +383,7 @@ def CsrIds = [
   CsrId.Mscratch, CsrId.Mepc, CsrId.Mcause, CsrId.Mtval, CsrId.Mip,
   CsrId.Mcycle, CsrId.Minstret, CsrId.Mcycleh, CsrId.Minstreth,
   CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid, CsrId.Mconfigptr
-] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds ++ HypervisorCsrIds ++ StateEnableCsrIds
+] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds ++ MachineHpmEventHighIds ++ [CsrId.Scountovf, CsrId.Mcountinhibit] ++ HypervisorCsrIds ++ StateEnableCsrIds
 
 fun csr_address(id :: CsrId) :: Nat:
   match id
@@ -381,6 +423,7 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Stimecmp: 0x14d
   | CsrId.Stimecmph: 0x15d
   | CsrId.Scounteren: 0x106
+  | CsrId.Scountovf: 0xda0
   | CsrId.Senvcfg: 0x10a
   | CsrId.Sscratch: 0x140
   | CsrId.Sepc: 0x141
@@ -404,6 +447,7 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Mie: 0x304
   | CsrId.Mtvec: 0x305
   | CsrId.Mcounteren: 0x306
+  | CsrId.Mcountinhibit: 0x320
   | CsrId.Menvcfg: 0x30a
   | CsrId.Mscratch: 0x340
   | CsrId.Mepc: 0x341
@@ -594,6 +638,35 @@ fun csr_address(id :: CsrId) :: Nat:
   | CsrId.Mhpmevent29: 0x33d
   | CsrId.Mhpmevent30: 0x33e
   | CsrId.Mhpmevent31: 0x33f
+  | CsrId.Mhpmevent3h: 0x723
+  | CsrId.Mhpmevent4h: 0x724
+  | CsrId.Mhpmevent5h: 0x725
+  | CsrId.Mhpmevent6h: 0x726
+  | CsrId.Mhpmevent7h: 0x727
+  | CsrId.Mhpmevent8h: 0x728
+  | CsrId.Mhpmevent9h: 0x729
+  | CsrId.Mhpmevent10h: 0x72a
+  | CsrId.Mhpmevent11h: 0x72b
+  | CsrId.Mhpmevent12h: 0x72c
+  | CsrId.Mhpmevent13h: 0x72d
+  | CsrId.Mhpmevent14h: 0x72e
+  | CsrId.Mhpmevent15h: 0x72f
+  | CsrId.Mhpmevent16h: 0x730
+  | CsrId.Mhpmevent17h: 0x731
+  | CsrId.Mhpmevent18h: 0x732
+  | CsrId.Mhpmevent19h: 0x733
+  | CsrId.Mhpmevent20h: 0x734
+  | CsrId.Mhpmevent21h: 0x735
+  | CsrId.Mhpmevent22h: 0x736
+  | CsrId.Mhpmevent23h: 0x737
+  | CsrId.Mhpmevent24h: 0x738
+  | CsrId.Mhpmevent25h: 0x739
+  | CsrId.Mhpmevent26h: 0x73a
+  | CsrId.Mhpmevent27h: 0x73b
+  | CsrId.Mhpmevent28h: 0x73c
+  | CsrId.Mhpmevent29h: 0x73d
+  | CsrId.Mhpmevent30h: 0x73e
+  | CsrId.Mhpmevent31h: 0x73f
 
 // CSR address encoding fields.
 def CsrAddressPrivilege = BitField("csr-address.privilege", 9, 8)
@@ -648,6 +721,13 @@ def MenvcfgPBMTE = BitField("menvcfg.PBMTE", 62, 62)
 def CounterenCY = BitField("xcounteren.CY", 0, 0)
 def CounterenTM = BitField("xcounteren.TM", 1, 1)
 def CounterenIR = BitField("xcounteren.IR", 2, 2)
+def MhpmeventOF = BitField("mhpmevent.OF", 63, 63)
+def MhpmeventMINH = BitField("mhpmevent.MINH", 62, 62)
+def MhpmeventSINH = BitField("mhpmevent.SINH", 61, 61)
+def MhpmeventUINH = BitField("mhpmevent.UINH", 60, 60)
+def MhpmeventVSINH = BitField("mhpmevent.VSINH", 59, 59)
+def MhpmeventVUINH = BitField("mhpmevent.VUINH", 58, 58)
+def MhpmeventSelect = BitField("mhpmevent.EVENT", 55, 0)
 def Satp64PPN = BitField("satp.PPN", 43, 0)
 def Satp64ASID = BitField("satp.ASID", 59, 44)
 def Satp64Mode = BitField("satp.MODE", 63, 60)
@@ -694,6 +774,14 @@ export:
   MachineHpmCounterIds
   MachineHpmCounterHighIds
   MachineHpmEventIds
+  MachineHpmEventHighIds
+  MhpmeventOF
+  MhpmeventMINH
+  MhpmeventSINH
+  MhpmeventUINH
+  MhpmeventVSINH
+  MhpmeventVUINH
+  MhpmeventSelect
   csr_address
   CsrAddressPrivilege
   CsrAddressReadOnly

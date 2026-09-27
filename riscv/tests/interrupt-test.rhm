@@ -13,5 +13,7 @@ check:
   interrupt_code(InterruptCause.MachineTimer) ~is 7
   interrupt_code(InterruptCause.SupervisorExternal) ~is 9
   interrupt_code(InterruptCause.MachineExternal) ~is 11
+  interrupt_code(InterruptCause.LocalCounterOverflow) ~is 13
+  interrupt_mask([InterruptCause.LocalCounterOverflow]) ~is 0x2000
   interrupt_mask(InterruptCauses) ~is 0xaaa
   interrupt_mask(SupervisorInterruptCauses) ~is 0x222

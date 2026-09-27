@@ -1,0 +1,67 @@
+#lang rhodium
+// Implements one 64-bit HPM counter with Sscofpmf filtering and sticky overflow.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../isa/csr.rhm" open
+  "../isa/xlen.rhm" open
+  "csr.rhdl" open
+  "privilege.rhdl" open
+  lib("rhodium/std/ready-valid.rhdl") open
+
+bundle RiscvHpmWrite(xlen :: XLen):
+  if xlen == XLen.X32:
+    high: Bool
+  value: Bits(xlen.width)
+
+sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false):
+  interface event(Valid(RiscvExecutionContext()), ~role: consumer)
+  input inhibit: Bool
+  interface counter_write(Valid(RiscvHpmWrite(xlen)), ~role: consumer)
+  interface selector_write(Valid(RiscvHpmWrite(xlen)), ~role: consumer)
+  output counter: Bits(64)
+  output selector: Bits(64)
+  interface overflow(Pulse(), ~role: producer)
+
+  reg count(~init: bits(0, 64))
+  reg control(~init: bits(0, 64))
+  def control_fields = [MhpmeventOF, MhpmeventMINH, MhpmeventSINH, MhpmeventUINH, MhpmeventSelect] ++ (if hypervisor | [MhpmeventVSINH, MhpmeventVUINH] | [])
+  def control_mask = bits(csr_fields_mask(control_fields), 64)
+  def guest = if hypervisor | event.bits.virtualized | Bool(#false)
+  def mode_inhibited = mux_lookup(
+    event.bits.privilege,
+    ~default: Bool(#true),
+    [
+      [PrivilegeMode.Machine, csr_flag(control, MhpmeventMINH)],
+      [PrivilegeMode.Supervisor, mux(guest, csr_flag(control, MhpmeventVSINH), csr_flag(control, MhpmeventSINH))],
+      [PrivilegeMode.User, mux(guest, csr_flag(control, MhpmeventVUINH), csr_flag(control, MhpmeventUINH))]
+    ]
+  )
+  // Reconfiguration and explicit writes take precedence over counting.
+  def increment = event.valid & !inhibit & !mode_inhibited & !counter_write.valid & !selector_write.valid
+  def wrapped = increment & count.and_reduce()
+  overflow.valid <== wrapped & !csr_flag(control, MhpmeventOF)
+
+  def counter_replacement:
+    if xlen == XLen.X32
+    | mux(counter_write.bits.high, counter_write.bits.value ++ count[0..32], count[32..64] ++ counter_write.bits.value)
+    | counter_write.bits.value
+  def selector_replacement:
+    if xlen == XLen.X32
+    | mux(selector_write.bits.high, selector_write.bits.value ++ control[0..32], control[32..64] ++ selector_write.bits.value)
+    | selector_write.bits.value
+  when (counter_write.valid):
+    count <== counter_replacement
+  elsewhen increment:
+    count <== count + bits(1, 64)
+  when (selector_write.valid):
+    control <== selector_replacement & control_mask
+  elsewhen wrapped:
+    control <== csr_flag_replace(control, MhpmeventOF, Bool(#true))
+
+  counter <== count
+  selector <== control
+
+export:
+  RiscvHpmWrite
+  RiscvHpmCounter
