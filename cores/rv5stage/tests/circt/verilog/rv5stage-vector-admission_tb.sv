@@ -1,4 +1,4 @@
-// Checks certified request handoff, local retry, and precise fallback page-window lifetime.
+// Checks vector admission, certification, fallback memory, and misaligned slow requests.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_vector_admission_tb;
   logic clock=0, reset=1;
@@ -283,6 +283,19 @@ module rv5stage_vector_admission_tb;
     launch(memory_insn(8,0),64'h600,0,24); drain();
     assert(checks==0 && releases==0 && accesses==0 && outcomes==1 && last_outcome==64'h600)
       else $fatal(1,"empty memory did not certify once at dispatch");
+    // Misaligned elements bypass the speculative lookup, retain one vector
+    // completion owner, and use the same WB slow offer as scalar accesses.
+    clear();
+    launch(memory_insn(8,0),64'h1003,1,24);
+    while(memory_requests<1) tick();
+    assert(checks==0 && accesses==0 && pending_memory[0].address==64'h1003 && pending_memory[0].access==1)
+      else $fatal(1,"misaligned vector load did not use the faultable slow path");
+    return_memory(0); drain();
+    launch(memory_insn(8,1),64'h2005,1,24);
+    while(memory_requests<2) tick();
+    assert(checks==0 && accesses==0 && pending_memory[1].address==64'h2005 && pending_memory[1].access==2 && pending_memory[1].data==64'h1003)
+      else $fatal(1,"misaligned vector store lost the loaded element or slow owner");
+    return_memory(1); drain();
     $display("Vector admission passed: queue ownership, certification, delayed responses, final replay, and descriptor snapshots");
     $finish;
   end

@@ -10,9 +10,11 @@ placement, change workflow, and focused validation.
 ## Architecture and ownership
 
 The MMU sits between virtual core requests and the physical memory hierarchy.
-It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency fetch outcomes, and separate translated-core and walker physical requests. The parent
-core owns CSR sequencing, trap priority, alignment, PMA routing, cache behavior,
-and final exception causes.
+It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency
+fetch outcomes, misaligned ordinary-access preflight and fragmentation, and
+separate translated-core and walker physical requests. The parent core owns CSR
+sequencing, trap priority, atomic/LRSC alignment, and final exception causes;
+the physical router and cache own admitted transaction behavior.
 
 Reuse the public RISC-V Sv39 adapter for PTE layout, canonicality, permissions,
 superpages, and physical-address construction. Keep translation state in the
@@ -33,7 +35,8 @@ This is response correlation, not whole-port ownership.
 | [`translation.rhdl`](translation.rhdl) | Shared host/guest lookup, mapping, fill, PTE-memory contracts, and host-port value projections |
 | [`../tests/translation-service.rhdl`](../tests/translation-service.rhdl) | Test-only serialized command driver for the shared TLB/walker |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, physical checks, and separate core/PTE physical offers |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, misaligned access preflight, physical checks, and separate core/PTE physical offers |
+| [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word physical fragment sequencing, original-owner retention, load assembly, and single-completion return after MMU preflight |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
@@ -71,6 +74,11 @@ invalidate translations or cancel accepted page-table response ownership.
    checks in L1D. `ordered_busy` separately blocks younger work behind IO.
    Forward WB authorization and readiness unchanged; WB owns squash and
    serialization. Do not reconnect drain-derived flush to store authorization.
+   Misaligned ordinary accesses are rejected by the speculative MEM lookup and
+   enter the WB slow owner. Drain older memory work before capturing one; for a
+   cross-word access, resolve both virtual pages and both physical word regions
+   before issuing either fragment. Retain the original writeback owner through
+   one response, and leave atomic/LRSC alignment traps in the scalar core.
    Never use relaxed prefetch A/D permissions or start a speculative data walk.
    Fork lookup context explicitly between early virtual indexing, translation,
    and requester ownership. Use filtered/mapped physical-request flows; route

@@ -26,7 +26,7 @@ fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
       def fp = preset == IsaPreset.RV32Max
       def vector = if fp | VectorProfile.Zve32f | VectorProfile.Zve32x
       def extensions = vector_extensions(VectorExtension.Zvbb)
-      def scalar = ["i", "m", "a"] ++ (if fp | ["f"] | []) ++ ["c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse"]
+      def scalar = ["i", "m", "a"] ++ (if fp | ["f"] | []) ++ ["c", "b", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "zicclsm", "ziccrse"]
       def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ ["sscofpmf"] ++ vector_profile_isa_extensions(vector, 64, extensions) ++ ["zvkt"]
       SoCArchitecture(
         RiscvIsaProfile(XLen.X32, names, IntegerMisa ++ (if fp | [MisaExtension.F] | []) ++ [MisaExtension.C]),
@@ -35,7 +35,7 @@ fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
   | IsaPreset.RVA23:
       // Product selection, not a claim of RVA23U64/S64 conformance.
       def extensions = vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb)
-      def scalar = ["i", "m", "a", "f", "d", "c", "b", "h", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zfa", "zfh", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "ziccrse", "ssnpm", "supm"]
+      def scalar = ["i", "m", "a", "f", "d", "c", "b", "h", "za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zfa", "zfh", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "zicclsm", "ziccrse", "ssnpm", "supm"]
       def privileged = ["sstc", "svinval", "svpbmt", "svnapot", "smstateen", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa", "sha"]
       def names = scalar ++ IntegerHintExtensions ++ IntegerSystemExtensions ++ privileged ++ ["sscofpmf"] ++ vector_profile_isa_extensions(VectorProfile.V, 128, extensions) ++ ["zvkt"]
       SoCArchitecture(

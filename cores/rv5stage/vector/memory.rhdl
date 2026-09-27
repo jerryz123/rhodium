@@ -154,14 +154,14 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def operation = wb_context.bits
   def token = operation.request_context.token
   request_physical <== token.precertified
-  def memory_operation = wb_context.valid & token.memory & token.enabled & !operation.request_context.misaligned
+  def memory_operation = wb_context.valid & token.memory & token.enabled
   def slow = memory_operation & (operation.outcome === RV5StagePipelineOutcome.Slow)
   def store_hit = memory_operation & (operation.outcome === RV5StagePipelineOutcome.StoreHit)
   wire hit_ready: Bool
   pipeline.commit <== store_hit
   def page_fault = memory_operation & ((operation.outcome === RV5StagePipelineOutcome.PageFault) ||| (slow & memory.request_fault))
   def access_fault = memory_operation & !page_fault & ((operation.outcome === RV5StagePipelineOutcome.AccessFault) ||| (slow & memory.request_access_fault))
-  def fault = wb_context.valid & (operation.request_context.misaligned ||| page_fault ||| access_fault)
+  def fault = wb_context.valid & (page_fault ||| access_fault)
   def hit = wb_context.valid & !slow & !fault & (operation.outcome =/= RV5StagePipelineOutcome.Replay)
   def precise_retry = memory_operation & !fault & ((operation.outcome === RV5StagePipelineOutcome.Replay) ||| (slow & !memory.request.ready) ||| (store_hit & !pipeline.commit_ready))
   retry <== precise_retry ||| (hit & token.precertified & !token.store & !hit_ready)
@@ -189,7 +189,6 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
                        mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width)),
                        mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width)))
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
-  def alignment_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, xlen.width), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, xlen.width))
   def response_capture = wb_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
     address: decision.request_context.request.address
@@ -206,7 +205,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     disposition: disposition
     slow: accepted
     data: operation.data
-    cause: mux(page_fault, page_cause, mux(access_fault, access_cause, alignment_cause))
+    cause: mux(page_fault, page_cause, access_cause)
     fault_address: operation.request_context.request.address
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
   def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)

@@ -805,7 +805,9 @@ The certificate covers the aligned transport envelope within ordinary,
 idempotent, cacheable memory. Dynamic-stride operations retain elementwise
 execution even when certified. Uncertified, indexed, and fault-only-first
 operations also execute elementwise and retain precise element fault reporting.
-This does not enable architecturally misaligned elements.
+Misaligned elements bypass the speculative cache lookup and use the shared WB
+slow path. A cross-word element is split only after every touched page and
+physical word is authorized; its completion still belongs to one vector element.
 
 The private address/lookup/acceptance stages arbitrate for the scalar LSU.
 Unmasked contiguous streams can offer one aligned word per cycle when read

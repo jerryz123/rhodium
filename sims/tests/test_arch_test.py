@@ -60,6 +60,7 @@ def sail_default():
             "Zvfh": {"supported": False}, "Zvbb": {"supported": False},
             "Zvkb": {"supported": False}, "Zvkt": {"supported": False},
             "Zic64b": {"supported": False}, "Zicboz": {"supported": False},
+            "Zicclsm": {"supported": False},
             "Zicbom": {"supported": False}, "Zicbop": {"supported": False},
             "Ssnpm": {"supported": False, "supported_pmlen_7": False,
                        "supported_pmlen_16": False},
@@ -330,6 +331,24 @@ class ArchTestConfigTest(unittest.TestCase):
                                  {"Some": "AlignmentException"})
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
 
+    def test_zicclsm_projects_scalar_and_vector_main_memory_only(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        udb = vector_udb()
+        udb["implemented_extensions"].append({"name": "Zicclsm", "version": "= 1.0.0"})
+        udb["params"]["MISALIGNED_LDST"] = True
+        udb["params"]["VECTOR_LS_MISALIGNED_LEGAL"] = True
+        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        self.assertTrue(config["extensions"]["Zicclsm"]["supported"])
+        for kind in ("load_store", "vector"):
+            self.assertEqual(config["memory"]["misaligned"]["exceptions"][kind], {"None": None})
+            self.assertEqual(config["memory"]["regions"][1]["attributes"]["misaligned_exceptions"][kind], {"None": None})
+            self.assertEqual(config["memory"]["regions"][0]["attributes"]["misaligned_exceptions"][kind], {"Some": "AccessFault"})
+        self.assertEqual(config["memory"]["misaligned"]["exceptions"]["amo"], {"Some": "AlignmentException"})
+        self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"], {"Some": "AlignmentException"})
+        udb["params"]["MISALIGNED_LDST"] = False
+        with self.assertRaisesRegex(ValueError, "MISALIGNED_LDST must match Zicclsm"):
+            configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+
     def test_vector_settings_come_from_core_profile(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         config = configure["sail_config"](sail_default(), vector_udb(), 0x80000000, 0x40000000)
@@ -464,7 +483,7 @@ class ArchTestConfigTest(unittest.TestCase):
         cases.append((stateen, "writable MSTATEEN.ENVCFG"))
         wrong_behavior = vector_udb()
         wrong_behavior["params"]["VECTOR_LS_MISALIGNED_LEGAL"] = True
-        cases.append((wrong_behavior, "VECTOR_LS_MISALIGNED_LEGAL=False"))
+        cases.append((wrong_behavior, "VECTOR_LS_MISALIGNED_LEGAL must match Zicclsm"))
         for udb, message in cases:
             with self.subTest(message=message), self.assertRaisesRegex(ValueError, message):
                 project(sail_default(), udb, 0x80000000, 0x40000000)

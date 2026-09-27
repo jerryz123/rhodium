@@ -18,9 +18,11 @@ sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
   output pipeline_vector: Bool
   inst requests(Arbiter(RV5StageDataReq(xlen, slots), 2))
-  Array(scalar.request, vector.request) <=> requests.ingress
+  // A live vector element belongs to a macro already admitted at WB, so it
+  // precedes a simultaneous younger scalar WB slow request.
+  Array(vector.request, scalar.request) <=> requests.ingress
   requests.egress |> memory.request
-  def selected_vector = requests.chosen === bits(1, 1)
+  def selected_vector = requests.chosen === bits(0, 1)
   scalar.request_fault <== memory.request_fault & !selected_vector
   scalar.request_access_fault <== memory.request_access_fault & !selected_vector
   vector.request_fault <== memory.request_fault & selected_vector

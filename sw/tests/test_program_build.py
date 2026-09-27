@@ -261,6 +261,7 @@ class ProgramBuildTest(unittest.TestCase):
         self.assertTrue(all('-p-' in name for name in names))
         self.assertIn('rv64ua-p-lrsc', names)
         self.assertIn('rv64mzicbo-p-zero', names)
+        self.assertNotIn('rv64ui-p-ma_data', names)
         self.assertNotIn('rv64uc', groups)
         target['extensions'].append('c')
         _, compressed = self.builder.smoke_selection(target)
@@ -272,6 +273,9 @@ class ProgramBuildTest(unittest.TestCase):
         self.assertIn('rv32ui-p-lw', names)
         self.assertIn('rv32ui-p-sw', names)
         self.assertIn('rv32ua-p-amoadd_w', names)
+        target['extensions'].append('zicclsm')
+        _, misaligned = self.builder.smoke_selection(target)
+        self.assertIn('rv32ui-p-ma_data', misaligned)
         self.assertIn('rv32uc-p-rvc', names)
         self.assertNotIn('rv32mzicbo', groups)
 
@@ -297,7 +301,7 @@ class ProgramBuildTest(unittest.TestCase):
         target['privilege_modes'] = ['m', 's']
         self.assertFalse(self.builder.virtual_environment_enabled(target))
 
-    def test_makefrag_inventory_selects_virtual_tests_and_excludes_misalignment(self):
+    def test_makefrag_inventory_selects_misalignment_when_supported(self):
         for xlen in (32, 64):
             with self.subTest(xlen=xlen), tempfile.TemporaryDirectory() as directory:
                 source = Path(directory)
@@ -308,8 +312,10 @@ class ProgramBuildTest(unittest.TestCase):
                 command = ['make', '--no-print-directory', '-s', '-f', str(BUILD_SCRIPTS / 'isa.mk'),
                            f'XLEN={xlen}', f'src_dir={source}', f'program_groups={group}',
                            f'program_virtual_groups={group}', 'program-manifest']
-                names = subprocess.check_output(command, cwd=source, text=True).splitlines()
-                self.assertEqual(names, [f'{group}-p-add', f'{group}-v-add'])
+                excluded = subprocess.check_output(command, cwd=source, text=True).splitlines()
+                self.assertEqual(excluded, [f'{group}-p-add', f'{group}-v-add'])
+                enabled = subprocess.check_output(command[:-1] + ['program_misaligned=1', 'program-manifest'], cwd=source, text=True).splitlines()
+                self.assertEqual(enabled, [f'{group}-p-add', f'{group}-p-ma_data', f'{group}-v-add', f'{group}-v-ma_data'])
 
     def test_rv32_elf_footprint_checks_bss_entry_and_program_headers(self):
         with tempfile.TemporaryDirectory() as directory:

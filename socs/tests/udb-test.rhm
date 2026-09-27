@@ -45,6 +45,7 @@ def single_core_gnu_target = gnu_isa_target(
 for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_profile, tiled_rv5stage_soc_core_profile]):
   check:
     profile.isa_profile.isa_extensions.contains("ziccif") ~is #true
+    profile.isa_profile.isa_extensions.contains("zicclsm") ~is #true
     profile.isa_profile.isa_extensions.contains("ziccamoa") ~is #true
     profile.extensions.ziccrse ~is #true
     profile.extensions.svpbmt ~is #true
@@ -63,6 +64,7 @@ for (profile in [single_core_rv5stage_soc_core_profile, mini_rv5stage_soc_core_p
 for (name in ["simple-rv5stage-rva23", "mini-rv5stage-rva23", "tiled-rv5stage-rva23"]):
   check:
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccif\", version: \"= 1.0.0\" }") ~is #true
+    riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccamoa\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Ziccrse\", version: \"= 1.0.0\" }") ~is #true
     riscv_udb_configuration(name).to_yaml().contains("{ name: \"Zic64b\", version: \"= 1.0.0\" }") ~is #true

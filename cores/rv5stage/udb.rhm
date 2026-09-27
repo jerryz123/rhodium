@@ -68,6 +68,8 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
   | result := result ++ [extension("Zicbom", "1.0.0")]
   when advertises("ziccif")
   | result := result ++ [extension("Ziccif", "1.0.0")]
+  when advertises("zicclsm")
+  | result := result ++ [extension("Zicclsm", "1.0.0")]
   when advertises("ziccamoa")
   | result := result ++ [extension("Ziccamoa", "1.0.0")]
   when advertises("ziccrse")
@@ -183,7 +185,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     natural_parameter("CONFIG_PTR_ADDRESS", 0),
     natural_parameter("VENDOR_ID_BANK", 0),
     natural_parameter("VENDOR_ID_OFFSET", 0),
-    boolean_parameter("MISALIGNED_LDST", #false),
+    boolean_parameter("MISALIGNED_LDST", #true),
     string_parameter("MISALIGNED_LDST_EXCEPTION_PRIORITY", "high"),
     string_parameter("M_MODE_ENDIANNESS", "little"),
     boolean_parameter("MISA_CSR_IMPLEMENTED", #true),
@@ -300,7 +302,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
       boolean_parameter("VECTOR_LOAD_PAST_TRAP", #false),
       string_parameter("VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT", "no_overwrite"),
       string_parameter("VECTOR_LS_INDEX_MAX_EEW", to_string(vector_profile_elen_bits(profile.vector))),
-      boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #false),
+      boolean_parameter("VECTOR_LS_MISALIGNED_LEGAL", #true),
       boolean_parameter("VECTOR_LS_SEG_PARTIAL_ACCESS", #true),
       boolean_parameter("VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL", #false),
       string_parameter("VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR", "copy"),

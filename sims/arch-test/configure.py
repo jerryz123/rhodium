@@ -96,7 +96,6 @@ VECTOR_PARAMETER_VALUES = {
     "VECTOR_FF_UPDATE_PAST_TRIM": "update_none",
     "VECTOR_LOAD_PAST_TRAP": False,
     "VECTOR_LOAD_SEG_FF_OVERWRITE_ELEMENTS_AFTER_FAULT": "no_overwrite",
-    "VECTOR_LS_MISALIGNED_LEGAL": False,
     "VECTOR_LS_SEG_PARTIAL_ACCESS": True,
     "VECTOR_LS_WHOLEREG_MISALIGNED_LEGAL": False,
     "VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR": "copy",
@@ -204,6 +203,8 @@ def project_vector(model_extensions, extensions, params):
             raise ValueError(f"Sail vector projection requires {name}={expected!r}")
     if params.get("VSSTATUS_VS_EXISTS") != ("H" in names):
         raise ValueError("VSSTATUS_VS_EXISTS must match H support")
+    if params.get("VECTOR_LS_MISALIGNED_LEGAL") is not ("Zicclsm" in extensions):
+        raise ValueError("VECTOR_LS_MISALIGNED_LEGAL must match Zicclsm support")
     for name, choices in {
         "RESERVED_VSET_X0X0_VILL_SET": ("never", "always"),
         "RESERVED_VSET_X0X0_VLMAX_CHANGE": ("never", "always"),
@@ -264,8 +265,13 @@ def sail_config(default, udb, origin, size):
         raise ValueError("Sail PMP projection requires 0, 16, or 64 entries and at least four-byte granularity")
     if type(pmp_usable_count) is not int or not 0 <= pmp_usable_count <= pmp_count:
         raise ValueError("Sail PMP usable entries must fit the implemented PMP entries")
-    if params["MISALIGNED_LDST"] or params["MISALIGNED_LDST_EXCEPTION_PRIORITY"] != "high":
-        raise ValueError("initial ACT adapter requires high-priority misaligned load/store traps")
+    if params["MISALIGNED_LDST_EXCEPTION_PRIORITY"] != "high":
+        raise ValueError("ACT adapter requires high-priority misaligned exceptions")
+    misaligned = params["MISALIGNED_LDST"]
+    if type(misaligned) is not bool or misaligned != ("Zicclsm" in extensions):
+        raise ValueError("MISALIGNED_LDST must match Zicclsm support")
+    if "Zicclsm" in extensions and extensions["Zicclsm"] != "1.0.0":
+        raise ValueError("Zicclsm needs a Sail mapping for its advertised version")
     if params["M_MODE_ENDIANNESS"] != "little":
         raise ValueError("initial ACT adapter requires little-endian M mode")
     model_extensions = default["extensions"]
@@ -355,7 +361,8 @@ def sail_config(default, udb, origin, size):
     memory["pmp"]["na4_supported"] = params.get("PMP_NA4_SUPPORTED", pmp_count != 0 and pmp_granularity == 2)
     memory["pmp"]["napot_supported"] = params.get("PMP_NAPOT_SUPPORTED", pmp_count != 0)
     memory["pmp"]["tor_supported"] = params.get("PMP_TOR_SUPPORTED", pmp_count != 0)
-    memory["misaligned"]["exceptions"]["load_store"] = {"Some": "AlignmentException"}
+    memory["misaligned"]["exceptions"]["load_store"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
+    memory["misaligned"]["exceptions"]["vector"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["amo"] = {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["lrsc"] = {"Some": "AlignmentException"}
     ram = next(region for region in memory["regions"] if region["attributes"]["mem_type"] == "MainMemory")
@@ -363,6 +370,8 @@ def sail_config(default, udb, origin, size):
     attrs = ram["attributes"]
     attrs.update(atomic_support="AMOArithmetic", misaligned_atomicity_granule_size_exp=0,
                  vector_misaligned_atomicity_granule_size_exp=0, supports_cbo_zero="Zicboz" in extensions)
+    for kind in ("load_store", "vector"):
+        attrs.setdefault("misaligned_exceptions", {})[kind] = memory["misaligned"]["exceptions"][kind]
     if extensions.keys() & {"Zic64b", "Zicbom", "Zicbop", "Zicboz"}:
         block_size = params["CACHE_BLOCK_SIZE"]
         if type(block_size) is not int or block_size <= 0 or block_size & (block_size - 1):
@@ -375,6 +384,8 @@ def sail_config(default, udb, origin, size):
     # that the DUT exposes the synthetic devices. Missing DUT hooks fail at runtime.
     io = next(region for region in memory["regions"] if not region["attributes"]["cacheable"])
     io["attributes"]["supports_cbo_zero"] = False
+    for kind in ("load_store", "vector"):
+        io["attributes"].setdefault("misaligned_exceptions", {})[kind] = {"Some": "AccessFault"}
     memory["regions"] = [io, ram]
     memory["dtb_address"] = bits(origin)
     platform = default["platform"]

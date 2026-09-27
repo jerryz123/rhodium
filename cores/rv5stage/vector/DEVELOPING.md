@@ -56,6 +56,11 @@ lifetimes; they do not introduce additional pipeline stages.
 | `packed-load.rhdl` | Packed layout checkpoints, accepted responses, byte assembly, and partial-row carry | Accepted words and the final partial row drain |
 | `splat-load.rhdl` | One faultable encoded-zero-stride read value, mask-word cache, and row-wise VRF writes | The final row drains, all elements are masked, or the read faults |
 
+Misaligned elements are never precertified: `memory.rhdl` suppresses their
+speculative lookup and offers them to the shared WB slow path. That path owns
+one- or two-word fragmentation, translation, and physical checks; vector
+completion still accounts for one element and one slot.
+
 `geometry.rhdl` provides focused combinational helpers for beat limits, widths,
 lane counts, and VRF operand requirements. `bundles.rhdl` separates instruction descriptors,
 operand-free `BeatControl`, operand-bearing beats, owned results, and drain

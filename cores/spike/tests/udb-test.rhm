@@ -39,6 +39,10 @@ def rva23_yaml = rva23.to_yaml()
 for (name in ["B", "Zcb", "Zcmop", "Zfa", "Zfh", "Zfhmin", "V", "Zve32x", "Zve64d", "Zvbb", "Zvkb", "Zvfh", "Zvfhmin", "Zvkt", "Zvl128b", "Ssnpm", "Supm", "Zicbom", "Zicboz", "Za64rs", "Svpbmt", "Svnapot"]):
   check: (for any (entry in rva23.extensions): entry.name == name) ~is #true
 check:
+  rva23_yaml.contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
+  rva23_yaml.contains("  MISALIGNED_LDST: true") ~is #true
+  rva23_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: true") ~is #true
+  yaml.contains("  MISALIGNED_LDST: false") ~is #true
   rva23_yaml.contains("  VLEN: 128") ~is #true
   rva23_yaml.contains("  ELEN: 64") ~is #true
   rva23_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
@@ -52,6 +56,7 @@ def rv32 = spike_udb_configuration(spike_product_profile(IsaPreset.RV32Int), "sp
 def rv32_yaml = rv32.to_yaml()
 for (name in ["I", "M", "A", "C", "Zca", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "Zvkt", "Zihpm", "Svbare"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #true
+check: rv32_yaml.contains("  MISALIGNED_LDST: true") ~is #true
 for (name in ["F", "D", "Zcf", "Zcd", "V", "Zve64x", "Zvl128b", "Sv39"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 for (parameter in ["MXLEN: 32", "PHYS_ADDR_WIDTH: 32", "MTVAL_WIDTH: 32", "STVAL_WIDTH: 32", "ASID_WIDTH: 9", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):

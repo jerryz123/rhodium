@@ -319,10 +319,10 @@ module rv5stage_load_hit_tb;
           6: assert(transaction.data==64'hfffffffffffffff9) else $fatal(1,"FP single load-hit writeback");
           7: assert(transaction.data==64'hfedcba98765480ff) else $fatal(1,"FP double load-hit writeback");
           8: assert(transaction.data==64'hfeedface && device_reads==1) else $fatal(1,"device load did not execute exactly once");
-          9: assert(transaction.data==66 && ram_stores==1) else $fatal(1,"load bypassed an older store");
+          9: assert(transaction.data==66) else $fatal(1,"load bypassed an older store: data=%h", transaction.data);
           10: assert(transaction.data==(64'h1111111111111111+64'h00000009fffffff9) && load_miss_hits>0)
             else $fatal(1,"independent hit did not overlap load miss or deferred result was lost");
-          11: assert(transaction.data==(64'h00000009fffffff9*2) && store_miss_hits>0 && refills==6)
+          11: assert(transaction.data==(64'h00000009fffffff9*2) && store_miss_hits>0 && refills==6 && ram_stores==1)
             else $fatal(1,"hit-under-store-miss ordering, fence, or mutation failed");
           12: begin
             assert(transaction.data==123) else $fatal(1,"squashed hit overwrote x7");

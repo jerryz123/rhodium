@@ -44,8 +44,11 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
   interface fill(Valid(RV5StageTlbFill()), ~role: consumer)
   output hit: Bool
   output translation: RV5StageTlbMapping()
+  output probe_raw_hit: Bool
   output probe_hit: Bool
   output probe_fault: Bool
+  output probe_demand_fault: Bool
+  output probe_translation: RV5StageTlbMapping()
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
@@ -94,9 +97,29 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
   // The SAME access class must be allowed by both stages, not merely some
   // access in each stage independently (e.g. VS execute-only + G read-only).
   def probe_permissions = vec(for List (kind in [Sv39Access.Fetch, Sv39Access.Load, Sv39Access.Store]): probe_allowed(kind))
-  probe_hit <== (probe_bare ||| probe_matches.or_reduce()) & !invalidate_all
+  probe_raw_hit <== probe_bare ||| probe_matches.or_reduce()
+  probe_hit <== probe_raw_hit & !invalidate_all
   probe_fault <== probe_hit & !probe_permissions.or_reduce()
-  probe_physical_address <== mux(probe_bare, probe.virtual_address[0..56], sv39_physical_address(probe.virtual_address, probe_entry.ppn, probe_entry.page_size))
+  def probe_vs_demand_fault = probe_vs & !sv39_permission_valid(probe_entry.vs_leaf, probe.access, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr, probe.execute_read)
+  def probe_g_demand_fault = probe_g & !sv39_permission_valid(probe_entry.g_leaf, probe.access, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr, probe.execute_read)
+  probe_demand_fault <== probe_hit & (probe_vs_demand_fault ||| probe_g_demand_fault)
+  def probe_physical = mux(probe_bare, probe.virtual_address[0..56], sv39_physical_address(probe.virtual_address, probe_entry.ppn, probe_entry.page_size))
+  def probe_guest_address = mux(probe.virtualized, probe_entry.guest_ppn ++ probe.virtual_address[0..12], probe_physical.zext(64))
+  def probe_fault_details = RiscvGuestFault():
+    guest_virtual_address: probe.virtualized
+    guest_physical_address: mux(probe_vs_demand_fault, bits(0, 64), probe_guest_address)
+    access: RiscvGuestFaultAccess.Explicit
+  probe_translation <== RV5StageTlbMapping():
+    virtual_address: probe.virtual_address
+    access: probe.access
+    physical_address: probe_physical
+    page_size: mux(probe_bare, Sv39PageSize.Page4KiB, probe_entry.page_size)
+    guest_physical_address: mux(probe_bare, probe.virtual_address, probe_guest_address)
+    vs_leaf: mux(probe_vs, probe_entry.vs_leaf, literal(Sv39Pte(), 0))
+    g_leaf: mux(probe_g, probe_entry.g_leaf, literal(Sv39Pte(), 0))
+    fault: mux(probe_bare & probe.virtual_address[56..64].or_reduce(), RV5StageTranslationFault.AccessFault, mux(probe_vs_demand_fault, RV5StageTranslationFault.PageFault, mux(probe_g_demand_fault, RV5StageTranslationFault.GuestPageFault, RV5StageTranslationFault.None)))
+    fault_details: probe_fault_details
+  probe_physical_address <== probe_physical
   // Svpbmt applies the G override first, then a non-PMA stage-one override.
   def probe_intermediate_pbmt = mux(probe_g, probe_entry.g_leaf.pbmt, PageMemoryType.PMA)
   probe_pbmt <== compose_page_memory_type(mux(probe_vs, probe_entry.vs_leaf.pbmt, PageMemoryType.PMA), probe_intermediate_pbmt)
@@ -134,6 +157,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   input probe_sum: Bool
   input probe_mxr: Bool
   input probe_enabled: Bool
+  input probe_access: Sv39Access
   interface fill(Valid(RV5StageTranslationResult()), ~role: consumer)
   output hit: Bool
   output fault: Bool
@@ -141,6 +165,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   output translation: RV5StageTranslationResult()
   output probe_hit: Bool
   output probe_fault: Bool
+  output probe_demand_fault: Bool
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
@@ -156,7 +181,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
       pbmte: Bool(#false)
     rv5stage_host_lookup(request, ~enabled: paged)
   bank.lookup <== host_lookup(virtual_address, access, privilege, sum, mxr, enabled)
-  bank.probe <== host_lookup(probe_virtual_address, Sv39Access.Load, probe_privilege, probe_sum, probe_mxr, probe_enabled)
+  bank.probe <== host_lookup(probe_virtual_address, probe_access, probe_privilege, probe_sum, probe_mxr, probe_enabled)
   bank.invalidate_all <== invalidate_all
   (
     fill |> map_valid(result => RV5StageTlbFill()):
@@ -169,6 +194,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   translation <== rv5stage_host_result(bank.translation).updated(~fault: fault, ~pbmt: mux(enabled, bank.translation.vs_leaf.pbmt, PageMemoryType.PMA))
   probe_hit <== bank.probe_hit
   probe_fault <== bank.probe_fault
+  probe_demand_fault <== bank.probe_demand_fault
   probe_physical_address <== bank.probe_physical_address
   probe_pbmt <== bank.probe_pbmt
 

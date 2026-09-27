@@ -9,6 +9,7 @@ import:
   "protocol.rhdl" open
   "translation.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
+  "misaligned-access.rhdl" open
   "tlb.rhdl" open
   "walker.rhdl" open
   "vector-window.rhdl" open
@@ -76,6 +77,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def itlb_result = rv5stage_host_result(itlb.translation)
   def dtlb_result = rv5stage_host_result(dtlb.translation)
   inst vector_window(RV5StageVectorWindow(physical_map))
+  inst misaligned(RV5StageMisalignedEngine(xlen, vector_completion_slots))
   vector_precheck |> vector_window.check
   def page_probe = vector_window.translation
   inst instruction_s1(ValidPipeAlwaysCapture(RV5StageInstructionReq(xlen), 1, ~flushable: #true))
@@ -146,9 +148,15 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_request :: RV5StageDataReq(xlen, vector_completion_slots) = data_requests.bits
   def data_memory_operation = data_request.access
   def data_virtual_address = if xlen == XLen.X32 | data_request.address.zext(64) | data_request.address
+  def split_busy = misaligned.busy
+  def split_candidate = data.request.valid & !split_busy & data_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store) & !data_request.width.is_aligned(data_request.address)
+  def split_crosses_word = memory_crosses_word(xlen, data_request.address, data_request.width)
+  def split_second_virtual = data_request.address.align_down(memory_word_bytes(xlen)) + bits(memory_word_bytes(xlen), width)
+  def split_second_virtual_64 = if xlen == XLen.X32 | split_second_virtual.zext(64) | split_second_virtual
+  def split_second_page = split_crosses_word & (data_request.address[12..width] =/= split_second_virtual[12..width])
   def data_vector = data_request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Vector).into(Bool)
   def data_physical = data_vector & vector_fast.request_physical
-  def data_window = vector_window.owned & data_vector & !data_physical
+  def data_window = vector_window.owned & data_vector & !data_physical & !split_candidate
   def data_pinned = data_window ||| data_physical
   def data_access_kind = mux(data_memory_operation.is_cache_management(), Sv39Access.CacheManagement, mux(data_memory_operation.needs_unique(), Sv39Access.Store, Sv39Access.Load))
 
@@ -199,10 +207,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def normal_data_translation_enabled = (satp_sv39 & (normal_data_privilege =/= PrivilegeMode.Machine)) ||| normal_data_guest
   def probe = lookup(prefetch_virtual_address, Sv39Access.Load, normal_data_privilege, normal_data_translation_enabled & !normal_data_guest, normal_data_guest)
   itlb.probe <== probe
-  dtlb.probe <== probe
+  def split_probe = lookup(split_second_virtual_64, data_access_kind, data_privilege, data_translation_enabled & !data_guest, data_guest).updated(~execute_read: execute_read)
+  dtlb.probe <== mux(split_candidate, split_probe, probe)
+  def split_probe_result = rv5stage_host_result(dtlb.probe_translation)
 
   def instruction_prefetch = prefetch_request.operation === CachePrefetchOperation.Instruction
-  def prefetch_translation_hit = mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
+  def prefetch_translation_hit = !split_candidate & mux(instruction_prefetch, itlb.probe_hit, dtlb.probe_hit)
   def prefetch_translation_fault = mux(instruction_prefetch, itlb.probe_fault, dtlb.probe_fault)
   def prefetch_translated_address = if xlen == XLen.X32 | prefetch_request.address | mux(
     normal_data_translation_enabled,
@@ -251,8 +261,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def load_translation_access_fault = !load_pinned & dtlb_result.access_fault
   def pipeline_permitted = load_physical.mapped & mux(pipeline_is_store, load_physical.writable, load_physical.readable) & (!execute_read ||| load_physical.executable)
   def pipeline_cacheable = load_attributes.cacheable & !load_attributes.strongly_ordered & (pipeline_is_store ||| load_attributes.read_idempotent)
+  def pipeline_misaligned = !load_request.egress.bits.width.is_aligned(load_request.egress.bits.address)
   def Array(physical_request, local_result) = load_request.egress |> fork_valid(2)
-  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & !load_translation_access_fault & pipeline_permitted & pipeline_cacheable
+  def cache_eligible = !pipeline_blocked & load_translation_hit & !load_translation_fault & !load_translation_access_fault & pipeline_permitted & pipeline_cacheable & !pipeline_misaligned
   physical_request |> filter_valid(_request => cache_eligible)
     |> map_valid(request => request.updated(~address: load_address)) |> pipeline_memory.request
   // WB owns squash and serialization. Rechecking its derived flush here would
@@ -266,7 +277,11 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     pipeline_outcome <== RV5StagePipelineOutcome.Slow
   elsewhen load_translation_fault:
     pipeline_outcome <== RV5StagePipelineOutcome.PageFault
-  elsewhen (load_translation_access_fault ||| !pipeline_permitted):
+  elsewhen load_translation_access_fault:
+    pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
+  elsewhen pipeline_misaligned:
+    pipeline_outcome <== RV5StagePipelineOutcome.Slow
+  elsewhen (!pipeline_permitted):
     pipeline_outcome <== RV5StagePipelineOutcome.AccessFault
   elsewhen (!pipeline_cacheable):
     pipeline_outcome <== RV5StagePipelineOutcome.Slow
@@ -287,11 +302,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def can_start_walk = !walk_active & !fault_valid
   def instruction_miss = instruction_s1_valid & instruction_translation_enabled & !itlb.hit
   def data_miss = data.request.valid & !data_pinned & data_translation_enabled & !dtlb.hit
+  def split_second_miss = split_candidate & split_second_page & data_translation_enabled & !data_physical & dtlb.hit & !dtlb_result.fault & !dtlb_result.access_fault & !dtlb.probe_raw_hit
   def start_probe_walk = can_start_walk & !invalidate_all & probe_selected & !dtlb.hit
   def start_instruction_walk = can_start_walk & !start_probe_walk & instruction_miss
   def start_data_walk = can_start_walk & !start_probe_walk & !instruction_miss & data_miss
-  walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
-  walker.request.bits <== mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup)
+  def start_split_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & !start_data_walk & split_second_miss
+  walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_split_walk ||| start_probe_walk
+  walker.request.bits <== mux(start_split_walk, split_probe, mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup))
   reg walk_lookup(RV5StageTlbLookup())
   when (walker.request.fire()):
     walk_lookup <== walker.request.bits
@@ -322,14 +339,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
   def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
+  def latched_split_fault = fault_valid & fault_is_data & split_candidate & (fault_address === split_second_virtual_64)
+  def split_probe_page_fault = split_candidate & split_second_page & !data_physical & dtlb.probe_raw_hit & split_probe_result.fault
+  def split_probe_access_fault = split_candidate & split_second_page & !data_physical & dtlb.probe_raw_hit & split_probe_result.access_fault
   def instruction_page_fault = instruction_translation_enabled & (
     (itlb.hit & itlb_result.fault) ||| (latched_instruction_fault & !fault_is_access)
   )
   def data_page_fault = !data_pinned & data_translation_enabled & (
-    (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access)
+    (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access) ||| split_probe_page_fault ||| (latched_split_fault & !fault_is_access)
   )
   def instruction_walk_access_fault = (latched_instruction_fault & fault_is_access) ||| (itlb.hit & itlb_result.access_fault)
-  def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault))
+  def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault) ||| split_probe_access_fault ||| (latched_split_fault & fault_is_access))
   fun guest_exception(mapping :: RV5StageTlbMapping(), guest :: Bool) :~ RiscvGuestException():
     RiscvGuestException():
       page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault
@@ -339,7 +359,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   | block:
       output request_guest_fault: RiscvGuestException()
       output pipeline_guest_fault: RiscvGuestException()
-      request_guest_fault <== guest_exception(mux(latched_data_fault, fault_mapping, dtlb.translation), normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+      request_guest_fault <== guest_exception(mux(latched_data_fault ||| latched_split_fault, fault_mapping, mux(split_probe_page_fault ||| split_probe_access_fault, dtlb.probe_translation, dtlb.translation)), normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
       pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| latched_instruction_fault
@@ -399,28 +419,57 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   // Core and PTE traffic independently offer physical requests. The outer
   // arbiter tags each accepted transaction and returns it to its origin.
-  data.request_fault <== data.request.valid & data_page_fault
+  def word_bytes = memory_word_bytes(xlen)
+  def data_physical_address = if xlen == XLen.X32 | data_request.address | mux(data_physical, data_request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_request.address)))
   def data_translated_address = mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), data_virtual_address)
   def data_last_offset = mux_lookup(data_request.width, ~default: bits(7, 64), [[MemoryWidth.Byte, bits(0, 64)], [MemoryWidth.Half, bits(1, 64)], [MemoryWidth.Word, bits(3, 64)]])
   def data_physical_region = physical_map.lookup(data_translated_address, data_translated_address +& data_last_offset)
   def execute_read_denied = execute_read & dtlb.hit & !(data_physical_region.readable & data_physical_region.executable)
+  def split_first_word = data_physical_address.align_down(word_bytes)
+  def split_second_word = if xlen == XLen.X32 | split_second_virtual | mux(split_second_page & data_translation_enabled & !data_physical, dtlb.probe_translation.physical_address.zext(width).align_down(word_bytes), split_first_word + bits(word_bytes, width))
+  def split_first_region = physical_map.lookup(split_first_word, split_first_word +& bits(word_bytes - 1, width))
+  def split_second_region = physical_map.lookup(split_second_word, split_second_word +& bits(word_bytes - 1, width))
+  def split_first_attributes = resolve_memory_attributes(split_first_region, mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
+  def split_second_attributes = resolve_memory_attributes(split_second_region, mux(data_physical, PageMemoryType.PMA, mux(split_second_page, dtlb.probe_pbmt, dtlb_result.pbmt)))
+  def split_store = data_memory_operation === RV5StageMemoryOperation.Store
+  def split_first_permitted = split_first_region.mapped & split_first_attributes.cacheable & !split_first_attributes.strongly_ordered & mux(split_store, split_first_region.writable, split_first_region.readable & split_first_attributes.read_idempotent) & (!execute_read ||| split_first_region.executable)
+  def split_second_permitted = split_second_region.mapped & split_second_attributes.cacheable & !split_second_attributes.strongly_ordered & mux(split_store, split_second_region.writable, split_second_region.readable & split_second_attributes.read_idempotent) & (!execute_read ||| split_second_region.executable)
+  def split_translation_ready = (data_pinned ||| !data_translation_enabled ||| dtlb.hit) & (!split_second_page ||| data_pinned ||| !data_translation_enabled ||| dtlb.probe_raw_hit)
+  def split_region_fault = split_candidate & split_translation_ready & !data_page_fault & !data_walk_access_fault & !(split_first_permitted & (!split_crosses_word ||| split_second_permitted))
+  def split_ready = split_translation_ready & !data_page_fault & !data_walk_access_fault & !split_region_fault & core_memory.drained
+  def Array(ordinary_data, split_data) = data_requests |> demux_flow(2, _request => split_candidate.as_bits())
+  def split_start = (
+    split_data |> gate_flow(split_ready)
+      |> map_flow(request => RV5StageMisalignedAccess(xlen, vector_completion_slots)):
+        request: request
+        first_address: split_first_word
+        second_address: split_second_word
+        second_virtual: split_second_virtual
+        crosses_word: split_crosses_word
+  )
+  split_start |> misaligned.start
+  def split_capture = misaligned.start.fire()
+  when (split_capture):
+    assert(!invalidate_all, "split_admission_does_not_overlap_translation_flush")
+  data.request_fault <== data.request.valid & !split_busy & data_page_fault
   // Local faults consume the core attempt; unresolved translations cannot
   // issue a physical request, even while another walk is in progress.
   def core_data_request = (
-    data_requests
+    ordinary_data
+      |> gate_flow(!split_busy)
       |> filter_flow(_request => !(data_page_fault ||| data_walk_access_fault ||| execute_read_denied))
       |> gate_flow(data_pinned ||| !data_translation_enabled ||| dtlb.hit)
       |> map_flow(request => request.updated(
-        ~address: if xlen == XLen.X32 | request.address | mux(data_physical, request.address, mux(data_window, vector_window.physical_addresses[0], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), request.address))),
+        ~address: data_physical_address,
         ~access: data_memory_operation
       ))
   )
-  data.request_access_fault <== data.request.valid & !data_page_fault & (
-    data_walk_access_fault ||| execute_read_denied ||| (core_data_request.valid & core_memory.request_access_fault)
-  )
+  def normal_physical_link :: Handle = interface_link(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), "normal_physical")
+  def split_physical_link :: Handle = interface_link(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), "split_physical")
+  core_data_request |> normal_physical_link
+  misaligned.physical_request |> split_physical_link
+  data.request_access_fault <== data.request.valid & !split_busy & !data_page_fault & (data_walk_access_fault ||| split_region_fault ||| (!split_candidate & execute_read_denied) ||| (core_data_request.valid & core_memory.request_access_fault))
   def walker_memory_request = walker.memory.request |> gate_flow(walk_active & !walker_memory_pending) |> trace_event("mmu/pte.request")
-  core_lookup.valid <== data.request.valid
-  core_lookup.bits <== data_request.address
   walker_lookup.valid <== walker_memory_request.valid
   walker_lookup.bits <== if xlen == XLen.X32 | walker_memory_request.bits.address[0..32] | walker_memory_request.bits.address
   def walker_data_request = walker_memory_request |> map_flow(pte => RV5StageDataReq(xlen, vector_completion_slots)):
@@ -434,10 +483,18 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     writeback: RV5StageMemoryWriteback(vector_completion_slots).Ack
     origin: RV5StageDataOrigin.Walker
     locality: RiscvMemoryLocality.Default
-  (core_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
-    memory: request
-    pbmt: mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt)
-  ) |> core_memory.request
+  core_lookup.valid <== (data.request.valid & !split_busy & !split_candidate) ||| split_physical_link.right.valid
+  core_lookup.bits <== mux(split_busy, misaligned.lookup.bits, data_request.address)
+  core_memory.request.valid <== normal_physical_link.right.valid ||| split_physical_link.right.valid
+  core_memory.request.bits <== RV5StagePhysicalDataReq(xlen, vector_completion_slots):
+    memory: mux(split_physical_link.right.valid, split_physical_link.right.bits, normal_physical_link.right.bits)
+    pbmt: mux(split_physical_link.right.valid, PageMemoryType.PMA, mux(data_pinned, PageMemoryType.PMA, dtlb_result.pbmt))
+  normal_physical_link.right.ready <== core_memory.request.ready & !split_physical_link.right.valid
+  split_physical_link.right.ready <== core_memory.request.ready & split_physical_link.right.valid
+  describe_interface_selection([normal_physical_link.right.valid & !split_physical_link.right.valid, split_physical_link.right.valid], ~name: "physical_dispatch")
+  describe_interface_contract(Array(normal_physical_link.right, split_physical_link.right), core_memory.request, "physical_dispatch", ~trace_model: interface_trace_selection(~name: "physical_dispatch", ~pending: #true))
+  misaligned.request_fault <== core_memory.request_fault
+  misaligned.request_access_fault <== core_memory.request_access_fault
   (walker_data_request |> map_flow(request => RV5StagePhysicalDataReq(xlen, vector_completion_slots)):
     memory: request
     pbmt: walker_memory_request.bits.pbmt
@@ -448,22 +505,27 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   walker_memory.response |> to_valid()
     |> map_valid(response => if xlen == XLen.X32 | response.data.zext(64) | response.data)
     |> walker.memory.response
-  core_memory.response |> data.response
+  def Array(ordinary_responses, split_responses) = core_memory.response |> demux_flow(2, _response => split_busy.as_bits())
+  split_responses |> misaligned.physical_response
+  data.response.valid <== ordinary_responses.valid ||| misaligned.completion.valid
+  data.response.bits <== mux(misaligned.completion.valid, misaligned.completion.bits, ordinary_responses.bits)
+  ordinary_responses.ready <== data.response.ready & !misaligned.completion.valid
+  misaligned.completion.ready <== data.response.ready
   // A saved fault is replay metadata, not outstanding memory work. Waiting
   // for its replay here would deadlock a WB trap/interrupt draining the LSU.
-  data.drained <== !walk_active & core_memory.drained
+  data.drained <== !walk_active & !split_busy & !split_capture & core_memory.drained
   data.reservation_valid <== core_memory.reservation_valid
 
   def fault_latch_reset = invalidate_all ||| (instruction.flush & fault_valid & !fault_is_data)
   def latched_instruction_fault_accepted = instruction_s1_valid & instruction_translation_enabled & latched_instruction_fault
-  def latched_data_fault_accepted = data.request.valid & data_translation_enabled & latched_data_fault
+  def latched_data_fault_accepted = data.request.valid & data_translation_enabled & (latched_data_fault ||| latched_split_fault)
   def latched_fault_accepted = latched_instruction_fault_accepted ||| latched_data_fault_accepted
   def capture_walker_fault = walker_fault_completion & !walk_is_probe & !invalidate_all & (walk_is_data ||| !(walk_instruction_discarded ||| instruction.flush))
   when invalidate_all:
     walk_active <== Bool(#false)
   elsewhen walker_request_fire:
     walk_active <== Bool(#true)
-    walk_is_data <== start_data_walk
+    walk_is_data <== start_data_walk ||| start_split_walk
     walk_is_probe <== start_probe_walk
   elsewhen walker_completion_fire:
     walk_active <== Bool(#false)

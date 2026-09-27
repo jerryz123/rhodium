@@ -136,7 +136,7 @@ check:
   rv64_vector_bitmanip_yaml.contains("  RESERVED_VSET_X0X0_VILL_SET: \"never\"") ~is #true
   rv64_vector_bitmanip_yaml.contains("  RVV_VL_WHEN_AVL_LT_DOUBLE_VLMAX: \"VLMAX\"") ~is #true
   rv64_vector_bitmanip_yaml.contains("  VECTOR_FF_SEG_EXCEPTION_PARTIAL_LOAD: \"custom\"") ~is #true
-  rv64_vector_bitmanip_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: false") ~is #true
+  rv64_vector_bitmanip_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: true") ~is #true
   rv64_vector_bitmanip_yaml.contains("  VECTOR_LS_SEG_PARTIAL_ACCESS: true") ~is #true
   rv64_vector_bitmanip_yaml.contains("  VFREDUSUM_FINAL_NODE_ELEMENT_BEHAVIOR: \"copy\"") ~is #true
   rv64_vector_bitmanip_yaml.contains("  VSSTATUS_VS_EXISTS: false") ~is #true
@@ -168,7 +168,8 @@ check:
   rv64_yaml.contains("  ASID_WIDTH: 0") ~is #true
   rv64_yaml.contains("  CONFIG_PTR_ADDRESS: 0") ~is #true
   rv64_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
-  rv64_yaml.contains("  MISALIGNED_LDST: false") ~is #true
+  rv64_yaml.contains("  MISALIGNED_LDST: true") ~is #true
+  rv64_yaml.contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("  LRSC_FAIL_ON_NON_EXACT_LRSC: true") ~is #true
   rv64_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0, 1, 2, 3]") ~is #true
 

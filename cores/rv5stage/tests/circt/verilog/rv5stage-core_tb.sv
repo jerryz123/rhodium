@@ -1,4 +1,4 @@
-// Verifies RV5StageCore forwarding priority, captured operands, replay, redirects, and ordered commit.
+// Verifies RV5StageCore forwarding, replay, redirects, misaligned WB requests, and ordered commit.
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_core_tb;
@@ -88,7 +88,7 @@ module rv5stage_core_tb;
     case (address)
       64'h00000001_00000000: instruction_at = 32'h00003283;  // ld x5, 0(x0)
       64'h00000001_00000004: instruction_at = 32'h00028533;  // add x10, x5, x0
-      64'h00000001_00000008: instruction_at = 32'h01003403;  // ld x8, 16(x0)
+      64'h00000001_00000008: instruction_at = 32'h01103403;  // ld x8, 17(x0), handled at WB
       64'h00000001_0000000c: instruction_at = 32'h00100313; // addi x6, x0, 1
       64'h00000001_00000010: instruction_at = 32'h02031863; // bne x6, x0, +48
       64'h00000001_00000014: instruction_at = 32'h02603023; // sd x6, 32(x0), must be squashed
@@ -116,7 +116,7 @@ module rv5stage_core_tb;
       64'h00000001_00000094: instruction_at = 32'h011809b3; // add x19, x16, x17; WB-to-ID capture
       64'h00000001_00000098: instruction_at = 32'h05303023; // sd x19, 64(x0)
       64'h00000001_0000009c: instruction_at = 32'h04003423; // sd x0, 72(x0)
-      64'h00000001_000000a0: instruction_at = 32'h04b03823; // sd x11, 80(x0)
+      64'h00000001_000000a0: instruction_at = 32'h04b038a3; // sd x11, 81(x0), handled at WB
       default: instruction_at = 32'h00000013;
     endcase
   endfunction
@@ -244,7 +244,7 @@ module rv5stage_core_tb;
               else $fatal(1, "first load lost its address or destination register");
           end else
             assert (load_requests == 1 &&
-                    data_access_out.request.bits.address == 64'd16 &&
+                    data_access_out.request.bits.address == 64'd17 &&
                     data_access_out.request.bits.writeback[8:7] == WRITEBACK_INTEGER_KIND &&
                     memory_rd(data_access_out.request.bits.writeback) == 5'd8)
               else $fatal(1, "second load lost its address or destination register");
@@ -295,7 +295,7 @@ module rv5stage_core_tb;
               7: assert (data_access_out.request.bits.address == 72 && data_access_out.request.bits.data == 0)
                 else $fatal(1, "x0 store operand was not zero");
               8: begin
-                assert (data_access_out.request.bits.address == 80 && data_access_out.request.bits.data == 3)
+                assert (data_access_out.request.bits.address == 81 && data_access_out.request.bits.data == 3)
                   else $fatal(1, "captured register-file operand was stale");
                 $display("RV5Stage forwarding, operand capture, replay, redirect, and deferred completion passed");
                 $finish;

@@ -9,8 +9,10 @@ $(error program_groups must be selected from the concrete target)
 endif
 program_virtual_groups ?=
 $(foreach group,$(program_groups),$(if $($(group)_p_tests),,$(error Missing upstream physical test inventory: $(group))))
-# The single-core products trap misaligned data accesses; these tests require completing them.
+program_misaligned ?= 0
+ifeq ($(program_misaligned),0)
 program_excluded := rv$(XLEN)ui-p-ma_data rv$(XLEN)ui-v-ma_data
+endif
 program_selected := $(filter-out $(program_excluded),$(foreach group,$(program_groups),$($(group)_p_tests)) $(foreach group,$(program_virtual_groups),$($(group)_v_tests)))
 .PHONY: program-manifest
 program-manifest:

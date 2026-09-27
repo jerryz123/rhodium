@@ -26,6 +26,8 @@ checks, content-addressed build reuse, and manifests. `build.py` and `isa.mk`
 compile the ISA tests and upstream benchmarks; the named benchmark builders
 compile CoreMark, Embench-IoT, and Bringup-Bench. ISA selection derives upstream
 groups, native-width smoke operations, and Make XLEN from the target descriptor.
+Select physical and virtual `ma_data` only when that descriptor advertises
+Zicclsm; include the physical variant in ISA smoke for such targets.
 Validate ELF32 and ELF64 load segments including BSS and executable entry on
 both fresh builds and cache reuse. Record upstream inventory gaps (currently
 RV32 CBO-zero) separately from target capability exclusions; never select by

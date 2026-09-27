@@ -84,6 +84,8 @@ def smoke_selection(target):
         groups.append(group)
         if extension == 'i':
             tests += ('lw', 'sw') if target['xlen'] == 32 else ('ld', 'sd')
+            if 'zicclsm' in target['extensions']:
+                tests += ('ma_data',)
         elif extension == 'a':
             tests += ('amoadd_w',) if target['xlen'] == 32 else ('amoadd_d',)
         names.extend(f'{group}-p-{test}' for test in tests)
@@ -250,6 +252,7 @@ def main():
                    f'RISCV_PREFIX={compiler.removesuffix("gcc")}']
         groups = isa_groups(target)
         command += ['program_groups=' + ' '.join(groups)]
+        command += [f'program_misaligned={int("zicclsm" in target["extensions"])}']
         virtual = args.isa_selection == 'full' and virtual_environment_enabled(target)
         command += ['program_virtual_groups=' + ' '.join(groups if virtual else [])]
         names = subprocess.check_output(command + ['program-manifest'], cwd=build, text=True).splitlines()
@@ -259,10 +262,11 @@ def main():
             if missing:
                 raise ValueError(f'upstream smoke tests missing from inventory: {sorted(missing)}')
             names = selected
-        exclusions = {f'rv{target["xlen"]}ui-p-ma_data': 'Requires successful misaligned data accesses.',
-                      f'rv{target["xlen"]}ui-v-ma_data': 'Requires successful misaligned data accesses.',
-                      'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
+        exclusions = {'privileged groups': 'Privileged platform tests are outside this initial ISA adapter.',
                       'other instruction groups': 'Require extensions outside the concrete target profile.'}
+        if 'zicclsm' not in target['extensions']:
+            exclusions[f'rv{target["xlen"]}ui-p-ma_data'] = 'Requires successful misaligned data accesses.'
+            exclusions[f'rv{target["xlen"]}ui-v-ma_data'] = 'Requires successful misaligned data accesses.'
         for extension, xlens in ISA_GROUP_XLENS.items():
             if extension in target['extensions'] and target['xlen'] not in xlens:
                 exclusions[extension] = f'Pinned upstream has no RV{target["xlen"]} test group.'

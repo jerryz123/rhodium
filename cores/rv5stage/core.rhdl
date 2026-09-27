@@ -984,6 +984,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_virtual_instruction = if hypervisor | ex_input.bits.virtual_instruction | Bool(#false)
   def ex_memory_address = if extensions.ssnpm | apply_pointer_mask(xlen, ex_alu.result, ex_input.bits.pointer_masking) | ex_alu.result
   def ex_memory_aligned = ex_memory_operation.is_cache_block() ||| ex_input.bits.memory_width.is_aligned(ex_memory_address)
+  def ex_memory_alignment_fault = !ex_memory_aligned & !ex_memory_operation.is_one_of(RV5StageMemoryOperation.Load, RV5StageMemoryOperation.Store)
   def ex_is_memory = ex_memory_operation.is_memory()
   def ex_fp_execution_control = ex_input.bits.floating_point_control.execution
   def ex_is_fp = ex_input.bits.floating_point_valid & !ex_input.bits.vector_launch
@@ -1013,7 +1014,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def ex_vector_first = if extensions.ssnpm | apply_pointer_mask(xlen, ex_vector_first_raw, ex_input.bits.pointer_masking) | ex_vector_first_raw
   def ex_vector_illegal = (ex_input.bits.vector_launch & !ex_vector_operation_legal) ||| (ex_is_vector_config & ex_vector_configuration.illegal)
   def ex_request_fault = ex_input.bits.instruction_page_fault ||| ex_input.bits.instruction_access_fault ||| ex_input.bits.illegal ||| ex_vector_illegal ||| ex_virtual_instruction ||| (
-    ex_is_memory & !ex_memory_aligned
+    ex_is_memory & ex_memory_alignment_fault
   )
   def ex_redirect_fault = !ex_input.bits.vector_launch & ex_redirect_requested & !ex_redirect_aligned
   fun ex_make_exception(cause :: ExceptionCause, value :: Bits(width)):
@@ -1037,7 +1038,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   elsewhen ex_redirect_fault:
     ex_exception <== ex_make_exception(ExceptionCause.InstructionAddressMisaligned,
                                        ex_redirect_target)
-  elsewhen (ex_is_memory & !ex_memory_aligned):
+  elsewhen (ex_is_memory & ex_memory_alignment_fault):
     ex_exception <== core_data_exception(ex_memory_operation,
                                          ex_memory_address,
                                          ExceptionCause.StoreAddressMisaligned,

@@ -55,7 +55,7 @@ for name in single-core-rv5stage-soc mini-rv5stage-soc tiled-rv5stage-soc; do
   hart_count=1
   [[ "$name" != tiled-rv5stage-soc ]] || hart_count=8
   for ((hart=0; hart<hart_count; hart++)); do
-    for extension in zic64b za64rs ziccif ziccamoa ziccrse; do
+    for extension in zic64b za64rs ziccif ziccamoa zicclsm ziccrse; do
       case " $(fdtget "$fixture_dir/$name.dtb" "/cpus/cpu@$hart" riscv,isa-extensions) " in
         *" $extension "*) ;;
         *) echo "$name hart $hart DTB does not advertise $extension" >&2; exit 1 ;;

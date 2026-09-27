@@ -94,6 +94,7 @@ sync_circuit RV5StageSvpbmtFixture():
   tlb.probe_sum <== Bool(#false)
   tlb.probe_mxr <== Bool(#false)
   tlb.probe_enabled <== enabled
+  tlb.probe_access <== access
   hit <== tlb.hit
   tlb_fault <== tlb.fault
   tlb_pbmt <== tlb.translation.pbmt

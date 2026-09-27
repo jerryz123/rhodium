@@ -447,9 +447,9 @@ concrete target profile. Both Simple RVA23 implementations select RV64
 I/M/A/F/D/C, Zba/Zbb/Zbs/Zicond, and Zicboz groups.
 For a target advertising Sv39 and M/S/U modes, it also selects each applicable
 group's upstream `-v-` virtual-environment tests. Here `-v-` means virtual
-memory, not the RISC-V vector extension. Both environments omit `ma_data`,
-which requires successful misaligned data accesses rather than these cores'
-traps. Privileged-platform groups remain outside this ISA adapter; ACT keeps
+memory, not the RISC-V vector extension. Targets advertising Zicclsm include
+`ma_data` in the physical and applicable virtual inventories; ISA smoke also
+checks its physical variant. Privileged-platform groups remain outside this ISA adapter; ACT keeps
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 

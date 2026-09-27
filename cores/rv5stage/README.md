@@ -258,8 +258,16 @@ all nine A-extension AMOs at word width, plus doubleword width for RV64.
 its CHI configuration already requires coherent HN-F Homes and complete cache lines.
 BootROM and device HN-I regions are outside these requirements.
 
-These claims do not provide Ziccrse forward progress, misaligned access support,
-or automatic instruction-cache synchronization; select Ziccrse separately below.
+These claims do not provide Ziccrse forward progress or automatic
+instruction-cache synchronization; select Ziccrse separately below.
+Ordinary scalar, floating-point, and vector loads and stores can access
+misaligned cacheable coherent main memory through the WB slow path. A
+cross-word access is divided into two physical words after every touched page
+and physical region is checked. This does not guarantee atomicity and
+does not extend misaligned support to AMOs, LR/SC, or devices.
+The profile, UDB, and architecture-test adapter advertise Zicclsm for these
+ordinary main-memory accesses. Whole-register vector transfers, AMOs, LR/SC,
+and devices retain their separate alignment and fault behavior.
 Self-modifying code still needs
 the architectural instruction-synchronization sequence. Integrators remain
 responsible for the external Home/memory coherence contract. See the
@@ -1047,7 +1055,7 @@ The reusable transformation is documented in the
 configured architecture. The profile selects XLEN, FP, compressed, and MMU
 extensions. The projection adds the core's fixed architectural behavior,
 including U/S/M privilege, direct-only `mtvec` and `stvec`, read-only `misa`,
-no PMP, optional Sscofpmf HPM state, trapping misaligned accesses, exact-address-and-width
+no PMP, optional Sscofpmf HPM state, Zicclsm main-memory support, exact-address-and-width
 LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
 core's integration rather than `RV5StageConfig`. When Ssnpm is selected, the

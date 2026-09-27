@@ -29,10 +29,19 @@ hardware_enum MemoryWidth:
 fun memory_word_bytes(xlen :: XLen) :: PosInt:
   xlen.width / 8
 
+fun memory_access_bytes(xlen :: XLen, width :: MemoryWidth) :~ Bits(xlen.width):
+  mux_lookup(width, ~default: bits(8, xlen.width), [[MemoryWidth.Byte, bits(1, xlen.width)], [MemoryWidth.Half, bits(2, xlen.width)], [MemoryWidth.Word, bits(4, xlen.width)]])
+
+fun memory_crosses_word(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bool:
+  address.align_down(memory_word_bytes(xlen)) =/= (address + (memory_access_bytes(xlen, width) - bits(1, xlen.width))).align_down(memory_word_bytes(xlen))
+
+fun memory_width_mask(xlen :: XLen, width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
+  def bytes = memory_word_bytes(xlen)
+  mux_lookup(width, ~default: !bits(0, bytes), [[MemoryWidth.Byte, bits(1, bytes)], [MemoryWidth.Half, bits(3, bytes)], [MemoryWidth.Word, bits(15, bytes)]])
+
 fun memory_byte_mask(xlen :: XLen, address :: Bits(xlen.width), width :: MemoryWidth) :~ Bits(memory_word_bytes(xlen)):
   def bytes = xlen.width / 8
-  def lanes = mux_lookup(width, ~default: !bits(0, bytes), [[MemoryWidth.Byte, bits(1, bytes)], [MemoryWidth.Half, bits(3, bytes)], [MemoryWidth.Word, bits(15, bytes)]])
-  lanes << address[0..alignment_bits(bytes)]
+  memory_width_mask(xlen, width) << address[0..alignment_bits(bytes)]
 
 // Selects one scalar from a returned beat and extends it to XLEN.
 circuit LoadGen(xlen :: XLen,
@@ -110,6 +119,9 @@ circuit StoreGen(xlen :: XLen,
 export:
   memory_byte_mask
   memory_word_bytes
+  memory_access_bytes
+  memory_crosses_word
+  memory_width_mask
   MemoryWidth
   LoadGen
   StoreGen
