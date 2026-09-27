@@ -936,9 +936,10 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     vxrm: ex_vector_base_state.vxrm
     vxsat: ex_vector_base_state.vxsat
   ex_vector_snapshot <== mux(ex_is_vector_config, ex_configured_vector_state, ex_vector_base_state)
-  ex_vector_geometry <== vector_footprint_geometry(xlen, vector_length, ex_input.bits.vector_control, ex_input.bits.instruction, ex_vector_snapshot)
+  ex_vector_geometry <== vector_fast_footprint_geometry(xlen, vector_length, ex_input.bits.vector_control, ex_input.bits.instruction, ex_vector_snapshot, ex_forwarded_rs2)
   // Keep the vector footprint address independent of the scalar ALU operand path.
-  def ex_vector_first_raw = ex_forwarded_rs1 + ex_vector_geometry.start_offset[0..width]
+  def ex_vector_offset = ex_vector_geometry.start_offset[0..width]
+  def ex_vector_first_raw = mux(ex_vector_geometry.reverse, ex_forwarded_rs1 - ex_vector_offset, ex_forwarded_rs1 + ex_vector_offset)
   def ex_vector_first = if extensions.ssnpm | apply_pointer_mask(xlen, ex_vector_first_raw, ex_input.bits.pointer_masking) | ex_vector_first_raw
   def ex_vector_illegal = (ex_input.bits.vector_launch & !ex_vector_operation_legal) ||| (ex_is_vector_config & ex_vector_configuration.illegal)
   def ex_request_fault = ex_input.bits.instruction_page_fault ||| ex_input.bits.instruction_access_fault ||| ex_input.bits.illegal ||| ex_vector_illegal ||| (
@@ -1069,7 +1070,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     vector_launch: ex_input.bits.vector_launch
     vector_context: ex_vector_context
     vector_fast_first: ex_vector_first
-    vector_fast_no_wrap: !ex_vector_geometry.start_offset[width..68].or_reduce() & (ex_vector_first_raw >= ex_forwarded_rs1)
+    vector_fast_no_wrap: !ex_vector_geometry.start_offset[width..68].or_reduce() & mux(ex_vector_geometry.reverse, ex_forwarded_rs1 >= ex_vector_offset, ex_vector_first_raw >= ex_forwarded_rs1) & (!ex_vector_geometry.strided ||| (ex_input.bits.pointer_masking.mode === PointerMaskMode.Disabled))
     vector_fast_geometry: ex_vector_geometry
     pc: ex_input.bits.pc
     resume_pc: ex_resume_pc

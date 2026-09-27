@@ -139,9 +139,14 @@ retire through their ordinary scalar WB launch token and do not wait for result
 drain. Empty memory bodies certify at dispatch. Contiguous unit-stride memory
 macros and encoded-`rs2=x0` non-segmented strided loads can certify after a
 page-level precheck of at most two 4 KiB pages. The latter check only the one
-element's aligned transfer word and retain their single-read splat execution. The
-one-page fast path uses the scalar ALU in EX for the first address, including
-the `vstart` byte offset, and the normal DTLB in MEM. WB carries the captured
+element's aligned transfer word and retain their single-read splat execution.
+Naturally aligned, non-segmented dynamic-stride `vlse`/`vsse` with `vstart=0`
+may instead certify in MEM when a conservative power-of-two stride envelope
+fits entirely within one page. This includes negative and zero runtime strides;
+failure to prove the bound leaves the existing elementwise fallback unchanged.
+The one-page fast path computes the first address in EX, including
+the `vstart` byte offset for contiguous operations, and the normal DTLB in MEM.
+WB carries the captured
 translation in the admitted descriptor and retires the macro without waiting
 for the previous page-window owner. Each issued request uses that captured
 translation independently of the shared fallback window. Certified ordinary
@@ -157,8 +162,10 @@ Certification requires natural element alignment, no address wrap, and full-page
 ordinary cacheable read-idempotent PMA coverage with the required permissions.
 It never accesses the vector data itself. A failed precheck keeps the original
 execution path: one-read splat for encoded zero stride, element-wise for ordinary
-unit stride. Larger ranges, indexed and other strided operations, and
-fault-only-first operations use the element-wise path. In particular, a
+unit stride. All dynamic-stride transfers remain elementwise even when certified;
+the bound changes translation admission, not transfer geometry or rate. Larger
+ranges, indexed operations, and fault-only-first operations use the fallback
+path. In particular, a
 conservative check of a masked-off page must not create an architectural exception.
 
 After certification, independent scalar work can execute and retire while
@@ -775,8 +782,9 @@ Certified contiguous accesses use aligned XLEN-sized LSU beats, with byte
 enables preserving masks, tails, and the pre-`vstart` prefix. This includes
 unit-stride segments, whole-register transfers, and packed-mask transfers.
 The certificate covers the aligned transport envelope within ordinary,
-idempotent, cacheable memory. Uncertified, strided, indexed, and fault-only-first
-operations retain elementwise execution and precise element fault reporting.
+idempotent, cacheable memory. Dynamic-stride operations retain elementwise
+execution even when certified. Uncertified, indexed, and fault-only-first
+operations also execute elementwise and retain precise element fault reporting.
 This does not enable architecturally misaligned elements.
 
 The private address/lookup/acceptance stages arbitrate for the scalar LSU.

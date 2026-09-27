@@ -59,6 +59,9 @@ module rv5stage_vector_memory_tb;
   int hits = 0, warm_run = 0, longest_warm_run = 0, rejections = 0;
   int overlapping_hits = 0, scalar_overlap = 0, redirected_tail = 0;
   int certified_lookups = 0;
+  int strided_certificates = 0, strided_store_certificates = 0, nonpow2_certificates = 0;
+  int nonpow2_start = 0, nonpow2_end = 0;
+  logic [3:0] nonpow2_element_seen = '0;
   logic vector_sequencing, vector_certifying;
   int refills = 0, copybacks = 0, fault_signature = 0, fault_reset_signature = 0, whole_fault_signature = 0, whole_fault_reset_signature = 0, mask_fault_signature = 0, mask_fault_reset_signature = 0, device_elements = 0;
   int zero_stride_start = 0, zero_stride_end = 0, masked_splat_start = 0, masked_splat_end = 0, wide_splat_start = 0, wide_splat_end = 0;
@@ -208,6 +211,18 @@ module rv5stage_vector_memory_tb;
         if (load_address == 64'h2800) zero_stride_reads <= zero_stride_reads + 1;
         if (load_address == 64'h2830) register_zero_stride_reads <= register_zero_stride_reads + 1;
       end
+      if (signatures >= nonpow2_start && signatures < nonpow2_end && load_issue &&
+          load_address >= 64'h2b00 && load_address <= 64'h2b67) begin
+        assert (load_address inside {64'h2b00, 64'h2b18, 64'h2b30, 64'h2b48})
+          else $fatal(1, "dynamic stride issued address outside its exact element sequence: %h", load_address);
+        case (load_address)
+          64'h2b00: nonpow2_element_seen[0] <= 1'b1;
+          64'h2b18: nonpow2_element_seen[1] <= 1'b1;
+          64'h2b30: nonpow2_element_seen[2] <= 1'b1;
+          64'h2b48: nonpow2_element_seen[3] <= 1'b1;
+          default: ;
+        endcase
+      end
       if (signatures >= masked_splat_start && signatures < masked_splat_end && load_issue && load_address == 64'h28e2)
         masked_splat_reads <= masked_splat_reads + 1;
       if (signatures >= wide_splat_start && signatures < wide_splat_end && load_issue && load_address == 64'h2800)
@@ -274,7 +289,9 @@ module rv5stage_vector_memory_tb;
               else $fatal(1, "masked zero-stride splat: reads=%0d rows=%0d", masked_splat_reads, masked_splat_row_writes);
             assert (wide_splat_reads == 1 && wide_splat_row_writes == 4)
               else $fatal(1, "wide zero-stride splat: reads=%0d rows=%0d", wide_splat_reads, wide_splat_row_writes);
-            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && certified_lookups > 0 && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
+            assert (nonpow2_element_seen == 4'b1111 && strided_store_certificates > 0 && nonpow2_certificates > 0)
+              else $fatal(1, "strided fast path: reads=%b stores=%0d rounded certificates=%0d", nonpow2_element_seen, strided_store_certificates, nonpow2_certificates);
+            assert ((COMPLETION_SLOTS < 8 || (longest_warm_run >= 8 && overlapping_hits > 0)) && certified_lookups > 0 && strided_certificates > 0 && scalar_overlap > 0 && redirected_tail > 0 && rejections > 8 && device_elements == 4)
               else $fatal(1, "missing throughput, replay, or ordering coverage: run=%0d reject=%0d devices=%0d scalar_overlap=%0d certified_lookups=%0d", longest_warm_run,rejections,device_elements,scalar_overlap,certified_lookups);
             $display("Vector memory (%0d slots): %0d signatures, %0d hits, %0d-cycle hit run, %0d rejections, %0d refills, %0d certified lookups; strided/indexed/segmented/mask/whole-register/fault-only-first/masked/EEW/vstart/device/fault restart passed",
                      COMPLETION_SLOTS,expected_count,hits,longest_warm_run,rejections,refills,certified_lookups);
@@ -351,12 +368,16 @@ module rv5stage_vector_memory_tb;
     configure(3,1,4); li(8,'h2800); li(9,'h2a00); li(10,16);
     emit(vmem(0,3,8,8,0,1,10)); emit(vmem(1,3,8,9));
     check_memory('h2a00,32,values);
-    li(9,'h2b00); li(10,16); emit(vmem(1,3,8,9,0,1,10));
-    check_strided_memory('h2b00,16,4,values);
+    // A runtime 24-byte stride gets a 32-byte certificate envelope but keeps
+    // exact elementwise stores and reverse loads at the original stride.
+    li(9,'h2b00); li(10,24); emit(vmem(1,3,8,9,0,1,10));
+    check_strided_memory('h2b00,24,4,values);
     for (int i = 0; i < 4; i++) values[i] = 64'('h304-i);
-    li(8,'h2830); li(9,'h2a40); li(10,-16);
+    nonpow2_start = expected_count;
+    li(8,'h2b48); li(9,'h2a40); li(10,-24);
     emit(vmem(0,3,8,8,0,1,10)); emit(vmem(1,3,8,9));
     check_memory('h2a40,32,values);
+    nonpow2_end = expected_count;
     zero_stride_start = expected_count;
     // A zero held in x10 must still read each element; encoded x0 may read once.
     li(8,'h2830); li(10,0); emit(vmem(0,3,16,8,0,1,10));
@@ -715,3 +736,17 @@ module vector_certified_lookup_observer(input logic clock, reset, lookup_valid);
     if (!reset && lookup_valid) rv5stage_vector_memory_tb.certified_lookups++;
 endmodule
 bind RV5StageCoreFixture vector_certified_lookup_observer certified_lookup_observer(.clock(clock), .reset(reset), .lookup_valid(vector_fast_out.pipeline_physical && pipeline_access_out.request.valid && pipeline_vector));
+
+// Prove that a dynamic stride can receive one page certificate without packing its element requests.
+module vector_strided_certificate_observer(input logic clock, reset, valid, store, input logic [63:0] first, last);
+  always @(posedge clock)
+    if (!reset && valid && !store && first == 64'h2800 && last == 64'h2837)
+      rv5stage_vector_memory_tb.strided_certificates++;
+    else if (!reset && valid && !store && first == 64'h2ae8 && last == 64'h2b4f &&
+             rv5stage_vector_memory_tb.signatures >= rv5stage_vector_memory_tb.nonpow2_start &&
+             rv5stage_vector_memory_tb.signatures < rv5stage_vector_memory_tb.nonpow2_end)
+      rv5stage_vector_memory_tb.nonpow2_certificates++;
+    else if (!reset && valid && store && first == 64'h2b00 && last == 64'h2b67)
+      rv5stage_vector_memory_tb.strided_store_certificates++;
+endmodule
+bind RV5StageCoreFixture vector_strided_certificate_observer strided_certificate_observer(.clock(clock), .reset(reset), .valid(vector_fast_in.response.valid), .store(vector_fast_out.request.bits.store), .first(vector_fast_out.request.bits.first), .last(vector_fast_out.request.bits.last));

@@ -358,7 +358,13 @@ engine, memory attempt pipeline, macro ownership, and retirement outcome.
 [`precheck.rhdl`](precheck.rhdl) computes a conservative contiguous byte footprint
 using shifts and constant field-count sums, never an element-address multiplier.
 It includes whole-register and packed-mask geometry, `vstart`, segment fields,
-pointer normalization, alignment, and overflow. The parent freezes attempts
+pointer normalization, alignment, and overflow. For dynamic signed strides,
+the EX/MEM fast check rounds a small stride magnitude up to a power of two and
+uses `(vl - 1) << exponent` as a conservative one-page envelope. It rejects
+nonzero `vstart`, segments, fault-only-first mode, unaligned stride, pointer
+masking, address wrap, and any envelope that does not fit one page. The captured
+certificate admits younger work while the sequencer still generates exact
+elementwise addresses and one transfer per element. The parent freezes attempts
 while the MMU's page certificate is pending. A false certificate is fallback,
 not a fault: element masking and exact first-fault semantics remain in memory
 execution. See [MMU ownership](../mmu/DEVELOPING.md) for pinned translations.

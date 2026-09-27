@@ -11,6 +11,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
   "../../../riscv/rtl/vector.rhdl".RiscvVectorState
+  lib("rhodium/std/bits.rhdl").count_leading_zeros
 
 bundle RV5StageVectorFootprintGeometry():
   eligible: Bool
@@ -18,6 +19,8 @@ bundle RV5StageVectorFootprintGeometry():
   start_offset: Bits(68)
   span_bytes: Bits(68)
   eew: Bits(2)
+  reverse: Bool
+  strided: Bool
 
 bundle RV5StageVectorFootprint():
   eligible: Bool
@@ -46,6 +49,34 @@ fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5
     start_offset: mux(zero_stride, bits(0, 68), vector_field_extent(start << eew, nf))
     span_bytes: mux(zero_stride, bits(1, 68) << eew, vector_field_extent((limit - start) << eew, nf))
     eew: eew
+    reverse: Bool(#false)
+    strided: Bool(#false)
+
+// Round a small runtime stride upward so the single-page MEM probe needs a
+// shift, not an element-count multiplier. An overlarge envelope only misses
+// this optional fast path; it never changes the elementwise addresses.
+fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ RV5StageVectorFootprintGeometry():
+  def magnitude = mux(stride[xlen.width - 1].into(Bool), -stride, stride)
+  def small = magnitude[0..12]
+  def exponent = bits(12, 4) - count_leading_zeros(small - bits(1, 12))
+  def length = state.vl[0..index_width(vlen + 1)]
+  def steps = mux(length.or_reduce(), length - bits(1, index_width(vlen + 1)), bits(0, index_width(vlen + 1)))
+  def distance = mux(small.or_reduce(), steps.zext(68) << exponent, bits(0, 68))
+  def eew = control.memory_data_eew
+  def alignment_mask = (bits(1, xlen.width) << eew) - bits(1, xlen.width)
+  RV5StageVectorFootprintGeometry():
+    eligible: control.memory & (control.memory_addressing === VectorMemoryAddressing.Strided) & !control.memory_nf.or_reduce() & (control.memory_mode =/= VectorMemoryMode.FaultOnlyFirst) & !state.vstart.or_reduce() & (!magnitude[12..xlen.width].or_reduce() ||| !steps.or_reduce()) & !(stride & alignment_mask).or_reduce()
+    empty: !length.or_reduce()
+    start_offset: mux(stride[xlen.width - 1].into(Bool), distance, bits(0, 68))
+    span_bytes: distance + (bits(1, 68) << eew)
+    eew: eew
+    reverse: stride[xlen.width - 1].into(Bool)
+    strided: Bool(#true)
+
+fun vector_fast_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ RV5StageVectorFootprintGeometry():
+  def ordinary = vector_footprint_geometry(xlen, vlen, control, instruction, state)
+  def dynamic_stride = vector_strided_fast_geometry(xlen, vlen, control, state, stride)
+  mux((control.memory_addressing === VectorMemoryAddressing.Strided) & !vector_zero_stride_load_parts(control, instruction), dynamic_stride, ordinary)
 
 fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen), masking :: PointerMaskControl()) :~ RV5StageVectorFootprint():
   def geometry = vector_footprint_geometry(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state)
@@ -70,6 +101,7 @@ fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageV
 export:
   RV5StageVectorFootprintGeometry
   vector_footprint_geometry
+  vector_fast_footprint_geometry
   RV5StageVectorFootprint
   vector_field_extent
   vector_footprint
