@@ -25,8 +25,9 @@ The queue is ordered so each change can be reviewed and removed independently:
 4. `0004-notify-simif-of-icache-flush.patch` exposes Spike's architectural
    instruction-cache flush to simulators that keep an external instruction
    cache model.
-5. `0005-enable-fiom-with-supervisor-translation.patch` makes FIOM writable
-   in machine and supervisor environment configuration CSRs for translated harts.
+5. `0005-enable-fiom-with-supervisor.patch` makes FIOM writable in machine and
+   supervisor environment configuration CSRs whenever S-mode is supported,
+   including Bare-only harts.
 6. `0006-zero-unimplemented-hpm-controls.patch` keeps the HPM counter-control
    bits read-only zero when Zihpm exposes aliases for zero implemented counters.
 7. `0007-separate-supervisor-interrupt-pins.patch` preserves software-writable
@@ -41,6 +42,12 @@ The queue is ordered so each change can be reviewed and removed independently:
     management permissions independently of LR/SC reservation support.
 12. `0012-keep-mxr-writable-with-bare-supervisor.patch` retains MXR CSR
     readback with S-mode even when paging is unavailable, while SUM stays zero.
+13. `0013-keep-tvm-writable-with-bare-supervisor.patch` retains TVM CSR
+    readback and S-mode virtual-memory intercepts even when paging is absent.
+14. `0014-expose-rv32-medelegh.patch` exposes the architectural high-half
+    exception-delegation CSR on RV32 S-mode harts.
+15. `0015-keep-medeleg-page-fault-bits-in-bare-mode.patch` retains the
+    page-fault delegation bits on S-mode harts even when paging is unavailable.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

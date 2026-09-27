@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Keep medeleg page-fault bits writable in Bare mode
+Purpose: Retains exception-delegation CSR readback independent of active paging.
+SPDX-License-Identifier: Apache-2.0
+
+Page-fault causes remain architecturally delegable on an S-mode hart even when
+its only current translation mode is Bare. Keep the medeleg WARL mask tied to
+S-mode support, not the presence of page-table translation, so its CSR
+readback matches the configured architectural model.
+
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -1152,7 +1152,7 @@ bool medeleg_csr_t::unlogged_write(const reg_t val) noexcept {
+     | (1 << CAUSE_STORE_ACCESS)
+     | (1 << CAUSE_USER_ECALL)
+     | (1 << CAUSE_SUPERVISOR_ECALL)
+-    | (proc->has_mmu() ? mmu_exceptions : 0)
++    | (proc->extension_enabled('S') ? mmu_exceptions : 0)
+     | (proc->extension_enabled('H') ? hypervisor_exceptions : 0)
+     | ((proc->extension_enabled(EXT_ZICFISS) || proc->extension_enabled(EXT_ZICFILP))?
+         (1 << CAUSE_SOFTWARE_CHECK_FAULT) : 0)

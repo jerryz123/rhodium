@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Program S/U WRS wakeup timer directly when accessible
+Purpose: Arms the S/U WRS wakeup timer without expiring it inside T-SBI calls.
+SPDX-License-Identifier: Apache-2.0
+
+The generic S/U timer helper uses several T-SBI memory calls after reading
+mtime. On a slow interconnect the configured delay can expire before the
+helper returns, generating a trap before WRS executes. Platforms without PMP
+may opt into direct timer MMIO for this timing-sensitive helper. Keep the
+protected-platform T-SBI path unchanged.
+
+diff --git a/tests/env/rvtest_setup.h b/tests/env/rvtest_setup.h
+--- a/tests/env/rvtest_setup.h
++++ b/tests/env/rvtest_setup.h
+@@ -536,3 +536,19 @@
+   #ifdef STANDARD_SM_SUPPORTED
+-
++    // A platform may expose timer MMIO directly to S/U mode.
++    #ifdef RVMODEL_SU_TIMER_DIRECT_MMIO
++      #define RVTEST_SU_TIMER_SWP4 sw a2, 4(a1)
++      #define RVTEST_SU_TIMER_LW lw a0, 0(a1)
++      #define RVTEST_SU_TIMER_SW sw a2, 0(a1)
++      #define RVTEST_SU_TIMER_LWP4 lw a0, 4(a1)
++      #define RVTEST_SU_TIMER_LD ld a0, 0(a1)
++      #define RVTEST_SU_TIMER_SD sd a2, 0(a1)
++    #else
++      #define RVTEST_SU_TIMER_SWP4 RVTEST_TSBI_SWP4
++      #define RVTEST_SU_TIMER_LW RVTEST_TSBI_LW
++      #define RVTEST_SU_TIMER_SW RVTEST_TSBI_SW
++      #define RVTEST_SU_TIMER_LWP4 RVTEST_TSBI_LWP4
++      #define RVTEST_SU_TIMER_LD RVTEST_TSBI_LD
++      #define RVTEST_SU_TIMER_SD RVTEST_TSBI_SD
++    #endif
++
+     rvtest_set_mtime_int_soon_su:
+@@ -542,27 +558,27 @@
+           LA(a1, RVMODEL_MTIMECMP_ADDRESS)
+           li a2, -1
+-          RVTEST_TSBI_SWP4 // sw a2, 4(a1) // mtimecmp high word = all 1s so the split update cannot fire early
++          RVTEST_SU_TIMER_SWP4 // mtimecmp high word = all 1s so the split update cannot fire early
+           LA(a1, RVMODEL_MTIME_ADDRESS)
+           LI(a2, RVMODEL_TIMER_INT_SOON_DELAY)
+-          RVTEST_TSBI_LW // lw a0, 0(a1) // read mtime low word
++          RVTEST_SU_TIMER_LW // read mtime low word
+           add a2, a0, a2 // add delay to mtime low word
+           LA(a1, RVMODEL_MTIMECMP_ADDRESS)
+-          RVTEST_TSBI_SW // sw a2, 0(a1) // write to mtimecmp low word
++          RVTEST_SU_TIMER_SW // write to mtimecmp low word
+           LA(a1, RVMODEL_MTIME_ADDRESS)
+-          RVTEST_TSBI_LWP4 // lw a0, 4(a1) // read mtime high word
++          RVTEST_SU_TIMER_LWP4 // read mtime high word
+           LI(a1, RVMODEL_TIMER_INT_SOON_DELAY)
+           bgeu a2, a1, 1f // skip if didn't wrap
+           addi a0, a0, 1 // increment mtime high word
+           1:
+           LA(a1, RVMODEL_MTIMECMP_ADDRESS)
+           mv a2, a0 // Save mtimecmp high word
+-          RVTEST_TSBI_SWP4 // sw a2, 4(a1) // write to mtimecmp high word
++          RVTEST_SU_TIMER_SWP4 // write to mtimecmp high word
+         #else
+           LA(a1, RVMODEL_MTIME_ADDRESS)
+-          RVTEST_TSBI_LD // ld a0, 0(a1) // read mtime
++          RVTEST_SU_TIMER_LD // read mtime
+           add a2, a2, a0 // add delay to mtime
+           LA(a1, RVMODEL_MTIMECMP_ADDRESS)
+-          RVTEST_TSBI_SD // sd a2, 0(a1) // write to mtimecmp
++          RVTEST_SU_TIMER_SD // write to mtimecmp
+         #endif
+       #endif
+       ret

@@ -53,8 +53,10 @@
 #define RVMODEL_MAX_CYCLES_PER_TIMER_TICK 1
 #define RVMODEL_TIMER_INT_SOON_DELAY 5000
 
-// SingleCoreRV5StageSoC has no PMP entries, so every tested privilege can directly access
-// its physical UART and PLIC windows without adding traps to the test stream.
+// These ACT products have no PMP entries, so S/U mode can directly program
+// the timer near WRS without spending the timer delay inside T-SBI calls.
+#define RVMODEL_SU_TIMER_DIRECT_MMIO 1
+// Every tested privilege can also access the physical UART and PLIC windows.
 #define RHODIUM_UART_IER 0x10000001
 #define RHODIUM_PLIC_PRIORITY 0x0c000004
 #define RHODIUM_PLIC_M_ENABLE 0x0c002000

@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Keep TVM writable with Bare supervisor mode
+Purpose: Separates architectural TVM writability from whether paging is available.
+SPDX-License-Identifier: Apache-2.0
+
+TVM is read-only zero only when S-mode is absent. A Bare-only S-mode hart can
+still use it to intercept satp and SFENCE.VMA accesses from supervisor mode.
+Keep Spike's existing intercept checks and allow the bit to be written.
+
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -704,5 +704,5 @@ bool mstatus_csr_t::unlogged_write(const reg_t val) noexcept {
+                    | (proc->extension_enabled('U') ? MSTATUS_TW : 0)
+                    | (proc->extension_enabled('S') ? MSTATUS_TSR : 0)
+-                   | (has_page ? MSTATUS_TVM : 0)
++                   | (proc->extension_enabled('S') ? MSTATUS_TVM : 0)
+                    | (has_gva ? MSTATUS_GVA : 0)
+                    | (has_mpv ? MSTATUS_MPV : 0)

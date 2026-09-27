@@ -48,9 +48,9 @@ upstream independently:
     unconstrained SC operations to succeed.
 13. `0013-limit-medeleg-walk-to-base-causes.patch` excludes the optional CFI
     software-check cause from the generic Sm delegation walk.
-14. `0014-check-pending-wrs-interrupt-in-u-mode.patch` makes U-mode Zawrs
-    resume tests observe a masked pending timer through T-SBI before repeating
-    a legally early-completing wait.
+14. `0014-program-su-wrs-timer-directly.patch` lets platforms without lower-mode
+    timer MMIO protection arm the WRS wakeup timer without consuming its delay
+    inside multiple T-SBI memory calls.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to
