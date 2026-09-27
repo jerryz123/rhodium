@@ -73,10 +73,6 @@ Choose the lowest package that owns the behavior before editing:
 | Test placement, CI ownership, or validation infrastructure | [`tools/testing/DEVELOPING.md`](tools/testing/DEVELOPING.md) |
 | CIRCT fixture, Verilator bench, or exact Verilog reference | [`tools/testing/circt/DEVELOPING.md`](tools/testing/circt/DEVELOPING.md) |
 
-Every documented directory keeps its public contracts in `README.md` and its
-implementation architecture, source ownership, extension workflows, and
-focused validation in the companion `DEVELOPING.md`.
-
 ## Contribution and provenance
 
 Except where a file or directory states otherwise, contributions intentionally
@@ -158,19 +154,10 @@ copying a stale catalog.
 
 ## Maintain documentation ownership
 
-Every documented directory uses two audiences:
-
-- `README.md` owns user, library-consumer, integrator, or flow-operator
-  guidance: entry points, public behavior, stable contracts, supported
-  configurations, observable failures, and deliberate limits.
-- `DEVELOPING.md` owns contributor guidance: implementation architecture,
-  source maps, dependency enforcement, extension workflows, test ownership,
-  CI, and generated-artifact maintenance.
-
-Link to the owning document rather than copying a contract. A public import or
-behavioral restriction remains in README even when its enforcement mechanism
-is described in DEVELOPING. A command needed to use a tool remains in README;
-test-authoring and change-validation detail belongs in DEVELOPING.
+The repository-wide README/DEVELOPING structure and content-routing rules are
+in [`AGENTS.md`](AGENTS.md#readme-and-developing-structure). Apply that structure
+when maintaining a component guide; this contributor guide does not define a
+second documentation template.
 
 ## Maintain compatibility and generated artifacts
 
