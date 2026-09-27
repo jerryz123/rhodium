@@ -60,6 +60,8 @@ language layers it wants. The word *base* names the public profile; the
 internal module implementing its shared frontend forms is called the
 *foundation*. The frontend guide explains
 [profile selection and elaboration](frontend/README.md).
+Remaining named-domain, reset-domain, and semantic-transfer work is tracked in
+the [clocking plan](CLOCKING_PLAN.md).
 
 ## Dependency rules
 

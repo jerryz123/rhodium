@@ -216,6 +216,6 @@ Contributor validation moved to
 - User-authored grouping/collapse controls, a browser UI, optional overlays,
   and logical/physical composition are not implemented contracts.
 
-[PLAN.md](PLAN.md) records possible incremental work. Its future items are
-planning context, not promises made by the current API, JSON schema, or DOT
+The [development guide](DEVELOPING.md#possible-increments) records possible
+incremental work, not promises made by the current API, JSON schema, or DOT
 renderer.

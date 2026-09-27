@@ -85,8 +85,24 @@ Compiler consumers traverse the actual child using this map even when the
 diagram groups it into a single configured-stage block.
 
 Update the public README whenever model fields, JSON, DOT behavior, extraction
-rules, or deliberate limits change. Update [`PLAN.md`](PLAN.md) only for
-non-contract future work.
+rules, or deliberate limits change.
+
+## Possible increments
+
+These are future directions, not contracts of the current model or renderer:
+
+1. Label remaining standard N-to-M transforms, including broadcasting and
+   additional arbitration, demultiplexing, zipping, and crossbar forms.
+2. Add user-authored grouping and collapse annotations through generic metadata.
+3. Build an interactive JSON consumer with hierarchy expansion, protocol-aware
+   ports, search, and selective primitive expansion.
+4. Add optional width, latency, clock/reset-domain, and simulation-activity
+   overlays without changing the base model.
+5. Define a separate composition point for logical diagrams and RFPL physical
+   views; neither view should own or mutate the other.
+
+Test each increment against the extracted model. Reserve pixel snapshots for a
+renderer whose visual layout is a public contract.
 
 ## Validation
 

@@ -265,8 +265,9 @@ return at ID admission; a squashed grant may expire unused. Same-cycle WB
 reservations precede ID admission, so younger work cannot feed back into older
 WB readiness. A variable
 response waits at its producer; an aged waiter pauses new reservations, without
-revoking already-issued work. See [the migration plan](WRITEBACK-PLAN.md) for
-the invariants and current validation status. The `rv5stage-multiply` trace
+revoking already-issued work. The broader full-SoC and CoreMark validation of
+scheduled writeback predates the direct EX-admission refinement; rerun it before
+claiming that refinement has the same coverage. The `rv5stage-multiply` trace
 checks five cycles from producer EX to dependent ID admission and consecutive
 independent launches. `rv5stage-integer-execution` checks exact five-cycle
 returns, WB authorization, cancellation, and reset through the production scalar

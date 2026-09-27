@@ -238,7 +238,7 @@ Fallback two-page and potentially faulting operations retain the shared page
 window and precise sequencer checkpoint. They dispatch after older certified
 requests leave the retry ring; older accepted responses may still drain.
 Do not reinterpret cache acceptance as permission checking or architectural
-retirement. See [the implementation plan](MEMORY-HANDOFF-PLAN.md).
+retirement.
 
 ## Event ownership
 
