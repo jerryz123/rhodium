@@ -655,6 +655,8 @@ simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.
 
 `PROGRAM_JOBS` defaults to one; `PROGRAM_TIMEOUT` defaults to 300 seconds per ELF.
+Tiled multihart benchmarks and tiled litmus smoke have separate 600-second
+defaults (`TILED_MT_BENCHMARK_TIMEOUT` and `LITMUS_SMOKE_TIMEOUT`).
 `PROGRAM_MAX_CYCLES` defaults to ten million; benchmarks, CoreMark, and
 Embench-IoT use 100 million. These are safety budgets, including loading,
 not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,

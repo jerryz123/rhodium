@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Delegate only implemented hypervisor interrupts
+Purpose: Keeps mideleg.SGEIP zero when no guest external interrupt is implemented.
+SPDX-License-Identifier: Apache-2.0
+
+The pinned Spike model exposes read-only-zero hgeip and hgeie, so GEILEN is
+zero. H still requires the three VS-level interrupt delegation bits to read
+one, but only requires SGEIP delegation when GEILEN is nonzero.
+
+diff --git a/riscv/encoding.h b/riscv/encoding.h
+--- a/riscv/encoding.h
++++ b/riscv/encoding.h
+@@ -179,5 +179,5 @@
+ #define MIP_HS_MASK         (MIP_VS_MASK | MIP_SGEIP)
+ 
+-#define MIDELEG_FORCED_MASK MIP_HS_MASK
++#define MIDELEG_FORCED_MASK MIP_VS_MASK
+ 
+ #define SIP_SSIP MIP_SSIP

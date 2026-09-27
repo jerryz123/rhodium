@@ -1,0 +1,21 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Gate stateen CSRIND on Sscsrind support
+Purpose: Keeps the state-enable CSRIND bit read-only zero without Sscsrind.
+SPDX-License-Identifier: Apache-2.0
+
+The CSRIND bit controls access to supervisor indirect CSRs supplied by
+Sscsrind. Smcsrind alone adds only machine-level indirect CSRs, so neither
+mstateen0 nor hstateen0 may expose a writable CSRIND bit without Sscsrind.
+
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -371,5 +371,6 @@
+     const reg_t sstateen0_mask = (proc->extension_enabled(EXT_ZFINX) ? SSTATEEN0_FCSR : 0) |
+                                  (proc->extension_enabled(EXT_ZCMT) ? SSTATEEN0_JVT : 0) |
+                                  SSTATEEN0_CS;
+-    const reg_t hstateen0_mask = sstateen0_mask | HSTATEEN0_CSRIND | HSTATEEN0_SENVCFG | HSTATEEN_SSTATEEN;
++    const reg_t hstateen0_mask = sstateen0_mask |
++                                  (proc->extension_enabled(EXT_SSCSRIND) ? HSTATEEN0_CSRIND : 0) | HSTATEEN0_SENVCFG | HSTATEEN_SSTATEEN;
+     const reg_t mstateen0_mask = hstateen0_mask | (proc->extension_enabled(EXT_SSQOSID) ?  MSTATEEN0_PRIV114 : 0);

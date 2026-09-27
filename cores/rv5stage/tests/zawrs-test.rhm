@@ -4,6 +4,7 @@
 
 import:
   "../../../riscv/rtl/csr.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../rhodium/std/decode.rhdl" open
@@ -44,6 +45,7 @@ for (instruction in ZawrsInstructions, action in [RV5StageSystemOperation.WrsNto
       partial_pattern(RV5StageMemoryControl()):
         access: RV5StageMemoryOperation.None
     prefetch: CachePrefetchOperation.None
+    guest_access: RiscvGuestMemoryAccess.Normal
     writeback:
       partial_pattern(RV5StageWritebackControl()):
         enable: Bool(#false)

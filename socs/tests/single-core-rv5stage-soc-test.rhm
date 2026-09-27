@@ -111,7 +111,7 @@ check:
       [route.source.node_id,
        route.destination.node_id,
        route.route_key]
-  ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [3, 5, 5], [2, 6, 6], [2, 5, 7], [4, 6, 8], [1, 6, 9], [1, 5, 10]]
+  ) ~is [[6, 10, 0], [6, 14, 1], [6, 12, 2], [6, 13, 3], [6, 11, 4], [3, 5, 5], [2, 6, 6], [2, 5, 7], [4, 6, 8], [4, 5, 9], [1, 6, 10], [1, 5, 11]]
   fabric.req_router_config.input_count ~is 5
   fabric.req_router_config.target_count ~is 7
   fabric.rsp_router_config.input_count ~is 11

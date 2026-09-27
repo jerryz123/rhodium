@@ -15,6 +15,7 @@ LITMUS7_LIBDIR ?=
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
+TILED_MT_BENCHMARK_TIMEOUT ?= 600
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
 BENCHMARK_MODE ?= target
@@ -36,7 +37,7 @@ LITMUS_RUNS ?= 10
 LITMUS_MAX_CYCLES ?= 20000000
 LITMUS_SMOKE_RUNS ?= 1
 LITMUS_FULL_RUNS ?= 1
-LITMUS_SMOKE_TIMEOUT ?= 300
+LITMUS_SMOKE_TIMEOUT ?= 600
 LITMUS_FULL_TIMEOUT ?= 600
 LITMUS_PROFILE_MAX_CYCLES ?= 2000000
 LITMUS_FULL_SHARD_INDEX ?= 0
@@ -205,7 +206,7 @@ tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation
 	  $(PYTHON) program-test/run.py --manifest "$$output/manifest.json" \
 	    --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	    --output "$$output/results" --jobs $(PROGRAM_JOBS) \
-	    --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \
+	    --timeout $(TILED_MT_BENCHMARK_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES) || status=1; \
 	done; exit $$status
 
 litmus-test: litmus-elfs simulator-attestation

@@ -16,3 +16,5 @@
 0014-expose-rv32-medelegh.patch
 0015-keep-medeleg-page-fault-bits-in-bare-mode.patch
 0016-recognize-sha-properties.patch
+0017-delegate-only-implemented-hypervisor-interrupts.patch
+0018-gate-stateen-csrind-on-sscsrind.patch
