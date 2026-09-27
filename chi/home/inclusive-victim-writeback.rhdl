@@ -1,5 +1,5 @@
 #lang rhodium
-// Buffers inclusive-Home dirty victims while their replacement refills proceed independently.
+// Buffers inclusive-Home dirty victims and retains their causal owners through independent writeback progress.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -309,6 +309,20 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
       dbids_seen[index] <== Bool(#false)
       completions_seen[index] <== Bool(#false)
       phases[index] <== CHIInclusiveVictimWritebackPhase.Free
+
+  // Completion consumes the entry; REQ and every DAT beat only observe its owner.
+  describe_interface_retained_bank(
+    for List (index in 0..entries): enqueue_fire & (allocation_entry === bits(index, index_width(entries))),
+    for List (index in 0..entries): completion_fire & (completion_entry === bits(index, index_width(entries))),
+    for List (index in 0..entries): occupied[index],
+    ~grants: [
+      for List (index in 0..entries): request_valid & (request_entry === bits(index, index_width(entries))),
+      for List (index in 0..entries): data_valid & (data_entry === bits(index, index_width(entries))),
+      for List (index in 0..entries): completion_valid & (completion_entry === bits(index, index_width(entries)))
+    ],
+    ~name: "writeback"
+  )
+  describe_interface_contract(enqueue, Array(request, data, completion), "writeback-outputs", ~trace_model: interface_trace_retained_bank(~name: "writeback"))
 
 export:
   CHIInclusiveVictimWriteback

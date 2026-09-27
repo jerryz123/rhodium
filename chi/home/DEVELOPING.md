@@ -137,15 +137,24 @@ recover from a backing error; such failures are fatal in this profile.
 ### Event ownership
 
 Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
-the admission checkpoint to requester RSP/DAT with the named `request` retained
-bank. Its capture predicates use `allocation_slot`; RSP selects `advance_slot`
-and DAT selects `response_data_slot`. Release predicates must qualify both the
+the admission checkpoint to requester RSP/DAT, direct subordinate REQ/DAT, and
+victim-writeback enqueue with the named `request` retained bank. Its capture
+predicates use `allocation_slot`; requester DAT selects `response_data_slot`,
+and the other outputs select `advance_slot`. Release predicates must qualify both the
 real finishing operation and its owning slot, allowing independent slots to
 finish together. Keep ownership throughout the real FSM lifetime, releasing
 on copyback finish, terminal completion, or final data. Do not release on the
 first data beat, DBID response, subordinate
 response, or delayed acknowledgement; `CompAck` has no requester output and is
 owned by the separate DBID table after final DAT.
+The victim-writeback buffer declares its own retained bank: capture at enqueue,
+release only when completion is accepted, and select the original request/data/
+completion arbiter entry. Neither early `Comp` nor final DAT releases that owner.
+Local selection contracts around the Home's existing subordinate muxes choose
+between direct slot and buffered-victim ancestry using the functional locked
+selection controls. `inject_interface` exposes the direct slot REQ/DAT wires;
+it adds no queue, scheduling, or pipeline stage. Do not summarize across the
+writeback child or infer parents from rewritten CHI transaction IDs.
 Both requester output channels read the selected retained owner; Flow infers
 network transit. `home/transaction[slot]` is the only Home-owned checkpoint in
 this slice, with one residency lane per slot. Do not add hit/miss at admission:
@@ -182,11 +191,21 @@ the changed ownership boundary:
   final public transfers and copyback against full incoming packet receipt.
   `event-retained-bank` covers capture/release, replacement, and pending reset.
 
+The Home stimulus explicitly identifies the causal admission for every accepted
+subordinate request, including a victim address different from that request's
+address. The scoreboard follows public DBID responses to check each write-data
+beat against that occurrence, independently of the DUT's selected slots and
+emitted parent edges. Keep overlapping reads, buffered writebacks, full-buffer
+release, ID reuse, backpressure, error completions, and reset coverage.
+
 Rerun SingleCoreRV5StageSoC vvadd with unchanged host polling after Home
 targeting changes; inspect `tohost` snoops and pipeline replay counts, keeping
 correctness distinct from a cycle-count prediction. The standalone instrumented
-two-slot Home fixture passes interleaved responses and out-of-order fills;
-complete SingleCoreRV5StageSoC D-cache return ancestry remains unvalidated.
+two-slot Home fixture checks exact request, requester-response, and subordinate-
+output ownership, including interleaved responses and out-of-order fills.
+SingleCoreRV5StageSoC smoke and maintenance-write probes also validate the
+Home-to-memory request and write-data edges in Perfetto. This does not establish
+complete NoC or memory-controller graph coverage.
 [Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
 has a queued-crossbar regression, and SingleCoreRV5StageSoC partial
 instrumentation, CIRCT IR verification, and SystemVerilog lowering pass.

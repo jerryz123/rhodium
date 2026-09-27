@@ -292,15 +292,18 @@ file directly in Perfetto. Compression preserves all events, fields, and edges.
 Unlike raw traces, gzip files require finalization before native import; normal
 exit and timeout both finalize them, but abrupt termination can leave a truncated file.
 
-Four checkpoints observe real external-memory request and response handshakes:
-`memory-request` to `memory-accept`, and `memory-response` to `soc-response`.
-Each pair describes the same transfer across a transparent harness wire, so its
-inferred edge has zero latency and preserves the payload. External SN data
-channels remain untraced. Available Flow contracts also infer
-`memory-accept` to `memory-response` dependencies, but do not cover every
-controller response branch or identify the originating instructions.
-Unmodeled request and response branches report unknown ancestry; their
-downstream wire-pair edges remain known.
+External-memory checkpoints observe each accepted CHI transfer once, grouped
+under `memory`: `memory/chi.req` for requests into memory, `memory/chi.rsp`
+for control responses, `memory/chi.rxdat` for write data into memory, and
+`memory/chi.txdat` for read data returned by memory. RX/TX directions are relative
+to memory, not the core. Slice names are decoded CHI opcodes; named captures
+retain transaction/routing metadata without dumping complete data payloads.
+These are transfer observations, not additional pipeline stages or transaction
+residencies. Requests and incoming write data inherit the Home transaction that
+caused them, including buffered victim writebacks. The memory controller's DBID
+response path preserves request ancestry, but unmodeled completion paths still
+report unknown ancestry. Incoming memory data is not yet a parent of the Home's
+requester response; those responses inherit retained request ownership instead.
 
 The host access engine retains each accepted FESVR command as the owner of all
 generated CHI request fragments and write-data transfers until the final host

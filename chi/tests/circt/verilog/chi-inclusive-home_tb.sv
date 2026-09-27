@@ -115,13 +115,18 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 `endif
 `ifdef CHI_HOME_TRACE
   import "DPI-C" function void event_home_bind();
+  import "DPI-C" function void event_home_expect_backing(input int unsigned owner_age);
   import "DPI-C" function void event_home_sample(input int unsigned reset,
     input int unsigned request_fire, input longint unsigned address,
     input int unsigned request_opcode, request_txn, request_src, return_txn, return_nid, request_size,
     input int unsigned response_fire, response_opcode, response_txn, response_tgt, response_dbid,
     input int unsigned data_fire, data_opcode, data_txn, data_tgt, data_id,
     input int unsigned request_data_fire, request_data_opcode, request_data_txn, request_data_id,
-    input int unsigned backing_fire, output_stalled);
+    input int unsigned backing_fire, input longint unsigned backing_address,
+    input int unsigned backing_opcode, backing_txn,
+    input int unsigned backing_data_fire, backing_data_txn, backing_data_id,
+    input int unsigned backing_response_fire, backing_response_opcode, backing_response_txn, backing_response_dbid,
+    input int unsigned output_stalled);
   import "DPI-C" function void event_home_check();
   import "DPI-C" function void event_home_finish();
   initial event_home_bind();
@@ -140,6 +145,11 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       32'(request_data_in.valid && port_out.requester.request_data.ready), 32'(request_data_in.bits.opcode),
       32'(request_data_in.bits.txn_id), 32'(request_data_in.bits.data_id),
       32'(port_out.subordinate.req.valid && subordinate_requests_ready_in.ready),
+      64'(port_out.subordinate.req.bits.address), 32'(port_out.subordinate.req.bits.opcode), 32'(port_out.subordinate.req.bits.txn_id),
+      32'(port_out.subordinate.dat.request.valid && subordinate_data_ready_in.ready),
+      32'(port_out.subordinate.dat.request.bits.txn_id), 32'(port_out.subordinate.dat.request.bits.data_id),
+      32'(subordinate_responses_in.valid && port_out.subordinate.rsp.ready),
+      32'(subordinate_responses_in.bits.opcode), 32'(subordinate_responses_in.bits.txn_id), 32'(subordinate_responses_in.bits.dbid_or_group_id),
       32'((port_out.requester.responses.valid && !requester_responses_ready_in.ready) ||
           (port_out.requester.response_data.valid && !response_data_ready_in.ready)));
     #0.5;
@@ -191,7 +201,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   endtask
 
   task automatic accept_memory_request(input logic [43:0] address,
-                                       input logic [6:0] opcode);
+                                       input logic [6:0] opcode,
+                                       input int unsigned owner_age = 0);
     begin
       while (!port_out.subordinate.req.valid) tick();
       #1;
@@ -200,6 +211,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.subordinate.req.bits.size_or_num_req == 6'd6 &&
               port_out.subordinate.req.bits.opcode == opcode)
         else $fatal(1, "inclusive Home issued an incorrect memory request");
+`ifdef CHI_HOME_TRACE
+      event_home_expect_backing(owner_age);
+`endif
       subordinate_requests_ready_in.ready = 1'b1;
       tick();
       subordinate_requests_ready_in = '0;
@@ -208,7 +222,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
 
   task automatic accept_memory_request_transaction(input logic [43:0] address,
                                                    input logic [6:0] opcode,
-                                                   output logic [11:0] transaction);
+                                                   output logic [11:0] transaction,
+                                                   input int unsigned owner_age = 0);
     begin
       while (!port_out.subordinate.req.valid) tick();
       #1;
@@ -216,6 +231,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.subordinate.req.bits.size_or_num_req == 6'd6 &&
               port_out.subordinate.req.bits.opcode == opcode)
         else $fatal(1, "inclusive Home issued an incorrect identified memory request");
+`ifdef CHI_HOME_TRACE
+      event_home_expect_backing(owner_age);
+`endif
       transaction = port_out.subordinate.req.bits.txn_id;
       subordinate_requests_ready_in.ready = 1'b1;
       tick();
@@ -224,7 +242,8 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
   endtask
 
   task automatic accept_memory_request_slot(input logic [43:0] address,
-                                            output logic [11:0] transaction);
+                                            output logic [11:0] transaction,
+                                            input int unsigned owner_age = 0);
     begin
       while (!port_out.subordinate.req.valid) tick();
       #1;
@@ -233,6 +252,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
               port_out.subordinate.req.bits.txn_id ==
                 port_out.subordinate.req.bits.return_txn_id_or_stash_lpid)
         else $fatal(1, "inclusive Home issued an incorrectly identified memory read");
+`ifdef CHI_HOME_TRACE
+      event_home_expect_backing(owner_age);
+`endif
       transaction = port_out.subordinate.req.bits.txn_id;
       subordinate_requests_ready_in.ready = 1'b1;
       tick();
@@ -769,7 +791,7 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       else $fatal(1, "inclusive Home admitted a conflicting set transaction");
     requester_requests_in = '0;
     send_request(LINE1, READ_ONCE, 6'd6, HTIF_ID, 0, 0, 12'h020, 12'h220);
-    accept_memory_request_slot(LINE0, first_memory_txn);
+    accept_memory_request_slot(LINE0, first_memory_txn, 1);
     accept_memory_request_slot(LINE1, second_memory_txn);
     assert (first_memory_txn != second_memory_txn)
       else $fatal(1, "inclusive Home reused a live transaction slot");
@@ -1125,6 +1147,9 @@ module chi_inclusive_home_tb #(parameter int INVALID_CASE = 0);
       while (!second_victim_request_seen && victim_request_wait_cycles < 12) begin
         #1;
         if (port_out.subordinate.req.valid) begin
+`ifdef CHI_HOME_TRACE
+          event_home_expect_backing(0);
+`endif
           if (port_out.subordinate.req.bits.address == LINE1 &&
               port_out.subordinate.req.bits.opcode == WRITE_NO_SNP_FULL) begin
             second_victim_memory_txn = port_out.subordinate.req.bits.txn_id;

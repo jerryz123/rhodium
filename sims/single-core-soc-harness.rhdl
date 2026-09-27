@@ -25,9 +25,35 @@ sync_circuit SoCHarness(params :: SingleCoreSoCParams,
   requester.port <=> soc.host.memory
   uart.uart_tx <== soc.uart.tx
   soc.uart.rx <== uart.uart_rx
-  soc.memory.req |> trace_event("memory-request", ~payload: #true) |> trace_event("memory-accept", ~payload: #true) |> memory.port.req
-  memory.port.rsp |> trace_event("memory-response", ~payload: #true) |> trace_event("soc-response", ~payload: #true) |> soc.memory.rsp
-  soc.memory.dat <=> memory.port.dat
+  def requests = soc.memory.req |> trace_event("memory/chi.req", ~fields: flit):
+    address: flit.address
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+    size_or_num_req(~format: "unsigned"): flit.size_or_num_req
+  requests |> memory.port.req
+  def responses = memory.port.rsp |> trace_event("memory/chi.rsp", ~fields: flit):
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+    src_id(~format: "unsigned"): flit.src_id
+    tgt_id(~format: "unsigned"): flit.tgt_id
+    dbid_or_group_id(~format: "unsigned"): flit.dbid_or_group_id
+    resp(~format: "unsigned"): flit.resp
+    resp_err(~format: "unsigned"): flit.resp_err
+  responses |> soc.memory.rsp
+  for (source in [soc.memory.dat.request, memory.port.dat.response], sink in [memory.port.dat.request, soc.memory.dat.response], label in ["memory/chi.rxdat", "memory/chi.txdat"]):
+    def data = source |> trace_event(label, ~fields: flit):
+      opcode(~format: "enum", ~label: #true): flit.opcode
+      txn_id(~format: "unsigned"): flit.txn_id
+      src_id(~format: "unsigned"): flit.src_id
+      tgt_id(~format: "unsigned"): flit.tgt_id
+      dbid_or_mecid(~format: "unsigned"): flit.dbid_or_mecid
+      data_id(~format: "unsigned"): flit.data_id
+      resp(~format: "unsigned"): flit.resp
+      resp_err(~format: "unsigned"): flit.resp_err
+      byte_enable: flit.byte_enable
+    data |> sink
   memory.identity <== CHIRamIdentity(fabric.flit):
     node_id: bits(fabric.memory_port.node_id, fabric.flit.node_id_width)
     base_address: bits(fabric.memory_base, fabric.flit.request_address_width)

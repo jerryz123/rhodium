@@ -1,4 +1,4 @@
-// Checks two-slot Home request ancestry and observable residency boundaries from public transfers.
+// Checks Home and victim-writeback ancestry using driver-selected requests and public REQ/DBID/DAT transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "event-home_manifest.h"
@@ -21,6 +21,9 @@ struct Owner {
 };
 std::vector<Owner> owners;
 unsigned responses=0,beats=0,stalled=0,resets=0,concurrent=0,reused=0,copybacks=0;
+unsigned backing_reads=0,backing_writes=0,backing_beats=0,buffered_writes=0;
+std::optional<rheg::Ref> expected_backing;
+std::map<unsigned,rheg::Ref> backing_transactions,backing_dbids;
 std::array<unsigned,2> allocations{};
 bool resetting=false;
 [[noreturn]] void fail(const char* message) {
@@ -47,18 +50,29 @@ void end(Owner& owner) {
 }
 }
 extern "C" void event_home_bind() { rheg::graph().bind_manifest(rheg_generated::manifest()); }
+// The stimulus identifies the causal admission explicitly, independently of
+// DUT slot selection, rewritten TxnIDs, victim addresses, or observed edges.
+extern "C" void event_home_expect_backing(unsigned owner_age) {
+  if(expected_backing || owner_age>=owners.size()) fail("invalid backing-request expectation");
+  const auto& accepted=owners[owners.size()-1-owner_age];
+  if(accepted.done || !accepted.resident) fail("backing request requires live accepted owner");
+  expected_backing=accepted.resident;
+}
 extern "C" void event_home_sample(unsigned reset, unsigned request_fire, std::uint64_t address,
     unsigned request_opcode, unsigned request_txn, unsigned request_src, unsigned return_txn, unsigned return_nid, unsigned request_size,
     unsigned response_fire, unsigned response_opcode, unsigned response_txn, unsigned response_tgt, unsigned response_dbid,
     unsigned data_fire, unsigned data_opcode, unsigned data_txn, unsigned data_tgt, unsigned data_id,
     unsigned request_data_fire, unsigned request_data_opcode, unsigned request_data_txn, unsigned request_data_id,
-    unsigned backing_fire, unsigned output_stalled) {
+    unsigned backing_fire, std::uint64_t backing_address, unsigned backing_opcode, unsigned backing_txn,
+    unsigned backing_data_fire, unsigned backing_data_txn, unsigned backing_data_id,
+    unsigned backing_response_fire, unsigned backing_response_opcode, unsigned backing_response_txn, unsigned backing_response_dbid,
+    unsigned output_stalled) {
   using namespace test_sites;
-  (void)backing_fire;
   resetting=reset;
   if(reset) {
     for(const auto& owner:owners) resets+=!owner.done;
-    expected.clear(); sequences.clear(); owners.clear(); cycle=0; return;
+    expected.clear(); sequences.clear(); owners.clear(); expected_backing.reset();
+    backing_transactions.clear(); backing_dbids.clear(); cycle=0; return;
   }
   unsigned live=0; for(const auto& owner:owners) live+=!owner.done;
   concurrent+=live>1;
@@ -88,6 +102,26 @@ extern "C" void event_home_sample(unsigned reset, unsigned request_fire, std::ui
       (std::uint64_t(request_opcode)<<19)|(request_txn<<7)|request_src);
     owners.push_back({parent,{},request_txn,request_src,return_txn,return_nid,
       request_size>4 ? 1u<<(request_size-4) : 1u,request_opcode});
+  }
+  if(backing_fire) {
+    if(!expected_backing) fail("backing request without stimulus expectation");
+    auto child=node(backing_request,63,(static_cast<unsigned __int128>(backing_address)<<19)|(backing_opcode<<12)|backing_txn);
+    expected.edges.insert({*expected_backing,child});
+    backing_transactions.insert_or_assign(backing_txn,*expected_backing);
+    expected_backing.reset();
+    if(backing_opcode==4) ++backing_reads;
+    else { ++backing_writes; buffered_writes+=backing_txn>=2; }
+  }
+  if(backing_response_fire && backing_response_opcode==6) {
+    auto found=backing_transactions.find(backing_response_txn);
+    if(found==backing_transactions.end()) fail("DBID without a backing request");
+    backing_dbids.insert_or_assign(backing_response_dbid,found->second);
+  }
+  if(backing_data_fire) {
+    auto found=backing_dbids.find(backing_data_txn);
+    if(found==backing_dbids.end()) fail("write data without a public DBID grant");
+    auto child=node(backing_data,14,(backing_data_txn<<2)|backing_data_id);
+    expected.edges.insert({found->second,child}); ++backing_beats;
   }
   stalled += output_stalled;
 }
@@ -128,8 +162,11 @@ extern "C" void event_home_check() {
 }
 extern "C" void event_home_finish() {
   rheg::graph().validate();
-  if(!beats || !responses || !stalled || !resets || !concurrent || !reused || !copybacks || !allocations[1])
+  if(!beats || !responses || !stalled || !resets || !concurrent || !reused || !copybacks || !allocations[1] ||
+     !backing_reads || !backing_writes || !backing_beats || !buffered_writes || expected_backing)
     fail("Home trace coverage incomplete");
   std::printf("Home ownership passed: beats=%u responses=%u concurrent=%u slot-reuse=%u copybacks=%u stalls=%u pending-resets=%u\n",
     beats,responses,concurrent,reused,copybacks,stalled,resets);
+  std::printf("Home subordinate ancestry passed: reads=%u writes=%u data=%u buffered-writes=%u\n",
+    backing_reads,backing_writes,backing_beats,buffered_writes);
 }

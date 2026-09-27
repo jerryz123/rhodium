@@ -156,8 +156,8 @@ make -C sims trace-smoke SOC=simple-rv5stage-rva23 TRACE_FILE=/tmp/single-core-r
   TRACE_PROCESSOR=/path/to/native/trace_processor_shell
 ```
 
-`tests/check-event-trace.sh` requires request traffic and checks the two allowed
-same-cycle edge families, paired payload/sequence equality, exact configured
+`tests/check-event-trace.sh` requires request and returned-data traffic and checks
+the external-memory channel schemas and opcode labels, exact configured
 timestamps, one-cycle transfers, continuous stall ranges, readable track labels,
 and importer errors.
 Refill, writeback, and walk residencies are checked separately from transfer/stall
@@ -208,7 +208,14 @@ parent reconstruction; the smoke checks importer-visible edge families.
 Select stages through track names, not mnemonic slice names, and check full
 disassembly separately from the mnemonic. Generic display/schema rules belong
 to [RHEG](../rheg/DEVELOPING.md#perfetto-encoding), not this adapter.
-Memory pairs explicitly retain raw capture for their payload-equality checks.
+`tests/check-memory-events.sql` checks one transfer site per external-memory
+channel, named metadata captures, opcode slice names, and memory-relative DAT
+direction. Idle RSP/RXDAT channels need not appear. The harness emits no duplicate
+wire-end checkpoints and no raw data payloads. Missing ancestry remains explicit;
+do not match reused CHI IDs in the exporter to synthesize request/response edges.
+Every memory REQ and incoming write DAT must have one Home-transaction parent,
+including traffic from a host-originated Home transaction. The Home checkpoint
+is known even when its own earlier ancestry is unknown.
 The D-cache stage checks in `tests/check-demand-events.sql` follow scalar EX
 into shared S1 resolution one cycle later, then the returned cache occurrence
 into WB alongside its independent MEM parent. The caller-owned

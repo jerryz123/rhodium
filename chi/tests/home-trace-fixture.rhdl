@@ -1,5 +1,5 @@
 #lang rhodium
-// Places caller checkpoints around the two-slot inclusive Home and its transaction residencies.
+// Observes requester and subordinate transfers around the two-slot inclusive Home's retained owners.
 // SPDX-License-Identifier: Apache-2.0
 import:
   lib("flow/main.rhdl") open
@@ -33,7 +33,17 @@ sync_circuit EventHome():
   port.requester.requester_responses |> home.port.requester.requester_responses
   port.requester.request_data |> home.port.requester.request_data
   home.port.requester.snoops |> port.requester.snoops
-  port.subordinate <=> home.port.subordinate
+  def backing_requests = home.port.subordinate.req |> trace_event("backing-request", ~fields: flit):
+    address: flit.address
+    opcode(~format: "enum", ~label: #true): flit.opcode
+    txn_id(~format: "unsigned"): flit.txn_id
+  backing_requests |> port.subordinate.req
+  def backing_data = home.port.subordinate.dat.request |> trace_event("backing-data", ~fields: flit):
+    txn_id(~format: "unsigned"): flit.txn_id
+    data_id(~format: "unsigned"): flit.data_id
+  backing_data |> port.subordinate.dat.request
+  port.subordinate.rsp |> home.port.subordinate.rsp
+  port.subordinate.dat.response |> home.port.subordinate.dat.response
 
 def elaboration = elaborate_with_top(EventHome())
 export elaboration

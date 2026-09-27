@@ -54,7 +54,10 @@ single-core and tiled SoCs select two.
 The optional event compiler emits `home/transaction[slot]` residency for every
 configured transaction slot. Admission captures the request address, symbolic
 opcode, TxnID, and SrcID once. Incoming Flow ancestry enters that residency;
-requester RSP and DAT inherit the actual selected slot's occurrence. Overlapping
+requester RSP/DAT and subordinate REQ/write DAT inherit the actual selected
+slot's occurrence. Buffered dirty-victim writebacks retain the causing
+transaction's occurrence from enqueue through their requests and data beats,
+even while another transaction wins the shared outputs. Overlapping
 transactions occupy distinct Perfetto lanes, and reused transaction IDs do not
 merge occurrences. Residency includes lookup, snoops, refill/writeback waits,
 and output backpressure; it ends on final DAT, terminal completion, copyback
@@ -69,16 +72,16 @@ These are transaction lifetimes, not a trace of every internal FSM state.
 Separate victim-writeback and CompAck residencies are not yet annotated.
 
 These edges describe request ownership, not backing-memory data provenance.
-Subordinate traffic and incoming snoop/data contributions are not separately
-represented in this graph yet.
+Incoming subordinate and snoop/data contributions are not incorporated into
+requester-response ancestry yet. Callers may observe subordinate transfers
+without adding checkpoints inside the Home or victim-writeback buffer.
 
-Current integration limit: complete SingleCoreRV5StageSoC D-cache return
-ancestry has not been validated.
-The SingleCoreRV5StageSoC emitter enables
+Home-to-memory request and write-data ancestry is supported in
+SingleCoreRV5StageSoC. The emitter enables
 [partial tracing](../../rhodium/event/README.md), so missing contracts such as
 the uncached engine's ownership become explicit ancestry gaps instead of
 blocking all instrumentation. IO-MSHR and uncached ownership remain unannotated.
-Full NoC graph coverage still requires runtime integration validation;
+This does not establish complete NoC or memory-controller graph coverage;
 partial tracing does not change the Home's functional request/response behavior.
 
 ## Limits and navigation
