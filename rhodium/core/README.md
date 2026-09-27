@@ -74,6 +74,14 @@ invalid.
 
 ### Elaboration result
 
+`PortSignature(name, type)` and `ModuleSignature(inputs, outputs)` describe
+ordered typed ports without allocating a module, values, places, or state.
+`module_signature(module)` extracts this detached description from a finished
+module; `signature_equal` compares direction, order, names, and structural
+hardware types. Signature names follow the ordinary hardware identifier and
+reserved-prefix rules. They describe the physical port interface, including
+aggregate types; frontend interface roles remain owned by the interface layer.
+
 Elaboration constructs one public SSA-style dataflow IR. There is no private
 frontend IR or separate high-level and canonical pair. Host computation has
 already finished by the time the core design is verified.

@@ -1,0 +1,87 @@
+#lang rhombus
+// Checks independent circuit signatures, lazy concrete realization, legacy wrappers, and reference ownership.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/ir.rhm" as core
+  "../../core/printer.rhm".dump_ir
+  "../../frontend/foundation.rhm" open
+  "../../frontend/layers/hierarchy.rhm" open
+  "../../frontend/kernel.rhm" as kernel
+  "circuit-reference-fixture.rhm" open
+
+check:
+  inspected_signature === signature ~is #true
+  circuit_reference(reference) === reference ~is #true
+  circuit_signature(reference).input("source").type.width ~is 8
+  constructions_after_inspection ~is 0
+  construction_count() ~is 1
+  dump_ir(eager.design) ~is dump_ir(deferred.design)
+  dump_ir(sync_eager.design) ~is dump_ir(sync_deferred.design)
+  dump_ir(reset_eager.design) ~is dump_ir(reset_deferred.design)
+  dump_ir(explicit_eager.design) ~is dump_ir(explicit_deferred.design)
+  dump_ir(interface_eager.design) ~is dump_ir(interface_deferred.design)
+  circuit_reference(sync_reference).clock_port ~is "clock"
+
+def first = deferred.top.find_instance("first")
+def second = deferred.top.find_instance("second")
+check:
+  first.attribute("module") === second.attribute("module") ~is #true
+  first.results[0] === second.results[0] ~is #false
+
+def next_elaboration = elaborate_with_top(reference)
+check:
+  construction_count() ~is 2
+  next_elaboration.top.name ~is "Leaf"
+  next_elaboration.top.design === next_elaboration.design ~is #true
+  next_elaboration.top === first.attribute("module") ~is #false
+  circuit_signature(next_elaboration.top).output("result").type.width ~is 8
+
+class Legacy(module_def :: core.Module):
+  implements CircuitDefinition
+  override method core_module(): module_def
+
+def legacy = elaborate_with_top(Legacy(Leaf()))
+check:
+  dump_ir(legacy.design) ~is dump_ir(next_elaboration.design)
+
+// Sync wiring requirements are checked from the signature before running
+// an implementation recipe, including when the ambient domain is missing.
+circuit MissingDomain():
+  inst child(sync_reference)
+
+def before_missing_domain = sync_construction_count()
+check:
+  elaborate(MissingDomain()) ~throws "active sync_circuit"
+  sync_construction_count() ~is before_missing_domain
+
+def wrong_signature = CircuitReference(CircuitIdentity("Wrong"), ModuleSignature([], []), fun (): Leaf())
+check:
+  elaborate(wrong_signature) ~throws "does not match the declared signature"
+  elaborate(Legacy(next_elaboration.top)) ~throws "different design"
+  CircuitReference(CircuitIdentity("BadSync"), signature, fun (): Leaf(), "clock", "reset") ~throws "Clock and Reset"
+  CircuitReference(CircuitIdentity("PartialSync"), sync_signature, fun (): SyncLeaf(), "clock") ~throws "both clock and reset"
+
+def mutable recursive = #false
+recursive := CircuitReference(CircuitIdentity("Recursive"), signature, fun (): recursive)
+check:
+  elaborate(recursive) ~throws "recursive materialization"
+
+// A failed provider must not poison recursion tracking when a caller handles
+// the failure and retries during the same elaboration.
+def mutable attempts = 0
+def retryable = CircuitReference(
+  CircuitIdentity("Retry"), signature,
+  fun ():
+    attempts := attempts + 1
+    if attempts == 1 | error("try again") | Leaf()
+)
+def retry_result = kernel.run_elaboration_with_top(
+  fun ():
+    check:
+      kernel.materialize_circuit(retryable) ~throws "try again"
+    retryable
+)
+check:
+  attempts ~is 2
+  retry_result.top.name ~is "Leaf"

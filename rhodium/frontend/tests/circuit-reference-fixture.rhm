@@ -1,0 +1,139 @@
+#lang rhombus
+// Builds matching eager and signature-bearing hierarchies for frontend and CIRCT conformance tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../frontend/foundation.rhm" open
+  "../../frontend/layers/hierarchy.rhm" open
+  "../../frontend/layers/comb.rhm" open
+  "../../frontend/layers/sync.rhm" open
+  "../../frontend/layers/sequential.rhm" open
+  "../../frontend/layers/interface.rhm" open
+  "../../std/ready-valid.rhdl".Decoupled
+  "../../../examples/rtl/interface.rhdl".ReadyValidAdapter
+  "../../../examples/rtl/interface.rhdl".design as interface_design
+
+circuit Leaf():
+  input source: Bits(8)
+  output result: Bits(8)
+  result <== source
+
+def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def mutable constructions = 0
+def reference = CircuitReference(
+  CircuitIdentity("Leaf"), signature,
+  fun ():
+    constructions := constructions + 1
+    Leaf()
+)
+def inspected_signature = circuit_signature(reference)
+def constructions_after_inspection = constructions
+fun construction_count(): constructions
+
+circuit Pair(use_reference):
+  input source: Bits(8)
+  output result: Bits(8)
+  def child = if use_reference | reference | Leaf()
+  inst first(child)
+  inst second(child)
+  first.source <== source
+  second.source <== first.result
+  result <== second.result
+
+def eager = elaborate_with_top(Pair(#false))
+def deferred = elaborate_with_top(Pair(#true))
+
+sync_circuit SyncLeaf():
+  input source: Bits(8)
+  output result: Bits(8)
+  reg stored(~init: bits(0, 8))
+  stored <== source
+  result <== stored
+
+def sync_signature = ModuleSignature(
+  [PortSignature("clock", Clock), PortSignature("reset", Reset), PortSignature("source", Bits(8))],
+  [PortSignature("result", Bits(8))]
+)
+def mutable sync_constructions = 0
+def sync_reference = CircuitReference(
+  CircuitIdentity("SyncLeaf"), sync_signature,
+  fun ():
+    sync_constructions := sync_constructions + 1
+    SyncLeaf(),
+  "clock", "reset"
+)
+fun sync_construction_count(): sync_constructions
+
+sync_circuit SyncParent(use_reference):
+  input source: Bits(8)
+  output result: Bits(8)
+  def child = if use_reference | sync_reference | SyncLeaf()
+  inst stage(child)
+  stage.source <== source
+  result <== stage.result
+
+sync_circuit ResetParent(use_reference):
+  input source: Bits(8)
+  input local_reset: Reset
+  output result: Bits(8)
+  def child = if use_reference | sync_reference | SyncLeaf()
+  inst stage(child, ~reset_when: local_reset)
+  stage.source <== source
+  result <== stage.result
+
+circuit ExplicitParent(use_reference):
+  input clock: Clock
+  input reset: Reset
+  input source: Bits(8)
+  output result: Bits(8)
+  def child = if use_reference | sync_reference | SyncLeaf()
+  inst stage(child, ~clock: clock, ~reset: reset)
+  stage.source <== source
+  result <== stage.result
+
+def sync_eager = elaborate_with_top(SyncParent(#false))
+def sync_deferred = elaborate_with_top(SyncParent(#true))
+def reset_eager = elaborate_with_top(ResetParent(#false))
+def reset_deferred = elaborate_with_top(ResetParent(#true))
+def explicit_eager = elaborate_with_top(ExplicitParent(#false))
+def explicit_deferred = elaborate_with_top(ExplicitParent(#true))
+
+// The detached port types do not retain the earlier design's live bindings.
+// Grouped interface endpoints are reconstructed from the new implementation.
+def interface_reference = CircuitReference(
+  CircuitIdentity("ReadyValidAdapter"),
+  circuit_signature(interface_design.modules[0]),
+  fun (): ReadyValidAdapter(8)
+)
+circuit InterfaceParent(use_reference):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def child = if use_reference | interface_reference | ReadyValidAdapter(8)
+  inst stage(child)
+  ingress |> stage.ingress
+  stage.egress |> egress
+
+def interface_eager = elaborate_with_top(InterfaceParent(#false))
+def interface_deferred = elaborate_with_top(InterfaceParent(#true))
+
+export:
+  Leaf
+  signature
+  reference
+  inspected_signature
+  constructions_after_inspection
+  construction_count
+  SyncLeaf
+  sync_signature
+  sync_reference
+  sync_construction_count
+  eager
+  deferred
+  sync_eager
+  sync_deferred
+  reset_eager
+  reset_deferred
+  explicit_eager
+  explicit_deferred
+  interface_eager
+  interface_deferred

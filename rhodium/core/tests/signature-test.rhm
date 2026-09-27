@@ -1,0 +1,37 @@
+#lang rhombus
+// Checks detached port ordering, aggregate type equality, and concrete module signature extraction.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../core/main.rhm" open
+
+def payload = RecordType([RecordField("tag", Bits(3)), RecordField("data", VectorType(2, Bits(8)))])
+def signature = ModuleSignature([PortSignature("source", payload)], [PortSignature("result", payload)])
+def design = Design()
+def builder = Builder(design)
+def module_def = builder.module("SignatureLeaf")
+def source = builder.input(module_def, "source", payload)
+def result = builder.output(module_def, "result", payload)
+builder.drive(result, source)
+
+check:
+  module_signature(module_def) ~throws "finished module"
+
+builder.finish(module_def)
+
+check:
+  signature_equal(signature, module_signature(module_def)) ~is #true
+  signature.input("source").type === payload ~is #true
+  signature.output("result").name ~is "result"
+  signature.input("absent") ~is #false
+  signature.output("absent") ~is #false
+  signature_equal(signature, ModuleSignature(signature.outputs, signature.inputs)) ~is #false
+  signature_equal(signature, ModuleSignature([PortSignature("source", Bits(19))], signature.outputs)) ~is #false
+  signature_equal(ModuleSignature([], []), ModuleSignature([], [])) ~is #true
+  signature_equal(ModuleSignature([PortSignature("a", Bits(1)), PortSignature("b", Bits(1))], []),
+                  ModuleSignature([PortSignature("b", Bits(1)), PortSignature("a", Bits(1))], [])) ~is #false
+  ModuleSignature([PortSignature("same", Bits(1))], [PortSignature("same", Bits(1))]) ~throws "unique"
+  ModuleSignature([PortSignature("same", Bits(1)), PortSignature("same", Bits(1))], []) ~throws "unique"
+  PortSignature("", Bits(1)) ~throws "requires a name"
+  PortSignature("bad-name", Bits(1)) ~throws "requires a name"
+  PortSignature("__rhodium_reserved", Bits(1)) ~throws "requires a name"

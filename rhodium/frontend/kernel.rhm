@@ -1,10 +1,11 @@
 #lang rhombus
-// Implements context-based elaboration and deferred frontend hardware values.
+// Implements context-based elaboration, signature-bearing circuit references, and deferred hardware values.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../support/annotations.rhm" open
   "../core/ir.rhm" open
+  "../core/signature.rhm" open
   "../core/builder.rhm" open
   "../core/verify.rhm" open
 
@@ -15,6 +16,12 @@ export:
   DeferredHardwareValue
   StaticHardwareValue
   CircuitDefinition
+  CircuitReference
+  PortSignature
+  ModuleSignature
+  circuit_reference
+  circuit_signature
+  materialize_circuit
   FrontendContext
   new_circuit_identity
   frontend_run
@@ -90,15 +97,62 @@ interface StableCircuitParam:
   method same_stable_circuit_param(other :: StableCircuitParam) :: Boolean:
     this == other
 
-// Lets frontend-only wrappers carry authoring metadata while still selecting
-// an ordinary core module for instances and top-level elaboration.
+// Keeps legacy module wrappers usable while new references expose signatures
+// independently of their concrete implementation.
 interface CircuitDefinition:
   method core_module()
+  method definition_reference():
+    def module_def = this.core_module()
+    unless module_def is_a Module
+    | frontend_fail("legacy circuit definition must return a module")
+    circuit_reference(module_def)
 
-fun circuit_module(definition :: Module || CircuitDefinition):
+fun circuit_reference(definition :: Module || CircuitDefinition,
+                      location :: Location = Location()):
   cond
-  | definition is_a Module: definition
-  | definition is_a CircuitDefinition: definition.core_module()
+  | definition is_a Module:
+      CircuitReference(new_circuit_identity(definition.name),
+                       module_signature(definition),
+                       fun (): definition)
+  | ~else:
+      def reference = definition.definition_reference()
+      unless reference is_a CircuitReference
+      | frontend_fail("circuit definition must provide a CircuitReference", location)
+      reference
+
+fun circuit_signature(definition :: Module || CircuitDefinition):
+  circuit_reference(definition).signature
+
+// This is the concrete-RTL boundary. Inspection and sync-port selection use
+// the reference signature before reaching this function.
+fun materialize_circuit(definition :: Module || CircuitDefinition,
+                        location :: Location = Location()):
+  def context = require_context(location)
+  def reference = circuit_reference(definition, location)
+  def cached = context.materialized_circuits.get(reference, #false)
+  if cached
+  | cached
+  | block:
+      when reference in context.materializing_circuits
+      | frontend_fail("recursive materialization of circuit " ++ reference.identity.name, location)
+      context.materializing_circuits.add(reference)
+      try:
+        def implementation = reference.implementation()
+        def module_def:
+          cond
+          | implementation is_a Module: implementation
+          | implementation is_a CircuitDefinition: materialize_circuit(implementation, location)
+          | ~else: frontend_fail("circuit implementation must return a module or circuit definition", location)
+        unless module_def.design === context.design && context.design.owns_module(module_def)
+        | frontend_fail("circuit implementation belongs to a different design", location)
+        unless module_def.finished
+        | frontend_fail("circuit implementation must be a finished module", location)
+        unless signature_equal(reference.signature, module_signature(module_def))
+        | frontend_fail("circuit implementation does not match the declared signature of " ++ reference.identity.name, location)
+        context.materialized_circuits[reference] := module_def
+        module_def
+        ~finally:
+          context.materializing_circuits.remove(reference)
 
 fun frontend_fail(message :: String, location :: Location = Location()):
   error(~who: #'rhodium, location.describe() ++ ": " ++ message)
@@ -139,6 +193,32 @@ class RegisterPath(materialize_current :: Function.of_arity(0),
   override method drive_hardware(location :: Location): next
 
 class CircuitIdentity(name :: String)
+
+// A reference has declaration identity, a detached interface, and an explicit
+// implementation recipe. Reuse is per reference and per elaboration, never global.
+class CircuitReference(identity :: CircuitIdentity,
+                       signature :: ModuleSignature,
+                       implementation :: Function.of_arity(0),
+                       clock_port :: maybe(String) = #false,
+                       reset_port :: maybe(String) = #false):
+  implements CircuitDefinition
+  constructor (identity :: CircuitIdentity,
+               signature :: ModuleSignature,
+               implementation :: Function.of_arity(0),
+               clock_port :: maybe(String) = #false,
+               reset_port :: maybe(String) = #false):
+    unless (!clock_port && !reset_port) || (clock_port && reset_port)
+    | frontend_fail("sync circuit signature requires both clock and reset ports")
+    when clock_port && reset_port
+    | def clock = signature.input(clock_port)
+      def reset = signature.input(reset_port)
+      unless clock && clock_type(clock.type) && reset && reset_type(reset.type)
+      | frontend_fail("sync circuit signature requires Clock and Reset input ports")
+    super(identity, signature, implementation, clock_port, reset_port)
+
+  override method definition_reference(): this
+  override method core_module(): materialize_circuit(this)
+
 class.together:
   class ActiveCircuit(identity :: CircuitIdentity,
                       name :: String,
@@ -159,6 +239,8 @@ class FrontendContext(design :: Design,
                       mutable active :: Boolean = #true,
                       mutable active_circuits :: List.of(ActiveCircuit) = [],
                       specializations_by_circuit :: MutableMap = MutableMap.by(===){},
+                      materialized_circuits :: MutableMap = MutableMap.by(===){},
+                      materializing_circuits :: MutableSet = MutableSet.by(===){},
                       mutable allocated_symbols :: List.of(String) = []):
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
@@ -1148,7 +1230,7 @@ fun inst(name :: AsciiIdentifier,
          location :: Location = Location()):
   def context = require_context(location)
   context.builder.suggested_instance(require_module(location),
-                                     circuit_module(child) || child,
+                                     materialize_circuit(child, location),
                                      name,
                                      location,
                                      Origin("embedded instance", name))
@@ -1725,17 +1807,13 @@ fun frontend_elaboration(program :: Function.of_arity(0)):
   def design = Design()
   def context = FrontendContext(design, Builder(design))
   def top = parameterize { current_context: context }:
-              program()
+              def result = program()
+              unless result is_a Module || result is_a CircuitDefinition
+              | error(~who: #'rhodium, "elaboration did not select a top circuit")
+              materialize_circuit(result)
   context.active := #false
-  def top_module:
-    cond
-    | top is_a Module: top
-    | top is_a CircuitDefinition: top.core_module()
-    | ~else: #false
-  unless top_module is_a Module
-  | error(~who: #'rhodium, "elaboration did not select a top circuit")
   verify_design(design)
-  DesignElaboration(design, top_module)
+  DesignElaboration(design, top)
 
 fun frontend_run(program :: Function.of_arity(0)):
   frontend_elaboration(program).design

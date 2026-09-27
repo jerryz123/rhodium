@@ -1,0 +1,51 @@
+#lang rhombus
+// Defines detached typed module signatures for inspecting interfaces before implementation construction.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../support/annotations.rhm".AsciiIdentifier
+  "ir.rhm" open
+
+export:
+  PortSignature
+  ModuleSignature
+  module_signature
+  signature_equal
+
+class PortSignature(name :: String, type :: HardwareType):
+  constructor (name :: String, type :: HardwareType):
+    unless name is_a AsciiIdentifier && !name.starts_with("__rhodium_") && type_well_formed(type)
+    | error(~who: #'PortSignature, "port signature requires a name and a well-formed hardware type")
+    super(name, type)
+
+class ModuleSignature(inputs :: List.of(PortSignature),
+                      outputs :: List.of(PortSignature)):
+  constructor (inputs :: List.of(PortSignature), outputs :: List.of(PortSignature)):
+    def ports = inputs ++ outputs
+    for (port in ports):
+      unless ports.filter(~keep: fun (candidate): candidate.name == port.name).length() == 1
+      | error(~who: #'ModuleSignature, "port signature names must be unique")
+    super(inputs, outputs)
+
+  method input(name :: String):
+    inputs.find(fun (port): port.name == name)
+
+  method output(name :: String):
+    outputs.find(fun (port): port.name == name)
+
+fun module_signature(module_def :: Module):
+  unless module_def.finished
+  | error(~who: #'module_signature, "module signature requires a finished module")
+  ModuleSignature(
+    module_def.inputs.map(fun (port): PortSignature(port.name, port.type)),
+    module_def.outputs.map(fun (port): PortSignature(port.name, port.type))
+  )
+
+fun signature_ports_equal(left :: List.of(PortSignature), right :: List.of(PortSignature)):
+  left.length() == right.length() && (
+    for all (a in left, b in right):
+      a.name == b.name && type_equal(a.type, b.type)
+  )
+
+fun signature_equal(left :: ModuleSignature, right :: ModuleSignature):
+  signature_ports_equal(left.inputs, right.inputs) && signature_ports_equal(left.outputs, right.outputs)

@@ -1,0 +1,14 @@
+#lang rhombus
+// Checks that signature-bearing and eager circuit definitions emit identical CIRCT for combinational and clocked hierarchy.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../circt.rhm".emit_circt
+  "../../frontend/tests/circuit-reference-fixture.rhm" as fixture
+
+check:
+  emit_circt(fixture.eager.design) ~is emit_circt(fixture.deferred.design)
+  emit_circt(fixture.sync_eager.design) ~is emit_circt(fixture.sync_deferred.design)
+  emit_circt(fixture.reset_eager.design) ~is emit_circt(fixture.reset_deferred.design)
+  emit_circt(fixture.explicit_eager.design) ~is emit_circt(fixture.explicit_deferred.design)
+  emit_circt(fixture.interface_eager.design) ~is emit_circt(fixture.interface_deferred.design)

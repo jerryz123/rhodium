@@ -6,6 +6,13 @@ import:
   rhombus/meta open
   "../core/types.rhm" open
   "kernel.rhm".StableCircuitParam
+  "kernel.rhm".CircuitIdentity
+  "kernel.rhm".CircuitDefinition
+  "kernel.rhm".CircuitReference
+  "kernel.rhm".PortSignature
+  "kernel.rhm".ModuleSignature
+  "kernel.rhm".circuit_reference
+  "kernel.rhm".circuit_signature
   "kernel.rhm".input as kernel_input
   "kernel.rhm".output as kernel_output
   "kernel.rhm".build_circuit as kernel_build_circuit
@@ -38,6 +45,13 @@ annot.macro 'Reset':
 
 export:
   StableCircuitParam
+  CircuitIdentity
+  CircuitDefinition
+  CircuitReference
+  PortSignature
+  ModuleSignature
+  circuit_reference
+  circuit_signature
   HardwareType
   DataType
   ScalarDataType

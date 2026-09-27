@@ -80,6 +80,47 @@ hardware:
 
 ### Circuit families and explicit tops
 
+Library extensions can separate a known physical interface from construction
+of its implementation with a `CircuitReference`:
+
+```rhombus
+def signature = ModuleSignature(
+  [PortSignature("source", Bits(8))],
+  [PortSignature("result", Bits(8))]
+)
+def leaf = CircuitReference(CircuitIdentity("Leaf"), signature, fun (): Leaf())
+```
+
+Here `Leaf()` is an ordinary circuit with matching ports. Constructing `leaf`
+or calling `circuit_signature(leaf)` does not execute `Leaf()`. `inst` and
+top-level `elaborate` materialize the reference when concrete RTL is required.
+The implementation must return a finished module or circuit definition in the
+active elaboration, with exactly the declared port names, order, directions,
+and types. One reference is realized once per elaboration; separate instances
+still have independent hardware state. Reusing it in another elaboration
+constructs a new implementation for that design.
+
+The optional fourth and fifth constructor arguments name the `Clock` and
+`Reset` inputs for automatic sync-child wiring. Both must be supplied together.
+This declaration selects wiring; the implementation's `sync_circuit` still
+owns single-clock certification and reset behavior. Clock/reset port names
+alone never opt an ordinary module into automatic propagation.
+
+`circuit_reference(module_or_definition)` adapts existing concrete definitions;
+`circuit_signature` inspects either kind. Legacy `CircuitDefinition` wrappers
+that implement `core_module()` remain supported. Their default adapter needs
+the existing module; only `CircuitReference` guarantees inspection without
+implementation construction.
+
+This API preserves ordinary eager circuit elaboration. The resulting design
+still contains concrete RTL instances, so existing analyses and CIRCT emission
+remain applicable. It does not yet retain abstract instances in the IR.
+Signatures describe typed physical ports; nominal interface roles, grouped
+endpoint reconstruction, and tracing metadata continue to come from the
+materialized implementation. Dynamically constructed references use ordinary
+instance member lookup; existing circuit declarations retain their richer
+expansion-time port information.
+
 A circuit declaration defines a parameterized module family. Calling it while
 elaborating creates the selected specialization once and reuses that definition
 for later calls with the same stable parameters:

@@ -56,9 +56,10 @@ uses the following lifecycle:
    through `kernel.read` and delegate construction to the core Builder.
 4. Circuit finalizers resolve source-order-independent work and accumulated
    vector-register writes before the Builder finishes the module.
-5. The top result is normalized through `CircuitDefinition` when a frontend
-   wrapper carries metadata, and core `verify_design` checks the completed
-   design.
+5. Instantiation and top selection normalize through `circuit_reference`.
+   `materialize_circuit` realizes explicit references within the still-active
+   elaboration and checks ownership, completion, and the declared signature.
+   Core `verify_design` then checks the completed concrete design.
 
 Keep frontend checks close to the authoring construct when they diagnose syntax,
 static information, or an elaboration-time contract. Put representation-wide
@@ -98,8 +99,27 @@ The kernel distinguishes live hardware from deferred frontend descriptions:
   generator-parameter boundary.
 - `RegisterPathValue` delays the choice between a register's current value and
   its next-state place until read or drive context is known.
-- `CircuitDefinition` lets wrappers retain frontend-only metadata while exposing
-  an ordinary core module to instantiation and top selection.
+- `CircuitDefinition` retains the legacy `core_module()` wrapper protocol and
+  supplies a default concrete `definition_reference()` adapter.
+- `CircuitReference` separates declaration identity and a core `ModuleSignature`
+  from an implementation recipe. Signature inspection and sync wiring policy
+  do not execute the recipe. `materialize_circuit` is the explicit concrete
+  boundary used by `inst` and top selection; it validates the returned module
+  and caches by reference identity within one `FrontendContext`.
+
+Reference realization is independent of generator specialization: do not cache
+by a display name or share live modules across elaborations. Detect recursive
+realization and remove active markers on failure. Recipes execute in the
+current elaboration and must not return modules from earlier designs. Existing
+circuit declarations still eagerly construct their bodies. Reference support
+adds no new hardware opcode or second wiring representation.
+
+Sync wrappers expose their control-port names through the reference rather
+than requiring instantiation to match a particular wrapper class. Actual
+`sync_circuit` construction retains its existing clock certification. Instance
+members continue to use the concrete instance's bindings and interface-layer
+metadata. Retained instances and detached nominal interface descriptors are
+separate future changes, not implied by this reference seam.
 
 [`support/hardware-literal.rhm`](support/hardware-literal.rhm) implements the
 public `HardwareLiteral` protocol on that deferred boundary. Field, annotation,

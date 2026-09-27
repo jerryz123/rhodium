@@ -51,7 +51,15 @@ class SyncCircuitDefinition(module_def :: Module,
                             clock_port :: AsciiIdentifier = "clock",
                             reset_port :: AsciiIdentifier = "reset"):
   implements CircuitDefinition
+  private field reference = kernel.CircuitReference(
+    kernel.new_circuit_identity(module_def.name),
+    kernel.circuit_signature(module_def),
+    fun (): module_def,
+    clock_port,
+    reset_port
+  )
   override method core_module(): module_def
+  override method definition_reference(): reference
 
 Parameter.def current_sync_domain = #false
 
@@ -218,7 +226,8 @@ fun instantiate(name :: AsciiIdentifier,
                 location :: Location = Location()):
   when clock || reset
   | reject_explicit_sync_control(location)
-  if child is_a SyncCircuitDefinition
+  def reference = kernel.circuit_reference(child, location)
+  if reference.clock_port
   | block:
       def domain:
         if clock || reset
@@ -228,23 +237,28 @@ fun instantiate(name :: AsciiIdentifier,
                         location)
             SyncDomain(clock, reset)
         | require_sync_domain(location)
-      def instance = kernel.inst(name, child, location)
-      kernel.connect(instance.input(child.clock_port), domain.clock, location)
-      kernel.connect(instance.input(child.reset_port), domain.reset, location)
+      def instance = kernel.inst(name, reference, location)
+      kernel.connect(instance.input(reference.clock_port), domain.clock, location)
+      kernel.connect(instance.input(reference.reset_port), domain.reset, location)
       instance
   | block:
       when clock || reset
       | sync_fail("clock/reset overrides require a sync_circuit child", location)
-      kernel.inst(name, child, location)
+      kernel.inst(name, reference, location)
 
 fun instantiate_reset_when(name :: AsciiIdentifier,
-                           child :~ SyncCircuitDefinition,
+                           child :: Module || CircuitDefinition,
                            condition :: HardwareEntity,
                            location :: Location = Location()):
-  unless child is_a SyncCircuitDefinition
+  def reference = kernel.circuit_reference(child, location)
+  unless reference.clock_port
   | sync_fail("~reset_when requires a sync_circuit child", location)
+  // Realize the child before constructing the parent's local reset logic,
+  // preserving eager declaration order and keeping the recipe outside that scope.
+  require_sync_domain(location)
+  kernel.materialize_circuit(reference, location)
   ambient_reset_when(
     condition,
-    fun (): instantiate(name, child, #false, #false, location),
+    fun (): instantiate(name, reference, #false, #false, location),
     location
   )
