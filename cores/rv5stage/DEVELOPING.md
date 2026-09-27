@@ -877,6 +877,16 @@ of physical clock gating. Select Zawrs through `RV5StageExtensions`, keeping
 core decoder selection, ISA descriptions, and UDB claims derived from that
 same profile. The UDB database names the ratified extension version `1.0.0`.
 
+For the optional Sscofpmf integration, select `rv5stage-sscofpmf-rv32`,
+`rv5stage-sscofpmf-rv64`, and `rv5stage-sscofpmf-rv64h`. These drive the real
+CSR commit and interrupt-boundary interfaces; the reusable `riscv-hpm-*`
+fixtures own exhaustive mode-filter combinations. Keep counter events attached
+to the existing precise WB retirement signal. Pending interrupt state belongs
+to the CSR file, independently of the reusable counter's sticky OF bit.
+`rv5stage-sscofpmf-core` executes a retirement-overflow program through the
+whole pipeline and checks that an older accepted store drains before entry.
+Run the profile/UDB host checks when changing advertisement or counter masks.
+
 For Zihpm CSR catalogs, profile claims, and access semantics, run:
 
 ```sh

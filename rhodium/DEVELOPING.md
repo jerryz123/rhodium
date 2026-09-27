@@ -187,6 +187,8 @@ policy without importing a concrete processor.
 privilege adapters, and `std/ready-valid.rhdl`. It owns reusable single-counter
 filtering and overflow state; event selection, CSR access control, and local
 interrupt-pending storage remain with the integrating core.
+`cores/rv5stage/csr.rhdl` consumes that adapter for its optional Sscofpmf
+counter; the dependency remains core-to-architecture, with no reverse edge.
 
 `riscv/rtl/svpbmt.rhdl` imports pure CSR fields and XLEN,
 plus the public CSR and PMA adapters; it adds no direct Rhodium-library import.

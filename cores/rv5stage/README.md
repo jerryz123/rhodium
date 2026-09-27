@@ -1044,7 +1044,7 @@ The reusable transformation is documented in the
 configured architecture. The profile selects XLEN, FP, compressed, and MMU
 extensions. The projection adds the core's fixed architectural behavior,
 including U/S/M privilege, direct-only `mtvec` and `stvec`, read-only `misa`,
-no PMP or HPM counters, trapping misaligned accesses, exact-address-and-width
+no PMP, optional Sscofpmf HPM state, trapping misaligned accesses, exact-address-and-width
 LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
 core's integration rather than `RV5StageConfig`. When Ssnpm is selected, the
@@ -1235,7 +1235,7 @@ priority. Reusable 64-bit `mcycle` and `minstret` state supplies Zicntr views;
 `minstret` advances only when an instruction reaches WB without a synchronous
 exception.
 
-Both XLEN profiles implement the minimum Zihpm 2.0 contract: all 29
+Without Sscofpmf, both XLEN profiles implement the minimum Zihpm 2.0 contract: all 29
 `mhpmcounter3`–`mhpmcounter31` and `mhpmevent3`–`mhpmevent31` slots
 read zero and ignore machine-mode writes. Their read-only `hpmcounterN`
 aliases also read zero in M mode; attempted writes trap. RV32 exposes the
@@ -1245,6 +1245,33 @@ hardwired zero, so S/U HPM reads trap even after software attempts to enable
 them. There is no HPM storage, event selection, or counting datapath. The
 [privileged architecture source](https://github.com/riscv/riscv-isa-manual/blob/main/src/priv/machine.adoc#hardware-performance-monitor)
 permits these zero-valued counter/selector pairs.
+
+`RV5StageExtensions(~sscofpmf: #true)` implements and advertises Sscofpmf 1.0
+on RV32 and RV64, including RV64 H. It adds one 64-bit `mhpmcounter3` and
+`mhpmevent3`; slots 4–31 remain zero. Selector values 0, 1, and 2 select
+disabled, cycles, and architectural WB retirement respectively. Other values
+legalize to disabled. Trapping instructions and pipeline bubbles
+do not retire; vector beats are not extra retirements. The selector's MINH,
+SINH, UINH, VSINH, and VUINH fields filter the actual execution context.
+Guest filter bits are zero without H. Writes to the counter or selector
+suppress that cycle's event. `mcountinhibit[3]` freezes counter 3; its other
+bits remain zero. RV32 high-half writes preserve the other half.
+
+Counter delegation uses bit 3 of `mcounteren`, `scounteren`, and `hcounteren`.
+`scountovf[3]` reports sticky OF, masked by `mcounteren` outside M and also by
+`hcounteren` in guests. Wraparound sets OF and independently sets `mip.LCOFIP`
+only if OF was previously clear. Software can clear pending without clearing
+OF; rearming needs a selector write clearing OF. A fresh overflow wins a
+simultaneous pending clear. LCOFIP/LCOFIE use bit 13, wake WFI through the
+ordinary locally enabled interrupt path, and trap only at a precise interrupt
+boundary. M may delegate to S/HS; direct VS delivery (`Shlcofideleg`) is not
+implemented. HS virtual interrupts outrank HS counter overflow.
+
+ISA strings, hart descriptions, and UDB counter/permission claims follow this
+option. Shared SoC ISA presets do not yet enable it: their Spike binding still
+has zero HPM counters. Sail 0.14.1 projects the writable counter and filter
+CSRs, but does not increment implementation-defined HPM events. Directed RTL
+tests, not ACT signatures alone, therefore qualify event counting and overflow.
 
 ## Pause hint
 
@@ -1288,7 +1315,7 @@ successor PC. Clock gating is not implemented.
 ## Deliberate limits
 
 - RV32D and RV64F-only core specializations are rejected.
-- PMP, programmable HPM counters, vectored trap mode, and platform interrupt
+- PMP, vectored trap mode, and platform interrupt
   controllers remain outside this slice.
 - `WFI` quiesces instruction issue but does not gate the core clock; physical
   clock gating and always-on wake distribution remain platform policy.

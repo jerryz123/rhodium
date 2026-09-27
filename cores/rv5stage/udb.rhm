@@ -31,9 +31,6 @@ fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(N
 fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)):
   UdbParameter(name, UdbBooleanListValue(elements))
 
-def NoHpmCounters = for List (_index in 0..32): #false
-def BaseCountersDelegatable = [#true, #true, #true] ++ for List (_index in 0..29): #false
-
 fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExtension):
   def xlen = profile.xlen
   def advertised = profile.isa_profile.isa_extensions
@@ -135,6 +132,8 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
   ]
   when profile.mmu_mode == RV5StageMmuMode.Sv39
   | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
+  when advertises("sscofpmf")
+  | result := result ++ [extension("Sscofpmf", "1.0.0")]
   for ([name, spelling] in [["h", "H"], ["sstc", "Sstc"], ["svinval", "Svinval"], ["svpbmt", "Svpbmt"], ["svnapot", "Svnapot"], ["smstateen", "Smstateen"], ["ssstateen", "Ssstateen"], ["sha", "Sha"], ["shcounterenw", "Shcounterenw"], ["shvstvala", "Shvstvala"], ["shtvala", "Shtvala"], ["shvstvecd", "Shvstvecd"], ["shvsatpa", "Shvsatpa"], ["shgatpa", "Shgatpa"]]):
     when advertises(name)
     | result := result ++ [extension(spelling, "1.0.0")]
@@ -156,6 +155,8 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   when !selected.ssnpm && pmlen != 0
   | error(~who: #'rv5stage_udb_parameters, "nonzero PMLEN requires Ssnpm")
   def xlen = profile.xlen.width
+  def hpm_counters = for List (index in 0..32): selected.sscofpmf && index == 3
+  def delegatable_counters = for List (index in 0..32): index < 3 || (selected.sscofpmf && index == 3)
   def mutable result = [
     natural_parameter("MXLEN", xlen),
     natural_parameter("PHYS_ADDR_WIDTH", physical_address_width),
@@ -190,9 +191,9 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     natural_list_parameter("MTVEC_MODES", [0]),
     natural_parameter("MTVEC_BASE_ALIGNMENT_DIRECT", 4),
     string_parameter("MTVEC_ILLEGAL_WRITE_BEHAVIOR", "custom"),
-    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", #false),
-    boolean_list_parameter("HPM_COUNTER_EN", NoHpmCounters),
-    boolean_list_parameter("MCOUNTENABLE_EN", BaseCountersDelegatable),
+    boolean_parameter("MCOUNTINHIBIT_IMPLEMENTED", selected.sscofpmf),
+    boolean_list_parameter("HPM_COUNTER_EN", hpm_counters),
+    boolean_list_parameter("MCOUNTENABLE_EN", delegatable_counters),
     natural_parameter("NUM_PMP_ENTRIES", 0),
     boolean_parameter("MUTABLE_MISA_M", #false),
     boolean_parameter("MUTABLE_MISA_A", #false),
@@ -226,7 +227,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     boolean_parameter("REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT", #true),
     boolean_parameter("REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION", #true),
     natural_parameter("STVAL_WIDTH", xlen),
-    boolean_list_parameter("SCOUNTENABLE_EN", BaseCountersDelegatable),
+    boolean_list_parameter("SCOUNTENABLE_EN", delegatable_counters),
     natural_list_parameter("STVEC_MODES", [0]),
     boolean_parameter("SATP_MODE_BARE", #true),
     boolean_parameter("TRAP_ON_ECALL_FROM_S", #true),
@@ -239,6 +240,8 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   | result := result ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
   when selected.ssnpm
   | result := result ++ [natural_parameter("PMLEN", pmlen)]
+  when selected.sscofpmf
+  | result := result ++ [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
   when selected.zawrs
   | result := result ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
   when selected.smstateen
@@ -250,7 +253,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
         string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 0),
         natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0]),
         boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
-        boolean_list_parameter("HCOUNTENABLE_EN", BaseCountersDelegatable),
+        boolean_list_parameter("HCOUNTENABLE_EN", delegatable_counters),
         boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
         boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_ILLEGAL_INSTRUCTION", #true),
         boolean_parameter("REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION", #true),

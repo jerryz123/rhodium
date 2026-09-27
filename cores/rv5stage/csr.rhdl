@@ -21,6 +21,7 @@ import:
   "../../riscv/rtl/csr.rhdl" open
   "../../riscv/rtl/cmo.rhdl" open
   "../../riscv/rtl/counters.rhdl" open
+  "../../riscv/rtl/hpm-counter.rhdl" open
   "../../riscv/rtl/timer.rhdl" open
   "../../riscv/rtl/state-enable.rhdl" open
   "../../riscv/rtl/interrupt.rhdl" open
@@ -260,14 +261,17 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     ~keep: fun (cause): (!compressed_enabled) || (cause != ExceptionCause.InstructionAddressMisaligned)
   )
   def medeleg_mask = bits(exception_mask(medeleg_causes ++ (if hypervisor | HypervisorExceptionCauses | [])), width)
-  def mideleg_mask = bits(interrupt_mask(SupervisorInterruptCauses), width)
+  def sscofpmf = core_profile.extensions.sscofpmf
+  def lcof_mask = bits(if sscofpmf | interrupt_mask([InterruptCause.LocalCounterOverflow]) | 0, width)
+  def hpm_mask = bits(if sscofpmf | 8 | 0, width)
+  def mideleg_mask = bits(interrupt_mask(SupervisorInterruptCauses), width) ||| lcof_mask
   def guest_interrupt_mask = bits(interrupt_mask(if hypervisor | VirtualSupervisorInterruptCauses | []), width)
   def guest_software_mask = bits(interrupt_mask([InterruptCause.VirtualSupervisorSoftware]), width)
-  def interrupt_enable_mask = bits(interrupt_mask(InterruptCauses), width) ||| guest_interrupt_mask
-  def supervisor_interrupt_mask = bits(interrupt_mask(SupervisorInterruptCauses), width)
-  def supervisor_software_interrupt_mask = bits(interrupt_mask([InterruptCause.SupervisorSoftware]), width)
+  def interrupt_enable_mask = bits(interrupt_mask(InterruptCauses), width) ||| guest_interrupt_mask ||| lcof_mask
+  def supervisor_interrupt_mask = bits(interrupt_mask(SupervisorInterruptCauses), width) ||| lcof_mask
+  def supervisor_software_interrupt_mask = bits(interrupt_mask([InterruptCause.SupervisorSoftware]), width) ||| lcof_mask
   def counter_enable_fields = [CounterenCY, CounterenTM, CounterenIR]
-  def counter_enable_mask = bits(csr_fields_mask(counter_enable_fields), width)
+  def counter_enable_mask = bits(csr_fields_mask(counter_enable_fields), width) ||| hpm_mask
   def tvec_alignment = 4
   def epc_alignment = if compressed_enabled | 2 | 4
   def misa_value = bits(core_profile.isa_profile.misa_value, width)
@@ -328,6 +332,16 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   cbo_zero_access <== cbo_zero_permission(xlen, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicboz: core_profile.extensions.zicboz, ~virtualized: virtualized, ~henvcfg: guest_envcfg)
   cbo_permission <== cbo_management_permission(xlen, cbo_operation, privilege_state === PrivilegeMode.User, privilege_state === PrivilegeMode.Supervisor, state.menvcfg, state.senvcfg, ~zicbom: core_profile.extensions.zicbom, ~virtualized: virtualized, ~henvcfg: guest_envcfg)
   inst counters(RiscvBaseCounters(xlen))
+  inst hpm(RiscvHpmCounter(xlen, ~hypervisor: hypervisor))
+  reg hpm_inhibit(~init: Bool(#false))
+  reg hpm_pending(~init: Bool(#false))
+  def hpm_value :: Bits(64) = if sscofpmf | hpm.counter | bits(0, 64)
+  def hpm_selector :: Bits(64) = if sscofpmf | hpm.selector | bits(0, 64)
+  def hpm_low = if xlen == XLen.X32 | hpm_value[0..32] | hpm_value
+  def hpm_high = if xlen == XLen.X32 | hpm_value[32..64] | zero
+  def selector_low = if xlen == XLen.X32 | hpm_selector[0..32] | hpm_selector
+  def selector_high = if xlen == XLen.X32 | hpm_selector[32..64] | zero
+  def overflow_visible = (privilege_state === PrivilegeMode.Machine) ||| (state.mcounteren[3].into(Bool) & (if hypervisor | !virtualized ||| state.hcounteren[3].into(Bool) | Bool(#true)))
   def FpCsrModule = if floating_point_supports_f(profile) | RV5StageFpCsrs() | RV5StageDisabledFpCsrs()
   inst fp_csrs(FpCsrModule)
   inst vector_csrs(RV5StageVectorCsrs(xlen, core_profile.vector, core_profile.vector_length))
@@ -366,7 +380,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def timeh_value = if xlen == XLen.X32 | time_counter[32..64] | zero
   def instret_value = if xlen == XLen.X32 | counters.instret[0..32] | counters.instret
   def instreth_value = if xlen == XLen.X32 | counters.instret[32..64] | zero
-  def legacy_pending = riscv_interrupt_pending(xlen, interrupts) ||| state.mip ||| (if hypervisor | state.hvip | zero)
+  def legacy_pending = riscv_interrupt_pending(xlen, interrupts) ||| state.mip ||| mux(hpm_pending, lcof_mask, zero) ||| (if hypervisor | state.hvip | zero)
   def supervisor_timer_mask = bits(interrupt_mask([InterruptCause.SupervisorTimer]), width)
   def virtual_timer_mask = bits(interrupt_mask([InterruptCause.VirtualSupervisorTimer]), width)
   def supervisor_timer_pending = if sstc | sstc_pending(time_counter, bits(0, 64), state.stimecmp) | Bool(#false)
@@ -417,7 +431,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Sip:
       read: interrupt_pending & supervisor_visible_mask
       write value:
-        state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_software_interrupt_mask)
+        state.mip <== state.mip.masked_merge(value, state.mideleg & supervisor_software_interrupt_mask & !lcof_mask)
     csr CsrId.Satp:
       read: state.satp
       write value:
@@ -434,12 +448,24 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     read CsrId.Cycleh: cycleh_value
     read CsrId.Timeh: timeh_value
     read CsrId.Instreth: instreth_value
-    // Zihpm permits zero-valued counter/selector pairs without event storage.
-    read_all HpmCounterIds: zero
-    read_all HpmCounterHighIds: zero
-    read_all MachineHpmCounterIds: zero
-    read_all MachineHpmCounterHighIds: zero
-    read_all MachineHpmEventIds: zero
+    // Slot 3 is the optional PMU; the remaining Zihpm slots stay hardwired zero.
+    read CsrId.Hpmcounter3: hpm_low
+    read CsrId.Hpmcounter3h: hpm_high
+    read CsrId.Mhpmcounter3: hpm_low
+    read CsrId.Mhpmcounter3h: hpm_high
+    read CsrId.Mhpmevent3: selector_low
+    read CsrId.Mhpmevent3h: selector_high
+    read_all HpmCounterIds.drop(1): zero
+    read_all HpmCounterHighIds.drop(1): zero
+    read_all MachineHpmCounterIds.drop(1): zero
+    read_all MachineHpmCounterHighIds.drop(1): zero
+    read_all MachineHpmEventIds.drop(1): zero
+    read_all MachineHpmEventHighIds.drop(1): zero
+    read CsrId.Scountovf: mux(overflow_visible & hpm_selector[63].into(Bool), hpm_mask, zero)
+    csr CsrId.Mcountinhibit:
+      read: mux(hpm_inhibit, hpm_mask, zero)
+      write value:
+        hpm_inhibit <== value.as_bits()[3].into(Bool)
     csr CsrId.Mstatus:
       read: mstatus_value
       write value:
@@ -482,7 +508,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     csr CsrId.Mip:
       read: interrupt_pending
       write value:
-        state.mip <== state.mip.masked_merge(value, supervisor_interrupt_mask & mux(machine_timer_enabled, !supervisor_timer_mask, !zero))
+        state.mip <== state.mip.masked_merge(value, supervisor_interrupt_mask & !lcof_mask & mux(machine_timer_enabled, !supervisor_timer_mask, !zero))
         if hypervisor
         | state.hvip <== state.hvip.masked_merge(value, guest_software_mask)
         | #void
@@ -651,7 +677,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def timer_selected = Bool(sstc) & timer_bank.recognized
   def hypervisor_selected = Bool(hypervisor) & hypervisor_bank.recognized
   def rv32_counter_halves = if xlen == XLen.X32 | Bool(#true) | Bool(#false)
-  def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds
+  def high_counter_ids = [CsrId.Cycleh, CsrId.Timeh, CsrId.Instreth, CsrId.Mcycleh, CsrId.Minstreth] ++ HpmCounterHighIds ++ MachineHpmCounterHighIds ++ MachineHpmEventHighIds
   def high_counter_unavailable = !rv32_counter_halves & csr.is_one_of(high_counter_ids.map(csr_bits))
   def fp_csr = csr.is_one_of(csr_bits(CsrId.Fflags), csr_bits(CsrId.Frm), csr_bits(CsrId.Fcsr))
   def fp_access_enabled = Bool(floating_point_supports_f(profile)) & fp_csrs.status.or_reduce() & (!virtualized ||| guest_fp_status.or_reduce())
@@ -659,7 +685,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def high_machine_csr_unavailable = !rv32_counter_halves & csr.is_one_of(csr_bits(CsrId.Mstatush), csr_bits(CsrId.Medelegh), csr_bits(CsrId.Menvcfgh))
   def vector_csr = csr.is_one_of([CsrId.Vstart, CsrId.Vxrm, CsrId.Vxsat, CsrId.Vcsr, CsrId.Vl, CsrId.Vtype, CsrId.Vlenb].map(csr_bits))
   def vector_access_enabled = vector_csrs.status.or_reduce() & (!virtualized ||| guest_vector_status.or_reduce())
-  def csr_recognized = (bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected) & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
+  def hpm_extension_unavailable = Bool(!sscofpmf) & csr.is_one_of(([CsrId.Scountovf, CsrId.Mcountinhibit] ++ MachineHpmEventHighIds).map(csr_bits))
+  def csr_recognized = (bank.recognized ||| hypervisor_selected ||| timer_selected ||| stateen_selected) & !hpm_extension_unavailable & !high_counter_unavailable & !high_machine_csr_unavailable & (!fp_csr ||| fp_access_enabled) & (!vector_csr ||| vector_access_enabled)
   def csr_read_value = mux(stateen_selected, stateen_read_value, mux(timer_selected, timer_bank.read_value, mux(hypervisor_selected, hypervisor_bank.read_value, bank.read_value)))
   def csr_source_specifier = instruction_field(riscv_fields.rs1, commit.bits.instruction)
   def write_requested = riscv_csr_write_requested(commit.bits.system.csr, csr_source_specifier)
@@ -675,11 +702,11 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     privilege_state === PrivilegeMode.Supervisor
   ) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
   def hgatp_restricted = Bool(hypervisor) & (csr === csr_bits(CsrId.Hgatp)) & (privilege_state === PrivilegeMode.Supervisor) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
-  // HPM counteren bits are hardwired zero; only the three base counters delegate.
-  fun base_counter_enabled(counteren :: Bits(width)) :~ Bool:
-    mux(cycle_csr, csr_flag(counteren, CounterenCY), mux(time_csr, csr_flag(counteren, CounterenTM), csr_flag(counteren, CounterenIR)))
-  def machine_counter_enabled = !hpm_csr & base_counter_enabled(state.mcounteren)
-  def supervisor_counter_enabled = !hpm_csr & base_counter_enabled(state.scounteren)
+  def hpm3_csr = csr.is_one_of(csr_bits(CsrId.Hpmcounter3), csr_bits(CsrId.Hpmcounter3h))
+  fun counter_enabled(counteren :: Bits(width)) :~ Bool:
+    mux(hpm_csr, hpm3_csr & counteren[3].into(Bool), mux(cycle_csr, csr_flag(counteren, CounterenCY), mux(time_csr, csr_flag(counteren, CounterenTM), csr_flag(counteren, CounterenIR))))
+  def machine_counter_enabled = counter_enabled(state.mcounteren)
+  def supervisor_counter_enabled = counter_enabled(state.scounteren)
   def counter_access_enabled = mux_lookup(
     privilege_state,
     ~default: machine_counter_enabled & supervisor_counter_enabled,
@@ -688,7 +715,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
       [PrivilegeMode.Supervisor, machine_counter_enabled]
     ]
   )
-  def hypervisor_counter_enabled = if hypervisor | !hpm_csr & base_counter_enabled(state.hcounteren) | Bool(#true)
+  def hypervisor_counter_enabled = if hypervisor | counter_enabled(state.hcounteren) | Bool(#true)
   def guest_counter_restricted = virtualized & counter_csr & machine_counter_enabled & (!hypervisor_counter_enabled ||| ((privilege_state === PrivilegeMode.User) & !supervisor_counter_enabled))
   def virtual_satp_restricted = if hypervisor | virtualized & (privilege_state === PrivilegeMode.Supervisor) & (csr === csr_bits(CsrId.Satp)) & csr_flag(state.hstatus, HstatusVTVM) | Bool(#false)
   def hypervisor_privilege = required_privilege === bits(2, 2)
@@ -787,6 +814,22 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   counters.machine_write.bits <== RiscvCounterWrite(xlen):
     address: csr
     value: csr_replacement
+  // Events use the retiring context, not speculative issue or individual vector beats.
+  hpm.event.valid <== Bool(sscofpmf) & ((hpm_selector[0..56] === bits(1, 56)) ||| ((hpm_selector[0..56] === bits(2, 56)) & retired))
+  hpm.event.bits <== context
+  hpm.inhibit <== hpm_inhibit ||| Bool(!sscofpmf)
+  hpm.counter_write.valid <== Bool(sscofpmf) & csr_write & csr.is_one_of(csr_bits(CsrId.Mhpmcounter3), csr_bits(CsrId.Mhpmcounter3h))
+  hpm.counter_write.bits.value <== csr_replacement
+  hpm.selector_write.valid <== Bool(sscofpmf) & csr_write & csr.is_one_of(csr_bits(CsrId.Mhpmevent3), csr_bits(CsrId.Mhpmevent3h))
+  def event_width = if xlen == XLen.X32 | 32 | 56
+  def event_replacement :: Bits(event_width) = if xlen == XLen.X32 | csr_replacement | csr_replacement[0..56]
+  def legal_event = mux(event_replacement <= bits(2, event_width), event_replacement, bits(0, event_width))
+  hpm.selector_write.bits.value <== if xlen == XLen.X32 | mux(csr === csr_bits(CsrId.Mhpmevent3h), csr_replacement, legal_event) | csr_replacement[56..64] ++ legal_event
+  if xlen == XLen.X32
+  | block:
+      hpm.counter_write.bits.high <== csr === csr_bits(CsrId.Mhpmcounter3h)
+      hpm.selector_write.bits.high <== csr === csr_bits(CsrId.Mhpmevent3h)
+  | #void
   def mret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Mret)
   def sret = commit.valid & !trap.valid & (commit.bits.system.action === RV5StageSystemOperation.Sret)
   def mret_privilege = mstatus_mret_privilege(state.mstatus)
@@ -882,6 +925,12 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     hypervisor_bank.write(csr_replacement)
   elsewhen csr_write:
     bank.write(csr_replacement)
+
+  // Pending is independent of sticky OF. Fresh overflow wins a software clear.
+  when (hpm.overflow.valid & Bool(sscofpmf)):
+    hpm_pending <== Bool(#true)
+  elsewhen (csr_write & Bool(sscofpmf) & ((bank_address === csr_bits(CsrId.Mip)) ||| ((bank_address === csr_bits(CsrId.Sip)) & state.mideleg[13].into(Bool)))):
+    hpm_pending <== csr_replacement[13].into(Bool)
 
   if hypervisor
   | block:

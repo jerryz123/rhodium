@@ -112,6 +112,32 @@ def vector_udb():
 
 
 class ArchTestConfigTest(unittest.TestCase):
+    def test_sscofpmf_projects_real_counter_and_delegation(self):
+        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        for xlen in (32, 64):
+            params = architecture_params()
+            params.update(MXLEN=xlen, PHYS_ADDR_WIDTH=32)
+            params["HPM_COUNTER_EN"][3] = True
+            params["HPM_EVENTS"] = [0, 1, 2]
+            params["COUNTINHIBIT_EN"] = params["HPM_COUNTER_EN"].copy()
+            params["MCOUNTENABLE_EN"][:4] = [True] * 4
+            params["SCOUNTENABLE_EN"][:4] = [True] * 4
+            udb = {"params": params, "implemented_extensions": [
+                {"name": "Sm", "version": "= 1.13.0"},
+                {"name": "Zihpm", "version": "= 2.0"},
+                {"name": "Sscofpmf", "version": "= 1.0.0"}]}
+            default = sail_default()
+            default["extensions"]["Sscofpmf"] = {"supported": False}
+            model = configure["sail_config"](default, udb, 0x80000000, 0x40000000)
+            self.assertTrue(model["extensions"]["Sscofpmf"]["supported"])
+            self.assertEqual(model["base"]["writable_hpm_counters"]["value"], "0x8")
+            self.assertEqual(model["base"]["mcounteren_writable_bits"]["value"], "0xf")
+            self.assertEqual(model["base"]["scounteren_writable_bits"]["value"], "0xf")
+            differences = configure["reference_model_differences"](params)
+            self.assertEqual(set(differences), {"HPM_EVENTS", "COUNTINHIBIT_EN"})
+            self.assertEqual(differences["HPM_EVENTS"]["dut"], [0, 1, 2])
+            self.assertEqual(differences["COUNTINHIBIT_EN"]["sail"][:4], [True, False, True, True])
+
     def test_optional_sv39_extensions(self):
         project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
         for svpbmt in (False, True):

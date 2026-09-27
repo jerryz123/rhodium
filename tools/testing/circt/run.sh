@@ -248,7 +248,7 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
-    cores-components:riscv-hpm-*)
+    cores-components:riscv-hpm-*|cores-execution:rv5stage-sscofpmf-*)
       return 0
       ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -883,6 +883,10 @@ direct_fixture_specs=(
   'rv5stage-pointer-masking|rv5stage_pointer_masking_tb'
   'rv5stage-zihpm-rv32|rv5stage_zihpm_rv32_tb'
   'rv5stage-zihpm-rv64|rv5stage_zihpm_rv64_tb'
+  'rv5stage-sscofpmf-rv32|rv5stage_sscofpmf_rv32_tb'
+  'rv5stage-sscofpmf-rv64|rv5stage_sscofpmf_rv64_tb'
+  'rv5stage-sscofpmf-rv64h|rv5stage_sscofpmf_rv64h_tb'
+  'rv5stage-sscofpmf-core|rv5stage_sscofpmf_core_tb'
   'riscv-atomic|riscv_atomic_tb'
   'rv5stage-access-fault|rv5stage_access_fault_tb'
   'rv5stage-fetch|rv5stage_fetch_tb'

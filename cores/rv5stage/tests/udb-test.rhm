@@ -72,6 +72,21 @@ def rv64_vector_bitmanip_yaml = rv5stage_udb_configuration(
 
 def no_hpm_values = for List (_index in 0..32): "false"
 
+for (xlen in [XLen.X32, XLen.X64]):
+  def profile = RV5StageConfig(~xlen: xlen, ~extensions: RV5StageExtensions(~sscofpmf: #true))
+  def yaml = rv5stage_udb_configuration(profile, "overflow-counters", "Sscofpmf counter and filtering", 32).to_yaml()
+  def hpm_values = for List (index in 0..32): if index == 3 | "true" | "false"
+  def counteren_values = for List (index in 0..32): if index <= 3 | "true" | "false"
+  check:
+    profile.isa_profile.isa_extensions.contains("sscofpmf") ~is #true
+    yaml.contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
+    yaml.contains("  MCOUNTINHIBIT_IMPLEMENTED: true") ~is #true
+    yaml.contains("  HPM_COUNTER_EN: [" ++ String.join(hpm_values, ", ") ++ "]") ~is #true
+    yaml.contains("  COUNTINHIBIT_EN: [" ++ String.join(hpm_values, ", ") ++ "]") ~is #true
+    yaml.contains("  HPM_EVENTS: [0, 1, 2]") ~is #true
+    yaml.contains("  MCOUNTENABLE_EN: [" ++ String.join(counteren_values, ", ") ++ "]") ~is #true
+    yaml.contains("  SCOUNTENABLE_EN: [" ++ String.join(counteren_values, ", ") ++ "]") ~is #true
+
 for (svpbmt in [#false, #true]):
   for (svnapot in [#false, #true]):
     def profile = RV5StageConfig(~xlen: XLen.X64, ~mmu_mode: RV5StageMmuMode.Sv39, ~extensions: RV5StageExtensions(~svpbmt, ~svnapot))

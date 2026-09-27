@@ -57,35 +57,23 @@ fun resolve_riscv_interrupt(xlen :: XLen,
   def supervisor_external = candidate(InterruptCause.SupervisorExternal)
   def supervisor_software = candidate(InterruptCause.SupervisorSoftware)
   def supervisor_timer = candidate(InterruptCause.SupervisorTimer)
-  def valid = machine_external ||| machine_software ||| machine_timer ||| supervisor_external ||| supervisor_software ||| supervisor_timer
-  def cause = mux(
-    machine_external,
-    interrupt_cause_bits(InterruptCause.MachineExternal, width),
-    mux(
-      machine_software,
-      interrupt_cause_bits(InterruptCause.MachineSoftware, width),
-      mux(
-        machine_timer,
-        interrupt_cause_bits(InterruptCause.MachineTimer, width),
-        mux(
-          supervisor_external,
-          interrupt_cause_bits(InterruptCause.SupervisorExternal, width),
-          mux(
-            supervisor_software,
-            interrupt_cause_bits(InterruptCause.SupervisorSoftware, width),
-            interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
-          )
-        )
-      )
-    )
-  )
+  def counter_overflow = candidate(InterruptCause.LocalCounterOverflow)
+  def valid = machine_external ||| machine_software ||| machine_timer ||| supervisor_external ||| supervisor_software ||| supervisor_timer ||| counter_overflow
+  def cause = priority_mux(~default: interrupt_cause_bits(InterruptCause.LocalCounterOverflow, width)):
+    machine_external: interrupt_cause_bits(InterruptCause.MachineExternal, width)
+    machine_software: interrupt_cause_bits(InterruptCause.MachineSoftware, width)
+    machine_timer: interrupt_cause_bits(InterruptCause.MachineTimer, width)
+    supervisor_external: interrupt_cause_bits(InterruptCause.SupervisorExternal, width)
+    supervisor_software: interrupt_cause_bits(InterruptCause.SupervisorSoftware, width)
+    supervisor_timer: interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
   def to_supervisor = mux_lookup(
     cause[0..4],
     ~default: Bool(#false),
     [
       [interrupt_code(InterruptCause.SupervisorSoftware), delegated[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool)],
       [interrupt_code(InterruptCause.SupervisorTimer), delegated[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool)],
-      [interrupt_code(InterruptCause.SupervisorExternal), delegated[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool)]
+      [interrupt_code(InterruptCause.SupervisorExternal), delegated[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool)],
+      [interrupt_code(InterruptCause.LocalCounterOverflow), delegated[interrupt_code(InterruptCause.LocalCounterOverflow)].into(Bool)]
     ]
   )
   RiscvInterruptDecision(xlen):
@@ -101,7 +89,9 @@ fun resolve_riscv_hypervisor_interrupt(
 ) :~ RiscvInterruptDecision(XLen.X64):
   def effective_host_privilege = mux(context.virtualized, PrivilegeMode.User, context.privilege)
   def machine = resolve_riscv_interrupt(XLen.X64, pending & !mideleg, enabled, bits(0, 64), mstatus, effective_host_privilege)
-  def supervisor = resolve_riscv_interrupt(XLen.X64, pending & mideleg, enabled, mideleg, mstatus, effective_host_privilege)
+  def overflow_mask = bits(interrupt_mask([InterruptCause.LocalCounterOverflow]), 64)
+  def supervisor = resolve_riscv_interrupt(XLen.X64, pending & mideleg & !overflow_mask, enabled, mideleg, mstatus, effective_host_privilege)
+  def overflow = resolve_riscv_interrupt(XLen.X64, pending & mideleg & overflow_mask, enabled, mideleg, mstatus, effective_host_privilege)
   def hs_enabled = context.virtualized ||| (context.privilege === PrivilegeMode.User) ||| ((context.privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
   def vs_enabled = context.virtualized & ((context.privilege === PrivilegeMode.User) ||| csr_flag(vsstatus, MstatusSIE))
   def virtual_mask = bits(interrupt_mask(VirtualSupervisorInterruptCauses), 64)
@@ -123,6 +113,7 @@ fun resolve_riscv_hypervisor_interrupt(
     machine.valid: machine
     supervisor.valid: supervisor
     hs_virtual.valid: hs_virtual
+    overflow.valid: overflow
 
 export:
   resolve_riscv_hypervisor_interrupt

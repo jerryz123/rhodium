@@ -115,8 +115,19 @@ def reference_model_differences(params):
     fixed = {"RESERVED_VSET_X0X0_VILL_SET": "always",
              "RESERVED_VSET_X0X0_VLMAX_CHANGE": "always",
              "VFREDUSUM_NAN": "no_change"}
-    return {name: {"dut": params[name], "sail": value}
-            for name, value in fixed.items() if name in params and params[name] != value}
+    differences = {name: {"dut": params[name], "sail": value}
+                   for name, value in fixed.items() if name in params and params[name] != value}
+    if any(params.get("HPM_COUNTER_EN", [])[3:]):
+        differences["HPM_EVENTS"] = {
+            "dut": params.get("HPM_EVENTS", "implementation-defined"),
+            "sail": "selector writes retained; no event increments or generated overflow",
+        }
+    if "COUNTINHIBIT_EN" in params:
+        sail_mask = [i in (0, 2) or (i >= 3 and enabled)
+                     for i, enabled in enumerate(params["HPM_COUNTER_EN"])]
+        if params["COUNTINHIBIT_EN"] != sail_mask:
+            differences["COUNTINHIBIT_EN"] = {"dut": params["COUNTINHIBIT_EN"], "sail": sail_mask}
+    return differences
 
 
 def validate_reservation_bounds(reservation, extensions, xlen):

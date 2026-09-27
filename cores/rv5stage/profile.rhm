@@ -58,6 +58,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          svpbmt :: Boolean,
                          svnapot :: Boolean,
                          sstc :: Boolean,
+                         sscofpmf :: Boolean,
                          smstateen :: Boolean,
                          svinval :: Boolean,
                          hypervisor :: Boolean,
@@ -81,6 +82,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~svpbmt: svpbmt :: Boolean = #false,
                ~svnapot: svnapot :: Boolean = #false,
                ~sstc: sstc :: Boolean = #false,
+               ~sscofpmf: sscofpmf :: Boolean = #false,
                ~smstateen: smstateen :: Boolean = #false,
                ~svinval: svinval :: Boolean = #false,
                ~hypervisor: hypervisor :: Boolean = #false,
@@ -88,10 +90,10 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~zihintpause: zihintpause :: Boolean = #false,
                ~zihintntl: zihintntl :: Boolean = #false,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
-    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, smstateen, svinval, hypervisor, zawrs, zihintpause, zihintntl, compressed)
+    super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, sscofpmf, smstateen, svinval, hypervisor, zawrs, zihintpause, zihintntl, compressed)
 
   reconstructor (floating_point, half_precision, zfa, zicbop, zicboz,
-                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, smstateen, svinval, hypervisor, zawrs,
+                 zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, sscofpmf, smstateen, svinval, hypervisor, zawrs,
                  zihintpause, zihintntl, compressed):
     RV5StageExtensions(
       ~floating_point: floating_point,
@@ -108,6 +110,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
       ~svpbmt: svpbmt,
       ~svnapot: svnapot,
       ~sstc: sstc,
+      ~sscofpmf: sscofpmf,
       ~smstateen: smstateen,
       ~svinval: svinval,
       ~hypervisor: hypervisor,
@@ -158,7 +161,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     def main_memory = (if ziccamoa | ["ziccamoa"] | []) ++ (if ziccif | ["ziccif"] | []) ++ (if ziccrse | ["ziccrse"] | [])
     def pointer_masking = (if ssnpm | ["ssnpm"] | []) ++ (if supm | ["supm"] | [])
     def privileged = (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
-    single_letter ++ multi_letter ++ cache_block ++ main_memory ++ pointer_masking ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"] ++ privileged
+    single_letter ++ multi_letter ++ cache_block ++ main_memory ++ pointer_masking ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"] ++ privileged ++ (if sscofpmf | ["sscofpmf"] | [])
 
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):

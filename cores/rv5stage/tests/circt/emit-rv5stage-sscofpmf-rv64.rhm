@@ -1,0 +1,14 @@
+#lang rhombus
+// Emits the RV64 CSR file for integrated Sscofpmf tests.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../../../../riscv/isa/xlen.rhm" open
+  "../../csr.rhdl" as csr
+  "../../profile.rhm" open
+
+def profile = RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~sscofpmf: #true, ~hypervisor: #false), ~mmu_mode: RV5StageMmuMode.Bare)
+def design = embedded.run_elaboration(fun (): csr.RV5StageCsrFile(profile))
+print(emit_circt(design))

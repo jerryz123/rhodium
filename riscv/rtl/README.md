@@ -216,7 +216,8 @@ consumers ignore events during reset.
 
 The integrating core owns counter numbering, event selection, CSR permissions,
 `scountovf` projection, and interrupt-pending storage. This standalone block
-does not enable or advertise Sscofpmf in RV5Stage.
+does not itself advertise Sscofpmf. The optional
+[RV5Stage integration](../../cores/rv5stage/README.md) owns that claim.
 
 ## Privilege, memory, and translation values
 
