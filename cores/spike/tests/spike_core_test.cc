@@ -17,7 +17,7 @@ using rhodium::spike::SpikeCoreModel;
 int main() {
   Configuration configuration;
   configuration.reset_vector = 0x1000;
-  configuration.isa = "rv64ima_zicsr";
+  configuration.isa = "rv64ima_zicsr_ssccptr_sstvecd_sstvala_sscounterenw_ssu64xl";
   configuration.privilege = "msu";
   configuration.max_vaddr_bits = 39;
   configuration.instruction_cache_sets = 2;

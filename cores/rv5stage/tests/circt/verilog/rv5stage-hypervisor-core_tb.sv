@@ -1155,6 +1155,58 @@ module rv5stage_hypervisor_core_tb;
         else $fatal(1, "RV64 user arithmetic or LD/SD truncated");
   endtask
 
+  // Ordinary unaligned accesses succeed, including noncontiguous physical
+  // pages. Check load/store round-trips and untouched adjacent bytes in S/VS.
+  task automatic run_misaligned_access(input bit guest, input int engine, input bit cross_page);
+    int code, length, offset, source, destination;
+    logic [63:0] pc;
+    @(negedge clock); prepare(0); reset = 1;
+    code = guest ? 'h18000 : 'h5000;
+    length = engine == 2 ? 16 : 8;
+    offset = cross_page ? 'h1000-length+5 : 1;
+    machine_boot();
+    csrw('h305,'h2000); csrw('h105,'h3000); csrw('h302,'hffffff);
+    csrw(guest ? 'h280 : 'h180,64'h8000000000000008);
+    csrw('h680,guest ? 64'h8000000000000004 : 0);
+    csrw('h200,'h2200); csrw('h300,(guest ? 64'h8000000000 : 0) | 'h2a00);
+    csrw('h341,GVA);
+    constant(10,GVA+'h1000+64'(offset)); constant(13,GVA+'h2000+64'(offset));
+    constant(11,2); emit(32'h30200073);
+    if (!guest) begin
+      write64('h8000,'hcf); write64('ha000,('h5 << 10) | 'hcb);
+      write64('ha008,('h19 << 10) | 'hc7);
+    end
+    write64('ha010,((guest ? 'h12 : 'h1c) << 10) | 'hc7);
+    write64('ha018,((guest ? 'h13 : 'h24) << 10) | 'hc7);
+    write64('hd090,('h1c << 10) | 'hdf); write64('hd098,('h24 << 10) | 'hdf);
+    for (int index = -1; index <= length; index++) begin
+      source = offset+index < 'h1000 ? 'h19000+offset+index : 'h1c000+offset+index-'h1000;
+      destination = offset+index < 'h1000 ? 'h1c000+offset+index : 'h24000+offset+index-'h1000;
+      ram[source] = 8'('h31+index);
+      ram[destination] = 'ha5;
+    end
+    cursor = code;
+    case (engine)
+      0: begin emit(ld(12,10,0)); emit(sd(12,13,0)); end
+      1: begin emit(fld(0,10,0)); emit(fsd(0,13,0)); end
+      2: begin emit(vset(3)); emit(vmem(0,3,2,10)); emit(vmem(1,3,2,13)); end
+      default: $fatal(1,"unknown unaligned access engine");
+    endcase
+    pc = GVA+64'(cursor-code); emit(32'h00000073); emit(32'h0000006f);
+    repeat (5) @(negedge clock); reset = 0;
+    for (int limit = 0; limit < 50000; limit++) begin
+      @(negedge clock); if (traps == 1) break;
+    end
+    assert (traps == 1 && read64(SIGNATURE) == (guest ? 10 : 9) && read64(SIGNATURE+40) == pc)
+      else $fatal(1,"unaligned round-trip guest=%b engine=%0d cross=%b cause=%h pc=%h",guest,engine,cross_page,read64(SIGNATURE),read64(SIGNATURE+40));
+    for (int index = -1; index <= length; index++) begin
+      destination = offset+index < 'h1000 ? 'h1c000+offset+index : 'h24000+offset+index-'h1000;
+      assert (ram[destination] == ((index < 0 || index == length) ? 8'ha5 : 8'('h31+index)))
+        else $fatal(1,"unaligned round-trip lost byte/guard guest=%b engine=%0d cross=%b index=%0d got=%h",guest,engine,cross_page,index,ram[destination]);
+    end
+    $display("unaligned round-trip guest=%b engine=%0d cross=%b passed",guest,engine,cross_page);
+  endtask
+
   // Cross-page scalar/FP/vector faults must identify the failing portion,
   // while retaining the instruction PC, vector element, and guest GPA.
   // Modes: host/VS/G page faults, VS delegation, host/guest PMA rejection,
@@ -1310,6 +1362,11 @@ module rv5stage_hypervisor_core_tb;
 
   initial begin
     int selected;
+    for (int guest = 0; guest < 2; guest++)
+      for (int engine = 0; engine < 3; engine++) begin
+        run_misaligned_access(1'(guest),engine,0);
+        run_misaligned_access(1'(guest),engine,1);
+      end
     for (int mode = 0; mode < 8; mode++)
       for (int engine = 0; engine < 3; engine++) begin
         if (mode < 6) run_split_fault(mode,engine,0);

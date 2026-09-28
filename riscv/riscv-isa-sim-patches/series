@@ -20,3 +20,4 @@
 0018-gate-stateen-csrind-on-sscsrind.patch
 0019-implement-sscofpmf-counter.patch
 0020-fix-hs-overflow-interrupt-priority.patch
+0021-recognize-supervisor-properties.patch

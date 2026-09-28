@@ -544,6 +544,10 @@ PMP CSRs are handled by a local startup continuation, not core-name dispatch.
 ACT retains exact ISA and implementation parameters, and emits
 `reference-model-differences.json` for legal DUT choices not configurable in
 Sail 0.14.1. These differences neither rewrite the DUT nor suppress test cases.
+The opcode-free `Ssu64xl` declaration maps to Sail's fixed RV64 user execution,
+not an extension switch. The adapter checks its version, MXLEN, and UXLEN before
+accepting that mapping. Other supervisor guarantees retain their modeled
+extension switches; preserve the exact published UDB input.
 
 The separate tiled-litmus smoke CI matrix builds both Spike and RV5Stage tiled
 simulators and runs the same checked-in, litmus7-generated case selection on

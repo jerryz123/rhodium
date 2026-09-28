@@ -274,10 +274,14 @@ def sail_config(default, udb, origin, size):
         raise ValueError("Zicclsm needs a Sail mapping for its advertised version")
     if params["M_MODE_ENDIANNESS"] != "little":
         raise ValueError("initial ACT adapter requires little-endian M mode")
+    # Sail fixes user XLEN to base.xlen; Ssu64xl has no separate switch.
+    if "Ssu64xl" in extensions:
+        if extensions["Ssu64xl"] != "1.0.0" or params["MXLEN"] != 64 or params.get("UXLEN") != [64]:
+            raise ValueError("Ssu64xl 1.0.0 requires the fixed RV64 user execution projection")
     model_extensions = default["extensions"]
     vector_extensions = project_vector(model_extensions, extensions, params)
     pointer_masking_extensions = project_pointer_masking(model_extensions, extensions, params)
-    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm", "Smstateen", "Ssstateen"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
+    unknown = extensions.keys() - model_extensions.keys() - {"I", "C", "Sm", "Smstateen", "Ssstateen", "Ssu64xl"} - RESERVATION_BOUNDS.keys() - vector_extensions - pointer_masking_extensions
     if unknown:
         raise ValueError(f"extensions need Sail mapping: {sorted(unknown)}")
     for name, options in model_extensions.items():

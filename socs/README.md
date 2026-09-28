@@ -44,9 +44,15 @@ cacheable coherent RAM.
 one hart binding, shape configuration, architectural description, and UDB
 projection. Canonical identities are `<shape>-<core>-<isa>`.
 
-`RVA23` selects the existing broad RV64D/VLEN=128 architecture; the name is
-not a claim of complete RVA23U64/S64 conformance. It enables Svpbmt and Svnapot
-on both core implementations; see the [RV5Stage MMU contract](../cores/rv5stage/mmu/README.md#supported-sv39-behavior-and-deliberate-limits).
+`RVA23` publishes the mandatory RVA23U64/S64 architectural capabilities with
+RV64D, VLEN=128, and Sv39 on both core implementations. The independent
+[mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
+and required architectural parameters for all six shape/core products. This
+includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
+published capabilities. See the [RV5Stage qualification ledger](../cores/rv5stage/HYPERVISOR_PLAN.md#supervisor-guarantees)
+for implementation evidence and execution-test limits. Declaration completeness
+is not an external certification or an exhaustive system qualification;
+firmware and the execution environment retain their own obligations.
 `RV32Int` selects the
 integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
 Zfa, or half precision. Both use VLEN=64, ELEN=32 and Bare translation and retain

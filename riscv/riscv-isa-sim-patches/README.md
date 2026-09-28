@@ -63,6 +63,9 @@ The queue is ordered so each change can be reviewed and removed independently:
 20. `0020-fix-hs-overflow-interrupt-priority.patch` places HS counter overflow
     below guest-external and virtual interrupt sources, preserving the H
     extension's specified order without changing target-privilege arbitration.
+21. `0021-recognize-supervisor-properties.patch` accepts Ssccptr, Sstvecd,
+    Sstvala, Sscounterenw, and Ssu64xl as opcode-free architectural properties,
+    retaining the exact published ISA string without changing execution.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

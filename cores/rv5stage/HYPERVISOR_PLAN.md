@@ -165,31 +165,41 @@ cases distinguish the original instruction PC from the faulting second-half
 address for VS page faults, explicit and implicit G-stage faults, and PMA
 execute denial. They also check raw illegal 16/32-bit instruction values,
 successful cross-page assembly, VS delegation, and younger-store suppression.
-Twelve data cases route load/store page faults, access faults, and misalignment
-to HS or VS and verify precise values, PCs, and absence of store effects.
+Twelve data cases route load/store page faults, access faults, and LR/SC
+misalignment to HS or VS and verify precise values, PCs, and absence of store
+effects. Ordinary misaligned scalar, FP, and vector loads/stores instead succeed:
+twelve round-trip cases cover S/VS and same-page/cross-page accesses, including
+noncontiguous physical mappings and untouched neighboring bytes. Sixty split
+fault cases check first/second-page faults, PMA denial, warm read-only mappings,
+HS/VS delegation, precise `stval`/`vstval`, guest GPA, instruction PC, vector
+`vstart`, and suppression of partial stores.
 CSR-only trap injection checks state capture; it does not replace these
 execution-level checks.
 
 ### Supervisor guarantees
 
-The following ledger covers RV5Stage's directed qualification, not a blanket
-RVA23 or Spike conformance claim. These are behavioral guarantees, not new
-datapaths or optional CSR switches. Ss1p13 remains represented by the S/Sm
-1.13 versions in the UDB projection. This qualification does not change ISA
-strings or add a full-profile advertisement.
+The following ledger covers RV5Stage's directed qualification. These behavioral
+guarantees are published by RV64/Sv39 configurations, not selected through new
+datapaths or optional CSR switches. The shared RVA23 product publishes them for
+both core implementations. Ss1p13 is represented by the S/Sm 1.13 versions in
+UDB. The independent `socs/tests/udb-test.rhm` gate checks the full mandatory
+RVA23 declaration closure, versions, and architectural parameters for every
+RVA23 product; deleting any required declaration or downgrading S fails it.
+Implementation evidence below is not a substitute for Spike's own behavior or
+execution-environment qualification, nor an external certification.
 
 | Guarantee | Implementation and executable evidence |
 |---|---|
 | Ssccptr | `mmu/mmu.rhdl` issues aligned eight-byte physical PTE loads through `data-port-arbiter.rhdl` and the ordinary `memory-router.rhdl` cache path. `rv5stage-memory-router` sweeps every doubleword offset of a coherent RAM region with walker ownership and checks response ownership. `run_supervisor` in `rv5stage-hypervisor-core` executes translations with roots in six readable physical regions, including non-executable RAM, and checks the actual root request. `socs/tests/main-memory-test.rhm` proves readable/idempotent HN-F coverage of all described Mini/Single/Tiled RAM, including sparse banks and complete PTE granules. `rv5stage-lrsc-core-progress` additionally exercises paged execution through production private caches and a coherent Home. |
 | Sstvecd | `csr.rhdl` retains the complete XLEN-wide `stvec` base with only the low two bits cleared. `rv5stage-csr` writes each Bare address bit and canonical upper Sv39 bases, reads back bases and checks actual delegated trap redirects. The integrated host cases execute the handler and record its trap CSRs. |
-| Sstvala | `run_supervisor` executes host load/store page, access and alignment faults, instruction page/access faults, and illegal 16/32-bit instructions; it checks `scause`, exact `stval`, `sepc`, and younger-store suppression. Existing Sha cases cover page-straddled fetch values, guest/virtual instructions and HS/VS delegation. C makes instruction-address-misaligned exceptions unreachable in the RVA23 specialization; no hardware breakpoint trigger is implemented. Software EBREAK/C.EBREAK are exempt from the breakpoint-address requirement. CSR injection alone is not execution-level evidence. |
+| Sstvala | `run_supervisor` executes host load/store page/access faults, LR/SC alignment faults, instruction page/access faults, and illegal 16/32-bit instructions; it checks `scause`, exact `stval`, `sepc`, and younger-store suppression. `run_split_fault` checks the faulting portion of cross-page scalar/FP/vector accesses, including guest faults and vector restart. `run_misaligned_access` verifies ordinary misaligned accesses succeed under Zicclsm. Existing Sha cases cover page-straddled fetch values, guest/virtual instructions and HS/VS delegation. C makes instruction-address-misaligned exceptions unreachable in the RVA23 specialization; no hardware breakpoint trigger is implemented. Software EBREAK/C.EBREAK are exempt from the breakpoint-address requirement. CSR injection alone is not execution-level evidence. |
 | Sscounterenw | `csr.rhdl` derives the writable mask from implemented base counters and optional HPM3. `rv5stage-sscofpmf-rv32`, `-rv64`, and `-rv64h` walk all enable bits, write/read `scounteren` in S mode, and verify denial versus successful U reads of a nonzero HPM3. The zero-counter specializations remain covered by `rv5stage-zihpm-*`. |
 | Ssu64xl | `rv5stage-csr` sweeps all SXL/UXL write encodings and checks fixed RV64 readback through both `mstatus` and `sstatus`. The integrated host test enters paged U mode, executes a shift by 40 and LD/SD preserving upper bits, then checks a delegated U ECALL (cause 8), proving execution in U rather than merely CSR readback. |
 
 Run the focused gate from the repository root:
 
 ```sh
-tools/run-racket-tests.sh socs/tests/main-memory-test.rhm
+tools/run-racket-tests.sh socs/tests/main-memory-test.rhm socs/tests/udb-test.rhm
 FIXTURES='rv5stage-csr rv5stage-sscofpmf-rv32 rv5stage-sscofpmf-rv64 rv5stage-sscofpmf-rv64h rv5stage-hypervisor-csr rv5stage-hypervisor-core rv5stage-memory-router rv5stage-lrsc-core-progress' bash tools/testing/circt/run.sh --simulate-only
 ```
 

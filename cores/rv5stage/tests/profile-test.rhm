@@ -104,13 +104,15 @@ check:
   rv64_integer.isa_profile.isa_base ~is "rv64i"
   rv64_integer.isa_profile.isa_extensions ~is [
     "i", "m", "a", "b", "za64rs", "zba", "zbb", "zbs", "zic64b",
-    "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
+    "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt",
+    "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"
   ]
   rv64_integer.isa_profile.misa_extension_bits ~is 0x141103
   rv64_integer.isa_profile.misa_value ~is 0x8000000000141103
   rv64_double.isa_profile.isa_extensions ~is [
     "i", "m", "a", "f", "d", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b",
-    "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"
+    "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt",
+    "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"
   ]
   rv64_double.isa_profile.misa_value ~is 0x800000000014112f
   rv32_half.isa_profile.isa_base ~is "rv32i"

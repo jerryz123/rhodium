@@ -209,6 +209,22 @@ class ArchTestConfigTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
 
+    def test_fixed_rv64_user_execution_projection(self):
+        project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
+        udb = vector_udb()
+        udb["implemented_extensions"].append({"name": "Ssu64xl", "version": "= 1.0.0"})
+        udb["params"]["UXLEN"] = [64]
+        self.assertEqual(project(sail_default(), udb, 0x80000000, 0x40000000)["base"]["xlen"], 64)
+        for mxlen, uxlen in ((32, [32]), (64, [32]), (64, [32, 64])):
+            with self.subTest(mxlen=mxlen, uxlen=uxlen):
+                udb["params"].update(MXLEN=mxlen, UXLEN=uxlen)
+                with self.assertRaises(ValueError):
+                    project(sail_default(), udb, 0x80000000, 0x40000000)
+        udb["params"].update(MXLEN=64, UXLEN=[64])
+        udb["implemented_extensions"][-1]["version"] = "= 2.0.0"
+        with self.assertRaises(ValueError):
+            project(sail_default(), udb, 0x80000000, 0x40000000)
+
     def test_rv32_single_precision_vector_projection(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
         udb = vector_udb()

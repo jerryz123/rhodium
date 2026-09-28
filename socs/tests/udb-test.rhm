@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks the core-neutral catalog of concrete RISC-V UDB configurations.
+// Checks concrete UDB configurations against independent mandatory RVA23 architectural requirements.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,35 @@ import:
   "../products/spike-core-profile.rhm".single_core_spike_soc_core_profile
   "../platform/fabric-profiles.rhm" open
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
+  "../../riscv/udb.rhm".UdbExtension
+  "../products/selection.rhm" open
+  "../products/resolve.rhm".resolve_soc_product
+
+// Ratified RVA23 1.0, including its architectural implication closure.
+// Keep this oracle independent of the product extension lists/projections.
+// Ss1p13 is represented by UDB's S/Sm versions, not an invented extension name.
+// https://docs.riscv.org/reference/rva23/v1.0/rva23-profiles.html
+def Rva23MandatoryUdb = [
+  ["I", "2.1"], ["M", "2.0"], ["A", "2.1"], ["F", "2.2"], ["D", "2.2"], ["C", "2.0"],
+  ["S", "1.13"], ["Sm", "1.13"], ["Zicntr", "2.0"], ["Zicsr", "2.0"],
+  ["Zifencei", "2.0"], ["Zihintpause", "2.0"], ["Zihpm", "2.0"]
+] ++ [
+  "B", "H", "U", "V", "Sha", "Shcounterenw", "Shgatpa", "Shtvala", "Shvsatpa", "Shvstvala", "Shvstvecd",
+  "Ssccptr", "Sscofpmf", "Sscounterenw", "Ssnpm", "Ssstateen", "Sstc", "Sstvala", "Sstvecd", "Ssu64xl", "Supm",
+  "Sv39", "Svade", "Svbare", "Svinval", "Svnapot", "Svpbmt",
+  "Za128rs", "Za64rs", "Zaamo", "Zalrsc", "Zawrs", "Zba", "Zbb", "Zbs", "Zca", "Zcb", "Zcd", "Zcmop",
+  "Zfa", "Zfhmin", "Zic64b", "Zicbom", "Zicbop", "Zicboz", "Ziccamoa", "Ziccif", "Zicclsm", "Ziccrse",
+  "Zicond", "Zihintntl", "Zimop", "Zkt", "Zmmul", "Zvbb", "Zve32f", "Zve32x", "Zve64d", "Zve64f", "Zve64x",
+  "Zvfhmin", "Zvkb", "Zvkt", "Zvl128b", "Zvl32b", "Zvl64b"
+].map(fun (name): [name, "1.0"])
+
+fun missing_rva23_extensions(extensions :: List.of(UdbExtension)) :: List.of(String):
+  fun absent(requirement):
+    def present = for any (entry in extensions):
+      entry.name == requirement[0] && (entry.version == requirement[1] || entry.version.starts_with(requirement[1] ++ "."))
+    !present
+  def missing = Rva23MandatoryUdb.filter(~keep: absent)
+  missing.map(fun (requirement): requirement[0])
 
 for (core in ["rv5stage", "spike"]):
   for (isa in ["rv32int", "rv32max"]):
@@ -28,7 +57,28 @@ for (core in ["rv5stage", "spike"]):
 
 for (core in ["rv5stage", "spike"]):
   for (shape in ["mini", "simple", "tiled"]):
-    def configuration = riscv_udb_configuration(shape ++ "-" ++ core ++ "-rva23")
+    def product = resolve_soc_product(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
+    def configuration = product.udb()
+    def hart = product.description.hart
+    check: missing_rva23_extensions(configuration.extensions) ~is []
+    // Dropping any mandatory declaration must fail the gate, even if the
+    // remaining generated configuration is internally consistent.
+    for (requirement in Rva23MandatoryUdb):
+      def remaining = configuration.extensions.filter(~keep: fun (entry): entry.name != requirement[0])
+      check: missing_rva23_extensions(remaining) ~is [requirement[0]]
+    def old_supervisor = configuration.extensions.map(fun (entry): if entry.name == "S" | UdbExtension("S", "1.12.0") | entry)
+    check: missing_rva23_extensions(old_supervisor) ~is ["S"]
+    // Properties must also reach architectural/device-tree capabilities, not
+    // exist solely as assertions in the ACT projection.
+    for (name in ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]):
+      check: hart.isa_profile.isa_extensions.contains(name) ~is #true
+      check: gnu_isa_target(hart.xlen, hart.isa_profile.isa_extensions).march.contains(name) ~is #false
+    for (parameter in ["MXLEN: 64", "UXLEN: [64]", "SXLEN: [64]", "CACHE_BLOCK_SIZE: 64",
+                       "VLEN: 128", "ELEN: 64", "MISALIGNED_LDST: true", "VECTOR_LS_MISALIGNED_LEGAL: true",
+                       "SATP_MODE_BARE: true", "STVAL_WIDTH: 64", "U_MODE_ENDIANNESS: \"little\"", "S_MODE_ENDIANNESS: \"little\""]):
+      check: configuration.to_yaml().contains("  " ++ parameter) ~is #true
+    check: configuration.to_yaml().contains("  STVEC_MODES: [0") ~is #true
+    check: (configuration.to_yaml().contains("  PMLEN: 7") || configuration.to_yaml().contains("  PMLEN: 16")) ~is #true
     for (name in ["H", "Sha", "Smstateen", "Ssstateen", "Shcounterenw", "Shvstvala", "Shtvala", "Shvstvecd", "Shvsatpa", "Shgatpa", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in configuration.extensions): entry.name == name) ~is #true
     check: configuration.to_yaml().contains("  VSSTATUS_VS_EXISTS: true") ~is #true

@@ -204,15 +204,18 @@ Certified work can overlap scalar execution, but context changes, fences and
 trap/interrupt entry wait for accepted vector effects to drain. Software owns
 VRF save/restore; there is no separate guest register bank.
 
-This is **not a complete H or Sha conformance claim**. Guest pointer masking,
-Sstc, and the current feature set's state-enable controls are integrated;
-the broader requirements audit and end-to-end H/Sha qualification remain.
+Guest pointer masking, Sstc, and the current feature set's state-enable controls
+are integrated. Broader guest-system qualification remains an ongoing validation
+task, separate from the implemented and advertised architectural capabilities.
 The [supervisor qualification ledger](HYPERVISOR_PLAN.md#supervisor-guarantees)
 maps Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl to implementation,
 directed execution tests, SoC memory-map constraints, and coverage limits.
-The RVA23 preset publishes matching ISA, MISA, device-tree, and UDB capabilities;
-this does not establish full RVA23 conformance. ACT uses that exact profile,
-without hiding missing tests or reference-model limitations.
+RV64/Sv39 configurations explicitly publish those five supervisor guarantees.
+The RVA23 preset's matching ISA, MISA, device-tree, and UDB projections are
+checked against an independent [mandatory-requirement gate](../../socs/tests/udb-test.rhm).
+ACT uses that exact profile, without hiding missing tests or reference-model
+limitations. These declarations and directed tests are not an external
+conformance certificate or exhaustive verification of the execution environment.
 See the [shared translation contract](mmu/README.md#shared-host-and-guest-translation)
 and [implementation plan](HYPERVISOR_PLAN.md).
 

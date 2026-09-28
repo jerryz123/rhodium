@@ -10,7 +10,7 @@ import:
 def GnuSingleLetterExtensions = ["i", "m", "a", "f", "d", "c", "b", "v", "h"]
 def GnuVectorLengthExtensions = VectorLengthExtensionLengths.map(vector_length_extension_name)
 // These profile claims affect the execution environment, not generated instructions.
-def GnuIgnoredExtensions = ["ssnpm", "supm", "sstc", "sscofpmf", "svpbmt", "svnapot", "smstateen", "ssstateen", "sha", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa", "zicclsm"]
+def GnuIgnoredExtensions = ["ssnpm", "supm", "sstc", "sscofpmf", "svpbmt", "svnapot", "smstateen", "ssstateen", "sha", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa", "zicclsm", "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
 def GnuMultiLetterExtensions = [
   "svinval", "za64rs", "zba", "zbb", "zbs", "zca", "zcb", "zcd", "zcf", "zcmop",
   "zic64b", "zicbom", "zicbop", "zicboz", "ziccamoa", "ziccif", "ziccrse",

@@ -109,7 +109,7 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
       | result := result ++ [extension("Zve64f", "1.0.0")]
       when advertises("zve64d")
       | result := result ++ [extension("Zve64d", "1.0.0")]
-      when advertises("zvfhmin")
+      when advertises("zvfhmin") || advertises("zvfh")
       | result := result ++ [extension("Zvfhmin", "1.0.0")]
       when advertises("zvfh")
       | result := result ++ [extension("Zvfh", "1.0.0")]
@@ -136,6 +136,9 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
   | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
   when advertises("sscofpmf")
   | result := result ++ [extension("Sscofpmf", "1.0.0")]
+  for ([name, spelling] in [["ssccptr", "Ssccptr"], ["sstvecd", "Sstvecd"], ["sstvala", "Sstvala"], ["sscounterenw", "Sscounterenw"], ["ssu64xl", "Ssu64xl"]]):
+    when advertises(name)
+    | result := result ++ [extension(spelling, "1.0.0")]
   for ([name, spelling] in [["h", "H"], ["sstc", "Sstc"], ["svinval", "Svinval"], ["svpbmt", "Svpbmt"], ["svnapot", "Svnapot"], ["smstateen", "Smstateen"], ["ssstateen", "Ssstateen"], ["sha", "Sha"], ["shcounterenw", "Shcounterenw"], ["shvstvala", "Shvstvala"], ["shtvala", "Shtvala"], ["shvstvecd", "Shvstvecd"], ["shvsatpa", "Shvsatpa"], ["shgatpa", "Shgatpa"]]):
     when advertises(name)
     | result := result ++ [extension(spelling, "1.0.0")]

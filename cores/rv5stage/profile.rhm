@@ -284,7 +284,10 @@ class RV5StageConfig(xlen :: XLen,
 
   property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
-    def names = extensions.names(xlen) ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
+    // Fixed behavioral guarantees qualified on the RV64 Sv39 implementation,
+    // not optional datapaths or new implementation switches.
+    def supervisor = if xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39 | ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
+    def names = extensions.names(xlen) ++ supervisor ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])
     def mutable misa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
     when floating_point_supports_f(extensions.floating_point)
     | misa := misa ++ [MisaExtension.F]

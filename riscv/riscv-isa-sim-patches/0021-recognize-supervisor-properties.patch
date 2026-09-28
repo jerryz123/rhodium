@@ -1,0 +1,20 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Recognize opcode-free supervisor profile guarantees
+Purpose: Preserves supervisor guarantee names in the embedded Spike ISA parser.
+SPDX-License-Identifier: Apache-2.0
+
+These properties describe existing supervisor behavior, not new instructions
+or CSR switches. Register their names without changing execution semantics.
+
+diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+--- a/disasm/isa_parser.cc
++++ b/disasm/isa_parser.cc
+@@ -94,2 +94,7 @@ static const extension_info_t extension_infos[] = {
+   {"h", {'H'}},
++  {"ssccptr"},
++  {"sstvecd"},
++  {"sstvala"},
++  {"sscounterenw"},
++  {"ssu64xl"},
+   {"sha", {}, {"h", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"}},

@@ -142,6 +142,15 @@ parameters obtain subordinate endpoints from their services. `make check-boundar
 
 ## Focused validation
 
+`tests/udb-test.rhm` owns the independent ratified RVA23 mandatory-declaration
+oracle. Keep it independent of product construction and core projection lists:
+it must detect a consistently omitted requirement, not only differences between
+two generated views. It checks every RVA23 shape/core product, required versions
+and parameters, and mutation cases that remove each mandatory declaration.
+Opcode-free supervisor guarantees belong in hart/device-tree and UDB capabilities,
+not assembler flags; the pinned Spike parser must accept their published names.
+Behavioral evidence remains with each core and the SoC memory-map qualification.
+
 Tiled LLC subordinate ports share the existing CHI fabric with requester and
 device traffic. Compile one `CHISNConnection` from each Home to the single
 memory site, preserving global addresses and Home source IDs. The generic
