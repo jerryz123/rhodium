@@ -221,8 +221,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]
+        configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-spike-rva23]
         shard: [0, 1, 2, 3]
+        include:
+          - {shard_count: 4}
+          - {configuration: simple-rv5stage-rva23, shard: 0, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 1, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 2, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 3, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 4, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 5, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 6, shard_count: 8}
+          - {configuration: simple-rv5stage-rva23, shard: 7, shard_count: 8}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -268,7 +278,7 @@ jobs:
           set -o pipefail
           make -C sims arch-test-run ACT_CONFIGURATION=${{ matrix.configuration }} ACT_PYTHON=python3 \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" \
-            ACT_JOBS=2 ACT_SHARDS=4 ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
+            ACT_JOBS=2 ACT_SHARDS=${{ matrix.shard_count }} ACT_SHARD="$SHARD" 2>&1 | tee "$RUNNER_TEMP/act/run.log"
       - name: Publish shard results and inventory
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

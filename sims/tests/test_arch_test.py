@@ -563,12 +563,13 @@ class ArchTestGenerationTest(unittest.TestCase):
             (elfs / 'nested').mkdir(parents=True)
             for index in range(11):
                 (elfs / 'nested' / f'{index}.elf').touch()
-            partitions = [sharder.partition(elfs, root / f'shard-{i}/elfs', i, 4) for i in range(4)]
-            combined = [elf for group in partitions for elf in group]
-            self.assertEqual(len(combined), len(set(combined)))
-            self.assertEqual(set(combined), set(elfs.resolve().rglob('*.elf')))
+            for shard_count in (4, 8):
+                partitions = [sharder.partition(elfs, root / f'shard-{i}/elfs', i, shard_count) for i in range(shard_count)]
+                combined = [elf for group in partitions for elf in group]
+                self.assertEqual(len(combined), len(set(combined)))
+                self.assertEqual(set(combined), set(elfs.resolve().rglob('*.elf')))
             (elfs / 'nested/0.elf').unlink()
-            sharder.partition(elfs, root / 'shard-0/elfs', 0, 4)
+            sharder.partition(elfs, root / 'shard-0/elfs', 0, 8)
             self.assertFalse((root / 'shard-0/elfs/nested/0.elf').is_symlink())
             self.assertEqual(len(list(elfs.rglob('*.elf'))), 10)
             foreign = root / 'foreign/elfs'

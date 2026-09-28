@@ -110,7 +110,7 @@ flowchart TD
     Simulators --> Qualification["OpenSBI qualification"]
     Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
-    Simulators --> ActRun["Four-profile ACT execution<br/>four disjoint shards each"]
+    Simulators --> ActRun["Six-profile ACT execution<br/>four shards each; eight for RV5Stage RVA23"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
@@ -146,8 +146,8 @@ The OpenSBI job tests its target adapter,
 qualifies both single-core products under the simulation change selection, and
 publishes its diagnostics. All four Simple RV32 products select native ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
-All six Simple products select their own ACT generation and
-four-shard execution. Shared SoC dependencies
+All six Simple products select their own ACT generation and execution: four
+shards each, except RV5Stage RVA23 with eight. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All six CI Mini and both Tiled
 products receive capability-filtered ISA smoke; both Tiled cores run the
@@ -158,7 +158,7 @@ single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
 compiler and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
-the compiler or reference-model toolchain again. Four deterministic shards cover
+the compiler or reference-model toolchain again. The configured deterministic shards cover
 the full generated inventory, including failures. They run independently with bounded process parallelism and
 upload logs plus JSON/JUnit results even when execution fails. Do not add
 `continue-on-error` or pass-based exclusions to make new suites green. Measure a

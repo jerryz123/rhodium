@@ -1,6 +1,7 @@
 # Tests the declarative CI policy, fail-closed coverage, and stable matrix shape.
 # SPDX-License-Identifier: Apache-2.0
 
+import re
 import subprocess
 import unittest
 from pathlib import Path
@@ -311,8 +312,25 @@ class PlanTest(unittest.TestCase):
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
-        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 2)
+        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 1)
         self.assertIn("Restore pinned Spike runtime libraries", software)
+
+    def test_arch_execution_matrix_splits_only_slow_rva23_rv5stage(self):
+        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
+        arch_job = workflow.split("  arch:\n", 1)[1]
+        base = re.search(r"        configuration: \[([^\]]+)\]\n        shard: \[([^\]]+)\]\n        include:\n", arch_job)
+        self.assertIsNotNone(base)
+        configurations = base.group(1).split(", ")
+        shards = [int(shard) for shard in base.group(2).split(", ")]
+        self.assertIn("          - {shard_count: 4}\n", arch_job)
+        extras = re.findall(r"          - \{configuration: ([^,]+), shard: (\d+), shard_count: (\d+)\}", arch_job)
+        self.assertEqual(extras, [("simple-rv5stage-rva23", str(shard), "8") for shard in range(8)])
+        actual = {(configuration, shard) for configuration in configurations for shard in shards}
+        actual.update((configuration, int(shard)) for configuration, shard, _count in extras)
+        expected = {(configuration, shard) for configuration in SINGLE_CORE_SOCS
+                    for shard in range(8 if configuration == "simple-rv5stage-rva23" else 4)}
+        self.assertEqual(actual, expected)
+        self.assertIn("ACT_SHARDS=${{ matrix.shard_count }}", arch_job)
 
     def test_arch_jobs_restore_and_check_every_spike_runtime(self):
         workflow = (REPO / ".github/workflows/ci-software.yml").read_text()

@@ -336,6 +336,8 @@ with a scalar or non-H reference profile to make a lane pass.
 bound from one to zero. The ACT-local UDB copy references this supported
 overlay mechanism; its extension list and parameter values are unchanged.
 Remove the correction when the pinned UDB accepts legal zero-GEILEN harts.
+The active [GEILEN=0 CSR mismatch plan](arch-test/PLAN.md) tracks reference
+expectations separately from execution-shard scheduling.
 The overlay also removes UDB's erroneous Shvstvala requirement that EBREAK
 report its PC: the profile explicitly exempts EBREAK/C.EBREAK. All other
 trap-value requirements remain enforced, and DUT reporting choices stay intact.
@@ -574,13 +576,14 @@ of reporting. Failed generation must stop before DUT execution.
 ACT generation runs once per single-core configuration in CI, separately from
 the native simulator builds. It publishes a checksum-verified archive with
 dereferenced ELF contents, so reference build paths and upstream symlinks
-cannot leak into consumers. Four execution jobs per configuration
-need only the native simulator, Python, and upstream runner, plus the pinned
-Spike shared libraries for Spike shards—not Sail, Ruby, Racket, or a compiler.
+cannot leak into consumers. Four execution jobs per configuration, except eight
+for RV5Stage RVA23, need only the native simulator, Python, and upstream
+runner, plus the pinned Spike shared libraries for Spike shards—not Sail,
+Ruby, Racket, or a compiler.
 `arch-test/shard.py` takes every sorted generated ELF and partitions
 by index modulo shard count. Its tests enforce disjoint full coverage and safe
 replacement of stale shard links. Shard inventories and results are artifacts;
-all four matrix jobs must complete to claim full execution coverage.
+all configured matrix jobs must complete to claim full execution coverage.
 
 The shared CI build publishes `VTestDriver` and its JSON attestation. Consumers
 set `PREBUILT_SIMULATOR` to the downloaded executable. This bypasses native
