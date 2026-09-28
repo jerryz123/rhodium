@@ -532,6 +532,9 @@ void stall_runs(const std::string& path) {
   terminal.write(batch(UINT64_MAX-1,{2,UINT64_MAX-1},8));
   terminal.write(batch(UINT64_MAX,{2,UINT64_MAX},8)); terminal.finish();
   std::ofstream last(path+".maximum",std::ios::binary); last << maximum.str(); last.close(); check(bool(last));
+  std::ostringstream fractional; PerfettoWriter fast(fractional,descriptor,{3000000000});
+  fast.write(batch(0,{2,0},8)); fast.write(batch(1,{2,1},8)); fast.finish();
+  std::ofstream quantized(path+".fractional",std::ios::binary); quantized << fractional.str(); quantized.close(); check(bool(quantized));
 }
 void shared_tracks(const std::string& path) {
   // Two explicit scopes with equal runtime IDs alternate sibling execution modes.
@@ -741,6 +744,25 @@ void residency(const std::string& path) {
   write_perfetto(open_replay,open);
   check(stopped.str()==open_replay.str());
   std::ofstream truncated(path + ".incomplete", std::ios::binary); truncated << stopped.str();
+  // Counts come from cycles, including zero-nanosecond and oversized intervals.
+  for (const auto& [suffix, begin, end, frequency] :
+       std::vector<std::tuple<std::string,std::uint64_t,std::uint64_t,std::uint64_t>>{
+           {".one",0,1,3000000000}, {".wide",0,UINT64_MAX,UINT64_MAX},
+           {".last",UINT64_MAX-1,UINT64_MAX,UINT64_MAX}}) {
+    Graph timed; timed.bind_manifest(descriptor); timed.bind_timing({frequency}); timed.begin_stream();
+    std::ostringstream streamed, zipped;
+    PerfettoWriter live_writer(streamed,descriptor,{frequency});
+    PerfettoWriter gzip_writer(zipped,descriptor,{frequency},PerfettoCompression::Gzip);
+    timed.record_node({0,0},begin,0);
+    auto start = timed.finish_cycle(begin); live_writer.write(start); gzip_writer.write(start);
+    timed.record_end({0,0},end);
+    auto finish = timed.finish_cycle(end); live_writer.write(finish); gzip_writer.write(finish);
+    live_writer.finish(); gzip_writer.finish(); timed.end_stream();
+    std::istringstream saved(timed.snapshot().json()); std::ostringstream replayed;
+    write_perfetto(replayed,read_event_trace(saved));
+    check(streamed.str() == replayed.str() && streamed.str() == inflate_trace(zipped.str()));
+    std::ofstream file(path+suffix,std::ios::binary); file << streamed.str(); file.close(); check(bool(file));
+  }
 }
 int main(int argc, char** argv) {
   residency(std::string(argv[1])+"/residency.pftrace");
@@ -936,7 +958,7 @@ int main(int argc, char** argv) {
   check(read_event_trace(named_input).field({0,0},"value").unsigned_value() == 255);
   auto mismatch = named_manifest; mismatch.fields[0][0].name = "different";
   rejects([&] { PerfettoWriter w(empty_trace, mismatch, {1}); }, "differs from JSON");
-  for (const auto& reserved : {"cycle", "sequence"}) {
+  for (const auto& reserved : {"cycle", "sequence", "ancestry_unknown", "duration_cycles"}) {
     auto text = named_graph.snapshot().json();
     const auto pos = text.find("\"name\":\"value\""); check(pos != std::string::npos);
     text.replace(pos, 14, std::string("\"name\":\"") + reserved + "\"");

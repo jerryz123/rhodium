@@ -292,6 +292,20 @@ void annotation(std::string& event, PendingInterns& interns, const std::string& 
   else bytes(arg, 6, value);
   bytes(event, 4, arg);
 }
+void duration_annotation(std::string& event, PendingInterns& interns, __uint128_t cycles) {
+  // Keep ordinary counts queryable as integers, and oversized counts lossless.
+  if (cycles <= INT64_MAX) {
+    std::string arg;
+    interns.reference(arg, 1, 10, InternedStrings::AnnotationName, "duration_cycles");
+    integer(arg, 3, static_cast<std::uint64_t>(cycles));
+    bytes(event, 4, arg);
+  } else {
+    std::string value;
+    do { value.push_back('0' + cycles % 10); cycles /= 10; } while (cycles);
+    std::reverse(value.begin(), value.end());
+    annotation(event, interns, "duration_cycles", value, false);
+  }
+}
 std::string enum_text(const Field& field, const FieldValue& value) {
   const auto code = value.unsigned_value();
   const auto symbol = std::find_if(field.symbols.begin(), field.symbols.end(),
@@ -406,6 +420,7 @@ struct PerfettoWriter::Impl {
     Ref last;
     Node node;
     std::set<Ref> parents;
+    std::uint64_t first_cycle;
   };
   std::map<std::uint32_t, StallRun> stalls; // Track site -> open visual interval.
   std::ostream& output;
@@ -594,6 +609,7 @@ struct PerfettoWriter::Impl {
       const auto& run = runs.at(track);
       std::string fields;
       integer(fields, 9, 2);
+      duration_annotation(fields, interns, static_cast<__uint128_t>(cycle) - run.first_cycle + 1);
       event(stream, interns, run.last, static_cast<__uint128_t>(cycle) + 1, fields);
       runs.erase(track);
     }
@@ -709,6 +725,8 @@ struct PerfettoWriter::Impl {
                 "residency end does not match active owner");
         std::string fields;
         integer(fields, 9, 2);
+        const auto begin = additions.count(ref) ? additions.at(ref).second : known.at(ref).second;
+        duration_annotation(fields, interns, action.cycle - begin);
         event(stream, interns, ref, static_cast<__uint128_t>(action.cycle) + 1, fields);
         next_residencies.erase(resident);
         continue;
@@ -773,7 +791,7 @@ struct PerfettoWriter::Impl {
         flow(stream, interns, ref, display_cycle, 'f', identity);
       }
       if (can_parent[ref.site]) flow(stream, interns, ref, display_cycle, 's', id);
-      if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref]});
+      if (stall) next_stalls.emplace(track, StallRun{ref, node, parents[ref], node.cycle});
       else if (description.sites[ref.site].kind == "residency") next_residencies.emplace(track, ref);
       else {
         fields.clear(); integer(fields, 9, 2);

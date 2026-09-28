@@ -143,6 +143,15 @@ overlapping owners on one track are rejected. End-of-export does not invent a
 release: unfinished slices retain Perfetto's incomplete duration (`-1`). As
 before, each streaming writer covers one reset epoch and must finish before reset.
 
+Completed residency and stall slices include `duration_cycles` in their event
+details (SQL key `debug.duration_cycles`), including intervals lasting one cycle.
+Residency counts `release_cycle - capture_cycle`; stalls count
+`last_observed_cycle - first_observed_cycle + 1`. Counts use exact hardware
+cycles, independent of nanosecond rounding. They are integers through `INT64_MAX`
+and exact decimal strings above it. The exporter adds the argument at slice end,
+so unfinished intervals have no final count. Ordinary transfer slices omit it;
+event names, graph storage, and DPI callbacks are unchanged.
+
 ## Named captures
 
 Compiler manifests include an ordered `fields` schema for every site and
@@ -159,8 +168,9 @@ only for the `signed` encoding. `capture_field(node, field)` also works on a
 cycle batch without requiring a retained graph.
 
 Perfetto preserves capture names such as `pc` and `instruction`
-(SQL keys `debug.pc`, etc.). The built-in names `cycle`, `sequence`, and `ancestry_unknown` are
-reserved and rejected as capture names. Bitvectors default to fixed-width hex
+(SQL keys `debug.pc`, etc.). The built-in names `cycle`, `sequence`,
+`ancestry_unknown`, and `duration_cycles` are reserved and rejected as capture
+names. Bitvectors default to fixed-width hex
 strings. Booleans and integers use native scalar arguments; values wider than
 64 bits, and unsigned values above INT64_MAX, use exact decimal strings.
 Raw word arrays and aggregate widths are no longer normal display arguments.
@@ -516,8 +526,9 @@ transaction identity or eventual acceptance for a `Decoupled` offer.
 
 The graph and snapshots retain every per-cycle observation and edge. In Perfetto,
 `cycle` and `sequence` describe the first observation. Slice timing displays
-the interval through the last observed cycle plus one; no range-end bookkeeping
-is exported. Each unchanged parent gets one arrow to the interval, representing
+the interval through the last observed cycle plus one, with `duration_cycles`
+added when it closes; no range-end bookkeeping is exported. Each unchanged
+parent gets one arrow to the interval, representing
 its edges to all observations in that range. Transfers remain separate and stalls
 never supply lineage.
 

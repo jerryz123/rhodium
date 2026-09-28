@@ -203,6 +203,10 @@ sync_circuit InvalidCaptures(kind :: String):
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         ancestry_unknown: payload.nested.pc
       selected |> sink
+  | kind == "duration_cycles":
+      def selected = source |> trace_valid_event("invalid", ~fields: payload):
+        duration_cycles: payload.nested.pc
+      selected |> sink
   | ~else:
       def selected = source |> trace_valid_event("invalid", ~fields: payload):
         value(~format: kind): payload.nested.pc

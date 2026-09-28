@@ -1239,8 +1239,8 @@ control.attempt |> map_flow(attempt => make_request(attempt)) |> requests
 ```
 
 Event observations use `~fields: [event_field("pc", value), ...]` with unique
-ASCII names and local scalar values; `cycle`, `sequence`, and `ancestry_unknown` are reserved for
-built-in event arguments. `event_field` infers Bool/SInt/bitvector
+ASCII names and local scalar values; `cycle`, `sequence`, `ancestry_unknown`, and
+`duration_cycles` are reserved for built-in event arguments. `event_field` infers Bool/SInt/bitvector
 encoding and accepts `~format` overrides. Named fields and explicit raw
 `~payload` are mutually exclusive. See the owning
 [capture contract](../../event/README.md#capture-fields) for formats and transport.

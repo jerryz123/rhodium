@@ -75,7 +75,7 @@ int main() {
   require(named.field({1, 0}, "signed").signed_value() == -7);
   require(named.snapshot().field({1, 0}, "signed").decimal() == "-7");
   rejects([&] { named.field({1, 0}, "absent"); }, "unknown capture field");
-  for (const auto& reserved : {"cycle", "sequence", "ancestry_unknown"}) {
+  for (const auto& reserved : {"cycle", "sequence", "ancestry_unknown", "duration_cycles"}) {
     auto bad = schema; bad.fields[1][1].name = reserved;
     rejects([&] { Graph rejected; rejected.bind_manifest(bad); },
             std::string("reserved capture field name: ") + reserved);

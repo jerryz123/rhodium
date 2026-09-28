@@ -51,7 +51,7 @@ void validate_capture_schema(const Manifest& manifest) {
     for (const auto& field : manifest.fields[site]) {
       if (field.name.empty() || !names.insert(field.name).second)
         throw std::runtime_error("duplicate or empty capture field name");
-      if (field.name == "cycle" || field.name == "sequence" || field.name == "ancestry_unknown")
+      if (field.name == "cycle" || field.name == "sequence" || field.name == "ancestry_unknown" || field.name == "duration_cycles")
         throw std::runtime_error("reserved capture field name: " + field.name);
       auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
       if (!letter(field.name.front()) || !std::all_of(field.name.begin(), field.name.end(), [&](char c) {

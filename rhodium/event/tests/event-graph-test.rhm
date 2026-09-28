@@ -71,6 +71,7 @@ check:
   fixture.invalid_captures("cycle") ~throws "reserved capture field name: cycle"
   fixture.invalid_captures("sequence") ~throws "reserved capture field name: sequence"
   fixture.invalid_captures("ancestry_unknown") ~throws "reserved capture field name: ancestry_unknown"
+  fixture.invalid_captures("duration_cycles") ~throws "reserved capture field name: duration_cycles"
   fixture.invalid_captures("bool") ~throws "one bit"
   fixture.invalid_captures("float") ~throws "unsupported capture format"
   linear.sites.map(fun (site): site.label) ~is ["accepted", "issued", "completed"]

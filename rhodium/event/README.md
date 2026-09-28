@@ -226,7 +226,8 @@ def observed = source |> trace_event("fetch", ~fields: payload):
 ```
 
 The `~fields` binder is last in the argument list. Names are unique ASCII
-identifiers; `cycle`, `sequence`, and `ancestry_unknown` are reserved. Values must be local scalar
+identifiers; `cycle`, `sequence`, `ancestry_unknown`, and `duration_cycles` are
+reserved. Values must be local scalar
 hardware expressions. Nested selections, aliases, slices, and combinational
 expressions are allowed; select aggregate leaves or explicitly cast an aggregate
 to Bits for a packed capture. Missing members, duplicate names, foreign-module

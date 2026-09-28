@@ -104,6 +104,13 @@ timing and epoch go once into ChromeEventBundle metadata before descriptors or
 occurrences. Site identity, source location, and capture layout go in the JSON
 TrackDescriptor description; v58.2 has no arbitrary track annotation field.
 Occurrence arguments contain exact cycle, sequence, and captured values.
+Completed residency/stall ends add `duration_cycles`; Perfetto merges end
+annotations into the slice's arguments. Compute residency counts from the
+original admission and release, and stall counts from the saved first cycle and
+last observation plus one, using wide arithmetic before narrowing. Encode counts
+through `INT64_MAX` as integers and larger counts as non-interned decimal strings.
+Do not derive counts from quantized timestamps or add counts to open intervals
+or ordinary transfers. Keep the name reserved in frontend and collector validation.
 Keep exact graph identities and interval bookkeeping internal to the exporter;
 Perfetto is a visualization projection, not a second graph serialization.
 
@@ -117,12 +124,14 @@ Reject same-cycle collisions on
 shared tracks before writing output or advancing writer state. Stall names are
 always `stall`, regardless of instruction or enum captures. Coalesce only in the
 exporter: retain one open run per track, with captured words, exact parent set,
-and the last reference. Extend only consecutive cycles and sequence numbers
+first cycle, and the last reference. Extend only consecutive cycles and sequence
+numbers
 at the same observation site with equal words and parents. Close on a mismatch,
 settled absence, transfer, or finalization. Emit one incoming arrow per parent
 per run; never replace the original transfer source with an observer.
-Emit begins immediately and close with a timestamped end, without range
-annotations. A raw prefix may contain open stalls. Preflight the complete input
+Emit begins immediately and close with a timestamped end and exact cycle count,
+without range annotations. A raw prefix may contain open stalls. Preflight the
+complete input
 batch, stage run-state changes, and commit only after successful output. Decide
 run closures for each entire cycle before its begins, in end-cycle/track order,
 so packet and intern ordering do not depend on batch partitioning.
