@@ -94,7 +94,7 @@ Sv39 MMU. The core, frontend, CSR unit, and top-level composition derive H from
 the same `RV5StageConfig`; runtime `misa.H` and the published ISA agree.
 The `rva23` preset enables H/Sha, state-enable, Sstc, and Svinval. RV32 presets
 are unchanged. Standalone MMU and protocol generators retain an explicit H
-parameter. See the [qualification ledger](HYPERVISOR_PLAN.md#architectural-qualification-ledger).
+parameter.
 The CSR specialization adds the execution-context output and
 commit-qualified `guest_fault` input, guest entry/exit through MRET/SRET,
 HS/VS status and trap-state separation, synchronous two-level delegation,
@@ -207,17 +207,15 @@ VRF save/restore; there is no separate guest register bank.
 Guest pointer masking, Sstc, and the current feature set's state-enable controls
 are integrated. Broader guest-system qualification remains an ongoing validation
 task, separate from the implemented and advertised architectural capabilities.
-The [supervisor qualification ledger](HYPERVISOR_PLAN.md#supervisor-guarantees)
-maps Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl to implementation,
-directed execution tests, SoC memory-map constraints, and coverage limits.
-RV64/Sv39 configurations explicitly publish those five supervisor guarantees.
+RV64/Sv39 configurations explicitly publish Ssccptr, Sstvecd, Sstvala,
+Sscounterenw, and Ssu64xl.
 The RVA23 preset's matching ISA, MISA, device-tree, and UDB projections are
 checked against an independent [mandatory-requirement gate](../../socs/tests/udb-test.rhm).
 ACT uses that exact profile, without hiding missing tests or reference-model
 limitations. These declarations and directed tests are not an external
 conformance certificate or exhaustive verification of the execution environment.
 See the [shared translation contract](mmu/README.md#shared-host-and-guest-translation)
-and [implementation plan](HYPERVISOR_PLAN.md).
+and [implementation guide](DEVELOPING.md).
 
 ## Cache-block and reservation bounds
 

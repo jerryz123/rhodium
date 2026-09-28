@@ -514,7 +514,7 @@ This keeps architectural cancellation out of WB's physical-arbiter ready loop.
 The test-only [translation service](../tests/translation-service.rhdl)
 serializes commands for behavioral qualification of the shared components;
 it is not a production MMU path. See the
-[implementation plan](../HYPERVISOR_PLAN.md) for the remaining integration.
+[core implementation guide](../DEVELOPING.md) for integration and validation.
 
 ## Event residency
 

@@ -564,9 +564,7 @@ substitution selects the VS bank while access checks retain the original
 instruction's CSR address. Commit-owned trap/return events are the only
 writers of live virtualization state.
 
-The [H/Sha qualification ledger](HYPERVISOR_PLAN.md#architectural-qualification-ledger)
-maps each profile constituent to implementation and evidence. Runtime `misa.H`
-comes from the profile's MISA projection, using `riscv/isa/profile.rhm`'s shared
+Runtime `misa.H` comes from the profile's MISA projection, using `riscv/isa/profile.rhm`'s shared
 bit catalog. ACT projects the same advertised profile into Sail; inventory gaps
 and unconfigurable model differences remain visible, not suite exclusions.
 The hypervisor CSR bench sweeps WARL translation modes, direct VS vector bases,
@@ -660,8 +658,8 @@ MMU replay regressions and `rv5stage-hypervisor-csr` when changing this boundary
 
 Run `tools/run-racket-tests.sh riscv/tests/hypervisor-test.rhm riscv/tests/csr-test.rhm cores/rv5stage/tests/csr-test.rhm`
 and `FIXTURES='rv5stage-hypervisor-csr rv5stage-csr' bash tools/testing/circt/run.sh`
-when changing this boundary. The [H/Sha plan](HYPERVISOR_PLAN.md) owns the
-remaining integration sequence and advertisement gates.
+when changing this boundary. The [SoC mandatory-requirement gate](../../socs/tests/udb-test.rhm)
+checks the published RVA23 declarations.
 
 For shared replacement-policy changes, run `cache-replacement`,
 `rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32`. The standalone

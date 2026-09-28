@@ -49,8 +49,7 @@ RV64D, VLEN=128, and Sv39 on both core implementations. The independent
 [mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
 and required architectural parameters for all six shape/core products. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
-published capabilities. See the [RV5Stage qualification ledger](../cores/rv5stage/HYPERVISOR_PLAN.md#supervisor-guarantees)
-for implementation evidence and execution-test limits. Declaration completeness
+published capabilities. Declaration completeness
 is not an external certification or an exhaustive system qualification;
 firmware and the execution environment retain their own obligations.
 `RV32Int` selects the
