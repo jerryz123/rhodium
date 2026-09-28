@@ -4,6 +4,7 @@
 
 import:
   rhombus.bits.(<<) as <<
+  lib("racket/base.rkt") as rkt
   "../core/main.rhm" open
 
 export:
@@ -175,8 +176,10 @@ fun decode_case_pattern(value :: Nat, care :: Nat, width :: PosInt):
 
 fun emit_constant(operation :: Operation):
   def result = operation.results[0]
+  def integer :: Nat = operation.attribute("value")
+  def literal = if bits.length(integer) >= 256 | "0x" ++ rkt.#{number->string}(integer, 16) | to_string(integer)
   String.append("    ", value_ref(result), " = hw.constant ",
-                to_string(operation.attribute("value")), " : ",
+                literal, " : ",
                 circt_type(result.type))
 
 fun emit_dont_care(operation :: Operation):

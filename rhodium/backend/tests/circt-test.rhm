@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  rhombus.bits.(<<) as <<
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/backend/circt.rhm" open
   "../../../rhodium/frontend/layers/bool.rhm" as bool
@@ -76,6 +77,21 @@ fun stable_decode_circt(consumed_ids):
 
 def early_decode_circt = stable_decode_circt(0)
 def late_decode_circt = stable_decode_circt(100)
+
+// Wide values stay numerically identical while avoiding decimal big-integer parsing.
+def wide_constant_design = Design()
+def wide_constant_builder = Builder(wide_constant_design)
+def wide_constant_module = wide_constant_builder.module("WideConstant")
+def wide_constant_output = wide_constant_builder.output(wide_constant_module, "result", Bits(512))
+def wide_constant_value = (1 bits.(<<) 511) + 0x123456789abcdef
+wide_constant_builder.drive(wide_constant_output, wide_constant_builder.constant(wide_constant_module, Bits(512), wide_constant_value))
+wide_constant_builder.finish(wide_constant_module)
+def wide_constant_circt = emit_circt(wide_constant_design)
+
+check:
+  wide_constant_circt.contains("hw.constant 0x8") ~is #true
+  wide_constant_circt.contains("123456789abcdef : i512") ~is #true
+  wide_constant_circt.contains("hw.constant " ++ to_string(wide_constant_value)) ~is #false
 
 // A direct two-port write set makes the collision-undefined symmetric merge
 // visible without relying on a larger frontend fixture's incidental logic.
