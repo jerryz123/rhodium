@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 `include "cores/rv5stage/tests/circt/verilog/rv5stage-memory-writeback.svh"
 module rv5stage_mmu_replay_tb;
+  logic [63:0] request_fault_address;
   typedef struct packed { logic ready; } ready_t;
   typedef struct packed { logic [63:0] address; } instruction_req_bits_t;
   typedef struct packed { logic valid; instruction_req_bits_t bits; } instruction_req_t;
@@ -1341,8 +1342,8 @@ module rv5stage_mmu_replay_tb;
     clear_translations();
     @(negedge clock); data_request_valid = 1;
     for (int cycle = 0; cycle < 80 && !data_out.request_fault; cycle++) tick();
-    assert(data_out.request_fault && split_requests_seen == 6 && !data_memory_out.request.valid)
-      else $fatal(1, "faulting second page issued a fragment");
+    assert(data_out.request_fault && request_fault_address == 'h5000 && split_requests_seen == 6 && !data_memory_out.request.valid)
+      else $fatal(1, "faulting second page lost its address or issued a fragment: %h", request_fault_address);
     @(negedge clock);
     data_request_valid = 0;
     split_cross_page = 0;

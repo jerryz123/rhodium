@@ -57,6 +57,7 @@ sync_circuit RV5StageRetirementTrace():
   core.vector_fast.candidate_current <== Bool(#false)
   core.data_access.request.ready <== data_ready
   core.data_access.request_fault <== Bool(#false)
+  core.request_fault_address <== core.data_access.request.bits.address
   core.data_access.request_access_fault <== data_fault
   core.data_access.drained <== Bool(#true)
   core.data_access.reservation_valid <== reservation

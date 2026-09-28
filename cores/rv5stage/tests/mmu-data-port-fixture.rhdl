@@ -44,6 +44,8 @@ sync_circuit RV5StageMmuDataPortFixture():
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))
   instruction |> mmu.instruction
   data |> mmu.data
+  output request_fault_address: Bits(64)
+  request_fault_address <== mmu.request_fault_address
   pipeline |> mmu.pipeline
   vector_precheck |> mmu.vector_precheck
   mmu.vector_fast.request.valid <== Bool(#false)

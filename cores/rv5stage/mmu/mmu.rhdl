@@ -42,6 +42,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def width = xlen.width
   interface instruction(RV5StageFetchAccess(xlen, hypervisor), ~role: responder)
   interface data(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | RV5StageDataAccess(xlen, vector_completion_slots), ~role: responder)
+  output request_fault_address: Bits(width)
   interface pipeline(if hypervisor | RV5StageGuestPipelineAccess(xlen) | RV5StagePipelineAccess(xlen), ~role: responder)
   input pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: responder)
@@ -350,6 +351,14 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   )
   def instruction_walk_access_fault = (latched_instruction_fault & fault_is_access) ||| (itlb.hit & itlb_result.access_fault)
   def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault) ||| split_probe_access_fault ||| (latched_split_fault & fault_is_access))
+  // Select the same fragment for trap VA and guest provenance. Page faults
+  // retain priority over access faults; within a class the first fragment wins.
+  def first_page_fault = (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access)
+  def first_access_fault = (dtlb.hit & dtlb_result.access_fault) ||| (latched_data_fault & fault_is_access)
+  def second_translation_fault = !data_pinned & !first_page_fault & ((data_page_fault & (split_probe_page_fault ||| (latched_split_fault & !fault_is_access))) ||| (!data_page_fault & !first_access_fault & data_walk_access_fault))
+  def request_fault_mapping = mux(second_translation_fault,
+                                  mux(latched_split_fault, fault_mapping, dtlb.probe_translation),
+                                  mux(latched_data_fault, fault_mapping, dtlb.translation))
   fun guest_exception(mapping :: RV5StageTlbMapping(), guest :: Bool) :~ RiscvGuestException():
     RiscvGuestException():
       page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault
@@ -359,7 +368,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   | block:
       output request_guest_fault: RiscvGuestException()
       output pipeline_guest_fault: RiscvGuestException()
-      request_guest_fault <== guest_exception(mux(latched_data_fault ||| latched_split_fault, fault_mapping, mux(split_probe_page_fault ||| split_probe_access_fault, dtlb.probe_translation, dtlb.translation)), normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
+      request_guest_fault <== guest_exception(request_fault_mapping, normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
       pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
   def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| latched_instruction_fault
@@ -436,6 +445,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def split_second_permitted = split_second_region.mapped & split_second_attributes.cacheable & !split_second_attributes.strongly_ordered & mux(split_store, split_second_region.writable, split_second_region.readable & split_second_attributes.read_idempotent) & (!execute_read ||| split_second_region.executable)
   def split_translation_ready = (data_pinned ||| !data_translation_enabled ||| dtlb.hit) & (!split_second_page ||| data_pinned ||| !data_translation_enabled ||| dtlb.probe_raw_hit)
   def split_region_fault = split_candidate & split_translation_ready & !data_page_fault & !data_walk_access_fault & !(split_first_permitted & (!split_crosses_word ||| split_second_permitted))
+  request_fault_address <== mux(second_translation_fault ||| (split_region_fault & split_first_permitted), split_second_virtual, data_request.address)
   def split_ready = split_translation_ready & !data_page_fault & !data_walk_access_fault & !split_region_fault & core_memory.drained
   def Array(ordinary_data, split_data) = data_requests |> demux_flow(2, _request => split_candidate.as_bits())
   def split_start = (

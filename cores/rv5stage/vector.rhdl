@@ -59,6 +59,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   inst execution(RV5StageVectorExecution(xlen, vlen, Bits(xlen.width), ~vector_completion_slots: slots, ~trace_isa: trace_isa, ~multiply_latency: multiply_latency, ~fixed_fp: fixed_fp))
   execution.schedule_enable <== Bool(#true)
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
+  input request_fault_address: Bits(xlen.width)
+  access.request_fault_address <== request_fault_address
   if hypervisor
   | block:
       input(request_guest_fault, pipeline_guest_fault): RiscvGuestException()

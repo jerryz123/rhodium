@@ -32,6 +32,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   interface issue(Decoupled(Token), ~role: consumer)
   interface pipeline(RV5StagePipelineAccess(xlen), ~role: requester)
   interface memory(RV5StageDataAccess(xlen, slots), ~role: requester)
+  input request_fault_address: Bits(xlen.width)
   interface feedback(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface outcome(Valid(RV5StageVectorCommit(xlen, slots)), ~role: producer)
   interface completion(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~role: producer)
@@ -206,7 +207,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     slow: accepted
     data: operation.data
     cause: mux(page_fault, page_cause, access_cause)
-    fault_address: operation.request_context.request.address
+    fault_address: mux(slow & (memory.request_fault ||| memory.request_access_fault), request_fault_address, operation.request_context.request.address)
   def Array(feedback_path, outcome_path) = decision |> fork_valid(2)
   def precise_feedback = feedback_path |> filter_valid(_event => !token.precertified)
   Array(durable, precise_feedback) |> valid_arbiter() |> feedback

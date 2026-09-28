@@ -223,6 +223,12 @@ address; instruction fetch and walker-generated PTE addresses remain unmasked.
    hit path with its translated physical address. A page fault or page-walk
    access fault makes the matching replayed request ready and reports the fault
    on that same attempt; no physical data operation is issued.
+   `request_fault_address` accompanies that request's page/access-fault flags.
+   It identifies the failing virtual portion: the original address for a
+   first-fragment fault, or the next word/page boundary for a second-fragment
+   translation or PMA fault. Scalar and vector retirement consume it only with
+   their arbiter-qualified fault indication. Guest-fault provenance selects the
+   same translation fragment, preserving the VA/GPA pair through trap entry.
 5. A legal translated or Bare request proceeds to the physical-memory router.
    The router owns mapped/readable/writable/atomic PMA checks and the choice
    between L1D and the uncached path.

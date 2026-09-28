@@ -110,6 +110,7 @@ sync_circuit RV5StageCoreFixture(profile :: RV5StageConfig, ~reset_address: rese
   frontend.memory |> memory.frontend
   memory.memory |> instruction_access
   core.data_access |> data_access
+  core.request_fault_address <== data_access.request.bits.address
   core.pipeline_access |> pipeline_access
   if vector_translation
   | block:

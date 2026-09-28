@@ -110,6 +110,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   interface frontend_control(RV5StageFrontendControl(xlen), ~role: core)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
   interface data_access(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
+  input request_fault_address: Bits(width)
   interface pipeline_access(if hypervisor | RV5StageGuestPipelineAccess(xlen) | RV5StagePipelineAccess(xlen), ~role: requester)
   output pipeline_vector: Bool
   interface vector_precheck(RV5StageVectorPrecheck(), ~role: requester)
@@ -805,6 +806,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   if vector_enabled
   | block:
       inst wb_vector(RV5StageVectorPipeline(xlen, vector_length, ~vector_completion_slots: vector_completion_slots, ~trace_isa: trace_isa, ~multiply_latency: if wb_pipelined_multiplier | PipelinedMultiplierStages | #false, ~fixed_fp: #true, ~hypervisor: hypervisor))
+      wb_vector.request_fault_address <== request_fault_address
       if hypervisor
       | block:
           wb_vector.request_guest_fault <== request_guest
@@ -1345,6 +1347,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> map_valid(operation => operation.fp_issue)
     |> eject_flow(~valid: wb_fp.issue.valid, ~bits: wb_fp.issue.bits)
   def wb_page_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (scalar_data.request.valid & scalar_data.request_fault)
+  // The arbiter qualifies the fault for this owner. Pipeline and delayed
+  // completion faults still use their retained instruction address context.
+  def wb_fault_address = mux(scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault), request_fault_address, wb_offer_bits.data_request.address)
   def wb_access_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.AccessFault)) ||| (scalar_data.request.valid & !wb_page_fault & scalar_data.request_access_fault) ||| (wb_maintenance_done & wb_other_response.bits.access_fault)
   wb_data_fault <== wb_page_fault ||| wb_access_fault
   wb_memory_accepted <== scalar_data.request.fire() & !wb_data_fault
@@ -1372,9 +1377,9 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       cause: mux(wb_guest.page_fault,
                  mux(wb_offer_bits.data_request.access.into(RV5StageMemoryOperation).store_fault_class(), exception_cause_bits(ExceptionCause.StoreGuestPageFault, width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, width)),
                  mux(wb_offer_bits.data_request.access.into(RV5StageMemoryOperation).store_fault_class(), exception_cause_bits(ExceptionCause.StorePageFault, width), exception_cause_bits(ExceptionCause.LoadPageFault, width)))
-      value: wb_offer_bits.data_request.address
+      value: wb_fault_address
   elsewhen wb_access_fault:
-    wb_exception <== core_data_exception(wb_offer_bits.data_request.access, wb_offer_bits.data_request.address, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
+    wb_exception <== core_data_exception(wb_offer_bits.data_request.access, wb_fault_address, ExceptionCause.StoreAccessFault, ExceptionCause.LoadAccessFault)
   elsewhen wb_reservation_wait_exception:
     wb_exception <== RV5StageException(xlen):
       valid: Bool(#true)

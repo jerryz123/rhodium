@@ -59,6 +59,9 @@ module rv5stage_hypervisor_core_tb;
   function automatic logic [31:0] sd(input int rs2, input int rs1, input int immediate);
     return {7'(immediate >> 5), 5'(rs2), 5'(rs1), 3'b011, 5'(immediate), 7'h23};
   endfunction
+  function automatic logic [31:0] misaligned_atomic(input bit store, input int base = 10);
+    return {5'(store ? 3 : 2), 2'b00, 5'd0, 5'(base), 3'b011, 5'd12, 7'h2f}; // SC.D/LR.D
+  endfunction
   function automatic logic [31:0] fp(input int funct7, input int rd, input int rs1, input int rs2, input int rm = 0);
     return {7'(funct7), 5'(rs2), 5'(rs1), 3'(rm), 5'(rd), 7'h53};
   endfunction
@@ -339,7 +342,9 @@ module rv5stage_hypervisor_core_tb;
       end else begin
         if (kind == 20) emit(guest_load(1, 0)); // warm R-only VS leaf
         if (kind == 21) emit(guest_load(1, 3)); // warm X-only leaves
-        if (kind inside {28,29}) emit(addi(10, 10, 1));
+        if (kind inside {28,29}) begin
+          emit(32'h40002537); emit(addi(10,10,-3)); // Split HLV/HSV into an unmapped G page.
+        end
         expected_pc = 64'(cursor);
         if (kind inside {29,30}) emit(guest_store(3));
         else if (kind == 31) emit(guest_load(2,3));
@@ -825,7 +830,8 @@ module rv5stage_hypervisor_core_tb;
       emit(vset(3)); fault_pc += 4;
       emit(vmem(0,3,2,10)); emit(addi(10,10,32)); emit(vmem(1,3,2,10));
     end else if (normal_guest || mprv) begin
-      emit(ld(12,10,0)); emit(ld(13,10,8)); emit(sd(12,10,32)); emit(sd(13,10,40));
+      emit(fault == 1 ? misaligned_atomic(0) : ld(12,10,0));
+      emit(ld(13,10,8)); emit(sd(12,10,32)); emit(sd(13,10,40));
     end else begin
       emit(guest_load(kind == 6 ? 2 : 3, kind == 6 ? 3 : 0));
       emit(addi(11,12,0));
@@ -1050,7 +1056,8 @@ module rv5stage_hypervisor_core_tb;
     if (kind == 1) write64('ha008,('h11 << 10) | 'hc3);
     if (kind inside {2,3}) scenario=13; // explicit physical service denial
     cursor='h18000; emit(32'h40001537);
-    emit(kind[0] ? sd(0,10,kind >= 4 ? 1 : 0) : ld(12,10,kind >= 4 ? 1 : 0));
+    if (kind >= 4) emit(addi(10,10,1));
+    emit(kind >= 4 ? misaligned_atomic(kind[0]) : kind[0] ? sd(0,10,0) : ld(12,10,0));
     emit(sd(0,10,32)); emit(32'h0000006f);
     cursor='h18300;
     emit(32'h40002537);
@@ -1065,10 +1072,10 @@ module rv5stage_hypervisor_core_tb;
     assert (traps == 1 && read64(SIGNATURE) == (delegate_vs ? 10 : cause))
       else $fatal(1,"Sha data trap kind=%0d VS=%b cause=%h",kind,delegate_vs,read64(SIGNATURE));
     if (delegate_vs) begin
-      assert (read64('h1c080) == cause && read64('h1c088) == address && read64('h1c090) == GVA+4)
+      assert (read64('h1c080) == cause && read64('h1c088) == address && read64('h1c090) == GVA+(kind >= 4 ? 8 : 4))
         else $fatal(1,"VS data provenance kind=%0d cause=%h tval=%h pc=%h",kind,read64('h1c080),read64('h1c088),read64('h1c090));
     end else begin
-      assert (read64(SIGNATURE+8) == address && read64(SIGNATURE+16) == 0 && read64(SIGNATURE+40) == GVA+4)
+      assert (read64(SIGNATURE+8) == address && read64(SIGNATURE+16) == 0 && read64(SIGNATURE+40) == GVA+(kind >= 4 ? 8 : 4))
         else $fatal(1,"HS data provenance kind=%0d tval=%h htval=%h pc=%h",kind,read64(SIGNATURE+8),read64(SIGNATURE+16),read64(SIGNATURE+40));
     end
     assert (read64('h19000) == 'h1234 && read64('h19020) == 'hfeed)
@@ -1090,7 +1097,7 @@ module rv5stage_hypervisor_core_tb;
     csrw('h305, 'h2000); csrw('h105, 'h3000); csrw('h302, 'hffffff);
     csrw('h180, 64'h8000000000000000 | 64'(root >> 12));
     csrw('h300, user_mode ? 0 : 'h800); csrw('h341, virtual_base);
-    constant(10, virtual_base+'h1000); constant(11, virtual_base+'h2000); emit(32'h30200073);
+    constant(10, virtual_base+'h1000+(kind inside {4,5} ? 1 : 0)); constant(11, virtual_base+'h2000); emit(32'h30200073);
     // Identity-map firmware/handler data; map S/U code and data separately.
     write64(root, 'hcf);
     write64(root+int'(virtual_base[38:30])*8, ('h9 << 10) | 1);
@@ -1107,12 +1114,12 @@ module rv5stage_hypervisor_core_tb;
       0, 2, 4: begin
         cause = kind == 0 ? 13 : kind == 2 ? 5 : 4;
         value = virtual_base+'h1000+(kind == 4 ? 1 : 0);
-        emit(ld(12, 10, kind == 4 ? 1 : 0));
+        emit(kind == 4 ? misaligned_atomic(0) : ld(12, 10, 0));
       end
       1, 3, 5: begin
         cause = kind == 1 ? 15 : kind == 3 ? 7 : 6;
         value = virtual_base+'h1000+(kind == 5 ? 1 : 0);
-        emit(sd(0, 10, kind == 5 ? 1 : 0));
+        emit(kind == 5 ? misaligned_atomic(1) : sd(0, 10, 0));
       end
       6, 7: begin
         cause = kind == 6 ? 12 : 1; value = virtual_base+'h2000; pc = value;
@@ -1146,6 +1153,85 @@ module rv5stage_hypervisor_core_tb;
     if (user_mode)
       assert (read64('h19008) == 64'h10000000123 && read64('h19010) == 64'h10000000123)
         else $fatal(1, "RV64 user arithmetic or LD/SD truncated");
+  endtask
+
+  // Cross-page scalar/FP/vector faults must identify the failing portion,
+  // while retaining the instruction PC, vector element, and guest GPA.
+  // Modes: host/VS/G page faults, VS delegation, host/guest PMA rejection,
+  // and warm read-only second-page translations rejected by stores.
+  task automatic run_split_fault(input int mode, input int engine, input bit store,
+                                 input bit first_fault = 0);
+    bit guest, delegated, warm;
+    int code;
+    logic [63:0] cause, address, pc, sig;
+    guest = mode inside {1,2,3,5,7}; delegated = mode == 3; warm = mode >= 6;
+    cause = mode inside {4,5} ? (store ? 7 : 5) : mode == 2 ? (store ? 23 : 21) : (store ? 15 : 13);
+    address = GVA+(first_fault ? (engine == 2 ? 'h1ff5 : 'h1ffd) : 'h2000);
+    code = guest ? 'h18000 : 'h5000;
+    @(negedge clock); prepare(0); reset = 1;
+    machine_boot();
+    csrw('h305,'h2000); csrw('h105,'h3000); csrw('h302,'hffffff);
+    csrw('h602,delegated ? 'hffffff : 0); csrw('h205,GVA+'h300);
+    csrw(guest ? 'h280 : 'h180,64'h8000000000000008);
+    csrw('h680,guest ? 64'h8000000000000004 : 0);
+    csrw('h200,'h2200); csrw('h300,(guest ? 64'h8000000000 : 0) | 'h2a00);
+    csrw('h341,GVA);
+    constant(10,GVA+(engine == 2 ? 'h1ff5 : 'h1ffd));
+    constant(11,engine == 2 ? 2 : 0); constant(14,GVA+'h2000);
+    emit(32'h30200073);
+    if (!guest) begin
+      write64('h8000,'hcf);
+      write64('ha000,('h5 << 10) | 'hcb);
+      write64('ha008,('h19 << 10) | 'hc7);
+    end
+    write64('ha010,((guest ? 'h12 : 'h1c) << 10) | (warm ? 'hc3 : 'hc7));
+    write64('hd090,('h1c << 10) | 'hdf);
+    if (mode inside {0,1,3}) write64(first_fault ? 'ha008 : 'ha010,0);
+    if (mode == 2) write64(first_fault ? 'hd088 : 'hd090,0);
+    if (mode == 4) write64('ha010,('h30 << 10) | 'hc7); // Unmapped physical RAM.
+    if (mode == 5) write64('hd090,('h30 << 10) | 'hdf);
+    // A separate mapped page lets the VS handler record the fault independently.
+    write64('ha018,('h13 << 10) | 'hc7); write64('hd098,('h1c << 10) | 'hdf);
+    write64('h19ff8,64'hdecafbad01234567);
+    cursor = code;
+    if (warm) emit(ld(12,14,0));
+    if (engine == 2) emit(vset(3));
+    pc = GVA+64'(cursor-code);
+    case (engine)
+      0: emit(store ? sd(0,10,0) : ld(12,10,0));
+      1: emit(store ? fsd(0,10,0) : fld(0,10,0));
+      2: emit(vmem(store,3,2,10));
+      default: $fatal(1,"unknown split engine");
+    endcase
+    emit(sd(0,10,0)); emit(32'h0000006f); // Younger mutation must not escape.
+    cursor = 'h18300;
+    emit(32'h40003a37);
+    save_csr('h142,128); save_csr('h143,136); save_csr('h141,144);
+    emit(32'h00000073); emit(32'h0000006f);
+    cursor = 'h3000;
+    emit(32'h00020a37);
+    save_csr('h142,0); save_csr('h143,8); save_csr('h643,16); save_csr('h64a,24);
+    save_csr('h600,32); save_csr('h141,40); save_csr('h008,112);
+    emit(addi(21,0,85)); emit(sd(21,20,48)); emit(32'h0000006f);
+    repeat (5) @(negedge clock); reset = 0;
+    for (int limit = 0; limit < 50000; limit++) begin
+      @(negedge clock); if (traps == 1) break;
+    end
+    sig = delegated ? 'h1c080 : SIGNATURE;
+    assert (traps == 1 && read64(sig) == cause && read64(sig+8) == address &&
+            read64(delegated ? sig+16 : sig+40) == pc)
+      else $fatal(1,"split mode=%0d engine=%0d store=%b first=%b cause=%h tval=%h pc=%h expected=%h/%h/%h",
+                  mode,engine,store,first_fault,read64(sig),read64(sig+8),read64(delegated ? sig+16 : sig+40),cause,address,pc);
+    if (!delegated) begin
+      assert (read64(SIGNATURE+16) == (mode == 2 ? (first_fault ? (engine == 2 ? 'h47fd : 'h47ff) : 'h4800) : 0) && read64(SIGNATURE+24) == 0)
+        else $fatal(1,"split fault lost guest GPA/instruction: %h/%h",read64(SIGNATURE+16),read64(SIGNATURE+24));
+      if (guest) assert ((read64(SIGNATURE+32) & 'h40) != 0) else $fatal(1,"split fault lost GVA flag");
+    end
+    if (engine == 2) assert (read64(SIGNATURE+112) == (first_fault ? 0 : 1))
+      else $fatal(1,"split vector fault lost element index: %h",read64(SIGNATURE+112));
+    assert (ram['h19ffd] == 'hfb && ram['h19ffe] == 'hca && ram['h19fff] == 'hde)
+      else $fatal(1,"faulting split access or younger store mutated the first fragment");
+    $display("split fault mode=%0d engine=%0d store=%b first=%b passed",mode,engine,store,first_fault);
   endtask
 
   // Exercise the retained WB owner with a cache-supplied live reservation.
@@ -1224,6 +1310,16 @@ module rv5stage_hypervisor_core_tb;
 
   initial begin
     int selected;
+    for (int mode = 0; mode < 8; mode++)
+      for (int engine = 0; engine < 3; engine++) begin
+        if (mode < 6) run_split_fault(mode,engine,0);
+        run_split_fault(mode,engine,1);
+        if (mode < 3) begin
+          run_split_fault(mode,engine,0,1);
+          run_split_fault(mode,engine,1,1);
+        end
+      end
+    if ($test$plusargs("split-only")) $finish;
     for (int kind = 0; kind <= 10; kind++) begin
       run_supervisor(kind);
       run_supervisor(kind, 'h8000, 64'hffffffc000000000);
@@ -1290,8 +1386,8 @@ module rv5stage_hypervisor_core_tb;
     run_explicit(25, 13, GVA+'h1000);
     run_explicit(26, 22, 64'(guest_load(3,0)));
     run_explicit(27, 22, 64'(guest_store(3)));
-    run_explicit(28, 4, GVA+'h1001);
-    run_explicit(29, 6, GVA+'h1001);
+    run_explicit(28, 21, GVA+'h2000, 'h12000);
+    run_explicit(29, 23, GVA+'h2000, 'h12000);
     run_explicit(30, 23, GVA+'h1000, 'h11000);
     run_explicit(31, 9);
     run_explicit(32, 5, GVA+'h1000);

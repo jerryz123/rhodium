@@ -37,6 +37,7 @@ sync_circuit RV5StageVectorAdmission():
   output pipeline_physical: Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, 128))
+  vector.request_fault_address <== vector.memory.request.bits.address
   vector.scalar_writeback.ready <== Bool(#true)
   decode.instruction <== instruction
   vector.request.valid <== request_valid

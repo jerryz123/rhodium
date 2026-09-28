@@ -79,6 +79,10 @@ invalidate translations or cancel accepted page-table response ownership.
    cross-word access, resolve both virtual pages and both physical word regions
    before issuing either fragment. Retain the original writeback owner through
    one response, and leave atomic/LRSC alignment traps in the scalar core.
+   Keep `request_fault_address` virtual and paired with the selected fragment's
+   guest provenance. Scalar/vector arbitration qualifies the owning fault flags;
+   only that owner may consume the shared address sideband at retirement.
+   Do not add virtual trap metadata to the physical cache protocol.
    Never use relaxed prefetch A/D permissions or start a speculative data walk.
    Fork lookup context explicitly between early virtual indexing, translation,
    and requester ownership. Use filtered/mapped physical-request flows; route
@@ -181,6 +185,10 @@ contexts separately. The core retains the paired request/MEM fault metadata,
 while S2 captures fetch provenance alongside its response. Keep the physical
 cache ABI independent of guest translation. Run `rv5stage-hypervisor-core` for
 this end-to-end boundary.
+Its split-access cases cover scalar/FP/vector loads and stores, first/second
+page faults, warm permission failures, PMA rejection, HS/VS delegation, and
+explicit HLV/HSV guest faults. They check trap values, EPC, GPA provenance,
+vector restart index, and suppression of the rejected store's partial effects.
 Explicit guest requests carry a typed mode in the virtual MMU protocol; cache
 protocols remain physical. Register pipeline translation mode alongside its
 request, and give the WB transaction's mode the same DTLB priority as its
