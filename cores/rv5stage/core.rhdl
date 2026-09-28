@@ -92,7 +92,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def vector_enabled = vector_profile_enabled(core_profile.vector)
   def vector_length = core_profile.vector_length
   def vector_elen = if vector_enabled | vector_profile_elen(core_profile.vector) | VectorSEW.E64
-  def trace_isa = "rv" ++ to_string(width) ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() == 1), "") ++ "_" ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
+  def trace_single_letters = ["i", "m", "a", "f", "d", "c", "b", "v", "h"]
+  def trace_isa = "rv" ++ to_string(width) ++ String.join(trace_single_letters.filter(~keep: fun (name): core_profile.isa_profile.isa_extensions.contains(name)), "") ++ "_" ++ String.join(core_profile.isa_profile.isa_extensions.filter(~keep: fun (name): name.length() > 1), "_")
   def compressed_enabled = compressed_extensions_enabled(compressed_extensions)
   def register_count = 32
   def effective_fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
