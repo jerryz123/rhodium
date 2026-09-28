@@ -99,7 +99,7 @@ configuration and architectural description come from the same selected preset.
 | Shape | Harts | Normal-memory termination | Coherence structure |
 | --- | ---: | --- | --- |
 | `MiniSoC` | 1 | Internal 64 KiB `CHIRam` | Forwarding HN-F, BootROM, ACLINT, PLIC, and UART on one physical router |
-| `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 64-set, four-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router |
+| `SingleCoreSoC` | 1 | External line-capable SN-F; 1 GiB window | One 512-set, eight-way inclusive LLC, BootROM, ACLINT, PLIC, and UART on one physical router |
 | `TiledSoC` | 8 in the default 5x4 layout | One external line-capable SN-F channel; 1 GiB window | Four inclusive LLC slices plus BootROM and routed memory, device-home, ACLINT, PLIC, and UART tiles |
 
 Each shape accepts either an RV5Stage or a Spike hart binding. The selected
@@ -322,9 +322,9 @@ table therefore trap in RV5Stage instead of entering CHI without a Home.
 the inclusive LLC geometry and one implementation profile. The RV5Stage
 binding's default profile selects separate 16 KiB, four-way
 set-associative instruction and data caches, each with 64 sets and 64-byte
-lines. The default also selects a 64-set, four-way LLC with two coherent
-transaction slots and exports
-line-capable `CHISNChannels` for SN-F NodeID 9 over the 1 GiB range
+lines. The default also selects a 512-set, eight-way (256 KiB) LLC with two
+coherent transaction slots and exports line-capable `CHISNChannels` for SN-F
+NodeID 9 over the 1 GiB range
 `0x80000000..0xbfffffff`. The SoC contains no RAM, fragmenter, or simulator
 binding; an external subordinate owns memory contents and response timing.
 

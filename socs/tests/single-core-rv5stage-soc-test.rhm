@@ -70,11 +70,11 @@ check:
   fabric.host_node.supports.snp ~is chi_rnf_snoop_opcodes
   fabric.memory_port.kind ~is CHINodeKind.SNF
   fabric.memory_port.node_id ~is 9
-  soc.single_core_rv5stage_soc_params.llc_config.sets ~is 64
-  soc.single_core_rv5stage_soc_params.llc_config.ways ~is 4
+  soc.single_core_rv5stage_soc_params.llc_config.sets ~is 512
+  soc.single_core_rv5stage_soc_params.llc_config.ways ~is 8
   soc.single_core_rv5stage_soc_params.llc_config.transaction_slots ~is 2
   fabric.home.max_outstanding ~is 2
-  soc.single_core_rv5stage_soc_params.llc_config.capacity_bytes ~is 16384
+  soc.single_core_rv5stage_soc_params.llc_config.capacity_bytes ~is 262144
   description.model ~is "Rhodium Single-Core RV5Stage SoC"
   description.compatible ~is ["rhodium,single-core-rv5stage-soc"]
   description.harts ~is [0]

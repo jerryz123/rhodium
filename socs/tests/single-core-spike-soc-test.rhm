@@ -33,10 +33,10 @@ check:
   fabric.data_port.supports.req ~is [CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteBackFull]
   fabric.home_map.entry(fabric.memory_base).home === fabric.home ~is #true
   fabric.home_map.entry(0x10000000).home === fabric.device_home ~is #true
-  params.llc_config.sets ~is 64
-  params.llc_config.ways ~is 4
+  params.llc_config.sets ~is 512
+  params.llc_config.ways ~is 8
   params.llc_config.transaction_slots ~is 2
-  params.llc_config.capacity_bytes ~is 16384
+  params.llc_config.capacity_bytes ~is 262144
   description.boot.rom.address_set ~is fabric.platform.bootrom.rom_params.service.address_sets[0]
   fabric.platform.bootrom.rom_config(description).image.bytes.drop(fabric.boot.device_tree_offset) ~is (
     description.to_device_tree().to_dtb().to_list()

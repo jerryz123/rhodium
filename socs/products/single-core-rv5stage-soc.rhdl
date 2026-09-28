@@ -14,8 +14,8 @@ import:
 
 fun make_single_core_rv5stage_soc_params(
   core_profile :: RV5StageConfig = single_core_rv5stage_soc_core_profile,
-  ~llc_sets: llc_sets :: Pow2Int = 64,
-  ~llc_ways: llc_ways :: PosInt = 4
+  ~llc_sets: llc_sets :: Pow2Int = 512,
+  ~llc_ways: llc_ways :: PosInt = 8
 ) :~ SingleCoreSoCParams:
   make_single_core_soc_params(
     core_profile,

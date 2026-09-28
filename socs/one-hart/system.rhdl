@@ -222,8 +222,8 @@ class SingleCoreSoCParams(fabric :: SingleCoreSystemParams,
                clocks :: SoCClockConfig,
                model :: NonemptyString,
                compatible :: NonemptyList.of(NonemptyString),
-               ~llc_sets: llc_sets :: Pow2Int = 64,
-               ~llc_ways: llc_ways :: PosInt = 4):
+               ~llc_sets: llc_sets :: Pow2Int = 512,
+               ~llc_ways: llc_ways :: PosInt = 8):
     super(fabric, core_profile, hart_description, clocks, model, compatible, llc_sets, llc_ways)
 
   reconstructor (fabric, core_profile, hart_description, clocks, model,
@@ -248,8 +248,8 @@ fun make_single_core_soc_params(core_profile :: StableCircuitParam,
                                 hart_params_factory :: Function.of_arity(4),
                                 model :: NonemptyString,
                                 compatible :: NonemptyList.of(NonemptyString),
-                                ~llc_sets: llc_sets :: Pow2Int = 64,
-                                ~llc_ways: llc_ways :: PosInt = 4):
+                                ~llc_sets: llc_sets :: Pow2Int = 512,
+                                ~llc_ways: llc_ways :: PosInt = 8):
   SingleCoreSoCParams(
     SingleCoreSystemParams(
       rhodium_soc_flit,

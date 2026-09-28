@@ -13,8 +13,8 @@ import:
   "../platform/peripherals.rhdl".SoCUartInterface
 
 fun single_core_soc_params(hart :: RiscvHartImplementation,
-                           ~llc_sets: llc_sets :: Pow2Int = 64,
-                           ~llc_ways: llc_ways :: PosInt = 4) :: SingleCoreSoCParams:
+                           ~llc_sets: llc_sets :: Pow2Int = 512,
+                           ~llc_ways: llc_ways :: PosInt = 8) :: SingleCoreSoCParams:
   make_single_core_soc_params(hart.profile, hart.description, hart.cache_line_bytes,
                               hart.chi_factory, "Rhodium Single-Core " ++ hart.name ++ " SoC",
                               ["rhodium,single-core-" ++ hart.key ++ "-soc"],
@@ -31,8 +31,8 @@ class SingleCoreSoCConfig(hart :: RiscvHartImplementation, params :: SingleCoreS
   property description: params.description
 
 fun single_core_soc_config(hart :: RiscvHartImplementation,
-                           ~llc_sets: llc_sets :: Pow2Int = 64,
-                           ~llc_ways: llc_ways :: PosInt = 4) :: SingleCoreSoCConfig:
+                           ~llc_sets: llc_sets :: Pow2Int = 512,
+                           ~llc_ways: llc_ways :: PosInt = 8) :: SingleCoreSoCConfig:
   SingleCoreSoCConfig(hart, single_core_soc_params(hart, ~llc_sets: llc_sets, ~llc_ways: llc_ways))
 
 sync_circuit SingleCoreSoC(config :: SingleCoreSoCConfig):
