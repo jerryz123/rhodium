@@ -11,7 +11,7 @@ import:
 
 for (core in ["rv5stage", "spike"]):
   def mini_hart = soc_hart("mini", core, ~isa: IsaPreset.RVA23)
-  def single_hart = soc_hart("single", core, ~isa: IsaPreset.RVA23)
+  def single_hart = soc_hart("simple", core, ~isa: IsaPreset.RVA23)
   def tiled_hart = soc_hart("tiled", core, ~isa: IsaPreset.RVA23)
   def mini_config = mini.mini_soc_config(mini_hart)
   def mini_fabric = mini_config.fabric

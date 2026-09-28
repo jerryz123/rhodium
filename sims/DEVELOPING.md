@@ -38,16 +38,25 @@ target identities so switching any axis cannot reuse another simulator.
 The host selection layer now uses `socs/products/resolve.rhm` for hardware,
 software target descriptions, and UDB. `emit-soc-harness.rhm` and
 `program-test/write-target.rhm` require an explicit third ISA selector (the
-target writer also accepts a complete product key). `product.mk` validates the
-Make selectors and gives hardware, software, and attestations the same canonical
+target writer also accepts a complete product key). `product.mk` delegates Make selector validation to the shared dependency-light
+`socs/products/selection.py` and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
-architectural choices. `test-products.rhm` is the explicit typed
-fourteen-product inventory, separate from implementation support and workload
+architectural choices. `test-products.txt` is the sole explicit
+fourteen-product inventory, consumed by CI and the typed `test-products.rhm` view, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
 must match the selected product. Product-independent
 setup and host adapter tests remain usable without an ISA selection.
+
+Product metadata is projected by `socs/products/metadata.rhm`, not reconstructed
+in Python. The target JSON embeds that snapshot and its SHA-256; the MLIR emitter
+writes the same fingerprint. `simulator` records an attestation only after matching
+those identities, and includes the selected harness variant. Recording requires
+the emitted MLIR; verification requires only the binary, attestation, and adjacent
+target descriptor. ACT's generated UDB and payload archive carry the same configuration;
+execution rejects a mismatch before running a shard. Keep these descriptors in
+artifact uploads and cache identities, never as checked-in generated catalogs.
 
 ## Implementation map
 

@@ -150,6 +150,8 @@ jobs:
       run-native: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
       native-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
       run-arch: ${{ fromJSON(needs.plan.outputs.plan).run_program_arch }}
+      arch-build-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_build_matrix) }}
+      arch-run-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_run_matrix) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 

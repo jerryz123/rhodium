@@ -9,7 +9,8 @@ import:
   "../../riscv/isa/profile.rhm".MisaExtension
   "../../socs/platform/description.rhm".RiscvSoCDescription
   "../../socs/products/selection.rhm" open
-  "targets.rhm" open
+  "../../socs/products/resolve.rhm".resolve_soc_product
+  "../../socs/products/metadata.rhm" open
 
 def arguments = current_command_line()
 unless [2, 4].contains(arguments.length())
@@ -18,7 +19,9 @@ def selection = if arguments.length() == 4
 | SoCSelection(parse_soc_shape(arguments[0]), parse_core_kind(arguments[1]), parse_isa_preset(arguments[2]))
 | named_soc_selection(arguments[0])
 def name = selection.key
-def description :: RiscvSoCDescription = simulator_soc_description(name)
+def product = resolve_soc_product(selection)
+def configuration = product_metadata(product)
+def description :: RiscvSoCDescription = product.description
 def compiler_target = gnu_isa_target(
   description.hart.xlen,
   description.hart.isa_profile.isa_extensions
@@ -38,5 +41,5 @@ def privilege_modes = "\"m\"" ++ (
   if misa_extensions.contains(MisaExtension.U) | ",\"u\"" | ""
 )
 filesystem.write_string(arguments[arguments.length() - 1],
-                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"mmu_mode\":\"" ++ mmu_mode ++ "\",\"privilege_modes\":[" ++ privilege_modes ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "]}\n",
+                        "{\"soc\":\"" ++ name ++ "\",\"xlen\":" ++ to_string(description.hart.xlen.width) ++ ",\"extensions\":[" ++ extensions ++ "],\"mmu_mode\":\"" ++ mmu_mode ++ "\",\"privilege_modes\":[" ++ privilege_modes ++ "],\"march\":\"" ++ compiler_target.march ++ "\",\"mabi\":\"" ++ compiler_target.mabi ++ "\",\"clock_frequency_hz\":" ++ to_string(description.clocks.clock_frequency_hz) ++ ",\"harts\":[" ++ harts ++ "],\"boot\":{\"payload_address\":" ++ to_string(description.boot.payload_address) ++ "},\"ram\":[" ++ regions ++ "],\"resolved_configuration\":" ++ metadata_json(configuration) ++ ",\"configuration_fingerprint\":\"" ++ metadata_fingerprint(configuration) ++ "\"}\n",
                         ~exists: #'truncate)

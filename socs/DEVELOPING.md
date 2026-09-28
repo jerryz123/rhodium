@@ -40,7 +40,9 @@ accepts one immutable config that owns its hart binding. The contract in
 `harts/implementation.rhdl` contains no named-core import; adapters in
 `harts/rv5stage.rhdl` and `harts/spike.rhdl` supply their implementations.
 `products/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
-and parsing of complete CLI keys. `products/isa-profiles.rhm` authors pure
+and conversion from complete CLI keys. `products/selections.tsv` is the shared
+key-to-axis contract consumed by the typed selector and dependency-light Python
+CLI. Make delegates validation to that CLI; it does not parse combined names. `products/isa-profiles.rhm` authors pure
 architectural presets without importing a named core. The core-profile
 factories apply independent implementation policy and reject a request they
 cannot implement exactly. `products/resolve.rhm` supplies the selected hart,
@@ -76,7 +78,7 @@ CSR and vector choices. All SoC Spike profiles explicitly disable PMP, matching
 the RV5Stage products; standalone Spike configurations retain their own PMP policy.
 Reference-model limitations are documented by the
 [Spike package](../cores/spike/README.md). Do not substitute a scalar profile. The intended
-paired-product test inventory belongs in `sims/test-products.rhm`, not in
+paired-product test inventory belongs in `sims/test-products.txt`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
@@ -88,6 +90,16 @@ Home. The memory Home includes the complete uncached endpoint so coherent
 nonallocating accesses can reach normal memory without bypassing coherence.
 Exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
 parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects product imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
+
+Resolved snapshots belong in `products/metadata.rhm`: serialize architecture,
+the complete implementation profile, platform parameters, device-tree source,
+and UDB projection. Public immutable host parameters use Rhombus expression notation inside a
+versioned JSON envelope; XLEN and the architectural projections preserve the
+public meaning of private host values. Factory functions are represented
+by their resolved attachment parameters; executable changes are additionally
+bound by the exact source revision. New configuration fields must enter this
+projection and its mutation tests. Keep simulation variants out of the architectural
+description; the simulator attestation adds the normal/trace variant.
 
 ## Implementation map
 

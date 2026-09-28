@@ -28,7 +28,7 @@ ACT_ELF_DIR = $(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs
 ACT_RUN_ELF_DIR = $(if $(filter 1,$(ACT_SHARDS)),$(ACT_ELF_DIR),$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/shards/$(ACT_SHARD)/elfs)
 ACT_TIMEOUT ?= 300
 ACT_MAX_CYCLES ?= 10000000
-ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(SOC_ID)/obj/VTestDriver)
+ACT_SIMULATOR = $(SIMULATOR_BINARY)
 
 .PHONY: arch-test-setup arch-test-sail-setup arch-test-sail-test arch-test-source arch-test-config arch-test-tests arch-test-elfs arch-test arch-test-run arch-test-adapter-test
 arch-test-setup:
@@ -66,6 +66,7 @@ arch-test-elfs: arch-test-config arch-test-tests
 	cd "$(ACT_SOURCE_DIR)" && XDG_CACHE_HOME="$(REPO_DIR)/.tools/act-cache" XDG_DATA_HOME="$(REPO_DIR)/.tools/act-data" \
 	  BUNDLE_PATH="$(ACT_BUNDLE_PATH)" "$(ACT_PYTHON)" "$(CURDIR)/arch-test/build.py" \
 	  "$(ACT_CONFIG_DIR)/test_config.yaml" --workdir "$(ACT_WORKDIR)" --test-dir "$(ACT_TEST_DIR)" --extensions all --keep-going --jobs $(ACT_BUILD_JOBS) $(if $(filter 1,$(ACT_FAST)),--fast)
+	cp "$(ACT_CONFIG_DIR)/configuration.json" "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/configuration.json"
 
 arch-test: arch-test-elfs
 	$(MAKE) arch-test-run
@@ -77,6 +78,8 @@ arch-test-run:
 	  test -n "$$(find "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/elfs" -name '*.elf' -type f -print -quit)" || \
 	  (echo "No ACT ELFs; run arch-test-elfs first" >&2; exit 2)
 	$(MAKE) simulator SOC=$(SOC_ID)
+	$(PYTHON) program-test/artifact.py verify --binary "$(ACT_SIMULATOR)" --soc "$(SOC_ID)" \
+	  --configuration "$(ACT_WORKDIR)/$(ACT_CONFIGURATION)/configuration.json" --variant $(if $(filter 1,$(TRACE)),trace,normal)
 	$(if $(filter 1,$(ACT_SHARDS)),@true,$(PYTHON) arch-test/shard.py --elf-dir "$(ACT_ELF_DIR)" --output "$(ACT_RUN_ELF_DIR)" --index $(ACT_SHARD) --count $(ACT_SHARDS))
 	rm -f "$(ACT_RUN_ELF_DIR)/../summary.log"
 	@status=0; $(ACT_PYTHON) $(ACT_DIR)/run_tests.py --jobs $(ACT_JOBS) --timeout $(ACT_TIMEOUT) \

@@ -66,7 +66,6 @@ check:
   tiled_rv5stage_soc_core_profile.cache_geometry.instruction.ways ~is 1
   mini_rv5stage_soc_core_profile.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
   single_core_spike_soc_core_profile.hart_description.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
-  parse_soc_shape("single") ~is SoCShape.Simple
   parse_soc_shape("simple") ~is SoCShape.Simple
   parse_core_kind("spike") ~is CoreKind.Spike
   parse_isa_preset("rv32int") ~is IsaPreset.RV32Int

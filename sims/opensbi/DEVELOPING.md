@@ -38,8 +38,8 @@ Run the adapter tests before the real firmware test:
 ```sh
 make -C sims opensbi-adapter-test
 make -C sims opensbi-setup
-make -C sims opensbi-test SOC=single CORE=rv5stage ISA=rva23
-make -C sims opensbi-test SOC=single CORE=spike ISA=rva23
+make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
+make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
 ```
 
 Keep generated firmware, layouts, logs, and payload ELFs under

@@ -10,6 +10,7 @@ import:
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
   "../socs/products/selection.rhm" open
   "../socs/products/resolve.rhm" open
+  "../socs/products/metadata.rhm" open
 
 def arguments = current_command_line()
 def tracing = arguments.length() == 4 && arguments[0] == "--trace"
@@ -24,8 +25,9 @@ when tracing && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Simpl
 
 def emit_circt = dynamic_require("rhodium/backend/circt.rhm", #'emit_circt)
 
+def resolved_config = if product | product.configuration() | #false
 fun selected_elaboration(product :: ResolvedSoCProduct):
-  def config = product.configuration()
+  def config = resolved_config
   match product.selection.shape
   | SoCShape.Simple:
       def harness = dynamic_require("sims/single-core-soc-harness.rhdl", #'SoCHarness)
@@ -53,6 +55,10 @@ def event_manifest_cpp = if tracing | trace_manifest(traced) | ""
 def trace_clock_frequency_hz = if tracing | product.description.clocks.clock_frequency_hz | 0
 def ordinary_design = if product | elaboration.design | dynamic_require(selectors[0], #'design)
 def design = if tracing | traced.instrumented.design | ordinary_design
+when product
+| block:
+    println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
+    println("// rhodium-harness-variant: " ++ (if tracing | "trace" | "normal"))
 print(emit_circt(design))
 
 export:

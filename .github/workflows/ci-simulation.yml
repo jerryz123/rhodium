@@ -83,7 +83,7 @@ jobs:
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" \
             --soc "$SOC" --target "$RUNNER_TEMP/$SOC/program-target.json"
       - name: Prepare upstream ISA sources
-        if: matrix.shape != 'single'
+        if: matrix.shape != 'simple'
         run: make -C sims isa-setup
       - name: Run shape-and-ISA software selection
         env:
@@ -104,7 +104,7 @@ jobs:
         if: matrix.soc == 'mini-rv5stage-rva23'
         run: make -C vlsi/sim smoke
       - name: Package completed ISA smoke ELFs
-        if: always() && matrix.shape != 'single'
+        if: always() && matrix.shape != 'simple'
         run: |
           manifest="/tmp/rhodium-program-tests/${{ matrix.soc }}/isa-smoke/manifest.json"
           if [[ -f "$manifest" ]]; then
@@ -112,7 +112,7 @@ jobs:
               --archive "$RUNNER_TEMP/isa-smoke-elfs/${{ matrix.soc }}.tar.gz"
           fi
       - name: Publish product smoke and multihart results
-        if: always() && matrix.shape != 'single'
+        if: always() && matrix.shape != 'simple'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ${{ matrix.soc }}-isa-smoke-${{ github.sha }}

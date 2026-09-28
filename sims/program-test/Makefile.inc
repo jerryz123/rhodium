@@ -190,9 +190,7 @@ isa-test: isa-elfs simulator-attestation
 	  --output "$(PROGRAM_PRODUCT_ROOT)/isa/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
 
-simulator-attestation: simulator program-target
-	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
-	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)" --target "$(PROGRAM_TARGET)"
+simulator-attestation: simulator
 
 benchmark-test: benchmark-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/benchmark/manifest.json" \

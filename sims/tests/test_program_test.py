@@ -16,7 +16,9 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
 def program_target(soc='simple-rv5stage-rva23'):
-    return dict(soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
+    configuration = dict(schema=1, product=soc, implementation='test implementation', platform=dict(ram_bytes=65536))
+    return dict(resolved_configuration=configuration, configuration_fingerprint=target_fingerprint(configuration),
+                soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,
                 ram=[dict(base=0x80000000, size=0x10000)])
 
@@ -340,6 +342,7 @@ class ProductSelectionTest(unittest.TestCase):
                 ('SOC=mini', 'CORE=rv5stage', 'ISA='),
                 ('SOC=mini-rv5stage-rva23', 'ISA=rv32max'),
                 ('SOC=mini-rv5stage-rva23', 'CORE=spike'),
+                ('SOC=mini', 'CORE=', 'ISA=rva23'),
                 ('SOC=mini', 'ISA=typo'),
                 ('SOC=mini--rv5stage-rva23',)):
             with self.subTest(arguments=arguments):
@@ -407,14 +410,51 @@ class ProductSelectionTest(unittest.TestCase):
         self.assertIn('test "simple-rv5stage-rva23" = "simple-rv5stage-rva23"', result.stdout)
 
 
+def artifact_inputs(binary, target=None, variant='normal'):
+    target = target or program_target()
+    target_path = binary.parent / 'program-target.json'
+    target_path.write_text(json.dumps(target))
+    rtl = binary.parent / 'soc_harness.mlir'
+    rtl.write_text(f"// rhodium-configuration-sha256: {target['configuration_fingerprint']}\n"
+                   f"// rhodium-harness-variant: {variant}\n")
+    return ['--rtl', str(rtl)]
+
+
 class SimulatorArtifactTest(unittest.TestCase):
+    def test_configuration_and_variant_mismatches_fail_before_execution(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'VTestDriver'
+            binary.write_bytes(b'test binary')
+            command = [sys.executable, str(SCRIPTS / 'artifact.py')]
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
+            rtl = artifact_inputs(binary)
+            subprocess.run(command + ['record'] + options + rtl, check=True)
+            self.assertNotEqual(subprocess.run(command + ['verify'] + options + ['--variant', 'trace'], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command + ['record'] + options + rtl + ['--variant', 'trace'], capture_output=True).returncode, 0)
+            target = program_target()
+            target['resolved_configuration']['implementation'] = 'different queue depth'
+            target['configuration_fingerprint'] = target_fingerprint(target['resolved_configuration'])
+            (binary.parent / 'program-target.json').write_text(json.dumps(target))
+            self.assertNotEqual(subprocess.run(command + ['verify'] + options, capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(command + ['record'] + options + rtl, capture_output=True).returncode, 0)
+
+    def test_traced_artifact_requires_the_matching_variant(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'VTestDriver'
+            binary.write_bytes(b'traced binary')
+            command = [sys.executable, str(SCRIPTS / 'artifact.py')]
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
+            subprocess.run(command + ['record'] + options + ['--variant', 'trace'] + artifact_inputs(binary, variant='trace'), check=True)
+            subprocess.run(command + ['verify'] + options + ['--variant', 'trace'], check=True)
+            self.assertNotEqual(subprocess.run(command + ['verify'] + options, capture_output=True).returncode, 0)
+
     def test_exact_artifact_and_mismatch_rejection(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
             options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
-            subprocess.run(command + ['record'] + options, check=True)
+            subprocess.run(command + ['record'] + options + artifact_inputs(binary), check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             binary.write_bytes(b'changed binary')
             self.assertNotEqual(subprocess.run(command + ['verify'] + options, capture_output=True).returncode, 0)
@@ -424,7 +464,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary = Path(directory) / 'VTestDriver'
             binary.write_bytes(b'test binary')
             subprocess.run([sys.executable, str(SCRIPTS / 'artifact.py'), 'record',
-                            '--binary', str(binary), '--soc', 'simple-rv5stage-rva23'], check=True)
+                            '--binary', str(binary), '--soc', 'simple-rv5stage-rva23', *artifact_inputs(binary)], check=True)
             command = ['make', '-C', str(SCRIPTS.parent), 'simulator', 'SOC=simple-rv5stage-rva23',
                        f'PREBUILT_SIMULATOR={binary}',
                        f'PYTHON={sys.executable}', 'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false']
@@ -441,7 +481,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             target.write_text(json.dumps(program_target()))
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
             options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23', '--target', str(target)]
-            subprocess.run(command + ['record'] + options, check=True)
+            subprocess.run(command + ['record'] + options + artifact_inputs(binary), check=True)
             subprocess.run(command + ['verify'] + options, check=True)
             changed = program_target()
             changed['march'] = 'rv64ima'

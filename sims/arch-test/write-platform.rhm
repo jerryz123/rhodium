@@ -6,6 +6,7 @@ import:
   rhombus/cmdline open
   lib("socs/products/selection.rhm") open
   lib("socs/products/resolve.rhm").resolve_soc_product
+  lib("socs/products/metadata.rhm") open
   "platform.rhm".ActPlatform
 
 def arguments = current_command_line()
@@ -16,5 +17,8 @@ unless selection.shape == SoCShape.Simple
 | error(~who: #'write_act_platform, "ACT currently supports the Simple SoC shape")
 def product = resolve_soc_product(selection)
 def platform = ActPlatform(product.description)
+def configuration = product_metadata(product)
+def fingerprint = metadata_fingerprint(configuration)
+filesystem.write_string(arguments[1] ++ "/configuration.json", metadata_json(configuration), ~exists: #'truncate)
 filesystem.write_string(arguments[1] ++ "/platform.json", platform.to_json(product.key), ~exists: #'truncate)
-filesystem.write_string(arguments[1] ++ "/udb.yaml", product.udb().to_yaml(), ~exists: #'truncate)
+filesystem.write_string(arguments[1] ++ "/udb.yaml", "# Rhodium configuration SHA-256: " ++ fingerprint ++ "\n" ++ product.udb().to_yaml(), ~exists: #'truncate)

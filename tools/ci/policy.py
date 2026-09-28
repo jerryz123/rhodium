@@ -2,6 +2,12 @@
 # SPDX-License-Identifier: Apache-2.0
 
 from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "socs/products"))
+from selection import selections
 
 
 @dataclass(frozen=True)
@@ -73,39 +79,42 @@ SOFTWARE_TESTS = {
     ("mini", "rv32int"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rv32max"): PLATFORM_TESTS + ("isa-smoke",),
     ("mini", "rva23"): PLATFORM_TESTS + ("isa-smoke",),
-    ("single", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
-    ("single", "rv32int"): PLATFORM_TESTS,
-    ("single", "rv32max"): PLATFORM_TESTS,
+    ("simple", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
+    ("simple", "rv32int"): PLATFORM_TESTS,
+    ("simple", "rv32max"): PLATFORM_TESTS,
     ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
 }
-NATIVE_SOFTWARE = {("single", "rva23"): NATIVE_SUITES,
-                   ("single", "rv32int"): ("isa",), ("single", "rv32max"): ("isa",)}
-SIMULATOR_PRODUCTS = (
-    ("mini-rv5stage-rv32int", "mini", "rv5stage"),
-    ("mini-spike-rv32int", "mini", "spike"),
-    ("mini-rv5stage-rv32max", "mini", "rv5stage"),
-    ("mini-spike-rv32max", "mini", "spike"),
-    ("mini-rv5stage-rva23", "mini", "rv5stage"),
-    ("mini-spike-rva23", "mini", "spike"),
-    ("simple-rv5stage-rv32int", "single", "rv5stage"),
-    ("simple-spike-rv32int", "single", "spike"),
-    ("simple-rv5stage-rv32max", "single", "rv5stage"),
-    ("simple-spike-rv32max", "single", "spike"),
-    ("simple-rv5stage-rva23", "single", "rv5stage"),
-    ("simple-spike-rva23", "single", "spike"),
-    ("tiled-rv5stage-rva23", "tiled", "rv5stage"),
-    ("tiled-spike-rva23", "tiled", "spike"),
-)
+NATIVE_SOFTWARE = {("simple", "rva23"): NATIVE_SUITES,
+                   ("simple", "rv32int"): ("isa",), ("simple", "rv32max"): ("isa",)}
+SELECTIONS = selections()
+TEST_PRODUCTS = tuple(line for line in (ROOT / "sims/test-products.txt").read_text().splitlines()
+                      if line and not line.startswith("#"))
+if len(TEST_PRODUCTS) != len(set(TEST_PRODUCTS)):
+    raise ValueError("duplicate CI product")
+SIMULATOR_PRODUCTS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_PRODUCTS)
 SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
-                         if (shape, soc.rsplit("-", 1)[1]) in NATIVE_SOFTWARE)
+                         if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
 
 
 def native_products(suite):
     return tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
-                 if suite in NATIVE_SOFTWARE.get((shape, soc.rsplit("-", 1)[1]), ()))
+                 if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))
 
 
 def simulation_entry(soc, shape, core):
-    isa = soc.rsplit("-", 1)[1]
+    isa = SELECTIONS[soc][2]
     return dict(soc=soc, shape=shape, core=core, isa=isa,
                 software_tests=" ".join(SOFTWARE_TESTS[shape, isa]))
+
+
+def arch_products():
+    return tuple(dict(configuration=key, core=core) for key, shape, core in SIMULATOR_PRODUCTS
+                 if shape == 'simple')
+
+
+def arch_shards():
+    # Resource partitioning may depend on implementation speed; test coverage does not.
+    return tuple(dict(**product, shard=shard, shard_count=count)
+                 for product in arch_products()
+                 for count in (8 if product['configuration'] == 'simple-rv5stage-rva23' else 4,)
+                 for shard in range(count))

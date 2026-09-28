@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, arch_products, arch_shards
 
 
 def matches(path, *patterns):
@@ -223,6 +223,8 @@ class Selection:
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,
+            "arch_build_matrix": {"include": list(arch_products()) if self.arch else []},
+            "arch_run_matrix": {"include": list(arch_shards()) if self.arch else []},
         }
 
 

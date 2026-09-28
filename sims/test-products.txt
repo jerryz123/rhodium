@@ -1,0 +1,16 @@
+# Enrolls the exact paired simulator products in CI without expanding all legal selections.
+# SPDX-License-Identifier: Apache-2.0
+mini-rv5stage-rv32int
+mini-spike-rv32int
+mini-rv5stage-rv32max
+mini-spike-rv32max
+mini-rv5stage-rva23
+mini-spike-rva23
+simple-rv5stage-rv32int
+simple-spike-rv32int
+simple-rv5stage-rv32max
+simple-spike-rv32max
+simple-rv5stage-rva23
+simple-spike-rva23
+tiled-rv5stage-rva23
+tiled-spike-rva23

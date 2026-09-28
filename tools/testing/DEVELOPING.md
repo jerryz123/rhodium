@@ -60,7 +60,9 @@ them.
 
 CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py); its unit tests also reject tracked executable
+by [`policy.py`](../ci/policy.py). The product rows come from the single
+[`simulator inventory`](../../sims/test-products.txt); policy selects workloads
+by shape and ISA, independently of core. Its unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects

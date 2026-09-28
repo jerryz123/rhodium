@@ -61,9 +61,6 @@ jobs:
           SOC: ${{ matrix.soc }}
         run: |
           make -C sims simulator program-target SOC="$SOC"
-          python3 sims/program-test/artifact.py record \
-            --binary "/tmp/rhodium-sims/$SOC/obj/VTestDriver" --soc "$SOC" \
-            --target "/tmp/rhodium-sims/$SOC/obj/program-target.json"
           ldd "/tmp/rhodium-sims/$SOC/obj/VTestDriver"
       - name: Test Spike DPI integration
         if: matrix.core == 'spike'

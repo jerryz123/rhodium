@@ -74,7 +74,7 @@ explicit ISA, either in a complete key or as a typed selector; there is no
 shape/core-only architectural fallback. Concrete source specializations author
 their preset explicitly. Cache geometry,
 multiplier choice, and queue depths remain shape-specific implementation
-policy. See the [simulation inventory](../sims/test-products.rhm) for the
+policy. See the [simulation inventory](../sims/test-products.txt) for the
 fourteen explicitly selected test products; selection is not a passing-suite claim.
 
 All three ISA presets enable Sscofpmf with one implemented HPM counter on both

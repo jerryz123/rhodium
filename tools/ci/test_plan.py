@@ -306,7 +306,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("SOFTWARE_TESTS: ${{ matrix.software_tests }}", simulation)
         self.assertIn('for target in $SOFTWARE_TESTS', simulation)
         self.assertIn('make -C sims "$target" SOC="$SOC"', simulation)
-        self.assertIn("if: matrix.shape != 'single'", simulation)
+        self.assertIn("if: matrix.shape != 'simple'", simulation)
         self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
         self.assertIn("tiled-litmus-smoke:", simulation)
         self.assertIn("{soc: tiled-rv5stage-rva23, core: rv5stage}", simulation)
@@ -314,21 +314,18 @@ class PlanTest(unittest.TestCase):
         self.assertIn("litmus-smoke-test", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
-        self.assertEqual(software.count("configuration: [simple-rv5stage-rv32int, simple-spike-rv32int, simple-rv5stage-rv32max, simple-spike-rv32max, simple-rv5stage-rva23, simple-spike-rva23]"), 1)
+        self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 
     def test_arch_execution_matrix_splits_only_slow_rva23_rv5stage(self):
         workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
         arch_job = workflow.split("  arch:\n", 1)[1]
-        base = re.search(r"        configuration: \[([^\]]+)\]\n        shard: \[([^\]]+)\]\n        include:\n", arch_job)
-        self.assertIsNotNone(base)
-        configurations = base.group(1).split(", ")
-        shards = [int(shard) for shard in base.group(2).split(", ")]
-        self.assertIn("          - {shard_count: 4}\n", arch_job)
-        extras = re.findall(r"          - \{configuration: ([^,]+), shard: (\d+), shard_count: (\d+)\}", arch_job)
-        self.assertEqual(extras, [("simple-rv5stage-rva23", str(shard), "8") for shard in range(8)])
-        actual = {(configuration, shard) for configuration in configurations for shard in shards}
-        actual.update((configuration, int(shard)) for configuration, shard, _count in extras)
+        plan = self.plan("sims/Makefile")
+        self.assertEqual({entry["configuration"] for entry in plan["arch_build_matrix"]["include"]}, set(SINGLE_CORE_SOCS))
+        entries = plan["arch_run_matrix"]["include"]
+        actual = {(entry["configuration"], entry["shard"]) for entry in entries}
+        self.assertEqual(len(entries), len(actual))
+        self.assertIn("matrix: ${{ fromJSON(inputs.arch-run-matrix) }}", arch_job)
         expected = {(configuration, shard) for configuration in SINGLE_CORE_SOCS
                     for shard in range(8 if configuration == "simple-rv5stage-rva23" else 4)}
         self.assertEqual(actual, expected)
@@ -340,7 +337,7 @@ class PlanTest(unittest.TestCase):
         for step_name in ("Install Spike runtime dependencies", "Restore pinned Spike runtime libraries"):
             with self.subTest(step=step_name):
                 step = arch_job.split(f"      - name: {step_name}\n", 1)[1]
-                self.assertTrue(step.startswith("        if: startsWith(matrix.configuration, 'simple-spike-')\n"))
+                self.assertTrue(step.startswith("        if: matrix.core == 'spike'\n"))
         self.assertIn('library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"', arch_job)
         self.assertIn('if [[ "$library_bindings" == *"not found"* ]]; then', arch_job)
 

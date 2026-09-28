@@ -18,9 +18,16 @@ Contributors changing a harness, binding, or build rule should read
 `SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
 the hart implementation; `ISA=rv32int|rv32max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
-Both forms produce the same canonical artifact identity. `single` remains a
-spelling alias for the `simple` shape. Shape and core default to `simple` and
-`rv5stage` only when not supplied; ISA must always be explicit.
+Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
+`rv5stage` only when not supplied; ISA must always be explicit. The [canonical selector table](../socs/products/selections.tsv)
+serves both Make and typed host selection; the [CI inventory](test-products.txt)
+is an explicit subset, not a Cartesian-product test matrix.
+
+Each simulator includes a resolved configuration fingerprint covering its hart,
+platform, device-tree and UDB projections. Attestation checks the emitted RTL,
+software target, and ordinary/trace variant before reuse. Prebuilt runs consume
+these exported descriptors without invoking Racket. ACT payloads carry the same
+configuration and are rejected before execution if it differs from the simulator.
 
 | `SOC` | Memory supplied by harness | Topology |
 | --- | --- | --- |
@@ -134,8 +141,8 @@ simulator:
 
 ```sh
 make -C sims setup
-make -C sims simulator SOC=single CORE=rv5stage ISA=rva23
-make -C sims simulator SOC=single CORE=spike ISA=rva23
+make -C sims simulator SOC=simple CORE=rv5stage ISA=rva23
+make -C sims simulator SOC=simple CORE=spike ISA=rva23
 make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
@@ -178,8 +185,8 @@ either single-core SoC:
 
 ```sh
 make -C sims opensbi-setup
-make -C sims opensbi-firmware SOC=single CORE=rv5stage ISA=rva23
-make -C sims opensbi-firmware SOC=single CORE=spike ISA=rva23
+make -C sims opensbi-firmware SOC=simple CORE=rv5stage ISA=rva23
+make -C sims opensbi-firmware SOC=simple CORE=spike ISA=rva23
 ```
 
 The build derives the firmware, next-stage, and writable FDT addresses from the
@@ -210,8 +217,8 @@ application. The repository's tiny S-mode SBI qualification image is available
 only through:
 
 ```sh
-make -C sims opensbi-test SOC=single CORE=rv5stage ISA=rva23
-make -C sims opensbi-test SOC=single CORE=spike ISA=rva23
+make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
+make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
 ```
 
 The initial qualification requires one bootable RV64 hart, IMA,
@@ -243,7 +250,7 @@ Test all byte values through a real external PTY client with:
 
 ```sh
 make -C sims uart-pty-test SOC=mini CORE=rv5stage ISA=rva23
-make -C sims uart-pty-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims uart-pty-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims uart-pty-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
@@ -260,12 +267,12 @@ treated as independent roots. Invalid contracts and unsafe lineage structures
 still reject the build.
 
 Tracing is opt-in on the normal simulator and run targets. It supports
-`SOC=single CORE=rv5stage ISA=rva23` and `SOC=tiled CORE=rv5stage ISA=rva23`:
+`SOC=simple CORE=rv5stage ISA=rva23` and `SOC=tiled CORE=rv5stage ISA=rva23`:
 
 ```sh
-make -C sims smoke SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
-make -C sims run SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
-make -C sims run SOC=single CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
+make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/single-core-rv5stage-soc.pftrace
+make -C sims run SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=simple CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/program.pftrace.gz BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/tiled.pftrace.gz \
   BINARY=/absolute/path/to/multihart.elf \
   HTIF_ARGS='+boot-harts=0,1 +permissive +max-cycles=2000000 +permissive-off'
@@ -351,7 +358,7 @@ disassembler. Set `BUILD_JOBS` to bound native compilation (default 4).
 Run any FESVR-compatible target binary through an already-built simulator:
 
 ```sh
-make -C sims run SOC=single CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
+make -C sims run SOC=simple CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=mini CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 BINARY=/absolute/path/to/program.elf
 ```
@@ -790,11 +797,11 @@ certification. Upstream documents the framework in the
 Run the genuine execution smoke for any system:
 
 ```sh
-make -C sims smoke SOC=single CORE=rv5stage ISA=rva23
-make -C sims smoke SOC=single CORE=spike ISA=rva23
+make -C sims smoke SOC=simple CORE=rv5stage ISA=rva23
+make -C sims smoke SOC=simple CORE=spike ISA=rva23
 make -C sims smoke SOC=mini CORE=rv5stage ISA=rva23
 make -C sims smoke SOC=tiled CORE=rv5stage ISA=rva23
-make -C sims boot-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims boot-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims boot-test SOC=mini CORE=rv5stage ISA=rva23
 make -C sims boot-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
@@ -810,7 +817,7 @@ Run the LR/SC progress qualification through normal FESVR loading and coherent
 signature collection with:
 
 ```sh
-make -C sims lrsc-test SOC=single CORE=rv5stage ISA=rva23
+make -C sims lrsc-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims lrsc-test SOC=mini CORE=rv5stage ISA=rva23
 make -C sims lrsc-test SOC=tiled CORE=rv5stage ISA=rva23
 ```
@@ -837,15 +844,15 @@ The Simple RVA23 software lane checks Zihintntl on both core implementations
 through the normal ELF loader and coherent HTIF path:
 
 ```sh
-make -C sims zihintntl-test SOC=single CORE=rv5stage ISA=rva23
-make -C sims zihintntl-test SOC=single CORE=spike ISA=rva23
+make -C sims zihintntl-test SOC=simple CORE=rv5stage ISA=rva23
+make -C sims zihintntl-test SOC=simple CORE=spike ISA=rva23
 ```
 
 The payload uses Sv39-translated data accesses, checks all four hints and
 compressed aliases when C is available, and tests a hinted FP load when D is
 available. It accepts architecturally valid no-op hints and verifies that dirty
 data remains authoritative after coherent transactions. Separately,
-`make -C sims zihintntl-policy-test SOC=single CORE=rv5stage ISA=rva23` enables
+`make -C sims zihintntl-policy-test SOC=simple CORE=rv5stage ISA=rva23` enables
 relative hit/miss timing assertions for RV5Stage's non-allocating policy.
 The inclusive outer
 cache may invalidate that L1 copy while allocating the hinted line, so the

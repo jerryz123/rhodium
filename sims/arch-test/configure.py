@@ -2,6 +2,7 @@
 # Prepares all UDB-applicable ACT tests and their Sail/platform configuration.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -436,6 +437,10 @@ def main():
     if version != "0.14.1":
         parser.error(f"expected Sail 0.14.1, got {version}")
     udb = YAML(typ="safe").load(args.udb)
+    configuration = json.loads(args.udb.with_name("configuration.json").read_text())
+    if configuration.get("product") != args.name or YAML(typ="safe").load(configuration["udb"]) != udb:
+        parser.error("ACT UDB differs from its resolved product configuration")
+    fingerprint = hashlib.sha256(json.dumps(configuration, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
     model_width = ["--rv32"] if udb["params"]["MXLEN"] == 32 else []
     default = pyjson5.decode(subprocess.check_output([sail, *model_width, "--print-default-config"], text=True))
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)
@@ -450,7 +455,7 @@ def main():
         (source / "rvmodel_macros.h").read_text(), args.access_fault_address
     )
     (args.output / "rvmodel_macros.h").write_text(macros)
-    (args.output / "sail.json").write_text("// Configures Sail for the selected UDB target.\n" + json.dumps(config, indent=2) + "\n")
+    (args.output / "sail.json").write_text(f"// Rhodium configuration SHA-256: {fingerprint}\n" + json.dumps(config, indent=2) + "\n")
     differences = reference_model_differences(udb["params"])
     (args.output / "reference-model-differences.json").write_text(json.dumps(differences, indent=2) + "\n")
     if differences:
@@ -458,7 +463,7 @@ def main():
     subprocess.run([sail, "--config", str(args.output / "sail.json"), "--validate-config"], check=True)
     act_udb = args.output / "act-udb.yaml"
     with act_udb.open("w") as output:
-        output.write("# Preserves the DUT profile with pinned ACT/UDB schema corrections.\n")
+        output.write(f"# Rhodium configuration SHA-256: {fingerprint}\n")
         YAML().dump(act_udb_configuration(udb, source / "udb-overlay"), output)
     act = test_config(args.name, args.compiler, args.objdump, sail, act_udb)
     with (args.output / "test_config.yaml").open("w") as output:

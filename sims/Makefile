@@ -106,7 +106,8 @@ LRSC_BOOT_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),+boot-harts=0-7,)
 LRSC_IALIGN := 2
 LRSC_PAGE_TABLE_BASE := $(if $(filter mini,$(SOC_SHAPE)),0x8000b000,0x80010000)
 LRSC_MEMORY_LIMIT := $(if $(filter mini,$(SOC_SHAPE)),0x80010000,0xc0000000)
-SIMULATOR_SOURCES := $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' \)))
+PRODUCT_SELECTION_DATA := $(REPO_DIR)/socs/products/selections.tsv
+SIMULATOR_SOURCES := $(PRODUCT_SELECTION_DATA) $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' -o -name '*.rkt' \)))
 
 # Failed elaboration or lowering must not leave a reusable partial artifact.
 .DELETE_ON_ERROR:
@@ -122,8 +123,10 @@ include opensbi/Makefile.inc
 setup:
 	PYTHON="$(PYTHON)" FESVR_PREFIX="$(FESVR_PREFIX)" $(FESVR_DIR)/install.sh
 
-simulator: $(SIMULATOR_BINARY)
-	$(if $(PREBUILT_SIMULATOR),$(PYTHON) program-test/artifact.py verify --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)",@true)
+simulator: $(SIMULATOR_BINARY) $(PROGRAM_TARGET)
+	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
+	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)" --target "$(PROGRAM_TARGET)" \
+	  --variant $(if $(filter 1,$(TRACE)),trace,normal) $(if $(PREBUILT_SIMULATOR),,--rtl "$(SOC_MLIR)")
 	@echo "Ready $(SOC_ID) simulator: $(SIMULATOR_BINARY)"
 
 run: simulator

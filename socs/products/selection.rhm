@@ -2,6 +2,8 @@
 // Defines explicit typed product axes and canonical shape-core-ISA identities.
 // SPDX-License-Identifier: Apache-2.0
 
+import: "selection-data.rkt".selection_rows
+
 enum SoCShape | Mini | Simple | Tiled
 enum CoreKind | RV5Stage | Spike
 enum IsaPreset | RV32Int | RV32Max | RVA23
@@ -27,7 +29,6 @@ fun parse_soc_shape(name :: String) :: SoCShape:
   match name
   | "mini": SoCShape.Mini
   | "simple": SoCShape.Simple
-  | "single": SoCShape.Simple
   | "tiled": SoCShape.Tiled
   | ~else: error(~who: #'parse_soc_shape, "unsupported SoC shape: " ++ name)
 
@@ -49,10 +50,11 @@ class SoCSelection(shape :: SoCShape, core :: CoreKind, isa :: IsaPreset):
     soc_shape_name(shape) ++ "-" ++ core_kind_name(core) ++ "-" ++ isa_preset_name(isa)
 
 fun named_soc_selection(name :: String) :: SoCSelection:
-  def axes = name.split("-")
-  unless axes.length() == 3
+  def rows = selection_rows.filter(~keep: fun (row): row[0] == name)
+  unless rows.length() == 1
   | error(~who: #'named_soc_selection, "expected an explicit shape-core-isa product key")
-  SoCSelection(parse_soc_shape(axes[0]), parse_core_kind(axes[1]), parse_isa_preset(axes[2]))
+  def row = rows[0]
+  SoCSelection(parse_soc_shape(row[1]), parse_core_kind(row[2]), parse_isa_preset(row[3]))
 
 export:
   SoCShape

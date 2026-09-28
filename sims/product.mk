@@ -1,4 +1,4 @@
-# Resolves explicit SoC/core/ISA selectors into one artifact identity without an ISA fallback.
+# Adapts Make arguments to the shared public selection contract without parsing product names.
 # SPDX-License-Identifier: Apache-2.0
 ifeq ($(origin SOC),undefined)
 SOC := $(if $(ACT_CONFIGURATION),$(ACT_CONFIGURATION),simple)
@@ -6,59 +6,24 @@ endif
 CORE ?= rv5stage
 ISA ?=
 
-product_empty :=
-product_space := $(product_empty) $(product_empty)
-product_axes := $(subst -,$(product_space),$(SOC))
-ifneq ($(words $(product_axes)),1)
-ifneq ($(words $(product_axes)),3)
-$(error SOC must be a shape or an explicit shape-core-isa key)
+PRODUCT_INDEPENDENT_GOALS := %setup %adapter-test arch-test-source arch-test-tests \
+  dpi-compile-check spike-core-compile-check spike-dpi-compile-check spike-dpi-abi-check \
+  spike-core-test spike-lowering-test chi-dpi-memory-test transport-test
+product_required := $(filter-out $(PRODUCT_INDEPENDENT_GOALS),$(or $(MAKECMDGOALS),all))
+# Quote every argument, including embedded apostrophes, before crossing the shell boundary.
+product_quote = '$(subst ','"'"',$(1))'
+product_axes := $(shell $(PYTHON) $(REPO_DIR)/socs/products/selection.py \
+  --soc $(call product_quote,$(SOC)) --isa $(call product_quote,$(ISA)) \
+  $(if $(filter command line environment override,$(origin CORE)),--core $(call product_quote,$(CORE))) \
+  $(if $(product_required),,--optional))
+ifeq ($(word 1,$(product_axes)),ERROR:)
+$(error $(product_axes))
 endif
-ifneq ($(SOC),$(subst $(product_space),-,$(strip $(product_axes))))
-$(error SOC must be a canonical shape-core-isa key)
+ifeq ($(strip $(product_axes)),)
+$(error Product selection failed)
 endif
 SOC_SHAPE := $(word 1,$(product_axes))
 SOC_CORE := $(word 2,$(product_axes))
 SOC_ISA := $(word 3,$(product_axes))
-ifneq ($(strip $(ISA)),)
-ifneq ($(ISA),$(SOC_ISA))
-$(error ISA conflicts with the explicit SOC product key)
-endif
-endif
-ifeq ($(origin CORE),command line)
-ifneq ($(CORE),$(SOC_CORE))
-$(error CORE conflicts with the explicit SOC product key)
-endif
-endif
-else
-SOC_SHAPE := $(SOC)
-SOC_CORE := $(CORE)
-SOC_ISA := $(strip $(ISA))
-endif
-# The existing shape spelling is an alias, never an architectural default.
-ifeq ($(SOC_SHAPE),single)
-SOC_SHAPE := simple
-endif
-ifeq ($(filter $(SOC_SHAPE),mini simple tiled),)
-$(error Unsupported SoC shape '$(SOC_SHAPE)')
-endif
-ifeq ($(filter $(SOC_CORE),rv5stage spike),)
-$(error Unsupported core '$(SOC_CORE)')
-endif
-ifneq ($(SOC_ISA),)
-ifeq ($(filter $(SOC_ISA),rv32int rv32max rva23),)
-$(error Unsupported ISA '$(SOC_ISA)'; expected rv32int, rv32max, or rva23)
-endif
-endif
-
-# Dependency setup and core-independent host checks do not select a product.
-PRODUCT_INDEPENDENT_GOALS := %setup %adapter-test arch-test-source arch-test-tests \
-  dpi-compile-check spike-core-compile-check spike-dpi-compile-check spike-dpi-abi-check \
-  spike-core-test spike-lowering-test chi-dpi-memory-test transport-test
-ifneq ($(filter-out $(PRODUCT_INDEPENDENT_GOALS),$(or $(MAKECMDGOALS),all)),)
-ifeq ($(SOC_ISA),)
-$(error ISA is required; use ISA=rva23, ISA=rv32int, ISA=rv32max, or SOC=shape-core-isa)
-endif
-endif
-
 SOC_ID := $(SOC_SHAPE)-$(SOC_CORE)-$(SOC_ISA)
 HARNESS_SELECTOR := $(SOC_SHAPE) $(SOC_CORE) $(SOC_ISA)

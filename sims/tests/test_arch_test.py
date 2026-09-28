@@ -1,6 +1,7 @@
 # Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import json
 from itertools import product
 import os
 from pathlib import Path
@@ -623,6 +624,9 @@ class ArchTestGenerationTest(unittest.TestCase):
             series = patch_dir / "series"
             series.write_text("# No downstream patches are needed by this fixture.\n")
             build_root = root / "build"
+            config_dir = build_root / "configs/simple-rv5stage-rva23"
+            config_dir.mkdir(parents=True)
+            (config_dir / "configuration.json").write_text('{"schema":1,"product":"simple-rv5stage-rva23"}')
             elf_dir = build_root / "work/simple-rv5stage-rva23/simple-rv5stage-rva23/elfs"
             elf_dir.mkdir(parents=True)
             (elf_dir / "old.elf").touch()
@@ -682,7 +686,11 @@ class ArchTestRunnerTest(unittest.TestCase):
             binary = root / 'VTestDriver'
             binary.write_bytes(b'fake native artifact')
             artifact = RUNNER.parents[1] / 'program-test/artifact.py'
-            subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary), '--soc', 'simple-rv5stage-rva23'], check=True)
+            from test_program_test import artifact_inputs
+            subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary),
+                            '--soc', 'simple-rv5stage-rva23', *artifact_inputs(binary)], check=True)
+            configuration = json.loads((root / 'program-target.json').read_text())['resolved_configuration']
+            (elfs.parent / 'configuration.json').write_text(json.dumps(configuration))
             (root / 'run_tests.py').write_text(
                 '# Emulates upstream ACT execution for the Make/shard/result contract.\n'
                 'import os, sys\nfrom pathlib import Path\n'
@@ -701,6 +709,10 @@ class ArchTestRunnerTest(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue((elfs.parent / 'shards/1/results.json').is_file())
             result = subprocess.run(command, env={**os.environ, 'FAKE_ACT_EXIT': '7'}, capture_output=True)
+            self.assertNotEqual(result.returncode, 0)
+            configuration['implementation'] = 'different implementation'
+            (elfs.parent / 'configuration.json').write_text(json.dumps(configuration))
+            result = subprocess.run(command, capture_output=True)
             self.assertNotEqual(result.returncode, 0)
 
     def test_report_rejects_missing_results(self):
