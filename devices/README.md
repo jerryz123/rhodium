@@ -13,10 +13,12 @@ policy. Those integration decisions belong to the
 Contributors changing a device or model should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
-## Choose a component
+## Get started
 
-The synthesizable components are independent of any processor core or fixed
-SoC address map:
+The synthesizable components are independent of any processor core. The SoC
+places them in its address map, except for ACLINT's fixed architectural window.
+Start with [the shared CHI integration contract](#integrate-synthesizable-devices),
+then use the device-specific section for its registers and timing.
 
 | Component | Purpose | External contract | Main specialization |
 | --- | --- | --- | --- |
@@ -34,6 +36,259 @@ SoC address map:
 bridge serial pins to a host pseudo-terminal (PTY); they are not a
 synthesizable peripheral or part of the CHI register path.
 
+## Integrate synthesizable devices
+
+Every CHI device follows the same split between reusable behavior and
+platform occurrence data:
+
+- A device `Config` fixes the CHI flit shape and behavior-changing parameters.
+- A device `Params` value derives its node capabilities and subordinate
+  service from a chosen name, NodeID, base address, and `Config`.
+- A device `Identity` bundle carries occurrence-specific NodeID and base-address
+  wires into the circuit.
+
+Each `Params` constructor rejects an unaligned service base, an address window
+that does not fit the CHI request-address width, or a NodeID that does not fit
+the physical NodeID width.
+
+The device modules own the accepted opcodes, transfer sizes, register offsets,
+window-size constraints, and parameter validation. The generic meanings of
+CHI flits, capabilities, and subordinate services remain owned by
+[`chi/`](../chi/README.md#services-and-system-address-maps). A containing
+platform owns the concrete base addresses and NodeIDs, Home and subordinate
+maps, PMA attributes, reset entry, timer tick policy, interrupt routing, and
+external pins.
+
+This diagram illustrates a typical SoC attachment; the platform determines
+the actual CHI topology and optional simulation connections.
+
+```mermaid
+flowchart LR
+  Requester["processor or host requester"] --> Home["SoC-owned CHI Home,<br/>address map, and NoC"]
+  Image["host-configured BootROMImage"] --> Boot
+
+  subgraph Hardware["devices/ - synthesizable"]
+    Boot["CHIBootROM<br/>read-only SN-I"]
+    BootAddress["CHIBootAddressRegister<br/>payload-entry SN-I"]
+    ACLINT["Aclint<br/>timer + software interrupts"]
+    PLIC["Plic<br/>external interrupts"]
+    UART["Uart16550<br/>registers + FIFOs"] --> Pins["RX / TX pins"]
+  end
+
+  Home --> Boot
+  Home --> BootAddress
+  Home --> ACLINT
+  Home --> PLIC
+  Home --> UART
+  ACLINT -->|"time_counter, MTIP, MSIP"| Requester
+  UART -->|"interrupt source"| PLIC
+  PLIC -->|"external interrupt contexts"| Requester
+
+  subgraph Simulation["device-level simulation only"]
+    Model["UartDPI"] <--> PTY["uart_dpi.cc<br/>host PTY"]
+  end
+
+  Pins -.->|"optional TX hookup"| Model
+  Model -.->|"optional RX hookup"| Pins
+```
+
+`SingleCoreRV5StageSoC` and `MiniRV5StageSoC` instantiate the devices through the shared
+[`SoCPlatformParams`](../socs/platform/peripherals.rhdl); `TiledSoC` colocates its
+BootROM and boot-address register with the device Home and places the other
+devices in dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl),
+[`PlicTile`](../socs/tiled-soc/tiles/plic.rhdl), and
+[`UartTile`](../socs/tiled-soc/tiles/uart.rhdl) wrappers. Follow the
+[SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
+processor connections rather than duplicating those system contracts here.
+
+All current SoCs instantiate `CHIBootROM`. The simulator harnesses connect
+the synthesizable UART pins to `UartDPI`; the
+[simulation guide](../sims/README.md) owns that executable boundary.
+
+## Build a BootROM image
+
+[`boot/bootrom-image.rhm`](boot/bootrom-image.rhm) owns `BootROMImage` validation,
+zero-padding, and the XLEN-independent RISC-V reset-program generator. The
+default 32-byte program:
+
+1. reads the Zicsr `mhartid` CSR into `a0`;
+2. loads a configurable, eight-byte-aligned device-tree address into hart zero's
+   `a1` through an `AUIPC`/`ADDI` pair;
+3. jumps to the configured payload through an `AUIPC`/`JALR` trampoline; and
+4. parks every nonzero hart in a `WFI` loop.
+
+`riscv_bootrom_image` requires four-byte-aligned reset and payload addresses,
+an eight-byte-aligned device-tree address, and PC-relative targets within the
+trampolines' range. `BootROMImage` requires a nonempty
+list of bytes. `CHIBootROMLayout` owns the stable CHI transfer and window
+contract used by address maps, while `CHIBootROMConfig` combines that layout
+with an image that fits the window. Platforms own the pointed-to device-tree
+bytes, secondary-hart release protocol, and any different reset policy.
+
+[`boot/bootrom.rhdl`](boot/bootrom.rhdl) pads the unused portion of the configured window
+with zero and returns native multi-beat data for transfers through 64 bytes.
+It is immutable: writes and unsupported, misaligned, out-of-window, or
+wrong-target requests assert rather than changing storage. The default window
+is 8 KiB and the default parameter base is the reset address, but an integrating
+platform still owns the actual reset vector and mapped occurrence.
+
+## Integrate the boot-address register
+
+[`boot/boot-address.rhdl`](boot/boot-address.rhdl) implements `CHIBootAddressRegister`.
+Its 4 KiB service window contains one 64-bit read/write register at offset zero:
+aligned four-byte accesses select the low or high half, and eight-byte accesses
+select the whole register. Other offsets and sizes assert. `BootAddressConfig`
+takes the CHI flits and a 64-bit reset value; `BootAddressParams` supplies
+the occurrence's name, NodeID, and page-aligned base address.
+
+Reads are side-effect-free and captured when the request is accepted.
+`WriteNoSnpPtl` honors any subset of the requested byte lanes, including an
+empty mask; `WriteNoSnpFull` requires all requested lanes. Enabled lanes outside
+the transfer, incorrect write-data identity, or unsupported requests assert
+and are not accepted. Writes become visible when their data transfers;
+completion and read responses remain stable under backpressure.
+
+The boot-address register itself has no start command, interrupt, lock, or
+per-hart state. The platform can reset it to zero and publish a nonzero entry
+in one complete eight-byte write after payload loading finishes. The device
+does not validate the stored value as an executable address or provide a
+warm-reboot protocol.
+
+`riscv_bootrom_image(~boot_address_register: address)` generates the host-released
+trampoline instead of the default immediate trampoline. Every hart enables
+MSIP only as a `WFI` wake source while global interrupt delivery remains
+disabled. The same instruction bytes work on RV32 and RV64: on wake, a shift
+and signed branch detect XLEN, selecting `LW` for RV32 or `LD` for RV64 without
+reading `misa` or trapping. The register and host publication remain 64-bit;
+RV32 consumes its low word and requires an entry that fits 32 bits. A zero
+loaded value returns to `WFI`, allowing spurious wakeups. A nonzero entry
+causes the hart to clear its own ACLINT MSIP, disable the wake source, set
+`a0 = mhartid` and `a1 = embedded DTB address`, and jump. The register must be
+eight-byte aligned; it and the fixed ACLINT base must be reachable by the ROM's
+PC-relative sequences. The concrete SoCs use
+this trampoline and reset the register and MSIP state to zero.
+
+## Integrate ACLINT
+
+[`interrupt/aclint.rhdl`](interrupt/aclint.rhdl) implements only the machine timer
+(MTIMER) and machine software interrupt (MSWI) portions of ACLINT in the fixed
+`0x02000000..0x0200ffff` window:
+
+| Offset | Register | Behavior |
+| ---: | --- | --- |
+| `0x0000 + 4 * hart` | `msip[hart]` | Bit 0 drives that hart's machine software interrupt level |
+| `0x4000 + 8 * hart` | `mtimecmp[hart]` | MTIP is high while the shared `mtime` is greater than or equal to this value |
+| `0xbff8` | `mtime` | Shared 64-bit time counter and `time_counter` output |
+
+The registers honor byte enables, including RV32-style accesses to either
+half of a 64-bit timer register. A write to `mtime` has priority over `tick`;
+otherwise `mtime` increments only on an asserted `tick`. Clock division and
+the relationship between ticks and real time are deliberately platform-owned.
+The valid-only `time_update` interface emits the resulting next `mtime` value
+exactly when a tick or an `mtime` MMIO write changes the timer; idle cycles
+produce no update event.
+The device provides one MSIP and MTIP level per configured hart; it does not
+provide an external interrupt controller or supervisor interrupt block.
+
+## Integrate the PLIC
+
+[`interrupt/plic.rhdl`](interrupt/plic.rhdl) implements a SiFive-compatible platform-level
+interrupt controller in a fixed 64 MiB window. Source ID 0 is reserved;
+configured level-sensitive inputs map to IDs 1 through `source_count`. Priority
+zero disables a source, higher numeric priorities win, and equal priorities
+select the lower source ID. Each context has an independent enable mask and
+threshold, while pending and gateway-busy state are global to the source.
+
+| Offset | Register | Behavior |
+| ---: | --- | --- |
+| `0x000000 + 4 * source` | priority | WARL priority, truncated to the configured width |
+| `0x001000 + 4 * word` | pending | Read-only pending bits, indexed by architectural source ID |
+| `0x002000 + 0x80 * context + 4 * word` | enable | Per-context source enables |
+| `0x200000 + 0x1000 * context` | threshold | Context delivery threshold |
+| `0x200004 + 0x1000 * context` | claim/complete | Read claims the best pending source; write completes an enabled source |
+
+Claims ignore the threshold, atomically return and clear the selected global
+pending bit, and return zero when no enabled nonzero-priority source is
+pending. Completion is silently ignored for source zero, an out-of-range
+source, or a source disabled in that context. A level that remains asserted is
+forwarded again only after a valid completion releases its gateway; removing a
+level after forwarding does not retract an already-pending request.
+
+This diagram illustrates a typical source transaction. Pending and gateway
+busy are separate bits, not a single three-state FSM; a claim clears pending,
+while a valid completion releases the gateway.
+
+```mermaid
+flowchart LR
+  Level["asserted source level"] --> Forward["free gateway forwards once"]
+  Forward --> Pending["global pending bit"]
+  Forward --> Busy["gateway busy"]
+  Pending -->|"accepted claim read"| Claimed["pending cleared"]
+  Busy -->|"accepted valid completion data"| Free["gateway released"]
+  Free -->|"level still asserted"| Forward
+```
+
+The first implementation deliberately accepts only aligned four-byte MMIO
+transactions and level-sensitive sources. It does not yet provide edge-trigger
+gateways, MSI injection, virtualization, or SoC interrupt routing. The
+containing platform still owns the PLIC base address, NodeID, source numbering,
+context-to-hart privilege mapping, and reset wiring.
+
+## Integrate the 16550-style UART
+
+[`uart/uart.rhdl`](uart/uart.rhdl) owns fixed-format 8-N-1 transmit and receive engines.
+Both consume a 16x oversample tick, and the receiver includes asynchronous
+input synchronization. After a bad stop bit it reports a framing error and
+waits for the line to return idle before accepting another frame.
+
+[`uart/uart16550.rhdl`](uart/uart16550.rhdl) supplies the divisor counter, two reusable
+queues, interrupt/status logic, and this eight-byte register window:
+
+| Offset | DLAB = 0 | DLAB = 1 | Implemented behavior |
+| ---: | --- | --- | --- |
+| `0` | RBR / THR | DLL | Receive/read and transmit/write data, or divisor low byte |
+| `1` | IER | DLM | RX-data and TX-empty enables, or divisor high byte |
+| `2` | IIR / FCR | IIR / FCR | Interrupt identification; FIFO enable and RX/TX clear |
+| `3` | LCR | LCR | DLAB plus enforced 8-N-1 format when DLAB is clear |
+| `4` | MCR | MCR | Software readback only; no modem-control pins |
+| `5` | LSR | LSR | RX ready, overrun, framing, THR empty, and transmitter empty |
+| `6` | MSR | MSR | Reads zero; no modem-status pins |
+| `7` | SCR | SCR | Scratch register |
+
+The 16-bit divisor controls the 16x oversample tick; zero behaves as one.
+FIFO-disabled mode has an effective depth of one, while FIFO-enabled mode uses
+the configured depth. Receive data has interrupt priority over transmitter
+empty. Overrun is sticky until LSR is read, framing status is reported by the
+serial receiver, FIFO clears are synchronous, and CHI responses remain stable
+under backpressure.
+
+This is intentionally a compatibility subset, not a claim of complete 16550
+hardware. Only 8-N-1 is implemented; unsupported LCR formats assert when DLAB
+is clear. Standard divisor programming may temporarily set LCR to `0x80` while
+DLAB is active. Only RX data and TX empty interrupt causes exist, and the
+hardware boundary exposes only `rx`, `tx`, and `interrupt`. Current SoCs route
+the UART interrupt through their PLIC to RV5Stage's external interrupt inputs.
+
+## Attach the PTY UART model
+
+[`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) reuses the 8-N-1 engines to deserialize a
+device's `tx` pin and serialize PTY input onto its `rx` pin. Instantiate
+`UartDPI(model_id, oversample_divisor)`, connect `uart_tx` from the device and
+`uart_rx` back to it, and program the same divisor into `Uart16550`. Model IDs
+range from 0 through `0xffffffff`; the oversample divisor ranges from 1 through
+`0xffff`.
+
+The C++ companion creates one nonblocking raw PTY per model ID, prints its
+slave path on first use, and exposes that path through `uart_pty_path`. It
+queues host input across hardware reset but suppresses transfers while reset
+is active. A received byte with a bad stop bit still reaches the PTY because
+the terminal stream has no framing-error sideband; the model logs and counts
+the error for diagnostics.
+
+The [SoC simulator harnesses](../sims/README.md#use-the-uart-terminal) attach
+this model without adding DPI or host policy to synthesizable SoCs. Standalone
+device/backend fixtures also exercise it independently of processor software.
+
 ## Prepare fixed HDMI scanout
 
 [`display/hdmi.rhdl`](display/hdmi.rhdl) defines the first HDMI bring-up contract and its
@@ -43,6 +298,21 @@ lines, positive synchronization pulses, and an exact 60 Hz frame rate.
 `HDMI720p60X8R8G8B8` combines that timing with four-byte `x8r8g8b8` pixels and
 derives a 5120-byte pitch, a 3686400-byte frame, 80 64-byte fetch lines per
 row, and 57600 fetch lines per frame.
+
+This illustrates the current scanout data path. The row buffers decouple CHI
+completion from the fixed pixel cadence; a board-specific serializer remains
+outside `devices/`.
+
+```mermaid
+flowchart LR
+  CHI["CHI ReadOnce responses"] --> Reader["frame reader<br/>ordered lines and retry"]
+  Reader --> Rows["complete-row SRAM buffers"]
+  Rows --> Pixels["pixel timing and RGB888"]
+  Pixels --> TMDS["TMDS video encoder"]
+  TMDS --> Board["board serializer and pins"]
+  Rows -.->|"full rows backpressure delivery"| Reader
+  Pixels -.->|"vertical blank restarts frame"| Reader
+```
 
 The initial contract deliberately describes a contiguous framebuffer whose
 pitch is exactly active width times bytes per pixel. Its base must be aligned
@@ -115,247 +385,3 @@ hot-plug detection, independent display clock domains, padded pitch, and
 runtime mode selection are not part of this bring-up contract. Target-specific
 PLL, serializer, differential-output, and pin-constraint logic remains outside
 the reusable device package.
-
-## Integrate synthesizable devices
-
-Every CHI device follows the same split between reusable behavior and
-platform occurrence data:
-
-- A device `Config` fixes the CHI flit shape and behavior-changing parameters.
-- A device `Params` value derives its node capabilities and subordinate
-  service from a chosen name, NodeID, base address, and `Config`.
-- A device `Identity` bundle carries occurrence-specific NodeID and base-address
-  wires into the circuit.
-
-Each `Params` constructor rejects an unaligned service base, an address window
-that does not fit the CHI request-address width, or a NodeID that does not fit
-the physical NodeID width.
-
-The device modules own the accepted opcodes, transfer sizes, register offsets,
-window-size constraints, and parameter validation. The generic meanings of
-CHI flits, capabilities, and subordinate services remain owned by
-[`chi/`](../chi/README.md#services-and-system-address-maps). A containing
-platform owns the concrete base addresses and NodeIDs, Home and subordinate
-maps, PMA attributes, reset entry, timer tick policy, interrupt routing, and
-external pins.
-
-```mermaid
-flowchart LR
-  Requester["processor or host requester"] --> Home["SoC-owned CHI Home,<br/>address map, and NoC"]
-
-  subgraph Hardware["devices/ - synthesizable"]
-    Image["BootROMImage"] --> Boot["CHIBootROM<br/>read-only SN-I"]
-    BootAddress["CHIBootAddressRegister<br/>payload-entry SN-I"]
-    ACLINT["Aclint<br/>timer + software interrupts"]
-    PLIC["Plic<br/>external interrupts"]
-    UART["Uart16550<br/>registers + FIFOs"] --> Pins["RX / TX / interrupt"]
-  end
-
-  Home --> Boot
-  Home --> BootAddress
-  Home --> ACLINT
-  Home --> PLIC
-  Home --> UART
-  ACLINT -->|"mtime, MTIP, MSIP"| Requester
-  PLIC -->|"external interrupt contexts"| Requester
-
-  subgraph Simulation["device-level simulation only"]
-    Model["UartDPI"] <--> PTY["uart_dpi.cc<br/>host PTY"]
-  end
-
-  Pins -.->|"optional TX hookup"| Model
-  Model -.->|"optional RX hookup"| Pins
-```
-
-`SingleCoreRV5StageSoC` and `MiniRV5StageSoC` instantiate the devices through the shared
-[`SoCPlatformParams`](../socs/platform/peripherals.rhdl); `TiledSoC` colocates its
-BootROM and boot-address register with the device Home and places the other
-devices in dedicated [`AclintTile`](../socs/tiled-soc/tiles/aclint.rhdl),
-[`PlicTile`](../socs/tiled-soc/tiles/plic.rhdl), and
-[`UartTile`](../socs/tiled-soc/tiles/uart.rhdl) wrappers. Follow the
-[SoC guide](../socs/README.md) for their addresses, NodeIDs, routes, and
-processor connections rather than duplicating those system contracts here.
-
-All current SoCs instantiate `CHIBootROM`. The simulator harnesses connect
-the synthesizable UART pins to `UartDPI`; the
-[simulation guide](../sims/README.md) owns that executable boundary.
-
-## Build a BootROM image
-
-[`boot/bootrom-image.rhm`](boot/bootrom-image.rhm) owns `BootROMImage` validation,
-zero-padding, and the XLEN-independent RISC-V reset-program generator. The
-default 32-byte program:
-
-1. reads the Zicsr `mhartid` CSR into `a0`;
-2. loads a configurable, eight-byte-aligned device-tree address into hart zero's
-   `a1` through an `AUIPC`/`ADDI` pair;
-3. jumps to the configured payload through an `AUIPC`/`JALR` trampoline; and
-4. parks every nonzero hart in a `WFI` loop.
-
-`riscv_bootrom_image` requires four-byte-aligned reset and payload addresses,
-an eight-byte-aligned device-tree address, and PC-relative targets within the
-trampolines' range. `BootROMImage` requires a nonempty
-list of bytes. `CHIBootROMLayout` owns the stable CHI transfer and window
-contract used by address maps, while `CHIBootROMConfig` combines that layout
-with an image that fits the window. Platforms own the pointed-to device-tree
-bytes, secondary-hart release protocol, and any different reset policy.
-
-[`boot/bootrom.rhdl`](boot/bootrom.rhdl) pads the unused portion of the configured window
-with zero and returns native multi-beat data for transfers through 64 bytes.
-It is immutable: writes and unsupported, misaligned, out-of-window, or
-wrong-target requests assert rather than changing storage. The default window
-is 8 KiB and the default parameter base is the reset address, but an integrating
-platform still owns the actual reset vector and mapped occurrence.
-
-## Integrate the boot-address register
-
-[`boot/boot-address.rhdl`](boot/boot-address.rhdl) implements `CHIBootAddressRegister`.
-Its 4 KiB service window contains one 64-bit read/write register at offset zero:
-aligned four-byte accesses select the low or high half, and eight-byte accesses
-select the whole register. Other offsets and sizes assert. `BootAddressConfig`
-takes the CHI flits and a 64-bit reset value; `BootAddressParams` supplies
-the occurrence's name, NodeID, and page-aligned base address.
-
-Reads are side-effect-free and captured when the request is accepted.
-`WriteNoSnpPtl` honors any subset of the requested byte lanes, including an
-empty mask; `WriteNoSnpFull` requires all requested lanes. Enabled lanes outside
-the transfer, incorrect write-data identity, or unsupported requests assert
-and are not accepted. Writes become visible when their data transfers;
-completion and read responses remain stable under backpressure.
-
-The boot-address register itself has no start command, interrupt, lock, or
-per-hart state. The platform can reset it to zero and publish a nonzero entry
-in one complete eight-byte write after payload loading finishes. The device does not validate the stored value as an
-executable address or provide a warm-reboot protocol.
-
-`riscv_bootrom_image(~boot_address_register: address)` generates the host-released
-trampoline instead of the default immediate trampoline. Every hart enables
-MSIP only as a `WFI` wake source while global interrupt delivery remains
-disabled. The same instruction bytes work on RV32 and RV64: on wake, a shift
-and signed branch detect XLEN, selecting `LW` for RV32 or `LD` for RV64 without
-reading `misa` or trapping. The register and host publication remain 64-bit;
-RV32 consumes its low word and requires an entry that fits 32 bits. A zero
-loaded value returns to `WFI`, allowing spurious wakeups. A nonzero entry
-causes the hart to clear its own ACLINT MSIP, disable the wake source, set
-`a0 = mhartid` and `a1 = embedded DTB address`, and jump. The register must be
-eight-byte aligned; it and the fixed ACLINT base must be reachable by the ROM's
-PC-relative sequences. The concrete SoCs use
-this trampoline and reset the register and MSIP state to zero.
-
-## Integrate ACLINT
-
-[`interrupt/aclint.rhdl`](interrupt/aclint.rhdl) implements only the machine timer
-(MTIMER) and machine software interrupt (MSWI) portions of ACLINT in the fixed
-`0x02000000..0x0200ffff` window:
-
-| Offset | Register | Behavior |
-| ---: | --- | --- |
-| `0x0000 + 4 * hart` | `msip[hart]` | Bit 0 drives that hart's machine software interrupt level |
-| `0x4000 + 8 * hart` | `mtimecmp[hart]` | MTIP is high while the shared `mtime` is greater than or equal to this value |
-| `0xbff8` | `mtime` | Shared 64-bit time counter and `time_counter` output |
-
-The registers honor byte enables, including RV32-style accesses to either
-half of a 64-bit timer register. A write to `mtime` has priority over `tick`;
-otherwise `mtime` increments only on an asserted `tick`. Clock division and
-the relationship between ticks and real time are deliberately platform-owned.
-The valid-only `time_update` interface emits the resulting next `mtime` value
-exactly when a tick or an `mtime` MMIO write changes the timer; idle cycles
-produce no update event.
-The device provides one MSIP and MTIP level per configured hart; it does not
-provide an external interrupt controller or supervisor interrupt block.
-
-## Integrate the PLIC
-
-[`interrupt/plic.rhdl`](interrupt/plic.rhdl) implements a SiFive-compatible platform-level
-interrupt controller in a fixed 64 MiB window. Source ID 0 is reserved;
-configured level-sensitive inputs map to IDs 1 through `source_count`. Priority
-zero disables a source, higher numeric priorities win, and equal priorities
-select the lower source ID. Each context has an independent enable mask and
-threshold, while pending and gateway-busy state are global to the source.
-
-| Offset | Register | Behavior |
-| ---: | --- | --- |
-| `0x000000 + 4 * source` | priority | WARL priority, truncated to the configured width |
-| `0x001000 + 4 * word` | pending | Read-only pending bits, indexed by architectural source ID |
-| `0x002000 + 0x80 * context + 4 * word` | enable | Per-context source enables |
-| `0x200000 + 0x1000 * context` | threshold | Context delivery threshold |
-| `0x200004 + 0x1000 * context` | claim/complete | Read claims the best pending source; write completes an enabled source |
-
-Claims ignore the threshold, atomically return and clear the selected global
-pending bit, and return zero when no enabled nonzero-priority source is
-pending. Completion is silently ignored for source zero, an out-of-range
-source, or a source disabled in that context. A level that remains asserted is
-forwarded again only after a valid completion releases its gateway; removing a
-level after forwarding does not retract an already-pending request.
-
-The first implementation deliberately accepts only aligned four-byte MMIO
-transactions and level-sensitive sources. It does not yet provide edge-trigger
-gateways, MSI injection, virtualization, or SoC interrupt routing. The
-containing platform still owns the PLIC base address, NodeID, source numbering,
-context-to-hart privilege mapping, and reset wiring.
-
-## Integrate the 16550-style UART
-
-[`uart/uart.rhdl`](uart/uart.rhdl) owns fixed-format 8-N-1 transmit and receive engines.
-Both consume a 16x oversample tick, and the receiver includes asynchronous
-input synchronization. After a bad stop bit it reports a framing error and
-waits for the line to return idle before accepting another frame.
-
-[`uart/uart16550.rhdl`](uart/uart16550.rhdl) supplies the divisor counter, two reusable
-queues, interrupt/status logic, and this eight-byte register window:
-
-| Offset | DLAB = 0 | DLAB = 1 | Implemented behavior |
-| ---: | --- | --- | --- |
-| `0` | RBR / THR | DLL | Receive/read and transmit/write data, or divisor low byte |
-| `1` | IER | DLM | RX-data and TX-empty enables, or divisor high byte |
-| `2` | IIR / FCR | IIR / FCR | Interrupt identification; FIFO enable and RX/TX clear |
-| `3` | LCR | LCR | DLAB plus enforced 8-N-1 format when DLAB is clear |
-| `4` | MCR | MCR | Software readback only; no modem-control pins |
-| `5` | LSR | LSR | RX ready, overrun, framing, THR empty, and transmitter empty |
-| `6` | MSR | MSR | Reads zero; no modem-status pins |
-| `7` | SCR | SCR | Scratch register |
-
-The 16-bit divisor controls the 16x oversample tick; zero behaves as one.
-FIFO-disabled mode has an effective depth of one, while FIFO-enabled mode uses
-the configured depth. Receive data has interrupt priority over transmitter
-empty. Overrun is sticky until LSR is read, framing status is reported by the
-serial receiver, FIFO clears are synchronous, and CHI responses remain stable
-under backpressure.
-
-This is intentionally a compatibility subset, not a claim of complete 16550
-hardware. Only 8-N-1 is implemented; unsupported LCR formats assert when DLAB
-is clear. Standard divisor programming may temporarily set LCR to `0x80` while
-DLAB is active. Only RX data and TX empty interrupt causes exist, and the
-hardware boundary exposes only `rx`, `tx`, and `interrupt`. Current SoCs route
-the UART interrupt through their PLIC to RV5Stage's external interrupt inputs.
-
-## Attach the PTY UART model
-
-[`uart/uart-dpi.rhdl`](uart/uart-dpi.rhdl) reuses the 8-N-1 engines to deserialize a
-device's `tx` pin and serialize PTY input onto its `rx` pin. Instantiate
-`UartDPI(model_id, oversample_divisor)`, connect `uart_tx` from the device and
-`uart_rx` back to it, and program the same divisor into `Uart16550`. Model IDs
-range from 0 through `0xffffffff`; the oversample divisor ranges from 1 through
-`0xffff`.
-
-The C++ companion creates one nonblocking raw PTY per model ID, prints its
-slave path on first use, and exposes that path through `uart_pty_path`. It
-queues host input across hardware reset but suppresses transfers while reset
-is active. A received byte with a bad stop bit still reaches the PTY because
-the terminal stream has no framing-error sideband; the model logs and counts
-the error for diagnostics.
-
-The [SoC simulator harnesses](../sims/README.md#use-the-uart-terminal) attach
-this model without adding DPI or host policy to synthesizable SoCs. Standalone
-device/backend fixtures also exercise it independently of processor software.
-
-## Find the implementation
-
-Source ownership moved to the contributor
-[`DEVELOPING.md`](DEVELOPING.md#implementation-map). This heading remains for
-existing links.
-
-## Run focused validation
-
-Contributor host checks, standalone C++ coverage, and CIRCT/Verilator fixtures
-are documented in [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
