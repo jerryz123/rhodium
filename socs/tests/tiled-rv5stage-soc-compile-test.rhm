@@ -36,7 +36,7 @@ check:
   description.memory_regions[0].base ~is 0x80000000
   description.memory_regions[0].size_bytes ~is 0x40000000
   description.boot.rom.address_set ~is compiled.platform.bootrom.rom_params.service.address_sets[0]
-  description.boot.rom.size_bytes ~is 0x2000
+  description.boot.rom.size_bytes ~is 0x4000
   compiled.platform.bootrom.rom_config(description).image.bytes.drop(
     tiled_default.default_tiled_soc_config.boot.device_tree_offset
   ) ~is (
@@ -98,8 +98,8 @@ check:
   compiled.home_map.entry(0xbfffffff).target_node_id ~is 35
   compiled.home_map.entry(0xc0000000) ~is #false
   compiled.home_map.entry(0x00010000).target_node_id ~is 36
-  compiled.home_map.entry(0x00011fff).target_node_id ~is 36
-  compiled.home_map.entry(0x00012000) ~is #false
+  compiled.home_map.entry(0x00013fff).target_node_id ~is 36
+  compiled.home_map.entry(0x00014000) ~is #false
   compiled.home_map.entry(0x02000000).target_node_id ~is 36
   compiled.home_map.entry(0x0200ffff).target_node_id ~is 36
   compiled.home_map.entry(0x0c000000).target_node_id ~is 36
@@ -108,7 +108,7 @@ check:
   compiled.home_map.entry(0x10000007).target_node_id ~is 36
   compiled.home_map.entry(0x10000008) ~is #false
   compiled.home_map.entries.map(fun (entry): entry.address_set.mask) ~is (
-    [0x3fffff3f, 0x3fffff3f, 0x3fffff3f, 0x3fffff3f, 0x1fff, 0xfff, 0xffff, 0x3ffffff, 0x7]
+    [0x3fffff3f, 0x3fffff3f, 0x3fffff3f, 0x3fffff3f, 0x3fff, 0xfff, 0xffff, 0x3ffffff, 0x7]
   )
   // Slice selection is an address-map property; the memory channel covers the
   // full architectural range without compacting away slice-selection bits.

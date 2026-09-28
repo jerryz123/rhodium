@@ -310,7 +310,7 @@ Run `pointer-masking-test.rhm`, `profile-test.rhm`, `riscv-pointer-masking`,
 `rv5stage-pointer-masking`, and `rv5stage-csr`; include `rv5stage-mmu-replay`
 when modifying the shared effective-data-privilege helper. The core fixture
 checks policy changes, tagged payload preservation, replay, all prefetch kinds,
-and transformed misalignment trap values without relying on internal nets.
+and transformed access-fault trap values without relying on internal nets.
 
 ## Pipeline event annotations
 

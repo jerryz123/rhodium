@@ -37,6 +37,8 @@ for (core in ["rv5stage", "spike"]):
     mini_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
     single_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
     tiled_config.description.to_device_tree().to_dtb().to_list().length() > 0 ~is #true
+    tiled_config.boot.window_bytes ~is 0x4000
+    tiled_config.boot.image_for(tiled_config.description).size_bytes <= tiled_config.boot.window_bytes ~is #true
     mini_fabric.hart_config.cache_line_bytes ~is mini_hart.cache_line_bytes
     single_params.fabric.hart_config.cache_line_bytes ~is single_hart.cache_line_bytes
     tiled_config.hart === tiled_hart ~is #true

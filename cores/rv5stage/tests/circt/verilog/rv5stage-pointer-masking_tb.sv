@@ -38,7 +38,7 @@ module rv5stage_pointer_masking_tb;
   prefetch_t prefetch_out;
   instruction_resp_t instruction_response;
   data_resp_t data_response;
-  int stores, loads, prefetches, flushes;
+  int stores, loads, faults, prefetches, flushes;
   bit rejected;
   localparam logic [63:0] LOAD_VALUE = 64'h123456789abcdef0;
 
@@ -89,7 +89,8 @@ module rv5stage_pointer_masking_tb;
       'h1054: return 32'h00316013; // prefetch.w 0(x2).
       'h1058: return addi(4, 0, 'h400);
       'h105c: return csrw('h305, 4);
-      'h1060: return ld(3, 2, 1); // Misaligned; hardware mtval must contain 0x181.
+      'h1060: return ld(3, 2, 1); // Misaligned scalar load is legal under Zicclsm.
+      'h1064: return ld(3, 2, 9); // Inject an access fault; mtval must contain 0x189.
       'h0400: return csrr(5, 'h343);
       'h0404: return csrr(6, 'h342);
       'h0408: return addi(7, 0, 'h200);
@@ -105,6 +106,7 @@ module rv5stage_pointer_masking_tb;
     instruction_access_in.response = instruction_response;
     data_access_in = '0;
     data_access_in.request.ready = rejected || !data_access_out.request.valid || data_access_out.request.bits.address != 'h108;
+    data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.address == 'h189;
     data_access_in.response = data_response;
     data_access_in.drained = !data_response.valid;
   end
@@ -115,6 +117,7 @@ module rv5stage_pointer_masking_tb;
       data_response <= '0;
       stores <= 0;
       loads <= 0;
+      faults <= 0;
       prefetches <= 0;
       flushes <= 0;
       rejected <= 0;
@@ -138,8 +141,14 @@ module rv5stage_pointer_masking_tb;
       end
       if (data_access_out.request.valid) begin
         if (!data_access_in.request.ready) rejected <= 1;
-        else if (data_access_out.request.bits.access == 1) begin
-          assert (data_access_out.request.bits.address == 'h108 && loads == 0) else $fatal(1, "load replay address");
+        else if (data_access_in.request_access_fault) begin
+          assert (data_access_out.request.bits.access == 1 && loads == 2 && stores == 3 && faults == 0)
+            else $fatal(1, "faulted load was not issued after the legal misaligned load");
+          faults <= faults + 1;
+        end else if (data_access_out.request.bits.access == 1) begin
+          assert ((data_access_out.request.bits.address == 'h108 && loads == 0) ||
+                  (data_access_out.request.bits.address == 'h181 && loads == 1))
+            else $fatal(1, "load replay or misaligned load address");
           loads <= loads + 1;
           data_response.valid <= 1;
           data_response.bits <= '{access_fault: 1'b0, data: LOAD_VALUE,
@@ -151,10 +160,10 @@ module rv5stage_pointer_masking_tb;
             0: assert (data_access_out.request.bits.address == 'h100 && data_access_out.request.bits.data == 64'hfe00000000000100) else $fatal(1, "PMM7 store changed the register value or failed to mask");
             1: assert (data_access_out.request.bits.address == 'h110 && data_access_out.request.bits.data == LOAD_VALUE) else $fatal(1, "load replay/result");
             2: assert (data_access_out.request.bits.address == 'h180 && data_access_out.request.bits.data == 64'hffff000000000180) else $fatal(1, "PMM16 store/serialization");
-            3: assert (data_access_out.request.bits.address == 'h200 && data_access_out.request.bits.data == 'h181) else $fatal(1, "mtval did not preserve transformed fault address");
+            3: assert (data_access_out.request.bits.address == 'h200 && data_access_out.request.bits.data == 'h189) else $fatal(1, "mtval did not preserve transformed fault address");
             4: begin
-              assert (data_access_out.request.bits.address == 'h208 && data_access_out.request.bits.data == 4) else $fatal(1, "misaligned cause");
-              assert (loads == 1 && rejected && prefetches == 3 && flushes >= 4) else $fatal(1, "missing replay/restart/prefetch coverage");
+              assert (data_access_out.request.bits.address == 'h208 && data_access_out.request.bits.data == 5) else $fatal(1, "load access-fault cause");
+              assert (loads == 2 && faults == 1 && rejected && prefetches == 3 && flushes >= 4) else $fatal(1, "missing replay/restart/prefetch coverage");
               $display("Ssnpm core serialization, replay, explicit prefetch, and transformed mtval passed");
               $finish;
             end

@@ -255,7 +255,7 @@ class TiledSoCConfig(layout :: TileGrid,
                ~hart: hart :: RiscvHartImplementation,
                ~clocks: clocks :: SoCClockConfig,
                ~flit: flit :: CHIFlitParams = CHIFlitParams(),
-               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base)):
+               ~boot: boot :: SoCBootConfig = riscv_soc_boot_config(~payload_address: memory.base, ~window_bytes: 0x4000)):
     unless memory.stripe_bytes >= 64
     | error(~who: #'TiledSoCConfig,
             "striped-memory stripes must contain a complete LLC line")

@@ -220,9 +220,11 @@ to external host adapters for permission and transfer-size checks.
 
 [`boot.rhdl`](platform/boot.rhdl) owns the shared reset address, payload address, ROM
 layout and finalized image, and executable instruction-cacheable PMA entry.
-Every current SoC uses an 8 KiB BootROM at
-`0x00010000..0x00011fff`. Every hart waits in the ROM with its own ACLINT MSIP
-enabled as a wake source while global interrupt delivery remains disabled.
+Mini and single-core SoCs use an 8 KiB BootROM at
+`0x00010000..0x00011fff`; tiled SoCs use a 16 KiB BootROM at
+`0x00010000..0x00013fff` to hold their larger device tree. Every hart waits in
+the ROM with its own ACLINT MSIP enabled as a wake source while global
+interrupt delivery remains disabled.
 After a selected hart wakes, it polls the shared boot-address register while
 MSIP remains pending. Once the host publishes a nonzero entry, the hart clears
 its MSIP and jumps with `mhartid` in `a0` and the embedded DTB address in `a1`.
