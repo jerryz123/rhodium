@@ -23,6 +23,7 @@ the repository's Apache-2.0 license does not replace those terms:
 - `sw/opensbi`
 - `sw/riscv-arch-test`
 - `riscv/riscv-isa-sim`
+- `riscv/sail-riscv`
 - `sw/riscv-isa-tests`
 - `sw/coremark`
 - `sw/embench-iot`
@@ -71,6 +72,15 @@ series under
 [`riscv/riscv-isa-sim-patches/`](riscv/riscv-isa-sim-patches/). The upstream
 source remains under the University of California BSD license reproduced in
 [`LICENSE.riscv-isa-sim`](riscv/riscv-isa-sim-patches/LICENSE.riscv-isa-sim).
+
+## Sail reference model
+
+ACT builds the pinned [`riscv/sail-riscv`](riscv/sail-riscv/) model from a
+pristine submodule and the ordered
+[`riscv/sail-riscv-patches/`](riscv/sail-riscv-patches/) series. The upstream
+model remains under its BSD-2-Clause
+[`LICENCE`](riscv/sail-riscv/LICENCE); its vendored dependencies carry their
+own notices. The build-local model package retains those license files.
 
 ## OpenSBI
 

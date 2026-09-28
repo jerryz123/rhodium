@@ -54,6 +54,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
 | Shared patched-submodule materialization and identity | [`patched_submodule.py`](patched_submodule.py), tested by [`tests/test_patched_submodule.py`](tests/test_patched_submodule.py) |
 | Shared Spike disassembler and FESVR upstream | [`riscv-isa-sim/`](riscv-isa-sim/), with downstream changes in [`riscv-isa-sim-patches/`](riscv-isa-sim-patches/) |
+| ACT reference-model upstream | [`sail-riscv/`](sail-riscv/), with downstream changes in [`sail-riscv-patches/`](sail-riscv-patches/) |
 
 ## Extend the model or catalogs
 
@@ -93,6 +94,10 @@ when advancing the gitlink, then validate both RHEG export and FESVR execution.
 Target software upstreams and ports are owned by
 [`../sw/`](../sw/DEVELOPING.md); simulator selection and execution remain under
 [`../sims/`](../sims/DEVELOPING.md).
+The pinned `sail-riscv` submodule is likewise a host-side reference dependency,
+not a pure-model import. Keep it pristine and build the adjacent patch series
+through the shared materializer. Its compiler and emulator installation belong
+to the ACT flow under `sims/arch-test/`.
 
 ## Focused validation
 

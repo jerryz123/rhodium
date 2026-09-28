@@ -3,6 +3,16 @@
 
 # Resolve the GEILEN=0 `mie.SGEIE` mismatch
 
+## Current status
+
+The pinned Sail 0.14.1 source is now a pristine submodule with an ordered patch
+that masks `mie.SGEIE` and its `hie.SGEIE` alias when GEILEN is zero. The ACT
+setup builds this model by gitlink-and-patch identity; CI builds it once and
+supplies the exact artifact to all ELF-generation jobs. A focused CSR probe is
+wired to check GEILEN zero and nonzero before ACT generation. The remaining
+acceptance gate is a complete patched-model ACT generation and pass across all
+RVA23 execution shards; do not treat the source correction alone as that result.
+
 ## Evidence and boundary
 
 In [CI run 36347782476](https://github.com/jerryz123/rhodium/actions/runs/36347782476),

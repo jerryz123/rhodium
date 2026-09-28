@@ -6,7 +6,7 @@ ACT_DIR ?= $(REPO_DIR)/sw/riscv-arch-test
 ACT_VENV ?= $(REPO_DIR)/.tools/act-venv
 ACT_PYTHON := $(ACT_VENV)/bin/python
 ACT_TESTGEN ?= $(ACT_VENV)/bin/testgen
-ACT_SAIL ?= $(REPO_DIR)/.tools/sail-0.14.1/bin/sail_riscv_sim
+ACT_SAIL ?= $(REPO_DIR)/.tools/sail-riscv-0.14.1-sail-0.20.2-$(SAIL_IDENTITY)/bin/sail_riscv_sim
 ACT_OBJDUMP ?= riscv64-unknown-elf-objdump
 ACT_BUILD_ROOT ?= /tmp/rhodium-arch-test
 ACT_CONFIG_DIR := $(ACT_BUILD_ROOT)/configs/$(ACT_CONFIGURATION)
@@ -14,7 +14,9 @@ ACT_WORKDIR := $(ACT_BUILD_ROOT)/work/$(ACT_CONFIGURATION)
 ACT_SOURCE_DIR := $(ACT_BUILD_ROOT)/source/riscv-arch-test
 ACT_TEST_DIR := $(ACT_BUILD_ROOT)/tests
 ACT_PATCH_SERIES ?= $(REPO_DIR)/sw/riscv-arch-test-patches/series
+SAIL_PATCH_SERIES ?= $(REPO_DIR)/riscv/sail-riscv-patches/series
 PATCHED_SUBMODULE_TOOL ?= $(REPO_DIR)/riscv/patched_submodule.py
+SAIL_IDENTITY = $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/sail-riscv --series $(SAIL_PATCH_SERIES))
 ACT_BUNDLE_PATH ?= $(REPO_DIR)/.tools/act-bundle
 ACT_JOBS ?= 1
 ACT_BUILD_JOBS ?= 2
@@ -28,9 +30,16 @@ ACT_TIMEOUT ?= 300
 ACT_MAX_CYCLES ?= 10000000
 ACT_SIMULATOR = $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(BUILD_ROOT)/$(SOC_ID)/obj/VTestDriver)
 
-.PHONY: arch-test-setup arch-test-source arch-test-config arch-test-tests arch-test-elfs arch-test arch-test-run arch-test-adapter-test
+.PHONY: arch-test-setup arch-test-sail-setup arch-test-sail-test arch-test-source arch-test-config arch-test-tests arch-test-elfs arch-test arch-test-run arch-test-adapter-test
 arch-test-setup:
-	PYTHON="$(PYTHON)" ACT_VENV="$(ACT_VENV)" ACT_BUNDLE_PATH="$(ACT_BUNDLE_PATH)" bash arch-test/setup.sh
+	PYTHON="$(PYTHON)" ACT_VENV="$(ACT_VENV)" ACT_BUNDLE_PATH="$(ACT_BUNDLE_PATH)" SAIL_PATCH_SERIES="$(SAIL_PATCH_SERIES)" bash arch-test/setup.sh
+
+arch-test-sail-setup:
+	PYTHON="$(PYTHON)" SAIL_PATCH_SERIES="$(SAIL_PATCH_SERIES)" bash arch-test/install-sail.sh
+
+arch-test-sail-test: arch-test-config
+	$(ACT_PYTHON) arch-test/check-sail-sgeie.py --sail "$(ACT_SAIL)" \
+	  --config "$(ACT_CONFIG_DIR)/sail.json" --compiler "$(RISCV_CC)"
 
 arch-test-source:
 	$(PYTHON) "$(PATCHED_SUBMODULE_TOOL)" materialize --source "$(ACT_DIR)" \

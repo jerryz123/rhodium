@@ -29,3 +29,6 @@
 [submodule "sw/litmus-tests-riscv"]
 	path = sw/litmus-tests-riscv
 	url = https://github.com/litmus-tests/litmus-tests-riscv.git
+[submodule "riscv/sail-riscv"]
+	path = riscv/sail-riscv
+	url = https://github.com/riscv/sail-riscv.git

@@ -300,6 +300,13 @@ extend and validate the projection as newly selected suites expose gaps.
 applies the ordered series under
 [`../sw/riscv-arch-test-patches/`](../sw/riscv-arch-test-patches/) with
 the shared RISC-V patched-submodule materializer.
+`arch-test-sail-setup` uses the same materializer for the pristine
+[`../riscv/sail-riscv/`](../riscv/sail-riscv/) gitlink and its
+[`patch series`](../riscv/sail-riscv-patches/series). The Sail 0.14.1 emulator
+is built locally with compiler 0.20.2 and installed under an identity-keyed
+`.tools/` path. Linux downloads that compiler from a checksum-pinned release;
+macOS requires an explicit local compiler. The model build never edits the
+submodule, and changing its gitlink or patch bytes changes the emulator path.
 `arch-test-tests` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
 checked into the upstream test tree, so it must be generated through this same
@@ -324,6 +331,11 @@ Sail version. Keep the setup pin synchronized with that native check whenever
 the ACT submodule advances. The Sail 0.14.1 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
+The Sail patch gates writes through both `mie.SGEIE` and its `hie.SGEIE` alias
+when GEILEN is zero, matching the forced-zero `mideleg.SGEIP` bit. Keep the
+positive GEILEN case writable. `arch-test-sail-test` compiles a small CSR probe
+and checks both configurations against the patched model; the RVA23 ACT shards
+then exercise generated reference signatures against the DUT.
 
 For H profiles, also project guest translation modes, VMID width, GEILEN,
 H counter enables, VS trap-vector modes, guest-fault reporting, and the nested
@@ -336,8 +348,8 @@ with a scalar or non-H reference profile to make a lane pass.
 bound from one to zero. The ACT-local UDB copy references this supported
 overlay mechanism; its extension list and parameter values are unchanged.
 Remove the correction when the pinned UDB accepts legal zero-GEILEN harts.
-The active [GEILEN=0 CSR mismatch plan](arch-test/PLAN.md) tracks reference
-expectations separately from execution-shard scheduling.
+The active [GEILEN=0 validation plan](arch-test/PLAN.md) tracks the remaining
+full-shard result separately from this reference-model correction.
 The overlay also removes UDB's erroneous Shvstvala requirement that EBREAK
 report its PC: the profile explicitly exempts EBREAK/C.EBREAK. All other
 trap-value requirements remain enforced, and DUT reporting choices stay intact.
@@ -577,8 +589,11 @@ summary against the full generated inventory. Never interpret an empty or partia
 suite as success, and preserve the upstream runner's nonzero status independently
 of reporting. Failed generation must stop before DUT execution.
 
-ACT generation runs once per single-core configuration in CI, separately from
-the native simulator builds. It publishes a checksum-verified archive with
+CI builds the patched Sail model once in `arch-sail`, caches it by gitlink,
+patch series, compiler version, and installer, then distributes the exact-commit
+model artifact to the ACT generation matrix. ACT generation runs once per
+single-core configuration, separately from the native simulator builds. It
+publishes a checksum-verified archive with
 dereferenced ELF contents, so reference build paths and upstream symlinks
 cannot leak into consumers. Four execution jobs per configuration, except eight
 for RV5Stage RVA23, need only the native simulator, Python, and upstream

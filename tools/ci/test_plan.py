@@ -53,6 +53,8 @@ class PlanTest(unittest.TestCase):
             "sw/build/build-embench.py": (["embench"], False),
             "sw/build/build-bringup-bench.py": (["bringup"], False),
             "sims/arch-test/configure.py": ([], True),
+            "riscv/sail-riscv": ([], True),
+            "riscv/sail-riscv-patches/0001-mask-sgeie-when-geilen-is-zero.patch": ([], True),
         }
         for path, (native, arch) in cases.items():
             with self.subTest(path=path):

@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Mask SGEIE when no guest external interrupts exist
+Purpose: Keeps the mie/hie alias read-only zero when GEILEN is zero.
+SPDX-License-Identifier: BSD-2-Clause
+
+diff --git a/model/core/interrupt_regs.sail b/model/core/interrupt_regs.sail
+--- a/model/core/interrupt_regs.sail
++++ b/model/core/interrupt_regs.sail
+@@ -110,7 +110,7 @@ private function legalize_mie(o : Minterrupts, v : xlenbits) -> Minterrupts = {
+     SEI  = if currentlyEnabled(Ext_S) then v[SEI] else 0b0,
+     STI  = if currentlyEnabled(Ext_S) then v[STI] else 0b0,
+     SSI  = if currentlyEnabled(Ext_S) then v[SSI] else 0b0,
+-    SGEI = if currentlyEnabled(Ext_H) then v[SGEI] else 0b0,
++    SGEI = if currentlyEnabled(Ext_H) & geilen > 0 then v[SGEI] else 0b0,
+     VSEI = if currentlyEnabled(Ext_H) then v[VSEI] else 0b0,
+     VSTI = if currentlyEnabled(Ext_H) then v[VSTI] else 0b0,
+     VSSI = if currentlyEnabled(Ext_H) then v[VSSI] else 0b0,
+@@ -326,7 +326,7 @@ private function legalize_hie(m : Minterrupts, v : xlenbits) -> Minterrupts = {
+   let v = Mk_Minterrupts(v);
+   supported_interrupts_mask([m with
+-    SGEI = v[SGEI],
++    SGEI = if currentlyEnabled(Ext_H) & geilen > 0 then v[SGEI] else 0b0,
+     VSEI = v[VSEI],
+     VSTI = v[VSTI],
+     VSSI = v[VSSI],
+   ])

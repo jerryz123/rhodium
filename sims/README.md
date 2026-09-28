@@ -679,7 +679,11 @@ CI also runs the focused two-, four-, and eight-hart benchmarks on both Tiled co
 The ACT4 integration selects suites from the configured core's UDB description.
 It uses the [generated UDB catalog](../socs/README.md#risc-v-udb-configuration-catalog)
 to select the DUT architecture and Sail to compute expected results. Install
-Python 3.10+, Ruby 3.2+ with Bundler, and GCC 15+ with Binutils 2.44+ first:
+Python 3.10+, Ruby 3.2+ with Bundler, GCC 15+ with Binutils 2.44+, CMake,
+and GMP development headers first. On macOS, also install the
+[Sail 0.20.2 compiler](https://github.com/rems-project/sail/blob/sail2/INSTALL.md)
+and set `SAIL_COMPILER` to its executable path; Linux setup downloads
+a checksum-pinned compiler automatically:
 
 ```sh
 make -C sims arch-test-setup
@@ -693,10 +697,12 @@ Spike ACT retains the full selected ISA and reports known Sail reference-model
 differences without filtering affected tests; see the [Spike guide](../cores/spike/README.md).
 
 Set `PYTHON=/path/to/python3` for setup if the default Python is too old. Setup
-initializes the pinned `sw/riscv-arch-test` submodule, installs Python and
-Ruby dependencies under `.tools/`, and downloads checksum-verified Sail 0.14.1
-for Apple Silicon macOS or x86-64/AArch64 Linux. Normal simulator dependencies
-are still required; see [Build a simulator](#build-a-simulator).
+initializes the pinned `sw/riscv-arch-test` and `riscv/sail-riscv` submodules,
+installs Python and Ruby dependencies under `.tools/`, and builds the Sail
+0.14.1 model from the pristine submodule plus its ordered
+[`patch series`](../riscv/sail-riscv-patches/series). The model lives in an
+identity-keyed `.tools/` directory, not in the submodule checkout. Normal
+simulator dependencies are still required; see [Build a simulator](#build-a-simulator).
 On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
 working around the pinned UDB installer's Linux-only library download.
 
@@ -726,6 +732,10 @@ Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
 `ACT_SAIL`, `ACT_VENV`, `ACT_TESTGEN`, `ACT_PATCH_SERIES`, and
 `ACT_BUNDLE_PATH` select installed tool locations or inputs.
+`SAIL_COMPILER` selects a locally installed Sail 0.20.2 compiler, and
+`SAIL_BUILD_JOBS` controls model build parallelism. After setup,
+`make -C sims arch-test-sail-test SOC=simple-rv5stage-rva23` checks the
+GEILEN-dependent `mideleg`/`mie`/`hie` SGEIE alias in the configured model.
 The adapter also writes `results.json` and `junit.xml` beside ACT's `summary.log`,
 accounting for every generated ELF and rejecting missing results.
 For distributed execution, `arch-test-run ACT_SHARDS=4 ACT_SHARD=0` runs the
