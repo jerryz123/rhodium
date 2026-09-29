@@ -28,9 +28,9 @@ request unaccepted; the core retains its hint across replay.
 | Property | Current contract |
 |---|---|
 | Translation modes | RV64 Bare or Sv39; RV32 always Bare |
-| Translation caches | Separate eight-entry, fully associative ITLB and DTLB |
+| Translation caches | Separate eight-entry, fully associative ITLB and DTLB; one exact-request instruction page-fault outcome |
 | Page sizes | 4 KiB, 2 MiB, and 1 GiB Sv39 leaves; optional 64 KiB Svnapot mappings |
-| Miss service | One shared, serialized walk; pending WB vector prechecks precede instruction misses, which precede ordinary data misses |
+| Miss service | One shared, serialized walk; pending WB vector prechecks precede eligible instruction misses, which precede ordinary data misses. A replay-blocked younger fetch does not block data translation |
 | Page-table traffic | One 64-bit physical load at a time through the ordinary data-memory path |
 | Data-miss recovery | A miss starts the walker and leaves the WB request unaccepted; the core refetches it through ordered replay |
 | Permission policy | Recheck access kind, current effective privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit |
@@ -108,9 +108,14 @@ reissues the oldest failed PC; the MMU has no instruction request, retry, or
 owner FIFO.
 `s1_kill` cancels younger resolution and walk initiation without canceling an
 older S2 outcome or an accepted walk. `flush` also detaches speculative fault
-ownership. A request transferred together with `flush` belongs to the new
-fetch epoch: it launches the virtual lookup immediately and replaces, rather
-than clears, the MMU's S1 context.
+ownership. An accepted instruction walk may still cache a page- or guest-page-fault
+outcome for an identical later request; only that later live fetch can report it.
+Translation invalidation clears this outcome. The core presents its persistent
+replay owner as `instruction_replay_owner: Valid(Bits(XLEN))`; while valid, only
+fetch words needed to refetch that instruction may start new instruction walks.
+Other misses replay until the owner resolves. A request transferred together
+with `flush` belongs to the new fetch epoch: it launches the virtual lookup
+immediately and replaces, rather than clears, the MMU's S1 context.
 
 For authorized fallback transactions, the arbiter selects the matching
 `core_lookup` or `walker_lookup` Valid early index with the physical request.
@@ -154,7 +159,9 @@ flowchart LR
   DEVICE --> ARB
   ARB --> LSU
 
-  PTW -->|"page or access fault"| FAULT["Address-correlated fault latch"]
+  PTW -->|"live page or access fault"| FAULT["Address-correlated fault latch"]
+  PTW -->|"instruction page fault"| IFAULT["Exact-request fault outcome"]
+  IFAULT --> ILOOKUP
   FAULT --> IORDER
   FAULT --> LSU
 ```

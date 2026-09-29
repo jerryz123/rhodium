@@ -39,6 +39,8 @@ sync_circuit RV5StageMmuDataPortFixture():
   input pbmte: Bool
   input invalidate_all: Bool
   input ordered_busy: Bool
+  input replay_pending: Bool
+  input replay_pc: Bits(64)
 
   inst mmu(RV5StageMmu(xlen, RV5StageMmuMode.Sv39, test_rv5stage_chi_config.physical_map, ~svnapot: #true))
   inst arbiter(RV5StageDataPortArbiter(xlen, slots))
@@ -72,6 +74,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   mmu.satp <== satp
   mmu.invalidate_all <== invalidate_all
   mmu.ordered_busy <== ordered_busy
+  inject_flow(Valid(Bits(64)), ~valid: replay_pending, ~bits: replay_pc) |> mmu.instruction_replay_owner
 
 export:
   RV5StageMmuDataPortFixture

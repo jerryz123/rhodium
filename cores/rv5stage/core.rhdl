@@ -109,6 +109,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   input hart_id: Bits(width)
   input time_counter: Bits(64)
   interface frontend_control(RV5StageFrontendControl(xlen), ~role: core)
+  interface instruction_replay_owner(Valid(Bits(width)), ~role: producer)
   interface packets(Decoupled(RV5StageFetchPacket(xlen, hypervisor)), ~role: consumer)
   interface data_access(if hypervisor | RV5StageGuestDataAccess(xlen, vector_completion_slots) | RV5StageDataAccess(xlen, vector_completion_slots), ~role: requester)
   input request_fault_address: Bits(width)
@@ -445,6 +446,20 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def mem_exception_event = mem_to_if_exception_link.right.valid
   def mem_replay_event = mem_to_if_replay_link.right.valid
   def mem_redirect = mem_to_if_redirect_link.right.valid
+  // A MEM/WB replay remains the fetch owner until that instruction commits or
+  // traps. Younger instruction walks may not keep stealing its L1D lookup.
+  reg replay_owner_valid(~init: Bool(#false))
+  reg replay_owner_pc(Bits(width))
+  when mem_replay_event:
+    replay_owner_valid <== Bool(#true)
+    replay_owner_pc <== mem_to_if_replay_link.right.bits
+  elsewhen wb_commit_replay:
+    replay_owner_valid <== Bool(#true)
+    replay_owner_pc <== wb_commit_bits.pc
+  elsewhen (wb_csrs.redirect.valid ||| (wb_commit_valid & (wb_commit_bits.pc === replay_owner_pc))):
+    replay_owner_valid <== Bool(#false)
+  instruction_replay_owner.valid <== replay_owner_valid
+  instruction_replay_owner.bits <== replay_owner_pc
   def ex_older_squash = mem_exception_event ||| mem_replay_event ||| mem_redirect ||| wb_commit_redirect
   def ex_transfer = ex_input.valid & !ex_older_squash
   def Array(wb_trap_restart, wb_trap_predictor_flush) = wb_csrs.redirect |> fork_valid(2)

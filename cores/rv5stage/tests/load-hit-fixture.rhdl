@@ -70,6 +70,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   mmu.satp <== core.satp
   mmu.invalidate_all <== core.translation_flush
   mmu.ordered_busy <== router.ordered_busy
+  inject_flow(Valid(Bits(64)), ~valid: Bool(#false), ~bits: bits(0, 64)) |> mmu.instruction_replay_owner
   core.prefetch |> mmu.prefetch
   mmu.physical_prefetch |> cache.prefetch
   mmu.instruction.request.valid <== Bool(#false)

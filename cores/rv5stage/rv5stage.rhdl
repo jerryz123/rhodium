@@ -140,6 +140,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   core.frontend_control |> frontend.control
   frontend.packets |> core.packets
   frontend.memory |> mmu.instruction
+  core.instruction_replay_owner |> mmu.instruction_replay_owner
   core.data_access |> mmu.data
   core.request_fault_address <== mmu.request_fault_address
   core.pipeline_access |> mmu.pipeline

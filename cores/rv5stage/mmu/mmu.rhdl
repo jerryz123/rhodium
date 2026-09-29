@@ -63,6 +63,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   input pbmte: Bool
   input invalidate_all: Bool
   input ordered_busy: Bool
+  interface instruction_replay_owner(Valid(Bits(width)), ~role: consumer)
 
   unless (!hypervisor) || (xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39)
   | error(~who: #'RV5StageMmu, "guest translation requires the RV64 Sv39 MMU")
@@ -76,6 +77,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   inst dtlb(RV5StageTranslationTlb(tlb_entries))
   inst walker(RV5StageTranslationWalker(~svnapot: svnapot))
   def itlb_result = rv5stage_host_result(itlb.translation)
+  // A detached fetch must not trap, but a completed page fault is reusable
+  // translation evidence until architectural invalidation. Keep its exact
+  // guest-fault metadata separate from successful ITLB mappings and probes.
+  reg instruction_fault_cached(~init: Bool(#false))
+  reg instruction_fault_lookup(RV5StageTlbLookup())
+  reg instruction_fault_mapping(RV5StageTlbMapping())
   def dtlb_result = rv5stage_host_result(dtlb.translation)
   inst vector_window(RV5StageVectorWindow(physical_map))
   inst misaligned(RV5StageMisalignedEngine(xlen, vector_completion_slots))
@@ -301,12 +308,20 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     |> map_valid(_request => pipeline_result)
   Array(cache_result, translation_result) |> valid_arbiter() |> pipeline.response
   def can_start_walk = !walk_active & !fault_valid
-  def instruction_miss = instruction_s1_valid & instruction_translation_enabled & !itlb.hit
+  def instruction_fault_cache_hit = instruction_fault_cached & (instruction_fault_lookup.as_bits() === itlb.lookup.as_bits())
+  // A replaying older instruction may need its own fetch (including a
+  // straddling word), but speculative successors must not repeatedly occupy
+  // the shared walker before that instruction resolves.
+  def replay_first_word = instruction_replay_owner.bits.align_down(4)
+  def replay_last_word = (instruction_replay_owner.bits + bits(3, width)).align_down(4)
+  def replay_owner_fetch = (instruction_address === replay_first_word) ||| (instruction_address === replay_last_word)
+  def instruction_walk_allowed = !instruction_replay_owner.valid ||| replay_owner_fetch
+  def instruction_miss = instruction_s1_valid & instruction_translation_enabled & !itlb.hit & !instruction_fault_cache_hit
   def data_miss = data.request.valid & !data_pinned & data_translation_enabled & !dtlb.hit
   def split_second_miss = split_candidate & split_second_page & data_translation_enabled & !data_physical & dtlb.hit & !dtlb_result.fault & !dtlb_result.access_fault & !dtlb.probe_raw_hit
   def start_probe_walk = can_start_walk & !invalidate_all & probe_selected & !dtlb.hit
-  def start_instruction_walk = can_start_walk & !start_probe_walk & instruction_miss
-  def start_data_walk = can_start_walk & !start_probe_walk & !instruction_miss & data_miss
+  def start_instruction_walk = can_start_walk & !start_probe_walk & instruction_miss & instruction_walk_allowed
+  def start_data_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & data_miss
   def start_split_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & !start_data_walk & split_second_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_split_walk ||| start_probe_walk
   walker.request.bits <== mux(start_split_walk, split_probe, mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup))
@@ -337,6 +352,13 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
   instruction_fill |> filter_valid(_completion => !walk_is_data & !walk_is_probe) |> itlb.fill
   data_fill |> filter_valid(_completion => walk_is_data ||| walk_is_probe) |> dtlb.fill
+  def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_one_of(RV5StageTranslationFault.PageFault, RV5StageTranslationFault.GuestPageFault)
+  when invalidate_all:
+    instruction_fault_cached <== Bool(#false)
+  elsewhen cache_instruction_page_fault:
+    instruction_fault_cached <== Bool(#true)
+    instruction_fault_lookup <== walk_lookup
+    instruction_fault_mapping <== walker.completion.bits
 
   def latched_instruction_fault = fault_valid & !fault_is_data & (fault_address === instruction_virtual_address)
   def latched_data_fault = fault_valid & fault_is_data & (fault_address === data_virtual_address)
@@ -344,7 +366,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def split_probe_page_fault = split_candidate & split_second_page & !data_physical & dtlb.probe_raw_hit & split_probe_result.fault
   def split_probe_access_fault = split_candidate & split_second_page & !data_physical & dtlb.probe_raw_hit & split_probe_result.access_fault
   def instruction_page_fault = instruction_translation_enabled & (
-    (itlb.hit & itlb_result.fault) ||| (latched_instruction_fault & !fault_is_access)
+    (itlb.hit & itlb_result.fault) ||| instruction_fault_cache_hit ||| (latched_instruction_fault & !fault_is_access)
   )
   def data_page_fault = !data_pinned & data_translation_enabled & (
     (dtlb.hit & dtlb_result.fault) ||| (latched_data_fault & !fault_is_access) ||| split_probe_page_fault ||| (latched_split_fault & !fault_is_access)
@@ -363,7 +385,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
     RiscvGuestException():
       page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault
       details: mapping.fault_details.updated(~guest_virtual_address: guest)
-  def instruction_guest_exception = guest_exception(mux(latched_instruction_fault, fault_mapping, itlb.translation), instruction_guest)
+  def instruction_guest_exception = guest_exception(mux(instruction_fault_cache_hit, instruction_fault_mapping, mux(latched_instruction_fault, fault_mapping, itlb.translation)), instruction_guest)
   if hypervisor
   | block:
       output request_guest_fault: RiscvGuestException()
@@ -371,7 +393,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       request_guest_fault <== guest_exception(request_fault_mapping, normal_data_guest ||| (request_mode =/= RiscvGuestMemoryAccess.Normal))
       pipeline_guest_fault <== guest_exception(dtlb.translation, normal_data_guest ||| (load_mode.bits =/= RiscvGuestMemoryAccess.Normal))
   | #void
-  def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| latched_instruction_fault
+  def instruction_lookup_ready = !instruction_translation_enabled ||| itlb.hit ||| instruction_fault_cache_hit ||| latched_instruction_fault
   def instruction_physical_address = if xlen == XLen.X32 | instruction_address | mux(
     instruction_translation_enabled,
     itlb.translation.physical_address.zext(64),

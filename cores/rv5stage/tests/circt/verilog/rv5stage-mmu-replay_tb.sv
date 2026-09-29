@@ -104,6 +104,8 @@ module rv5stage_mmu_replay_tb;
   pipeline_out_t pipeline_out, pipeline_memory_in;
   pipeline_request_t pipeline_lookup_out;
   logic ordered_busy=0;
+  logic replay_pending=0;
+  logic [63:0] replay_pc=0;
   instruction_memory_in_t instruction_memory_in;
   data_memory_in_t data_memory_in;
   prefetch_t prefetch_in;
@@ -140,6 +142,8 @@ module rv5stage_mmu_replay_tb;
   logic [31:0] instruction_return_word;
   integer instruction_requests_seen = 0;
   integer instruction_responses_seen = 0;
+  integer instruction_physical_responses_seen = 0;
+  logic instruction_fault_expected = 0;
   logic instruction_translation_phase = 1'b0;
   integer instruction_pte_requests = 0;
   logic detached_walk_phase = 0;
@@ -380,9 +384,15 @@ module rv5stage_mmu_replay_tb;
         instruction_requests_seen <= instruction_requests_seen + 1;
       end
       if (instruction_out.response.valid && !instruction_out.response.bits.replay) begin
-        assert (instruction_out.response.bits.response.word == 32'h100 + 32'(instruction_responses_seen) &&
-                !instruction_out.response.bits.response.page_fault && !instruction_out.response.bits.response.access_fault)
-          else $fatal(1, "registered instruction response lost its owner");
+        if (instruction_fault_expected) begin
+          assert (instruction_out.response.bits.response.page_fault && !instruction_out.response.bits.response.access_fault)
+            else $fatal(1, "live retry did not receive the cached instruction page fault");
+        end else begin
+          assert (instruction_out.response.bits.response.word == 32'h100 + 32'(instruction_physical_responses_seen) &&
+                  !instruction_out.response.bits.response.page_fault && !instruction_out.response.bits.response.access_fault)
+            else $fatal(1, "registered instruction response lost its owner: word=%h page_fault=%b access_fault=%b responses=%0d ptes=%0d manual=%0d detached=%b address=%h", instruction_out.response.bits.response.word, instruction_out.response.bits.response.page_fault, instruction_out.response.bits.response.access_fault, instruction_responses_seen, instruction_pte_requests, manual_pte_requests, detached_walk_phase, instruction_address);
+          instruction_physical_responses_seen <= instruction_physical_responses_seen + 1;
+        end
         instruction_responses_seen <= instruction_responses_seen + 1;
       end
     end
@@ -575,19 +585,31 @@ module rv5stage_mmu_replay_tb;
             instruction_requests_seen == fetches_before && instruction_responses_seen == responses_before)
       else $fatal(1, "detached walk duplicated PTE traffic or completed a squashed fetch");
 
-    // Success must have warmed the ITLB. A detached fault must instead allow
-    // a fresh walk, not strand the sole fault latch or report a stale fault.
+    // Success warms the ITLB. A detached page fault is cached as a translation
+    // outcome but belongs architecturally only to a later live fetch.
     @(negedge clock);
     instruction_address = VIRTUAL_ADDRESS;
     instruction_request_valid = 1;
     tick();
     @(negedge clock); instruction_request_valid = 0;
     if (fault) begin
+      instruction_fault_expected = 1;
+      tick();
+      assert (instruction_out.response.valid && !instruction_out.response.bits.replay &&
+              instruction_out.response.bits.response.page_fault && manual_pte_requests == ptes_before + 3)
+        else $fatal(1, "live retry did not reuse the detached page-fault outcome");
+      tick();
+      @(negedge clock); instruction_fault_expected = 0;
+      // SFENCE drops the outcome, so the next fetch must walk again.
+      invalidate_all = 1;
+      tick();
+      @(negedge clock); invalidate_all = 0;
+      instruction_request_valid = 1;
+      tick();
+      @(negedge clock); instruction_request_valid = 0;
       wait (data_memory_out.request.valid);
-      assert (data_memory_out.request.bits.memory.address == 64'h1000 &&
-              (!instruction_out.response.valid || instruction_out.response.bits.replay))
-        else $fatal(1, "detached fault survived into a new fetch");
-      // No PTE has been accepted for this new walk; invalidate it explicitly.
+      assert (data_memory_out.request.bits.memory.address == 64'h1000)
+        else $fatal(1, "SFENCE did not invalidate the cached page fault");
       instruction_flush = 1;
       invalidate_all = 1;
       tick();
@@ -1119,6 +1141,9 @@ module rv5stage_mmu_replay_tb;
 
     // A real ITLB miss returns replay while one walk owns its PTE traffic.
     // Explicit retries of both words must reuse the resulting translation.
+    // The earlier wrong-path walk saw an invalid PTE for 0x5000; the model now
+    // supplies a mapping, so invalidate that cached fault before retrying.
+    clear_translations();
     @(negedge clock);
     instruction_translation_phase = 1;
     satp = SATP_SV39_ROOT_1;
@@ -1169,7 +1194,60 @@ module rv5stage_mmu_replay_tb;
     for (int flush_at = 0; flush_at < 6; flush_at++) finish_detached_walk(flush_at);
     finish_detached_walk(3, 1); // Fault discovered after an earlier redirect.
     finish_detached_walk(5, 1); // Redirect coincides with fault completion.
+    // An older replay may refetch a straddling instruction, but a younger
+    // speculative page cannot start another walk before that owner resolves.
+    clear_translations();
+    @(negedge clock);
+    replay_pending = 1;
+    replay_pc = 64'h2ffe;
+    memory_ready = 0;
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock); instruction_request_valid = 0;
+    tick();
+    assert (instruction_out.response.valid && instruction_out.response.bits.replay && !data_memory_out.request.valid)
+      else $fatal(1, "younger fetch walked during an older replay");
+    @(negedge clock);
+    instruction_address = 64'h3000;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock); instruction_request_valid = 0;
+    wait (data_memory_out.request.valid);
+    assert (data_memory_out.request.bits.memory.address == 64'h1000)
+      else $fatal(1, "straddling replay owner could not start its fetch walk");
+    instruction_flush = 1;
+    invalidate_all = 1;
+    tick();
+    @(negedge clock);
+    instruction_flush = 0;
+    invalidate_all = 0;
+    replay_pending = 0;
     check_canceled_pte_reply();
+    // Suppressing a younger instruction walk must leave the shared walker
+    // available to translate the replaying instruction's data access.
+    clear_translations();
+    @(negedge clock);
+    replay_pending = 1;
+    replay_pc = 64'h2ffc;
+    instruction_address = VIRTUAL_ADDRESS;
+    instruction_request_valid = 1;
+    tick();
+    @(negedge clock);
+    instruction_request_valid = 0;
+    data_request_valid = 1;
+    tick();
+    assert (data_memory_out.request.valid && data_memory_out.request.bits.memory.address == 64'h1000)
+      else $fatal(1, "younger fetch blocked the replay owner's data translation");
+    @(negedge clock);
+    data_request_valid = 0;
+    instruction_flush = 1;
+    invalidate_all = 1;
+    tick();
+    @(negedge clock);
+    instruction_flush = 0;
+    invalidate_all = 0;
+    replay_pending = 0;
     detached_walk_phase = 0;
     instruction_phase = 0;
     instruction_translation_phase = 0;

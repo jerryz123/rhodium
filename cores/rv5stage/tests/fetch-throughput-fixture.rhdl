@@ -72,6 +72,7 @@ sync_circuit RV5StageFetchThroughput():
   mmu.satp <== bits(0, 64)
   mmu.invalidate_all <== Bool(#false)
   mmu.ordered_busy <== Bool(#false)
+  inject_flow(Valid(Bits(64)), ~valid: Bool(#false), ~bits: bits(0, 64)) |> mmu.instruction_replay_owner
   mmu.prefetch.valid <== Bool(#false)
   mmu.prefetch.bits <== literal(CachePrefetchReq(64), 0)
   mmu.data.request.valid <== Bool(#false)

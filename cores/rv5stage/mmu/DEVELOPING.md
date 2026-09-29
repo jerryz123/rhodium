@@ -35,7 +35,7 @@ This is response correlation, not whole-port ownership.
 | [`translation.rhdl`](translation.rhdl) | Shared host/guest lookup, mapping, fill, PTE-memory contracts, and host-port value projections |
 | [`../tests/translation-service.rhdl`](../tests/translation-service.rhdl) | Test-only serialized command driver for the shared TLB/walker |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, misaligned access preflight, physical checks, and separate core/PTE physical offers |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, misaligned access preflight, physical checks, and separate core/PTE physical offers |
 | [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word physical fragment sequencing, original-owner retention, load assembly, and single-completion return after MMU preflight |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
@@ -97,10 +97,14 @@ invalidate translations or cancel accepted page-table response ownership.
    explicit `RV5StageDataOrigin`, not by writeback kind or address. The shared walker's
    drain state prevents a canceled reply from satisfying a later walk.
    Ordinary fetch recovery detaches the instruction consumer without resetting
-   the walker or an accepted PTE request. Retain successful ITLB fills, but
-   suppress fault capture for the detached consumer, including a flush on the
-   completion edge. Keep this distinct from architectural invalidation and from clearing an
-   already-latched instruction fault.
+   the walker or an accepted PTE request. Retain successful ITLB fills and
+   exact-request instruction page-fault outcomes, but suppress architectural
+   fault capture for the detached consumer, including a flush on the completion
+   edge. Do not cache PTE access faults or expose a fault outcome as a successful
+   translation or prefetch probe. Invalidate retained outcomes with the ITLB.
+   A core replay owner may refetch both words of its own instruction; defer
+   younger instruction walks until that owner commits or traps. Keep this distinct
+   from architectural invalidation and from clearing an already-latched fault.
 5. Recheck current privilege, `SUM`, `MXR`, `A`, and `D` on every TLB hit; do
    not cache a prior permission decision.
    The explicit exception is a certified vector macro: `vector-window.rhdl`
