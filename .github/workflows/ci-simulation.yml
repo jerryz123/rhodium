@@ -1,4 +1,4 @@
-# Runs each SoC product independently plus OpenSBI qualification.
+# Runs each SoC product and each OpenSBI qualification independently.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI simulation
@@ -224,9 +224,13 @@ jobs:
           retention-days: 7
 
   opensbi:
-    name: SoC OpenSBI qualification
+    name: ${{ matrix.soc }} OpenSBI qualification
+    strategy:
+      fail-fast: false
+      matrix:
+        soc: [simple-rv5stage-rva23, simple-spike-rva23]
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -253,37 +257,28 @@ jobs:
         uses: ./.github/actions/setup-fesvr
       - name: Test OpenSBI target adapter
         run: make -C sims opensbi-adapter-test
-      - name: Download exact SingleCoreRV5StageSoC simulator
+      - name: Download exact product simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: simple-rv5stage-rva23-${{ github.sha }}
-          path: ${{ runner.temp }}/simple-rv5stage-rva23
-      - name: Download exact SingleCoreSpikeSoC simulator
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: simple-spike-rva23-${{ github.sha }}
-          path: ${{ runner.temp }}/simple-spike-rva23
+          name: ${{ matrix.soc }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ matrix.soc }}
       - name: Restore simulator executable permission
-        run: |
-          chmod +x "$RUNNER_TEMP/simple-rv5stage-rva23/VTestDriver"
-          chmod +x "$RUNNER_TEMP/simple-spike-rva23/VTestDriver"
-      - name: Initialize and qualify pinned OpenSBI on both single-core SoCs
+        env:
+          SOC: ${{ matrix.soc }}
+        run: chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
+      - name: Initialize and qualify pinned OpenSBI
+        env:
+          SOC: ${{ matrix.soc }}
         run: |
           make -C sims opensbi-setup
-          status=0
-          for soc in simple-rv5stage-rva23 simple-spike-rva23; do
-            make -C sims opensbi-test SOC="$soc" \
-              OPENSBI_LLVM=/usr/bin \
-              PREBUILT_SIMULATOR="$RUNNER_TEMP/$soc/VTestDriver" || status=1
-          done
-          exit "$status"
+          make -C sims opensbi-test SOC="$SOC" \
+            OPENSBI_LLVM=/usr/bin \
+            PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver"
       - name: Publish OpenSBI diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: opensbi-${{ github.sha }}
-          path: |
-            /tmp/rhodium-software/simple-rv5stage-rva23/opensbi
-            /tmp/rhodium-software/simple-spike-rva23/opensbi
+          name: opensbi-${{ matrix.soc }}-${{ github.sha }}
+          path: /tmp/rhodium-software/${{ matrix.soc }}/opensbi
           if-no-files-found: warn
           retention-days: 7
