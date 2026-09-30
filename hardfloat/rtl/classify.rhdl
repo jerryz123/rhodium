@@ -1,5 +1,5 @@
 #lang rhodium
-// Classifies recoded values into the ten one-hot Berkeley HardFloat categories.
+/* Classifies recoded values into the ten one-hot Berkeley HardFloat categories. */
 // Derived from hardfloat/src/main/scala/classifyRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
@@ -8,6 +8,8 @@ import:
   "types.rhdl" open
   "recode.rhdl" open
 
+/* Decodes a recoded value into exactly one FloatClass category, using exponent
+   range for subnormals and the fraction's quiet bit for NaN classification. */
 fun classify(value :: RecFloat) :~ FloatClass:
   def format :: FloatFormat = value.type.format
   def raw = value.to_raw()

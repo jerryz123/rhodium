@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts recoded values to rounded fixed-width integers modulo a power of two.
+/* Converts recoded values to rounded fixed-width integers modulo a power of two. */
 // This Rhodium extension builds on the Berkeley HardFloat conversion representation and flags.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
 
@@ -9,10 +9,15 @@ import:
   "../round.rhdl" open
   "recfn-to-integer.rhdl" open
 
+/* Checks an unsigned exponent against a host threshold, yielding false for
+   an unrepresentable threshold instead of wrapping its constant encoding. */
 fun modulo_unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
   def width = value.type.packed_width()
   if constant >= (1 << width) | Bool(#false) | value >= bits(constant, width)
 
+/* Returns a rounded integer modulo 2^integer_width for finite inputs and zero
+   for NaN or infinity. Signedness affects ordinary conversion flags, which are
+   taken from the saturating converter rather than the wrapped result. */
 circuit RecFNToIntegerModulo(format :: FloatFormat, integer_width :: PosInt):
   unless integer_width >= 3
   | error(~who: #'RecFNToIntegerModulo, "integer width must be at least three")

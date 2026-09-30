@@ -6,6 +6,8 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 
+# Searches only Rhodium source files for forbidden imports, with a grep fallback
+# when ripgrep is unavailable.
 search_sources() {
   local pattern="$1"
   shift

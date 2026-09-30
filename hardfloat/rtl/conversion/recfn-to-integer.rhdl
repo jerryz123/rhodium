@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts Berkeley HardFloat recoded values to signed or unsigned fixed-width integers with IEEE rounding flags.
+/* Converts Berkeley HardFloat recoded values to signed or unsigned fixed-width integers with IEEE rounding flags. */
 // Derived from hardfloat/src/main/scala/RecFNToIN.scala at upstream commit c1105e6.
 // Copyright 2010-2018 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,18 +9,25 @@ import:
   "../recode.rhdl" open
   "../round.rhdl" open
 
+/* Compares an unsigned hardware value with a host constant, returning false
+   when the constant cannot be represented instead of truncating it. */
 fun unsigned_equal_host(value :: Bits, constant :: Nat) :~ Bool:
   def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
   | value === bits(constant, width)
 
+/* Checks an unsigned value against a host lower bound without wrapping an
+   out-of-range constant into the hardware operand width. */
 fun unsigned_at_least_host(value :: Bits, constant :: Nat) :~ Bool:
   def width = value.type.packed_width()
   if constant >= (1 << width)
   | Bool(#false)
   | value >= bits(constant, width)
 
+/* Combinationally rounds a recoded value to a dynamically signed or unsigned
+   integer. Invalid and out-of-range values select the corresponding saturation
+   limit; flags distinguish invalid, overflow, and successful inexact conversion. */
 circuit RecFNToInteger(format :: FloatFormat, integer_width :: PosInt):
   unless integer_width >= 3
   | error(~who: #'RecFNToInteger, "integer width must be at least three")

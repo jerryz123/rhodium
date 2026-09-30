@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts between Berkeley HardFloat recoded formats with narrowing handled by the shared rounder.
+/* Converts between Berkeley HardFloat recoded formats with narrowing handled by the shared rounder. */
 // Derived from hardfloat/src/main/scala/RecFNToRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2016 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,6 +9,9 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundAnyRawFNToRecFN
 
+/* Converts recoded formats combinationally. Equal-exponent precision widening
+   is exact wiring with signaling-NaN flagging; other changes use the shared
+   rounder for exponent range, precision, tininess, and exception handling. */
 circuit RecFNToRecFN(input_format :: FloatFormat,
                      output_format :: FloatFormat):
   input value: RecFloat(input_format)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements ISA-neutral IEEE minimum, maximum, minimumNumber, and maximumNumber over recoded values.
+/* Implements ISA-neutral IEEE minimum, maximum, minimumNumber, and maximumNumber over recoded values. */
 // This Rhodium extension builds on the Berkeley HardFloat recoded representation.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
 
@@ -8,6 +8,9 @@ import:
   "../recode.rhdl" open
   "compare.rhdl" open
 
+/* Selects an IEEE minimum/maximum variant combinationally, explicitly ordering
+   signed zeros and applying the selected NaN propagation or numeric preference.
+   Only signaling NaNs raise invalid. */
 circuit MinMaxRecFN(format :: FloatFormat):
   input a: RecFloat(format)
   input b: RecFloat(format)

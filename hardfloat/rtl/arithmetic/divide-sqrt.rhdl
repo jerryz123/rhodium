@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat's generic iterative recoded division and square-root unit.
+/* Implements Berkeley HardFloat's generic iterative recoded division and square-root unit. */
 // Derived from hardfloat/src/main/scala/DivSqrtRecFN_small.scala at upstream commit c1105e6.
 // Copyright 2017 SiFive, Inc.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,9 +9,12 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
+/* Selects the generic recurrence's compile-time throughput/logic tradeoff
+   without adding a runtime mode port. */
 class DivSqrtOptions(two_bits_per_cycle :: Boolean = #false):
   implements StableCircuitParam
 
+  /* Retains whether busy cycles may evaluate two recurrence bits instead of one. */
   constructor (two_bits_per_cycle :: Boolean = #false):
     super(two_bits_per_cycle)
 
@@ -23,6 +26,10 @@ namespace ~extend DivSqrtOptions:
     Default
     TwoBitsPerCycle
 
+/* Runs one active restoring division or square-root recurrence over raw
+   operands, computing a/b or sqrt(a). Accepts only ready/valid requests,
+   retains rounding mode, and emits nonbackpressured completion pulses; special
+   values take a shorter path and the optional second trial reduces busy cycles. */
 sync_circuit DivSqrtRawFN(format :: FloatFormat,
                           options :: DivSqrtOptions = DivSqrtOptions.Default):
   input input_valid: Bool
@@ -104,6 +111,9 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
   def even_square_root = square_root & !exponent_is_odd
   def odd_square_root = square_root & exponent_is_odd
 
+  /* The countdown controls admission and completion, with readiness restored
+     for the completion cycle. A following request may replace finished work;
+     there is no output queue or downstream-ready input. */
   def idle = cycle_number === bits(0, cycle_width)
   def entering = ready_state & input_valid
   def entering_normal = entering & normal_input
@@ -209,6 +219,8 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     remainder[0..=(significand_width + 1)]
   )
 
+  /* Two-bit mode chains a second trial from the first trial's decision,
+     updating both the accumulated significand and nonzero-remainder tracking. */
   def doubled_next_remainder = next_remainder.zext(significand_width + 3) << 1
   def second_trial_base = mux(
     square_root_state,
@@ -290,6 +302,8 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     remainder_state <== next_remainder_two
     significand_state <== next_significand
 
+  /* The raw result appends a sticky bit for a nonzero remainder. Completion
+     pulses qualify this state and the wrapper's combinational rounded result. */
   division_valid <== output_valid_state & !square_root_state
   square_root_valid <== output_valid_state & square_root_state
   rounding_mode_out <== rounding_mode_state
@@ -305,6 +319,8 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
       nonzero_remainder_state.as_bits().zext(significand_width + 3)
     )
 
+/* Decodes recoded operands for the generic raw recurrence while preserving
+   its admission, completion, exception, and saved-rounding-mode signals. */
 sync_circuit DivSqrtRecFNToRaw(format :: FloatFormat,
                                options :: DivSqrtOptions = DivSqrtOptions.Default):
   input input_valid: Bool
@@ -334,6 +350,9 @@ sync_circuit DivSqrtRecFNToRaw(format :: FloatFormat,
   infinite_exception <== operation.infinite_exception
   raw_out <== operation.raw_out
 
+/* Adds same-format rounding to the generic iterative unit's completion.
+   Rounding mode is retained with the request; tininess is supplied to the
+   combinational result rounder. Completion pulses cannot be backpressured. */
 sync_circuit DivSqrtRecFN(format :: FloatFormat,
                           options :: DivSqrtOptions = DivSqrtOptions.Default):
   input input_valid: Bool

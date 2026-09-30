@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts signed or unsigned fixed-width integers to rounded Berkeley HardFloat recoded values.
+/* Converts signed or unsigned fixed-width integers to rounded Berkeley HardFloat recoded values. */
 // Derived from hardfloat/src/main/scala/INToRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2016 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,6 +9,8 @@ import:
   "../round.rhdl".RoundAnyRawFNToRecFN
   "raw-from-integer.rhdl".raw_float_from_integer
 
+/* Combinationally normalizes a signed or unsigned integer and rounds it to the
+   requested floating-point format, specializing away impossible underflow. */
 circuit IntegerToRecFN(integer_width :: PosInt, format :: FloatFormat):
   unless integer_width >= 2
   | error(~who: #'IntegerToRecFN, "integer width must be at least two")

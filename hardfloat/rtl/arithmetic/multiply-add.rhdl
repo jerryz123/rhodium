@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat fused multiply-add preparation, combination, normalization, and rounding.
+/* Implements Berkeley HardFloat fused multiply-add preparation, combination, normalization, and rounding. */
 // Derived from hardfloat/src/main/scala/MulAddRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -11,14 +11,19 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
+/* Returns an equal-width bit vector unchanged or zero-extends it to the
+   requested working width. */
 fun fma_extend(value :: Bits, width :: PosInt) :~ Bits(width):
   if value.type.packed_width() == width
   | value
   | value.zext(width)
 
+/* Replicates a Boolean into a fixed-width mask for aligned complement terms. */
 fun fma_repeat(value :: Bool, count :: PosInt) :~ Bits(count):
   vec(for List (_index in 0..count): value).as_bits()
 
+/* Carries special-case tags, effective signs, exponent, and the high/sticky
+   parts of aligned c around the unrounded multiply-add datapath. */
 bundle MulAddIntermediate(exponent_width :: PosInt, significand_width :: PosInt):
   signaling_nan: Bool
   nan_a_or_b: Bool
@@ -37,6 +42,9 @@ bundle MulAddIntermediate(exponent_width :: PosInt, significand_width :: PosInt)
   high_aligned_c: Bits(significand_width + 2)
   aligned_c_bit_zero: Bool
 
+/* Decodes operands and sign controls, aligns c against the full product, and
+   emits multiplier operands plus sideband state. No product or addend is
+   rounded at this boundary. */
 circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
   input operation: MulAddOperation
   input a: RecFloat(format)
@@ -79,6 +87,8 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
       bits(significand_sum_width - 1, full_alignment_width)
     )
   )
+  /* Align c across the full fused-sum width, complementing subtraction terms
+     and preserving information below the multiplier's low addend slice. */
   def selected_c_significand = mux(subtract_magnitudes, !raw_c.significand, raw_c.significand)
   def aligned_c_source = (
     selected_c_significand
@@ -142,6 +152,9 @@ circuit MulAddRecFNToRawPreMultiply(format :: FloatFormat):
     high_aligned_c: aligned_c[((significand_width * 2) + 1)..significand_sum_width]
     aligned_c_bit_zero: aligned_c[0].into(Bool)
 
+/* Combines the unrounded multiply-add result with saved alignment state.
+   Selects c-dominant or cancellation-normalizing paths and emits raw state
+   with sticky information and invalid detection for one final rounding step. */
 circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
   input intermediate: MulAddIntermediate(format.exponent_width, format.significand_width)
   input multiply_add_result: Bits((format.significand_width * 2) + 1)
@@ -209,6 +222,8 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
       ++ (c_dominant_main[0..=2].or_reduce() ||| c_dominant_reduced_extra ||| c_dominant_extra)
   )
 
+  /* When c does not dominate, resolve the sum's sign and normalize possible
+     cancellation before reducing the tail to sticky information. */
   def non_dominant_sum_sign = significand_sum[(significand_width * 2) + 3].into(Bool)
   def non_dominant_absolute_sum = mux(
     non_dominant_sum_sign,
@@ -284,6 +299,8 @@ circuit MulAddRecFNToRawPostMultiply(format :: FloatFormat):
     signed_exponent: mux(intermediate.c_dominant, c_dominant_exponent, non_dominant_exponent)
     significand: mux(intermediate.c_dominant, c_dominant_significand, non_dominant_significand)
 
+/* Computes the selected signed a*b+c variant with a full product, aligned
+   addend, and one final rounding. All datapath stages are combinational. */
 circuit MulAddRecFN(format :: FloatFormat):
   input operation: MulAddOperation
   input a: RecFloat(format)

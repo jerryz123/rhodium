@@ -1,13 +1,12 @@
 #lang rhodium
-// Implements bit-level helper functions used by the Berkeley HardFloat algorithms.
+/* Implements bit-level helper functions used by the Berkeley HardFloat algorithms. */
 // Derived from hardfloat/src/main/scala/primitives.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
-// Produces the variable-width run of low-order ones used to select the active
-// rounding position. This is the direct truth-table form of upstream lowMask;
-// host elaboration builds one comparison per result bit instead of a wide
-// simulation-only arithmetic shifter.
+/* Produces the variable-width run of low-order ones used to select the active
+   rounding position. Host elaboration builds the upstream lowMask truth table
+   as one comparison per result bit, with checked bounds. */
 fun low_mask(value :: Bits,
              top_bound :: Nat,
              bottom_bound :: Nat) :~ Bits(if top_bound > bottom_bound | top_bound - bottom_bound | bottom_bound - top_bound):

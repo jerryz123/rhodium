@@ -1,5 +1,5 @@
 #lang rhodium
-// Normalizes a signed or unsigned fixed-width integer into Berkeley HardFloat's raw representation.
+/* Normalizes a signed or unsigned fixed-width integer into Berkeley HardFloat's raw representation. */
 // Derived from hardfloat/src/main/scala/rawFloatFromIN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -8,6 +8,9 @@ import:
   "../types.rhdl" open
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
+/* Normalizes a dynamically signed or unsigned integer into exact raw state.
+   Uses fixed-width magnitude and leading-zero count; zero is tagged explicitly
+   and the integer width must provide at least two bits. */
 fun raw_float_from_integer(signed_input :: Bool,
                            input :: Bits) :~ RawFloat(index_width(input.type.packed_width()) + 1, input.type.packed_width()):
   def integer_width = input.type.packed_width()

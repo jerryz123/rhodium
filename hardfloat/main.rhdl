@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes the supported public surface of the Rhodium Berkeley HardFloat port.
+/* Exposes the supported public surface of the Rhodium Berkeley HardFloat port. */
 // SPDX-License-Identifier: BSD-3-Clause; see LICENSE.md.
 
 import:

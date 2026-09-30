@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat raw and rounded recoded addition and subtraction.
+/* Implements Berkeley HardFloat raw and rounded recoded addition and subtraction. */
 // Derived from hardfloat/src/main/scala/AddRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -11,6 +11,9 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
+/* Computes an unrounded raw sum or difference with close-cancellation and
+   far-alignment paths. Preserves round/sticky information, handles special
+   values, and uses rounding mode to select the sign of exact cancellation. */
 circuit AddRawFN(format :: FloatFormat):
   input subtract: Bool
   input a: RawFloat(format.exponent_width, format.significand_width)
@@ -48,6 +51,8 @@ circuit AddRawFN(format :: FloatFormat):
     modular_alignment_distance <= bits(1, align_distance_width)
   )
 
+  /* Near-equal exponents on an effective subtraction use the close path so
+     large cancellation can be normalized without discarding significant bits. */
   def close_width = significand_width + 3
   def aligned_a = mux(
     !negative_exponent_difference & exponent_difference.as_bits()[0].into(Bool),
@@ -88,6 +93,8 @@ circuit AddRawFN(format :: FloatFormat):
   def close_total_cancellation = !close_significand[(significand_width + 1)..=(significand_width + 2)].or_reduce()
   def close_sign = a.sign ^ (signed_close_sum < sint(0, close_width))
 
+  /* The far path aligns the smaller magnitude and jams discarded bits into
+     sticky information before addition or subtraction. */
   def far_sign = mux(negative_exponent_difference, effective_sign_b, a.sign)
   def far_larger = mux(negative_exponent_difference, b.significand, a.significand)[0..significand_width]
   def far_smaller = mux(negative_exponent_difference, a.significand, b.significand)[0..significand_width]
@@ -153,6 +160,8 @@ circuit AddRawFN(format :: FloatFormat):
     signed_exponent: exponent_out
     significand: mux(close_subtraction, close_significand, far_significand)
 
+/* Adds or subtracts recoded operands combinationally, then rounds the raw
+   result once with the caller's rounding and tininess controls. */
 circuit AddRecFN(format :: FloatFormat):
   input subtract: Bool
   input a: RecFloat(format)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts among IEEE, recoded, and raw Berkeley HardFloat representations.
+/* Converts among IEEE, recoded, and raw Berkeley HardFloat representations. */
 // Derived from rawFloatFromFN.scala, recFNFromFN.scala, rawFloatFromRecFN.scala,
 // and fNFromRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
@@ -9,6 +9,8 @@ import:
   "types.rhdl" open
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
+/* Decodes IEEE fields and normalizes subnormal fractions into raw form,
+   retaining sign and special-value tags without rounding. */
 fun raw_float_from_ieee(value :: IEEEFloat) :~ RawFloat(value.type.format.exponent_width, value.type.format.significand_width):
   def format :: FloatFormat = value.type.format
   def exponent_width = format.exponent_width
@@ -49,6 +51,8 @@ fun raw_float_from_ieee(value :: IEEEFloat) :~ RawFloat(value.type.format.expone
     signed_exponent: adjusted_exponent.zext(exponent_width + 2).into(SInt(exponent_width + 2))
     significand: concat(bits(0, 1), !zero, mux(zero_exponent, subnormal_fraction, fraction))
 
+/* Packs a decoded IEEE value into the same format's recoded representation,
+   using exponent tags for zero, infinity, and NaN. */
 fun to_recoded(value :: IEEEFloat) :~ RecFloat(value.type.format):
   def format :: FloatFormat = value.type.format
   def raw = raw_float_from_ieee(value)
@@ -65,6 +69,8 @@ fun to_recoded(value :: IEEEFloat) :~ RecFloat(value.type.format):
       raw.significand[0..=(format.significand_width - 2)]
     ).into(RecFloat(format))
 
+/* Decodes recoded exponent tags and reconstructs the leading significand bit
+   without the subnormal normalization needed at an IEEE boundary. */
 fun raw_float_from_recoded(value :: RecFloat) :~ RawFloat(value.type.format.exponent_width, value.type.format.significand_width):
   def format :: FloatFormat = value.type.format
   def exponent_width = format.exponent_width
@@ -83,11 +89,15 @@ fun raw_float_from_recoded(value :: RecFloat) :~ RawFloat(value.type.format.expo
     signed_exponent: exponent.zext(exponent_width + 2).into(SInt(exponent_width + 2))
     significand: concat(bits(0, 1), !zero, packed_value[0..=(significand_width - 2)])
 
+/* Selects IEEE or recoded decoding from the nominal input type and returns
+   a raw value with the input format's exponent width and precision. */
 fun to_raw(value :: IEEEFloat || RecFloat) :~ RawFloat(value.type.format.exponent_width, value.type.format.significand_width):
   if value is_a IEEEFloat
   | raw_float_from_ieee(value)
   | raw_float_from_recoded(value)
 
+/* Restores IEEE exponent bias and denormalizes subnormal significands,
+   preserving sign and the recoded fraction's NaN payload bits. */
 fun to_ieee(value :: RecFloat) :~ IEEEFloat(value.type.format):
   def format :: FloatFormat = value.type.format
   def exponent_width = format.exponent_width
@@ -116,10 +126,12 @@ fun to_ieee(value :: RecFloat) :~ IEEEFloat(value.type.format):
   )
   concat(raw.sign, exponent, fraction).into(IEEEFloat(format))
 
+/* Detects a signaling NaN from a raw value's NaN tag and clear quiet bit. */
 fun is_signaling_nan(raw :: Hardware.packable) :~ Bool:
   def significand_width = raw.significand.type.packed_width() - 1
   raw.is_nan & !raw.significand[significand_width - 2].into(Bool)
 
+/* Constructs the format's positive canonical quiet NaN in recoded form. */
 fun canonical_recoded_nan(format :: FloatFormat) :~ RecFloat(format):
   concat(bits(0, 1), bits(7 << (format.exponent_width - 2), format.exponent_width + 1), bits(1 << (format.significand_width - 2), format.significand_width - 1)).into(RecFloat(format))
 

@@ -1,5 +1,5 @@
 #lang rhodium
-// Rounds recoded floating-point values to integral values in the same format.
+/* Rounds recoded floating-point values to integral values in the same format. */
 // This Rhodium extension composes the Berkeley HardFloat integer conversions without an unbounded datapath.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
 
@@ -9,6 +9,9 @@ import:
   "../conversion/integer-to-recfn.rhdl" open
   "../conversion/recfn-to-integer-modulo.rhdl" open
 
+/* Rounds to an integral floating-point value through bounded integer
+   conversions, bypassing already-integral values and infinities. Preserves
+   the sign of zero, quiets NaNs canonically, and optionally reports inexact. */
 circuit RoundToIntegralRecFN(format :: FloatFormat):
   input value: RecFloat(format)
   input rounding_mode: RoundingMode

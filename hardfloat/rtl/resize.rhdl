@@ -1,5 +1,5 @@
 #lang rhodium
-// Resizes Berkeley HardFloat raw values while preserving exponent saturation and significand sticky information.
+/* Resizes Berkeley HardFloat raw values while preserving exponent saturation and significand sticky information. */
 // Derived from hardfloat/src/main/scala/resizeRawFloat.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
@@ -7,12 +7,17 @@
 import:
   "types.rhdl" open
 
+/* Adjusts the signed raw exponent for a new recoded bias, widening first so
+   the bias difference cannot overflow the working representation. */
 fun adjusted_raw_exponent(in_exponent_width :: PosInt,
                           out_exponent_width :: PosInt,
                           exponent :: SInt(in_exponent_width + 2)) :~ SInt((if in_exponent_width > out_exponent_width | in_exponent_width | out_exponent_width) + 3):
   def result_width = (if in_exponent_width > out_exponent_width | in_exponent_width | out_exponent_width) + 3
   exponent.sext(result_width) + sint((1 << out_exponent_width) - (1 << in_exponent_width), result_width)
 
+/* Resizes raw arithmetic state without rounding: adjusts and saturates the
+   exponent, zero-extends significand precision when widening, and folds
+   discarded low bits into a sticky bit when narrowing. */
 fun resize_raw_float(in_exponent_width :: PosInt,
                      in_significand_width :: PosInt,
                      out_exponent_width :: PosInt,

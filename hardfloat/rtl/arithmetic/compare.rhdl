@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements ordered comparison over recoded Berkeley HardFloat values.
+/* Implements ordered comparison over recoded Berkeley HardFloat values. */
 // Derived from hardfloat/src/main/scala/CompareRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2016 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -8,6 +8,9 @@ import:
   "../types.rhdl" open
   "../recode.rhdl" open
 
+/* Computes ordered comparisons combinationally, treating signed zeros as equal
+   and NaNs as unordered. Signaling NaNs always raise invalid; signaling mode
+   also raises it for quiet NaNs. */
 circuit CompareRecFN(format :: FloatFormat):
   input a: RecFloat(format)
   input b: RecFloat(format)

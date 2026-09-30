@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat's shared raw-to-recoded rounding engines and exception flags.
+/* Implements Berkeley HardFloat's shared raw-to-recoded rounding engines and exception flags. */
 // Derived from hardfloat/src/main/scala/RoundAnyRawFNToRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
@@ -8,9 +8,12 @@ import:
   "types.rhdl" open
   "primitives.rhdl".low_mask
 
+/* Replicates a hardware Boolean into every lane of a fixed-width bit mask. */
 fun repeat_bool(value :: Bool, count :: PosInt) :~ Bits(count):
   vec(for List (_index in 0..count): value).as_bits()
 
+/* Computes magnitude increment from sign, retained parity, guard, and sticky
+   bits for nearest and directed modes; truncation and odd do not increment. */
 fun rounding_increment(rounding_mode :: RoundingMode,
                        sign :: Bool,
                        retained_lsb :: Bool,
@@ -19,9 +22,13 @@ fun rounding_increment(rounding_mode :: RoundingMode,
   def inexact = guard ||| sticky
   ((rounding_mode === RoundingMode.NearEven) & guard & (sticky ||| retained_lsb)) ||| ((rounding_mode === RoundingMode.NearMaximumMagnitude) & guard) ||| ((rounding_mode === RoundingMode.Minimum) & sign & inexact) ||| ((rounding_mode === RoundingMode.Maximum) & !sign & inexact)
 
+/* Requests setting the retained low bit for an inexact round-to-odd result. */
 fun rounding_force_odd(rounding_mode :: RoundingMode, inexact :: Bool) :~ Bool:
   (rounding_mode === RoundingMode.Odd) & inexact
 
+/* Combinationally rounds raw state into an independently sized recoded format.
+   Adjusts bias and precision, handles subnormal rounding and overflow, selects
+   canonical exceptional results, and reports the five floating-point flags. */
 circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
                              in_significand_width :: PosInt,
                              out_exponent_width :: PosInt,
@@ -69,6 +76,8 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
     | Bool(#false)
     | adjusted_significand[out_significand_width + 2].into(Bool)
 
+  /* The exponent-dependent mask chooses the retained precision for normal or
+     subnormal results; its boundary separates the round bit from the sticky tail. */
   def round_mask :: Bits(out_significand_width + 3):
     if never_underflows
     | concat(bits(0, out_significand_width), shift_significand_down, bits(3, 2))
@@ -152,6 +161,9 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
       )
   def common_inexact = common_total_underflow ||| any_round
 
+  /* Special inputs and explicit arithmetic exceptions override the finite
+     rounded result. Numeric overflow, underflow, and inexact apply only to
+     the ordinary finite case, with overflow also reporting inexact. */
   def is_nan_out = invalid_exception ||| raw.is_nan
   def special_infinite_out = infinite_exception ||| raw.is_infinite
   def common_case = !is_nan_out & !special_infinite_out & !raw.is_zero
@@ -206,6 +218,8 @@ circuit RoundAnyRawFNToRecFN(in_exponent_width :: PosInt,
     underflow: underflow
     inexact: inexact
 
+/* Specializes the general rounder for same-format arithmetic carrying two
+   extra significand bits, forwarding controls and exception inputs unchanged. */
 circuit RoundRawFNToRecFN(format :: FloatFormat,
                           options :: RoundingOptions = RoundingOptions.Default):
   input invalid_exception: Bool

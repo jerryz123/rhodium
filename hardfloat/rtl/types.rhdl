@@ -1,12 +1,15 @@
 #lang rhodium
-// Defines host format parameters and packed hardware types for the Berkeley HardFloat port.
+/* Defines host format parameters and packed hardware types for the Berkeley HardFloat port. */
 // Derived from hardfloat/src/main/scala/common.scala at upstream commit c1105e6.
 // Copyright 2010-2018 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../LICENSE.md.
 
+/* Defines a stable host specialization parameter for exponent width and
+   precision, including the implicit leading significand bit. */
 class FloatFormat(exponent_width :: PosInt, significand_width :: PosInt):
   implements StableCircuitParam
 
+  /* Checks the upstream HardFloat format limits before retaining the widths. */
   constructor (exponent_width :: PosInt, significand_width :: PosInt):
     unless exponent_width >= 3
     | error(~who: #'FloatFormat, "exponent width must be at least three")
@@ -17,8 +20,10 @@ class FloatFormat(exponent_width :: PosInt, significand_width :: PosInt):
             "significand width exceeds the HardFloat format limit")
     super(exponent_width, significand_width)
 
+  /* Returns the packed IEEE width: sign, exponent, and explicit fraction bits. */
   property ieee_width :: PosInt:
     exponent_width + significand_width
+  /* Returns the recoded width, whose exponent has one extra encoding bit. */
   property recoded_width :: PosInt:
     ieee_width + 1
 
@@ -34,27 +39,32 @@ namespace ~extend FloatFormat:
     F32
     F64
 
-// These nominal packed types distinguish an architectural IEEE image from
-// HardFloat's recoded representation and retain the exact format in connection
-// checking. Both lower as ordinary scalar integers through the core IR.
+/* Represents a nominal IEEE image keyed by exponent width and precision,
+   preventing equal-width but different floating-point formats from connecting. */
 hardware_type IEEEFloat(format :: FloatFormat):
   width: format.ieee_width
   type_key: [format.exponent_width, format.significand_width]
   describe:
     "ieee-float<" ++ to_string(format.exponent_width) ++ "," ++ to_string(format.significand_width) ++ ">"
 
+/* Represents HardFloat's nominal recoded image with an extra exponent bit;
+   the retained format distinguishes it from IEEE images and other formats. */
 hardware_type RecFloat(format :: FloatFormat):
   width: format.recoded_width
   type_key: [format.exponent_width, format.significand_width]
   describe:
     "rec-float<" ++ to_string(format.exponent_width) ++ "," ++ to_string(format.significand_width) ++ ">"
 
+/* Carries trusted host-side invariants used to specialize rounding logic;
+   these promises remove unnecessary paths rather than adding control ports. */
 class RoundingOptions(significand_msb_always_zero :: Boolean = #false,
                       subnormals_always_exact :: Boolean = #false,
                       never_underflows :: Boolean = #false,
                       never_overflows :: Boolean = #false):
   implements StableCircuitParam
 
+  /* Retains the caller's significand, subnormal, underflow, and overflow promises
+     as a stable circuit specialization parameter. */
   constructor (significand_msb_always_zero :: Boolean = #false,
                subnormals_always_exact :: Boolean = #false,
                never_underflows :: Boolean = #false,
@@ -70,6 +80,8 @@ namespace ~extend RoundingOptions:
   export:
     Default
 
+/* Encodes the six supported rounding policies, including truncation and
+   round-to-odd, using the upstream HardFloat mode values. */
 hardware_enum RoundingMode(~width: 3):
   NearEven = 0
   MinMagnitude = 1
@@ -78,26 +90,33 @@ hardware_enum RoundingMode(~width: 3):
   NearMaximumMagnitude = 4
   Odd = 6
 
+/* Selects whether underflow tininess is detected before or after rounding. */
 hardware_enum TininessMode(~width: 1):
   BeforeRounding = 0
   AfterRounding = 1
 
+/* Selects product and addend sign inversions for the four fused a*b+c variants. */
 hardware_enum MulAddOperation(~width: 2):
   MultiplyAdd = 0
   MultiplySubtract = 1
   NegatedMultiplyAdd = 2
   NegatedMultiplySubtract = 3
 
+/* Selects minimum or maximum with either NaN propagation or numeric preference
+   when exactly one operand is NaN. */
 hardware_enum MinMaxOperation(~width: 2):
   Minimum = 0
   Maximum = 1
   MinimumNumber = 2
   MaximumNumber = 3
 
+/* Selects the seven-bit reciprocal or reciprocal-square-root estimate. */
 hardware_enum Estimate7Operation:
   Reciprocal
   ReciprocalSquareRoot
 
+/* Encodes one of ten IEEE value classes, distinguishing signed finite values,
+   zeros, infinities, and signaling versus quiet NaNs. */
 hardware_enum FloatClass(~encoding: one_hot):
   NegativeInfinity
   NegativeNormal
@@ -110,6 +129,8 @@ hardware_enum FloatClass(~encoding: one_hot):
   SignalingNaN
   QuietNaN
 
+/* Carries floating-point exception status; infinite denotes the divide-by-zero
+   exception, not merely an infinite operand or result. */
 bundle ExceptionFlags():
   invalid: Bool
   infinite: Bool
@@ -117,19 +138,22 @@ bundle ExceptionFlags():
   underflow: Bool
   inexact: Bool
 
+/* Carries invalid, out-of-range, and inexact status for conversion to integers. */
 bundle IntegerExceptionFlags():
   invalid: Bool
   overflow: Bool
   inexact: Bool
 
-// Names the four consecutive multiplier pipeline stages. More than one stage
-// can be occupied concurrently, so this is deliberately not a one-hot type.
+/* Names the four consecutive multiplier pipeline stages. More than one stage
+   can be occupied concurrently, so this is deliberately not a one-hot type. */
 bundle MultiplyAddPipelineUsage():
   stage_three: Bool
   stage_two: Bool
   stage_one: Bool
   stage_zero: Bool
 
+/* Carries unpacked arithmetic state: special-value tags, sign, a signed recoded
+   exponent, and an extended significand. It is not an architectural encoding. */
 bundle RawFloat(exponent_width :: PosInt, significand_width :: PosInt):
   is_nan: Bool
   is_infinite: Bool
@@ -138,6 +162,7 @@ bundle RawFloat(exponent_width :: PosInt, significand_width :: PosInt):
   signed_exponent: SInt(exponent_width + 2)
   significand: Bits(significand_width + 1)
 
+/* Constructs a floating-point status bundle with every exception deasserted. */
 fun no_exception_flags() :~ ExceptionFlags():
   ExceptionFlags():
     invalid: Bool(#false)

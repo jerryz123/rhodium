@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat raw and rounded recoded multiplication.
+/* Implements Berkeley HardFloat raw and rounded recoded multiplication. */
 // Derived from hardfloat/src/main/scala/MulRecFN.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,6 +9,9 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
+/* Computes the full unrounded significand product, adjusts exponent bias, and
+   propagates sign and special tags. Signaling NaNs and zero times infinity
+   raise invalid independently of the raw special-value tags. */
 circuit MulFullRawFN(format :: FloatFormat):
   input a: RawFloat(format.exponent_width, format.significand_width)
   input b: RawFloat(format.exponent_width, format.significand_width)
@@ -35,6 +38,8 @@ circuit MulFullRawFN(format :: FloatFormat):
     signed_exponent: exponent_out
     significand: significand_out
 
+/* Compresses a full raw product to the shared rounder's precision, retaining
+   discarded product information in the low sticky bit. */
 circuit MulRawFN(format :: FloatFormat):
   input a: RawFloat(format.exponent_width, format.significand_width)
   input b: RawFloat(format.exponent_width, format.significand_width)
@@ -59,6 +64,8 @@ circuit MulRawFN(format :: FloatFormat):
     signed_exponent: full.raw_out.signed_exponent
     significand: compressed_significand
 
+/* Multiplies recoded operands combinationally and rounds the compressed raw
+   product once, forwarding the arithmetic invalid condition to the rounder. */
 circuit MulRecFN(format :: FloatFormat):
   input a: RecFloat(format)
   input b: RecFloat(format)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Berkeley HardFloat's pipelined multiply-assisted binary64 division and square root.
+/* Implements Berkeley HardFloat's pipelined multiply-assisted binary64 division and square root. */
 // Derived from DivSqrtRecF64_mulAddZ31.scala and DivSqrtRecF64.scala at upstream commit c1105e6.
 // Copyright 2010-2017 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -9,9 +9,14 @@ import:
   "../recode.rhdl" open
   "../round.rhdl".RoundRawFNToRecFN
 
+/* Replicates a Boolean into a mask for scheduled binary64 approximation terms. */
 fun f64_repeat(value :: Bool, count :: PosInt) :~ Bits(count):
   vec(for List (_index in 0..count): value).as_bits()
 
+/* Runs the binary64 A/B/C/E multiply-assisted schedule for a/b or sqrt(b).
+   Operation-specific admission prevents shared-datapath collisions, while
+   PA/PB/PC metadata tracks overlapping requests and special-case bypasses.
+   Exports the timed external multiplier contract and unrounded completions. */
 sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   input input_valid: Bool
   input square_root: Bool
@@ -34,6 +39,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   output infinite_exception: Bool
   output raw_out: RawFloat(11, 55)
 
+  /* Arithmetic countdowns and PA/PB/PC transaction metadata are separate.
+     This permits scheduled normal operations to overlap without a global busy bit. */
   reg cycle_a(~init: bits(0, 3))
   reg cycle_b(~init: bits(0, 4))
   reg cycle_c(~init: bits(0, 3))
@@ -180,6 +187,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   def cycle_e2_sqrt = cycle_e2 & square_root_pc
   def cycle_e1_sqrt = cycle_e1 & square_root_pc
 
+  /* Special values skip normal arithmetic countdowns but still occupy metadata
+     slots; normal transactions advance at their scheduled phase boundaries. */
   def normal_pa = !nan_pa & !infinite_pa & !zero_pa
   def normal_pb = !nan_pb & !infinite_pb & !zero_pb
   def normal_pc = !nan_pc & !infinite_pc & !zero_pc
@@ -196,6 +205,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   def leaving_pa = valid_pa & valid_leaving_pa
   def ready_pa = !valid_pa ||| valid_leaving_pa
 
+  /* Operation-specific admission masks avoid conflicting uses of the shared
+     arithmetic schedule, rather than simply checking whether every stage is idle. */
   division_ready <== ready_pa & !cycle_b7_sqrt & !cycle_b6_sqrt & !cycle_b5_sqrt & (
     !cycle_b4_sqrt & !cycle_b3 & !cycle_b2 & !cycle_b1_sqrt & !cycle_c5 & !cycle_c4
   )
@@ -246,6 +257,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   when (cycle_c1 ||| (cycle_e =/= bits(0, 3))):
     cycle_e <== mux(cycle_c1, bits(4, 3), cycle_e - bits(1, 3))
 
+  /* Special inputs can bypass empty earlier metadata slots and enter PB or PC
+     directly; normal inputs enter PA and carry operands through scheduled work. */
   def entering_pa = entering_pa_normal ||| (start & (valid_pa ||| !ready_pb))
   def entering_pb_from_input = start & !normal_input & !valid_pa & (
     leaving_pb ||| (!valid_pb & !ready_pc)
@@ -306,6 +319,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   def significand_b_pa = (Bool(#true) ++ fraction_b_pa)
   def significand_b_pc = (Bool(#true) ++ fraction_b_pc)
 
+  /* Leading divisor bits, and exponent parity for square root, select the
+     coefficients used by A's small-multiplier starting approximation. */
   def division_piece = raw_b.significand[49..=51]
   def division_k1 = mux_lookup(division_piece, ~default: bits(0, 9)):
     0: bits(0x1c7, 9)
@@ -513,6 +528,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   when cycle_a1_sqrt:
     er1_b <== er1_a1
 
+  /* Interpret the wide multiplier's returned slices according to B/C/E phase
+     to refine approximations, form the final candidate, and test its remainder. */
   def e_square_r1_b8_sqrt = multiply_add_result[72..=103]
   def z_sigma1_b4 = mux(cycle_b4, !multiply_add_result[45..=90], bits(0, 46))
   def square_sigma1_b1 = multiply_add_result[47..=79]
@@ -535,6 +552,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
   def significand_t_c1 = !z_complement_significand_t_c1
   def remainder_t_e2 = multiply_add_result[0..=55]
 
+  /* Separate operand-latch strobes permit one multiplier operand to be reused
+     while the other changes; operand selection follows the arithmetic schedule. */
   latch_multiply_a <== cycle_a1 ||| cycle_b7_sqrt ||| cycle_b6_div ||| cycle_b4 ||| cycle_b3 ||| (
     cycle_c6_sqrt ||| cycle_c4 ||| cycle_c1
   )
@@ -593,6 +612,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
     bits(0, 54)
   ) ||| z_complement_significand_t_c1
 
+  /* Each usage bit names an occupied multiplier pipeline position, so several
+     can be high together. The external multiplier must preserve the staged timing. */
   using_multiply_add <== MultiplyAddPipelineUsage():
     stage_three: cycle_a4 ||| cycle_a3_div ||| cycle_a1_div ||| cycle_b10_sqrt ||| cycle_b9_sqrt ||| (
       cycle_b7_sqrt ||| cycle_b6 ||| cycle_b5_sqrt ||| cycle_b3_sqrt ||| cycle_b2_div
@@ -666,6 +687,8 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
       !square_root_pc ||| (remainder_t_e2[54..=55] === bits(0, 2))
     )
 
+  /* E uses remainder sign and exact-zero detection to select the corrected
+     candidate and append the inexactness sticky bit before final rounding. */
   def true_less_than_x = mux(
     square_root_pc,
     !negative_remainder_t_e & !zero_remainder_t_e,
@@ -693,6 +716,9 @@ sync_circuit DivSqrtRecF64ToRawMulAddZ31():
         ++ (!true_equal_x)
     )
 
+/* Rounds multiply-assisted binary64 completions while exposing the external
+   54x54+105 multiplier's usage, operand-latch, and result ports. Requests use
+   operation-specific readiness and completions have no backpressure input. */
 sync_circuit DivSqrtRecF64MulAddZ31():
   input input_valid: Bool
   input square_root: Bool
@@ -744,6 +770,9 @@ sync_circuit DivSqrtRecF64MulAddZ31():
   out <== round.out
   exception_flags <== round.exception_flags
 
+/* Implements the three-cycle multiplier contract: independently latches 54-bit
+   operands at stage zero, retains them across reuse, and adds the stage-two
+   105-bit term before registering the low 105 result bits at stage three. */
 sync_circuit HardFloatMultiply54():
   input valid_stage_zero: Bool
   input latch_a_stage_zero: Bool
@@ -775,6 +804,9 @@ sync_circuit HardFloatMultiply54():
     result_stage_three_state <== (a_stage_two *& b_stage_two)[0..=104] + c_stage_two
   result_stage_three <== result_stage_three_state
 
+/* Integrates the binary64 divide/square-root schedule and rounder with their
+   three-cycle multiplier, forwarding operation-specific readiness and completion
+   pulses; division computes a/b and square root consumes b. */
 sync_circuit DivSqrtRecF64():
   input input_valid: Bool
   input square_root: Bool

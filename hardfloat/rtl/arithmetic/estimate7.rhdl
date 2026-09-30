@@ -1,5 +1,5 @@
 #lang rhodium
-// Computes the RISC-V-compatible seven-bit reciprocal and reciprocal-square-root estimates.
+/* Computes the RISC-V-compatible seven-bit reciprocal and reciprocal-square-root estimates. */
 // Derived from riscv-isa-sim/softfloat/fall_reciprocal.c at upstream commit d68db5ba0c3069665684e8c3efbdf1262d9a5753.
 // Copyright 2011-2016 The Regents of the University of California.
 // SPDX-License-Identifier: BSD-3-Clause; see ../../LICENSE.md.
@@ -10,6 +10,8 @@ import:
   "../classify.rhdl" open
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
+/* Seven-bit reciprocal fractions indexed by the normalized fraction's top
+   seven bits, matching the pinned SoftFloat estimate table. */
 def ReciprocalEstimate7Table = [
   127, 125, 123, 121, 119, 117, 116, 114,
   112, 110, 109, 107, 105, 104, 102, 100,
@@ -29,6 +31,8 @@ def ReciprocalEstimate7Table = [
   4, 3, 3, 2, 2, 1, 1, 0
 ]
 
+/* Seven-bit reciprocal-square-root fractions indexed by exponent parity
+   followed by the normalized fraction's top six bits. */
 def ReciprocalSquareRootEstimate7Table = [
   52, 51, 50, 48, 47, 46, 44, 43,
   42, 41, 40, 39, 38, 36, 35, 34,
@@ -48,6 +52,9 @@ def ReciprocalSquareRootEstimate7Table = [
   59, 58, 57, 56, 56, 55, 54, 53
 ]
 
+/* Builds combinational reciprocal or reciprocal-square-root estimate logic
+   over IEEE fields, normalizing subnormals and selecting seven-bit table data.
+   Rounding mode affects reciprocal overflow only; special inputs set flags. */
 circuit Estimate7(format :: FloatFormat):
   def exponent_width = format.exponent_width
   def fraction_width = format.significand_width - 1
