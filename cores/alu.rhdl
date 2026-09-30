@@ -1,12 +1,14 @@
 #lang rhodium
-// Implements a shared RV32/RV64 integer, B, and Zicond execution datapath.
+/* Implements a shared RV32/RV64 integer, B, and Zicond execution datapath. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../riscv/isa/xlen.rhm" open
 
-// Decode selects physical resources directly. Controls that do not affect the
-// selected result can therefore remain don't-cares in the instruction table.
+/*
+ * Decode selects physical resources directly. Controls that do not affect the
+ * selected result can therefore remain don't-cares in the instruction table.
+ */
 hardware_enum AluResultSelect:
   Adder
   Shift
@@ -17,21 +19,28 @@ hardware_enum AluResultSelect:
   Rotate
   Unary
 
+/* Select the bitwise operation applied to the prepared right operand. */
 hardware_enum AluLogicSelect:
   And
   Or
   Xor
 
+/*
+ * Select the right operand, indexed one-bit mask, or zero/nonzero conditional mask for the
+ * logic path.
+ */
 hardware_enum AluLogicRightSelect:
   Operand
   OneHot
   ConditionalMask
 
+/* Select directional zero counting or population counting. */
 hardware_enum AluCountSelect:
   Leading
   Trailing
   Population
 
+/* Select byte-wise OR combination, byte reversal, or byte/halfword extension. */
 hardware_enum AluUnarySelect:
   OrCombineBytes
   ReverseBytes
@@ -39,6 +48,7 @@ hardware_enum AluUnarySelect:
   SignExtendHalf
   ZeroExtendHalf
 
+/* Drive already-decoded shared ALU resources and RV64 word-result shaping. */
 bundle AluControl():
   result_select: AluResultSelect
   logic_select: AluLogicSelect
@@ -56,10 +66,16 @@ bundle AluControl():
   shift_add_amount: Bits(2)
   word: Bool
 
-// RV64 word operations compute modulo 32 bits, then sign-extend their result.
+/*
+ * RV64 word operations compute modulo 32 bits, then sign-extend their result.
+ */
 fun sign_extend_word(value :: Bits(32)) :: Bits(64):
   value.into(SInt(32)).sext(64).as_bits()
 
+/*
+ * Compute a combinational XLEN result from physical controls, sharing arithmetic, comparisons,
+ * and shifts without ISA decode.
+ */
 circuit ALU(xlen :: XLen):
   def width = xlen.width
   def shift_width = if xlen == XLen.X32 | 5 | 6

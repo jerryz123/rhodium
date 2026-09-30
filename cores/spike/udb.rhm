@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects the pinned Spike hart configuration into an ACT/UDB architecture description.
+/* Projects the pinned Spike hart configuration into an ACT/UDB architecture description. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,21 +9,27 @@ import:
   lib("riscv/isa/hart.rhm").RiscvMmuType
   "profile.rhm".SpikeConfig
 
+/* Construct one explicitly versioned UDB extension claim. */
 fun extension(name :: NonemptyString, version :: NonemptyString) :: UdbExtension:
   UdbExtension(name, version)
 
+/* Wrap a Boolean implementation choice in a typed UDB parameter. */
 fun boolean_parameter(name :: NonemptyString, value :: Boolean) :: UdbParameter:
   UdbParameter(name, UdbBooleanValue(value))
 
+/* Wrap an unsigned implementation constant in a typed UDB parameter. */
 fun natural_parameter(name :: NonemptyString, value :: Nat) :: UdbParameter:
   UdbParameter(name, UdbNaturalValue(value))
 
+/* Wrap a textual implementation choice in a typed UDB parameter. */
 fun string_parameter(name :: NonemptyString, value :: String) :: UdbParameter:
   UdbParameter(name, UdbStringValue(value))
 
+/* Wrap a nonempty list of unsigned implementation values in a typed UDB parameter. */
 fun natural_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Nat)) :: UdbParameter:
   UdbParameter(name, UdbNaturalListValue(elements))
 
+/* Wrap a nonempty list of feature-enable bits in a typed UDB parameter. */
 fun boolean_list_parameter(name :: NonemptyString, elements :: NonemptyList.of(Boolean)) :: UdbParameter:
   UdbParameter(name, UdbBooleanListValue(elements))
 
@@ -100,6 +106,10 @@ def SpikeUdbExtensions = [
   ["zihpm", extension("Zihpm", "2.0")]
 ]
 
+/*
+ * Map advertised extensions to explicit UDB versions, reject unknown claims, and add the
+ * modeled architectural implications.
+ */
 fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension):
   def advertised = profile.hart_description.isa_profile.isa_extensions
   def mutable result = []
@@ -129,10 +139,15 @@ fun spike_udb_extensions(profile :: SpikeConfig) :: NonemptyList.of(UdbExtension
   | result := result ++ [extension("Sv39", "1.0.0"), extension("Svade", "1.0.0")]
   result
 
+/*
+ * Project supported Spike ISA, CSR, trap, PMP, counter, MMU, and vector choices into ACT/UDB
+ * parameters without adding SoC policy.
+ */
 fun spike_udb_configuration(profile :: SpikeConfig,
                             name :: NonemptyString,
                             description :: NonemptyString) :: UdbConfiguration:
   def advertised = profile.hart_description.isa_profile.isa_extensions
+  /* Test whether this hart explicitly advertises the named ISA extension. */
   fun has(name :: String) :: Boolean: advertised.contains(name)
   def width = profile.hart_description.xlen.width
   def counter_enables = for List (index in 0..32): index < 3 || (index == 3 && has("sscofpmf"))

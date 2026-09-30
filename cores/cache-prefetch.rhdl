@@ -1,16 +1,19 @@
 #lang rhodium
-// Defines the reusable best-effort cache-prefetch request carried by cores.
+/* Defines the reusable best-effort cache-prefetch request carried by cores. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Distinguish no prefetch from instruction, read, and write prefetch intent. */
 hardware_enum CachePrefetchOperation:
   None
   Instruction
   Read
   Write
 
+  /* Recognize any active prefetch intent without checking permissions or acceptance. */
   method is_prefetch(operation) :: Bool:
     operation =/= CachePrefetchOperation.None
 
+/* Carry an address and best-effort prefetch intent without a completion or fault channel. */
 bundle CachePrefetchReq(address_width :: PosInt):
   address: Bits(address_width)
   operation: CachePrefetchOperation

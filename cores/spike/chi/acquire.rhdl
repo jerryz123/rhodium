@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts one Spike cache-line acquisition into a retryable coherent CHI transaction.
+/* Converts one Spike cache-line acquisition into a retryable coherent CHI transaction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,10 @@ import:
   lib("chi/protocol/coherence.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
 
+/*
+ * Acquire one aligned data line with retry control, assemble DataID-selected packets, send
+ * CompAck, then hold the native completion.
+ */
 sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   def p = config.flit
   def packet_count = 64 / p.data_bytes
@@ -59,6 +63,7 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
     assert(response_event.bits.flit.src_id === home_id, "spike_acquire_response_home")
     assert(response_event.bits.flit.tgt_id === node_id, "spike_acquire_response_target")
 
+  // DataID selects a physical packet, not its arrival order. The first accepted packet retains grant metadata.
   def incoming_data = response_data.bits
   def coherent_response = incoming_data.resp.into(CHICoherentResponse())
   def all_data_received = received_packets.and_reduce()
@@ -83,6 +88,7 @@ sync_circuit SpikeAcquire(config :: RiscvHartCHIConfig):
   )
   def acknowledgement_fire = acknowledgements.fire()
 
+  // Return ownership to the native cache only after the complete line and its CompAck have transferred.
   completion.valid <== control.active & acknowledgement_sent
   completion.bits <== SpikeAcquireResponse():
     line: line

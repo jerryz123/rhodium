@@ -1,4 +1,4 @@
-// Implements the stable DPI shim that owns one Spike model per SystemVerilog scope.
+/* Implements the stable DPI shim that owns one Spike model per SystemVerilog scope. */
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_dpi.h"
 
@@ -18,11 +18,16 @@ using rhodium::spike::Inputs;
 using rhodium::spike::Outputs;
 using rhodium::spike::SpikeCoreModel;
 
+/* Own one independent native hart per SystemVerilog DPI scope. */
 std::map<std::string, std::unique_ptr<SpikeCoreModel>>& models() {
   static std::map<std::string, std::unique_ptr<SpikeCoreModel>> instances;
   return instances;
 }
 
+/*
+ * Resolve the current DPI instance identity with stable fallback names for missing scope
+ * information.
+ */
 std::string scope_name() {
   const svScope scope = svGetScope();
   if (scope == nullptr) return "<default>";
@@ -30,6 +35,10 @@ std::string scope_name() {
   return name == nullptr ? "<unnamed>" : name;
 }
 
+/*
+ * Decode least-significant-byte-first packed UTF-8 through its NUL terminator, rejecting an
+ * unterminated fixed-capacity field.
+ */
 std::string packed_string(const svBitVecVal* packed, std::size_t capacity) {
   std::string result;
   for (std::size_t index = 0; index < capacity; ++index) {
@@ -41,6 +50,7 @@ std::string packed_string(const svBitVecVal* packed, std::size_t capacity) {
   throw std::invalid_argument("unterminated Spike configuration string");
 }
 
+/* Reassemble a 512-bit SystemVerilog vector into eight ordered native 64-bit words. */
 std::array<std::uint64_t, 8> unpack_line(const svBitVecVal* packed) {
   std::array<std::uint64_t, 8> line{};
   for (std::size_t index = 0; index < line.size(); ++index) {
@@ -50,6 +60,7 @@ std::array<std::uint64_t, 8> unpack_line(const svBitVecVal* packed) {
   return line;
 }
 
+/* Split eight ordered native 64-bit words into the 512-bit SystemVerilog output vector. */
 void pack_line(const std::array<std::uint64_t, 8>& line, svBitVecVal* packed) {
   for (std::size_t index = 0; index < line.size(); ++index) {
     packed[index * 2] = static_cast<svBitVecVal>(line[index]);
@@ -57,6 +68,7 @@ void pack_line(const std::array<std::uint64_t, 8>& line, svBitVecVal* packed) {
   }
 }
 
+/* Write one scalar ABI output through its provided result pointer. */
 template <typename T>
 void store(T* target, T value) {
   *target = value;
@@ -64,6 +76,10 @@ void store(T* target, T value) {
 
 }  // namespace
 
+/*
+ * Reset or create the current scope's model, decode sampled inputs, advance one tick, and encode
+ * all outputs; return uncached-response readiness.
+ */
 extern "C" unsigned char rhodium_spike_tick(
     unsigned char reset, long long hart_id, long long reset_vector,
     long long time, char interrupts, unsigned char xlen_is_64,

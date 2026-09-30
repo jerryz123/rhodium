@@ -6,6 +6,7 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 
+# Search Rhombus/RHDL sources in the supplied paths using ripgrep or a portable fallback.
 search_sources() {
   local pattern="$1"
   shift
@@ -17,6 +18,7 @@ search_sources() {
   fi
 }
 
+# Search all core production sources while excluding test fixtures from ownership checks.
 search_production_sources() {
   local pattern="$1"
   if command -v rg >/dev/null 2>&1; then

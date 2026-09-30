@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes Spike coherent acquire, release, and snoop engines onto one CHI RN-F port.
+/* Composes Spike coherent acquire, release, and snoop engines onto one CHI RN-F port. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,10 @@ import:
   "snoop.rhdl" open
   lib("chi/protocol/channels.rhdl").CHIRNChannels
 
+/*
+ * Share one RN-F port among acquire, release, and snoop engines with release-first REQ and
+ * snoop-first requester RSP/DAT arbitration.
+ */
 sync_circuit SpikeDataCHI(config :: RiscvHartCHIConfig):
   def p = config.flit
   input node_id: Bits(p.node_id_width)
@@ -31,6 +35,7 @@ sync_circuit SpikeDataCHI(config :: RiscvHartCHIConfig):
   snoop.software_response <=> transaction.snoop_response
   snoop.snoops <=> chi.snoops
 
+  // Acquires use TxnID 0 and releases use TxnID 1, allowing independent engine progress on one port.
   def release_request_selected = release.requests.valid
   chi.requests.valid <== release_request_selected ||| acquire.requests.valid
   chi.requests.bits <== mux(release_request_selected, release.requests.bits, acquire.requests.bits)

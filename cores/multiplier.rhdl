@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements width-generic iterative and pipelined signed or unsigned integer multipliers.
+/* Implements width-generic iterative and pipelined signed or unsigned integer multipliers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,20 +9,27 @@ import:
 
 def PipelinedMultiplierStages :: PosInt = 5
 
+/* Select independent signed or unsigned interpretation of each operand. */
 bundle MultiplierMode():
   left_signed: Bool
   right_signed: Bool
 
+/*
+ * Carry two fixed-width operands and their signedness without architectural destination
+ * metadata.
+ */
 bundle MultiplierRequest(width :: PosInt):
   left: Bits(width)
   right: Bits(width)
   mode: MultiplierMode()
 
+/* Carry prepared unsigned magnitudes and the final product-negation flag. */
 bundle PipelinedMultiplierOperands(width :: PosInt):
   left: Bits(width)
   right: Bits(width)
   negate: Bool
 
+/* Retain four half-width partial products and their common sign-restoration flag. */
 bundle PipelinedMultiplierPartials(width :: PosInt):
   low_low: Bits(width)
   low_high: Bits(width)
@@ -30,18 +37,22 @@ bundle PipelinedMultiplierPartials(width :: PosInt):
   high_high: Bits(width)
   negate: Bool
 
+/* Carry two aligned double-width partial sums for the following reduction stage. */
 bundle PipelinedMultiplierReduction(width :: PosInt):
   first: Bits(width * 2)
   second: Bits(width * 2)
   negate: Bool
 
+/* Pair the complete unsigned magnitude product with its final sign-restoration flag. */
 bundle PipelinedMultiplierMagnitude(width :: PosInt):
   product: Bits(width * 2)
   negate: Bool
 
-// Captures one request, prepares magnitudes for one cycle, then consumes one
-// multiplier bit per cycle. The double-width response stays stable under backpressure;
-// a replacement request can be accepted as the prior response is consumed.
+/*
+ * Captures one request, prepares magnitudes for one cycle, then consumes one
+ * multiplier bit per cycle. The double-width response stays stable under backpressure;
+ * a replacement request can be accepted as the prior response is consumed.
+ */
 sync_circuit IterativeMultiplier(width :: PosInt):
   def product_width = width * 2
   def count_width = index_width(width)
@@ -104,8 +115,10 @@ sync_circuit IterativeMultiplier(width :: PosInt):
   elsewhen response_fire:
     response_valid <== Bool(#false)
 
-// Five feed-forward stages accept one operation per cycle while partitioning
-// the full product into half-width multipliers and two levels of wide arithmetic.
+/*
+ * Five feed-forward stages accept one operation per cycle while partitioning
+ * the full product into half-width multipliers and two levels of wide arithmetic.
+ */
 sync_circuit PipelinedMultiplier(width :: Pow2Int):
   unless width >= 2
   | error(~who: #'PipelinedMultiplier, "width must be at least two")

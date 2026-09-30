@@ -1,9 +1,13 @@
-// Declares the generated-SystemVerilog ABI for the Spike execution model.
+/* Declares the generated-SystemVerilog ABI for the Spike execution model. */
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
 #include <svdpi.h>
 
+/*
+ * Declare the packed SystemVerilog tick ABI; output pointers carry next-cycle transactions and the
+ * return value carries uncached-response readiness.
+ */
 extern "C" unsigned char rhodium_spike_tick(
     unsigned char reset, long long hart_id, long long reset_vector,
     long long time, char interrupts, unsigned char xlen_is_64,

@@ -1,4 +1,4 @@
-// Declares the cycle-level Spike execution model and its typed transaction ABI.
+/* Declares the cycle-level Spike execution model and its typed transaction ABI. */
 // SPDX-License-Identifier: Apache-2.0
 #pragma once
 
@@ -9,6 +9,10 @@
 
 namespace rhodium::spike {
 
+/*
+ * Describe immutable hart, ISA, cache, PMP, and execution-budget inputs used when creating a native
+ * model.
+ */
 struct Configuration {
   std::uint64_t hart_id = 0;
   std::uint64_t reset_vector = 0;
@@ -26,6 +30,10 @@ struct Configuration {
   std::uint16_t data_cache_ways = 1;
 };
 
+/*
+ * Sample RTL transaction readiness/completions, snoop intent, time, and interrupt levels for one
+ * native tick.
+ */
 struct Inputs {
   std::uint64_t time = 0;
   std::uint8_t interrupts = 0;
@@ -63,6 +71,10 @@ struct Inputs {
   bool uncached_response_fault = false;
 };
 
+/*
+ * Retain native request/snoop-response payloads and response readiness for the next registered RTL
+ * cycle.
+ */
 struct Outputs {
   bool address_request_valid = false;
   std::uint64_t address_request_address = 0;
@@ -98,16 +110,29 @@ struct Outputs {
   bool uncached_response_ready = false;
 };
 
+/*
+ * Expose cycle-level execution of one coroutine-backed Spike hart without leaking Spike
+ * implementation types.
+ */
 class SpikeCoreModel {
  public:
+  /* Create a native hart from the supplied immutable configuration. */
   explicit SpikeCoreModel(Configuration configuration);
+  /* Release the model's processor, coroutine, and private cache storage. */
   ~SpikeCoreModel();
+  /* Prevent copying the unique processor and coroutine execution state. */
   SpikeCoreModel(const SpikeCoreModel&) = delete;
+  /* Prevent assigning shared ownership of another hart's execution state. */
   SpikeCoreModel& operator=(const SpikeCoreModel&) = delete;
 
+  /* Advance using sampled RTL inputs and return transaction outputs for the following cycle. */
   Outputs tick(const Inputs& inputs);
 
  private:
+  /*
+   * Hide Spike runtime dependencies and all mutable execution state behind the implementation
+   * pointer.
+   */
   class Implementation;
   std::unique_ptr<Implementation> implementation_;
 };

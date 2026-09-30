@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts Spike instruction-line requests to the reusable CHI ReadOnce engine.
+/* Adapts Spike instruction-line requests to the reusable CHI ReadOnce engine. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,10 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/transactions/read-once.rhdl") open
 
+/*
+ * Issue aligned 64-byte instruction reads through CHIReadOnce and translate line/error/poison
+ * completion to the native ABI.
+ */
 sync_circuit SpikeInstructionCHI(config :: RiscvHartCHIConfig):
   def p = config.flit
   input node_id: Bits(p.node_id_width)

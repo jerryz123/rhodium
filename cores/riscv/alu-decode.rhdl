@@ -1,5 +1,5 @@
 #lang rhodium
-// Maps base integer, B, and Zicond instructions onto the shared ALU.
+/* Maps base integer, B, and Zicond instructions onto the shared ALU. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,8 +14,10 @@ import:
   "../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
-// Each helper constrains only controls consumed by the selected resource.
-// Decode-table don't-cares therefore describe the physical ALU boundary.
+/*
+ * Constrain subtraction, unsigned-word preparation, shift-add, and word-result controls for
+ * the adder; unrelated resource controls remain don't-cares.
+ */
 fun adder_control(subtract :: Boolean, unsigned_word :: Boolean, shift_amount :: Nat, word :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Adder
@@ -24,6 +26,10 @@ fun adder_control(subtract :: Boolean, unsigned_word :: Boolean, shift_amount ::
     shift_add_amount: bits(shift_amount, 2)
     word: Bool(word)
 
+/*
+ * Describe direction, arithmetic fill, bit extraction, source shaping, and word-result policy
+ * for the shared shifter.
+ */
 fun shift_control(right :: Boolean, arithmetic :: Boolean, extract :: Boolean, unsigned_word :: Boolean, word :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Shift
@@ -33,6 +39,10 @@ fun shift_control(right :: Boolean, arithmetic :: Boolean, extract :: Boolean, u
     unsigned_word: Bool(unsigned_word)
     word: Bool(word)
 
+/*
+ * Describe bitwise selection, right-operand preparation, and inversion while leaving unrelated
+ * resources unconstrained.
+ */
 fun logic_control(select :: AluLogicSelect, invert_right :: Boolean, right_select :: AluLogicRightSelect):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Logic
@@ -41,6 +51,10 @@ fun logic_control(select :: AluLogicSelect, invert_right :: Boolean, right_selec
     logic_right_select: right_select
     word: Bool(#false)
 
+/*
+ * Configure subtraction-based signed or unsigned less-than with full-width operand
+ * preparation.
+ */
 fun compare_control(signed_mode :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Compare
@@ -50,6 +64,7 @@ fun compare_control(signed_mode :: Boolean):
     shift_add_amount: bits(0, 2)
     word: Bool(#false)
 
+/* Reuse subtraction-based ordering to choose a signed or unsigned minimum or maximum. */
 fun minmax_control(signed_mode :: Boolean, maximum :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.MinMax
@@ -60,12 +75,14 @@ fun minmax_control(signed_mode :: Boolean, maximum :: Boolean):
     shift_add_amount: bits(0, 2)
     word: Bool(#false)
 
+/* Choose directional or population counting over the full word or low 32 bits. */
 fun count_control(select :: AluCountSelect, word :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Count
     count_select: select
     word: Bool(word)
 
+/* Select a logical rotation with full-width or word shaping and no arithmetic fill. */
 fun rotate_control(right :: Boolean, word :: Boolean):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Rotate
@@ -74,6 +91,7 @@ fun rotate_control(right :: Boolean, word :: Boolean):
     unsigned_word: Bool(#false)
     word: Bool(word)
 
+/* Select one unary transform with a full-width result. */
 fun unary_control(select :: AluUnarySelect):
   partial_pattern(AluControl()):
     result_select: AluResultSelect.Unary
@@ -91,8 +109,10 @@ def xor = logic_control(AluLogicSelect.Xor, #false, AluLogicRightSelect.Operand)
 def or = logic_control(AluLogicSelect.Or, #false, AluLogicRightSelect.Operand)
 def and = logic_control(AluLogicSelect.And, #false, AluLogicRightSelect.Operand)
 
-// The shared control relation accepts each catalog's own immediate-shift
-// instructions. All other inputs are common InstructionSpec objects.
+/*
+ * The shared control relation accepts each catalog's own immediate-shift
+ * instructions. All other inputs are common InstructionSpec objects.
+ */
 fun base_alu_cases(slli :: InstructionSpec, srli :: InstructionSpec, srai :: InstructionSpec):
   combine_case_groups([
     instruction_cases([ADDI, ADD], add),
@@ -188,6 +208,10 @@ def unused_alu = pattern(AluControl(), _)
 def shared_address_instructions = [LUI, AUIPC, LB, LH, LW, LBU, LHU, SB, SH, SW]
 def rv64_address_instructions = shared_address_instructions ++ [LWU, LD, SD]
 def unused_alu_instructions = [JAL, JALR, BEQ, BNE, BLT, BGE, BLTU, BGEU, FENCE, ECALL, EBREAK]
+/*
+ * Use addition for address-producing instructions and leave unused ALU controls unconstrained
+ * for other base instructions.
+ */
 fun non_arithmetic_alu_cases(address_instructions :: List.of(InstructionSpec)):
   combine_case_groups([
     instruction_cases(address_instructions, address_alu),
@@ -201,6 +225,10 @@ def RV64ICompleteAluCases = RV64IAluCases ++ RV64INonArithmeticAluCases
 def RV32ICompleteAluDecode = ValidDecodeGen(RV32ICompleteAluCases)
 def RV64ICompleteAluDecode = ValidDecodeGen(RV64ICompleteAluCases)
 
+/*
+ * Decode only RV64I arithmetic instructions into physical ALU controls and a validity
+ * predicate.
+ */
 circuit RV64IAluInstructionDecoder():
   input instruction: Bits(32)
   output valid: Bool

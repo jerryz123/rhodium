@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements Spike's single-outstanding uncached CHI RN-I transaction path.
+/* Implements Spike's single-outstanding uncached CHI RN-I transaction path. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,10 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
+/*
+ * Name the single outstanding scalar request, read completion, DBID, write-data, and
+ * write-completion phases.
+ */
 hardware_enum SpikeUncachedState:
   Idle
   Request
@@ -18,6 +22,10 @@ hardware_enum SpikeUncachedState:
   WriteData
   WriteResponse
 
+/*
+ * Sequence one nonretrying ReadNoSnp or partial write, retaining the Home and DBID and
+ * positioning data in its physical DAT lane.
+ */
 sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   def p = config.flit
   def lanes = p.data_bytes / 8
@@ -74,6 +82,7 @@ sync_circuit SpikeUncachedCHI(config :: RiscvHartCHIConfig):
   def read_expected = state === SpikeUncachedState.ReadResponse
   chi.dat.response.ready <== !data_ordinary ||| (read_expected & transaction.response.ready)
   def read_fire = chi.dat.response.fire() & data_ordinary
+  // Write completion is an acceptance pulse; the native model stays response-ready throughout its wait.
   transaction.response.valid <== (
     chi.dat.response.valid & data_ordinary & read_expected
   ) ||| completion_fire

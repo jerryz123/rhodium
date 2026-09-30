@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes the Spike DPI hart with private-cache transaction adapters and three CHI ports.
+/* Composes the Spike DPI hart with private-cache transaction adapters and three CHI ports. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,10 @@ import:
   lib("chi/protocol/channels.rhdl") open
   lib("chi/protocol/flits.rhdl").CHIDatFlit
 
+/*
+ * Compose one DPI hart and three CHI paths; classify requested physical ranges in RTL and pass
+ * placement, time, and interrupt inputs to Spike.
+ */
 sync_circuit SpikeCore(config :: SpikeConfig,
                        ~reset_address: reset_address :: Nat,
                        ~chi: chi_config :: RiscvHartCHIConfig):

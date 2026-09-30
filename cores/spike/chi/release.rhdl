@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts one Spike victim release into a retryable full-line CHI copyback.
+/* Converts one Spike victim release into a retryable full-line CHI copyback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,10 @@ import:
   lib("chi/protocol/messages.rhdl").chi_rn_copyback_data
   lib("chi/transactions/retryable-transaction.rhdl") open
 
+/*
+ * Retain one victim line, retry WriteBackFull until granted, send copyback packets using its
+ * DBID, and complete after final DAT acceptance.
+ */
 sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
   def p = config.flit
   def packet_count = 64 / p.data_bytes
@@ -67,6 +71,7 @@ sync_circuit SpikeRelease(config :: RiscvHartCHIConfig):
                      CHIResponseState.SharedClean))
     response_state <== coherent_response.as_bits()
 
+  // CompDBIDResp supplies the copyback DBID; final DAT acceptance is this engine's completion boundary.
   def granted = SpikeReleaseResponses.milestone(control.received, "grant")
   def packet_number = if packet_index_width == 2 | packet_index | packet_index.zext(2)
   data.valid <== granted & !data_sent

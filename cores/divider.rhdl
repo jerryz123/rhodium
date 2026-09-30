@@ -1,24 +1,28 @@
 #lang rhodium
-// Implements a width-generic iterative signed or unsigned integer divider.
+/* Implements a width-generic iterative signed or unsigned integer divider. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
+/* Carry fixed-width dividend and divisor with a shared signedness interpretation. */
 bundle DividerRequest(width :: PosInt):
   dividend: Bits(width)
   divisor: Bits(width)
   signed_mode: Bool
 
+/* Return the complete fixed-width quotient and remainder of one accepted operation. */
 bundle DividerResponse(width :: PosInt):
   quotient: Bits(width)
   remainder: Bits(width)
 
-// Accepts one request, skips leading-zero quotient work, resolves each remaining
-// quotient bit per cycle, and finalizes signs on a separate cycle. Trivial
-// operands complete directly. Division by zero returns an all-one quotient and
-// the original dividend; signed overflow wraps to the fixed-width minimum.
+/*
+ * Accepts one request, skips leading-zero quotient work, resolves each remaining
+ * quotient bit per cycle, and finalizes signs on a separate cycle. Trivial
+ * operands complete directly. Division by zero returns an all-one quotient and
+ * the original dividend; signed overflow wraps to the fixed-width minimum.
+ */
 sync_circuit IterativeDivider(width :: PosInt):
   def remainder_width = width + 1
   def count_width = index_width(width)

@@ -1,4 +1,4 @@
-// Implements a coroutine-driven Spike hart with software L1 caches and typed RTL transactions.
+/* Implements a coroutine-driven Spike hart with software L1 caches and typed RTL transactions. */
 // SPDX-License-Identifier: Apache-2.0
 #include "spike_core.h"
 
@@ -27,6 +27,7 @@ namespace {
 
 constexpr std::size_t kLineBytes = 64;
 
+/* Use the CHI cache-state encoding shared with the RTL copyback interface. */
 enum class CacheState : std::uint8_t {
   kInvalid = 0,
   kSharedClean = 1,
@@ -35,6 +36,7 @@ enum class CacheState : std::uint8_t {
   kUniqueDirty = 4,
 };
 
+/* Retain RTL-owned PMA classification for one blocking native access. */
 struct AddressResponse {
   bool cacheable = false;
   bool cache_block_zero = false;
@@ -44,6 +46,7 @@ struct AddressResponse {
   bool fault = false;
 };
 
+/* Store a physical line tag, coherence state, and 64 bytes in a private software cache. */
 struct CacheLine {
   bool valid = false;
   std::uint64_t tag = 0;
@@ -51,6 +54,7 @@ struct CacheLine {
   std::array<std::uint8_t, kLineBytes> bytes{};
 };
 
+/* Encode only the scalar and full-line byte counts supported by the transaction ABI. */
 std::uint8_t size_code(std::size_t size) {
   switch (size) {
     case 1: return 0;
@@ -62,6 +66,7 @@ std::uint8_t size_code(std::size_t size) {
   }
 }
 
+/* Choose an aligned power-of-two scalar chunk that stays within one eight-byte word. */
 std::size_t bounded_chunk(std::uint64_t address, std::size_t remaining) {
   const std::size_t boundary = 8 - static_cast<std::size_t>(address & 7);
   std::size_t chunk = std::min(remaining, boundary);
@@ -71,6 +76,10 @@ std::size_t bounded_chunk(std::uint64_t address, std::size_t remaining) {
   return 1;
 }
 
+/*
+ * Convert returned CHI response state and dirty responsibility into the private cache-state
+ * encoding.
+ */
 CacheState acquired_state(std::uint8_t response_state, bool pass_dirty) {
   switch (response_state & 3) {
     case 1: return pass_dirty ? CacheState::kSharedDirty : CacheState::kSharedClean;
@@ -82,8 +91,16 @@ CacheState acquired_state(std::uint8_t response_state, bool pass_dirty) {
 
 }  // namespace
 
+/*
+ * Own one Spike processor and private caches; memory hooks suspend its coroutine for RTL
+ * transactions while tick services snoops.
+ */
 class SpikeCoreModel::Implementation final : public simif_t {
  public:
+  /*
+   * Construct the processor and caches, verify ISA/vector geometry, set translation limits before
+   * reset, and initialize its execution coroutine.
+   */
   explicit Implementation(Configuration configuration)
       : configuration_(std::move(configuration)),
         instruction_cache_(checked_line_count(configuration_.instruction_cache_sets,
@@ -119,6 +136,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     target_.init(&Implementation::run_trampoline, this);
   }
 
+  /*
+   * Consume preceding handshakes and completions, service an accepted snoop, update architectural
+   * inputs, then resume Spike until its next yield.
+   */
   Outputs tick(const Inputs& inputs) {
     inputs_ = inputs;
     const bool snoop_fire = inputs_.snoop_valid && !snoop_response_valid_;
@@ -131,13 +152,29 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return outputs();
   }
 
+  /*
+   * Disable direct host-memory shortcuts so every physical access uses the PMA/cache/transaction
+   * hooks.
+   */
   char* addr_to_mem(reg_t) override { return nullptr; }
+  /*
+   * Allow reservation candidates here; the patched LR/SC accessibility hook applies actual PMA and
+   * permission checks.
+   */
   bool reservable(reg_t) override { return true; }
+  /*
+   * Permit an aligned 64-byte management operation when RTL grants either read or write access to
+   * the full block.
+   */
   bool cache_block_accessible(reg_t address, std::size_t length) override {
     if (length != kLineBytes || (address & (kLineBytes - 1)) != 0) return false;
     if (!classify(address, length, false, false).fault) return true;
     return !classify(address, length, true, false).fault;
   }
+  /*
+   * Require full-block writable, cacheable CBO.ZERO permission, obtain unique ownership, and dirty
+   * the zeroed line.
+   */
   bool cache_block_zero(reg_t address, std::size_t length) override {
     if (length != kLineBytes || (address & (kLineBytes - 1)) != 0) return false;
     const AddressResponse attributes = classify(address, length, true, false);
@@ -148,11 +185,19 @@ class SpikeCoreModel::Implementation final : public simif_t {
     line->state = CacheState::kUniqueDirty;
     return true;
   }
+  /*
+   * Ask RTL for the access direction's permission and atomic support before Spike evaluates
+   * reservation matching.
+   */
   bool lrsc_accessible(reg_t address, std::size_t length, bool write) override {
     const AddressResponse attributes = classify(address, length, write, false);
     return !attributes.fault && attributes.atomic;
   }
 
+  /*
+   * Validate the physical atomic range and obtain unique cache-line ownership before entering the
+   * non-yielding load/store scope.
+   */
   bool amo_begin(reg_t address, std::size_t length) override {
     assert(!amo_active_);
     if ((length != 1 && length != 2 && length != 4 && length != 8 && length != 16) ||
@@ -175,12 +220,20 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Leave the atomic scope and discard its pinned line pointer after the enclosed operation
+   * completes.
+   */
   void amo_end() override {
     assert(amo_active_);
     amo_active_ = false;
     amo_line_ = nullptr;
   }
 
+  /*
+   * Classify executable access and choose coherent instruction-line caching or scalar uncached
+   * reads.
+   */
   bool mmio_fetch(reg_t address, std::size_t length, std::uint8_t* bytes) override {
     const AddressResponse attributes = classify(address, length, false, true);
     if (attributes.fault) return false;
@@ -189,6 +242,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
                : uncached_read(address, length, attributes.device, bytes);
   }
 
+  /*
+   * Serve an active AMO directly from its pinned line; otherwise classify and select coherent or
+   * uncached reads.
+   */
   bool mmio_load(reg_t address, std::size_t length, std::uint8_t* bytes) override {
     if (amo_active_) {
       if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
@@ -201,6 +258,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
                                 : uncached_read(address, length, attributes.device, bytes);
   }
 
+  /*
+   * Update an active AMO's pinned line without yielding; otherwise classify and obtain coherent
+   * writable ownership or issue uncached stores.
+   */
   bool mmio_store(reg_t address, std::size_t length, const std::uint8_t* bytes) override {
     if (amo_active_) {
       if (!amo_contains(address, length)) throw std::logic_error("AMO accessed another physical range");
@@ -214,22 +275,39 @@ class SpikeCoreModel::Implementation final : public simif_t {
                                 : uncached_write(address, length, attributes.device, bytes);
   }
 
+  /*
+   * Invalidate the software instruction cache when Spike requests instruction-stream
+   * synchronization.
+   */
   void flush_icache() override { invalidate_instruction_cache(); }
+  /*
+   * Leave external reset ownership with model recreation; Spike's internal reset callback needs no
+   * additional action.
+   */
   void proc_reset(unsigned) override {}
+  /* Expose the retained processor configuration required by Spike's simulator interface. */
   const cfg_t& get_cfg() const override { return cfg_; }
+  /* Expose this model's single configured hart to Spike's simulator interface. */
   const std::map<std::size_t, processor_t*>& get_harts() const override { return harts_; }
+  /* Provide no host symbol lookup through this transaction-backed simulator interface. */
   const char* get_symbol(std::uint64_t) override { return nullptr; }
 
  private:
+  /* Validate nonzero cache dimensions and compute software storage capacity. */
   static std::size_t checked_line_count(std::uint16_t sets, std::uint16_t ways) {
     if (sets == 0 || ways == 0) throw std::invalid_argument("Spike cache geometry must be nonzero");
     return static_cast<std::size_t>(sets) * ways;
   }
 
+  /* Enter the instance execution loop through context_t's opaque callback ABI. */
   static void run_trampoline(void* opaque) {
     static_cast<Implementation*>(opaque)->run();
   }
 
+  /*
+   * Execute up to the configured Spike instruction budget per turn, yielding at the budget boundary
+   * or earlier memory waits.
+   */
   [[noreturn]] void run() {
     for (;;) {
       processor_->step(configuration_.max_retired_instructions_per_cycle);
@@ -237,17 +315,26 @@ class SpikeCoreModel::Implementation final : public simif_t {
     }
   }
 
+  /*
+   * Return control to the sampled-cycle host, forbidding suspension while an atomic load/store
+   * scope is active.
+   */
   void yield() {
     assert(host_ != nullptr);
     assert(!amo_active_);
     host_->switch_to();
   }
 
+  /* Check that an enclosed byte access remains wholly inside the pinned AMO physical range. */
   bool amo_contains(std::uint64_t address, std::size_t length) const {
     return length <= amo_length_ && address >= amo_address_ &&
            address - amo_address_ <= amo_length_ - length;
   }
 
+  /*
+   * Clear request and snoop-response valid flags only when their previously offered outputs were
+   * accepted.
+   */
   void accept_previous_outputs() {
     if (address_request_valid_ && inputs_.address_request_ready) address_request_valid_ = false;
     if (instruction_request_valid_ && inputs_.instruction_request_ready) instruction_request_valid_ = false;
@@ -257,6 +344,9 @@ class SpikeCoreModel::Implementation final : public simif_t {
     if (uncached_request_valid_ && inputs_.uncached_request_ready) uncached_request_valid_ = false;
   }
 
+  /*
+   * Snapshot valid completions on waiting channels and unblock the corresponding coroutine waits.
+   */
   void accept_responses() {
     if (address_response_waiting_ && inputs_.address_response_valid) {
       address_response_ = AddressResponse{
@@ -291,6 +381,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     }
   }
 
+  /*
+   * Synchronize time and interrupt levels while preserving software-writable SSIP/STIP separately
+   * from external pins.
+   */
   void update_architectural_inputs() {
     state_t* state = processor_->get_state();
     state->time->sync(inputs_.time);
@@ -309,6 +403,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     state->mip->backdoor_write_with_mask(device_mask, pending);
   }
 
+  /*
+   * Encode a scalar prefix of up to eight bytes or a full 64-byte line, then yield until RTL
+   * returns its PMA and permission result.
+   */
   AddressResponse classify(std::uint64_t address, std::size_t length,
                            bool write, bool execute) {
     if (length == 0) return {};
@@ -327,6 +425,7 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return address_response_;
   }
 
+  /* Search the address-selected software-cache set for a valid matching physical line tag. */
   CacheLine* find_line(std::vector<CacheLine>& cache, std::uint16_t sets,
                        std::uint16_t ways, std::uint64_t line_address) {
     const std::size_t set = (line_address / kLineBytes) % sets;
@@ -337,6 +436,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return nullptr;
   }
 
+  /*
+   * Prefer an invalid way, otherwise advance a per-set round-robin replacement pointer; this is not
+   * PLRU.
+   */
   CacheLine& victim_line(std::vector<CacheLine>& cache, std::vector<std::size_t>& next_way,
                          std::uint16_t sets, std::uint16_t ways,
                          std::uint64_t line_address) {
@@ -350,6 +453,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return cache[set * ways + way];
   }
 
+  /*
+   * Copy instruction bytes across line boundaries, fetching missing lines through the blocking
+   * instruction transaction.
+   */
   bool instruction_read(std::uint64_t address, std::size_t length, std::uint8_t* bytes) {
     std::size_t copied = 0;
     while (copied < length) {
@@ -380,6 +487,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Read across line boundaries, obtaining readable coherent ownership for each software-cache
+   * line.
+   */
   bool data_read(std::uint64_t address, std::size_t length, std::uint8_t* bytes) {
     std::size_t copied = 0;
     while (copied < length) {
@@ -395,6 +506,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Acquire unique ownership as needed, copy bytes into each affected line, and retain dirty
+   * responsibility.
+   */
   bool data_write(std::uint64_t address, std::size_t length, const std::uint8_t* bytes) {
     std::size_t copied = 0;
     while (copied < length) {
@@ -416,6 +531,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Reuse suitable ownership or release/replace a line, wait for coherent acquisition, and install
+   * the returned state and bytes.
+   */
   CacheLine* acquire_data_line(std::uint64_t line_address, bool unique) {
     CacheLine* hit = find_line(data_cache_, configuration_.data_cache_sets,
                                configuration_.data_cache_ways, line_address);
@@ -454,6 +573,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return &victim;
   }
 
+  /*
+   * Drop the load reservation, silently discard clean lines, and wait for dirty copyback before
+   * invalidating them.
+   */
   bool release_line(CacheLine& line) {
     processor_->get_mmu()->yield_load_reservation();
     const bool dirty = line.state == CacheState::kSharedDirty ||
@@ -475,6 +598,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Split a byte range into aligned scalar chunks and read each through the nonallocating
+   * transaction path.
+   */
   bool uncached_read(std::uint64_t address, std::size_t length, bool device,
                      std::uint8_t* bytes) {
     std::size_t copied = 0;
@@ -486,6 +613,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Split a byte range into aligned scalar chunks and write each through the nonallocating
+   * transaction path.
+   */
   bool uncached_write(std::uint64_t address, std::size_t length, bool device,
                       const std::uint8_t* bytes) {
     std::size_t copied = 0;
@@ -497,6 +628,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Position one scalar's data/mask within its eight-byte word and yield until the uncached
+   * transaction completes or faults.
+   */
   bool uncached_access(std::uint64_t address, std::size_t length, bool write,
                        bool device, const std::uint8_t* bytes) {
     const std::size_t byte_offset = static_cast<std::size_t>(address & 7);
@@ -522,6 +657,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
     return true;
   }
 
+  /*
+   * Clear reservations and snapshot one accepted snoop's response while downgrading, invalidating,
+   * or surrendering dirty line data.
+   */
   void service_snoop(bool snoop_fire) {
     if (!snoop_fire) return;
     processor_->get_mmu()->yield_load_reservation();
@@ -561,10 +700,15 @@ class SpikeCoreModel::Implementation final : public simif_t {
     snoop_response_valid_ = true;
   }
 
+  /* Clear all software instruction-cache valid bits without changing the coherent data cache. */
   void invalidate_instruction_cache() {
     for (CacheLine& line : instruction_cache_) line.valid = false;
   }
 
+  /*
+   * Snapshot retained transaction payloads and derive response readiness from the outstanding wait
+   * flags.
+   */
   Outputs outputs() const {
     Outputs result;
     result.address_request_valid = address_request_valid_;
@@ -661,11 +805,14 @@ class SpikeCoreModel::Implementation final : public simif_t {
   bool uncached_response_fault_ = false;
 };
 
+/* Create the implementation-owned processor, caches, and execution coroutine. */
 SpikeCoreModel::SpikeCoreModel(Configuration configuration)
     : implementation_(std::make_unique<Implementation>(std::move(configuration))) {}
 
+/* Destroy the owned execution model and its private state. */
 SpikeCoreModel::~SpikeCoreModel() = default;
 
+/* Delegate one sampled cycle to the implementation and return its next transaction outputs. */
 Outputs SpikeCoreModel::tick(const Inputs& inputs) {
   return implementation_->tick(inputs);
 }

@@ -1,17 +1,19 @@
 #lang rhodium
-// Implements packed integer, fixed-point, extension, widening, and compaction datapaths.
+/* Implements packed integer, fixed-point, extension, widening, and compaction datapaths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../riscv/isa/xlen.rhm" open
   "../rhodium/std/bits.rhdl" open
 
+/* Select the runtime element width within a 32- or 64-bit packed physical word. */
 hardware_enum SimdElementWidth:
   E8
   E16
   E32
   E64
 
+/* Select the packed result resource independently of arithmetic and mask-result controls. */
 hardware_enum SimdResultSelect:
   Adder
   Logic
@@ -22,37 +24,45 @@ hardware_enum SimdResultSelect:
   Permute
   Count
 
+/* Select the packed bitwise operation after optional right-operand inversion. */
 hardware_enum SimdLogicSelect:
   And
   Or
   Xor
 
+/* Select equality, less-than, or less-or-equal per active element. */
 hardware_enum SimdComparisonSelect:
   Equal
   Less
   LessEqual
 
+/* Choose element comparison predicates or unsigned carry/borrow bits for the mask result. */
 hardware_enum SimdMaskResultSelect:
   Comparison
   CarryBorrow
 
+/* Select element-local bit reversal, byte-local bit reversal, or element-local byte reversal. */
 hardware_enum SimdPermutationSelect:
   ReverseBits
   ReverseBitsInBytes
   ReverseBytes
 
+/* Select per-element leading zeros, trailing zeros, or population count. */
 hardware_enum SimdCountSelect:
   LeadingZeros
   TrailingZeros
   Population
 
-// Declaration order matches the two-bit fixed-point rounding encoding.
+/*
+ * Declaration order matches the two-bit fixed-point rounding encoding.
+ */
 hardware_enum SimdRoundingMode:
   NearestUp
   NearestEven
   Down
   Odd
 
+/* Select wrapping, signed/unsigned saturation, or rounded signed/unsigned averaging. */
 hardware_enum SimdArithmeticMode:
   Wrap
   SaturateUnsigned
@@ -60,6 +70,7 @@ hardware_enum SimdArithmeticMode:
   AverageUnsigned
   AverageSigned
 
+/* Drive packed datapath resources without encoding ISA, vector register, or scheduling policy. */
 bundle SimdAluControl():
   result_select: SimdResultSelect
   arithmetic_mode: SimdArithmeticMode
@@ -76,16 +87,23 @@ bundle SimdAluControl():
   rotate: Bool
   invert_right: Bool
 
+/* Return the number of physical byte lanes in an XLEN-wide packed word. */
 fun simd_word_bytes(xlen :: XLen) :: PosInt:
   xlen.width / 8
 
+/*
+ * Return packed data, element predicates, byte write enables, and enabled-lane saturation
+ * status.
+ */
 bundle SimdAluResult(xlen :: XLen):
   data: Bits(xlen.width)
   mask_result: Mask(simd_word_bytes(xlen))
   write_mask: Mask(simd_word_bytes(xlen))
   saturated: Bool
 
-// Internal routing metadata expands element predicates into byte-level controls.
+/*
+ * Internal routing metadata expands element predicates into byte-level controls.
+ */
 bundle SimdRouting(xlen :: XLen):
   comparison: Mask(simd_word_bytes(xlen))
   enabled: Mask(simd_word_bytes(xlen))
@@ -96,8 +114,10 @@ bundle SimdRouting(xlen :: XLen):
   permutation_data: Bits(xlen.width)
   count_data: Bits(xlen.width)
 
-// Internal arithmetic routing retains the extended per-lane sum while one
-// shared incrementer applies fixed-point averaging modes.
+/*
+ * Internal arithmetic routing retains the extended per-lane sum while one
+ * shared incrementer applies fixed-point averaging modes.
+ */
 bundle SimdFixedArithmetic(xlen :: XLen):
   average: Bits(xlen.width)
   increment: Bits(xlen.width)
@@ -105,8 +125,10 @@ bundle SimdFixedArithmetic(xlen :: XLen):
   saturation: Bool
   carry_borrow: Mask(simd_word_bytes(xlen))
 
-// Internal tapered-bank slice: one barrel shifter serves both directions and
-// every element width routed into this physical slot.
+/*
+ * Internal tapered-bank slice: one barrel shifter serves both directions and
+ * every element width routed into this physical slot.
+ */
 circuit SimdShiftSlice(width :: PosInt, amount_width :: PosInt):
   input source: Bits(width)
   input amount: Bits(amount_width)
@@ -127,6 +149,10 @@ circuit SimdShiftSlice(width :: PosInt, amount_width :: PosInt):
   def shifted_result :: Bits(width) = shifted
   result <== mux(shift_right, shifted_result, reverse_bits(shifted_result))
 
+/*
+ * Compute packed integer and fixed-point operations combinationally with lane-isolated
+ * arithmetic and shared shift/comparison/count resources.
+ */
 circuit SimdALU(xlen :: XLen):
   def width = xlen.width
   def format_count = if width == 32 | 3 | 4
@@ -391,19 +417,26 @@ circuit SimdALU(xlen :: XLen):
     write_mask: routing.enabled
     saturated: (control.result_select === SimdResultSelect.Adder) & fixed.saturation
 
-// Widening prepares one physical destination word from either source half.
-// The caller selects only source widths whose doubled width fits that word.
+/*
+ * Widening prepares one physical destination word from either source half.
+ * The caller selects only source widths whose doubled width fits that word.
+ */
 hardware_enum SimdWidenElementWidth:
   E8
   E16
   E32
 
+/* Carry one widened operand pair, destination element width, and remapped element enables. */
 bundle SimdWidenedOperands(xlen :: XLen):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
   element_width: SimdElementWidth
   enabled: Mask(simd_word_bytes(xlen))
 
+/*
+ * Extend one source half to doubled-width elements, optionally passing an already-wide left
+ * word through.
+ */
 circuit SimdWidenOperands(xlen :: XLen):
   def width = xlen.width
   def format_count = if width == 32 | 3 | 4
@@ -437,13 +470,19 @@ circuit SimdWidenOperands(xlen :: XLen):
       enabled: concat(enables.reverse()).into(Mask(width / 8))
   operands <== mux_lookup(element_width, ~default: prepared[0], for List (format in 1..(format_count - 1)): [widths[format], prepared[format]])
 
-// Expands one selected narrow source fragment into a physical destination word.
-// Ratio and part choose wiring only; extension does not cascade widening lanes.
+/*
+ * Expands one selected narrow source fragment into a physical destination word.
+ * Ratio and part choose wiring only; extension does not cascade widening lanes.
+ */
 hardware_enum SimdExtensionRatio:
   By2
   By4
   By8
 
+/*
+ * Extend a selected fragment into one destination word and report legal width/ratio/fragment
+ * combinations.
+ */
 circuit SimdExtend(xlen :: XLen):
   def width = xlen.width
   def format_count = if width == 32 | 3 | 4
@@ -479,15 +518,19 @@ circuit SimdExtend(xlen :: XLen):
   def part_limit = mux_lookup(ratio, ~default: bits(2, 4), [[SimdExtensionRatio.By4, bits(4, 4)], [SimdExtensionRatio.By8, bits(8, 4)]])
   legal <== (destination_width.as_bits().zext(3) < bits(format_count, 3)) & (destination_width.as_bits() >= minimum_width) & (part.zext(4) < part_limit)
 
-// Packs enabled elements into consecutive low lanes. Architectural register
-// grouping, tails, restart, and cross-word accumulation remain caller policy.
+/* Size a selected-element count, including the full physical byte-lane count. */
 fun simd_count_width(xlen :: XLen) :: PosInt:
   bits.length(xlen.width / 8)
 
+/* Pair a stably compacted physical word with its selected-element count. */
 bundle SimdCompressed(xlen :: XLen):
   data: Bits(xlen.width)
   count: Bits(simd_count_width(xlen))
 
+/*
+ * Pack selected elements in original order into low lanes, clearing unused lanes and leaving
+ * cross-word progress to the caller.
+ */
 circuit SimdCompress(xlen :: XLen):
   def width = xlen.width
   def format_count = if width == 32 | 3 | 4

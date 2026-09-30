@@ -1,5 +1,5 @@
 #lang rhodium
-// Maps RV32 and RV64 Zmmul instructions onto the shared multiplier.
+/* Maps RV32 and RV64 Zmmul instructions onto the shared multiplier. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,10 @@ import:
   "../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
+/*
+ * Separate multiplier operand signedness from architectural high-half and word-result
+ * selection.
+ */
 bundle RiscvMultiplyControl():
   mode: MultiplierMode()
   high_result: Bool
@@ -64,6 +68,10 @@ def RV64ZmmulControlCases = RV32ZmmulControlCases ++ decode_groups(
 def RV32ZmmulControlDecode = ValidDecodeGen(RV32ZmmulControlCases)
 def RV64ZmmulControlDecode = ValidDecodeGen(RV64ZmmulControlCases)
 
+/*
+ * Decode the selected XLEN's Zmmul instructions into multiplier and result-projection
+ * controls.
+ */
 circuit RiscvMultiplyInstructionDecoder(xlen :: XLen):
   input instruction: Bits(32)
   output valid: Bool

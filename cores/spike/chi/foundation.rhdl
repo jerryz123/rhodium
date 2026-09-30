@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines Spike-specific CHI endpoint capabilities and flit construction helpers.
+/* Defines Spike-specific CHI endpoint capabilities and flit construction helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,6 +23,10 @@ def SpikeReleaseResponses = response_profile("spike_release"):
   response [CHIRspOpcode.CompDBIDResp]:
     completes [grant]
 
+/*
+ * Describe Spike instruction, coherent-data, and uncached requester capabilities around
+ * validated generic hart placement.
+ */
 class SpikeCHIParams(hart :: RiscvHartCHIParams):
   property config: hart.config
   property flit: hart.flit
@@ -81,6 +85,10 @@ class SpikeCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 1
     )
 
+  /*
+   * Project instruction requester capabilities for coherent ReadOnce or noncoherent ReadNoSnp
+   * Homes.
+   */
   method instruction_home_port(~coherent: coherent :: Boolean):
     CHIRequesterHomeParams(
       instruction_node.icn_peer(),
@@ -96,6 +104,7 @@ class SpikeCHIParams(hart :: RiscvHartCHIParams):
                            instruction_home_port(~coherent: #true),
                            instruction_home_port(~coherent: #false))
 
+  /* Build the generic validated placement used by every Spike endpoint projection. */
   constructor (config :: RiscvHartCHIConfig,
                instruction_node_id :: Nat,
                data_node_id :: Nat,
@@ -103,6 +112,7 @@ class SpikeCHIParams(hart :: RiscvHartCHIParams):
     super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
                              ~uncached_node_id: uncached_node_id))
 
+/* Expose the Spike endpoint projections through a core-neutral hart attachment description. */
 fun spike_chi_params(config :: RiscvHartCHIConfig,
                      instruction_node_id :: Nat,
                      data_node_id :: Nat,
@@ -110,6 +120,10 @@ fun spike_chi_params(config :: RiscvHartCHIConfig,
   SpikeCHIParams(config, instruction_node_id, data_node_id,
                  ~uncached_node_id: uncached_node_id).attachment
 
+/*
+ * Resize an address to the CHI request field; callers must separately check whether truncation
+ * is legal.
+ */
 fun spike_chi_address(address :: Bits, p :: CHIFlitParams) :~ Bits(p.request_address_width):
   def width = hardware_value_type(address).packed_width()
   cond
@@ -117,17 +131,26 @@ fun spike_chi_address(address :: Bits, p :: CHIFlitParams) :~ Bits(p.request_add
   | width == p.request_address_width: address
   | ~else: address[0..p.request_address_width]
 
+/* Check that address bits above the CHI request width are zero. */
 fun spike_chi_address_fits(address :: Bits, p :: CHIFlitParams) :~ Bool:
   def width = hardware_value_type(address).packed_width()
   if width <= p.request_address_width
   | Bool(#true)
   | !address[p.request_address_width..width].or_reduce()
 
+/*
+ * Restore the three implicit low snoop-address bits and widen to the native 64-bit address
+ * ABI.
+ */
 fun spike_chi_snoop_address(p :: CHIFlitParams,
                             snoop_address :: Bits(p.snoop_address_width)) :~ Bits(64):
   def raw_address = snoop_address ++ bits(0, 3)
   if p.request_address_width < 64 | raw_address.zext(64) | raw_address[0..64]
 
+/*
+ * Build a policy-selected CHI request with explicit routing/retry attributes and inactive
+ * optional fields.
+ */
 fun spike_chi_request(p :: CHIFlitParams,
                       node_id :: Bits(p.node_id_width),
                       home_id :: Bits(p.node_id_width),
@@ -168,6 +191,10 @@ fun spike_chi_request(p :: CHIFlitParams,
     ~tgt_id: home_id
   )
 
+/*
+ * Build a successful requester response with explicit routing, opcode, and response-state
+ * bits.
+ */
 fun spike_chi_response(p :: CHIFlitParams,
                        node_id :: Bits(p.node_id_width),
                        target_id :: Bits(p.node_id_width),
@@ -178,10 +205,15 @@ fun spike_chi_response(p :: CHIFlitParams,
                ~dbid: bits(0, 12), ~resp: response,
                ~error: CHIRespErr.OK, ~qos: bits(0, 4))
 
+/*
+ * Recognize the delivered snoop opcodes that request a shared-state transition in the software
+ * cache.
+ */
 fun spike_snoop_shares_state(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpShared, CHISnpOpcode.SnpClean,
                    CHISnpOpcode.SnpNotSharedDirty, CHISnpOpcode.SnpCleanShared)
 
+/* Recognize the delivered snoop opcodes whose software-cache intent requires invalidation. */
 fun spike_snoop_invalidates_state(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpUniqueStash, CHISnpOpcode.SnpMakeInvalidStash,
                    CHISnpOpcode.SnpUnique, CHISnpOpcode.SnpCleanInvalid,
@@ -190,6 +222,10 @@ fun spike_snoop_invalidates_state(opcode :: CHISnpOpcode) :~ Bool:
                    CHISnpOpcode.SnpOnceFwd, CHISnpOpcode.SnpNotSharedDirtyFwd,
                    CHISnpOpcode.SnpPreferUniqueFwd, CHISnpOpcode.SnpUniqueFwd)
 
+/*
+ * Build scalar noncopyback write data with address-derived physical packet position and the
+ * granted DBID.
+ */
 fun spike_chi_write_data(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          home_id :: Bits(p.node_id_width),

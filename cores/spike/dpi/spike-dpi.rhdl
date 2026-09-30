@@ -1,5 +1,5 @@
 #lang rhodium
-// Bridges one Spike hart to typed instruction, coherent-data, and uncached transactions.
+/* Bridges one Spike hart to typed instruction, coherent-data, and uncached transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
 
+/* Advance the per-scope native hart using sampled handshake inputs and return its next registered transaction outputs. */
 dpi_import function rhodium_spike_tick(
   reset: Bool,
   hart_id: Bits(64),
@@ -93,6 +94,10 @@ dpi_import function rhodium_spike_tick(
   return uncached_response_ready: Bool
 )
 
+/*
+ * Advance the native model on clock edges and register its typed transaction outputs; reset
+ * destroys the per-scope native hart.
+ */
 sync_circuit SpikeDPI(config :: SpikeConfig):
   input hart_id: Bits(64)
   input reset_vector: Bits(64)

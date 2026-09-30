@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts CHI snoops to the Spike software cache and returns retained state or data.
+/* Adapts CHI snoops to the Spike software cache and returns retained state or data. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,10 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
   lib("chi/protocol/coherence.rhdl") open
 
+/*
+ * Retain one snoop and software-cache result until response/data acceptance; paired DVM snoops
+ * complete locally without a cache lookup.
+ */
 sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
   def p = config.flit
   def packet_count = 64 / p.data_bytes
@@ -29,6 +33,7 @@ sync_circuit SpikeSnoop(config :: RiscvHartCHIConfig):
   reg packet_index(~init: bits(0, packet_index_width))
   reg dvm_first_pending(~init: Bool(#false))
 
+  // Credit returns do not start work. DVM waits for its second flit and responds without consulting the cache.
   def ordinary = snoops.bits.opcode =/= CHISnpOpcode.SnpLCrdReturn
   def incoming_dvm = snoops.bits.opcode === CHISnpOpcode.SnpDVMOp
   def can_start = !active & (!dvm_first_pending ||| incoming_dvm)

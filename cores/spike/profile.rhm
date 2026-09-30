@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines implementation-owned configuration and DPI constants for the Spike-backed core.
+/* Defines implementation-owned configuration and DPI constants for the Spike-backed core. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,10 @@ import:
 def SpikeIsaBytes :: PosInt = 512
 def SpikePrivilegeBytes :: PosInt = 4
 
+/*
+ * Render the hart ISA for Spike, adding exact configured VLEN and separating single-letter
+ * from named extensions.
+ */
 fun spike_isa_string(architecture :: RiscvHartDescription) :: String:
   def mutable extensions = architecture.isa_profile.isa_extensions
   when architecture.vector is_a RiscvVectorDescription
@@ -29,17 +33,23 @@ fun spike_isa_string(architecture :: RiscvHartDescription) :: String:
     if named.is_empty() | "" | "_" ++ String.join(named, "_")
   )
 
+/* Render machine mode plus the profile's supported supervisor and user modes. */
 fun spike_privilege_string(architecture :: RiscvHartDescription) :: String:
   def extensions = architecture.isa_profile.misa_extensions
   "m" ++ (if extensions.contains(MisaExtension.S) | "s" | "") ++ (
     if extensions.contains(MisaExtension.U) | "u" | ""
   )
 
+/* Translate the supported Bare or Sv39 MMU selection to Spike's virtual-address-width setting. */
 fun spike_max_vaddr_bits(mmu_type :: RiscvMmuType) :: Nat:
   match mmu_type
   | RiscvMmuType.Bare: 0
   | RiscvMmuType.Sv39: 39
 
+/*
+ * Pack UTF-8 bytes least-significant-byte first with a terminating NUL, rejecting values that
+ * exceed the fixed DPI capacity.
+ */
 fun pack_spike_string(value :: String, capacity :: PosInt = SpikeIsaBytes) :: Nat:
   def bytes = value.utf8_bytes().to_list()
   when bytes.length() >= capacity
@@ -51,11 +61,19 @@ fun pack_spike_string(value :: String, capacity :: PosInt = SpikeIsaBytes) :: Na
     shift := shift + 8
   packed
 
+/*
+ * Bind a shared architectural hart description to Spike execution budget, PMP count, and
+ * fixed-width DPI configuration.
+ */
 class SpikeConfig(architecture :: RiscvHartDescription,
                   max_retired_instructions_per_cycle :: PosInt,
                   pmp_regions :: Nat):
   implements StableCircuitParam
 
+  /*
+   * Validate 64-byte line geometry, vector/runtime limits, string capacities, and encoded
+   * cache/PMP/execution bounds.
+   */
   constructor (architecture :: RiscvHartDescription,
                ~max_retired_instructions_per_cycle: max_retired_instructions_per_cycle :: PosInt = 1,
                ~pmp_regions: pmp_regions :: Nat = 16):

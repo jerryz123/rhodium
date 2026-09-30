@@ -1,17 +1,25 @@
 #lang rhodium
-// Defines the implementation-neutral transaction ABI between Spike and its RTL adapters.
+/* Defines the typed transaction ABI between the Spike runtime and its RTL adapters. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/protocol/coherence.rhdl") open
 
+/*
+ * Ask RTL to classify an address range of 2^size bytes for a read, write, or instruction
+ * fetch.
+ */
 bundle SpikeAddressRequest():
   address: Bits(64)
   size: Bits(3)
   write: Bool
   execute: Bool
 
+/*
+ * Return mapped-access legality and the physical attributes consumed by the native cache and
+ * atomic paths.
+ */
 bundle SpikeAddressResponse():
   cacheable: Bool
   cache_block_zero: Bool
@@ -20,6 +28,10 @@ bundle SpikeAddressResponse():
   atomic: Bool
   access_fault: Bool
 
+/*
+ * Carry physical-map requests and responses without moving address-map policy into the native
+ * model.
+ */
 interface SpikeAddressTransactions():
   role requester
   role responder
@@ -31,13 +43,16 @@ interface SpikeAddressTransactions():
   responder -> requester:
     response: Decoupled(SpikeAddressResponse())
 
+/* Request one instruction cache line by its physical address. */
 bundle SpikeInstructionRequest():
   address: Bits(64)
 
+/* Return a 64-byte instruction line with its combined access-error status. */
 bundle SpikeInstructionResponse():
   line: Bits(512)
   access_fault: Bool
 
+/* Pair blocking instruction-line requests with RTL-provided line completions. */
 interface SpikeInstructionTransactions():
   role requester
   role responder
@@ -49,24 +64,29 @@ interface SpikeInstructionTransactions():
   responder -> requester:
     response: Decoupled(SpikeInstructionResponse())
 
+/* Request a data line with shared-readable or unique-writable ownership. */
 bundle SpikeAcquireRequest():
   address: Bits(64)
   unique: Bool
 
+/* Return the acquired line, coherence state, dirty responsibility, and access status. */
 bundle SpikeAcquireResponse():
   line: Bits(512)
   state: CHIResponseState
   pass_dirty: Bool
   access_fault: Bool
 
+/* Carry a victim line and its retained cache state for coherent copyback. */
 bundle SpikeReleaseRequest():
   address: Bits(64)
   line: Bits(512)
   state: CHICacheState
 
+/* Return the copyback transaction's access status. */
 bundle SpikeReleaseResponse():
   access_fault: Bool
 
+/* Carry translated snoop intent to the native data cache without exposing CHI encodings. */
 bundle SpikeSnoopRequest():
   address: Bits(64)
   share: Bool
@@ -74,12 +94,14 @@ bundle SpikeSnoopRequest():
   discard_dirty: Bool
   return_to_source: Bool
 
+/* Return the post-snoop coherence state and any retained line data/dirty responsibility. */
 bundle SpikeSnoopResponse():
   state: CHIResponseState
   pass_dirty: Bool
   has_data: Bool
   line: Bits(512)
 
+/* Expose independent acquire, release, and snoop handshakes for the native private data cache. */
 interface SpikeDataTransactions():
   role requester
   role responder
@@ -95,6 +117,10 @@ interface SpikeDataTransactions():
     release_response: Decoupled(SpikeReleaseResponse())
     snoop: Decoupled(SpikeSnoopRequest())
 
+/*
+ * Carry a scalar uncached transfer with data and mask positioned within its containing 64-bit
+ * word.
+ */
 bundle SpikeUncachedRequest():
   address: Bits(64)
   write: Bool
@@ -103,10 +129,15 @@ bundle SpikeUncachedRequest():
   mask: Bits(8)
   device: Bool
 
+/*
+ * Return a containing 64-bit read word or write status without allocating a private cache
+ * line.
+ */
 bundle SpikeUncachedResponse():
   data: Bits(64)
   access_fault: Bool
 
+/* Pair scalar nonallocating accesses with their RTL transaction completions. */
 interface SpikeUncachedTransactions():
   role requester
   role responder

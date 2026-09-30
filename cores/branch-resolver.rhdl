@@ -1,10 +1,14 @@
 #lang rhodium
-// Resolves conditional and unconditional control transfers from orthogonal controls.
+/* Resolves conditional and unconditional control transfers from orthogonal controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/*
+ * Select branch enable, unconditional take, equality or ordered comparison, signedness, and
+ * predicate inversion.
+ */
 bundle BranchResolverControl():
   enable: Bool
   unconditional: Bool
@@ -12,14 +16,20 @@ bundle BranchResolverControl():
   signed_mode: Bool
   invert: Bool
 
+/* Pair comparison operands with the already-decoded branch controls. */
 bundle BranchResolverRequest(width :: PosInt):
   left: Bits(width)
   right: Bits(width)
   control: BranchResolverControl()
 
+/* Report the taken predicate without target-address or redirect policy. */
 bundle BranchResult():
   taken: Bool
 
+/*
+ * Resolve each valid request combinationally without backpressure; the caller owns targets and
+ * redirect timing.
+ */
 circuit BranchResolver(width :: PosInt):
   interface request(Valid(BranchResolverRequest(width)), ~role: consumer)
   interface result(Valid(BranchResult()), ~role: producer)

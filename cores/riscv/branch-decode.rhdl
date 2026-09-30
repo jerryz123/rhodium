@@ -1,5 +1,5 @@
 #lang rhodium
-// Maps base RISC-V control transfers onto the shared branch resolver.
+/* Maps base RISC-V control transfers onto the shared branch resolver. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,10 +9,15 @@ import:
   "../../riscv/isa/rv64i.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
+/*
+ * Pair branch comparison controls with the choice of PC-relative or register-relative target
+ * base.
+ */
 bundle RiscvBranchControl():
   resolver: BranchResolverControl()
   target_from_rs1: Bool
 
+/* Build enabled equality or inequality controls, leaving signedness unused. */
 fun equality_resolver(invert :: Boolean):
   partial_pattern(BranchResolverControl()):
     enable: Bool(#true)
@@ -20,6 +25,7 @@ fun equality_resolver(invert :: Boolean):
     compare_equal: Bool(#true)
     invert: Bool(invert)
 
+/* Build enabled signed or unsigned ordering controls, optionally inverting the result. */
 fun less_resolver(signed_mode :: Boolean, invert :: Boolean):
   partial_pattern(BranchResolverControl()):
     enable: Bool(#true)
@@ -37,6 +43,10 @@ def disabled_resolver = partial_pattern(BranchResolverControl()):
 
 def branch_instructions = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
 def branching_instructions = [JAL, JALR] ++ branch_instructions
+/*
+ * Map jumps and branches onto resolver/target controls and disable the resolver for remaining
+ * catalog instructions.
+ */
 fun branch_cases(instructions :: List.of(InstructionSpec)):
   decode_groups(
     RiscvBranchControl(),

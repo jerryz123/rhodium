@@ -1,22 +1,33 @@
 #lang rhombus
-// Maps architectural vector bit positions onto explicitly sized physical register rows.
+/* Maps architectural vector bit positions onto explicitly sized physical register rows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/vector.rhm") open
   lib("riscv/isa/xlen.rhm").XLen
 
-// Physical word geometry for cores whose vector lane follows XLEN.
+/* Return physical vector-word bytes for an XLEN-sized lane. */
 fun vector_word_bytes(xlen :: XLen) :: PosInt: xlen.width / 8
+/* Return the width of a bit index within one XLEN-sized vector word. */
 fun vector_bit_offset_width(xlen :: XLen) :: PosInt: bits.length(xlen.width - 1)
+/* Return the width of a byte index within one XLEN-sized vector word. */
 fun vector_byte_offset_width(xlen :: XLen) :: PosInt: bits.length(vector_word_bytes(xlen) - 1)
+/* Size a count that includes every byte-sized element in one vector word. */
 fun vector_lane_count_width(xlen :: XLen) :: PosInt: bits.length(vector_word_bytes(xlen))
+/* Count the power-of-two element-width formats from one byte through the physical word. */
 fun vector_format_count(xlen :: XLen) :: PosInt: vector_byte_offset_width(xlen) + 1
+/* Return the two-word byte span used for vector sliding operand windows. */
 fun vector_slide_bytes(xlen :: XLen) :: PosInt: 2 * vector_word_bytes(xlen)
 
+/* Identify an architectural bit position by its physical row and offset within that row. */
 class VectorRowLocation(row :: Nat, bit_offset :: Nat)
 
+/*
+ * Map all 32 architectural vector registers onto explicitly sized rows without choosing
+ * storage ports or scheduling.
+ */
 class VectorRegisterLayout(vlen :: VectorLength, row_bits :: PosInt):
+  /* Require the physical row width to divide architectural VLEN. */
   constructor (vlen :: VectorLength, row_bits :: PosInt):
     unless vlen mod row_bits == 0
     | error(~who: #'VectorRegisterLayout, "row width must divide VLEN")
@@ -25,12 +36,17 @@ class VectorRegisterLayout(vlen :: VectorLength, row_bits :: PosInt):
   property rows_per_register :: PosInt: vlen / row_bits
   property depth :: PosInt: 32 * rows_per_register
 
+  /*
+   * Resolve an element's architectural bit position to a row, requiring matching VLEN and an
+   * element that fits.
+   */
   method location(config :: VectorConfig, base :: Nat, element :: Nat) :: VectorRowLocation:
     unless config.vlen == vlen && config.element_bits <= row_bits
     | error(~who: #'VectorRegisterLayout.location, "configuration must match VLEN and its elements must fit a row")
     def offset = config.bit_offset(base, element)
     VectorRowLocation(offset div row_bits, offset mod row_bits)
 
+  /* Resolve an in-range mask bit within a named architectural register to a physical row. */
   method mask_location(base :: Nat, element :: Nat) :: VectorRowLocation:
     unless base < 32 && element < vlen
     | error(~who: #'VectorRegisterLayout.mask_location, "mask element or register out of range")
