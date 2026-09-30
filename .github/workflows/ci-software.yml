@@ -337,10 +337,42 @@ jobs:
         run: |
           make -C sims arch-test-setup arch-test-config ACT_CONFIGURATION=${{ matrix.configuration }}
           echo "digest=$(sha256sum /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/* | sha256sum | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+          riscv64-unknown-elf-gcc --version > "$RUNNER_TEMP/act-tools.txt"
+          riscv64-unknown-elf-ld --version >> "$RUNNER_TEMP/act-tools.txt"
+          riscv64-unknown-elf-objdump --version >> "$RUNNER_TEMP/act-tools.txt"
+          cat .tools/riscv-toolchain/.archive-sha256 >> "$RUNNER_TEMP/act-tools.txt"
+          .tools/act-venv/bin/python --version >> "$RUNNER_TEMP/act-tools.txt"
+          .tools/act-venv/bin/python -m pip freeze >> "$RUNNER_TEMP/act-tools.txt"
+          ruby --version >> "$RUNNER_TEMP/act-tools.txt"
+          bundle --version >> "$RUNNER_TEMP/act-tools.txt"
+          BUNDLE_GEMFILE="$PWD/sw/riscv-arch-test/framework/src/act/data/Gemfile" BUNDLE_PATH="$PWD/.tools/act-bundle" bundle list >> "$RUNNER_TEMP/act-tools.txt"
+          echo "tools=$(sha256sum "$RUNNER_TEMP/act-tools.txt" | cut -d' ' -f1)" >> "$GITHUB_OUTPUT"
+      - name: Identify complete ACT payload inputs
+        id: act-inputs
+        env:
+          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', '!**/__pycache__/**', '!**/compiled/**') }}"
+        run: echo "key=$ACT_INPUT_KEY" >> "$GITHUB_OUTPUT"
+      - name: Restore complete ACT payload
+        id: act-payload
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/act/elfs.tar.gz
+            ${{ runner.temp }}/act/elfs.sha256
+            ${{ runner.temp }}/act/configuration.json
+            ${{ runner.temp }}/act/inventory.json
+          key: ${{ steps.act-inputs.outputs.key }}
+      - name: Verify cached ACT payload
+        if: steps.act-payload.outputs.cache-hit == 'true'
+        run: |
+          python3 sims/arch-test/payload.py verify --bundle "$RUNNER_TEMP/act" \
+            --configuration /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/configuration.json \
+            --identity '${{ steps.act-inputs.outputs.key }}'
       - name: Check GEILEN-dependent Sail CSR aliases
         if: matrix.configuration == 'simple-rv5stage-rva23'
         run: make -C sims arch-test-sail-test ACT_CONFIGURATION=${{ matrix.configuration }}
       - name: Cache ACT reference products
+        if: steps.act-payload.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
@@ -348,15 +380,25 @@ jobs:
             /tmp/rhodium-arch-test/work/**/.act_build_cache.json
           key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py') }}"
       - name: Generate and package every selected ELF
+        if: steps.act-payload.outputs.cache-hit != 'true'
         run: |
           set -o pipefail
           mkdir -p "$RUNNER_TEMP/act"
           make -C sims arch-test-elfs ACT_CONFIGURATION=${{ matrix.configuration }} ACT_FAST=1 2>&1 | tee "$RUNNER_TEMP/act/generation.log"
-          test -n "$(find /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs -name '*.elf' -print -quit)"
-          tar -czhf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs .
-          cp /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/configuration.json "$RUNNER_TEMP/act/configuration.json"
-          cd "$RUNNER_TEMP/act"
-          sha256sum elfs.tar.gz configuration.json > elfs.sha256
+          python3 sims/arch-test/payload.py package --bundle "$RUNNER_TEMP/act" \
+            --elf-dir /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs \
+            --configuration /tmp/rhodium-arch-test/configs/${{ matrix.configuration }}/configuration.json \
+            --identity '${{ steps.act-inputs.outputs.key }}'
+      - name: Save complete successful ACT payload
+        if: steps.act-payload.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ${{ runner.temp }}/act/elfs.tar.gz
+            ${{ runner.temp }}/act/elfs.sha256
+            ${{ runner.temp }}/act/configuration.json
+            ${{ runner.temp }}/act/inventory.json
+          key: ${{ steps.act-inputs.outputs.key }}
       - name: Publish exact-commit ACT payloads
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -365,6 +407,7 @@ jobs:
             ${{ runner.temp }}/act/elfs.tar.gz
             ${{ runner.temp }}/act/elfs.sha256
             ${{ runner.temp }}/act/configuration.json
+            ${{ runner.temp }}/act/inventory.json
           if-no-files-found: error
           retention-days: 3
           compression-level: 0
@@ -422,7 +465,7 @@ jobs:
             echo "simulator has unresolved shared libraries" >&2
             exit 1
           fi
-          (cd "$RUNNER_TEMP/act" && sha256sum --check elfs.sha256)
+          python3 sims/arch-test/payload.py verify --bundle "$RUNNER_TEMP/act" --configuration "$RUNNER_TEMP/act/configuration.json"
           mkdir -p /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs
           cp "$RUNNER_TEMP/act/configuration.json" /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/configuration.json
           tar -xzf "$RUNNER_TEMP/act/elfs.tar.gz" -C /tmp/rhodium-arch-test/work/${{ matrix.configuration }}/${{ matrix.configuration }}/elfs

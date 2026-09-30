@@ -1,6 +1,7 @@
 # Checks UDB-to-Sail projection, privileged-inclusive generation, and ACT completion.
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import io
 import json
 from itertools import product
 import os
@@ -8,7 +9,9 @@ from pathlib import Path
 import runpy
 import subprocess
 import sys
+import tarfile
 import tempfile
+import textwrap
 from types import ModuleType
 import unittest
 from unittest.mock import Mock, patch
@@ -88,6 +91,7 @@ def architecture_params(asid_width=0):
     params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
                   MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
                   LRSC_MISALIGNED_BEHAVIOR="always raise misaligned exception",
+                  AMO_MISALIGNED_BEHAVIOR="always raise misaligned exception",
                   HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
                   SCOUNTENABLE_EN=[False] * 32, MTVEC_MODES=[0, 1], STVEC_MODES=[0, 1],
                   MTVEC_BASE_ALIGNMENT_DIRECT=4, MSTATUS_FS_LEGAL_VALUES=[0],
@@ -160,7 +164,10 @@ class ArchTestConfigTest(unittest.TestCase):
         project = runpy.run_path(str(RUNNER.with_name("configure.py")))["act_udb_configuration"]
         udb = vector_udb()
         overlay = RUNNER.parent / "udb-overlay"
-        self.assertIs(project(udb, overlay), udb)
+        result = project(udb, overlay)
+        self.assertEqual(result["params"], udb["params"])
+        self.assertEqual(result["implemented_extensions"], udb["implemented_extensions"])
+        self.assertEqual(result["arch_overlay"], str(overlay.resolve()))
         udb["implemented_extensions"].append({"name": "Sstvala", "version": "= 1.0.0"})
         result = project(udb, overlay)
         self.assertEqual(result["params"], udb["params"])
@@ -357,6 +364,32 @@ class ArchTestConfigTest(unittest.TestCase):
                 self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"],
                                  {"Some": "AlignmentException"})
                 self.assertEqual(int(config["base"]["medeleg"]["delegatable_bits"]["value"], 0), 0x8b3ff)
+
+    def test_atomic_misalignment_policies_are_independent(self):
+        project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
+        behaviors = {"always raise misaligned exception": "AlignmentException",
+                     "always raise access fault": "AccessFault"}
+        for zicclsm, amo, lrsc in product((False, True), behaviors, behaviors):
+            with self.subTest(zicclsm=zicclsm, amo=amo, lrsc=lrsc):
+                udb = vector_udb()
+                if zicclsm:
+                    udb["implemented_extensions"].append({"name": "Zicclsm", "version": "= 1.0.0"})
+                udb["params"].update(MISALIGNED_LDST=zicclsm, VECTOR_LS_MISALIGNED_LEGAL=zicclsm,
+                                     AMO_MISALIGNED_BEHAVIOR=amo, LRSC_MISALIGNED_BEHAVIOR=lrsc)
+                config = project(sail_default(), udb, 0x80000000, 0x40000000)
+                exceptions = config["memory"]["misaligned"]["exceptions"]
+                self.assertEqual(exceptions["amo"], {"Some": behaviors[amo]})
+                self.assertEqual(exceptions["lrsc"], {"Some": behaviors[lrsc]})
+        for parameter in ("AMO_MISALIGNED_BEHAVIOR", "LRSC_MISALIGNED_BEHAVIOR"):
+            for invalid in (None, "custom", "unsupported"):
+                with self.subTest(parameter=parameter, invalid=invalid):
+                    udb = vector_udb()
+                    if invalid is None:
+                        del udb["params"][parameter]
+                    else:
+                        udb["params"][parameter] = invalid
+                    with self.assertRaisesRegex(ValueError, parameter):
+                        project(sail_default(), udb, 0x80000000, 0x40000000)
 
     def test_zicclsm_projects_scalar_and_vector_main_memory_only(self):
         configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
@@ -689,6 +722,140 @@ class ArchTestGenerationTest(unittest.TestCase):
             self.assertEqual([p.name for p in elf_dir.glob('*.elf')], ["selected.elf"])
             self.assertTrue((elf_dir / "old.elf.objdump").exists())
             self.assertTrue(other_elf.exists())
+
+
+class ArchTestPayloadTest(unittest.TestCase):
+    def setUp(self):
+        self.payload = runpy.run_path(str(RUNNER.with_name("payload.py")))
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.elfs = self.root / "elfs"
+        (self.elfs / "nested").mkdir(parents=True)
+        (self.elfs / "first.elf").write_bytes(b"\x7fELFfirst")
+        target = self.root / "reference-build.elf"
+        target.write_bytes(b"\x7fELFsecond")
+        (self.elfs / "nested/second.elf").symlink_to(target)
+        (self.elfs / "first.log").write_text("generation diagnostic")
+        self.configuration = self.root / "configuration.json"
+        self.configuration.write_text('{"product":"simple-rv5stage-rva23"}\n')
+        self.bundle = self.root / "bundle"
+        self.identity = "input-content-key"
+
+    def package(self):
+        self.payload["package"](self.elfs, self.configuration, self.bundle, self.identity)
+
+    def verify(self):
+        self.payload["verify"](self.bundle, self.configuration, self.identity)
+
+    def refresh_checksums(self):
+        (self.bundle / "elfs.sha256").write_text(self.payload["checksum_text"](self.bundle))
+
+    def test_complete_bundle_is_self_contained_and_cli_reusable(self):
+        self.package()
+        with tarfile.open(self.bundle / "elfs.tar.gz") as archive:
+            self.assertEqual(archive.getnames(), ["first.elf", "nested/second.elf"])
+            self.assertTrue(all(member.isfile() for member in archive.getmembers()))
+            self.assertEqual(archive.extractfile("nested/second.elf").read(), b"\x7fELFsecond")
+        (self.root / "reference-build.elf").unlink()
+        result = subprocess.run([
+            sys.executable, str(RUNNER.with_name("payload.py")), "verify",
+            "--bundle", str(self.bundle), "--configuration", str(self.configuration),
+            "--identity", self.identity,
+        ], capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("Verified 2 ACT ELFs", result.stdout)
+
+    def test_empty_or_broken_generation_cannot_be_packaged(self):
+        (self.elfs / "first.elf").unlink()
+        (self.elfs / "nested/second.elf").unlink()
+        with self.assertRaisesRegex(ValueError, "empty"):
+            self.package()
+        (self.elfs / "missing.elf").symlink_to(self.root / "missing-target")
+        with self.assertRaisesRegex(ValueError, "invalid ACT ELF"):
+            self.package()
+        self.assertFalse((self.bundle / "inventory.json").exists())
+
+    def test_ci_packages_only_after_successful_full_generation(self):
+        workflow = (RUNNER.parents[2] / ".github/workflows/ci-software.yml").read_text()
+        step = workflow.split("      - name: Generate and package every selected ELF\n", 1)[1].split("      - name:", 1)[0]
+        script = textwrap.dedent(step.split("        run: |\n", 1)[1])
+        configuration = "simple-rv5stage-rva23"
+        build_root = self.root / "build"
+        config_dir = build_root / "configs" / configuration
+        config_dir.mkdir(parents=True)
+        (config_dir / "configuration.json").write_bytes(self.configuration.read_bytes())
+        elf_dir = build_root / "work" / configuration / configuration / "elfs"
+        elf_dir.mkdir(parents=True)
+        (elf_dir / "selected.elf").write_bytes(b"\x7fELFselected")
+        script = script.replace("${{ matrix.configuration }}", configuration)
+        script = script.replace("${{ steps.act-inputs.outputs.key }}", self.identity)
+        script = script.replace("/tmp/rhodium-arch-test", str(build_root))
+        bin_dir = self.root / "bin"
+        bin_dir.mkdir()
+        fake_make = bin_dir / "make"
+        fake_make.write_text('#!/bin/sh\necho "ACT build attempted"\nexit "$FAKE_ACT_STATUS"\n')
+        fake_make.chmod(0o755)
+        env = {**os.environ, "PATH": str(bin_dir) + os.pathsep + os.environ["PATH"],
+               "RUNNER_TEMP": str(self.root), "FAKE_ACT_STATUS": "7"}
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                cwd=RUNNER.parents[2], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("ACT build attempted", (self.root / "act/generation.log").read_text())
+        self.assertFalse((self.root / "act/inventory.json").exists())
+        env["FAKE_ACT_STATUS"] = "0"
+        result = subprocess.run(["bash", "-e", "-o", "pipefail", "-c", script],
+                                cwd=RUNNER.parents[2], env=env, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.payload["verify"](self.root / "act", self.configuration, self.identity)
+
+    def test_changed_inputs_reject_cached_bundle(self):
+        self.package()
+        with self.assertRaisesRegex(ValueError, "identity mismatch"):
+            self.payload["verify"](self.bundle, self.configuration, "changed-input-content-key")
+        self.configuration.write_text('{"product":"simple-spike-rva23"}\n')
+        with self.assertRaisesRegex(ValueError, "configuration mismatch"):
+            self.verify()
+
+    def test_corrupt_or_missing_payload_files_are_rejected(self):
+        self.package()
+        for name in self.payload["PAYLOAD_FILES"]:
+            with self.subTest(name=name):
+                path = self.bundle / name
+                original = path.read_bytes()
+                path.write_bytes(original + b"corruption")
+                with self.assertRaisesRegex(ValueError, "checksum mismatch"):
+                    self.verify()
+                path.unlink()
+                with self.assertRaises(FileNotFoundError):
+                    self.verify()
+                path.write_bytes(original)
+        self.verify()
+
+    def test_archive_inventory_rejects_missing_extra_changed_and_unsafe_members(self):
+        self.package()
+        baseline = [("first.elf", b"\x7fELFfirst"), ("nested/second.elf", b"\x7fELFsecond")]
+        cases = [baseline[:1], baseline + [("extra.elf", b"extra")],
+                 [("first.elf", b"changed"), baseline[1]], baseline + [baseline[0]],
+                 [("../escape.elf", b"escape")], [("/absolute.elf", b"escape")]]
+        for members in cases:
+            with self.subTest(members=members):
+                with tarfile.open(self.bundle / "elfs.tar.gz", "w:gz") as archive:
+                    for name, contents in members:
+                        member = tarfile.TarInfo(name)
+                        member.size = len(contents)
+                        archive.addfile(member, io.BytesIO(contents))
+                self.refresh_checksums()
+                with self.assertRaises(ValueError):
+                    self.verify()
+        with tarfile.open(self.bundle / "elfs.tar.gz", "w:gz") as archive:
+            member = tarfile.TarInfo("link.elf")
+            member.type = tarfile.SYMTYPE
+            member.linkname = "../external.elf"
+            archive.addfile(member)
+        self.refresh_checksums()
+        with self.assertRaisesRegex(ValueError, "invalid ACT archive member"):
+            self.verify()
 
 
 class ArchTestRunnerTest(unittest.TestCase):

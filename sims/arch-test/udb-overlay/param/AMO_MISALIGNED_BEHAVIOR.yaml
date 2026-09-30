@@ -1,0 +1,18 @@
+# Describes the implementation's fault choice for unsupported misaligned AMOs, absent from pinned UDB.
+# SPDX-License-Identifier: Apache-2.0
+$schema: param_schema.json#
+kind: parameter
+name: AMO_MISALIGNED_BEHAVIOR
+long_name: Misaligned AMO exception policy
+description: |
+  Exception raised before address translation for a misaligned AMO when
+  MISALIGNED_AMO is false. This choice is independent of scalar load/store
+  and LR/SC misalignment behavior.
+schema:
+  type: string
+  enum:
+    - always raise misaligned exception
+    - always raise access fault
+definedBy:
+  extension:
+    name: Zaamo

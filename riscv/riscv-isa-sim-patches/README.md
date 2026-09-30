@@ -66,6 +66,9 @@ The queue is ordered so each change can be reviewed and removed independently:
 21. `0021-recognize-supervisor-properties.patch` accepts Ssccptr, Sstvecd,
     Sstvala, Sscounterenw, and Ssu64xl as opcode-free architectural properties,
     retaining the exact published ISA string without changing execution.
+22. `0022-mask-unimplemented-guest-interrupt-enable.patch` keeps `mie.SGEIE`
+    and its `hie` write alias read-only zero for the pinned model's GEILEN=0,
+    while retaining the implemented virtual-supervisor interrupt enables.
 
 When advancing the submodule, apply each patch with `git apply --check`, remove
 changes that have landed upstream, rebase the remaining patches, and run the

@@ -325,8 +325,11 @@ reviewable source of downstream changes.
 For implementation-specific `mcountinhibit` bits, generic ACT CSR walks do
 not assert a fixed readback value; the dedicated inhibit tests are emitted
 only for writable bits advertised by `COUNTINHIBIT_EN`. The Sail adapter
-projects the UDB LR/SC misalignment choice to its corresponding exception
-without changing the DUT claim.
+projects the independent UDB AMO and LR/SC misalignment choices to their
+corresponding exceptions without changing the DUT claims. The ACT-local UDB
+overlay declares `AMO_MISALIGNED_BEHAVIOR`, which is absent from UDB 0.1.16;
+both core projections state it explicitly. Do not infer AMO fault selection
+from scalar misalignment support or the LR/SC policy.
 
 Always enable privileged tests as well; missing platform hooks and reference
 model mismatches must surface as build or execution failures, not suite exclusions.
@@ -508,6 +511,8 @@ products use 32-bit physical addresses and disable PMP; both retain the platform
 expectations; never reuse one implementation's WARL/PMP claims for the other.
 The six CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
 Tiled products additionally own the focused upstream multihart benchmark selection. The
+Make targets and CI select only eight participating harts, retaining all three
+workloads without repeating them at smaller hart counts. The
 adapter materializes a private build-tree view of the pinned benchmark sources
 for each supported two-, four-, or eight-hart run, changes only the copied
 `common/crt.S` hart-count constant and `common/syscalls.c` exit aggregation,
@@ -635,8 +640,10 @@ of reporting. Failed generation must stop before DUT execution.
 
 CI builds the patched Sail model once in `arch-sail`, caches it by gitlink,
 patch series, compiler version, and installer, then distributes the exact-commit
-model artifact to the ACT generation matrix. ACT generation runs once per
-single-core configuration, separately from the native simulator builds. It
+model artifact to the ACT generation matrix. Each single-core configuration's
+generation job restores only an exact-input completed ELF bundle, separately
+from the native simulator builds. On a miss it runs full ACT generation; on a
+hit it verifies the bundle before republishing it for the current commit. It
 publishes a checksum-verified archive with
 dereferenced ELF contents, so reference build paths and upstream symlinks
 cannot leak into consumers. Four execution jobs per configuration, except eight
@@ -658,9 +665,17 @@ Ubuntu runtime libraries; Spike additionally needs its pinned shared libraries
 at the producer's runtime path. All producer/consumer jobs use the same runner image.
 
 Keep tool downloads checksum-pinned and update compiler/ACT/Sail compatibility
-together. Cache ACT reference products using generated configuration content,
-upstream revisions, compiler, and adapter inputs. Generated ELF inventory is
-still replaced on every ACT build. Keep result files out of binary caches.
+together. Cache complete ACT payloads using generated configuration content,
+ACT/Sail revisions and patches, compiler/binutils archive and version identity,
+Python/Ruby dependency identities, generation options, and adapter inputs, not
+the repository commit. `arch-test/payload.py` dereferences each ELF and records
+its hash in a nonempty inventory, alongside configuration and archive checksums.
+Both cache hits and artifact consumers verify the complete inventory and reject
+unsafe archive members before extraction. Cache hits also compare the current
+configuration and input key. Invalid bundles fail closed; only successful full
+generation and packaging can reach the explicit cache-save step. On a miss,
+retain reference intermediates but replace the generated ELF inventory as usual.
+Never cache DUT results: every execution shard runs the current simulator.
 
 Run host binding checks with:
 

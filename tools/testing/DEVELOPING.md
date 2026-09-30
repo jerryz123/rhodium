@@ -182,14 +182,16 @@ shards each, except RV5Stage RVA23 with eight. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All six CI Mini and both Tiled
 products receive capability-filtered ISA smoke; both Tiled cores run the
-two-, four-, and eight-hart benchmark manifests in CI. Software selection is a
+eight-hart benchmark manifests in CI. Software selection is a
 function of SoC shape and ISA, never core identity. No timeout or prior failure
 removes a workload from one core. None receives the full
 single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
 shared ELF archive and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
-the compiler or reference-model toolchain again. The configured deterministic shards cover
+the compiler or reference-model toolchain again. Generation can reuse only an
+exact-input, checksum- and inventory-verified complete bundle; execution still
+uses the current commit's simulator and reruns every shard. The configured deterministic shards cover
 the full generated inventory, including failures. They run independently with bounded process parallelism and
 upload logs plus JSON/JUnit results even when execution fails. Do not add
 `continue-on-error` or pass-based exclusions to make new suites green. Measure a

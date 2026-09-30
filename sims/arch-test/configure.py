@@ -368,13 +368,13 @@ def sail_config(default, udb, origin, size):
     memory["pmp"]["tor_supported"] = params.get("PMP_TOR_SUPPORTED", pmp_count != 0)
     memory["misaligned"]["exceptions"]["load_store"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["vector"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
-    memory["misaligned"]["exceptions"]["amo"] = {"Some": "AlignmentException"}
-    lrsc_behavior = params["LRSC_MISALIGNED_BEHAVIOR"]
-    lrsc_exceptions = {"always raise misaligned exception": "AlignmentException",
-                       "always raise access fault": "AccessFault"}
-    if lrsc_behavior not in lrsc_exceptions:
-        raise ValueError("unsupported LRSC_MISALIGNED_BEHAVIOR")
-    memory["misaligned"]["exceptions"]["lrsc"] = {"Some": lrsc_exceptions[lrsc_behavior]}
+    atomic_exceptions = {"always raise misaligned exception": "AlignmentException",
+                         "always raise access fault": "AccessFault"}
+    for kind, parameter in (("amo", "AMO_MISALIGNED_BEHAVIOR"), ("lrsc", "LRSC_MISALIGNED_BEHAVIOR")):
+        behavior = params.get(parameter)
+        if behavior not in atomic_exceptions:
+            raise ValueError(f"missing or unsupported {parameter}")
+        memory["misaligned"]["exceptions"][kind] = {"Some": atomic_exceptions[behavior]}
     ram = next(region for region in memory["regions"] if region["attributes"]["mem_type"] == "MainMemory")
     ram["base"], ram["size"] = bits(origin), bits(size)
     attrs = ram["attributes"]
@@ -414,8 +414,10 @@ def test_config(name, compiler, objdump, sail, udb):
 
 
 def act_udb_configuration(udb, overlay):
-    """Apply pinned UDB schema corrections without changing DUT capabilities."""
-    if any(entry["name"] in ("H", "Sstvala") for entry in udb["implemented_extensions"]):
+    """Apply pinned UDB corrections and declare the explicit AMO fault policy."""
+    if "AMO_MISALIGNED_BEHAVIOR" in udb["params"] or any(
+        entry["name"] in ("H", "Sstvala") for entry in udb["implemented_extensions"]
+    ):
         return {**udb, "arch_overlay": str(overlay.resolve())}
     return udb
 

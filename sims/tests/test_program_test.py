@@ -398,6 +398,21 @@ class ProductSelectionTest(unittest.TestCase):
         result = self.dry_run('ISA=', target='setup')
         self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_tiled_multihart_benchmarks_select_eight_harts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for core in ('rv5stage', 'spike'):
+                with self.subTest(core=core):
+                    result = self.dry_run(f'SOC=tiled-{core}-rva23',
+                                          f'PREBUILT_SIMULATOR={directory}/simulator',
+                                          f'PREBUILT_PROGRAM_TARGET={directory}/target.json',
+                                          target='tiled-mt-benchmark-test')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    selections = [line for line in result.stdout.splitlines()
+                                  if 'for hart_count in ' in line]
+                    self.assertEqual(len(selections), 2)
+                    for selection in selections:
+                        self.assertIn('for hart_count in 8;', selection)
+
     def test_rv32_smoke_distinguishes_integer_and_floating_point(self):
         with tempfile.TemporaryDirectory() as directory:
             for isa, march in (('rv32int', 'rv32imacb_zicsr_zve32x_zvl64b_zvbb'),

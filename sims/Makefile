@@ -233,6 +233,12 @@ spike-core-test: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
 	  -lriscv -lfesvr -ldisasm -lsoftfloat -pthread \
 	  -o $(DPI_BUILD_DIR)/spike_hpm_test
 	$(DPI_BUILD_DIR)/spike_hpm_test
+	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
+	  $(REPO_DIR)/cores/spike/tests/spike_arch_test.cc \
+	  -L$(FESVR_PREFIX)/lib -Wl,-rpath,$(FESVR_PREFIX)/lib \
+	  -lriscv -lfesvr -ldisasm -lsoftfloat -pthread \
+	  -o $(DPI_BUILD_DIR)/spike_arch_test
+	$(DPI_BUILD_DIR)/spike_arch_test
 
 chi-dpi-memory-test: | $(DPI_BUILD_DIR)
 	@test -n "$(VERILATOR_ROOT)" || \

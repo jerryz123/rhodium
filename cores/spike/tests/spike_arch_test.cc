@@ -1,0 +1,116 @@
+// SPDX-License-Identifier: Apache-2.0
+#include "processor.h"
+#include "mmu.h"
+#include "simif.h"
+
+#include <array>
+#include <cassert>
+#include <cstring>
+#include <iostream>
+#include <string>
+
+class ArchMemory final : public simif_t {
+ public:
+  cfg_t cfg;
+  std::map<size_t, processor_t*> harts;
+  std::array<char, 0x4000> memory{};
+  char* addr_to_mem(reg_t address) override {
+    return address >= 0x1000 && address < 0x5000 ? memory.data() + address - 0x1000 : nullptr;
+  }
+  bool mmio_load(reg_t, size_t, uint8_t*) override { return false; }
+  bool mmio_store(reg_t, size_t, const uint8_t*) override { return false; }
+  void proc_reset(unsigned) override {}
+  const cfg_t& get_cfg() const override { return cfg; }
+  const std::map<size_t, processor_t*>& get_harts() const override { return harts; }
+  const char* get_symbol(uint64_t) override { return nullptr; }
+};
+
+static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, bool logged) {
+  ArchMemory memory;
+  memory.cfg.pmpregions = 0;
+  const std::string isa = "rv" + std::to_string(xlen) + "ima" + (hypervisor ? "h" : "") +
+                          "_zicsr" + (zicclsm ? "_zicclsm" : "");
+  FILE* log = std::tmpfile();
+  assert(log);
+  processor_t cpu(isa.c_str(), "msu", &memory.cfg, &memory, 0, false, log, std::cerr);
+  memory.harts[0] = &cpu;
+  cpu.set_max_vaddr_bits(0);
+  cpu.reset();
+  if (logged) cpu.enable_log_commits();
+  auto* state = cpu.get_state();
+  auto run = [&](uint32_t instruction) {
+    std::memcpy(memory.memory.data(), &instruction, sizeof(instruction));
+    cpu.get_mmu()->flush_icache();
+    state->pc = 0x1000;
+    cpu.step(1);
+    assert(state->prv == PRV_M);
+  };
+  auto write_csr = [&](unsigned csr, reg_t value) {
+    state->XPR.write(1, value);
+    run((csr << 20) | (1 << 15) | (1 << 12) | 0x73); // CSRRW x0, csr, x1.
+    assert(state->pc == 0x1004);
+  };
+  auto read_csr = [&](unsigned csr) {
+    run((csr << 20) | (2 << 12) | (3 << 7) | 0x73); // CSRRS x3, csr, x0.
+    assert(state->pc == 0x1004);
+    return state->XPR[3];
+  };
+
+  if (hypervisor) {
+    assert(read_csr(CSR_HGEIP) == 0 && read_csr(CSR_HGEIE) == 0);
+    write_csr(CSR_MIDELEG, ~reg_t(0));
+    assert(!(read_csr(CSR_MIDELEG) & MIP_SGEIP));
+    // Exercise full-register writes and each walking-one bit, not just reset.
+    write_csr(CSR_MIE, ~reg_t(0));
+    const reg_t implemented = MIP_MSIP | MIP_MTIP | MIP_MEIP | MIP_SSIP | MIP_STIP | MIP_SEIP | MIP_VS_MASK;
+    assert(read_csr(CSR_MIE) == implemented);
+    assert(read_csr(CSR_HIE) == MIP_VS_MASK);
+    for (unsigned bit = 0; bit < xlen; ++bit) {
+      write_csr(CSR_MIE, reg_t(1) << bit);
+      assert(read_csr(CSR_MIE) == ((reg_t(1) << bit) & implemented));
+      assert(!(read_csr(CSR_HIE) & MIP_SGEIP));
+    }
+    write_csr(CSR_MIE, 0);
+    write_csr(CSR_HIE, ~reg_t(0));
+    assert(read_csr(CSR_HIE) == MIP_VS_MASK);
+    assert(read_csr(CSR_MIE) == MIP_VS_MASK);
+    write_csr(CSR_HIE, MIP_SGEIP);
+    assert(read_csr(CSR_MIE) == 0 && read_csr(CSR_HIE) == 0);
+    write_csr(CSR_HIE, MIP_VSSIP | MIP_VSTIP);
+    assert(read_csr(CSR_MIE) == (MIP_VSSIP | MIP_VSTIP));
+    write_csr(CSR_MIE, 0);
+  }
+
+  cpu.put_csr(CSR_MTVEC, 0x3000);
+  for (unsigned width : {4u, 8u}) {
+    if (width > xlen / 8) continue;
+    // AMOADD.W/D x3, x2, (x1): aligned operations must still work.
+    const uint32_t instruction = (2 << 20) | (1 << 15) | ((width == 4 ? 2 : 3) << 12) | (3 << 7) | 0x2f;
+    reg_t value = 123;
+    std::memcpy(memory.memory.data() + 0x1000, &value, sizeof(value));
+    state->XPR.write(1, 0x2000);
+    state->XPR.write(2, 5);
+    run(instruction);
+    assert(state->pc == 0x1004 && state->XPR[3] == 123);
+    std::memcpy(&value, memory.memory.data() + 0x1000, sizeof(value));
+    assert(value == 128);
+    const auto before = memory.memory;
+    state->XPR.write(1, 0x2001);
+    state->XPR.write(3, 99);
+    run(instruction);
+    assert(state->pc == 0x3000);
+    assert(cpu.get_csr(CSR_MCAUSE) == (zicclsm ? CAUSE_STORE_ACCESS : CAUSE_MISALIGNED_STORE));
+    assert(cpu.get_csr(CSR_MTVAL) == 0x2001 && cpu.get_csr(CSR_MEPC) == 0x1000);
+    assert(state->XPR[3] == 99 && memory.memory == before);
+  }
+  std::fclose(log);
+}
+
+int main() {
+  for (unsigned xlen : {32u, 64u})
+    for (bool zicclsm : {false, true})
+      for (bool hypervisor : {false, true})
+        for (bool logged : {false, true})
+          check_architecture(xlen, zicclsm, hypervisor, logged);
+  std::cout << "Spike AMO fault policy and zero-GEILEN CSR tests passed\n";
+}

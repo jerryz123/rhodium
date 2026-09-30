@@ -79,6 +79,7 @@ for (xlen in [XLen.X32, XLen.X64]):
   def counteren_values = for List (index in 0..32): if index <= 3 | "true" | "false"
   check:
     profile.isa_profile.isa_extensions.contains("sscofpmf") ~is #true
+    yaml.contains("  AMO_MISALIGNED_BEHAVIOR: \"always raise misaligned exception\"") ~is #true
     yaml.contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
     yaml.contains("  MCOUNTINHIBIT_IMPLEMENTED: true") ~is #true
     yaml.contains("  HPM_COUNTER_EN: [" ++ String.join(hpm_values, ", ") ++ "]") ~is #true

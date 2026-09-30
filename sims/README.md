@@ -471,8 +471,8 @@ make -C sims isa-smoke SOC=tiled CORE=rv5stage ISA=rva23
 make -C sims isa-smoke SOC=tiled CORE=spike ISA=rva23
 ```
 
-Run the target-capability-filtered upstream multihart benchmarks in two-,
-four-, and eight-hart configurations on either Tiled product:
+Run the target-capability-filtered upstream multihart benchmarks with eight
+harts on either Tiled product:
 
 ```sh
 make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-rva23
@@ -499,10 +499,9 @@ attestation. Smoke results and target descriptions live under
 `$PROGRAM_BUILD_ROOT/<product>/isa-smoke/`, independently of the full single-core
 suites. The existing runner executes every selected test even after failures.
 ISA smoke still boots only hart 0. The separate tiled multihart selection builds
-each workload for two, four, and eight workers and boots harts 0–1, 0–3,
-or 0–7 for the workloads selected by the target's extensions. Any remaining physical
-harts stay parked. These counts divide the upstream matrix benchmark's 16 rows
-evenly while exercising shared barriers and data through the coherent mesh.
+each workload for eight workers and boots harts 0–7 for the workloads selected
+by the target's extensions. Eight workers divide the upstream matrix benchmark's
+16 rows evenly while exercising shared barriers and data through the coherent mesh.
 The private build overlay reports a successful HTIF exit only after every
 selected hart reaches its exit; a nonzero exit from any hart fails the run.
 ACT and the complete native suites remain restricted to the two single-core
@@ -699,13 +698,14 @@ Benchmark CI checks correctness, never exact cycle counts.
 CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
 pushes to `main`; manual dispatch selects all six. The native suites consume
 each core's exact-commit executable, with the matching patched Spike runtime
-where needed. ACT generates one profile-specific ELF inventory for each single-core
-SoC, then partitions each across four execution jobs consuming that SoC's
-exact-commit executable. Spike shards restore the producer's pinned libraries.
-ISA/benchmark/CoreMark/Embench-IoT binaries and ACT reference products are cached by their
-build inputs, but results are always rerun. Full Linux suite validation remains
+where needed. ACT builds or reuses one verified, complete profile-specific ELF
+inventory for each single-core SoC, then partitions it across four execution
+jobs (eight for RV5Stage RVA23) consuming that SoC's exact-commit executable.
+Spike shards restore the producer's pinned libraries.
+ISA/benchmark/CoreMark/Embench-IoT binaries and complete ACT ELF bundles are cached
+by their build inputs, but results are always rerun. Full Linux suite validation remains
 necessary before treating these new lanes as required branch-protection checks.
-CI also runs the focused two-, four-, and eight-hart benchmarks on both Tiled cores.
+CI also runs the focused eight-hart benchmarks on both Tiled cores.
 
 ## Architectural certification tests
 

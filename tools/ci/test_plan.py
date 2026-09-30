@@ -434,6 +434,39 @@ class PlanTest(unittest.TestCase):
         self.assertIn('library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"', arch_job)
         self.assertIn('if [[ "$library_bindings" == *"not found"* ]]; then', arch_job)
 
+    def test_arch_payload_cache_reuses_only_complete_exact_input_bundles(self):
+        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
+        build = workflow.split("  arch-build:\n", 1)[1].split("  arch:\n", 1)[0]
+        run = workflow.split("  arch:\n", 1)[1]
+        key = build.split("          ACT_INPUT_KEY: ", 1)[1].splitlines()[0]
+        for input_name in ("sources.outputs.revision", "sources.outputs.sail_revision",
+                           "act-config.outputs.digest", "act-config.outputs.tools",
+                           "sims/arch-test/**", "sw/riscv-arch-test-patches/**",
+                           "riscv/sail-riscv-patches/**", "fast1-all"):
+            self.assertIn(input_name, key)
+        self.assertNotIn("github.sha", key)
+        self.assertNotIn("restore-keys:", build)
+        for step_name in ("Cache ACT reference products", "Generate and package every selected ELF",
+                          "Save complete successful ACT payload"):
+            step = build.split(f"      - name: {step_name}\n", 1)[1].split("      - name:", 1)[0]
+            self.assertIn("if: steps.act-payload.outputs.cache-hit != 'true'", step)
+            self.assertNotIn("always()", step)
+        cached = build.split("      - name: Verify cached ACT payload\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("if: steps.act-payload.outputs.cache-hit == 'true'", cached)
+        self.assertIn("payload.py verify", cached)
+        self.assertIn("--identity '${{ steps.act-inputs.outputs.key }}'", cached)
+        generation = build.split("      - name: Generate and package every selected ELF\n", 1)[1].split("      - name:", 1)[0]
+        self.assertIn("set -o pipefail", generation)
+        self.assertLess(generation.index("make -C sims arch-test-elfs"), generation.index("payload.py package"))
+        self.assertLess(build.index("payload.py package"), build.index("actions/cache/save@"))
+        self.assertIn("inventory.json", build)
+        publish = build.split("      - name: Publish exact-commit ACT payloads\n", 1)[1].split("      - name:", 1)[0]
+        self.assertNotIn("if:", publish)
+        self.assertIn("${{ github.sha }}", publish)
+        self.assertIn("payload.py verify", run)
+        self.assertIn("make -C sims arch-test-run", run)
+        self.assertNotIn("cache-hit", run)
+
 
 if __name__ == "__main__":
     unittest.main()

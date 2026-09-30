@@ -196,6 +196,58 @@ class SharedELFBindingTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'invalid shared ELF path'):
             self.binder.bind(self.path, self.target, self.output)
 
+    def test_only_upstream_benchmarks_allow_entry_without_executable_segment_flag(self):
+        elf = self.root / 'test.elf'
+        data = bytearray(elf.read_bytes())
+        struct.pack_into('<I', data, 68, 0)
+        elf.write_bytes(data)
+        self.manifest['tests'][0]['sha256'] = hashlib.sha256(data).hexdigest()
+        for suite in ('benchmark', 'isa', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'litmus'):
+            with self.subTest(suite=suite):
+                spec = self.binder.elf_build_spec(self.target, suite)
+                self.manifest.update(suite=suite, build_spec=spec,
+                                     build_spec_fingerprint=target_fingerprint(spec))
+                self.write_manifest()
+                self.output.unlink(missing_ok=True)
+                if suite == 'benchmark':
+                    for soc in ('simple-rv5stage-rva23', 'simple-spike-rva23'):
+                        target = self.target | dict(soc=soc)
+                        self.binder.bind(self.path, target, self.output)
+                        bound = json.loads(self.output.read_text())
+                        self.assertEqual(bound['target'], target)
+                        self.assertEqual(bound['tests'][0]['load_segments'],
+                                         [dict(address=0x80000000, memory_bytes=128)])
+                        self.assertEqual(elf.read_bytes(), data)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'executable RAM segment'):
+                        self.binder.bind(self.path, self.target, self.output)
+                    self.assertFalse(self.output.exists())
+
+    def test_benchmark_binding_still_checks_loaded_entry_ram_and_boot_harts(self):
+        spec = self.binder.elf_build_spec(self.target, 'benchmark')
+        self.manifest.update(suite='benchmark', build_spec=spec,
+                             build_spec_fingerprint=target_fingerprint(spec))
+        elf = self.root / 'test.elf'
+        original = bytearray(elf.read_bytes())
+        struct.pack_into('<I', original, 68, 0)
+        for offset, value, error in ((24, 0x80000080, 'entry is not in a RAM load segment'),
+                                     (104, 0x10001, 'exceeds target RAM')):
+            with self.subTest(error=error):
+                data = bytearray(original)
+                struct.pack_into('<Q', data, offset, value)
+                elf.write_bytes(data)
+                self.manifest['tests'][0]['sha256'] = hashlib.sha256(data).hexdigest()
+                self.write_manifest()
+                with self.assertRaisesRegex(ValueError, error):
+                    self.binder.bind(self.path, self.target, self.output)
+                self.assertFalse(self.output.exists())
+        elf.write_bytes(original)
+        self.manifest['tests'][0].update(sha256=hashlib.sha256(original).hexdigest(), harts=[1])
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, 'boot harts'):
+            self.binder.bind(self.path, self.target, self.output)
+        self.assertFalse(self.output.exists())
+
 
 class CoreMarkBuildTest(unittest.TestCase):
     def setUp(self):

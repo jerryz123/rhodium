@@ -472,6 +472,9 @@ Keep selectable extension membership derived from `RV5StageConfig`. Keep fixed
 CSR, trap, alignment, counter, PMP, and LR/SC facts in `udb.rhm`, and pass
 physical address width and PMA granularity from the integration boundary. When
 one of those behaviors changes, update its RTL owner and UDB claim together.
+`AMO_MISALIGNED_BEHAVIOR` explicitly preserves the core's alignment exception
+independently of scalar misalignment support. The ACT UDB overlay declares
+this policy because the pinned database lacks an AMO fault-selection parameter.
 
 Run the pure UDB encoder and RV5Stage projection tests, generate a concrete
 configuration, and validate it with the UDB version pinned by the ACT4 checkout:
@@ -480,7 +483,7 @@ configuration, and validate it with the UDB version pinned by the ACT4 checkout:
 tools/run-racket-tests.sh riscv/tests/udb-test.rhm cores/rv5stage/tests/udb-test.rhm
 make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
 bundle exec --gemfile sw/riscv-arch-test/framework/src/act/data/Gemfile \
-  udb validate cfg /tmp/rhodium-udb/single-core-rv5stage-soc.yaml
+  udb validate cfg /tmp/rhodium-udb/simple-rv5stage-rva23.yaml --custom sims/arch-test/udb-overlay
 ```
 
 UDB semantic validation is required before changing an extension version or

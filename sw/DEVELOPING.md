@@ -28,9 +28,13 @@ compile CoreMark, Embench-IoT, and Bringup-Bench. ISA selection derives upstream
 groups, native-width smoke operations, and Make XLEN from the target descriptor.
 Select physical and virtual `ma_data` only when that descriptor advertises
 Zicclsm; include the physical variant in ISA smoke for such targets.
-Validate ELF32 and ELF64 load segments including BSS and executable entry on
-both fresh builds and cache reuse. Record upstream inventory gaps (currently
-RV32 CBO-zero) separately from target capability exclusions; never select by
+Validate ELF32 and ELF64 load segments including BSS and entry location on
+both fresh builds and cache reuse. ISA tests require an executable entry segment;
+upstream benchmarks require the entry in a RAM load segment but do not require
+`PF_X`, matching the FESVR loader, which does not enforce segment permissions.
+Apply this same distinction during shared-artifact binding.
+Record upstream inventory gaps (currently RV32 CBO-zero) separately from target
+capability exclusions; never select by
 observed pass status. `opensbi.py` derives firmware layout from the selected
 target descriptor and builds OpenSBI `FW_JUMP`.
 `build-litmus.py` requires an explicit `litmus7` executable and selects cases by
@@ -105,8 +109,8 @@ to this projection before allowing cross-product reuse.
 
 `build/bind.py` consumes a complete shared build manifest and validates its
 specification against the destination SoC. It checks ELF hashes, XLEN, physical
-load segments, executable entry, and boot harts before writing a separate
-`run-manifest.json` beside the build manifest. It retains the original build
+load segments, entry location under the producing suite's policy, and boot harts
+before writing a separate `run-manifest.json` beside the build manifest. It retains the original build
 target as provenance and uses the destination's full target fingerprint for
 execution. Binding needs neither a compiler nor Rhodium elaboration. Simulator
 attestation and execution remain owned by `sims/program-test/`.

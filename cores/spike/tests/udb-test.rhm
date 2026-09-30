@@ -44,9 +44,11 @@ check:
   rva23_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
   rva23_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
   rva23_yaml.contains("  LRSC_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
+  rva23_yaml.contains("  AMO_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
   rva23_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: true") ~is #true
   yaml.contains("  MISALIGNED_LDST: false") ~is #true
   yaml.contains("  LRSC_MISALIGNED_BEHAVIOR: \"always raise misaligned exception\"") ~is #true
+  yaml.contains("  AMO_MISALIGNED_BEHAVIOR: \"always raise misaligned exception\"") ~is #true
   yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE:") ~is #false
   yaml.contains("  MISALIGNED_SPLIT_STRATEGY:") ~is #false
   rva23_yaml.contains("  VLEN: 128") ~is #true
@@ -76,6 +78,7 @@ for (preset in [IsaPreset.RVA23, IsaPreset.RV32Int, IsaPreset.RV32Max]):
   def product_yaml = spike_udb_configuration(product, "no-pmp", "SoC without PMP").to_yaml()
   check:
     product.pmp_regions ~is 0
+    product_yaml.contains("  AMO_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
     product_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
     product_yaml.contains("{ name: \"Sscofpmf\", version: \"= 1.0.0\" }") ~is #true
     product_yaml.contains("  HPM_EVENTS: [0, 1, 2]") ~is #true

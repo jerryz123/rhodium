@@ -72,7 +72,9 @@ def bind(manifest_path, target, output, fdt=None):
         else:
             if 'payload' in test:
                 raise ValueError('auxiliary payloads require an OpenSBI build')
-            test['load_segments'] = check_elf_memory(elf, target['ram'], require_executable_entry=True)
+            # Match the producer: upstream benchmarks lack reliable PF_X metadata.
+            test['load_segments'] = check_elf_memory(
+                elf, target['ram'], require_executable_entry=manifest['suite'] != 'benchmark')
         harts = test.get('harts', [0])
         if not harts or any(hart not in target['harts'] for hart in harts):
             raise ValueError('shared ELF boot harts do not match the execution target')

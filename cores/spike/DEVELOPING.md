@@ -63,9 +63,11 @@ keep the standalone configuration's PMP support independent of that policy.
 With PMP enabled, Spike's CSR masks use 56 physical bits on RV64 and 34 on
 RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
 32-bit physical addresses. RV32 retains nine ASID bits.
-The pinned MMU raises an alignment exception for misaligned LR/SC when
+The pinned MMU raises an alignment exception for misaligned AMO and LR/SC when
 misaligned scalar accesses are disabled, but an access fault when Zicclsm
-enables its misaligned-access path; project that profile-dependent choice to UDB.
+enables its misaligned-access path; project those choices independently through
+`AMO_MISALIGNED_BEHAVIOR` and `LRSC_MISALIGNED_BEHAVIOR`. The ACT UDB overlay
+declares the AMO policy missing from the pinned database.
 `tests/udb-test.rhm` covers scalar, RVA23, and RV32Int projections;
 `socs/tests/udb-test.rhm` checks the paired RV32Int/RV32Max FP and vector closures.
 Do not advertise `WRS.NTO` as an unconditional no-op: the pinned Spike raises
@@ -89,6 +91,10 @@ independently of the embedding model's retirement budget. The native
 `tests/spike_hpm_test.cc` regression executes real CSR, trap, return, and
 ordinary instructions in RV32, RV64, and RV64H, both cached and logged paths.
 It runs inside the existing `spike-core-test` target and CI lane.
+`tests/spike_arch_test.cc` executes aligned and faulting AMOs and actual CSR
+instructions in RV32/RV64, with and without H/Zicclsm, in cached and logged
+execution. The pinned model has GEILEN=0: neither `mie` nor its `hie` alias may
+set SGEIE, while the implemented VS interrupt enables remain writable.
 
 Run the focused host contract check with:
 
