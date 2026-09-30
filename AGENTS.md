@@ -11,9 +11,27 @@ artifacts. This file contains the mandatory rules that apply to every change.
 
 - Begin every new or modified source, test, script, configuration, and
   documentation file with a concise, file-specific purpose comment using the
-  format's native syntax. For Markdown, use an HTML comment.
+  format's native syntax, except for files under any `tests/` directory. For
+  Markdown, use an HTML comment.
 - Keep a shebang or other mandatory first line first, with the purpose comment
   immediately after it.
+- Files under any `tests/` directory are exempt from descriptive purpose and
+  declaration comments. Required SPDX identifiers and provenance notices still
+  apply.
+
+## Source documentation
+
+For first-party `.rhdl`, `.rhm`, and `.rkt` files outside any `tests/` directory:
+
+- Use a native block comment for the top-of-file purpose comment: `/* ... */`
+  for `.rhdl` and `.rhm`, and `#| ... |#` for `.rkt`. Place it immediately after
+  `#lang` or another mandatory first line, before imports or definitions.
+- Place a native block comment immediately above every class, circuit, and
+  named function declaration, including methods, constructors, and local helper
+  functions. Describe what the declaration does; explain its relevant inputs,
+  outputs, behavior, or invariants when needed to understand it.
+- Keep comments concise and specific, and update them when the implementation
+  changes. A comment that only repeats the declaration's name is insufficient.
 
 ## Verification
 
@@ -81,6 +99,12 @@ project and repository workflow; a component pair describes only that
 component. A small leaf directory may link to its parent's guide instead of
 creating a boilerplate companion file. Do not apply this policy to vendored or
 submodule documentation.
+
+Every `README.md` and `DEVELOPING.md` must state or explicitly link to the
+[source documentation requirements](#source-documentation), including the
+`tests/` exemption. Put this contributor pointer in the README's navigation and
+the requirement in DEVELOPING's change workflow; do not duplicate its full text
+across the pair.
 
 For each `README.md`, use this reader-facing progression:
 
