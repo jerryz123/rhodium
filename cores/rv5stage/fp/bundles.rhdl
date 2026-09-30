@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines scalar FP/LSU payloads and opaque-tag operand execution transactions.
+/* Defines scalar FP/LSU payloads and opaque-tag operand execution transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("hardfloat/main.rhdl").RoundingMode
 
+/* Carries scalar register indices and captured instruction context for authorized FP issue. */
 bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
   control: RV5StageFloatingPointControl()
@@ -18,7 +19,7 @@ bundle RV5StageFpIssue(xlen :: XLen, profile :: FloatingPointProfile, Context ::
   integer_operand: Bits(xlen.width)
   rounding_mode: RoundingMode
 
-// Execution tags belong to the caller; lanes never interpret them as registers.
+/* Carries explicit operand precisions and a caller-owned opaque tag into shared FP execution. */
 bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   tag: Tag
   control: RV5StageFloatingPointControl()
@@ -32,6 +33,7 @@ bundle RV5StageFpExecutionRequest(xlen :: XLen, profile :: FloatingPointProfile,
   immediate_index: Bits(5)
   rounding_mode: RoundingMode
 
+/* Returns integer and FP values plus exception flags without interpreting the caller's tag. */
 bundle RV5StageFpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   tag: Tag
   integer_value: Bits(xlen.width)
@@ -39,11 +41,13 @@ bundle RV5StageFpExecutionResult(xlen :: XLen, profile :: FloatingPointProfile, 
   exception_flags: Bits(5)
   exception_flags_valid: Bool
 
+/* Retains scalar instruction context and destination through operand-level execution. */
 bundle RV5StageFpScalarTag(Context :: DataType):
   context: Context
   destination: RV5StageFloatDestination
   rd: Bits(5)
 
+/* Returns scalar destination metadata alongside values and optional accrued exception flags. */
 bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType):
   context: Context
   destination: RV5StageFloatDestination
@@ -53,27 +57,31 @@ bundle RV5StageFpCompletion(xlen :: XLen, profile :: FloatingPointProfile, Conte
   exception_flags: Bits(5)
   exception_flags_valid: Bool
 
+/* Reserves an FPR destination before an authorized deferred load. */
 bundle RV5StageFpLoadReservation(Context :: DataType):
   context: Context
   precision: RV5StageFloatPrecision
   rd: Bits(5)
 
+/* Identifies a load destination and precision for NaN-boxing its returned memory bits. */
 bundle RV5StageFpLoadCompletion(Context :: DataType):
   context: Context
   precision: RV5StageFloatPrecision
   rd: Bits(5)
   data: Bits(64)
 
+/* Requests a speculative FPR source snapshot for store preparation. */
 bundle RV5StageFpStoreRequest(Context :: DataType):
   context: Context
   precision: RV5StageFloatPrecision
   rs: Bits(5)
 
+/* Returns the store operand bits with the requesting instruction's context. */
 bundle RV5StageFpStoreResponse(Context :: DataType):
   context: Context
   data: Bits(64)
 
-// Retagging changes only caller ownership, never the numeric execution payload.
+/* Replaces request ownership metadata without changing numerical controls or operands. */
 fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, request :: RV5StageFpExecutionRequest(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionRequest(xlen, profile, To):
   RV5StageFpExecutionRequest(xlen, profile, To):
     tag: tag
@@ -88,6 +96,7 @@ fun fp_request_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: D
     immediate_index: request.immediate_index
     rounding_mode: request.rounding_mode
 
+/* Replaces result ownership metadata without changing values or exception flags. */
 fun fp_result_with_tag(xlen :: XLen, profile :: FloatingPointProfile, From :: DataType, To :: DataType, result :: RV5StageFpExecutionResult(xlen, profile, From), tag :: Hardware.of(To)) :~ RV5StageFpExecutionResult(xlen, profile, To):
   RV5StageFpExecutionResult(xlen, profile, To):
     tag: tag

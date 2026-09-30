@@ -1,5 +1,5 @@
 #lang rhodium
-// Owns vector configuration and writable CSR state, including WB-authorized sticky saturation.
+/* Owns vector configuration and writable CSR state, including WB-authorized sticky saturation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,10 +12,14 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Carries one WB-authorized vector CSR write at architectural XLEN. */
 bundle RV5StageVectorCsrWrite(xlen :: XLen):
   address: Bits(12)
   value: Bits(xlen.width)
 
+/* Owns vl, vtype, vstart, vxrm, vxsat, and vector status when the profile enables them.
+   Configuration preview is independent of commit; explicit saturation writes outrank sticky
+   set. */
 sync_circuit RV5StageVectorCsrs(xlen :: XLen, profile :: VectorProfile, vlen :: VectorLength):
   // Preview is independent of WB authorization; an illegal candidate cannot authorize itself.
   input candidate: RiscvVectorConfigRequest(xlen)

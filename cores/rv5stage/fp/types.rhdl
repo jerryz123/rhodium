@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines floating-point execution controls shared by RV5Stage scalar and vector decode.
+/* Defines floating-point execution controls shared by RV5Stage scalar and vector decode. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,11 +8,14 @@ import:
   lib("hardfloat/main.rhdl").MinMaxOperation
   lib("hardfloat/main.rhdl").Estimate7Operation
 
+/* Selects operand or result IEEE precision independently of architectural register width. */
 hardware_enum RV5StageFloatPrecision:
   Half
   Single
   Double
 
+/* Routes a decoded FP operation to memory, arithmetic, conversion, or bit-manipulation
+   execution. */
 hardware_enum RV5StageFloatUnit:
   Memory
   FusedMultiplyAdd
@@ -30,26 +33,32 @@ hardware_enum RV5StageFloatUnit:
   RoundToIntegral
   IntegerModulo
 
+/* Selects addition or subtraction in the shared format datapath. */
 hardware_enum RV5StageFloatAddOperation:
   Add
   Subtract
 
+/* Selects division or square root in a variable-latency lane. */
 hardware_enum RV5StageFloatDivideOperation:
   Divide
   SquareRoot
 
+/* Selects the Boolean comparison result after HardFloat evaluates ordering. */
 hardware_enum RV5StageFloatComparison:
   Equal
   NotEqual
   Less
   LessEqual
 
+/* Selects integer conversion width before XLEN normalization. */
 hardware_enum RV5StageFloatIntegerWidth:
   Byte
   Half
   Word
   Long
 
+/* Carries numerical operation controls independently of register hazards and destination
+   ownership. */
 bundle RV5StageFloatExecutionControl():
   unit: RV5StageFloatUnit
   source_precision: RV5StageFloatPrecision

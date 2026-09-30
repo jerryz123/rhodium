@@ -1,5 +1,5 @@
 #lang rhodium
-// Carries opaque ownership through the selected shared integer execution services.
+/* Carries opaque ownership through the selected shared integer execution services. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,24 +8,29 @@ import:
   "profile.rhm".RV5StageMultiplierKind
   lib("flow/main.rhdl") open
 
+/* Pairs physical arithmetic operands with a caller-defined completion owner. */
 bundle RV5StageExecutionRequest(Operands :: DataType, Tag :: DataType):
   tag: Tag
   operands: Operands
 
+/* Returns the arithmetic value with the unchanged owner of its accepted request. */
 bundle RV5StageExecutionResult(Value :: DataType, Tag :: DataType):
   tag: Tag
   value: Value
 
+/* Replaces a request's owner type and value without changing its arithmetic operands. */
 fun integer_request_with_tag(Operands :: DataType, From :: DataType, To :: DataType, request :: RV5StageExecutionRequest(Operands, From), tag :: Hardware.of(To)) :~ RV5StageExecutionRequest(Operands, To):
   RV5StageExecutionRequest(Operands, To):
     tag: tag
     operands: request.operands
 
+/* Replaces a result's owner type and value without changing its arithmetic result. */
 fun integer_result_with_tag(Value :: DataType, From :: DataType, To :: DataType, result :: RV5StageExecutionResult(Value, From), tag :: Hardware.of(To)) :~ RV5StageExecutionResult(Value, To):
   RV5StageExecutionResult(Value, To):
     tag: tag
     value: result.value
 
+/* Retains one accepted owner until the iterative multiplier's held result is consumed. */
 sync_circuit RV5StageIterativeMultiplyService(width :: PosInt, Tag :: DataType):
   interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
@@ -40,6 +45,8 @@ sync_circuit RV5StageIterativeMultiplyService(width :: PosInt, Tag :: DataType):
       value: value
   ) |> result
 
+/* Delays tags alongside fixed-latency products; either guarantees immediate writeback
+   or bounds in-flight launches so every return fits the elastic completion queue. */
 sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType, ~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   def capacity = PipelinedMultiplierStages + 1
   def count_width = index_width(capacity + 1)
@@ -79,6 +86,7 @@ sync_circuit RV5StagePipelinedMultiplyService(width :: PosInt, Tag :: DataType, 
       elsewhen (result.fire() & !launched.valid):
         outstanding <== outstanding - bits(1, count_width)
 
+/* Selects the profile's iterative or pipelined multiplier behind one tagged interface. */
 sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: PosInt, Tag :: DataType, ~scheduled_writeback: scheduled_writeback :: Boolean = #false):
   interface request(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(RV5StageExecutionResult(Bits(width * 2), Tag)), ~role: producer)
@@ -87,6 +95,7 @@ sync_circuit RV5StageMultiplyService(kind :: RV5StageMultiplierKind, width :: Po
   request |> selected.request
   selected.result |> result
 
+/* Retains one accepted owner across iterative division and result backpressure. */
 sync_circuit RV5StageDivideService(width :: PosInt, Tag :: DataType):
   interface request(Decoupled(RV5StageExecutionRequest(DividerRequest(width), Tag)), ~role: consumer)
   interface result(Irrevocable(RV5StageExecutionResult(DividerResponse(width), Tag)), ~role: producer)

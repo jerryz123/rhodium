@@ -1,5 +1,5 @@
 #lang rhodium
-// Retains instruction lifetimes and register-row hazards until their accepted work has drained.
+/* Retains instruction lifetimes and register-row hazards until their accepted work has drained. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,10 +11,14 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Closes one instruction owner's issue lifetime while retaining its outstanding slots. */
 bundle RV5StageVectorIssueFinished(slots :: Pow2Int):
   owner: Bits(index_width(slots))
   fault: Bool
 
+/* Tracks macro lifetimes independently of sequencing and completion-slot identities.
+   Conservative destination intents hand off to exact rows; ordered owner reclamation
+   waits for slots, packed carry, and splat drain, with a separate committed-store barrier. */
 sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int):
   def tag_width = index_width(vector_completion_slots)
   def row_frontier_width = index_width(VectorRegisterLayout(vlen, xlen.width).depth + 1)

@@ -1,11 +1,14 @@
 #lang rhodium
-// Tracks speculative vector reservations separately from accepted operations that survive replay or drain immediately.
+/* Tracks speculative vector reservations separately from accepted operations that survive
+   replay or drain immediately. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Tracks speculative reservations separately from irreversible accepted owners.
+   Replay drops only unaccepted reservations; same-edge acceptance may release immediately. */
 sync_circuit RV5StageVectorSlots(slots :: Pow2Int):
   def Tag = Bits(index_width(slots))
   interface reserve(Valid(Tag), ~role: consumer)

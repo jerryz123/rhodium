@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's profile-selected F and D register and execution controls.
+/* Defines RV5Stage's profile-selected F and D register and execution controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,11 +19,13 @@ import:
   lib("hardfloat/main.rhdl").MinMaxOperation
   lib("rhodium/std/decode.rhdl") open
 
+/* Identifies whether FP instruction results target no register, a GPR, or an FPR. */
 hardware_enum RV5StageFloatDestination:
   None
   Integer
   FloatingPoint
 
+/* Captures FP/GPR source-use and destination bank from instruction operand metadata. */
 bundle RV5StageFloatRegisterControl():
   uses_integer_rs1: Bool
   uses_frs1: Bool
@@ -31,10 +33,12 @@ bundle RV5StageFloatRegisterControl():
   uses_frs3: Bool
   destination: RV5StageFloatDestination
 
+/* Pairs architectural register usage with physical FP execution controls. */
 bundle RV5StageFloatingPointControl():
   registers: RV5StageFloatRegisterControl()
   execution: RV5StageFloatExecutionControl()
 
+/* Derives source registers and destination bank from the canonical instruction description. */
 fun register_control(instruction :: InstructionSpec):
   def source_names = instruction.operands.filter(~keep: fun (operand): operand.role == "source").map(fun (operand): operand.name)
   def destination = instruction.operands.find(fun (operand): operand.role == "destination")
@@ -789,6 +793,7 @@ def HalfZfaExecutionCases = decode_groups(
     comparison: RV5StageFloatComparison.Less
     comparison_signaling: Bool(#false)
 
+/* Joins metadata-derived register controls with exact-one FP execution rows. */
 fun compose_floating_point_control_cases(instructions :: List.of(InstructionSpec), execution_cases :: List.of(DecodeCase)):
   for List (instruction in instructions):
     block:
@@ -813,6 +818,8 @@ def RV64FFloatingPointDecode = ValidDecodeGen(RV64FFloatingPointControlCases)
 def RV32FDFloatingPointDecode = ValidDecodeGen(RV32FDFloatingPointControlCases)
 def RV64FDFloatingPointDecode = ValidDecodeGen(RV64FDFloatingPointControlCases)
 
+/* Selects minimal/full half-precision catalogs, adding D conversions and XLEN-specific integer
+   forms. */
 fun rv5stage_half_instructions(xlen :: XLen, profile :: FloatingPointProfile, half_precision :: HalfPrecisionProfile) :: List.of(InstructionSpec):
   cond
   | half_precision == HalfPrecisionProfile.None: []
@@ -823,6 +830,7 @@ fun rv5stage_half_instructions(xlen :: XLen, profile :: FloatingPointProfile, ha
         if profile == FloatingPointProfile.D | zfhmin.ZfhminDInstructions | []
       )
 
+/* Selects matching half-precision physical execution rows for the scalar profile. */
 fun rv5stage_half_execution_cases(xlen :: XLen, profile :: FloatingPointProfile, half_precision :: HalfPrecisionProfile) :: List.of(DecodeCase):
   cond
   | half_precision == HalfPrecisionProfile.None: []
@@ -833,6 +841,7 @@ fun rv5stage_half_execution_cases(xlen :: XLen, profile :: FloatingPointProfile,
         if xlen == XLen.X32 | HalfExecutionCases | RV64HalfExecutionCases
       ) ++ if profile == FloatingPointProfile.D | HalfDoubleExecutionCases | []
 
+/* Selects Zfa catalogs by precision, optionally admitting FLI.H without full scalar Zfh. */
 fun rv5stage_zfa_instructions(profile :: FloatingPointProfile,
                               half_precision :: HalfPrecisionProfile,
                               enabled :: Boolean,
@@ -845,6 +854,7 @@ fun rv5stage_zfa_instructions(profile :: FloatingPointProfile,
       if half_precision == HalfPrecisionProfile.Zfh | zfa.ZfaHalfInstructions | (if half_immediate_enabled | [zfa.FLI_H] | [])
     )
 
+/* Selects the Zfa execution relation matching the enabled precision/immediate catalog. */
 fun rv5stage_zfa_execution_cases(profile :: FloatingPointProfile,
                                  half_precision :: HalfPrecisionProfile,
                                  enabled :: Boolean,
@@ -857,6 +867,7 @@ fun rv5stage_zfa_execution_cases(profile :: FloatingPointProfile,
       if half_precision == HalfPrecisionProfile.Zfh | HalfZfaExecutionCases | (if half_immediate_enabled | [HalfZfaExecutionCases[0]] | [])
     )
 
+/* Combines base FP, half-precision, and Zfa instruction catalogs for the chosen specialization. */
 fun rv5stage_floating_point_instructions(xlen :: XLen,
                                          profile :: FloatingPointProfile,
                                          half_precision :: HalfPrecisionProfile,
@@ -868,6 +879,7 @@ fun rv5stage_floating_point_instructions(xlen :: XLen,
   | ~else: RV64FDFloatingPointInstructions
   base ++ rv5stage_half_instructions(xlen, profile, half_precision) ++ rv5stage_zfa_instructions(profile, half_precision, zfa_enabled, ~half_immediate: zfa_half_immediate_enabled)
 
+/* Builds complete FP controls from selected catalogs and matching execution relations. */
 fun rv5stage_floating_point_control_cases(xlen :: XLen,
                                           profile :: FloatingPointProfile,
                                           half_precision :: HalfPrecisionProfile,
@@ -883,6 +895,8 @@ fun rv5stage_floating_point_control_cases(xlen :: XLen,
     execution
   )
 
+/* Validates scalar FP selection and emits its combined register/execution decode; disabled FP
+   never matches. */
 circuit RV5StageFloatingPointInstructionDecoder(
   xlen :: XLen,
   profile :: FloatingPointProfile,

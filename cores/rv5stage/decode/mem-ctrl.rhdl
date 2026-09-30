@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's load, store, LR/SC, and AMO decode controls.
+/* Defines RV5Stage's load, store, LR/SC, and AMO decode controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,6 +22,8 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
+/* Selects memory operation, AMO function, transfer width, and load extension independently of
+   address generation. */
 bundle RV5StageMemoryControl():
   access: RV5StageMemoryOperation
   atomic: RiscvAtomicOperation

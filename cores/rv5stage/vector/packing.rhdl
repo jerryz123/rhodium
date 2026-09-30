@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts vector chunks for extension/widening and packs lane-local fixed-point results.
+/* Adapts vector chunks for extension/widening and packs lane-local fixed-point results. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,16 +10,19 @@ import:
   "register-file.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
+/* Selects a VRF row or replicated scalar/immediate operand. */
 hardware_enum VectorOperandSelect:
   Vector
   Scalar
   Immediate
 
+/* Selects signed-five-bit or unsigned-five/six-bit immediate interpretation. */
 hardware_enum VectorImmediateKind:
   Signed5
   Unsigned5
   Unsigned6
 
+/* Captures element bounds, predication, broadcast selection, and width-change packing policy. */
 bundle VectorPackingControl(vlen :: VectorLength):
   element_width: SimdElementWidth
   first_element: Bits(index_width(vlen + 1))
@@ -40,6 +43,7 @@ bundle VectorPackingControl(vlen :: VectorLength):
   left_signed: Bool
   right_signed: Bool
 
+/* Carries physical row operands, execution width, and enabled lanes into SIMD execution. */
 bundle VectorPackedOperands(xlen :: XLen, vlen :: VectorLength):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
@@ -47,12 +51,14 @@ bundle VectorPackedOperands(xlen :: XLen, vlen :: VectorLength):
   enabled: Mask(vector_word_bytes(xlen))
   first_element: Bits(index_width(vlen + 1))
 
-// Internal narrowing result retains the per-beat saturation indication beside
-// the packed write data until WB authorizes the architectural sticky update.
+/* Pairs packed narrowing data with saturation until result maturity authorizes the
+   architectural sticky update. */
 bundle VectorNarrowedResult(xlen :: XLen):
   result: SimdAluResult(xlen)
   saturated: Bool
 
+/* Broadcasts and extends operands or selects widening halves with bounded lane enables.
+   Its local geometry check does not establish architectural register-group legality. */
 circuit RV5StageVectorOperands(xlen :: XLen, vlen :: VectorLength):
   input control: VectorPackingControl(vlen)
   input(left, right, mask_word, scalar): Bits(xlen.width)
@@ -107,6 +113,8 @@ circuit RV5StageVectorOperands(xlen :: XLen, vlen :: VectorLength):
   def aligned = !(control.first_element & (bits(vector_word_bytes(xlen) - 1, count_width) >> control.element_width.as_bits())).or_reduce()
   legal <== (control.element_width.as_bits() <= bits(vector_format_count(xlen) - 1, 2)) & aligned & (control.vl <= control.vlmax) & (control.vlmax <= bits(vlen, count_width)) & control.vlmax.or_reduce() & (control.first_element < control.vlmax) & !((control.widening ||| control.narrowing) & (control.element_width.as_bits() >= bits(vector_format_count(xlen) - 1, 2))) & (!control.extension ||| extend.legal)
 
+/* Maps data or mask results into a bit-enabled VRF row, including narrowing clipping.
+   Retains address overflow until bounds checking and reports saturation separately. */
 circuit RV5StageVectorResult(xlen :: XLen, vlen :: VectorLength):
   input destination: Bits(5)
   input first_element: Bits(index_width(vlen + 1))

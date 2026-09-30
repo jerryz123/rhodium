@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts the reusable iterative divider to RV5Stage's deferred-writeback protocol.
+/* Adapts the reusable iterative divider to RV5Stage's deferred-writeback protocol. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,21 +10,26 @@ import:
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
+/* Carries dividend, divisor, operation controls, and GPR destination. */
 bundle RV5StageDivideIssue(xlen :: XLen):
   dividend: Bits(xlen.width)
   divisor: Bits(xlen.width)
   control: RiscvDivideControl()
   rd: Bits(5)
 
+/* Returns a quotient or remainder with its architectural GPR destination. */
 bundle RV5StageDivideCompletion(xlen :: XLen):
   rd: Bits(5)
   value: Bits(xlen.width)
 
+/* Retains destination, quotient/remainder choice, and RV64 word-result normalization. */
 bundle RV5StageDivideTag():
   rd: Bits(5)
   remainder: Bool
   word_result: Bool
 
+/* Queues authorized division, normalizes RV64 word operands, and maps tagged results
+   to GPR completions while preserving result backpressure. */
 sync_circuit RV5StageDivideScalar(xlen :: XLen):
   def width = xlen.width
 
@@ -77,6 +82,7 @@ sync_circuit RV5StageDivideScalar(xlen :: XLen):
         value: selected_result
   ) |> completion
 
+/* Composes the scalar adapter and tagged iterative divider for standalone use. */
 sync_circuit RV5StageDivider(xlen :: XLen):
   interface issue(Valid(RV5StageDivideIssue(xlen)), ~role: consumer)
   interface completion(Irrevocable(RV5StageDivideCompletion(xlen)), ~role: producer)

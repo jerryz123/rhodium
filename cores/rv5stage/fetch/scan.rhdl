@@ -1,5 +1,5 @@
 #lang rhodium
-// Validates S2 predictions and discovers direct-jump and return fallbacks.
+/* Validates S2 predictions and discovers direct-jump and return fallbacks. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,10 +15,14 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Reassembles a compressed direct-jump immediate and sign-extends its even byte offset. */
 fun compressed_jump_offset(instruction :: Bits(16), output_width :: PosInt) :~ Bits(output_width):
   def immediate = instruction[12..13] ++ instruction[8..9] ++ instruction[9..11] ++ instruction[6..7] ++ instruction[7..8] ++ instruction[2..3] ++ instruction[11..12] ++ instruction[3..6] ++ bits(0, 1)
   immediate.into(SInt(12)).sext(output_width).as_bits()
 
+/* Validates predicted instruction boundaries, removes stale packet cuts, and discovers direct
+   jumps/returns.
+   Its private partial-word state supports straddles independently of Decode's residual storage. */
 sync_circuit RV5StageFetchScan(core_profile :: RV5StageConfig):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen

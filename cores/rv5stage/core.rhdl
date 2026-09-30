@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's five-stage core with EX-issued load hits and ordered side effects.
+/* Implements RV5Stage's five-stage core with EX-issued load hits and ordered side effects. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -71,6 +71,9 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
+/* Implements feed-forward IF/ID/EX/MEM/WB with replay on rejected WB dispatch.
+   EX prepares operands and side-effect-free lookups; WB authorizes mutations and
+   shared services, and precise traps wait for older accepted work to drain. */
 sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_address :: Nat):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
@@ -165,12 +168,18 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def scalar_pipeline = memory_ports.scalar_pipeline
 
   def zero = bits(0, width)
+  /* Normalizes the raw 32-bit instruction to XLEN for illegal-instruction trap values. */
   fun core_instruction_value(instruction :: Bits(32)):
     if width == 32 | instruction | instruction.zext(width)
+  /* Identifies results whose destination remains reserved beyond ordinary scalar WB. */
   fun core_deferred_writeback(source :: RV5StageWritebackSelect):
     source.is_one_of(RV5StageWritebackSelect.Memory, RV5StageWritebackSelect.Multiply, RV5StageWritebackSelect.Divide)
+  /* Identifies system and fence operations that require ordered state, excluding bypassed
+     vector configuration. */
   fun core_serializing_operation(system :: RV5StageSystemControl(), fence :: RV5StageFenceControl()) :~ Bool:
     (system.is_system_operation() & (system.action =/= RV5StageSystemOperation.VectorConfig)) ||| fence.is_fence_operation()
+  /* Selects load or store exception class from the memory operation while retaining the fault
+     address. */
   fun core_data_exception(operation :: RV5StageMemoryOperation,
                           address :: Bits(width),
                           store_cause :: ExceptionCause,
@@ -182,6 +191,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
                  exception_cause_bits(load_cause, width))
       value: address
 
+  /* Combines independently reported Decode admission hazards without changing their priority. */
   fun core_hazard_any(reasons :: RV5StageHazardReasons()) :~ Bool:
     reasons.deferred_dependency ||| reasons.scoreboard_raw ||| reasons.scoreboard_waw ||| reasons.fp_source ||| reasons.fp_destination ||| reasons.resource ||| reasons.pause ||| reasons.serialization ||| reasons.wfi ||| reasons.interrupt_pending ||| reasons.exception
 
@@ -254,6 +264,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_csrs.fp_update.bits <== mux(wb_fp.state_update.valid, wb_fp.state_update.bits, bits(0, 5)) ||| mux(wb_vector_fp_update_link.right.valid, wb_vector_fp_update_link.right.bits, bits(0, 5))
   if floating_point_supports_f(profile)
   | block:
+      /* Keeps scalar destination context and vector completion-slot identity distinct in the
+         shared FP service. */
       tagged_union FpOwner():
         Scalar(wb_scalar_fp_tag)
         Vector(wb_vector_fp_tag)
@@ -286,6 +298,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   def wb_vector_divide_tag = RV5StageVectorDivideTag(vector_completion_slots)
   def wb_vector_multiply_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(MultiplierRequest(width), wb_vector_multiply_tag)))
   def wb_vector_multiply_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(Bits(width * 2), wb_vector_multiply_tag)))
+  /* Routes shared multiplier returns through scalar authorization or vector completion
+     ownership. */
   tagged_union MultiplyOwner():
     Scalar(RV5StageMultiplyTag())
     Vector(wb_vector_multiply_tag)
@@ -325,6 +339,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   ) <=> Array(wb_multiplier.execution_result, wb_vector_multiply_result_link.left)
   def wb_vector_divide_request_link :: Handle = interface_link(Decoupled(RV5StageExecutionRequest(DividerRequest(width), wb_vector_divide_tag)))
   def wb_vector_divide_result_link :: Handle = interface_link(Irrevocable(RV5StageExecutionResult(DividerResponse(width), wb_vector_divide_tag)))
+  /* Routes shared divider returns using retained scalar/vector owner tags. */
   tagged_union DivideOwner():
     Scalar(RV5StageDivideTag())
     Vector(wb_vector_divide_tag)
@@ -575,6 +590,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // next cycle. Live MEM faults, replay, and redirects never select operands.
   def id_ex_bypass_available = ex_input.valid & ex_input.bits.writeback_enable & !core_deferred_writeback(ex_input.bits.writeback_source) & (ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((ex_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (ex_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
   def id_mem_bypass_available = mem_input.valid & mem_input.bits.writeback_enable & (!core_deferred_writeback(mem_input.bits.writeback_source) ||| mem_load_hit) & (mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Vector) & ((mem_input.bits.writeback_source =/= RV5StageWritebackSelect.Csr) ||| (mem_input.bits.system.action === RV5StageSystemOperation.VectorConfig))
+  /* Captures the registered bypass source expected in EX, giving the nearer older producer
+     priority. */
   fun id_operand(index :: Bits(5), register_value :: Bits(width)):
     def id_from_memory = index.or_reduce() & id_ex_bypass_available & (ex_input.bits.rd === index)
     def id_from_writeback = index.or_reduce() & id_mem_bypass_available & (mem_input.bits.rd === index)
@@ -582,10 +599,12 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     RV5StageOperand(xlen):
       stage_sel: id_bypass_winner.mux([RV5StageBypassStage.Memory, RV5StageBypassStage.Writeback], ~default: RV5StageBypassStage.RegisterFile)
       value: register_value
-  // A launch has not reserved its deferred destination until WB admission.
-  // Track those older tokens explicitly without treating capacity as an ID hazard.
+  /* Checks older pre-admission vector tokens across EX, MEM, and WB against a dependency
+     predicate. Their deferred destinations are not reserved until WB admission;
+     capacity alone is not a Decode dependency hazard. */
   fun id_vector_launch_matches(predicate :: Function.of_arity(2)):
     (ex_input.valid & ex_input.bits.vector_launch & predicate(ex_input.bits.vector_control, ex_input.bits.rd)) ||| (mem_input.valid & mem_input.bits.vector_launch & predicate(mem_input.bits.vector_context.control, mem_input.bits.rd)) ||| (wb.valid & wb_offer_bits.vector_launch & predicate(wb_offer_bits.vector_context.control, wb_offer_bits.rd))
+  /* Combines admitted deferred writers with older unreserved FP/vector GPR destinations. */
   fun id_integer_register_busy(index :: Bits(5)):
     (
       id_vector_launch_matches(fun (control :: RV5StageVectorControl(), rd :: Bits(5)): control.integer & control.scalar_destination & (rd === index)) ||| scoreboard_busy(register_count, wb_scoreboard.busy, index) ||| scoreboard_busy(
@@ -609,6 +628,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
 
   def id_ex_deferred = ex_input.valid & ex_input.bits.writeback_enable & core_deferred_writeback(ex_input.bits.writeback_source)
   def id_mem_deferred = mem_input.valid & mem_input.bits.writeback_enable & core_deferred_writeback(mem_input.bits.writeback_source) & !mem_load_hit
+  /* Checks RAW and WAW conflicts against an older deferred destination, excluding x0. */
   fun id_conflicts_with_deferred(deferred_valid :: Bool,
                                  deferred_destination :: Bits(5)):
     deferred_valid & deferred_destination.or_reduce() & (
@@ -638,6 +658,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     )
   )
   def id_scoreboard_waw_hazard = id_integer_write & id_rd.or_reduce() & id_integer_register_busy(id_rd)
+  /* Combines the FPR scoreboard with older scalar/vector writers not yet reserved at WB. */
   fun id_fp_register_busy(index :: Bits(5)):
     id_vector_launch_matches(fun (control :: RV5StageVectorControl(), rd :: Bits(5)): control.floating_scalar_destination & (rd === index)) ||| scoreboard_busy(register_count, wb_fp.busy, index) ||| (
       ex_input.valid & ex_input.bits.floating_point_valid & (
@@ -962,9 +983,11 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
       wb_csrs.vector_retire.valid <== Bool(#false)
       wb_csrs.vector_saturate.valid <== Bool(#false)
 
-  // Stage 3: EX uses only registered selectors and data. A killed producer's younger
-  // consumer is canceled independently; it does not select an older operand.
-  // The WB selector names the normal pipeline token, not retained retirement context.
+  /* Stage 3: EX uses only registered selectors and data. A killed producer's younger
+     consumer is canceled independently; it does not select an older operand.
+     The WB selector names the normal pipeline token, not retained retirement context. */
+
+  /* Selects only registered producer data using the source chosen in Decode. */
   fun ex_forwarded_register_value(operand :: RV5StageOperand(xlen)):
     operand.stage_sel.mux({
       RV5StageBypassStage.RegisterFile: operand.value,
@@ -1035,6 +1058,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     ex_is_memory & ex_memory_alignment_fault
   )
   def ex_redirect_fault = !ex_input.bits.vector_launch & ex_redirect_requested & !ex_redirect_aligned
+  /* Builds an EX-local exception with architectural cause encoding and trap value. */
   fun ex_make_exception(cause :: ExceptionCause, value :: Bits(width)):
     RV5StageException(xlen):
       valid: Bool(#true)
@@ -1534,6 +1558,8 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   // pipeline. Each candidate carries its semantic source, so routing does not
   // depend on the arbiter's structural input index.
   inst wb_completion_arbiter(RRArbiter(RV5StageDeferredCompletion(xlen), 5))
+  /* Attaches a semantic completion source so scoreboard clearing does not depend on arbiter
+     input order. */
   fun wb_tag_completion(source :: RV5StageCompletionSource):
     map_flow(~stable: #true, completion):
       RV5StageDeferredCompletion(xlen):

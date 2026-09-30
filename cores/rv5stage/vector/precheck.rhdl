@@ -1,5 +1,5 @@
 #lang rhodium
-// Computes conservative vector memory byte footprints without an element-address multiplier.
+/* Computes conservative vector memory byte footprints without an element-address multiplier. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,7 @@ import:
   "../../../riscv/rtl/vector.rhdl".RiscvVectorState
   lib("rhodium/std/bits.rhdl").count_leading_zeros
 
+/* Retains widened byte-span arithmetic before pointer normalization and overflow checks. */
 bundle RV5StageVectorFootprintGeometry():
   eligible: Bool
   empty: Bool
@@ -22,11 +23,13 @@ bundle RV5StageVectorFootprintGeometry():
   reverse: Bool
   strided: Bool
 
+/* Returns a conservative virtual byte range and optional certification eligibility. */
 bundle RV5StageVectorFootprint():
   eligible: Bool
   empty: Bool
   range: RV5StageVectorRange()
 
+/* Multiplies by the constant-selected field count using shifts and additions. */
 fun vector_field_extent(value :: Bits(68), nf :: Bits(3)) :~ Bits(68):
   mux_lookup(nf, ~default: value, [
     [1, value << 1], [2, (value << 1) + value], [3, value << 2],
@@ -34,6 +37,7 @@ fun vector_field_extent(value :: Bits(68), nf :: Bits(3)) :~ Bits(68):
     [6, (value << 3) - value], [7, value << 3]
   ])
 
+/* Bounds contiguous or encoded-zero-stride memory, including whole-register and mask transfers. */
 fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen)) :~ RV5StageVectorFootprintGeometry():
   def whole = control.memory_mode === VectorMemoryMode.WholeRegister
   def mask = control.memory_mode === VectorMemoryMode.Mask
@@ -52,9 +56,8 @@ fun vector_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5
     reverse: Bool(#false)
     strided: Bool(#false)
 
-// Round a small runtime stride upward so the single-page MEM probe needs a
-// shift, not an element-count multiplier. An overlarge envelope only misses
-// this optional fast path; it never changes the elementwise addresses.
+/* Rounds a small dynamic stride magnitude up to a power-of-two envelope for optional
+   one-page proof. An overlarge envelope selects fallback without changing exact addresses. */
 fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ RV5StageVectorFootprintGeometry():
   def magnitude = mux(stride[xlen.width - 1].into(Bool), -stride, stride)
   def small = magnitude[0..12]
@@ -73,11 +76,14 @@ fun vector_strided_fast_geometry(xlen :: XLen, vlen :: VectorLength, control :: 
     reverse: stride[xlen.width - 1].into(Bool)
     strided: Bool(#true)
 
+/* Chooses the contiguous/splat or conservative dynamic-stride fast-check geometry. */
 fun vector_fast_footprint_geometry(xlen :: XLen, vlen :: VectorLength, control :: RV5StageVectorControl(), instruction :: Bits(32), state :: RiscvVectorState(xlen), stride :: Bits(xlen.width)) :~ RV5StageVectorFootprintGeometry():
   def ordinary = vector_footprint_geometry(xlen, vlen, control, instruction, state)
   def dynamic_stride = vector_strided_fast_geometry(xlen, vlen, control, state, stride)
   mux((control.memory_addressing === VectorMemoryAddressing.Strided) & !vector_zero_stride_load_parts(control, instruction), dynamic_stride, ordinary)
 
+/* Normalizes a descriptor's range and admits only aligned, nonwrapping footprints within two
+   pages. */
 fun vector_footprint(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen), masking :: PointerMaskControl()) :~ RV5StageVectorFootprint():
   def geometry = vector_footprint_geometry(xlen, vlen, descriptor.control, descriptor.instruction, descriptor.state)
   def first_raw = descriptor.scalar.zext(68) + geometry.start_offset

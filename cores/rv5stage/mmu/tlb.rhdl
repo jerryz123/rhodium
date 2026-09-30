@@ -1,5 +1,6 @@
 #lang rhodium
-// Shares one associative entry bank between host and composed guest mappings, with a combinational hit path.
+/* Shares one associative entry bank between host and composed guest mappings, with a
+   combinational hit path. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +13,8 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Stores a mapping's address identity, translation roots, and independently checked stage
+   leaves. */
 bundle RV5StageTlbEntry():
   valid: Bool
   virtualized: Bool
@@ -23,6 +26,8 @@ bundle RV5StageTlbEntry():
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
 
+/* Matches page and captured translation identity; current privilege, SUM, and VS MXR are
+   rechecked. */
 fun rv5stage_tlb_matches(entry :: RV5StageTlbEntry(), request :: RV5StageTlbLookup()) :~ Bool:
   def left = entry.context
   def right = request.context
@@ -37,6 +42,8 @@ fun rv5stage_tlb_matches(entry :: RV5StageTlbEntry(), request :: RV5StageTlbLook
     left.g_root_ppn === right.g_root_ppn
   ) & (left.vs_pbmte === right.vs_pbmte) & (left.g_pbmte === right.g_pbmte) & (left.hs_mxr === right.hs_mxr)
 
+/* Provides combinational demand and nonfaulting probe lookups over one associative bank.
+   Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
 sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
   input lookup: RV5StageTlbLookup()
   input probe: RV5StageTlbLookup()
@@ -90,6 +97,7 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
   def probe_bare = !probe_vs & !probe_g
   def probe_vs_pte :: Sv39Pte() = probe_entry.vs_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
   def probe_g_pte :: Sv39Pte() = probe_entry.g_leaf.updated(~accessed: Bool(#true), ~dirty: Bool(#true))
+  /* Checks the same access class against both stages while ignoring A/D bits for prefetch. */
   fun probe_allowed(kind :: Sv39Access) :~ Bool:
     def stage_one = probe_vs_pte.sv39_permission_valid(kind, probe.context.privilege === PrivilegeMode.User, probe.context.privilege === PrivilegeMode.Supervisor, probe.context.vs_sum, probe.context.vs_mxr ||| probe.context.hs_mxr)
     def stage_two = probe_g_pte.sv39_permission_valid(kind, Bool(#true), Bool(#false), Bool(#false), probe.context.hs_mxr)
@@ -143,7 +151,7 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
     entries <== entries.updated(fill_index, next_entry)
     replacement <== mux(fill_matches.or_reduce(), replacement, (replacement + bits(1, index_bits)) & bits(entry_count - 1, index_bits))
 
-// Host-only port projection; all state and matching live in the shared bank.
+/* Projects the shared bank onto host-only ports without introducing a second entry store. */
 sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   input virtual_address: Bits(64)
   input access: Sv39Access
@@ -170,6 +178,7 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   output probe_pbmt: PageMemoryType
 
   inst bank(RV5StageTranslationTlb(entry_count))
+  /* Builds the host adapter's lookup context with zero root identity and PBMT disabled. */
   fun host_lookup(address :: Bits(64), kind :: Sv39Access, mode :: PrivilegeMode, allow_user :: Bool, allow_execute :: Bool, paged :: Bool) :~ RV5StageTlbLookup():
     def request = RV5StageTranslationRequest():
       virtual_address: address

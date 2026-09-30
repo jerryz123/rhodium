@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's commit-owned CSR, privilege, trap, and interrupt state.
+/* Implements RV5Stage's commit-owned CSR, privilege, trap, and interrupt state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -34,6 +34,8 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Carries one authorized WB instruction, CSR operands, and precise exception context into
+   architectural state. */
 bundle RV5StageCsrCommit(xlen :: XLen):
   pc: Bits(xlen.width)
   instruction: Bits(32)
@@ -47,6 +49,8 @@ bundle RV5StageCsrCommit(xlen :: XLen):
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
+/* Retains machine/supervisor state plus profile-selected timers, state-enable, and guest trap
+   banks. */
 bundle RV5StageCsrState(xlen :: XLen, hypervisor :: Boolean, sstc :: Boolean, smstateen :: Boolean):
   menvcfg: Bits(xlen.width)
   senvcfg: Bits(xlen.width)
@@ -101,10 +105,15 @@ bundle RV5StageCsrState(xlen :: XLen, hypervisor :: Boolean, sstc :: Boolean, sm
     vsatp: Bits(64)
     hgatp: Bits(64)
 
+/* Carries an explicit fflags/frm/fcsr write, independently of execution flag updates. */
 bundle RV5StageFpCsrWrite():
   address: Bits(12)
   value: Bits(8)
 
+/* Checks committed CSR and privileged operations and resolves explicit or generated synchronous
+   traps.
+   Captured pipeline exceptions retain priority; guest controls distinguish virtual-instruction
+   traps. */
 fun resolve_rv5stage_trap(xlen :: XLen,
                           commit_valid :: Bool,
                           operation :: RV5StageCsrCommit(xlen),
@@ -185,6 +194,7 @@ fun resolve_rv5stage_trap(xlen :: XLen,
     medeleg
   )
 
+/* Supplies disabled FP status and zero flags/rounding state without architectural FP storage. */
 sync_circuit RV5StageDisabledFpCsrs():
   interface write(Valid(RV5StageFpCsrWrite()), ~role: consumer)
   interface update(Valid(Bits(5)), ~role: consumer)
@@ -197,6 +207,8 @@ sync_circuit RV5StageDisabledFpCsrs():
   frm <== bits(0, 3)
   status <== bits(0, 2)
 
+/* Owns shared fflags, frm, and host FS status; explicit writes override accrued flags and dirty
+   updates. */
 sync_circuit RV5StageFpCsrs():
   interface write(Valid(RV5StageFpCsrWrite()), ~role: consumer)
   interface update(Valid(Bits(5)), ~role: consumer)
@@ -233,6 +245,10 @@ sync_circuit RV5StageFpCsrs():
   frm <== frm_state
   status <== status_state
 
+/* Owns commit-time CSR access, privilege transitions, traps, interrupts, and profile-selected
+   state.
+   Synchronous traps outrank boundary interrupts; architectural state changes suppress
+   illegal writes, and shared FP/vector data retains separate host/guest status ownership. */
 sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen
@@ -351,11 +367,13 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   vector_truncate |> vector_csrs.truncate
   fp_update |> fp_csrs.update
 
+  /* Preserves nonwritable status bits and maps reserved MPP encoding to User. */
   fun legalize_mstatus(value :: Bits(width)) :~ Bits(width):
     def masked = state.mstatus.masked_merge(value, mstatus_write_mask)
     def mpp = csr_field(masked, MstatusMPP)
     csr_field_replace(masked, MstatusMPP, mux(mpp === bits(2, MstatusMPP.width), bits(0, MstatusMPP.width), mpp))
 
+  /* Keeps only the implemented FIOM environment-control field. */
   fun fiom_field(value :: Bits(width)) :~ Bits(width):
     csr_keep_fields(value, [EnvcfgFIOM])
 
@@ -703,6 +721,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   ) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
   def hgatp_restricted = Bool(hypervisor) & (csr === csr_bits(CsrId.Hgatp)) & (privilege_state === PrivilegeMode.Supervisor) & !virtualized & csr_flag(state.mstatus, MstatusTVM)
   def hpm3_csr = csr.is_one_of(csr_bits(CsrId.Hpmcounter3), csr_bits(CsrId.Hpmcounter3h))
+  /* Checks the enable bit for the selected base counter or implemented HPM slot three. */
   fun counter_enabled(counteren :: Bits(width)) :~ Bool:
     mux(hpm_csr, hpm3_csr & counteren[3].into(Bool), mux(cycle_csr, csr_flag(counteren, CounterenCY), mux(time_csr, csr_flag(counteren, CounterenTM), csr_flag(counteren, CounterenIR))))
   def machine_counter_enabled = counter_enabled(state.mcounteren)
@@ -781,6 +800,8 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
   def guest_mask_changed:
     if hypervisor
     | block:
+        /* Derives pointer masking for normal or explicit guest data access from the live
+           execution context. */
         fun masking(access :: RiscvGuestMemoryAccess) :~ PointerMaskControl():
           hypervisor_pointer_mask_control(context, mstatus_value, state.satp, state.senvcfg, state.hstatus, state.vsstatus, state.vsatp, state.henvcfg, access, ~enabled: core_profile.extensions.ssnpm)
         pointer_masking <== masking(RiscvGuestMemoryAccess.Normal)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Probes vector pages on admission and retains certified cacheable translations.
+/* Probes vector pages on admission and retains certified cacheable translations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,8 @@ import:
   "../../../riscv/rtl/sv39.rhdl".sv39_same_page
   lib("flow/main.rhdl") open
 
+/* Probes the range endpoints, returns a certificate decision, then retains ownership until
+   release. */
 hardware_enum RV5StageVectorWindowState:
   Idle
   Request
@@ -16,6 +18,7 @@ hardware_enum RV5StageVectorWindowState:
   Complete
   Owned
 
+/* Certifies a whole physical page only in a cacheable, idempotent, nondevice address set. */
 fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bits(64), store :: Bool) :~ Bool:
   def mutable permitted = Bool(#false)
   for (region in physical_map.regions):
@@ -27,6 +30,8 @@ fun vector_page_permitted(physical_map :: RiscvPhysicalMemoryMap, address :: Bit
   def fits = if physical_map.address_width >= 64 | Bool(#true) | !address[physical_map.address_width..64].or_reduce()
   permitted & fits
 
+/* Retains up to two endpoint-page mappings for one nonspeculative vector macro.
+   A failed check selects exact element execution; it does not raise an architectural fault. */
 sync_circuit RV5StageVectorWindow(physical_map :: RiscvPhysicalMemoryMap):
   interface check(RV5StageVectorPrecheck(), ~role: responder)
   interface translation(RV5StagePageProbe(), ~role: requester)

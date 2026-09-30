@@ -1,5 +1,6 @@
 #lang rhodium
-// Implements and traces shared L1D lookup resolution, transaction transport, and coherent miss service.
+/* Implements and traces shared L1D lookup resolution, transaction transport, and coherent miss
+   service. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,6 +28,7 @@ import:
   lib("chi/transactions/cache-maintenance.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNChannels
 
+/* Owns word-at-a-time line gathering for dirty eviction or snoop data handoff. */
 hardware_enum RV5StageDataGatherState:
   Idle
   EvictionRead
@@ -34,6 +36,7 @@ hardware_enum RV5StageDataGatherState:
   SnoopRead
   SnoopReady
 
+/* Labels the winning physical SRAM user independently of scalar instruction ownership. */
 hardware_enum RV5StageDCacheArrayOwner:
   Pipeline
   Service
@@ -43,6 +46,8 @@ hardware_enum RV5StageDCacheArrayOwner:
   Gather
   StoreDrain
 
+/* Retains the complete request plus selected way, install/allocation disposition, and hint
+   intent. */
 bundle RV5StageL1DTransactionContext(xlen :: XLen,
                                      way_width :: PosInt, vector_completion_slots :: Pow2Int):
   request: RV5StageDataReq(xlen, vector_completion_slots)
@@ -52,11 +57,13 @@ bundle RV5StageL1DTransactionContext(xlen :: XLen,
   prefetch: Bool
   prefetch_write: Bool
 
+/* Pairs an authorized physical request with demand or best-effort prefetch intent. */
 bundle RV5StageL1DLookup(xlen :: XLen, vector_completion_slots :: Pow2Int):
   request: RV5StageDataReq(xlen, vector_completion_slots)
   prefetch: Bool
   prefetch_write: Bool
 
+/* Captures tag/state/data resolution and the chosen replacement victim for elastic S4 service. */
 bundle RV5StageL1DResolved(xlen :: XLen, way_width :: PosInt, vector_completion_slots :: Pow2Int):
   lookup: RV5StageL1DLookup(xlen, vector_completion_slots)
   hit: Bool
@@ -68,11 +75,15 @@ bundle RV5StageL1DResolved(xlen :: XLen, way_width :: PosInt, vector_completion_
   victim_state: CHICacheState
   victim_address: Bits(xlen.width)
 
+/* Rejects address widths lacking tag bits beyond the line offset and set index. */
 fun check_l1d_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
   unless width > (alignment_bits(RV5StageCacheLineBytes) + cache.set_width)
   | error(~who: #'RV5StageL1DCache,
           "address width must include line offset, set, and tag bits")
 
+/* Combines a speculative EX/MEM hit path, WB-authorized stores, and queued S3/S4 slow service.
+   One miss reserves its set while independent loads may hit; coherent snoops, LR/SC, and refill
+   installation own explicit SRAM turns. */
 sync_circuit RV5StageL1DCache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
                               ~chi: config :: RiscvHartCHIConfig,
@@ -388,8 +399,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
   def s4_prefetch_needs_refill = s4_valid & s4_prefetch & !reservation_count.or_reduce() & (!s4_hit ||| (s4_prefetch_write & !s4_state.is_unique()))
   def s4_prefetch_dirty_victim = s4_prefetch_needs_refill & !s4_hit & s4_victim_valid & s4_victim_state.is_dirty()
   def s4_needs_refill = s4_load & (!s4_hit ||| (s4_lr & !s4_state.is_unique())) ||| s4_mutation & !s4_owned_mutation ||| (s4_prefetch_needs_refill & !s4_prefetch_dirty_victim)
-  // Every NTL selector discourages L1 retention. Keep that policy separate
-  // from architectural intent; LR, mutations, and prefetches still allocate.
+  /* Makes nondefault-locality ordinary load misses consume the clean refill buffer without
+     installing. LR, mutations, and prefetches retain their independent allocation policy. */
   fun bypass_allocation(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots)):
     def lookup = result.lookup.into(RV5StageL1DLookup(xlen, vector_completion_slots))
     !lookup.prefetch & !result.hit & (lookup.request.access === RV5StageMemoryOperation.Load) & (lookup.request.locality =/= RiscvMemoryLocality.Default)
@@ -410,6 +421,8 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     s4_transaction_path |> demux_flow(2, _result => s4_dirty_victim.as_bits())
   )
   def s4_local = s4_hit_path |> gate_flow(service_responses.ingress.ready) |> to_valid()
+  /* Captures request, hit/replacement way, installation policy, and prefetch intent for
+     retained CHI work. */
   fun transaction_context(result :: RV5StageL1DResolved(xlen, way_width, vector_completion_slots),
                           allocation :: Bool,
                           install :: Bool) :~ RV5StageL1DTransactionContext(xlen, way_width, vector_completion_slots):

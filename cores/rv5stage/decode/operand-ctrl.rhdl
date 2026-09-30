@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines base and extension register use, operand routing, and immediate controls.
+/* Defines base and extension register use, operand routing, and immediate controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,15 +23,18 @@ import:
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_immediate
   lib("rhodium/std/decode.rhdl") open
 
+/* Routes register, PC, or zero into the scalar ALU's left operand. */
 hardware_enum OperandASelect:
   Register
   Pc
   Zero
 
+/* Routes a register or decoded immediate into the scalar ALU's right operand. */
 hardware_enum OperandBSelect:
   Register
   Immediate
 
+/* Selects canonical immediate extraction, including the Zicbop address offset. */
 hardware_enum RV5StageImmediateSelect:
   None
   I
@@ -40,6 +43,7 @@ hardware_enum RV5StageImmediateSelect:
   U
   J
   Prefetch
+  /* Extracts and extends the selected immediate to the caller's width; None produces zero. */
   method decode(select, instruction :: Bits(32), width :: PosInt) :: Bits(width):
     mux_lookup(select, ~default: bits(0, width)):
       RV5StageImmediateSelect.I: instruction_immediate(riscv_fields.IImmediate, instruction, width)
@@ -49,6 +53,7 @@ hardware_enum RV5StageImmediateSelect:
       RV5StageImmediateSelect.J: instruction_immediate(riscv_fields.JImmediate, instruction, width)
       RV5StageImmediateSelect.Prefetch: instruction_immediate(riscv_fields.PrefetchImmediate, instruction, width)
 
+/* Carries GPR source-use bits independently of ALU operand and immediate selection. */
 bundle RV5StageOperandControl():
   uses_rs1: Bool
   uses_rs2: Bool
@@ -62,6 +67,8 @@ def shared_loads = [LB, LH, LW, LBU, LHU]
 def shared_stores = [SB, SH, SW]
 def branch_instructions = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
 
+/* Builds base-catalog register-use and address/ALU operand columns with inactive fields
+   unconstrained. */
 fun operand_cases(immediate_alu :: List.of(InstructionSpec),
                   register_alu :: List.of(InstructionSpec),
                   loads :: List.of(InstructionSpec),

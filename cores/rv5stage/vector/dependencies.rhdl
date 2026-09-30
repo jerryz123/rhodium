@@ -1,5 +1,5 @@
 #lang rhodium
-// Computes conservative destination groups for pending vector read interlocks.
+/* Computes conservative destination groups for pending vector read interlocks. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   "../../../riscv/rtl/instruction-fields.rhdl".instruction_field
   "../../../riscv/rtl/vector.rhdl" open
 
+/* Conservatively claims destination register groups until exact pending write rows are known. */
 fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor :: RV5StageVectorDescriptor(xlen)) :~ Bits(32):
   def control = descriptor.control
   def geometry = vector_type(xlen, vlen, descriptor.state.vtype)
@@ -24,7 +25,7 @@ fun vector_destination_registers(xlen :: XLen, vlen :: VectorLength, descriptor 
   def exponent = geometry.lmul.into(SInt(3)).sext(5) + mux(memory, memory_eew.zext(5).into(SInt(5)) - geometry.sew.zext(5).into(SInt(5)), widened.as_bits().zext(5).into(SInt(5)))
   def group = bits(1, 6) << mux(exponent < SInt(5)(0), bits(0, 3), exponent.as_bits()[0..3])
   def fields = control.memory_nf.zext(6) + bits(1, 6)
-  // Field count is a small constant-selected sum, never a hardware multiplier.
+  /* Forms a selected field-count extent using constant elaboration-time repeated additions. */
   fun extent_for(n :: Nat) :~ Bits(6):
     def mutable total :: Bits(6) = group
     for (_ in 0..n):

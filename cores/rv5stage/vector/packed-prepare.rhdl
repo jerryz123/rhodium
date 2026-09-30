@@ -1,5 +1,5 @@
 #lang rhodium
-// Forms packed layouts and preparation data under the standard sequencer's cursor and phase.
+/* Forms packed layouts and preparation data under the standard sequencer's cursor and phase. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +16,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Names sequencer-owned phases for packed mapping, mask capture, source reads, and alignment. */
 hardware_enum RV5StagePackedPrepare:
   Map
   MaskLow
@@ -26,6 +27,9 @@ hardware_enum RV5StagePackedPrepare:
   Align
   Issue
 
+/* Forms byte-to-row layouts from the sequencer's cursor and phase.
+   Unmasked loads and direct stores use the common read schedule; masked/segmented
+   preparation retains scratch data but never advances an independent issue cursor. */
 sync_circuit RV5StageVectorPackedPrepare(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   def bytes = vector_word_bytes(xlen)
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))

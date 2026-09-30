@@ -1,5 +1,6 @@
 #lang rhodium
-// Shares operand-level FP execution with scheduled fixed writes or an elastic standalone adapter.
+/* Shares operand-level FP execution with scheduled fixed writes or an elastic standalone
+   adapter. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,9 +12,8 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
-// Merges two persistent completion sources without inserting payload storage.
-// Once an unaccepted completion is selected, its source remains selected until
-// transfer, preserving the output's Irrevocable contract.
+/* Round-robins two persistent completions without payload storage and locks a blocked
+   winner until transfer to preserve the irrevocable output. */
 sync_circuit RV5StageFpCompletionArbiter(T :: DataType):
   interface ingress[2](Irrevocable(T), ~role: consumer)
   interface egress(Irrevocable(T), ~role: producer)
@@ -39,6 +39,9 @@ sync_circuit RV5StageFpCompletionArbiter(T :: DataType):
     locked <== Bool(#true)
     owner_is_second <== selected_is_second
 
+/* Dispatches fixed and variable arithmetic while preserving opaque execution tags.
+   Scheduled fixed returns write two cycles after launch; standalone mode reserves
+   completion storage and presents an irrevocable merged result. */
 sync_circuit RV5StageFpExecutionService(
   xlen :: XLen,
   profile :: FloatingPointProfile,

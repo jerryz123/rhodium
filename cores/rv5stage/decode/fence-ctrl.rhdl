@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's explicit memory- and instruction-fence controls.
+/* Defines RV5Stage's explicit memory- and instruction-fence controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,6 +19,8 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
+/* Distinguishes memory/instruction ordering, host/guest translation invalidation, and
+   ordering-only Svinval. */
 hardware_enum RV5StageFenceOperation:
   None
   Memory
@@ -28,15 +30,19 @@ hardware_enum RV5StageFenceOperation:
   GuestPhysicalTranslation
   TranslationOrder
 
+/* Carries the serialized action while leaving execution and permission policy to WB/CSR. */
 bundle RV5StageFenceControl():
   action: RV5StageFenceOperation
 
+  /* Identifies any nonempty fence action for serialization. */
   method is_fence_operation(control) :: Bool:
     control.action =/= RV5StageFenceOperation.None
 
+  /* Selects FENCE.I instruction-cache invalidation. */
   method is_instruction_fence(control) :: Bool:
     control.action === RV5StageFenceOperation.Instruction
 
+  /* Selects translation invalidations, excluding Svinval's ordering-only actions. */
   method is_address_translation_fence(control) :: Bool:
     control.action.is_one_of(RV5StageFenceOperation.AddressTranslation, RV5StageFenceOperation.GuestVirtualTranslation, RV5StageFenceOperation.GuestPhysicalTranslation)
 
@@ -49,6 +55,7 @@ def instruction_fence = pattern(RV5StageFenceControl()):
 def address_translation_fence = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.AddressTranslation
 
+/* Maps FENCE to memory ordering and disables fence effects for other base instructions. */
 fun base_fence_cases(instructions :: List.of(InstructionSpec)):
   instruction_cases([FENCE], memory_fence) ++ instruction_cases(
     excluding_instructions(instructions, [FENCE]),

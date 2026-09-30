@@ -1,5 +1,5 @@
 #lang rhodium
-// Routes permitted data accesses between L1D and a completion-owned IO-MSHR.
+/* Routes permitted data accesses between L1D and a completion-owned IO-MSHR. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +16,8 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Resolves PMA/PBMT permissions over the whole access and excludes cached/uncached overlap.
+   Permitted uncached maintenance completes locally after older traffic drains. */
 sync_circuit RV5StageMemoryRouter(xlen :: XLen,
                                   physical_map :: RiscvPhysicalMemoryMap,
                                   ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):

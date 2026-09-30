@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines instruction words, fixed-latency fetch attempts, and ordered slow transactions.
+/* Defines instruction words, fixed-latency fetch attempts, and ordered slow transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,11 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Names the address of one four-byte instruction fetch. */
 bundle RV5StageInstructionReq(xlen :: XLen):
   address: Bits(xlen.width)
 
+/* Returns an instruction word with access/page faults and optional guest provenance. */
 bundle RV5StageInstructionResp(hypervisor :: Boolean):
   word: Bits(32)
   page_fault: Bool
@@ -17,14 +19,14 @@ bundle RV5StageInstructionResp(hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
 
+/* Returns a fixed-cycle attempt outcome; Replay does not promise a later response. */
 bundle RV5StageFetchResult(hypervisor :: Boolean):
   response: RV5StageInstructionResp(hypervisor)
   replay: Bool
 
-// Each accepted S0 request has exactly one S2 result unless a later flush or
-// s1_kill cancels it. A request transferred together with flush starts the new
-// fetch epoch and survives that flush. The requester captures its own context
-// at request transfer. Replay is an outcome, not a promise of a later response.
+/* Each accepted S0 request has one S2 outcome unless a later flush or s1_kill cancels it.
+   Flush-plus-transfer starts a new epoch and survives that flush; the requester captures
+   its context at transfer. Replay is an outcome, not a promise of a later response. */
 interface RV5StageFetchAccess(xlen :: XLen, hypervisor :: Boolean):
   role requester
   role responder
@@ -39,8 +41,8 @@ interface RV5StageFetchAccess(xlen :: XLen, hypervisor :: Boolean):
   responder -> requester:
     response: Valid(RV5StageFetchResult(hypervisor))
 
-// Physical S1 resolution produces a registered S2 outcome. Long-lived work
-// survives local replay; flush detaches its consumer, not accepted bus traffic.
+/* Pairs physical S1 resolution with a registered S2 hit/fault/replay outcome.
+   Long-lived work survives replay; flush detaches its consumer, not accepted bus traffic. */
 interface RV5StageInstructionLookup(RequestType :: HardwareType):
   role requester
   role responder

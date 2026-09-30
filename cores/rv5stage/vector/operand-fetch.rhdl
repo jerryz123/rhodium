@@ -1,5 +1,6 @@
 #lang rhodium
-// Carries every scheduled beat through fixed VRF latency and forms compute or packed-memory operands.
+/* Carries every scheduled beat through fixed VRF latency and forms compute or packed-memory
+   operands. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,6 +21,10 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Pairs each scheduled beat's captured descriptor with one-cycle VRF responses and operand
+   packing.
+   There is no post-read stall queue; compression retains speculative and authorized
+   suffix checkpoints and sends a final suffix back through the common sequencer. */
 sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def SequenceContext = RV5StageVectorSequenceContext(xlen, vlen, Context)
@@ -240,6 +245,7 @@ sync_circuit RV5StageVectorOperandFetch(xlen :: XLen, vlen :: VectorLength, Cont
     ~select_right: bits(0, vector_word_bytes(xlen)).into(Mask(vector_word_bytes(xlen))),
     ~compress_state: post_compress_state
   )
+  /* Forms the final partial compression write from its retained suffix without new VRF reads. */
   fun compression_flush_beat(state :: RV5StageVectorCompressState(xlen, vlen)) :~ RV5StageVectorBeat(xlen, vlen):
     RV5StageVectorBeat(xlen, vlen):
       sequence: beat_control.sequence

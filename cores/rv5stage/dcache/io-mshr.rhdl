@@ -1,5 +1,5 @@
 #lang rhodium
-// Retains one non-cacheable data operation from admission through RN-I completion.
+/* Retains one non-cacheable data operation from admission through RN-I completion. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,11 +9,16 @@ import:
   "../../../riscv/isa/xlen.rhm".XLen
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Separates an empty data slot, a retained request awaiting RN-I issue, and accepted engine
+   work. */
 hardware_enum RV5StageIOMSHRState:
   Idle
   Queued
   Active
 
+/* Admits one supported committed data request independently of the RN-I fetch owner.
+   Retains its payload until issue and releases only on final completion; unsupported operations
+   never allocate. */
 sync_circuit RV5StageIOMSHR(xlen :: XLen, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):
   interface core(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: responder)
   interface memory(RV5StageUncachedDataAccess(xlen, vector_completion_slots), ~role: requester)

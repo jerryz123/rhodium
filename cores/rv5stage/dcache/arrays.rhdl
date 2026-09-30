@@ -1,5 +1,5 @@
 #lang rhodium
-// Owns the independent synchronous metadata and byte-masked data SRAM ports of L1D.
+/* Owns the independent synchronous metadata and byte-masked data SRAM ports of L1D. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,8 @@ import:
   lib("rhodium/std/read-write.rhdl") open
   lib("rhodium/std/sync-ram.rhdl") open
 
+/* Provides independent synchronous tag, coherent-state, and byte-masked data SRAMs.
+   The cache scheduler owns arbitration and way-major lane masks. */
 sync_circuit RV5StageDCacheArrays(xlen :: XLen, cache :: RV5StageCacheConfig):
   def word_bytes = xlen.width / 8
   def depth = cache.sets * (RV5StageCacheLineBytes / word_bytes)

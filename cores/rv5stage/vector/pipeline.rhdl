@@ -1,5 +1,6 @@
 #lang rhodium
-// Composes vector admission, sequencing, operand capture, execution services, and persistent completion.
+/* Composes vector admission, sequencing, operand capture, execution services, and persistent
+   completion. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -36,10 +37,15 @@ import:
   "../../../riscv/rtl/pointer-masking.rhdl" open
   lib("flow/main.rhdl") open
 
+/* Composes one sequencer with fixed operand capture, SIMD execution, and persistent owners.
+   Reserves future writes before nonstallable reads or fixed-service launches; owner-indexed
+   recurrences, packed carry, and splats survive replacement of the sequencing descriptor. */
 sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
   def SlotId = Bits(tag_width)
+  /* Captures scalar context, instruction identity, and optional physical-page proof with
+     scheduled reads. */
   bundle OwnedContext():
     value: Context
     owner: InstructionId
@@ -47,6 +53,8 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     precertified: Bool
     ppn: Bits(44)
     pointer_masking: PointerMaskControl()
+  /* Carries a resolved operand beat and its separate instruction owner/completion slot through
+     execution. */
   bundle OwnedBeat():
     beat: RV5StageVectorBeat(xlen, vlen)
     tag: SlotId

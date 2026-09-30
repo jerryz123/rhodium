@@ -1,10 +1,12 @@
 #lang rhodium
-// Schedules future execution write-port cycles without retaining result payloads.
+/* Schedules future execution write-port cycles without retaining result payloads. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Grants noncolliding future write cycles in client order and ages reservations each cycle.
+   Pause blocks new claims only; a separate probe observes earlier clients' reservations. */
 sync_circuit RV5StageWritebackCalendar(clients :: PosInt, latency :: PosInt):
   interface reserve[clients](Decoupled(Bits(index_width(latency + 1))), ~role: consumer)
   input pause: Bool

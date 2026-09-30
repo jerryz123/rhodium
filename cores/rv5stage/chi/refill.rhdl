@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's retry-aware packet-complete coherent cache-line acquisition.
+/* Implements RV5Stage's retry-aware packet-complete coherent cache-line acquisition. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,12 +12,14 @@ import:
   lib("chi/protocol/coherence.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
 
+/* Names a coherent line acquisition and retains an opaque caller context. */
 bundle RV5StageLineRefillCommand(Context :: DataType,
                                  address_width :: PosInt):
   line_address: Bits(address_width)
   opcode: CHIReqOpcode
   context: Context
 
+/* Returns the assembled line, caller context, and coherent state/dirty ownership. */
 bundle RV5StageLineRefillResult(Context :: DataType,
                                 address_width :: PosInt):
   line_address: Bits(address_width)
@@ -26,6 +28,9 @@ bundle RV5StageLineRefillResult(Context :: DataType,
   state: CHIResponseState
   pass_dirty: Bool
 
+/* Retains one retryable ReadClean/ReadUnique transaction with DataID-indexed packet assembly.
+   Completion waits for all unique packets and CompAck acceptance; the last arriving packet owns
+   the ack. */
 sync_circuit RV5StageLineRefill(Context :: DataType,
                                 address_width :: PosInt,
                                 config :: RiscvHartCHIConfig):

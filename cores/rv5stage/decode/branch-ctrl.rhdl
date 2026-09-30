@@ -1,5 +1,5 @@
 #lang rhodium
-// Extends reusable RISC-V branch mappings across RV5Stage's complete instruction catalog.
+/* Extends reusable RISC-V branch mappings across RV5Stage's complete instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

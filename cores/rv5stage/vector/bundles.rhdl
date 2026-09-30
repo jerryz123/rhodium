@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines vector snapshots, packed beats, local memory attempts, and acceptance feedback.
+/* Defines vector snapshots, packed beats, local memory attempts, and acceptance feedback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,11 +17,13 @@ import:
   "../../../riscv/rtl/vector.rhdl" open
   "../../../riscv/rtl/pointer-masking.rhdl" open
 
-// A second client of the existing full-word SIMD rotate slot; no private barrel shifter.
+/* Requests packed-memory byte rotation through the existing SIMD full-word alignment slice. */
 bundle RV5StageVectorAlignment(xlen :: XLen):
   data: Bits(xlen.width)
   bytes: Bits(vector_byte_offset_width(xlen))
 
+/* Snapshots macro controls, architectural vector state, scalar operands, and optional page
+   proof. */
 bundle RV5StageVectorDescriptor(xlen :: XLen):
   pc: Bits(xlen.width)
   precertified: Bool
@@ -36,17 +38,18 @@ bundle RV5StageVectorDescriptor(xlen :: XLen):
   rounding_mode: RoundingMode
   pointer_masking: PointerMaskControl()
 
+/* Pairs scalar instruction context with an immutable admitted vector descriptor. */
 bundle RV5StageVectorInstruction(xlen :: XLen, Context :: DataType):
   context: Context
   descriptor: RV5StageVectorDescriptor(xlen)
 
-// Compression checkpoints retain only the not-yet-written packed suffix.
+/* Retains the not-yet-written packed compression suffix and destination progress. */
 bundle RV5StageVectorCompressState(xlen :: XLen, vlen :: VectorLength):
   data: Bits(xlen.width)
   count: Bits(vector_lane_count_width(xlen))
   destination: Bits(index_width(vlen + 1))
 
-// Local attempt stages retain macro context and memory metadata, not SIMD operands.
+/* Carries memory-attempt context and completion identity without retaining SIMD operands. */
 bundle RV5StageVectorToken(xlen :: XLen, Context :: DataType, vector_completion_slots :: Pow2Int):
   precertified: Bool
   physical_address: Bits(xlen.width)
@@ -62,6 +65,7 @@ bundle RV5StageVectorToken(xlen :: XLen, Context :: DataType, vector_completion_
   store_data: Bits(xlen.width)
   completion_tag: Bits(index_width(vector_completion_slots))
 
+/* Carries resolved operands, per-beat progress, lane masks, and captured execution controls. */
 bundle RV5StageVectorBeat(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
@@ -86,6 +90,7 @@ bundle RV5StageVectorBeat(xlen :: XLen, vlen :: VectorLength):
   destination: Bits(5)
   compress_state: RV5StageVectorCompressState(xlen, vlen)
 
+/* Pairs instruction context with an ordinary beat or packed transport metadata. */
 bundle RV5StageVectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: Context
   beat: RV5StageVectorBeat(xlen, vlen)
@@ -93,6 +98,7 @@ bundle RV5StageVectorMicroOp(xlen :: XLen, vlen :: VectorLength, Context :: Data
   packed_layout: RV5StageVectorPackedLayout(xlen, vlen)
   byte_mask: Bits(vector_word_bytes(xlen))
 
+/* Retains destination, recurrence, service-route, and memory metadata until the result matures. */
 bundle RV5StageVectorResultBeat(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
@@ -121,7 +127,7 @@ bundle RV5StageVectorResultBeat(xlen :: XLen, vlen :: VectorLength):
   write: VectorRegisterWrite(xlen, vlen)
   compress_state: RV5StageVectorCompressState(xlen, vlen)
 
-// LSU tags name bounded completion slots, not scalar register destinations.
+/* Reports one slot-tagged LSU attempt's disposition and precise fault information. */
 bundle RV5StageVectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
   tag: Bits(index_width(vector_completion_slots))
   pc: Bits(xlen.width)
@@ -131,18 +137,21 @@ bundle RV5StageVectorCommit(xlen :: XLen, vector_completion_slots :: Pow2Int):
   cause: Bits(xlen.width)
   fault_address: Bits(xlen.width)
 
+/* Returns delayed LSU data by persistent completion slot, not current sequencing identity. */
 bundle RV5StageVectorCompletion(xlen :: XLen, vector_completion_slots :: Pow2Int):
   tag: Bits(index_width(vector_completion_slots))
   data: Bits(xlen.width)
 
+/* Separates irreversible authorization from retry, precise fault, and fault-only-first
+   truncation. */
 hardware_enum RV5StageVectorDisposition:
   Authorized
   Retry
   Fault
   Truncate
 
-// end is exclusive architectural position, not the number of active lanes.
-// Authorized is not a result completion; accepted effects must never be retried.
+/* Returns an exclusive architectural position, not an active-lane count, and a replay
+   checkpoint. Authorization is not result drain; accepted effects must never be retried. */
 bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   packed_layout: RV5StageVectorPackedLayout(xlen, vlen)
   context: Context
@@ -155,7 +164,7 @@ bundle RV5StageVectorFeedback(xlen :: XLen, vlen :: VectorLength, Context :: Dat
   last: Bool
   compress_state: RV5StageVectorCompressState(xlen, vlen)
 
-// Beat control retains only per-beat state; instruction invariants stay in the captured descriptor.
+/* Carries only beat-specific progress and masks; invariant controls remain in the descriptor. */
 bundle RV5StageVectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   sequence: Bits(vector_sequence_width(vlen))
   first: Bits(index_width(vlen + 1))
@@ -166,7 +175,7 @@ bundle RV5StageVectorBeatControl(xlen :: XLen, vlen :: VectorLength):
   mask_enabled: Bits(xlen.width)
   destination: Bits(5)
 
-// Capture the instruction descriptor with beat control and restart bounds across VRF latency.
+/* Retains the descriptor, restart bounds, and preparation metadata across fixed VRF latency. */
 bundle RV5StageVectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   instruction: RV5StageVectorInstruction(xlen, Context)
   minimum: Bits(index_width(vlen + 1))
@@ -182,6 +191,7 @@ bundle RV5StageVectorSequenceContext(xlen :: XLen, vlen :: VectorLength, Context
   beat_control: RV5StageVectorBeatControl(xlen, vlen)
   slide_valid: Bits(vector_slide_bytes(xlen))
 
+/* Schedules enabled general/mask reads atomically with the downstream beat's resources. */
 bundle RV5StageVectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context :: DataType):
   context: RV5StageVectorSequenceContext(xlen, vlen, Context)
   enables: Bits(3)
@@ -189,7 +199,8 @@ bundle RV5StageVectorSequenceRequest(xlen :: XLen, vlen :: VectorLength, Context
   mask_enable: Bool
   mask_address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
 
-// A macro identity survives sequencing; a slot identity names one issued beat.
+/* Pairs a mature beat with distinct persistent instruction-owner and completion-slot
+   identities. */
 bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   beat: RV5StageVectorResultBeat(xlen, vlen)
   tag: Bits(index_width(slots))
@@ -197,16 +208,20 @@ bundle RV5StageVectorOwnedResult(xlen :: XLen, vlen :: VectorLength, slots :: Po
   pc: Bits(xlen.width)
   splat: Bool
 
+/* Claims a completion slot for one instruction owner and ordinary/packed route. */
 bundle RV5StageVectorSlotAllocation(slots :: Pow2Int):
   owner: Bits(index_width(slots))
   packed: Bool
 
-// A drain carries the retained beat and unshifted service data for recurrences.
+/* Returns the retained result beat and unshifted service data to owner-indexed recurrence
+   state. */
 bundle RV5StageVectorDrained(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   beat: RV5StageVectorResultBeat(xlen, vlen)
   owner: Bits(index_width(slots))
   data: Bits(xlen.width)
 
+/* Publishes read-only allocation, acceptance, and exact pending-row metadata for routing and
+   hazards. */
 bundle RV5StageVectorSlotState(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int):
   allocated: Bool
   accepted: Bool

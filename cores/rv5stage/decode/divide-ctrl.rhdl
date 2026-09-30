@@ -1,5 +1,5 @@
 #lang rhodium
-// Extends reusable M-extension divide mappings across RV5Stage's instruction catalog.
+/* Extends reusable M-extension divide mappings across RV5Stage's instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

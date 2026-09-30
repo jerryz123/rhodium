@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's pipeline payload and sideband bundle types.
+/* Defines RV5Stage's pipeline payload and sideband bundle types. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -38,13 +38,14 @@ import:
   "fp/bundles.rhdl" open
   lib("hardfloat/main.rhdl").RoundingMode
 
+/* Selects captured GPR data, current MEM, or normal WB with a legal one-hot mux. */
 hardware_enum RV5StageBypassStage(~encoding: one_hot):
   RegisterFile
   Memory
   Writeback
 
-// Identifies the producer of a deferred completion. Keeping this nominal on
-// the payload avoids coupling scoreboard routing to an arbiter index.
+/* Identifies the producer of a deferred completion. Keeping this nominal on
+   the payload avoids coupling scoreboard routing to an arbiter index. */
 hardware_enum RV5StageCompletionSource:
   VectorInteger
   IntegerLoad
@@ -52,18 +53,19 @@ hardware_enum RV5StageCompletionSource:
   Divide
   FpInteger
 
-// Compares the effective frontend next PC with the resolved control-flow target.
+/* Compares the effective frontend next PC with the resolved control-flow target. */
 hardware_enum RV5StageBranchPrediction:
   NotBranch
   Correct
   Mispredicted
 
+/* Associates a deferred GPR write with its producer for scoreboard release. */
 bundle RV5StageDeferredCompletion(xlen :: XLen):
   write: RegisterFileWrite(xlen)
   source: RV5StageCompletionSource
 
-// Captures the independent reasons that can hold Decode. These are retained as
-// separate fields for traceability; the core combines them only at admission.
+/* Captures the independent reasons that can hold Decode. These are retained as
+   separate fields for traceability; the core combines them only at admission. */
 bundle RV5StageHazardReasons():
   deferred_dependency: Bool
   scoreboard_raw: Bool
@@ -77,12 +79,13 @@ bundle RV5StageHazardReasons():
   interrupt_pending: Bool
   exception: Bool
 
+/* Captures a register operand and Decode's newest-producer bypass selection. */
 bundle RV5StageOperand(xlen :: XLen):
   stage_sel: RV5StageBypassStage
   value: Bits(xlen.width)
 
-// Carries the vector-only decode and resolved scalar operands with one scalar
-// pipeline occurrence instead of retaining a singleton side context.
+/* Carries the vector-only decode and resolved scalar operands with one scalar
+   pipeline occurrence instead of retaining a singleton side context. */
 bundle RV5StageVectorLaunchContext(xlen :: XLen):
   pointer_masking: PointerMaskControl()
   instruction: Bits(32)
@@ -91,6 +94,7 @@ bundle RV5StageVectorLaunchContext(xlen :: XLen):
   scalar: Bits(xlen.width)
   stride: Bits(xlen.width)
 
+/* Carries the admitted instruction, operands, controls, and precise fault context into EX. */
 bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -138,11 +142,13 @@ bundle DecodeExecute(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   rd: Bits(5)
   frs3: Bits(5)
 
+/* Carries an exception-valid bit, cause, and XLEN-wide trap value. */
 bundle RV5StageException(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
 
+/* Carries EX results, branch recovery, memory intent, and vector certification inputs. */
 bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -180,6 +186,7 @@ bundle ExecuteMemory(xlen :: XLen, vector_completion_slots :: Pow2Int, hyperviso
   exception_cause: Bits(xlen.width)
   exception_value: Bits(xlen.width)
 
+/* Carries MEM hit/replay/fault outcomes and deferred issue payloads to WB authorization. */
 bundle MemoryWriteback(xlen :: XLen, vector_completion_slots :: Pow2Int, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()

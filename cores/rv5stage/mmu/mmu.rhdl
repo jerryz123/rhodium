@@ -1,5 +1,6 @@
 #lang rhodium
-// Resolves registered fetch/load attempts and issues separate core and page-table physical requests.
+/* Resolves registered fetch/load attempts and issues separate core and page-table physical
+   requests. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -32,6 +33,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Owns ITLB/DTLB lookup, shared walking, precise translation faults, and physical dispatch.
+   Speculative MEM accesses replay on contention; authorized requests and vector checks
+   retain their own translations, and misaligned accesses preflight both fragments. */
 sync_circuit RV5StageMmu(xlen :: XLen,
                          mmu_mode :: RV5StageMmuMode,
                          physical_map :: RiscvPhysicalMemoryMap,
@@ -115,6 +119,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_translation_enabled = (satp_sv39 & (data_privilege =/= PrivilegeMode.Machine)) ||| data_guest
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
+  /* Captures host or guest translation roots, privilege, permission controls, and PBMT enables. */
   fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RV5StageTlbLookup():
     def stages = RiscvGuestTranslationContext():
       vs_mode: mux(mux(guest, csr_field(guest_state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
@@ -381,6 +386,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def request_fault_mapping = mux(second_translation_fault,
                                   mux(latched_split_fault, fault_mapping, dtlb.probe_translation),
                                   mux(latched_data_fault, fault_mapping, dtlb.translation))
+  /* Projects a selected fragment's mapping fault into guest trap metadata. */
   fun guest_exception(mapping :: RV5StageTlbMapping(), guest :: Bool) :~ RiscvGuestException():
     RiscvGuestException():
       page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault

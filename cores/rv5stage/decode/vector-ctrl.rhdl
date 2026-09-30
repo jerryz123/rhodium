@@ -1,5 +1,6 @@
 #lang rhodium
-// Decodes RVV integer, extension, fixed-point, and memory controls with register-group legality.
+/* Decodes RVV integer, extension, fixed-point, and memory controls with register-group
+   legality. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,50 +23,60 @@ import:
   lib("hardfloat/main.rhdl").Estimate7Operation
   lib("rhodium/std/decode.rhdl") open
 
+/* Distinguishes vset forms by register/immediate vtype and AVL sources. */
 hardware_enum VectorConfigMode:
   None
   VtypeImmediate
   AllImmediate
   VtypeRegister
 
+/* Selects vector, integer scalar, immediate, or FP scalar operand sourcing. */
 hardware_enum VectorOperandMode:
   Vector
   Scalar
   Immediate
   FloatingScalar
 
+/* Distinguishes floating versus integer source interpretation for vector FP conversion. */
 hardware_enum VectorFloatSource:
   Floating
   Integer
 
+/* Distinguishes FP, integer, and mask results returned by shared FP execution. */
 hardware_enum VectorFloatResult:
   Floating
   Integer
   Mask
 
+/* Selects dynamic, toward-zero, or round-to-odd vector FP conversion rounding. */
 hardware_enum VectorFloatRounding:
   Dynamic
   TowardZero
   RoundToOdd
 
+/* Selects low/high, rounded fractional, or widened vector products. */
 hardware_enum VectorMultiplyResult:
   Low
   High
   Fractional
   Widened
 
+/* Separates unit-stride, strided, and ordered/unordered indexed address generation. */
 hardware_enum VectorMemoryAddressing:
   UnitStride
   Strided
   IndexedUnordered
   IndexedOrdered
 
+/* Distinguishes ordinary, fault-first, whole-register, and mask memory semantics. */
 hardware_enum VectorMemoryMode:
   Ordinary
   FaultOnlyFirst
   WholeRegister
   Mask
 
+/* Carries vector instruction intent for sequencing, operand packing, shared services, and
+   runtime legality. */
 bundle RV5StageVectorControl():
   configure: VectorConfigMode
   integer: Bool
@@ -136,6 +147,7 @@ def NoVectorControl = partial_pattern(RV5StageVectorControl()):
   multiply_divide: Bool(#false)
   memory: Bool(#false)
 
+/* Builds one vset row without admitting vector compute or memory effects. */
 fun config_case(instruction :: InstructionSpec, mode :: VectorConfigMode):
   DecodeCase(
     instruction_pattern(instruction),
@@ -152,6 +164,8 @@ def VectorConfigurationCases = [
   config_case(VSETVL, VectorConfigMode.VtypeRegister)
 ]
 
+/* Builds packed integer controls and derives operand/immediate form from the instruction
+   format. */
 fun integer_case(instruction :: InstructionSpec, alu :: Pattern,
                  ~mask: mask :: Boolean = #false,
                  ~mask_logic: mask_logic :: Boolean = #false,
@@ -636,6 +650,7 @@ def VectorMaskScanCases = [
   integer_case(VIOTA_M, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements),
   integer_case(VID_V, vselect_control, ~scan: #true, ~scan_result: VectorScanResult.Elements, ~scan_index: #true, ~uses_vs2: #false)
 ]
+/* Maps the ordered eight-entry unit/strided catalog to load/store direction and data EEW. */
 fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
     DecodeCase(
@@ -653,6 +668,7 @@ fun memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorM
         memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
+/* Maps indexed load/store catalogs to index EEW while data width remains runtime SEW. */
 fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..8):
     DecodeCase(
@@ -670,6 +686,7 @@ fun indexed_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
     )
+/* Derives data EEW, field count, and load/store direction from segment-catalog order. */
 fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
     DecodeCase(
@@ -687,6 +704,7 @@ fun segment_memory_cases(instructions :: List.of(InstructionSpec), addressing ::
         memory_addressing: addressing
         operand: VectorOperandMode.Scalar
     )
+/* Derives index EEW and field count for ordered/unordered indexed segments. */
 fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addressing :: VectorMemoryAddressing):
   for List (instruction in instructions, index in 0..56):
     DecodeCase(
@@ -704,6 +722,7 @@ fun indexed_segment_memory_cases(instructions :: List.of(InstructionSpec), addre
         memory_addressing: addressing
         operand: VectorOperandMode.Vector
     )
+/* Builds unit-stride fault-first load rows, including segmented field counts. */
 fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..32):
     DecodeCase(
@@ -721,6 +740,7 @@ fun fault_only_first_memory_cases(instructions :: List.of(InstructionSpec)):
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
+/* Builds byte-stream mask load/store rows independent of ordinary data SEW. */
 fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..2):
     DecodeCase(
@@ -738,6 +758,7 @@ fun mask_memory_cases(instructions :: List.of(InstructionSpec)):
         memory_addressing: VectorMemoryAddressing.UnitStride
         operand: VectorOperandMode.Scalar
     )
+/* Decodes whole-register transfer count and load EEW from the canonical catalog order. */
 fun whole_register_memory_cases(instructions :: List.of(InstructionSpec)):
   for List (instruction in instructions, index in 0..20):
     def register_index = if index < 16 | index div 4 | index - 16
@@ -770,6 +791,8 @@ def VectorFaultOnlyFirstMemoryCases = fault_only_first_memory_cases(VectorFaultO
 def VectorMaskMemoryCases = mask_memory_cases(VectorMaskMemoryInstructions)
 def VectorWholeRegisterMemoryCases = whole_register_memory_cases(VectorWholeRegisterMemoryInstructions)
 def VectorMemoryCases = VectorUnitStrideMemoryCases ++ VectorStridedMemoryCases ++ VectorIndexedMemoryCases ++ VectorUnitStrideSegmentMemoryCases ++ VectorStridedSegmentMemoryCases ++ VectorIndexedSegmentMemoryCases ++ VectorFaultOnlyFirstMemoryCases ++ VectorMaskMemoryCases ++ VectorWholeRegisterMemoryCases
+/* Builds shared-service vector FP controls, including source/result interpretation and
+   width-change eligibility. */
 fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
                         ~uses_vs1: uses_vs1 :: Boolean = #true,
                         ~mask_destination: mask_destination :: Boolean = #false,
@@ -811,6 +834,8 @@ fun floating_point_case(instruction :: InstructionSpec, execution :: Pattern,
       multiply_destination: Bool(multiply_destination)
       swap_operands: Bool(swap)
   )
+/* Constrains only the selected FP unit's modifiers and leaves inactive unit fields
+   unconstrained. */
 fun fp_unit(unit :: RV5StageFloatUnit,
             ~rounding: rounding :: Boolean = #false,
             ~fused: fused :: MulAddOperation = MulAddOperation.MultiplyAdd,
@@ -931,6 +956,7 @@ def VectorFloatingPointCases = [
   floating_point_case(VFNCVT_RTZ_XU_F_W, fp_unit(RV5StageFloatUnit.Convert, ~unsigned: #true), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true),
   floating_point_case(VFNCVT_RTZ_X_F_W, fp_unit(RV5StageFloatUnit.Convert), ~uses_vs1: #false, ~result: VectorFloatResult.Integer, ~rounding: VectorFloatRounding.TowardZero, ~narrowing: #true, ~zvfh_e8: #true)
 ]
+/* Builds FP move/merge/slide controls that use vector routing without issuing FP arithmetic. */
 fun floating_move_case(instruction :: InstructionSpec,
                        ~mask_select: mask_select :: Boolean = #false,
                        ~element_move: element_move :: Boolean = #false,
@@ -1013,6 +1039,7 @@ def VectorMultiplyCases = for List (instruction in VectorMultiplyInstructions ++
 def VectorMultiplyDivideCases = VectorDivideCases ++ VectorMultiplyCases
 def VectorControlCases = VectorConfigurationCases ++ VectorIntegerCases ++ VectorSlideCases ++ VectorGatherCases ++ VectorCompressCases ++ VectorMoveMergeCases ++ VectorWholeRegisterMoveCases ++ VectorMaskLogicCases ++ VectorElementMoveCases ++ VectorMaskScanCases ++ VectorIntegerReductionCases ++ VectorMemoryCases ++ VectorFloatingPointCases ++ VectorFloatingPointMoveCases ++ VectorMultiplyDivideCases
 
+/* Resolves vset AVL/vtype sources and the x0 maximum/keep-VL conventions. */
 fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruction :: Bits(32), scalar1 :: Bits(xlen.width), scalar2 :: Bits(xlen.width)) :~ RiscvVectorConfigRequest(xlen):
   def immediate_avl = mode === VectorConfigMode.AllImmediate
   def source_zero = !instruction_field(vs1, instruction).or_reduce()
@@ -1023,7 +1050,9 @@ fun vector_configuration_request(xlen :: XLen, mode :: VectorConfigMode, instruc
     maximum: !immediate_avl & source_zero & !destination_zero
     keep_vl: !immediate_avl & source_zero & destination_zero
 
-// Checks state-dependent runtime legality for decoded non-configuration operations.
+/* Checks runtime vtype/vstart, profile widths, register-group alignment/overlap, and mask use.
+   Whole-register memory bypasses vill; ordinary operations require a legal runtime vector
+   configuration. */
 circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, profile :: VectorProfile = VectorProfile.V, extensions :: List.of(VectorExtension) = DefaultVectorExtensions):
   input instruction: Bits(32)
   input control: RV5StageVectorControl()
@@ -1080,13 +1109,17 @@ circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, prof
   def whole_register_move_legal = control.whole_register_count.is_one_of(bits(1, 4), bits(2, 4), bits(4, 4), bits(8, 4)) & !(destination & whole_register_mask).or_reduce() & !(source2 & whole_register_mask).or_reduce() & (whole_register_destination_end <= bits(32, 7)) & (whole_register_source_end <= bits(32, 7)) & (vstart < whole_register_limit.zext(xlen.width))
   def memory_index_aligned = !(source2 & memory_index_group_mask).or_reduce()
   def wide_source2_aligned = !(source2 & wide_group_mask).or_reduce()
+  /* Allows a mask destination to overlap a source only at that source group's lowest register. */
   fun mask_overlap_legal(source :: Bits(5)) :: Bool:
     ((destination & !group_mask) =/= source) ||| (destination === source)
+  /* Allows disjoint groups or overlap at the widened destination's high end for nonfractional
+     sources. */
   fun widening_overlap_legal(source :: Bits(5)) :: Bool:
     def source_end = source.zext(6) + group_mask.zext(6) + bits(1, 6)
     def widened_end = destination.zext(6) + destination_group_mask.zext(6) + bits(1, 6)
     def disjoint = (destination.zext(6) >= source_end) ||| (source.zext(6) >= widened_end)
     disjoint ||| ((config.lmul.into(SInt(3)) >= SInt(3)(0)) & (source_end === widened_end))
+  /* Allows disjoint groups or a narrowed destination at the wide source's low end. */
   fun narrowing_overlap_legal() :: Bool:
     def source_end = source2.zext(6) + wide_group_mask.zext(6) + bits(1, 6)
     def destination_end = destination.zext(6) + group_mask.zext(6) + bits(1, 6)

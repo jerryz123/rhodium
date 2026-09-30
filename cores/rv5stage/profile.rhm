@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines RV5Stage capability validation and immutable microarchitectural configuration.
+/* Defines RV5Stage capability validation and immutable microarchitectural configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,9 +16,11 @@ import:
 
 def RV5StageCacheLineBytes :: Pow2Int = 64
 
+/* Describes a 64-byte-line VIPT cache whose per-way span fits within one 4-KiB page. */
 class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
   implements StableCircuitParam
 
+  /* Rejects geometries incompatible with VIPT indexing before storing set and way counts. */
   constructor (sets :: Pow2Int, ways :: PosInt):
     unless sets >= 2
     | error(~who: #'RV5StageCacheConfig,
@@ -28,22 +30,30 @@ class RV5StageCacheConfig(sets :: Pow2Int, ways :: PosInt):
             "VIPT requires sets * line bytes <= 4096 (at most 4 KiB per way)")
     super(sets, ways)
 
+  /* Revalidates geometry when either count is replaced. */
   reconstructor (sets, ways):
     RV5StageCacheConfig(sets, ways)
 
+  /* Returns the hardware index width for the validated set count. */
   property set_width :: PosInt: count_index_width(sets)
+  /* Returns the hardware index width for selecting a cache way. */
   property way_width :: PosInt: count_index_width(ways)
+  /* Returns total resident lines across all sets and ways. */
   property line_count :: PosInt: sets * ways
+  /* Returns cache capacity from the fixed line size and total line count. */
   property capacity_bytes :: PosInt: line_count * RV5StageCacheLineBytes
 
+/* Selects unpaged or host Sv39 translation specialization. */
 enum RV5StageMmuMode
 | Bare
 | Sv39
 
+/* Selects iterative or fixed-latency pipelined shared multiplication. */
 enum RV5StageMultiplierKind
 | Iterative
 | Pipelined
 
+/* Selects scalar and privileged features; cross-feature validation belongs to RV5StageConfig. */
 class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          half_precision :: HalfPrecisionProfile,
                          zfa :: Boolean,
@@ -68,6 +78,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                          compressed :: List.of(CompressedExtension)):
   implements StableCircuitParam
 
+  /* Records explicit feature choices with optional extensions disabled by default. */
   constructor (~floating_point: floating_point :: FloatingPointProfile = DefaultFloatingPointProfile,
                ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
                ~zfa: zfa :: Boolean = #false,
@@ -92,6 +103,7 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
                ~compressed: compressed :: List.of(CompressedExtension) = DefaultCompressedExtensions):
     super(floating_point, half_precision, zfa, zicbop, zicboz, zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, sscofpmf, smstateen, svinval, hypervisor, zawrs, zihintpause, zihintntl, compressed)
 
+  /* Rebuilds the feature selection while preserving unchanged choices. */
   reconstructor (floating_point, half_precision, zfa, zicbop, zicboz,
                  zicbom, ziccif, ziccamoa, ziccrse, ssnpm, supm, svpbmt, svnapot, sstc, sscofpmf, smstateen, svinval, hypervisor, zawrs,
                  zihintpause, zihintntl, compressed):
@@ -120,9 +132,11 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
       ~compressed: compressed
     )
 
+  /* Validates compressed-extension dependencies and computes their architectural misa.C claim. */
   method compressed_misa_c(xlen :: XLen) :: Boolean:
     compressed_extensions_report_misa_c(xlen, floating_point, compressed)
 
+  /* Projects scalar feature choices into ISA names, including fixed implemented guarantees. */
   method names(xlen :: XLen) :: NonemptyList.of(String):
     def mutable single_letter = ["i", "m", "a"]
     when floating_point_supports_f(floating_point)
@@ -163,17 +177,21 @@ class RV5StageExtensions(floating_point :: FloatingPointProfile,
     def privileged = (if sstc | ["sstc"] | []) ++ (if svinval | ["svinval"] | []) ++ (if svpbmt | ["svpbmt"] | []) ++ (if svnapot | ["svnapot"] | []) ++ (if smstateen | ["smstateen", "ssstateen"] | []) ++ (if hypervisor | ["shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"] | []) ++ (if hypervisor && smstateen | ["sha"] | [])
     single_letter ++ multi_letter ++ cache_block ++ main_memory ++ pointer_masking ++ (if zawrs | ["zawrs"] | []) ++ (if zihintpause | ["zihintpause"] | []) ++ (if zihintntl | ["zihintntl"] | []) ++ ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"] ++ privileged ++ (if sscofpmf | ["sscofpmf"] | [])
 
+/* Groups independently configurable instruction and data cache geometries. */
 class RV5StageCacheGeometry(instruction :: RV5StageCacheConfig,
                             data :: RV5StageCacheConfig):
   implements StableCircuitParam
 
+  /* Defaults each private cache to 64 sets and one way. */
   constructor (~instruction: instruction :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1),
                ~data: data :: RV5StageCacheConfig = RV5StageCacheConfig(64, 1)):
     super(instruction, data)
 
+  /* Replaces either cache geometry without coupling the two caches. */
   reconstructor (instruction, data):
     RV5StageCacheGeometry(~instruction: instruction, ~data: data)
 
+/* Tests supported disabled, RV32F, and RV64D scalar FP/half-precision combinations. */
 fun rv5stage_floating_point_profile_supported(xlen :: XLen,
                                               profile :: FloatingPointProfile,
                                               half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
@@ -186,6 +204,7 @@ fun rv5stage_floating_point_profile_supported(xlen :: XLen,
     half_precision != HalfPrecisionProfile.None || zfa_enabled
   ))
 
+/* Reports unsupported scalar FP combinations before datapath specialization. */
 fun check_rv5stage_floating_point_profile(xlen :: XLen,
                                           profile :: FloatingPointProfile,
                                           half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile,
@@ -197,6 +216,7 @@ fun check_rv5stage_floating_point_profile(xlen :: XLen,
   | error(~who: #'check_rv5stage_floating_point_profile,
           "RV5Stage supports only disabled FP, RV32F, or RV64D, with optional Zfhmin, Zfh, or Zfa")
 
+/* Enforces vector ELEN, scalar FP, and half-precision dependencies for the selected XLEN. */
 fun check_rv5stage_vector_profile(xlen :: XLen,
                                   floating_point :: FloatingPointProfile,
                                   half_precision :: HalfPrecisionProfile,
@@ -212,6 +232,7 @@ fun check_rv5stage_vector_profile(xlen :: XLen,
   when vector_extensions_support_zvfh(vector_extensions) && !half_precision_supports_zfhmin(half_precision)
   | error(~who: #'check_rv5stage_vector_profile, "Zvfh requires scalar Zfhmin or Zfh")
 
+/* Chooses the shared FP execution capability needed by scalar and vector instructions. */
 fun rv5stage_execution_half_precision(half_precision :: HalfPrecisionProfile,
                                       vector_extensions :: List.of(VectorExtension)) :: HalfPrecisionProfile:
   cond
@@ -219,6 +240,7 @@ fun rv5stage_execution_half_precision(half_precision :: HalfPrecisionProfile,
   | half_precision_supports_zfhmin(half_precision) || vector_extensions_support_zvfhmin(vector_extensions): HalfPrecisionProfile.Zfhmin
   | ~else: HalfPrecisionProfile.None
 
+/* Owns validated ISA selection, cache geometry, and scalar/vector execution capacities. */
 class RV5StageConfig(xlen :: XLen,
                      extensions :: RV5StageExtensions,
                      mmu_mode :: RV5StageMmuMode,
@@ -231,6 +253,7 @@ class RV5StageConfig(xlen :: XLen,
                      vector_completion_slots :: Pow2Int):
   implements StableCircuitParam
 
+  /* Rejects unsupported translation, privilege, FP, and vector combinations before elaboration. */
   constructor (~xlen: xlen :: XLen,
                ~extensions: extensions :: RV5StageExtensions = RV5StageExtensions(),
                ~mmu_mode: mmu_mode :: RV5StageMmuMode = RV5StageMmuMode.Bare,
@@ -265,6 +288,7 @@ class RV5StageConfig(xlen :: XLen,
     | error(~who: #'RV5StageConfig, "the integrated vector pipeline requires at least two XLEN-wide rows per register")
     super(xlen, extensions, mmu_mode, cache_geometry, data_cache_service_queue_depth, multiplier, vector, vector_extensions, vector_length, vector_completion_slots)
 
+  /* Reapplies configuration checks after a specialization parameter changes. */
   reconstructor (xlen, extensions, mmu_mode, cache_geometry,
                  data_cache_service_queue_depth, multiplier, vector,
                  vector_extensions, vector_length,
@@ -282,6 +306,7 @@ class RV5StageConfig(xlen :: XLen,
       ~vector_completion_slots: vector_completion_slots
     )
 
+  /* Derives ISA names and MISA bits from the same choices used to build hardware. */
   property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
     // Fixed behavioral guarantees qualified on the RV64 Sv39 implementation,
@@ -301,6 +326,7 @@ class RV5StageConfig(xlen :: XLen,
     | misa := misa ++ [MisaExtension.H]
     RiscvIsaProfile(xlen, names, misa)
 
+  /* Projects architectural translation, cache, CBO, and vector facts for platform descriptions. */
   property hart_description :: RiscvHartDescription:
     RiscvHartDescription(
       isa_profile,

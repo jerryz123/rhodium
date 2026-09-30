@@ -1,5 +1,6 @@
 #lang rhodium
-// Writes scheduled or accepted variable results directly and reclaims ownership metadata in order.
+/* Writes scheduled or accepted variable results directly and reclaims ownership metadata in
+   order. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,6 +22,10 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
+/* Writes scheduled local results and accepted service/load returns directly into the sole VRF
+   port.
+   Persistent slots retain routing and destination metadata, not completed result data;
+   actual writes may finish out of order while metadata is reclaimed in allocation order. */
 sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, vector_completion_slots :: Pow2Int, ~fixed_multiply: fixed_multiply :: Boolean = #false):
   def tag_width = index_width(vector_completion_slots)
   def InstructionId = Bits(tag_width)
@@ -82,6 +87,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   def multiply_completion = vector_multiply_value(xlen, vector_completion_slots, multiply_result.bits, multiply_entry.write.data, multiply_entry.multiply_accumulate, multiply_entry.multiply_subtract)
   def fp_arrival_data = mux(entries[fp_result.bits.tag].mask_destination, fp_result.bits.integer_value[0].as_bits().zext(xlen.width), mux(entries[fp_result.bits.tag].fp_result === VectorFloatResult.Integer, fp_result.bits.integer_value, fp_result.bits.fp_value))
   def compute_completes_now = !compute_beat.fp_execute & !compute_beat.multiply_execute
+  /* Normalizes one winning result's retained slot, owner, write policy, flags, and saturation. */
   bundle Writeback():
     tag: SlotId
     beat: RV5StageVectorResultBeat(xlen, vlen)

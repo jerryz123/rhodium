@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the instruction and control contracts crossing between RV5Stage fetch and execution.
+/* Defines the instruction and control contracts crossing between RV5Stage fetch and execution. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,8 @@ import:
   "../../../riscv/isa/xlen.rhm" open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Carries expanded and raw instruction encodings, sequential/predicted PCs, and precise fetch
+   faults. */
 bundle FetchDecode(xlen :: XLen, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -22,6 +24,8 @@ bundle FetchDecode(xlen :: XLen, hypervisor :: Boolean):
   instruction_access_fault: Bool
   instruction_fault_address: Bits(xlen.width)
 
+/* Lets execution control fetch admission, recovery, architectural invalidation, and branch
+   training. */
 interface RV5StageFrontendControl(xlen :: XLen):
   role core
   role frontend

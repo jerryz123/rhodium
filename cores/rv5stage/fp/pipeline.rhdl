@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements scalar FP architectural state and its standalone execution-service composition.
+/* Implements scalar FP architectural state and its standalone execution-service composition. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/scoreboard.rhdl") open
 
+/* NaN-boxes half or single memory bits into the profile's architectural FP register width. */
 fun fp_load_value(profile :: FloatingPointProfile,
                   precision :: RV5StageFloatPrecision,
                   data :: Bits(64)) :~ Bits(floating_point_register_width(profile)):
@@ -37,6 +38,7 @@ fun fp_load_value(profile :: FloatingPointProfile,
        [RV5StageFloatPrecision.Single, single]]
     )
 
+/* Extracts raw low-precision store bits and zero-extends the memory operand to 64 bits. */
 fun fp_store_value(profile :: FloatingPointProfile,
                    precision :: RV5StageFloatPrecision,
                    data :: Bits(floating_point_register_width(profile))) :~ Bits(64):
@@ -51,6 +53,7 @@ fun fp_store_value(profile :: FloatingPointProfile,
        [RV5StageFloatPrecision.Single, data[0..32].zext(64)]]
     )
 
+/* Provides quiescent scalar FP ports for a profile without FP architectural state. */
 sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
                                         profile :: FloatingPointProfile,
                                         Context :: DataType):
@@ -85,6 +88,9 @@ sync_circuit RV5StageDisabledFpPipeline(xlen :: XLen,
   busy <== Mask(register_count)(0)
   drained <== Bool(#true)
 
+/* Owns scalar FPR state, source/destination scoreboarding, and LSU operand bridges.
+   WB authorizes execution and load reservations; vector movement exclusively reserves
+   an FPR destination, while speculative store snapshots do not prevent drain. */
 sync_circuit RV5StageFpScalar(
   xlen :: XLen,
   profile :: FloatingPointProfile,
@@ -120,6 +126,7 @@ sync_circuit RV5StageFpScalar(
   reg busy_state(~init: Mask(register_count)(0))
   reg outstanding(~init: bits(0, 4))
   reg vector_pending(~init: Bool(#false))
+  /* Builds the scoreboard mask for one architectural FPR. */
   fun register_bit(index :: Bits(5)) :~ Mask(register_count):
     one_hot(index).into(Mask(register_count))
 
@@ -188,6 +195,7 @@ sync_circuit RV5StageFpScalar(
   // must not feed issue readiness back into its own WB disposition.
   def currently_busy = busy_state & !completion_clear_mask
 
+  /* Checks hazards after same-cycle scalar completions, but before vector retirement clears. */
   fun register_busy(index :: Bits(5)) :~ Bool:
     scoreboard_busy(register_count, currently_busy, index)
   def control = issue.bits.control
@@ -329,6 +337,7 @@ sync_circuit RV5StageFpScalar(
   // prevent a trap or interrupt from draining accepted FP operations.
   drained <== !outstanding.or_reduce() & !busy_state.or_reduce()
 
+/* Composes scalar architectural FP state with an elastic standalone execution service. */
 sync_circuit RV5StageFpPipeline(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType, ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile, ~zfa: zfa_enabled :: Boolean = #false):
   def register_count = 32
   def Issue = RV5StageFpIssue(xlen, profile, Context)

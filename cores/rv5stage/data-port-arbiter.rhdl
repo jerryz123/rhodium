@@ -1,5 +1,5 @@
 #lang rhodium
-// Arbitrates core and page-table physical data requests while retaining response origin.
+/* Arbitrates core and page-table physical data requests while retaining response origin. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,9 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Prioritizes core over walker requests, tags accepted origin, and routes completions by that
+   tag.
+   The early L1D index follows the selected offer; walker accesses never expose LR reservations. */
 sync_circuit RV5StageDataPortArbiter(xlen :: XLen, slots :: Pow2Int):
   interface core(RV5StagePhysicalDataAccess(xlen, slots), ~role: responder)
   interface walker(RV5StagePhysicalDataAccess(xlen, slots), ~role: responder)

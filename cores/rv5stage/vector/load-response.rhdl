@@ -1,5 +1,6 @@
 #lang rhodium
-// Keeps immediate memory outcomes and delayed nonstallable responses on independent completion lanes.
+/* Keeps immediate memory outcomes and delayed nonstallable responses on independent completion
+   lanes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,11 +9,15 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Identifies an immediate hit value or a pending delayed result by persistent slot. */
 bundle RV5StageVectorMemoryAcceptance(xlen :: XLen, slots :: Pow2Int):
   tag: Bits(index_width(slots))
   pending: Bool
   data: Bits(xlen.width)
 
+/* Keeps immediate acceptance results and delayed responses on independent Valid lanes.
+   The completion owner supplies capacity; simultaneous distinct results are not arbitrated
+   away. */
 sync_circuit RV5StageVectorLoadResponse(xlen :: XLen, slots :: Pow2Int):
   interface accepted(Valid(RV5StageVectorMemoryAcceptance(xlen, slots)), ~role: consumer)
   interface response(Valid(RV5StageVectorCompletion(xlen, slots)), ~role: consumer)

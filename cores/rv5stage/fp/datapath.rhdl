@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's combinational fixed-latency floating-point execution datapaths.
+/* Implements RV5Stage's combinational fixed-latency floating-point execution datapaths. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   lib("hardfloat/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Transfers raw FP bits to XLEN with RISC-V move extension when the format fits. */
 fun fp_move_to_integer(xlen :: XLen,
                        format :: FloatFormat,
                        value :: IEEEFloat(format)) :~ Bits(xlen.width):
@@ -18,6 +19,7 @@ fun fp_move_to_integer(xlen :: XLen,
   | riscv_float_to_integer_move(xlen, format, value)
   | bits(0, xlen.width)
 
+/* Transfers raw integer bits into an IEEE format when XLEN covers that format. */
 fun integer_move_to_fp(xlen :: XLen,
                        format :: FloatFormat,
                        value :: Bits(xlen.width)) :~ IEEEFloat(format):
@@ -25,6 +27,7 @@ fun integer_move_to_fp(xlen :: XLen,
   | riscv_integer_to_float_move(format, xlen.width, value)
   | bits(0, format.ieee_width).into(IEEEFloat(format))
 
+/* Normalizes a 32-bit signed or unsigned conversion source to XLEN. */
 fun fp_integer_word_input(xlen :: XLen,
                           value :: Bits(xlen.width),
                           unsigned :: Bool) :~ Bits(xlen.width):
@@ -34,12 +37,14 @@ fun fp_integer_word_input(xlen :: XLen,
         value[0..32].zext(64),
         value[0..32].into(SInt(32)).sext(64).as_bits())
 
+/* Sign-extends a converted 32-bit result to XLEN, including unsigned word conversions. */
 fun fp_integer_word_result(xlen :: XLen,
                            value :: Bits(32)) :~ Bits(xlen.width):
   if xlen == XLen.X32
   | value
   | value.into(SInt(32)).sext(64).as_bits()
 
+/* Normalizes byte, halfword, or word integer sources according to conversion signedness. */
 fun fp_integer_narrow_input(xlen :: XLen,
                             value :: Bits(xlen.width),
                             integer_width :: RV5StageFloatIntegerWidth,
@@ -48,6 +53,7 @@ fun fp_integer_narrow_input(xlen :: XLen,
   def half = mux(unsigned, value[0..16].zext(xlen.width), value[0..16].into(SInt(16)).sext(xlen.width).as_bits())
   mux_lookup(integer_width, ~default: value, [[RV5StageFloatIntegerWidth.Byte, byte], [RV5StageFloatIntegerWidth.Half, half], [RV5StageFloatIntegerWidth.Word, fp_integer_word_input(xlen, value, unsigned)]])
 
+/* Extends byte or halfword conversion results according to destination signedness. */
 fun fp_integer_narrow_result(xlen :: XLen,
                              value :: Bits(16),
                              integer_width :: RV5StageFloatIntegerWidth,
@@ -56,6 +62,7 @@ fun fp_integer_narrow_result(xlen :: XLen,
   def half = mux(unsigned, value.zext(xlen.width), value.into(SInt(16)).sext(xlen.width).as_bits())
   mux(integer_width === RV5StageFloatIntegerWidth.Byte, byte, half)
 
+/* Supplies inactive Zfa outputs without instantiating rounding or modulo arithmetic. */
 circuit RV5StageDisabledZfaFormatDatapath(format :: FloatFormat):
   input value: RecFloat(format)
   input rounding_mode: RoundingMode
@@ -73,6 +80,7 @@ circuit RV5StageDisabledZfaFormatDatapath(format :: FloatFormat):
   modulo <== bits(0, 32)
   modulo_exception_flags <== bits(0, 5)
 
+/* Supplies zero modulo outputs when the format has no enabled modulo conversion. */
 circuit RV5StageDisabledZfaModulo(format :: FloatFormat):
   input value: RecFloat(format)
   output result: Bits(32)
@@ -81,6 +89,7 @@ circuit RV5StageDisabledZfaModulo(format :: FloatFormat):
   result <== bits(0, 32)
   exception_flags <== bits(0, 5)
 
+/* Implements signed 32-bit modulo conversion with round-toward-zero and RISC-V flags. */
 circuit RV5StageZfaModulo(format :: FloatFormat):
   input value: RecFloat(format)
   output result: Bits(32)
@@ -93,6 +102,7 @@ circuit RV5StageZfaModulo(format :: FloatFormat):
   result <== convert.out
   exception_flags <== riscv_integer_exception_flags(convert.exception_flags)
 
+/* Combines Zfa immediates, rounding to integral, and optional modulo conversion for one format. */
 circuit RV5StageZfaFormatDatapath(format :: FloatFormat,
                                   ~modulo: modulo_enabled :: Boolean = #false):
   input value: RecFloat(format)
@@ -118,6 +128,9 @@ circuit RV5StageZfaFormatDatapath(format :: FloatFormat,
   modulo <== modulo_convert.result
   modulo_exception_flags <== modulo_convert.exception_flags
 
+/* Computes one format's fixed-path operations combinationally using HardFloat.
+   Unboxes numerical operands, canonicalizes arithmetic NaNs, boxes FP results,
+   and selects integer values and exception flags from the decoded unit. */
 circuit RV5StageFpFormatDatapath(
   xlen :: XLen,
   profile :: FloatingPointProfile,
@@ -304,6 +317,7 @@ circuit RV5StageFpFormatDatapath(
     exception_flags: exception_flags
     exception_flags_valid: exception_flags_valid
 
+/* Implements raw half-precision moves without arithmetic or accrued exception flags. */
 circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProfile, Tag :: DataType):
   def flen = floating_point_register_width(profile)
   input request: RV5StageFpExecutionRequest(xlen, profile, Tag)
@@ -320,6 +334,7 @@ circuit RV5StageFpHalfMinimalDatapath(xlen :: XLen, profile :: FloatingPointProf
     exception_flags: bits(0, 5)
     exception_flags_valid: Bool(#false)
 
+/* Connects the F profile's combinational fixed path to a single-precision format datapath. */
 circuit RV5StageFpFixedF(xlen :: XLen,
                          Tag :: DataType,
                          ~zfa: zfa_enabled :: Boolean = #false):
@@ -336,6 +351,7 @@ circuit RV5StageFpFixedF(xlen :: XLen,
   single.request <== request
   completion <== single.completion
 
+/* Promotes an unboxed single operand to double and retains promotion exception flags. */
 circuit RV5StageFpWidenSingle():
   input value: Bits(64)
   output widened: Bits(64)
@@ -348,6 +364,7 @@ circuit RV5StageFpWidenSingle():
   widened <== riscv_nan_box(FloatFormat.F64, convert.out.to_ieee(), 64)
   exception_flags <== riscv_exception_flags(convert.exception_flags)
 
+/* Promotes an unboxed half operand to single and retains promotion exception flags. */
 circuit RV5StageFpWidenHalf(flen :: PosInt):
   input value: Bits(flen)
   output widened: Bits(flen)
@@ -360,6 +377,8 @@ circuit RV5StageFpWidenHalf(flen :: PosInt):
   widened <== riscv_nan_box(FloatFormat.F32, convert.out.to_ieee(), flen)
   exception_flags <== riscv_exception_flags(convert.exception_flags)
 
+/* Selects single/double fixed execution and cross-precision conversions.
+   Widening arithmetic promotes each narrow operand independently and merges its flags. */
 circuit RV5StageFpFixedD(xlen :: XLen,
                          Tag :: DataType,
                          ~zfa: zfa_enabled :: Boolean = #false):
@@ -452,6 +471,7 @@ circuit RV5StageFpFixedD(xlen :: XLen,
     ~exception_flags: mux(cross_precision, converted_flags, ordinary.exception_flags ||| mux(widening_arithmetic, widening_flags, bits(0, 5)))
   )
 
+/* Adds half moves or arithmetic and half/single conversion to the F fixed datapath. */
 circuit RV5StageFpFixedFHalf(xlen :: XLen,
                              Tag :: DataType,
                              ~arithmetic: arithmetic_enabled :: Boolean,
@@ -519,6 +539,7 @@ circuit RV5StageFpFixedFHalf(xlen :: XLen,
     ~exception_flags_valid: mux(cross_precision, Bool(#true), ordinary.exception_flags_valid)
   )
 
+/* Adds half moves or arithmetic and half/single/double conversion to the D fixed datapath. */
 circuit RV5StageFpFixedDHalf(xlen :: XLen,
                              Tag :: DataType,
                              ~arithmetic: arithmetic_enabled :: Boolean,

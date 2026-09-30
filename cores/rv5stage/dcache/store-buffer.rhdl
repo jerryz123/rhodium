@@ -1,5 +1,5 @@
 #lang rhodium
-// Buffers committed owned-line stores with FIFO drain and physical-address hazards.
+/* Buffers committed owned-line stores with FIFO drain and physical-address hazards. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/main.rhdl") open
 
+/* Retains an authorized owned-line store's physical bytes, way, and dirty-state update. */
 bundle RV5StageStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes :: PosInt):
   address: Bits(xlen.width)
   way: Bits(way_width)
@@ -15,6 +16,9 @@ bundle RV5StageStoreBufferEntry(xlen :: XLen, way_width :: PosInt, word_bytes ::
   mask: Bits(word_bytes)
   mark_dirty: Bool
 
+/* Drains committed stores in FIFO order, exposing byte-overlap and same-line probe hazards.
+   Current enqueue participates in hazards; bounded head age requests a drain without changing
+   FIFO order. */
 sync_circuit RV5StageStoreBuffer(xlen :: XLen,
                                  way_width :: PosInt,
                                  depth :: Pow2Int = 4):
@@ -52,8 +56,10 @@ sync_circuit RV5StageStoreBuffer(xlen :: XLen,
     age <== age + bits(1, 4)
   urgent <== age >= bits(8, 4)
 
+  /* Tests physical word equality and intersecting byte masks against the speculative query. */
   fun overlaps(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     (store.address[word_offset..xlen.width] === query_address[word_offset..xlen.width]) & (store.mask & query_mask).or_reduce()
+  /* Tests whether an entry belongs to the probed 64-byte physical line. */
   fun same_line(store :: RV5StageStoreBufferEntry(xlen, way_width, xlen.width / 8)):
     store.address[6..xlen.width] === probe_address[6..xlen.width]
   queued_word_hazard <== vec(for List (index in 0..depth): occupied[index] & overlaps(entries[index])).as_bits().or_reduce()

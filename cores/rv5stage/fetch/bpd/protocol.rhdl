@@ -1,24 +1,29 @@
 #lang rhodium
-// Defines prediction, training, and return-stack payloads shared by RV5Stage fetch and execution.
+/* Defines prediction, training, and return-stack payloads shared by RV5Stage fetch and
+   execution. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../../../riscv/isa/xlen.rhm" open
 
+/* Encodes the x1/x5 implicit call/return hints, including coroutine pop-then-push. */
 hardware_enum RV5StageRasAction:
   None
   Push
   Pop
   PopPush
 
+/* Pairs a speculative or resolved stack action with the return address for a push. */
 bundle RV5StageRasUpdate(xlen :: XLen):
   action: RV5StageRasAction
   return_address: Bits(xlen.width)
 
+/* Compares the actual stack action with its prediction for speculative-state reconciliation. */
 bundle RV5StageRasResolution(xlen :: XLen):
   actual: RV5StageRasUpdate(xlen)
   predicted_action: RV5StageRasAction
 
+/* Names a predicted control-flow instruction, target, length, and implicit stack action. */
 bundle RV5StagePrediction(xlen :: XLen):
   valid: Bool
   pc: Bits(xlen.width)
@@ -26,6 +31,7 @@ bundle RV5StagePrediction(xlen :: XLen):
   compressed: Bool
   ras_action: RV5StageRasAction
 
+/* Carries the resolved MEM control-flow outcome for BTB training and RAS recovery. */
 bundle RV5StageBranchUpdate(xlen :: XLen):
   pc: Bits(xlen.width)
   target: Bits(xlen.width)

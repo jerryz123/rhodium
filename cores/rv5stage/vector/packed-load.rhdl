@@ -1,5 +1,6 @@
 #lang rhodium
-// Retains accepted packed responses and partial VRF rows independently of replayable request preparation.
+/* Retains accepted packed responses and partial VRF rows independently of replayable request
+   preparation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +14,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Retains accepted packed words and drains them in request order through shared byte alignment.
+   Partial-row carry survives replay and owner closure; completed prefixes can write
+   while the same transport's suffix is retained for the next row. */
 sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owner_count :: Pow2Int):
   def bytes = xlen.width / 8
   def Tag = Bits(index_width(slots))

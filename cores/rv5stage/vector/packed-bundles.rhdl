@@ -1,5 +1,6 @@
 #lang rhodium
-// Defines packed transport layouts and replay checkpoints shared by preparation and load assembly.
+/* Defines packed transport layouts and replay checkpoints shared by preparation and load
+   assembly. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,12 +9,15 @@ import:
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
+/* Returns the byte capacity of one physical memory transport word. */
 fun vector_transport_bytes(xlen :: XLen) :: PosInt:
   xlen.width / 8
 
+/* Sizes operation identity for element progress plus up to eight segment fields. */
 fun vector_sequence_width(vlen :: VectorLength) :: PosInt:
   index_width(vlen + 1) + 3
 
+/* Captures element, field, byte, and aligned-address progress for exact packed retry. */
 bundle RV5StageVectorPackedCursor(xlen :: XLen, vlen :: VectorLength):
   address: Bits(xlen.width)
   element: Bits(index_width(vlen + 1))
@@ -21,6 +25,7 @@ bundle RV5StageVectorPackedCursor(xlen :: XLen, vlen :: VectorLength):
   byte: Bits(vector_byte_offset_width(xlen))
   leading: Bits(vector_byte_offset_width(xlen))
 
+/* Maps transport bytes to VRF rows/elements with before/after replay checkpoints. */
 bundle RV5StageVectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
   before: RV5StageVectorPackedCursor(xlen, vlen)
   after: RV5StageVectorPackedCursor(xlen, vlen)
@@ -30,6 +35,7 @@ bundle RV5StageVectorPackedLayout(xlen :: XLen, vlen :: VectorLength):
   live: Bits(vector_transport_bytes(xlen))
   last: Bool
 
+/* Retains one transport's byte enables, direction, layout, and instruction owner. */
 bundle RV5StageVectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: Pow2Int):
   sequence: Bits(vector_sequence_width(vlen))
   layout: RV5StageVectorPackedLayout(xlen, vlen)
@@ -38,6 +44,7 @@ bundle RV5StageVectorPackedEntry(xlen :: XLen, vlen :: VectorLength, owners :: P
   segmented: Bool
   owner: Bits(index_width(owners))
 
+/* Associates a prepared transport with its persistent completion slot. */
 bundle RV5StageVectorPackedReservation(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, owners :: Pow2Int):
   tag: Bits(index_width(slots))
   entry: RV5StageVectorPackedEntry(xlen, vlen, owners)

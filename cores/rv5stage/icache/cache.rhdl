@@ -1,5 +1,5 @@
 #lang rhodium
-// Caches coherent instruction snapshots until FENCE.I, independently of outer cache residency.
+/* Caches instruction snapshots from coherent RAM or immutable ROM until FENCE.I. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,27 +17,34 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
+/* Rejects address widths lacking tag bits beyond the line offset and set index. */
 fun check_l1i_geometry(width :: PosInt, cache :: RV5StageCacheConfig):
   unless width > (alignment_bits(RV5StageCacheLineBytes) + cache.set_width)
   | error(~who: #'RV5StageL1ICache,
           "address width must include line offset, set, and tag bits")
 
+/* Retains demand/prefetch address and replacement way across line acquisition and installation. */
 bundle RV5StageL1IRefillContext(address_width :: PosInt,
                                 way_width :: PosInt):
   address: Bits(address_width)
   way: Bits(way_width)
   prefetch: Bool
 
+/* Pairs a virtual SRAM index with demand or response-free prefetch intent. */
 bundle RV5StageL1ILookup(address_width :: PosInt):
   address: Bits(address_width)
   prefetch: Bool
 
+/* Captures the S1 word/hit/error and miss context for the fixed-cycle S2 outcome. */
 bundle RV5StageL1IResolved(address_width :: PosInt, way_width :: PosInt):
   context: RV5StageL1IRefillContext(address_width, way_width)
   hit: Bool
   word: Bits(32)
   access_fault: Bool
 
+/* Caches ownership-free instruction snapshots with VIPT lookup and one retained line read.
+   Misses replay; tags become valid only after final installation. Flush detaches demand
+   context, while FENCE.I also invalidates residency. */
 sync_circuit RV5StageL1ICache(xlen :: XLen,
                               cache :: RV5StageCacheConfig,
                               ~chi: config :: RiscvHartCHIConfig):

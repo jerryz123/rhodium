@@ -1,5 +1,5 @@
 #lang rhodium
-// Selects fixed-latency cache outcomes and retains one ordered uncached fetch.
+/* Selects fixed-latency cache outcomes and retains one ordered uncached fetch. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,8 @@ import:
   "../../riscv/isa/xlen.rhm".XLen
   lib("flow/main.rhdl") open
 
+/* Returns an outcome for every live S2 attempt, replaying until uncached data is available.
+   Redirects detach uncached consumers while the engine drains accepted traffic. */
 sync_circuit RV5StageInstructionMemoryRouter(xlen :: XLen):
   interface core(RV5StageInstructionLookup(RV5StagePhysicalInstructionReq(xlen)), ~role: responder)
   interface cache(RV5StageInstructionLookup(RV5StageInstructionReq(xlen)), ~role: requester)

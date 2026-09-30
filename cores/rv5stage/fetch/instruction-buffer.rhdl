@@ -1,5 +1,5 @@
 #lang rhodium
-// Feeds Decode directly from fetch packets, retaining only an unconsumed halfword.
+/* Feeds Decode directly from fetch packets, retaining only an unconsumed halfword. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,11 +16,16 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Retains one upper halfword with its PC and prediction when a packet is only partly consumed. */
 bundle RV5StageFetchParcel(xlen :: XLen):
   pc: Bits(xlen.width)
   halfword: Bits(16)
   prediction: RV5StagePrediction(xlen)
 
+/* Assembles word-aligned and straddling instructions directly into Decode, expanding enabled C
+   forms.
+   Stores only a leftover halfword; preserves precise continuation faults and distinct
+   packet/instruction consumption. */
 sync_circuit RV5StageInstructionBuffer(core_profile :: RV5StageConfig):
   def hypervisor = core_profile.extensions.hypervisor
   def xlen = core_profile.xlen

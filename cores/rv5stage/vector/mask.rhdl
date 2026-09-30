@@ -1,5 +1,5 @@
 #lang rhodium
-// Scans packed mask chunks and packs prefix counts or indices without owning retirement state.
+/* Scans packed mask chunks and packs prefix counts or indices without owning retirement state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,18 +8,22 @@ import:
   "../../simd-alu.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
+/* Selects a total count, first index, prefix mask, or packed per-element scan result. */
 hardware_enum VectorScanResult:
   Count
   First
   Mask
   Elements
 
+/* Selects scan output and first-bit/index policies independently of instruction recognition. */
 bundle VectorMaskScanControl():
   result: VectorScanResult
   index: Bool
   include_first: Bool
   only_first: Bool
 
+/* Computes selected-bit prefixes and next recurrence carry combinationally.
+   The caller bounds the enabled bits and owns carry advancement at result maturity. */
 circuit RV5StageVectorMaskScan(xlen :: XLen):
   input(source, enabled, first, carry): Bits(xlen.width)
   input element_width: SimdElementWidth

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's retry-aware RN-F WriteUniquePtl transaction engine.
+/* Implements RV5Stage's retry-aware RN-F WriteUniquePtl transaction engine. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl") open
 
+/* Carries one partial-width write's address, byte lanes, and opaque completion context. */
 bundle RV5StageWriteUniqueCommand(Context :: DataType,
                                   address_width :: PosInt):
   address: Bits(address_width)
@@ -18,9 +19,13 @@ bundle RV5StageWriteUniqueCommand(Context :: DataType,
   mask: Mask(8)
   context: Context
 
+/* Returns the retained context after both write-data handoff and CHI completion. */
 bundle RV5StageWriteUniqueResult(Context :: DataType):
   context: Context
 
+/* Retains one retryable WriteUniquePtl, accepting separate or combined DBID/Comp responses.
+   Write data waits for DBID; completion waits for both data acceptance and the completion
+   milestone. */
 sync_circuit RV5StageWriteUnique(Context :: DataType,
                                  address_width :: PosInt,
                                  config :: RiscvHartCHIConfig,

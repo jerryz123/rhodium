@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements RV5Stage's data-cache RN-F snoop lifetime, completion events, and paired DVM.
+/* Implements RV5Stage's data-cache RN-F snoop lifetime, completion events, and paired DVM. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,16 +11,21 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_transfer_data_id
   lib("chi/protocol/coherence.rhdl") open
 
+/* Returns the cache hit, coherent state, and line snapshot for an accepted snoop. */
 bundle RV5StageDataSnoopLookupResult():
   hit: Bool
   state: CHICacheState
   line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
 
+/* Applies the snoop's final invalidate or SharedClean downgrade to its original address. */
 bundle RV5StageDataSnoopUpdate(address_width :: PosInt):
   address: Bits(address_width)
   invalidate: Bool
   state: CHICacheState
 
+/* Services one ordinary snoop or a paired DVM operation independently of demand transactions.
+   Dirty hits return all data before invalidation; clean responses update state only at final
+   handoff. */
 sync_circuit RV5StageDataSnoop(address_width :: PosInt,
                                config :: RiscvHartCHIConfig):
   def p = config.flit

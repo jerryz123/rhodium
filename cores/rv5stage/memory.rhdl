@@ -1,10 +1,11 @@
 #lang rhodium
-// Defines RV5Stage-specific memory transactions and their classification helpers.
+/* Defines RV5Stage-specific memory transactions and their classification helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
 
+/* Distinguishes ordinary, atomic, and cache-block operations across the LSU pipeline. */
 hardware_enum RV5StageMemoryOperation:
   None
   Load
@@ -17,45 +18,57 @@ hardware_enum RV5StageMemoryOperation:
   CacheBlockClean
   CacheBlockFlush
 
+  /* Tests whether the decoded instruction uses a memory operation. */
   method is_memory(operation) :: Bool:
     operation =/= RV5StageMemoryOperation.None
 
+  /* Selects ordinary loads and LR reads, excluding read-modify-write atomics. */
   method is_load(operation) :: Bool:
     operation.is_one_of(RV5StageMemoryOperation.Load,
                         RV5StageMemoryOperation.LoadReserved)
 
+  /* Selects ordinary stores only. */
   method is_store(operation) :: Bool:
     operation === RV5StageMemoryOperation.Store
 
+  /* Selects read-modify-write AMOs rather than LR or SC. */
   method is_atomic(operation) :: Bool:
     operation === RV5StageMemoryOperation.Atomic
 
+  /* Identifies the full-block zeroing operation. */
   method is_cache_block_zero(operation) :: Bool:
     operation === RV5StageMemoryOperation.CacheBlockZero
 
+  /* Selects invalidate, clean, and flush maintenance. */
   method is_cache_management(operation) :: Bool:
     operation.is_one_of(RV5StageMemoryOperation.CacheBlockInvalidate, RV5StageMemoryOperation.CacheBlockClean, RV5StageMemoryOperation.CacheBlockFlush)
 
+  /* Includes zeroing and management operations that cover an entire cache block. */
   method is_cache_block(operation) :: Bool:
     operation.is_cache_block_zero() ||| operation.is_cache_management()
 
+  /* Classifies mutations and cache management as store/AMO faults. */
   method store_fault_class(operation) :: Bool:
     operation.needs_unique() ||| operation.is_cache_management()
 
+  /* Identifies SC for exact reservation matching and status return. */
   method is_store_conditional(operation) :: Bool:
     operation === RV5StageMemoryOperation.StoreConditional
 
+  /* Selects operations requiring write permission and unique coherent ownership. */
   method needs_unique(operation) :: Bool:
     operation.is_one_of(RV5StageMemoryOperation.Store,
                         RV5StageMemoryOperation.StoreConditional,
                         RV5StageMemoryOperation.Atomic,
                         RV5StageMemoryOperation.CacheBlockZero)
 
+  /* Selects memory reads whose result is the prior memory value. */
   method returns_old_value(operation) :: Bool:
     operation.is_one_of(RV5StageMemoryOperation.Load,
                         RV5StageMemoryOperation.LoadReserved,
                         RV5StageMemoryOperation.Atomic)
 
+  /* Selects register-producing memory operations, including SC status. */
   method returns_result(operation) :: Bool:
     operation.is_one_of(RV5StageMemoryOperation.Load,
                         RV5StageMemoryOperation.LoadReserved,

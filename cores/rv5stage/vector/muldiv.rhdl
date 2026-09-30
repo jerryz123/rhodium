@@ -1,5 +1,5 @@
 #lang rhodium
-// Normalizes singleton SEW operands and selects tagged shared integer results.
+/* Normalizes singleton SEW operands and selects tagged shared integer results. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,26 +13,31 @@ import:
   "../../../riscv/isa/vector.rhm" open
   lib("rhodium/std/bits.rhdl").Pow2Int
 
+/* Retains completion slot, source SEW, product selection, and fractional rounding policy. */
 bundle RV5StageVectorMultiplyTag(slots :: Pow2Int):
   slot: Bits(index_width(slots))
   sew: Bits(2)
   result: VectorMultiplyResult
   rounding_mode: SimdRoundingMode
 
+/* Retains completion slot, source SEW, and quotient/remainder selection. */
 bundle RV5StageVectorDivideTag(slots :: Pow2Int):
   slot: Bits(index_width(slots))
   sew: Bits(2)
   remainder: Bool
 
+/* Pairs selected product bits with fractional-multiply saturation. */
 bundle RV5StageVectorMultiplyValue(xlen :: XLen):
   data: Bits(xlen.width)
   saturated: Bool
 
+/* Sign- or zero-extends one SEW element into the physical integer execution width. */
 fun vector_integer_operand(xlen :: XLen, value :: Bits(xlen.width), sew :: Bits(2), signed_mode :: Bool) :~ Bits(xlen.width):
   def cases = for List (width in [8, 16, 32], code in 0..3):
     [code, if width == xlen.width | value[0..width] | mux(signed_mode, value[0..width].into(SInt(width)).sext(xlen.width).as_bits(), value[0..width].zext(xlen.width))]
   mux_lookup(sew, ~default: value[0..xlen.width], cases)
 
+/* Builds a tagged shared multiplier request, selecting old vd for destination-multiply forms. */
 fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorMultiplyTag(slots)):
   def sew = beat.element_width.into(Bits(2))
   RV5StageExecutionRequest(MultiplierRequest(xlen.width), RV5StageVectorMultiplyTag(slots)):
@@ -51,6 +56,7 @@ fun vector_multiply_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int
             left_signed: beat.control.left_signed
             right_signed: beat.control.right_signed
 
+/* Builds a tagged shared divider request from normalized singleton operands. */
 fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, beat :: RV5StageVectorBeat(xlen, vlen), slot :: Bits(index_width(slots))) :~ RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorDivideTag(slots)):
   def sew = beat.element_width.into(Bits(2))
   RV5StageExecutionRequest(DividerRequest(xlen.width), RV5StageVectorDivideTag(slots)):
@@ -65,6 +71,7 @@ fun vector_divide_request(xlen :: XLen, vlen :: VectorLength, slots :: Pow2Int, 
         divisor: vector_integer_operand(xlen, beat.right, sew, beat.control.left_signed)
         signed_mode: beat.control.left_signed
 
+/* Rounds a signed fractional product according to vxrm and saturates overflow at source width. */
 fun fractional_multiply_value(xlen :: XLen, width :: PosInt, product :: Bits(width * 2), rounding_mode :: SimdRoundingMode) :~ RV5StageVectorMultiplyValue(xlen):
   def distance = width - 1
   def round_bit = product[distance - 1].into(Bool)
@@ -88,6 +95,8 @@ fun fractional_multiply_value(xlen :: XLen, width :: PosInt, product :: Bits(wid
     data: if width == xlen.width | selected | selected.zext(xlen.width)
     saturated: saturated
 
+/* Selects SEW-relative low/high/widened/fractional products and applies a retained accumulate
+   addend. */
 fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(Bits(xlen.width * 2), RV5StageVectorMultiplyTag(slots)), addend :: Bits(xlen.width), accumulate :: Bool, subtract :: Bool) :~ RV5StageVectorMultiplyValue(xlen):
   // High multiplication is relative to SEW, not to the physical multiplier width.
   def widths = if xlen == XLen.X64 | [8, 16, 32, 64] | [8, 16, 32]
@@ -109,6 +118,7 @@ fun vector_multiply_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExec
     saturated: Bool(#false)
   mux(!accumulate & (result.tag.result === VectorMultiplyResult.Fractional), fractional, ordinary_result)
 
+/* Selects quotient or remainder from the completed request's retained tag. */
 fun vector_divide_value(xlen :: XLen, slots :: Pow2Int, result :: RV5StageExecutionResult(DividerResponse(xlen.width), RV5StageVectorDivideTag(slots))) :~ Bits(xlen.width):
   def value = mux(result.tag.remainder, result.value.remainder, result.value.quotient)
   value

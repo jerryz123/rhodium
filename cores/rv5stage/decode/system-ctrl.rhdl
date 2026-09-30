@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines RV5Stage's CSR, trap, return, and wait instruction controls.
+/* Defines RV5Stage's CSR, trap, return, and wait instruction controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,6 +21,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
+/* Selects WB-owned traps, returns, waits, or vector configuration independently of CSR access. */
 hardware_enum RV5StageSystemOperation:
   None
   Ecall
@@ -32,11 +33,13 @@ hardware_enum RV5StageSystemOperation:
   WrsSto
   VectorConfig
 
+/* Carries CSR operation/source mode and the separate system action. */
 bundle RV5StageSystemControl():
   csr: RiscvCsrOperation
   immediate: Bool
   action: RV5StageSystemOperation
 
+  /* Identifies either CSR access or a system action requiring core serialization policy. */
   method is_system_operation(control) :: Bool:
     (control.csr =/= RiscvCsrOperation.None) ||| (
       control.action =/= RV5StageSystemOperation.None
@@ -46,12 +49,14 @@ def no_system = partial_pattern(RV5StageSystemControl()):
   csr: RiscvCsrOperation.None
   action: RV5StageSystemOperation.None
 
+/* Builds a fully specified CSR row with register or immediate source selection. */
 fun csr_control(operation :: RiscvCsrOperation, immediate :: Boolean):
   pattern(RV5StageSystemControl()):
     csr: operation
     immediate: Bool(immediate)
     action: RV5StageSystemOperation.None
 
+/* Builds a non-CSR system-action row with inactive source mode left unconstrained. */
 fun system_control(operation :: RV5StageSystemOperation):
   partial_pattern(RV5StageSystemControl()):
     csr: RiscvCsrOperation.None
@@ -73,6 +78,7 @@ def PrivilegedSystemCases = combine_case_groups([
   instruction_cases([SFENCE_VMA], no_system)
 ])
 
+/* Assigns ECALL/EBREAK actions and disables system effects for other base instructions. */
 fun base_system_cases(instructions :: List.of(InstructionSpec)):
   combine_case_groups([
     instruction_cases([ECALL], system_control(RV5StageSystemOperation.Ecall)),

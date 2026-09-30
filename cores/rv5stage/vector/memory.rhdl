@@ -1,5 +1,6 @@
 #lang rhodium
-// Retains certified physical requests across local cache retries and precisely resolves faulting attempts.
+/* Retains certified physical requests across local cache retries and precisely resolves
+   faulting attempts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,12 +18,17 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Resolves speculative cache attempts and authorized slow accesses for vector beats.
+   Precertified requests become durable at capture and retry in a bounded physical
+   request ring; faultable attempts instead return precise sequencer feedback. */
 sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: hypervisor :: Boolean = #false):
   def Token = RV5StageVectorToken(xlen, Bits(xlen.width), slots)
+  /* Captures one memory token with its physical/virtual request and alignment decision. */
   bundle Lookup():
     token: Token
     request: RV5StageDataReq(xlen, slots)
     misaligned: Bool
+  /* Pairs the retained lookup with its cache outcome and optional guest-fault provenance. */
   bundle Decision():
     request_context: Lookup()
     outcome: RV5StagePipelineOutcome
@@ -57,6 +63,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   // These are requests, not result buffers. Completion-slot capacity bounds
   // them even when the sequencer has moved on to independent instructions.
   def Cursor = Bits(bits.length(slots))
+  /* Projects an extended ring cursor to its slot, explicitly producing zero for depth one. */
   fun request_index(cursor :: Bits(bits.length(slots))) :~ Bits(index_width(slots)):
     if slots == 1 | bits(0, 1) | cursor[0..index_width(slots)]
   reg requests(Vec(slots, Token))

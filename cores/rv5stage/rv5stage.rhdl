@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes RV5Stage's core and L1 caches with annotated outer CHI transfers.
+/* Composes RV5Stage's core and L1 caches with annotated outer CHI transfers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,9 +21,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/protocol/channels.rhdl") open
 
-// Observe accepted flits at the private-cache boundary. Cache requests inherit
-// certified refill ownership and Home returns continue that ownership graph.
-// Transaction IDs are captures, not parent IDs.
+/* Connects outer cache channels with transfer/stall observations at the private-cache boundary.
+   Refill and Home-return ownership follow the retained Flow graph; transaction IDs are
+   captured metadata, not event parents. */
 fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: String, ~snoopable: snoopable :: Boolean = #true):
   def request_source = if snoopable | cache.field("requests") | cache.field("req")
   def request_sink = if snoopable | outer.field("requests") | outer.field("req")
@@ -82,6 +82,8 @@ fun connect_traced_cache_chi(cache :: Endpoint, outer :: Endpoint, label :: Stri
       snoops |> cache.field("snoops")
   | #void
 
+/* Composes fetch, execution, MMU, caches, and three CHI endpoints; checks advertised RAM
+   guarantees against PMAs. */
 sync_circuit RV5Stage(profile :: RV5StageConfig,
                       ~reset_address: reset_address :: Nat,
                       ~chi: config :: RiscvHartCHIConfig,

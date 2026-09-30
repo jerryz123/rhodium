@@ -1,5 +1,6 @@
 #lang rhodium
-// Reads complete instruction lines from coherent RAM or immutable noncoherent ROM without cache ownership.
+/* Reads complete instruction lines from coherent RAM or immutable noncoherent ROM without cache
+   ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,16 +12,21 @@ import:
   lib("chi/protocol/protocol.rhdl") open
   lib("chi/transactions/retryable-transaction.rhdl").CHIRetryableTransactionControl
 
+/* Names an instruction snapshot line and retains an opaque lookup context. */
 bundle RV5StageLineReadCommand(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
 
+/* Returns an ownership-free line snapshot and accumulated poison/response-error status. */
 bundle RV5StageLineReadResult(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   context: Context
   line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
   access_fault: Bool
 
+/* Reads coherent RAM with ReadOnce/CompAck or immutable ROM with ReadNoSnp and no ack.
+   Assembles packets by DataID, retaining the command until the caller accepts the complete
+   line. */
 sync_circuit RV5StageLineRead(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig):
   def p = config.flit
   unless RV5StageCacheLineBytes >= p.data_bytes

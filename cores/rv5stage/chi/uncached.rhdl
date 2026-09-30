@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements non-allocating coherent RAM and noncoherent device/ROM transactions on one RN-I.
+/* Implements non-allocating coherent RAM and noncoherent device/ROM transactions on one RN-I. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +17,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
 
+/* Tracks one RN-I request through read data or DBID, write data, and completion response. */
 hardware_enum RV5StageUncachedState:
   Idle
   Request
@@ -25,6 +26,9 @@ hardware_enum RV5StageUncachedState:
   WriteData
   WriteResponse
 
+/* Prioritizes data over four-byte instruction reads on one nonretrying, nonallocating RN-I.
+   Flush detaches fetch ownership; accepted traffic drains. CBO.ZERO serializes eight writes
+   with one completion. */
 sync_circuit RV5StageUncached(xlen :: XLen,
                               config :: RiscvHartCHIConfig,
                               ~vector_completion_slots: vector_completion_slots :: Pow2Int = 8):

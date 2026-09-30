@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines base and extension architectural writeback and result-source controls.
+/* Defines base and extension architectural writeback and result-source controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,6 +20,8 @@ import:
   "../../../riscv/isa/privileged.rhm" open
   lib("rhodium/std/decode.rhdl") open
 
+/* Selects the scalar architectural result source, including deferred execution and vector
+   results. */
 hardware_enum RV5StageWritebackSelect:
   Alu
   Memory
@@ -30,6 +32,7 @@ hardware_enum RV5StageWritebackSelect:
   Zero
   Vector
 
+/* Combines scalar write enable with the result source observed when enabled. */
 bundle RV5StageWritebackControl():
   enable: Bool
   source: RV5StageWritebackSelect
@@ -62,6 +65,7 @@ def shared_immediate_alu = [ADDI, SLTI, SLTIU, XORI, ORI, ANDI]
 def shared_register_alu = [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND]
 def shared_loads = [LB, LH, LW, LBU, LHU]
 def link_instructions = [JAL, JALR]
+/* Assigns ALU/load/link results and suppresses writes for remaining base-catalog instructions. */
 fun writeback_cases(instructions :: List.of(InstructionSpec),
                     alu_instructions :: List.of(InstructionSpec),
                     load_instructions :: List.of(InstructionSpec)):

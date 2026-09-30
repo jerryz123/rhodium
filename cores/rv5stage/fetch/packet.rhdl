@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines raw fetch occurrences crossing from the speculative frontend into core Decode.
+/* Defines raw fetch occurrences crossing from the speculative frontend into core Decode. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,8 @@ import:
   "bpd/protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
 
+/* Carries one raw fetch word with valid-parcel mask, prediction, and optional guest-fault
+   provenance. */
 bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
   if hypervisor:
     guest: RiscvGuestException()
@@ -17,6 +19,7 @@ bundle RV5StageFetchPacket(xlen :: XLen, hypervisor :: Boolean):
   access_fault: Bool
   prediction: RV5StagePrediction(xlen)
 
+/* Names the restart PC and stale predictor PC when S2 repairs a prediction cut. */
 bundle RV5StageFetchRepair(xlen :: XLen):
   pc: Bits(xlen.width)
   entry: Bits(xlen.width)

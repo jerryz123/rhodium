@@ -1,5 +1,6 @@
 #lang rhodium
-// Defines RV5Stage-specific CHI endpoint capabilities, transaction profiles, and flit constructors.
+/* Defines RV5Stage-specific CHI endpoint capabilities, transaction profiles, and flit
+   constructors. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -36,14 +37,23 @@ def RV5StageCopyBackResponses = response_profile("rv5stage_copyback"):
   response [CHIRspOpcode.CompDBIDResp]:
     completes [grant]
 
+/* Wraps generic hart identities with RV5Stage-specific RN capabilities and Home attachment
+   profiles. */
 class RV5StageCHIParams(hart :: RiscvHartCHIParams):
+  /* Exposes the shared hart CHI configuration without duplicating its identity. */
   property config: hart.config
+  /* Exposes the hart's shared CHI flit geometry. */
   property flit: hart.flit
+  /* Exposes the validated address-to-Home mapping used by all three endpoints. */
   property home_map: hart.home_map
+  /* Exposes the hart's instruction requester node identity. */
   property instruction_node_id: hart.instruction_node_id
+  /* Exposes the hart's coherent data requester node identity. */
   property data_node_id: hart.data_node_id
+  /* Exposes the hart's uncached requester node identity. */
   property uncached_node_id: hart.uncached_node_id
 
+  /* Advertises ownership-free instruction reads and completion acknowledgement capabilities. */
   property instruction_node:
     CHINodeParams(
       "rv5stage-l1i",
@@ -60,6 +70,8 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 2
     )
 
+  /* Describes a coherent ReadOnce or noncoherent ReadNoSnp instruction Home port and its
+     acknowledgements. */
   method instruction_home_port(~coherent: coherent :: Boolean):
     CHIRequesterHomeParams(
       instruction_node.icn_peer(),
@@ -70,6 +82,7 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
         ~req: [if coherent | CHIReqOpcode.ReadOnce | CHIReqOpcode.ReadNoSnp],
         ~rsp: (if coherent | [CHIRspOpcode.CompAck] | [])))
 
+  /* Advertises coherent data reads, writes, maintenance, and supported snoop traffic. */
   property data_node:
     CHINodeParams(
       "rv5stage-l1d",
@@ -100,6 +113,7 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 2
     )
 
+  /* Advertises nonretrying uncached reads and partial writes on a separate RN-I identity. */
   property uncached_node:
     CHINodeParams(
       "rv5stage-uncached",
@@ -116,11 +130,14 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
       ~max_outstanding: 1
     )
 
+  /* Combines the three endpoints and coherent/noncoherent instruction Home profiles into one
+     hart attachment. */
   property attachment:
     RiscvHartCHIAttachment(hart, instruction_node, data_node, uncached_node,
                            instruction_home_port(~coherent: #true),
                            instruction_home_port(~coherent: #false))
 
+  /* Validates generic hart identities before deriving RV5Stage endpoint capabilities. */
   constructor (config :: RiscvHartCHIConfig,
                instruction_node_id :: Nat,
                data_node_id :: Nat,
@@ -128,6 +145,7 @@ class RV5StageCHIParams(hart :: RiscvHartCHIParams):
     super(RiscvHartCHIParams(config, instruction_node_id, data_node_id,
                              ~uncached_node_id: uncached_node_id))
 
+/* Builds the implementation-specific three-endpoint hart attachment from a shared CHI map. */
 fun rv5stage_chi_params(config :: RiscvHartCHIConfig,
                         instruction_node_id :: Nat,
                         data_node_id :: Nat,
@@ -135,6 +153,7 @@ fun rv5stage_chi_params(config :: RiscvHartCHIConfig,
   RV5StageCHIParams(config, instruction_node_id, data_node_id,
                     ~uncached_node_id: uncached_node_id).attachment
 
+/* Zero-extends or truncates an address to the configured CHI request width. */
 fun rv5stage_chi_address(address :: Bits,
                          p :: CHIFlitParams) :~ Bits(p.request_address_width):
   def width = hardware_value_type(address).packed_width()
@@ -143,6 +162,7 @@ fun rv5stage_chi_address(address :: Bits,
   | width == p.request_address_width: address
   | ~else: address[0..p.request_address_width]
 
+/* Tests whether address normalization would discard any nonzero high bits. */
 fun rv5stage_chi_address_fits(address :: Bits,
                               p :: CHIFlitParams) :~ Bool:
   def width = hardware_value_type(address).packed_width()
@@ -150,6 +170,7 @@ fun rv5stage_chi_address_fits(address :: Bits,
   | Bool(#true)
   | !address[p.request_address_width..width].or_reduce()
 
+/* Restores the snoop's omitted three low bits and adapts the resulting physical address width. */
 fun rv5stage_chi_snoop_address(p :: CHIFlitParams,
                                address_width :: PosInt,
                                snoop_address :: Bits(p.snoop_address_width)) :~ Bits(address_width):
@@ -158,6 +179,9 @@ fun rv5stage_chi_snoop_address(p :: CHIFlitParams,
   | raw_address[0..address_width]
   | raw_address.zext(address_width)
 
+/* Builds a zero-inactive requester flit with explicit routing, attributes, retry, and CompAck
+   policy.
+   WriteNoSnp uses the shared SnpAttr/DoDWT bit as DoDWT and routes write data through Home. */
 fun rv5stage_chi_request(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          home_node_id :: Bits(p.node_id_width),
@@ -199,6 +223,7 @@ fun rv5stage_chi_request(p :: CHIFlitParams,
     ~tgt_id: home_node_id
   )
 
+/* Builds a successful zero-QoS/DBID response with caller-selected coherent response bits. */
 fun rv5stage_chi_response(p :: CHIFlitParams,
                           node_id :: Bits(p.node_id_width),
                           target_id :: Bits(p.node_id_width),
@@ -209,15 +234,15 @@ fun rv5stage_chi_response(p :: CHIFlitParams,
   chi_response(p, node_id, target_id, txn_id, opcode,
                ~dbid: bits(0, 12), ~resp: response, ~error: CHIRespErr.OK, ~qos: bits(0, 4))
 
+/* Selects snoops that downgrade a retained clean line to SharedClean. */
 fun rv5stage_snoop_shares_cache_state(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpShared,
                    CHISnpOpcode.SnpClean,
                    CHISnpOpcode.SnpNotSharedDirty,
                    CHISnpOpcode.SnpCleanShared)
 
-// RV5Stage silently evicts its clean copy before servicing a forwarding snoop.
-// Reporting I is legal and lets Home source the data elsewhere without a
-// multibeat forwarded-data path in these deliberately small L1s.
+/* Selects invalidating and forwarding snoops. Clean forwarding hits are silently evicted
+   and report I so Home sources data elsewhere without an L1 forwarded-data path. */
 fun rv5stage_snoop_invalidates_cache_state(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpUniqueStash,
                    CHISnpOpcode.SnpMakeInvalidStash,
@@ -232,6 +257,7 @@ fun rv5stage_snoop_invalidates_cache_state(opcode :: CHISnpOpcode) :~ Bool:
                    CHISnpOpcode.SnpPreferUniqueFwd,
                    CHISnpOpcode.SnpUniqueFwd)
 
+/* Builds one RN write-data packet with address-derived DataID/CCID and Home-provided DBID. */
 fun rv5stage_chi_write_data(p :: CHIFlitParams,
                             node_id :: Bits(p.node_id_width),
                             home_node_id :: Bits(p.node_id_width),

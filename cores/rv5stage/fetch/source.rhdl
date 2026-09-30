@@ -1,5 +1,5 @@
 #lang rhodium
-// Selects S0 candidates through Flow, retaining cursor ancestry across blocked issuance.
+/* Selects S0 candidates through Flow, retaining cursor ancestry across blocked issuance. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,14 +10,14 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Carries an S0/S1/S2 PC occurrence with straddle continuation and prediction metadata. */
 bundle RV5StageFetchAttempt(xlen :: XLen):
   pc: Bits(xlen.width)
   continuation: Bool
   continuation_target: Bits(xlen.width)
   prediction: RV5StagePrediction(xlen)
 
-// Repeated cursor observations keep the last update's owner until replacement.
-// An empty cursor is supplied by the reset seed in the caller, not invented lineage.
+/* Retains the last cursor update and its trace owner; the caller supplies the reset fallback. */
 sync_circuit RV5StageFetchCursor(xlen :: XLen):
   interface update(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
   interface stored(Valid(RV5StageFetchAttempt(xlen)), ~role: producer)
@@ -31,8 +31,8 @@ sync_circuit RV5StageFetchCursor(xlen :: XLen):
   describe_interface_retained_storage(update.valid, occupied & update.valid, occupied)
   describe_interface_contract(update, stored, "cursor", ~trace_model: interface_trace_retained())
 
-// Admission is independent of replay/candidate validity; the fallback guarantees
-// a candidate. Keep the assertion rather than feeding selection into admission.
+/* Gates offer validity solely by admission, asserting that the selected fallback provides a
+   candidate. */
 sync_circuit RV5StageFetchOffer(xlen :: XLen):
   input enabled: Bool
   interface candidate(Valid(RV5StageFetchAttempt(xlen)), ~role: consumer)
@@ -42,8 +42,9 @@ sync_circuit RV5StageFetchOffer(xlen :: XLen):
   assert(!enabled ||| candidate.valid, "fetch_offer_has_candidate")
   describe_interface_contract(candidate, egress, "admission", ~trace_model: interface_trace_combinational(~guard: enabled))
 
-// S0 offers are Decoupled. Acceptance captures PC/continuation into S1;
-// prediction is resolved there and captured with the S2 occurrence.
+/* Selects restart, late redirect, replay, predicted successor, or saved cursor in priority
+   order.
+   Accepted offers own S1; BTB/RAS lookup and continuation drive the next S0 candidate. */
 sync_circuit RV5StageFetchSource(xlen :: XLen, btb_entries :: Nat = 32, ras_entries :: Nat = 6):
   def width = xlen.width
   input active: Bool

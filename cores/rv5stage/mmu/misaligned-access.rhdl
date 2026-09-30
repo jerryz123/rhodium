@@ -1,5 +1,5 @@
 #lang rhodium
-// Sequences preflighted misaligned data accesses into physical word fragments.
+/* Sequences preflighted misaligned data accesses into physical word fragments. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Retains the original request and preflighted physical fragment addresses for a split access. */
 bundle RV5StageMisalignedAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
   request: RV5StageDataReq(xlen, vector_completion_slots)
   first_address: Bits(xlen.width)
@@ -17,6 +18,7 @@ bundle RV5StageMisalignedAccess(xlen :: XLen, vector_completion_slots :: Pow2Int
   second_virtual: Bits(xlen.width)
   crosses_word: Bool
 
+/* Serializes first and optional second word fragments before returning one completion. */
 hardware_enum RV5StageMisalignedState:
   Idle
   FirstRequest
@@ -25,9 +27,8 @@ hardware_enum RV5StageMisalignedState:
   SecondResponse
   Complete
 
-// Admission guarantees both fragments have translation, permission, and PMA
-// clearance and that earlier physical transactions have drained. This engine
-// never walks, retries, or partially performs a faulting store.
+/* Executes an already preflighted load or store as one or two physical word requests.
+   The caller proves translation, permissions, PMAs, and drain before admission. */
 sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: Pow2Int):
   def width = xlen.width
   def word_bytes = memory_word_bytes(xlen)

@@ -1,5 +1,6 @@
 #lang rhodium
-// Implements an XLEN-wide vector bank with three general reads, a v0 mask shadow, and one write.
+/* Implements an XLEN-wide vector bank with three general reads, a v0 mask shadow, and one
+   write. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,11 +10,15 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Defines a bit-masked write to one XLEN-wide physical vector row. */
 bundle VectorRegisterWrite(xlen :: XLen, vlen :: VectorLength):
   address: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   data: Bits(xlen.width)
   mask: Bits(xlen.width)
 
+/* Provides three one-cycle general reads, one mask-shadow read, and one bit-masked write.
+   Read-edge forwarding snapshots merged data; writes update general v0 and its shadow
+   atomically. */
 sync_circuit RV5StageVectorRegisterFile(xlen :: XLen, vlen :: VectorLength):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def MaskAddress = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))
@@ -37,6 +42,7 @@ sync_circuit RV5StageVectorRegisterFile(xlen :: XLen, vlen :: VectorLength):
     when (writing & (write.bits.address === bits(chunk, index_width(VectorRegisterLayout(vlen, xlen.width).depth)))):
       mask_shadow[chunk] <== masked_merge(mask_shadow[chunk], write.bits.data, write.bits.mask)
 
+  /* Snapshots a general row with same-edge masked-write forwarding. */
   fun read_word(address :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))) :~ Bits(xlen.width):
     def retained = storage[address]
     mux(writing & (write.bits.address === address), masked_merge(retained, write.bits.data, write.bits.mask), retained)
@@ -44,6 +50,7 @@ sync_circuit RV5StageVectorRegisterFile(xlen :: XLen, vlen :: VectorLength):
   for (port in 0..3):
     reads[port] |> map_valid(address => read_word(address)) |> valid_pipe(1) |> results[port]
 
+  /* Snapshots the v0 shadow with the same forwarding policy as its general storage replica. */
   fun read_mask(address :: Bits(index_width(VectorRegisterLayout(vlen, xlen.width).rows_per_register))) :~ Bits(xlen.width):
     def retained = mask_shadow[address]
     def flat_address = address.zext(index_width(VectorRegisterLayout(vlen, xlen.width).depth))

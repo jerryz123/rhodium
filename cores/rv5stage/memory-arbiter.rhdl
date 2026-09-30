@@ -1,5 +1,5 @@
 #lang rhodium
-// Shares LSU ports and carries selected lookup lineage through fixed-cycle response routing.
+/* Shares LSU ports and carries selected lookup lineage through fixed-cycle response routing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,8 @@ import:
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("flow/main.rhdl") open
 
+/* Prioritizes admitted vector transactions but scalar speculative lookups.
+   Losing lookups replay; retained selection routes store commit and tagged responses. */
 sync_circuit RV5StageMemoryArbiter(xlen :: XLen, slots :: Pow2Int):
   interface scalar(RV5StageDataAccess(xlen, slots), ~role: responder)
   interface vector(RV5StageDataAccess(xlen, slots), ~role: responder)

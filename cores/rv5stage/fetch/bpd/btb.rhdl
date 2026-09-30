@@ -1,5 +1,5 @@
 #lang rhodium
-// Predicts the earliest taken branch using compact entries and shared upper-address pages.
+/* Predicts the earliest taken branch using compact entries and shared upper-address pages. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,10 +8,13 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Stores a shared valid upper-address tag used by branch and target entries. */
 bundle RV5StageBtbPage(tag_width :: PosInt):
   valid: Bool
   tag: Bits(tag_width)
 
+/* Stores low PC/target bits, shared-page indices, local direction counter, length, and RAS
+   hint. */
 bundle RV5StageBtbEntry(match_bits :: PosInt, page_count :: PosInt):
   valid: Bool
   pc_low: Bits(match_bits)
@@ -23,6 +26,9 @@ bundle RV5StageBtbEntry(match_bits :: PosInt, page_count :: PosInt):
   counter: Bits(2)
   ras_action: RV5StageRasAction
 
+/* Predicts the earliest taken branch in the current word using full-address matches via shared
+   pages.
+   Resolved training precedes discovery; page replacement invalidates all dependent entries. */
 sync_circuit RV5StageBtb(xlen :: XLen,
                          entry_count :: Nat = 32,
                          match_bits :: PosInt = 14,
@@ -50,10 +56,13 @@ sync_circuit RV5StageBtb(xlen :: XLen,
       reg entries(~init: vec(for List (_index in 0..entry_count): literal(Entry, 0)))
       reg replacement(~init: bits(0, index_bits))
       reg page_replacement(~init: bits(0, page_index_bits))
+      /* Extracts upper address bits shared by PC and target page entries. */
       fun page_tag(address :: Bits(xlen.width)) :~ Bits(xlen.width - match_bits):
         address[match_bits..xlen.width]
+      /* Compares an address against every valid shared upper-address page. */
       fun page_matches(address :: Bits(xlen.width)) :~ Vec(page_count, Bool):
         vec(for List (index in 0..page_count): pages[index].valid & (pages[index].tag === page_tag(address)))
+      /* Advances the shared-page replacement cursor with wrap at the configured page count. */
       fun next_page(index :: Bits(page_index_bits)) :~ Bits(page_index_bits):
         mux(index === bits(page_count - 1, page_index_bits), bits(0, page_index_bits), index + bits(1, page_index_bits))
 

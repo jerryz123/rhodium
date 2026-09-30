@@ -1,5 +1,6 @@
 #lang rhodium
-// Sequences compute and memory beats from one registered descriptor with shared admission and replay ownership.
+/* Sequences compute and memory beats from one registered descriptor with shared admission and
+   replay ownership. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,6 +21,9 @@ import:
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
 
+/* Retains one descriptor and generates atomic read/resource schedules from registered progress.
+   Compute and ordinary precertified memory release at the tail read; serialized
+   schedules retain authorization checkpoints and restore only their rejected suffix. */
 sync_circuit RV5StageVectorSequencer(xlen :: XLen, vlen :: VectorLength, Context :: DataType, ~trace_isa: trace_isa :: maybe(String) = #false):
   def Address = Bits(index_width(VectorRegisterLayout(vlen, xlen.width).depth))
   def Count = Bits(index_width(vlen + 1))

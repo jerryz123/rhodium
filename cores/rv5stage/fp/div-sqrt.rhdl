@@ -1,5 +1,5 @@
 #lang rhodium
-// Holds variable-latency FP completion in the arithmetic lane until writeback accepts it.
+/* Holds variable-latency FP completion in the arithmetic lane until writeback accepts it. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,8 @@ import:
   lib("flow/demux.rhdl").demux_flow
   lib("flow/gate.rhdl").gate_flow
 
+/* Retains one divide or square-root owner until its result transfers, NaN-boxing the output.
+   HardFloat's terminal registers hold the data; this wrapper retains validity and tag. */
 sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile, format :: FloatFormat, Tag :: DataType):
   def flen = floating_point_register_width(profile)
   unless flen >= format.ieee_width
@@ -72,6 +74,7 @@ sync_circuit RV5StageFpDivSqrtLane(xlen :: XLen, profile :: FloatingPointProfile
   describe_interface_retained_storage(request.fire(), completion.fire(), busy, ~name: "arithmetic")
   describe_interface_contract(request, completion, "arithmetic", ~trace_model: interface_trace_retained(~name: "arithmetic"))
 
+/* Connects the F profile to one single-precision variable arithmetic lane. */
 sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Tag :: DataType):
   interface request(Decoupled(RV5StageFpExecutionRequest(
     xlen,
@@ -93,6 +96,8 @@ sync_circuit RV5StageFpDivSqrtF(xlen :: XLen, Tag :: DataType):
   request |> lane.request
   lane.completion |> completion
 
+/* Selects single or double arithmetic while permitting only one active request across both
+   lanes. */
 sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
   def Request = RV5StageFpExecutionRequest(xlen, FloatingPointProfile.D, Tag)
   def Completion = RV5StageFpExecutionResult(xlen, FloatingPointProfile.D, Tag)
@@ -132,6 +137,7 @@ sync_circuit RV5StageFpDivSqrtD(xlen :: XLen, Tag :: DataType):
   elsewhen (completion.fire()):
     active <== Bool(#false)
 
+/* Adds half-precision arithmetic to the F path with one shared outstanding owner. */
 sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.F
   def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)
@@ -161,6 +167,7 @@ sync_circuit RV5StageFpDivSqrtFHalf(xlen :: XLen, Tag :: DataType):
   elsewhen (completion.fire()):
     active <== Bool(#false)
 
+/* Adds half-precision arithmetic to the D path with one shared outstanding owner. */
 sync_circuit RV5StageFpDivSqrtDHalf(xlen :: XLen, Tag :: DataType):
   def profile = FloatingPointProfile.D
   def Request = RV5StageFpExecutionRequest(xlen, profile, Tag)

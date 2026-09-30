@@ -1,5 +1,6 @@
 #lang rhodium
-// Shares one PTE datapath and walk state machine for host Sv39 and nested VS/Sv39x4 translation.
+/* Shares one PTE datapath and walk state machine for host Sv39 and nested VS/Sv39x4
+   translation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,11 +12,15 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Distinguishes VS traversal, G translation of a VS PTE, and G translation of the final
+   address. */
 hardware_enum RV5StagePageWalkPhase:
   Virtual
   GuestPte
   GuestFinal
 
+/* Tracks one walk's address checks, PTE ownership, retained completion, and canceled-response
+   drain. */
 hardware_enum RV5StagePageWalkState:
   Idle
   CheckAddress
@@ -25,12 +30,15 @@ hardware_enum RV5StagePageWalkState:
   Complete
   Drain
 
+/* Retains one traversal level, table root, address, and accumulated global-mapping bit. */
 bundle RV5StagePageWalkFrame():
   address: Bits(64)
   table_ppn: Bits(44)
   level: Bits(2)
   global_mapping: Bool
 
+/* Walks host Sv39 or nested VS/Sv39x4 using one active frame and a saved VS continuation.
+   Cancellation suppresses completion but drains an already accepted PTE read. */
 sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   interface request(Decoupled(RV5StageTlbLookup()), ~role: consumer)
   interface completion(Irrevocable(RV5StageTlbMapping()), ~role: producer)
@@ -102,6 +110,7 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   def vs_pte = (memory.response.bits[6..64] ++ (frame.global_mapping ||| pte.global_mapping).into(Bits(1)) ++ memory.response.bits[0..5]).into(Sv39Pte())
   def g_pte = (memory.response.bits[6..64] ++ bits(0, 1) ++ memory.response.bits[0..5]).into(Sv39Pte())
 
+  /* Starts a three-level traversal at the selected root without inherited global permissions. */
   fun root_frame(address :: Bits(64), ppn :: Bits(44)) :~ RV5StagePageWalkFrame():
     RV5StagePageWalkFrame():
       address: address
@@ -109,6 +118,8 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
       level: bits(2, 2)
       global_mapping: Bool(#false)
 
+  /* Captures the original access, stage leaves, and explicit or implicit guest-fault
+     provenance. */
   fun outcome(fault :: RV5StageTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RV5StageTlbMapping():
     def details = RiscvGuestFault():
       guest_virtual_address: operation.virtualized
@@ -195,7 +206,7 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
   elsewhen (completion.fire()):
     state <== RV5StagePageWalkState.Idle
 
-// Shape-only adapter for existing host MMU callers. It owns no translation state.
+/* Adapts host-only request, completion, and PTE ports onto the shared translation walker. */
 sync_circuit RV5StagePageTableWalker(~svnapot: svnapot :: Boolean = #false):
   interface request(Decoupled(RV5StageTranslationRequest()), ~role: consumer)
   interface completion(Irrevocable(RV5StageTranslationResult()), ~role: producer)

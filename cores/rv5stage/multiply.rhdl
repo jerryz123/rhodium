@@ -1,5 +1,5 @@
 #lang rhodium
-// Aligns scalar multiply authorization with fixed execution or buffered iterative dispatch.
+/* Aligns scalar multiply authorization with fixed execution or buffered iterative dispatch. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,21 +11,26 @@ import:
   "../../riscv/isa/xlen.rhm" open
   lib("flow/main.rhdl") open
 
+/* Carries scalar multiply operands, result selection, and architectural destination. */
 bundle RV5StageMultiplyIssue(xlen :: XLen):
   left: Bits(xlen.width)
   right: Bits(xlen.width)
   control: RiscvMultiplyControl()
   rd: Bits(5)
 
+/* Returns the selected high, low, or sign-extended word product to its GPR destination. */
 bundle RV5StageMultiplyCompletion(xlen :: XLen):
   rd: Bits(5)
   value: Bits(xlen.width)
 
+/* Retains destination and result-selection metadata across arithmetic latency. */
 bundle RV5StageMultiplyTag():
   rd: Bits(5)
   high_result: Bool
   word_result: Bool
 
+/* Launches promised speculative EX work and discards returns without aligned WB authorization,
+   or queues already-authorized iterative work; selects the architectural product on return. */
 sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: Boolean = #false):
   def width = xlen.width
   def product_width = width * 2
@@ -88,6 +93,7 @@ sync_circuit RV5StageMultiplyScalar(xlen :: XLen, ~speculative: speculative :: B
     rd: execution_result.bits.tag.rd
     value: selected_result
 
+/* Composes an authorized scalar multiplier with elastic completion handling for standalone use. */
 sync_circuit RV5StageMultiplier(xlen :: XLen, kind :: RV5StageMultiplierKind):
   interface issue(Valid(RV5StageMultiplyIssue(xlen)), ~role: consumer)
   interface completion(Irrevocable(RV5StageMultiplyCompletion(xlen)), ~role: producer)

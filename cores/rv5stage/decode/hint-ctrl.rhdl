@@ -1,7 +1,9 @@
 #lang rhodium
-// Defines nonarchitectural execution hints separately from fences and system operations.
+/* Defines nonarchitectural execution hints separately from fences and system operations. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Separates bounded PAUSE cooldown and NTL locality intent from architectural fence/system
+   actions. */
 hardware_enum RV5StageHintOperation:
   None
   Pause

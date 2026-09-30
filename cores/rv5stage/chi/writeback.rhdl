@@ -1,5 +1,5 @@
 #lang rhodium
-// Returns one snoop-visible victim through a retryable full-line CHI copyback.
+/* Returns one snoop-visible victim through a retryable full-line CHI copyback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,14 +13,19 @@ import:
   lib("chi/protocol/messages.rhdl").chi_rn_copyback_data
   lib("chi/transactions/retryable-transaction.rhdl") open
 
+/* Captures the victim line/address and opaque caller context for full-line copyback. */
 bundle RV5StageLineWritebackCommand(Context :: DataType, address_width :: PosInt):
   line_address: Bits(address_width)
   line: Vec(RV5StageCacheLineBytes / 8, Bits(64))
   context: Context
 
+/* Returns the retained context after all copyback data packets are handed off. */
 bundle RV5StageLineWritebackResult(Context :: DataType):
   context: Context
 
+/* Retries WriteBackFull while the victim remains snoop-visible; freezes its latest state at
+   grant.
+   After CompDBIDResp, sends every line packet and retains completion until accepted. */
 sync_circuit RV5StageLineWriteback(Context :: DataType, address_width :: PosInt, config :: RiscvHartCHIConfig, txn_id :: Nat):
   def p = config.flit
   def packets = RV5StageCacheLineBytes / p.data_bytes

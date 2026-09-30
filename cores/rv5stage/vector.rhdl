@@ -1,5 +1,6 @@
 #lang rhodium
-// Queues nonspeculative vector descriptors and composes execution maturity with head-owned memory replay.
+/* Queues nonspeculative vector descriptors and composes execution maturity with head-owned
+   memory replay. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,6 +27,9 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
+/* Queues two WB-admitted descriptors and certifies only the head before execution dispatch.
+   Keeps page-window ownership, fault-certainty barriers, and registered architectural
+   outcomes separate from the older execution owner's retained requests and results. */
 sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_completion_slots: slots :: Pow2Int = 8, ~trace_isa: trace_isa :: maybe(String) = #false, ~multiply_latency: multiply_latency :: maybe(PosInt) = #false, ~fixed_fp: fixed_fp :: Boolean = #false, ~hypervisor: hypervisor :: Boolean = #false):
   def fp_profile = if xlen == XLen.X32 | FloatingPointProfile.F | FloatingPointProfile.D
   def Tag = Bits(index_width(slots))
@@ -118,10 +122,13 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   // LSU admission may depend on scalar requests. Register macro retirement so
   // its selection cannot feed scalar WB request formation in that same cycle.
   def final_outcome = access.outcome |> filter_valid(_event => !execution_certified)
+  /* Registers a macro outcome with its matching optional guest-fault provenance. */
   bundle Retirement():
     value: RV5StageVectorCommit(xlen, slots)
     if hypervisor:
       guest: RiscvGuestException()
+  /* Pairs an early certified or final faultable macro outcome with the appropriate guest
+     metadata. */
   fun retirement(value :: RV5StageVectorCommit(xlen, slots), early :: Boolean) :~ Retirement():
     if hypervisor
     | Retirement():

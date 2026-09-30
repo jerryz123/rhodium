@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes RV5Stage's scalar, optional-extension, floating-point, and system controls.
+/* Composes RV5Stage's scalar, optional-extension, floating-point, and system controls. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -58,6 +58,7 @@ import:
   "../../../riscv/rtl/instruction-pattern.rhdl" open
   lib("rhodium/std/decode.rhdl") open
 
+/* Combines independently owned decode columns into one scalar/FP/vector instruction control. */
 bundle RV5StageControl():
   guest_access: RiscvGuestMemoryAccess
   alu: AluControl()
@@ -93,8 +94,7 @@ def inactive_system_control = partial_pattern(RV5StageSystemControl()):
 def inactive_fence_control = pattern(RV5StageFenceControl()):
   action: RV5StageFenceOperation.None
 
-// Ordinary host code adds independently authored control columns to one row
-// per instruction. The selected ISA still elaborates to one decode table.
+/* Joins exact-one component rows by instruction pattern into one scalar decoder relation. */
 fun compose_control_cases(instructions :: List.of(InstructionSpec),
                           alu_cases :: List.of(DecodeCase),
                           operand_cases :: List.of(DecodeCase),
@@ -128,6 +128,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec),
           vector: NoVectorControl
       )
 
+/* Adds scalar address/register/memory columns to FP rows using canonical operand metadata. */
 fun floating_point_core_control_cases(instructions :: List.of(InstructionSpec),
                                       floating_point_cases :: List.of(DecodeCase)):
   for List (instruction in instructions):
@@ -202,6 +203,7 @@ def zicbop_operand_control = pattern(RV5StageOperandControl()):
   right: OperandBSelect.Immediate
   immediate: RV5StageImmediateSelect.Prefetch
 
+/* Maps the three prefetch catalog entries to instruction, read, or write intent. */
 fun zicbop_operation(instruction :: InstructionSpec):
   cond
   | instruction.name == zicbop.PREFETCH_I.name: CachePrefetchOperation.Instruction
@@ -229,7 +231,7 @@ def ZicbopCoreControlCases = for List (instruction in zicbop.ZicbopInstructions)
       vector: NoVectorControl
   )
 
-// Hint overlays preserve intent without introducing register use or architectural effects.
+/* Builds side-effect-free hint/fence overlays without GPR use or memory admission. */
 fun hint_control_case(instruction :: InstructionSpec, hint :: RV5StageHintOperation, ~fence: fence :: RV5StageFenceOperation = RV5StageFenceOperation.None):
   DecodeCase(
     instruction_pattern(instruction),
@@ -314,7 +316,7 @@ def HypervisorMemoryControlCases = for List ([instruction, store, memory_width, 
     vector: NoVectorControl
   DecodeCase(instruction_pattern(instruction), control)
 
-// Scalar effects for vector rows live only at this composition boundary.
+/* Adds scalar operand, configuration, memory-address, and scalar-result columns to vector rows. */
 fun vector_core_control_cases(instructions :: List.of(InstructionSpec),
                               vector_controls :: List.of(DecodeCase)):
   for List (instruction in instructions):
@@ -464,6 +466,8 @@ def RV32RV5StageInstructions = rv32.RV32IInstructions ++ RV32MInstructions ++ RV
 def RV64RV5StageInstructions = RV64IInstructions ++ RV64MInstructions ++ RV64AInstructions ++ RV64BInstructions ++ ZicondInstructions ++ (
   ZicsrInstructions ++ ZifenceiInstructions ++ ZimopInstructions ++ PrivilegedInstructions
 )
+/* Selects the scalar/privileged/FP catalog for XLEN and enabled options; vector rows compose
+   separately. */
 fun rv5stage_instructions(xlen :: XLen,
                           profile :: FloatingPointProfile,
                           half_precision :: HalfPrecisionProfile,
@@ -523,6 +527,8 @@ def RV64RV5StageControlDecode = ValidDecodeGen(RV64RV5StageControlCases)
 def RV32FCoreControlDecode = ValidDecodeGen(RV32FCoreControlCases)
 def RV64DCoreControlDecode = ValidDecodeGen(RV64DCoreControlCases)
 
+/* Elaborates one combined decode table, refining base hints before adding selected
+   FP/vector/guest rows. */
 circuit RV5StageInstructionDecoder(
   xlen :: XLen,
   profile :: FloatingPointProfile = DefaultFloatingPointProfile,
