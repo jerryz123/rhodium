@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines reusable directed and bidirectional line topology families.
+/* Defines reusable directed and bidirectional line topology families. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,15 +12,19 @@ export:
   directed_line
   bidirectional_line
 
+/* Creates the canonical symbolic router name at a line position. */
 fun line_node(index :: Nat):
   NodeRef("node[" ++ to_string(index) ++ "]")
 
+/* Creates the canonical edge name from a position to its successor. */
 fun line_forward_link(index :: Nat):
   LinkRef("forward[" ++ to_string(index) ++ "]")
 
+/* Creates the canonical edge name from a successor back to a position. */
 fun line_reverse_link(index :: Nat):
   LinkRef("reverse[" ++ to_string(index) ++ "]")
 
+/* Rejects repeated VC-group names before generating line declarations. */
 fun require_line_arguments(who :: Symbol,
                            node_count :: PosInt,
                            vc_groups :: NonemptyList.of(VCGroup)):
@@ -30,6 +34,7 @@ fun require_line_arguments(who :: Symbol,
     ).length() > 1
     | error(~who: who, "duplicate VC group " ++ group.name)
 
+/* Generates increasing-index directed edges with explicit VC groups and no terminal attachments. */
 fun directed_line(node_count :: PosInt,
                   vc_groups :: NonemptyList.of(VCGroup)):
   require_line_arguments(#'directed_line, node_count, vc_groups)
@@ -41,6 +46,7 @@ fun directed_line(node_count :: PosInt,
                   vc_groups)
   TopologySpec(nodes, links)
 
+/* Generates independent forward/reverse edges with explicit VC groups and no terminal attachments. */
 fun bidirectional_line(node_count :: PosInt,
                        vc_groups :: NonemptyList.of(VCGroup)):
   require_line_arguments(#'bidirectional_line, node_count, vc_groups)

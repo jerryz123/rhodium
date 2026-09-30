@@ -1,5 +1,5 @@
 #lang rhombus
-// Compiles orthogonal topology, terminal, flow, and routing inputs into a validated network plan.
+/* Compiles orthogonal topology, terminal, flow, and routing inputs into a validated network plan. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ export:
   NetworkCompilation
   compile_network
 
+/* Retains independent authoring inputs, lowering provenance, validation, and network assignments. */
 class NetworkCompilation(topology :: TopologySpec,
                          terminal_placement :: TerminalPlacement,
                          route_specs :: NonemptyList.of(RouteClassSpec),
@@ -26,26 +27,35 @@ class NetworkCompilation(topology :: TopologySpec,
                          network_plan :: NetworkPlan):
   opaque
   internal _NetworkCompilation
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Resolves a symbolic router through the compilation's exact topology lowering. */
   method router_id(ref :: NodeRef) :: NodeId:
     lowered_topology.node_id(ref)
 
+  /* Resolves a symbolic injection attachment to its normalized terminal. */
   method injection_terminal(ref :: InjectionRef) :: InjectionTerminal:
     lowered_topology.injection_terminal(ref)
 
+  /* Resolves a symbolic ejection attachment to its normalized terminal. */
   method ejection_terminal(ref :: EjectionRef) :: EjectionTerminal:
     lowered_topology.ejection_terminal(ref)
 
+  /* Returns the network input assignment for a symbolic injection. */
   method injection_port(ref :: InjectionRef) :: NetworkInjectionPort:
     network_plan.injection_port(injection_terminal(ref).id)
 
+  /* Returns the network target assignment for a symbolic ejection. */
   method ejection_port(ref :: EjectionRef) :: NetworkEjectionPort:
     network_plan.ejection_port(ejection_terminal(ref).id)
 
+  /* Returns the validated local plan for a symbolic router. */
   method router_plan(ref :: NodeRef) :: RouterPlan:
     network_plan.router_plan(router_id(ref))
 
+/* Attaches terminals, lowers routes, validates policy, and reports authored failures before
+   planning. */
 fun compile_network(topology :: TopologySpec,
                     terminal_placement :: TerminalPlacement,
                     route_specs :: NonemptyList.of(RouteClassSpec),

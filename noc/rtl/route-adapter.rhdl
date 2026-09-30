@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements protocol-neutral ready-valid attachment and removal of NoC route metadata.
+/* Implements protocol-neutral ready-valid attachment and removal of NoC route metadata. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,8 @@ export:
   RoutedFlowEjector
   bind_routed_flow_ejector
 
+/* Gates input transfers on route validity and wraps the supplied payload with its compiled route
+   key. */
 circuit RoutedFlowInjector(Input :: DataType,
                            Payload :: DataType,
                            route_width :: PosInt):
@@ -27,13 +29,14 @@ circuit RoutedFlowInjector(Input :: DataType,
         payload: payload
   ) |> egress
 
+/* Removes the route envelope combinationally while propagating ready/valid backpressure. */
 circuit RoutedFlowEjector(Payload :: DataType, route_width :: PosInt):
   interface ingress(Decoupled(RoutedBeat(Payload, route_width)), ~role: consumer)
   interface egress(Decoupled(Payload), ~role: producer)
 
   ingress |> map_flow(routed => routed.payload) |> egress
 
-// Binds existing endpoints through one envelope-removal stage; identity checks stay protocol-owned.
+/* Binds existing endpoints through envelope removal; buffering and identity checks remain outside. */
 fun bind_routed_flow_ejector(Payload :: DataType,
                              route_width :: PosInt,
                              ingress :: Endpoint,

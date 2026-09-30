@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines an asymmetric fork-merge network used to exercise uniform router families.
+/* Defines an asymmetric fork-merge network used to exercise uniform router families. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -36,9 +36,11 @@ def route_a = RouteClass(RouteClassId(0), source_a, destination)
 def route_b = RouteClass(RouteClassId(1), source_b, destination)
 def route_local = RouteClass(RouteClassId(2), hub, hub)
 
+/* Tests whether a logical VC belongs to the selected physical edge. */
 fun on_link(vc :: VCId, link :: PhysicalLink):
   link_id_equal(vc.link_id, link.id)
 
+/* Routes each source through the hub to the destination; the hub-local route ejects automatically. */
 fun allows(route_class :: RouteClass,
            origin :: Injection || HeldVC,
            candidate :: VCId):

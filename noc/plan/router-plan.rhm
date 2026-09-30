@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects one validated network into deterministic router-local route encodings.
+/* Projects one validated network into deterministic router-local route encodings. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ export:
   RouterPlanRow
   RouterPlan
 
+/* Compares origin kind and normalized terminal or VC identity. */
 fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
   cond
   | left is_a Injection && right is_a Injection:
@@ -19,6 +20,7 @@ fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
       vc_id_equal(left.vc, right.vc)
   | ~else: #false
 
+/* Returns the last predicate-matching position, or false when no item matches. */
 fun list_index(items :: List, predicate :: Function.of_arity(1)):
   def mutable found = #false
   for (item in items, index in 0..items.length()):
@@ -26,24 +28,28 @@ fun list_index(items :: List, predicate :: Function.of_arity(1)):
     | found := index
   found
 
+/* Enumerates incoming link VCs in stable physical-link and local-index order. */
 fun incoming_vcs(topology :: Topology, node :: NodeId):
   def mutable vcs = []
   for (link in topology.incoming_links(node)):
     vcs := vcs ++ link.virtual_channels()
   vcs
 
+/* Selects the validated injection terminals attached to one router. */
 fun injection_terminals_at(validated_routing :: ValidatedRouting,
                            node :: NodeId):
   validated_routing.injection_terminals.filter(
     ~keep: fun (terminal): node_id_equal(terminal.router, node)
   )
 
+/* Selects the validated ejection terminals attached to one router. */
 fun ejection_terminals_at(validated_routing :: ValidatedRouting,
                           node :: NodeId):
   validated_routing.ejection_terminals.filter(
     ~keep: fun (terminal): node_id_equal(terminal.router, node)
   )
 
+/* Returns the global dense key of an exact owned route object. */
 fun require_route_key(route_classes :: List.of(RouteClass),
                       route_class :: RouteClass):
   def found = list_index(
@@ -55,6 +61,7 @@ fun require_route_key(route_classes :: List.of(RouteClass),
           "route class does not belong to this router plan")
   found
 
+/* Validates the origin kind and returns its dense router-local key. */
 fun require_origin_key(origins :: List.of(Injection || HeldVC),
                        origin :~ Injection || HeldVC):
   unless origin is_a Injection || origin is_a HeldVC
@@ -68,6 +75,7 @@ fun require_origin_key(origins :: List.of(Injection || HeldVC),
   | error(~who: #'RouterPlan, "origin does not belong to this router plan")
   found
 
+/* Compares targets by kind and normalized VC or ejection identity. */
 fun target_equal(left :: VCId || EjectionTerminal,
                  right :~ VCId || EjectionTerminal):
   cond
@@ -76,6 +84,7 @@ fun target_equal(left :: VCId || EjectionTerminal,
       ejection_id_equal(left.id, right.id)
   | ~else: #false
 
+/* Returns the dense router-local target position or reports a foreign target. */
 fun require_target_bit(targets :: List.of(VCId || EjectionTerminal),
                        target :~ VCId || EjectionTerminal):
   def found = list_index(
@@ -86,6 +95,7 @@ fun require_target_bit(targets :: List.of(VCId || EjectionTerminal),
   | error(~who: #'RouterPlan, "target does not belong to this router plan")
   found
 
+/* Retains validated row provenance and encoded route, origin, legal-target, and fallback fields. */
 class RouterPlanRow(route_row :: RouteTableRow,
                     route_key :: Nat,
                     origin_key :: Nat,
@@ -93,19 +103,23 @@ class RouterPlanRow(route_row :: RouteTableRow,
                     fallback_mask :: Nat):
   opaque
   internal _RouterPlanRow
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the validated decision and its local decode encodings. */
   method describe():
     String.append(route_row.describe(), "; route-key=", to_string(route_key),
                   "; origin-key=", to_string(origin_key),
                   "; target-mask=", to_string(target_mask),
                   "; fallback-mask=", to_string(fallback_mask))
 
+/* Classifies every acyclic target, or only certified escape VCs, as fallback. */
 fun fallback_vc(validated_routing :: ValidatedRouting, vc :: VCId):
   if validated_routing.certificate is_a EscapeCertificate
   | validated_routing.certificate.request.contains(vc)
   | #true
 
+/* Encodes stored VC choices and exact ejection, deriving fallback from the selected certificate. */
 fun make_plan_row(validated_routing :: ValidatedRouting,
                   route_classes :: List.of(RouteClass),
                   origins :: List.of(Injection || HeldVC),
@@ -132,6 +146,7 @@ fun make_plan_row(validated_routing :: ValidatedRouting,
                  target_mask,
                  fallback_mask)
 
+/* Projects global route keys into router-local injection/held origins and VC/ejection targets. */
 class RouterPlan(validated_routing :: ValidatedRouting,
                  node :: NodeId,
                  route_classes :: NonemptyList.of(RouteClass),
@@ -141,6 +156,7 @@ class RouterPlan(validated_routing :: ValidatedRouting,
                  output_vcs :: List.of(VCId),
                  targets :: List.of(VCId || EjectionTerminal),
                  rows :: List.of(RouterPlanRow)):
+  /* Validates the router and projects only its certified rows without repeating routing analysis. */
   constructor (validated_routing :: ValidatedRouting, node :: NodeId):
     unless validated_routing.topology.contains_node(node)
     | error(~who: #'RouterPlan, "router node does not belong to the topology")
@@ -174,15 +190,19 @@ class RouterPlan(validated_routing :: ValidatedRouting,
           targets,
           rows)
 
+  /* Returns the global route encoding shared by every router in this validated network. */
   method route_key(route_class :: RouteClass):
     require_route_key(route_classes, route_class)
 
+  /* Returns the router-local input encoding for injection or a held VC. */
   method origin_key(origin :~ Injection || HeldVC):
     require_origin_key(origins, origin)
 
+  /* Returns the router-local target-mask position for a VC or ejection terminal. */
   method target_bit(target :~ VCId || EjectionTerminal):
     require_target_bit(targets, target)
 
+  /* Finds a certified local row after validating route and origin ownership. */
   method row(route_class :: RouteClass, origin :: Injection || HeldVC):
     def encoded_route = route_key(route_class)
     def encoded_origin = origin_key(origin)
@@ -196,6 +216,7 @@ class RouterPlan(validated_routing :: ValidatedRouting,
     | error(~who: #'RouterPlan, "unknown local route row")
     found
 
+  /* Summarizes the local port shape and route-row count. */
   method describe():
     String.append("router plan ", node.describe(),
                   ": routes=", to_string(route_classes.length()),

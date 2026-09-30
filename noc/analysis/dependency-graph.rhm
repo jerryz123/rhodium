@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects reachable held-VC transitions into a deterministic dependency graph with provenance.
+/* Projects reachable held-VC transitions into a deterministic dependency graph with provenance. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,21 +12,26 @@ export:
   VCDependencyGraph
   build_dependency_graph
 
+/* Appends a VC only when its normalized identity is not already present. */
 fun append_unique_vc(vcs :: List.of(VCId), vc :: VCId):
   if vcs.find(fun (candidate): vc_id_equal(candidate, vc))
   | vcs
   | vcs ++ [vc]
 
+/* Tests VC membership by normalized identity. */
 fun contains_vc(vcs :: List.of(VCId), vc :: VCId):
   vcs.find(fun (candidate): vc_id_equal(candidate, vc)) != #false
 
+/* Retains a held-to-requested VC edge and all reachable decisions contributing to it. */
 class VCDependencyEdge(source_vc :: VCId,
                        target_vc :: VCId,
                        decisions :: NonemptyList.of(MaterializedDecision)):
   opaque
   internal _VCDependencyEdge
+  /* Keeps dependency-edge construction within the graph projection module. */
   constructor ~none
 
+  /* Deduplicates contributing route objects in provenance order. */
   method route_classes():
     def mutable route_classes = []
     for (decision in decisions):
@@ -36,6 +41,7 @@ class VCDependencyEdge(source_vc :: VCId,
       | route_classes := route_classes ++ [decision.route_class]
     route_classes
 
+  /* Formats both resources and the routes contributing this dependency. */
   method describe():
     def route_names = route_classes().map(
       fun (route_class): route_class.id.describe()
@@ -43,31 +49,38 @@ class VCDependencyEdge(source_vc :: VCId,
     String.append(source_vc.describe(), " -> ", target_vc.describe(), " [",
                   String.join(route_names, ", "), "]")
 
+/* Matches a dependency by its source and target VC identities. */
 fun edge_matches(edge :: VCDependencyEdge, source_vc :: VCId, target_vc :: VCId):
   vc_id_equal(edge.source_vc, source_vc) && vc_id_equal(edge.target_vc, target_vc)
 
+/* Orders edges by source VC, then target VC. */
 fun edge_less(left :: VCDependencyEdge, right :: VCDependencyEdge):
   if vc_id_equal(left.source_vc, right.source_vc)
   | vc_id_less(left.target_vc, right.target_vc)
   | vc_id_less(left.source_vc, right.source_vc)
 
+/* Stores a deterministic resource graph linked to its original reachability evidence. */
 class VCDependencyGraph(reachable :: ReachableRouting,
                         vertices :: List.of(VCId),
                         edges :: List.of(VCDependencyEdge)):
   opaque
   internal _VCDependencyGraph
+  /* Restricts graph construction to certified reachability projection in this module. */
   constructor ~none
 
+  /* Tests whether a VC belongs to this dependency graph. */
   method contains_vertex(vc :: VCId):
     vertices.find(
       fun (candidate): vc_id_equal(candidate, vc)
     ) != #false
 
+  /* Reports attempts to query a VC absent from the graph. */
   private method require_vertex(vc :: VCId):
     unless contains_vertex(vc)
     | error(~who: #'VCDependencyGraph,
             "VC is not a dependency-graph vertex: " ++ vc.describe())
 
+  /* Resolves a directed dependency after validating both resource vertices. */
   method find_edge(source_vc :: VCId, target_vc :: VCId):
     require_vertex(source_vc)
     require_vertex(target_vc)
@@ -80,18 +93,21 @@ class VCDependencyGraph(reachable :: ReachableRouting,
                           " -> ", target_vc.describe()))
     found
 
+  /* Returns dependencies requesting another resource while holding the selected VC. */
   method outgoing_edges(vc :: VCId):
     require_vertex(vc)
     edges.filter(
       ~keep: fun (edge): vc_id_equal(edge.source_vc, vc)
     )
 
+  /* Returns dependencies whose requested resource is the selected VC. */
   method incoming_edges(vc :: VCId):
     require_vertex(vc)
     edges.filter(
       ~keep: fun (edge): vc_id_equal(edge.target_vc, vc)
     )
 
+  /* Builds an induced graph over unique known vertices while preserving provenance. */
   method project(selected_vertices :: List.of(VCId)):
     for (vc in selected_vertices):
       unless contains_vertex(vc)
@@ -111,9 +127,11 @@ class VCDependencyGraph(reachable :: ReachableRouting,
     )
     _VCDependencyGraph(reachable, sorted_vertices, projected_edges)
 
+  /* Lists dependencies in stable source/target order. */
   method describe():
     String.join(edges.map(fun (edge): edge.describe()), "\n")
 
+/* Merges a repeated resource edge while retaining every contributing materialized decision. */
 fun add_dependency(edges :: List.of(VCDependencyEdge),
                    decision :: MaterializedDecision):
   def source_vc = decision.origin.vc
@@ -131,6 +149,7 @@ fun add_dependency(edges :: List.of(VCDependencyEdge),
     )
   | edges ++ [_VCDependencyEdge(source_vc, target_vc, [decision])]
 
+/* Projects reachable held-VC acquisitions; injection and ejection add no held-resource edges. */
 fun build_dependency_graph(reachable :: ReachableRouting):
   def mutable vertices = []
   def mutable edges = []

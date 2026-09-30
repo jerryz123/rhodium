@@ -1,5 +1,5 @@
 #lang rhombus
-// Contrasts adaptive-cycle rejection with explicit escape-certified mesh routing.
+/* Contrasts adaptive-cycle rejection with explicit escape-certified mesh routing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

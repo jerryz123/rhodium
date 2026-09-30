@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines inspectable dimension-order routing policies for rectangular meshes.
+/* Defines inspectable dimension-order routing policies for rectangular meshes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,14 +12,17 @@ export:
   xy_dimension_order
   yx_dimension_order
 
+/* Accepts exactly x-then-y or y-then-x dimension order. */
 fun valid_dimension_order(dimensions :: List.of(String)):
   dimensions.length() == 2 && (
     dimensions == ["x", "y"] || dimensions == ["y", "x"]
   )
 
+/* Detects repeated names in a VC-group selection. */
 fun duplicate_name(names :: List, name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Validates an optional nonempty unique group selection against the mesh view. */
 fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: maybe(List)):
   unless !vc_groups || (vc_groups is_a List && vc_groups.length() > 0)
   | error(~who: #'dimension_order,
@@ -36,6 +39,7 @@ fun validate_vc_groups(mesh :: RectangularMesh, vc_groups :: maybe(List)):
       | error(~who: #'dimension_order,
               "mesh has no VC group " ++ name)
 
+/* Tests whether the current and destination coordinates differ on the selected axis. */
 fun coordinate_differs(axis :: String,
                        current :: MeshCoordinate,
                        destination :: MeshCoordinate):
@@ -43,6 +47,7 @@ fun coordinate_differs(axis :: String,
   | current.x != destination.x
   | current.y != destination.y
 
+/* Chooses the signed direction toward the destination on an active axis. */
 fun direction_toward(axis :: String,
                      current :: MeshCoordinate,
                      destination :: MeshCoordinate):
@@ -52,10 +57,12 @@ fun direction_toward(axis :: String,
   | current.y < destination.y: mesh_north
   | ~else: mesh_south
 
+/* Consumes displacement in explicit axis order with an optional candidate VC-group restriction. */
 class DimensionOrderPolicy(mesh :: RectangularMesh,
                            dimensions :: List.of(String),
                            vc_groups :: maybe(NonemptyList.of(String))):
   implements RoutingPolicy
+  /* Validates the two-axis order and canonicalizes any selected VC groups. */
   constructor (mesh :: RectangularMesh,
                dimensions :: List.of(String),
                vc_groups :: maybe(List) = #false):
@@ -69,6 +76,7 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
            | #false
            | vc_groups.sort(fun (left, right): left < right)))
 
+  /* Matches the candidate direction to the first unfinished dimension and selected groups. */
   override method allows(context :: RoutingContext):
     def current = mesh.coordinate_of(context.current_node)
     def destination = mesh.coordinate_of(context.destination_router)
@@ -89,9 +97,11 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
         ) != #false
         mesh_direction_equal(required_direction, candidate_direction) && group_allowed
 
+  /* Returns the dimension-order decision without matched-rule labels. */
   override method evaluate(context :: RoutingContext):
     RoutingPolicyEvaluation(allows(context), [])
 
+  /* Formats the axis order and selected groups, or the unrestricted selection. */
   override method describe():
     def group_description:
       if !vc_groups
@@ -100,15 +110,18 @@ class DimensionOrderPolicy(mesh :: RectangularMesh,
     String.append("dimension-order(", String.join(dimensions, ","),
                   "; vc-groups=", group_description, ")")
 
+/* Constructs an inspectable dimension-order policy for the supplied mesh. */
 fun dimension_order(mesh :: RectangularMesh,
                     dimensions :: List.of(String),
                     ~vc_groups: vc_groups :: maybe(List) = #false):
   DimensionOrderPolicy(mesh, dimensions, vc_groups)
 
+/* Selects x displacement before y displacement. */
 fun xy_dimension_order(mesh :: RectangularMesh,
                        ~vc_groups: vc_groups :: maybe(List) = #false):
   dimension_order(mesh, ["x", "y"], ~vc_groups: vc_groups)
 
+/* Selects y displacement before x displacement. */
 fun yx_dimension_order(mesh :: RectangularMesh,
                        ~vc_groups: vc_groups :: maybe(List) = #false):
   dimension_order(mesh, ["y", "x"], ~vc_groups: vc_groups)

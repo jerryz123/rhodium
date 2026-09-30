@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines immutable symbolic topology specifications before numeric model identities are assigned.
+/* Defines immutable symbolic topology specifications before numeric model identities are assigned. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,41 +12,52 @@ export:
   TopologyLink
   TopologySpec
 
+/* Declares a symbolic injection terminal and its router attachment. */
 class InjectionTerminalSpec(ref :: InjectionRef, router :: NodeRef):
 
+  /* Formats the injection name and attached router. */
   method describe():
     "inject " ++ ref.describe() ++ " @ " ++ router.describe()
 
+/* Declares a symbolic ejection terminal and its router attachment. */
 class EjectionTerminalSpec(ref :: EjectionRef, router :: NodeRef):
 
+  /* Formats the ejection name and attached router. */
   method describe():
     "eject " ++ ref.describe() ++ " @ " ++ router.describe()
 
+/* Tests router membership by hierarchical name. */
 fun contains_node_ref(nodes :: List.of(NodeRef), ref :: NodeRef):
   nodes.find(fun (candidate): node_ref_equal(candidate, ref)) != #false
 
+/* Detects repeated router names. */
 fun duplicate_node_ref(nodes :: List.of(NodeRef), ref :: NodeRef):
   nodes.filter(~keep: fun (candidate): node_ref_equal(candidate, ref)).length() > 1
 
+/* Detects repeated injection terminal names. */
 fun duplicate_injection_ref(terminals :: List.of(InjectionTerminalSpec),
                             ref :: InjectionRef):
   terminals.filter(
     ~keep: fun (candidate): injection_ref_equal(candidate.ref, ref)
   ).length() > 1
 
+/* Detects repeated ejection terminal names. */
 fun duplicate_ejection_ref(terminals :: List.of(EjectionTerminalSpec),
                            ref :: EjectionRef):
   terminals.filter(
     ~keep: fun (candidate): ejection_ref_equal(candidate.ref, ref)
   ).length() > 1
 
+/* Detects repeated VC-group names on a link. */
 fun duplicate_vc_group(groups :: List.of(VCGroup), name :: String):
   groups.filter(~keep: fun (candidate): candidate.name == name).length() > 1
 
+/* Declares a directed symbolic edge with deterministically ordered VC groups. */
 class TopologyLink(ref :: LinkRef,
                    source :: NodeRef,
                    destination :: NodeRef,
                    vc_groups :: NonemptyList.of(VCGroup)):
+  /* Rejects duplicate VC-group names and sorts groups lexically. */
   constructor (ref :: LinkRef,
                source :: NodeRef,
                destination :: NodeRef,
@@ -61,12 +72,14 @@ class TopologyLink(ref :: LinkRef,
           destination,
           vc_groups.sort(vc_group_less))
 
+  /* Totals the positive VC counts across the link's named groups. */
   method vc_count():
     def mutable count = 0
     for (group in vc_groups):
       count := count + group.count
     count
 
+  /* Enumerates symbolic VCs in group-name, then group-local index order. */
   method virtual_channels():
     def mutable vcs = []
     for (group in vc_groups):
@@ -74,6 +87,7 @@ class TopologyLink(ref :: LinkRef,
         vcs := vcs ++ [VCRef(ref, group.name, index)]
     vcs
 
+  /* Resolves a declared VC group or reports a missing group. */
   method find_vc_group(name :: String):
     def found = vc_groups.find(fun (group): group.name == name)
     unless found
@@ -82,19 +96,23 @@ class TopologyLink(ref :: LinkRef,
                           " has no VC group ", name))
     found
 
+  /* Formats the edge name, endpoint names, and VC-group declarations. */
   method describe():
     String.append(ref.describe(), ": ", source.describe(), " -> ",
                   destination.describe(), " (",
                   String.join(vc_groups.map(fun (group): group.describe()), ", "),
                   ")")
 
+/* Detects repeated directed-link names. */
 fun duplicate_link_ref(links :: List.of(TopologyLink), ref :: LinkRef):
   links.filter(~keep: fun (candidate): link_ref_equal(candidate.ref, ref)).length() > 1
 
+/* Stores validated symbolic physical topology and independently named local terminals. */
 class TopologySpec(nodes :: NonemptyList.of(NodeRef),
                    links :: List.of(TopologyLink),
                    injections :: List.of(InjectionTerminalSpec),
                    ejections :: List.of(EjectionTerminalSpec)):
+  /* Checks duplicate names and router attachments, then canonicalizes declaration order. */
   constructor (nodes :: NonemptyList.of(NodeRef),
                links :: List.of(TopologyLink),
                ~injections: injections :: List.of(InjectionTerminalSpec) = [],
@@ -143,31 +161,35 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
             fun (left, right): ejection_ref_less(left.ref, right.ref)
           ))
 
+  /* Revalidates all declarations when rebuilding a specification with changed fields. */
   reconstructor (nodes, links, injections, ejections):
     TopologySpec(nodes, links, ~injections: injections, ~ejections: ejections)
 
+  /* Resolves a router reference or reports an unknown router name. */
   method find_node(ref :: NodeRef):
     def found = nodes.find(fun (node): node_ref_equal(node, ref))
     unless found
     | error(~who: #'find_node, "unknown node " ++ ref.describe())
     found
 
-  // These name-oriented lookups are useful to ordinary builder clients and
-  // keep embedded syntax from needing to leak macro-generated bindings.
+  /* Normalizes a user-facing name and returns its declared router reference. */
   method node(path :: NamePath || NodeRef || NonemptyString || NonemptyList.of(NonemptyString)):
     find_node(if path is_a NodeRef | path | NodeRef(path))
 
+  /* Resolves a directed-link reference to its complete declaration. */
   method find_link(ref :: LinkRef):
     def found = links.find(fun (link): link_ref_equal(link.ref, ref))
     unless found
     | error(~who: #'find_link, "unknown link " ++ ref.describe())
     found
 
+  /* Validates a user-facing link name and returns its reference. */
   method link(path :: NamePath || LinkRef || NonemptyString || NonemptyList.of(NonemptyString)):
     def ref = if path is_a LinkRef | path | LinkRef(path)
     find_link(ref)
     ref
 
+  /* Resolves an injection reference to its terminal attachment. */
   method find_injection(ref :: InjectionRef):
     def found = injections.find(
       fun (terminal): injection_ref_equal(terminal.ref, ref)
@@ -177,11 +199,13 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
             "unknown injection terminal " ++ ref.describe())
     found
 
+  /* Validates a user-facing injection name and returns its reference. */
   method injection(path :: NamePath || InjectionRef || NonemptyString || NonemptyList.of(NonemptyString)):
     def ref = if path is_a InjectionRef | path | InjectionRef(path)
     find_injection(ref)
     ref
 
+  /* Resolves an ejection reference to its terminal attachment. */
   method find_ejection(ref :: EjectionRef):
     def found = ejections.find(
       fun (terminal): ejection_ref_equal(terminal.ref, ref)
@@ -191,11 +215,13 @@ class TopologySpec(nodes :: NonemptyList.of(NodeRef),
             "unknown ejection terminal " ++ ref.describe())
     found
 
+  /* Validates a user-facing ejection name and returns its reference. */
   method ejection(path :: NamePath || EjectionRef || NonemptyString || NonemptyList.of(NonemptyString)):
     def ref = if path is_a EjectionRef | path | EjectionRef(path)
     find_ejection(ref)
     ref
 
+  /* Lists terminal attachments and directed links in canonical declaration order. */
   method describe():
     String.join(
       injections.map(fun (terminal): terminal.describe()) ++ (

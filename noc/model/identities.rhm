@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines nominal and deterministically ordered identities for pure NoC graph objects.
+/* Defines nominal and deterministically ordered identities for pure NoC graph objects. */
 // SPDX-License-Identifier: Apache-2.0
 
 export:
@@ -22,70 +22,94 @@ export:
   vc_id_less
   route_class_id_less
 
+/* Identifies one router with a nonnegative model index. */
 class NodeId(value :: Nat):
 
+  /* Formats the router identity for diagnostics. */
   method describe():
     "n" ++ to_string(value)
 
+/* Identifies an injection terminal independently of its router. */
 class InjectionId(value :: Nat):
 
+  /* Formats the injection terminal identity for diagnostics. */
   method describe():
     "i" ++ to_string(value)
 
+/* Identifies an ejection terminal independently of its router. */
 class EjectionId(value :: Nat):
 
+  /* Formats the ejection terminal identity for diagnostics. */
   method describe():
     "e" ++ to_string(value)
 
+/* Identifies one directed physical edge, including parallel edges. */
 class LinkId(value :: Nat):
 
+  /* Formats the physical link identity for diagnostics. */
   method describe():
     "l" ++ to_string(value)
 
+/* Identifies a link-local VC by physical link and zero-based index. */
 class VCId(link_id :: LinkId, index :: Nat):
 
+  /* Formats a VC as its physical-link identity and local index. */
   method describe():
     link_id.describe() ++ ".vc" ++ to_string(index)
 
+/* Identifies one independently routed source/destination class. */
 class RouteClassId(value :: Nat):
 
+  /* Formats the route class identity for diagnostics. */
   method describe():
     "r" ++ to_string(value)
 
+/* Compares router identities by their numeric indices. */
 fun node_id_equal(left :: NodeId, right :: NodeId):
   left.value == right.value
 
+/* Compares injection terminal identities by their numeric indices. */
 fun injection_id_equal(left :: InjectionId, right :: InjectionId):
   left.value == right.value
 
+/* Compares ejection terminal identities by their numeric indices. */
 fun ejection_id_equal(left :: EjectionId, right :: EjectionId):
   left.value == right.value
 
+/* Compares physical link identities by their numeric indices. */
 fun link_id_equal(left :: LinkId, right :: LinkId):
   left.value == right.value
 
+/* Compares both the physical-link identity and local VC index. */
 fun vc_id_equal(left :: VCId, right :: VCId):
   link_id_equal(left.link_id, right.link_id) && left.index == right.index
 
+/* Compares route class identities by their numeric indices. */
 fun route_class_id_equal(left :: RouteClassId, right :: RouteClassId):
   left.value == right.value
 
+/* Orders router identities by increasing numeric index. */
 fun node_id_less(left :: NodeId, right :: NodeId):
   left.value < right.value
 
+/* Orders injection terminal identities by increasing numeric index. */
 fun injection_id_less(left :: InjectionId, right :: InjectionId):
   left.value < right.value
 
+/* Orders ejection terminal identities by increasing numeric index. */
 fun ejection_id_less(left :: EjectionId, right :: EjectionId):
   left.value < right.value
 
+/* Orders physical link identities by increasing numeric index. */
 fun link_id_less(left :: LinkId, right :: LinkId):
   left.value < right.value
 
+/* Orders VCs by physical-link identity, then local VC index. */
 fun vc_id_less(left :: VCId, right :: VCId):
   if link_id_equal(left.link_id, right.link_id)
   | left.index < right.index
   | link_id_less(left.link_id, right.link_id)
 
+/* Orders route class identities by increasing numeric index. */
 fun route_class_id_less(left :: RouteClassId, right :: RouteClassId):
   left.value < right.value

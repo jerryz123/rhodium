@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds deterministic route tables and the opaque artifact gated by all NoC validation passes.
+/* Builds deterministic route tables and the opaque artifact gated by all NoC validation passes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +17,7 @@ export:
 def acyclic_validator_version = "vc-dependency-acyclic/v1"
 def escape_validator_version = "vc-escape-subnetwork/v1"
 
+/* Compares normalized origins by kind and terminal or VC identity. */
 fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
   cond
   | left is_a Injection && right is_a Injection:
@@ -25,6 +26,7 @@ fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
       vc_id_equal(left.vc, right.vc)
   | ~else: #false
 
+/* Resolves the current router from an injection or held physical link. */
 fun origin_node(materialized :: MaterializedRouting,
                 origin :: Injection || HeldVC):
   cond
@@ -32,6 +34,7 @@ fun origin_node(materialized :: MaterializedRouting,
   | origin is_a HeldVC:
       materialized.topology.find_vc_link(origin.vc).destination
 
+/* Stores one reachable route/origin decision or its exact destination ejection. */
 class RouteTableRow(route_class :: RouteClass,
                     origin :: Injection || HeldVC,
                     router_node :: NodeId,
@@ -39,13 +42,16 @@ class RouteTableRow(route_class :: RouteClass,
                     ejection_terminal :: maybe(EjectionTerminal)):
   opaque
   internal _RouteTableRow
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Tests membership in this row's stored allowed VC list. */
   method allows(vc :: VCId):
     allowed_vcs.find(
       fun (candidate): vc_id_equal(candidate, vc)
     ) != #false
 
+  /* Formats the route/origin attachment and its forwarding or ejection action. */
   method describe():
     def action:
       if ejection_terminal
@@ -56,18 +62,22 @@ class RouteTableRow(route_class :: RouteClass,
     String.append(route_class.id.describe(), " ", origin.describe(), " @ ",
                   router_node.describe(), ": ", action)
 
+/* Stores reachable routing rows derived only from the validated immutable snapshot. */
 class RouteTable(topology :: Topology,
                  route_classes :: NonemptyList.of(RouteClass),
                  rows :: List.of(RouteTableRow)):
   opaque
   internal _RouteTable
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Checks exact route-object ownership by this table. */
   method contains_route_class(route_class :: RouteClass):
     route_classes.find(
       fun (candidate): candidate === route_class
     ) != #false
 
+  /* Resolves a stored route/origin row and rejects foreign routes or absent states. */
   method row(route_class :: RouteClass, origin :: Injection || HeldVC):
     unless contains_route_class(route_class)
     | error(~who: #'RouteTable,
@@ -82,6 +92,7 @@ class RouteTable(topology :: Topology,
                           route_class.id.describe(), " ", origin.describe()))
     found
 
+  /* Selects rows belonging to a known router. */
   method rows_at(node :: NodeId):
     unless topology.contains_node(node)
     | error(~who: #'RouteTable, "unknown route-table node")
@@ -89,13 +100,16 @@ class RouteTable(topology :: Topology,
       ~keep: fun (row): node_id_equal(row.router_node, node)
     )
 
+  /* Returns the stored output VC choices for one route/origin row. */
   method allowed_candidates(route_class :: RouteClass,
                             origin :: Injection || HeldVC):
     row(route_class, origin).allowed_vcs
 
+  /* Lists rows in deterministic construction order. */
   method describe():
     String.join(rows.map(fun (row): row.describe()), "\n")
 
+/* Records the resource model, proof criterion, and implementation obligations. */
 class ValidationAssumptions(resource_model :: String,
                             deadlock_criterion :: String,
                             injection_holds_vc :: Boolean,
@@ -104,8 +118,10 @@ class ValidationAssumptions(resource_model :: String,
                             eventual_escape_grant :: Boolean):
   opaque
   internal _ValidationAssumptions
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the assumptions without expanding the proof into a fairness claim. */
   method describe():
     String.append(resource_model, "; ", deadlock_criterion,
                   "; injection-holds-vc=", to_string(injection_holds_vc),
@@ -133,6 +149,7 @@ def escape_assumptions = _ValidationAssumptions(
   #true
 )
 
+/* Retains checked escape evidence, projected resource ranks, assumptions, and validator version. */
 class EscapeCertificate(request :: EscapeValidationRequest,
                         reachability :: EscapeReachabilityEvidence,
                         closure :: EscapeClosureEvidence,
@@ -142,17 +159,21 @@ class EscapeCertificate(request :: EscapeValidationRequest,
                         validator_version :: String):
   opaque
   internal _EscapeCertificate
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Returns a resource's rank in the certified escape dependency projection. */
   method rank(vc :: VCId):
     acyclic_certificate.rank(vc)
 
+  /* Summarizes the escape selection, reachable proof resources, and validator version. */
   method describe():
     String.append("escape certificate ", validator_version, ": vcs=",
                   to_string(request.escape_vcs.length()),
                   ", reachable-vcs=",
                   to_string(dependency_graph.vertices.length()))
 
+/* Gates hardware planning behind reachability and the selected resource-dependency proof. */
 class ValidatedRouting(topology :: Topology,
                        route_classes :: NonemptyList.of(RouteClass),
                        injection_terminals :: List.of(InjectionTerminal),
@@ -166,17 +187,21 @@ class ValidatedRouting(topology :: Topology,
                        validator_version :: String):
   opaque
   internal _ValidatedRouting
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Looks up a reachable row through the owned route table. */
   method route_row(route_class :: RouteClass, origin :: Injection || HeldVC):
     route_table.row(route_class, origin)
 
+  /* Summarizes route, resource, and table sizes with the validator version. */
   method describe():
     String.append("validated routing ", validator_version,
                   ": routes=", to_string(route_classes.length()),
                   ", vcs=", to_string(dependency_graph.vertices.length()),
                   ", rows=", to_string(route_table.rows.length()))
 
+/* Copies snapshot choices and represents destination arrival as exact local ejection. */
 fun make_row(materialized :: MaterializedRouting,
              route_class :: RouteClass,
              origin :: Injection || HeldVC):
@@ -195,6 +220,7 @@ fun make_row(materialized :: MaterializedRouting,
                  allowed_vcs,
                  ejection_terminal)
 
+/* Projects injection and reachable held-VC rows, excluding unreachable materialized states. */
 fun build_route_table(materialized :: MaterializedRouting,
                       reachable :: ReachableRouting):
   def mutable rows = []
@@ -213,6 +239,7 @@ fun build_route_table(materialized :: MaterializedRouting,
       )]
   _RouteTable(materialized.topology, materialized.route_classes, rows)
 
+/* Packages the validated snapshot, proof, assumptions, and derived route table. */
 fun finish_validated_routing(materialized :: MaterializedRouting,
                              reachable :: ReachableRouting,
                              dependency_graph :: VCDependencyGraph,
@@ -234,6 +261,7 @@ fun finish_validated_routing(materialized :: MaterializedRouting,
     version
   )
 
+/* Materializes once, analyzes reachability/dependencies, and gates planning on the selected proof. */
 fun compile_routing(problem :: RoutingProblem,
                     ~escape: escape_request :~ maybe(EscapeValidationRequest) = #false):
   unless !escape_request || escape_request is_a EscapeValidationRequest

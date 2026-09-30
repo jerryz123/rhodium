@@ -1,5 +1,5 @@
 #lang rhombus
-// Demonstrates generic adaptive routing with a user-authored tree escape on an irregular graph.
+/* Demonstrates generic adaptive routing with a user-authored tree escape on an irregular graph. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -112,6 +112,7 @@ def irregular_distances = compute_hop_distances(
   irregular_topology.topology
 )
 
+/* Describes the example's acyclic bidirectional escape tree, independently of its adaptive ring. */
 class IrregularEscapeTree(a :: NodeRef,
                           b :: NodeRef,
                           c :: NodeRef,
@@ -125,6 +126,7 @@ class IrregularEscapeTree(a :: NodeRef,
                           d_to_c :: LinkRef,
                           b_to_e :: LinkRef,
                           e_to_b :: LinkRef):
+  /* Selects the unique tree-path step toward the destination, or false on local arrival. */
   method next_link(current :: NodeRef, destination :: NodeRef):
     cond
     | node_ref_equal(current, a):
@@ -148,6 +150,7 @@ class IrregularEscapeTree(a :: NodeRef,
         error(~who: #'next_link,
               "tree escape encountered a node outside its topology")
 
+  /* Prefixes all tree references while preserving its user-authored connectivity. */
   method prefix(prefix :: NamePath || String || List.of(String)):
     IrregularEscapeTree(
       prefix_node_ref(prefix, a),
@@ -181,6 +184,7 @@ def irregular_escape_tree = IrregularEscapeTree(
   irregular_e_to_b
 )
 
+/* Wraps unique tree-path selection as an ordinary policy; escape validation remains explicit. */
 fun irregular_tree_escape_policy(tree :: IrregularEscapeTree):
   custom_policy(
     "irregular-tree-escape",

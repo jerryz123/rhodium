@@ -1,5 +1,5 @@
 #lang rhombus
-// Aggregates the public pure NoC analysis API.
+/* Aggregates the public pure NoC analysis API. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

@@ -1,5 +1,6 @@
 #lang rhombus
-// Projects normalized routing failures through authoring provenance without re-evaluating policies.
+/* Projects normalized routing failures through authoring provenance without re-evaluating
+   policies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +17,7 @@ export:
   AuthoredRoutingCompilation
   compile_authored_routing
 
+/* Compares normalized origin kind and terminal or VC identity. */
 fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
   cond
   | left is_a Injection && right is_a Injection:
@@ -24,6 +26,7 @@ fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
       vc_id_equal(left.vc, right.vc)
   | ~else: #false
 
+/* Matches recorded authored evidence to the exact materialized query. */
 fun evidence_matches(evidence :: LoweredRoutingDecision,
                      decision :: MaterializedDecision):
   evidence.route_class === decision.route_class && origin_equal(
@@ -31,6 +34,7 @@ fun evidence_matches(evidence :: LoweredRoutingDecision,
     decision.origin
   ) && vc_id_equal(evidence.candidate_vc, decision.candidate_vc)
 
+/* Resolves recorded query provenance and checks agreement without reevaluating the policy. */
 fun find_evidence(lowering :: RoutingPolicyLowering,
                   decision :: MaterializedDecision):
   def found = lowering.decisions.find(
@@ -44,16 +48,19 @@ fun find_evidence(lowering :: RoutingPolicyLowering,
           "authored provenance disagrees with its materialized decision")
   found
 
+/* Uses matched rule names when present, otherwise the recorded policy's description. */
 fun evidence_rule_names(lowering :: RoutingPolicyLowering,
                         evidence :: LoweredRoutingDecision):
   if evidence.rule_names.length() > 0
   | evidence.rule_names
   | [lowering.policy.describe()]
 
+/* Describes one normalized cycle contribution using authored route, origin, VC, and rule names. */
 class AuthoredCycleCause(route_class :: RouteClassRef,
                          origin :: RoutingOrigin,
                          candidate_vc :: VCRef,
                          rule_names :: List.of(String)):
+  /* Formats the symbolic query and its contributing rules. */
   method describe():
     String.append(
       "route ", route_class.describe(),
@@ -62,9 +69,11 @@ class AuthoredCycleCause(route_class :: RouteClassRef,
       "; rules=[", String.join(rule_names, ", "), "]"
     )
 
+/* Pairs a symbolic held/requested VC edge with all authored causes. */
 class AuthoredCycleEdge(source_vc :: VCRef,
                         target_vc :: VCRef,
                         causes :: List.of(AuthoredCycleCause)):
+  /* Formats the dependency edge followed by its authored causes. */
   method describe():
     def cause_rows = causes.map(
       fun (cause): "    " ++ cause.describe()
@@ -74,19 +83,23 @@ class AuthoredCycleEdge(source_vc :: VCRef,
       "\n", String.join(cause_rows, "\n")
     )
 
+/* Retains the normalized cycle and its symbolic, provenance-preserving projection. */
 class AuthoredDependencyCycle(normalized_cycle :: DependencyCycle,
                               edges :: List.of(AuthoredCycleEdge)):
+  /* Lists the authored dependency-cycle edges and their causes. */
   method describe():
     "authored VC dependency cycle:\n" ++ String.join(
       edges.map(fun (edge): edge.describe()),
       "\n"
     )
 
+/* Describes an escape closure, entry, or progress failure in symbolic authoring terms. */
 class AuthoredRoutingFailure(kind :: String,
                              route_class :: RouteClassRef,
                              origin :: RoutingOrigin,
                              candidate_vc :: maybe(VCRef),
                              rule_names :: List.of(String)):
+  /* Formats the failure kind, origin, and optional candidate/rule details. */
   method describe():
     def candidate:
       if !candidate_vc
@@ -99,12 +112,15 @@ class AuthoredRoutingFailure(kind :: String,
     String.append(kind, " for route ", route_class.describe(),
                   " at ", origin.describe(), candidate, rules)
 
+/* Retains the normalized result, recorded policy evaluations, and optional authored diagnostic. */
 class AuthoredRoutingCompilation(
       result :: ValidatedRouting || DependencyCycle || EscapeClosureViolation || MissingEscapeEntry || MissingEscapeRoute,
       lowering :: RoutingPolicyLowering,
       diagnostic :: maybe(AuthoredDependencyCycle || AuthoredRoutingFailure)):
+  /* Returns the evaluations recorded during the original materialization pass. */
   method decision_provenance(): lowering.decisions
 
+/* Recovers an authored injection or forwarding origin through topology provenance. */
 fun symbolic_origin(lowered_topology :: LoweredTopology,
                     origin :: Injection || HeldVC):
   cond
@@ -116,6 +132,7 @@ fun symbolic_origin(lowered_topology :: LoweredTopology,
   | origin is_a HeldVC:
       RoutingForwarding(lowered_topology.vc_ref(origin.vc))
 
+/* Projects one materialized dependency contribution through its recorded symbolic evaluation. */
 fun cycle_cause(lowering :: RoutingPolicyLowering,
                 decision :: MaterializedDecision):
   def evidence = find_evidence(lowering, decision)
@@ -126,6 +143,8 @@ fun cycle_cause(lowering :: RoutingPolicyLowering,
     evidence_rule_names(lowering, evidence)
   )
 
+/* Replaces normalized cycle endpoints with symbolic references while retaining the original
+   witness. */
 fun authored_cycle(lowering :: RoutingPolicyLowering,
                    cycle :: DependencyCycle):
   def lowered_topology = lowering.lowered_routes.lowered_topology
@@ -137,6 +156,7 @@ fun authored_cycle(lowering :: RoutingPolicyLowering,
     )
   AuthoredDependencyCycle(cycle, edges)
 
+/* Projects escape validation failures using stored query evidence or normalized-origin provenance. */
 fun authored_failure(lowering :: RoutingPolicyLowering,
                      result :: ValidatedRouting || EscapeClosureViolation || MissingEscapeEntry || MissingEscapeRoute):
   def lowered_routes = lowering.lowered_routes
@@ -169,12 +189,15 @@ fun authored_failure(lowering :: RoutingPolicyLowering,
       )
   | ~else: #false
 
+/* Recovers the snapshot from a validated result or dependency-cycle witness. */
 fun materialized_result(result :: ValidatedRouting || DependencyCycle || EscapeClosureViolation || MissingEscapeEntry || MissingEscapeRoute):
   cond
   | result is_a ValidatedRouting: result.materialized
   | result is_a DependencyCycle: result.graph.reachable.materialized
   | ~else: #false
 
+/* Compiles once with recorded evaluations and translates failures without querying the policy
+   again. */
 fun compile_authored_routing(lowered_routes :: LoweredRouteClasses,
                              policy :: RoutingPolicy,
                              ~escape: escape_request :: maybe(EscapeValidationRequest) = #false):

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines symbolic ingress and egress placement independently of physical links.
+/* Defines symbolic ingress and egress placement independently of physical links. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,20 +10,24 @@ export:
   TerminalPlacement
   attach_terminal_placement
 
+/* Detects repeated injection names within a placement. */
 fun duplicate_injection_ref(terminals :: List.of(InjectionTerminalSpec),
                             ref :: InjectionRef) :: Boolean:
   terminals.filter(
     ~keep: fun (terminal): injection_ref_equal(terminal.ref, ref)
   ).length() > 1
 
+/* Detects repeated ejection names within a placement. */
 fun duplicate_ejection_ref(terminals :: List.of(EjectionTerminalSpec),
                            ref :: EjectionRef) :: Boolean:
   terminals.filter(
     ~keep: fun (terminal): ejection_ref_equal(terminal.ref, ref)
   ).length() > 1
 
+/* Keeps logical terminal attachments separate from physical topology construction. */
 class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
                         ejections :: List.of(EjectionTerminalSpec)):
+  /* Rejects duplicate names per terminal kind and sorts both attachment lists. */
   constructor (injections :: List.of(InjectionTerminalSpec),
                ejections :: List.of(EjectionTerminalSpec)):
     for (terminal in injections):
@@ -43,6 +47,7 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
       )
     )
 
+  /* Looks up an injection attachment or reports an unknown placed terminal. */
   method injection(ref :: InjectionRef) :: InjectionTerminalSpec:
     def found = injections.find(
       fun (terminal): injection_ref_equal(terminal.ref, ref)
@@ -52,6 +57,7 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
             "unknown placed injection " ++ ref.describe())
     found
 
+  /* Looks up an ejection attachment or reports an unknown placed terminal. */
   method ejection(ref :: EjectionRef) :: EjectionTerminalSpec:
     def found = ejections.find(
       fun (terminal): ejection_ref_equal(terminal.ref, ref)
@@ -61,6 +67,7 @@ class TerminalPlacement(injections :: List.of(InjectionTerminalSpec),
             "unknown placed ejection " ++ ref.describe())
     found
 
+/* Attaches the placement through TopologySpec validation, rejecting preexisting terminals. */
 fun attach_terminal_placement(topology :: TopologySpec,
                               placement :: TerminalPlacement) :: TopologySpec:
   when topology.injections.length() > 0 || topology.ejections.length() > 0

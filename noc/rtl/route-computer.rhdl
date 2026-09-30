@@ -1,5 +1,5 @@
 #lang rhodium
-// Lowers validated router and router-family plans into combinational route lookups.
+/* Lowers validated router and router-family plans into combinational route lookups. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,26 +17,25 @@ export:
   compile_router_family_route_decoder
   RouteComputer
 
-// Names the semantic selector fields consumed by the generic typed decoder.
+/* Names the global route key and router-local origin key consumed by typed decoding. */
 bundle RouteLookupKey(route_width :: PosInt, origin_width :: PosInt):
   route_key: Bits(route_width)
   origin_key: Bits(origin_width)
 
-// Adds a spatial site selector to the same route and origin lookup. The site
-// key is intended to be tied to a constant at each stamped router instance.
+/* Adds a spatial site selector intended to be tied to a constant at each family occurrence. */
 bundle SiteRouteLookupKey(site_width, route_width, origin_width):
   site_key: Bits(site_width)
   route_key: Bits(route_width)
   origin_key: Bits(origin_width)
 
-// Gives hardware consumers named access to the typed routing decision.
+/* Carries legal targets, the certified fallback subset, and validity as named hardware fields. */
 bundle RouteDecision(mask_width :: PosInt):
   target_mask: Mask(mask_width)
   fallback_mask: Mask(mask_width)
   valid: Bool
 
-// Rhombus method results cannot depend on receiver fields. Lookup therefore
-// exposes the packable category while each DecodeGen retains its exact relation.
+/* Owns a plan-derived typed decoder; lookup exposes Hardware.packable while DecodeGen retains
+   exact types. */
 class RouteDecoder(router_plan :: RouterPlan,
                    route_width :: PosInt,
                    origin_width :: PosInt,
@@ -45,8 +44,10 @@ class RouteDecoder(router_plan :: RouterPlan,
   implements StableCircuitParam
   opaque
   internal _RouteDecoder
+  /* Restricts decoder construction to the validated-plan compiler in this module. */
   constructor ~none
 
+  /* Builds a typed route/origin selector and reuses the compiled combinational decoder. */
   method lookup(route_key :: Bits(route_width),
                 origin_key :: Bits(origin_width))
     :: Hardware.packable:
@@ -56,6 +57,7 @@ class RouteDecoder(router_plan :: RouterPlan,
         origin_key: origin_key
     )
 
+/* Owns one uniform site/route/origin decoder derived entirely from validated family rows. */
 class RouterFamilyRouteDecoder(router_family_plan :: RouterFamilyPlan,
                                site_width :: PosInt,
                                route_width :: PosInt,
@@ -65,8 +67,10 @@ class RouterFamilyRouteDecoder(router_family_plan :: RouterFamilyPlan,
   implements StableCircuitParam
   opaque
   internal _RouterFamilyRouteDecoder
+  /* Restricts family decoder construction to the validated-plan compiler. */
   constructor ~none
 
+  /* Looks up named decision fields using the occurrence's site key and local input origin. */
   method lookup(site_key :: Bits(site_width),
                 route_key :: Bits(route_width),
                 origin_key :: Bits(origin_width))
@@ -78,7 +82,8 @@ class RouterFamilyRouteDecoder(router_family_plan :: RouterFamilyPlan,
         origin_key: origin_key
     )
 
-// Compiles one validated router plan into an opaque, reusable typed decoder.
+/* Compiles certified local rows with a zero-mask invalid default, without re-running routing
+   analysis. */
 fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
   unless router_plan.rows.length() > 0
   | error(~who: #'compile_route_decoder,
@@ -116,8 +121,7 @@ fun compile_route_decoder(router_plan :: RouterPlan) :: RouteDecoder:
                 mask_width,
                 decoder)
 
-// Compiles all per-site rows into one typed table whose first key is a static
-// integration selector, not a runtime routing mode.
+/* Compiles certified family rows into a shared typed table with static site selection. */
 fun compile_router_family_route_decoder(
       router_family_plan :: RouterFamilyPlan) :: RouterFamilyRouteDecoder:
   unless router_family_plan.rows.length() > 0
@@ -156,6 +160,7 @@ fun compile_router_family_route_decoder(
                             mask_width,
                             decoder)
 
+/* Exposes a plan-derived combinational decision's target mask, fallback subset, and validity. */
 circuit RouteComputer(route_decoder :: RouteDecoder):
   input route_key: Bits(route_decoder.route_width)
   input origin_key: Bits(route_decoder.origin_width)

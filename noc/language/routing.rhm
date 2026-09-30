@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines unordered routing-rule syntax as a thin layer over public policy combinators.
+/* Defines unordered routing-rule syntax as a thin layer over public policy combinators. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,9 +10,11 @@ export:
   routing
 
 meta:
+  /* Uses a rule or group identifier's source spelling as its authoring name. */
   fun identifier_name(identifier :: Identifier):
     identifier.to_source_string()
 
+  /* Finds prior rule/group declarations by spelling. */
   fun find_identifier(identifiers :: List.of(Identifier),
                       candidate :: Identifier):
     def candidate_name = identifier_name(candidate)
@@ -20,10 +22,12 @@ meta:
       fun (identifier): identifier_name(identifier) == candidate_name
     )
 
+  /* Reports an empty syntax selection at the supplied source location. */
   fun require_nonempty(items :: List, message :: String, location :: Syntax):
     when items.length() == 0
     | syntax_meta.error(message, location)
 
+  /* Rejects empty or repeated group selections and emits their symbolic string names. */
   fun group_name_strings(groups :: List.of(Identifier),
                          subject :: String,
                          location :: Syntax):
@@ -40,6 +44,8 @@ meta:
       strings := strings ++ [identifier_name(group)]
     strings
 
+  /* Intersects one named rule's constraints and labels the result through public policy
+     combinators. */
   fun lower_rule(rule :: Syntax):
     match rule
     | 'rule $(name :: Identifier):
@@ -130,6 +136,7 @@ meta:
     | ~else:
         syntax_meta.error("expected a named routing rule", rule)
 
+/* Rejects repeated rule names and expands their unordered Boolean union without proving routing. */
 expr.macro 'routing:
               $rule
               ...':

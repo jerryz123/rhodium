@@ -1,5 +1,5 @@
 #lang rhombus
-// Composes adaptive and escape policies with irreversible VC-group transitions.
+/* Composes adaptive and escape policies with irreversible VC-group transitions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,12 +10,15 @@ export:
   WithEscapePolicy
   with_escape
 
+/* Detects repeated VC-group names in one resource class. */
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Tests membership in an explicit adaptive or escape group selection. */
 fun contains_name(names :: List.of(String), name :: String):
   names.contains(name)
 
+/* Rejects slash-containing names and duplicates within one resource class. */
 fun validate_group_names(subject :: String,
                          names :: NonemptyList.of(NonemptyString)):
   for (name in names):
@@ -26,16 +29,19 @@ fun validate_group_names(subject :: String,
     | error(~who: #'with_escape,
             "duplicate " ++ subject ++ " " ++ name)
 
+/* Requires candidate-group membership before evaluating the class's child policy. */
 fun policies_allow(policy :: RoutingPolicy,
                    groups :: List.of(String),
                    context :: RoutingContext):
   contains_name(groups, context.candidate_vc.group) && policy.evaluate(context).allowed
 
+/* Combines child policies with irreversible adaptive-to-escape VC acquisition; it grants no proof. */
 class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
                        escape_policy :: RoutingPolicy,
                        adaptive_vc_groups :: NonemptyList.of(NonemptyString),
                        escape_vc_groups :: NonemptyList.of(NonemptyString)):
   implements RoutingPolicy
+  /* Validates unique, disjoint group sets and stores them in deterministic name order. */
   constructor (adaptive_policy :: RoutingPolicy,
                escape_policy :: RoutingPolicy,
                adaptive_vc_groups :: NonemptyList.of(NonemptyString),
@@ -52,9 +58,12 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
           adaptive_vc_groups.sort(fun (left, right): left < right),
           escape_vc_groups.sort(fun (left, right): left < right))
 
+  /* Permits either class at injection/adaptive origins, but only escape at escape-held origins. */
   override method allows(context :: RoutingContext):
+    /* Tests candidate membership and child policy permission for adaptive acquisition. */
     def adaptive_allowed = fun ():
       policies_allow(adaptive_policy, adaptive_vc_groups, context)
+    /* Tests candidate membership and child policy permission for escape acquisition. */
     def escape_allowed = fun ():
       policies_allow(escape_policy, escape_vc_groups, context)
     cond
@@ -70,6 +79,7 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
         | ~else: #false
     | ~else: #false
 
+  /* Checks the composed Boolean decision and returns unlabeled evaluation evidence. */
   override method evaluate(context :: RoutingContext):
     def result = allows(context)
     unless result is_a Boolean
@@ -77,6 +87,7 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
             "routing policy " ++ describe() ++ " must return a Boolean")
     RoutingPolicyEvaluation(result, [])
 
+  /* Renders both child policies and their explicit resource-class selections. */
   override method describe():
     String.append(
       "with-escape(adaptive=", adaptive_policy.describe(),
@@ -86,6 +97,7 @@ class WithEscapePolicy(adaptive_policy :: RoutingPolicy,
       ")"
     )
 
+/* Constructs the irreversible VC-group policy composition through its validation path. */
 fun with_escape(adaptive_policy :: RoutingPolicy,
                 escape_policy :: RoutingPolicy,
                 adaptive_vc_groups :: NonemptyList.of(NonemptyString),

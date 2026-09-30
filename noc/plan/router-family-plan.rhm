@@ -1,5 +1,5 @@
 #lang rhombus
-// Merges one network's router plans into a uniform, site-selected router family.
+/* Merges one network's router plans into a uniform, site-selected router family. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,6 +19,7 @@ export:
   RouterFamilySitePlan
   RouterFamilyPlan
 
+/* Computes the maximum size of a projected port category across local router plans. */
 fun max_length(items :: List.of(RouterPlan), project :: Function.of_arity(1)):
   def mutable maximum = 0
   for (item in items):
@@ -27,6 +28,7 @@ fun max_length(items :: List.of(RouterPlan), project :: Function.of_arity(1)):
     | maximum := count
   maximum
 
+/* Moves set bits from dense local target positions into uniform family slots. */
 fun remap_mask(local_mask :: Nat, target_slots :: List.of(Nat)):
   def mutable family_mask = 0
   for (local_bit in 0..target_slots.length()):
@@ -34,6 +36,7 @@ fun remap_mask(local_mask :: Nat, target_slots :: List.of(Nat)):
     | family_mask := family_mask bits.or (1 << target_slots[local_bit])
   family_mask
 
+/* Returns the complement of used indices within one uniform port array. */
 fun unused_slots(count :: Nat,
                  used_slots :: List.of(Nat)) :: List.of(Nat):
   def mutable unused = []
@@ -42,26 +45,32 @@ fun unused_slots(count :: Nat,
     | unused := unused ++ [index]
   unused
 
+/* Maps one router's dense local ports into shared family input and target slots. */
 class RouterFamilyMember(site_key :: Nat,
                          router_plan :: RouterPlan,
                          origin_slots :: List.of(Nat),
                          target_slots :: List.of(Nat)):
   opaque
   internal _RouterFamilyMember
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Remaps a local injection or held-VC origin into the uniform input array. */
   method origin_slot(origin :: Injection || HeldVC):
     origin_slots[router_plan.origin_key(origin)]
 
+  /* Remaps a local VC or ejection target into the uniform target array. */
   method target_slot(target :: VCId || EjectionTerminal):
     target_slots[router_plan.target_bit(target)]
 
+  /* Formats the static site key and both local-to-family slot maps. */
   method describe():
     String.append("site-key=", to_string(site_key), ": ",
                   router_plan.node.describe(), "; inputs=",
                   to_string(origin_slots), "; targets=",
                   to_string(target_slots))
 
+/* Retains a validated row with site selection and uniformly remapped target/fallback masks. */
 class RouterFamilyPlanRow(route_row :: RouteTableRow,
                           site_key :: Nat,
                           route_key :: Nat,
@@ -70,22 +79,28 @@ class RouterFamilyPlanRow(route_row :: RouteTableRow,
                           fallback_mask :: Nat):
   opaque
   internal _RouterFamilyPlanRow
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+/* Assigns an external injection terminal to a static site and uniform input slot. */
 class RouterFamilyInjectionPort(terminal :: InjectionTerminal,
                                 site_key :: Nat,
                                 input_index :: Nat):
   opaque
   internal _RouterFamilyInjectionPort
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+/* Assigns an external ejection terminal to a static site and uniform target slot. */
 class RouterFamilyEjectionPort(terminal :: EjectionTerminal,
                                site_key :: Nat,
                                target_index :: Nat):
   opaque
   internal _RouterFamilyEjectionPort
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+/* Assigns a logical VC's endpoints to uniform slots at their two sites. */
 class RouterFamilyVCConnection(vc :: VCId,
                                source_site_key :: Nat,
                                source_target_index :: Nat,
@@ -93,8 +108,10 @@ class RouterFamilyVCConnection(vc :: VCId,
                                destination_input_index :: Nat):
   opaque
   internal _RouterFamilyVCConnection
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+/* Groups a physical link's uniform endpoint slots in local VC order. */
 class RouterFamilyLinkConnection(link :: PhysicalLink,
                                  source_site_key :: Nat,
                                  source_target_indices :: List.of(Nat),
@@ -102,10 +119,10 @@ class RouterFamilyLinkConnection(link :: PhysicalLink,
                                  destination_input_indices :: List.of(Nat)):
   opaque
   internal _RouterFamilyLinkConnection
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
-// Projects one family member into the endpoint, link, and padding slots that
-// its owning subsystem must bind around a stamped router instance.
+/* Projects one occurrence's endpoints, physical links, and unused family-padding slots. */
 class RouterFamilySitePlan(node :: NodeId,
                            site_key :: Nat,
                            injection_ports :: List.of(RouterFamilyInjectionPort),
@@ -118,8 +135,11 @@ class RouterFamilySitePlan(node :: NodeId,
                            unused_target_indices :: List.of(Nat)):
   opaque
   internal _RouterFamilySitePlan
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+/* Unifies one validated network's router shapes while keeping port categories independently
+   padded. */
 class RouterFamilyPlan(network_plan :: NetworkPlan,
                        members :: NonemptyList.of(RouterFamilyMember),
                        injection_count :: Nat,
@@ -134,6 +154,7 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
                        vc_connections :: List.of(RouterFamilyVCConnection),
                        link_connections :: List.of(RouterFamilyLinkConnection),
                        sites :: NonemptyList.of(RouterFamilySitePlan)):
+  /* Computes per-category maxima and remaps every certified row, connection, and site manifest. */
   constructor (network_plan :: NetworkPlan):
     def router_plans = network_plan.router_plans
     def injection_count = max_length(router_plans, fun (plan): plan.injection_terminals)
@@ -254,6 +275,7 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
           link_connections,
           sites)
 
+  /* Resolves a topology router to its uniform family member. */
   method member(node :: NodeId):
     def found = members.find(
       fun (candidate): node_id_equal(candidate.router_plan.node, node)
@@ -262,12 +284,15 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     | error(~who: #'RouterFamilyPlan, "unknown router-family node")
     found
 
+  /* Returns the deterministic constant selecting one physical router occurrence. */
   method site_key(node :: NodeId):
     member(node).site_key
 
+  /* Tests exact NetworkPlan provenance rather than structural similarity. */
   method derives_from(plan :: NetworkPlan) :: Boolean:
     network_plan === plan
 
+  /* Returns one router's endpoint, physical-link, and padding manifest. */
   method site(node :: NodeId) :: RouterFamilySitePlan:
     def found = sites.find(
       fun (candidate): node_id_equal(candidate.node, node)
@@ -276,6 +301,7 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
     | error(~who: #'RouterFamilyPlan, "unknown router-family site")
     found
 
+  /* Resolves an injection terminal to its static site and uniform input assignment. */
   method injection_port(id :: InjectionId) :: RouterFamilyInjectionPort:
     def found = injection_ports.find(
       fun (port): injection_id_equal(port.terminal.id, id)
@@ -285,6 +311,7 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
             "unknown router-family injection terminal")
     found
 
+  /* Resolves an ejection terminal to its static site and uniform target assignment. */
   method ejection_port(id :: EjectionId) :: RouterFamilyEjectionPort:
     def found = ejection_ports.find(
       fun (port): ejection_id_equal(port.terminal.id, id)
@@ -294,18 +321,23 @@ class RouterFamilyPlan(network_plan :: NetworkPlan,
             "unknown router-family ejection terminal")
     found
 
+  /* Returns a site's physical ingress groups with uniform VC slots. */
   method incoming_links(node :: NodeId) :: List.of(RouterFamilyLinkConnection):
     site(node).incoming_links
 
+  /* Returns a site's physical egress groups with uniform VC slots. */
   method outgoing_links(node :: NodeId) :: List.of(RouterFamilyLinkConnection):
     site(node).outgoing_links
 
+  /* Returns a router-specific origin's uniform family input position. */
   method origin_slot(node :: NodeId, origin :: Injection || HeldVC):
     member(node).origin_slot(origin)
 
+  /* Returns a router-specific target's uniform family output position. */
   method target_slot(node :: NodeId, target :: VCId || EjectionTerminal):
     member(node).target_slot(target)
 
+  /* Summarizes family maxima, member count, and merged decode-row count. */
   method describe():
     String.append("router family: members=", to_string(members.length()),
                   ", injection=", to_string(injection_count),

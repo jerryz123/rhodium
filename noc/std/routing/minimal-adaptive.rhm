@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines topology-independent minimal-adaptive routing over precomputed hop distances.
+/* Defines topology-independent minimal-adaptive routing over precomputed hop distances. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,15 +11,18 @@ export:
   MinimalAdaptivePolicy
   minimal_adaptive
 
+/* Detects repeated names in the adaptive VC selection. */
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Tests whether any authored physical link declares a group name. */
 fun topology_has_vc_group(spec :: TopologySpec, name :: String):
   spec.links.find(
     fun (link):
       link.vc_groups.find(fun (group): group.name == name) != #false
   ) != #false
 
+/* Rejects malformed, repeated, or absent adaptive VC-group names. */
 fun validate_vc_groups(lowered_topology :: LoweredTopology,
                        vc_groups :: NonemptyList.of(String)):
   for (name in vc_groups):
@@ -33,10 +36,12 @@ fun validate_vc_groups(lowered_topology :: LoweredTopology,
     | error(~who: #'minimal_adaptive,
             "topology has no VC group " ++ name)
 
+/* Admits all distance-decreasing links in selected groups without choosing or certifying one path. */
 class MinimalAdaptivePolicy(lowered_topology :: LoweredTopology,
                             distances :: HopDistances,
                             vc_groups :: NonemptyList.of(String)):
   implements RoutingPolicy
+  /* Requires distances from the exact lowered topology and validates selected groups. */
   constructor (lowered_topology :: LoweredTopology,
                distances :: HopDistances,
                vc_groups :: NonemptyList.of(String)):
@@ -48,6 +53,7 @@ class MinimalAdaptivePolicy(lowered_topology :: LoweredTopology,
           distances,
           vc_groups.sort(fun (left, right): left < right))
 
+  /* Requires the current source, selected group, and one-hop shortest-distance decrease. */
   override method allows(context :: RoutingContext):
     def current_node = lowered_topology.node_id(context.current_node)
     def destination = lowered_topology.node_id(
@@ -67,12 +73,15 @@ class MinimalAdaptivePolicy(lowered_topology :: LoweredTopology,
       destination
     )
 
+  /* Returns the minimal-adaptive decision without matched-rule labels. */
   override method evaluate(context :: RoutingContext):
     RoutingPolicyEvaluation(allows(context), [])
 
+  /* Formats the selected adaptive resource groups. */
   override method describe():
     "minimal-adaptive(vc-groups=" ++ String.join(vc_groups, ",") ++ ")"
 
+/* Constructs a policy using caller-owned topology lowering and precomputed distances. */
 fun minimal_adaptive(lowered_topology :: LoweredTopology,
                      distances :: HopDistances,
                      vc_groups :: NonemptyList.of(String)):

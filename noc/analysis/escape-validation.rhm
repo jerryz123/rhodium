@@ -1,5 +1,5 @@
 #lang rhombus
-// Validates escape-subnetwork closure, entry, progress, and dependency acyclicity.
+/* Validates escape-subnetwork closure, entry, progress, and dependency acyclicity. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,14 +21,18 @@ export:
   MissingEscapeRoute
   validate_escape_subnetwork
 
+/* Tests membership in a normalized VC selection. */
 fun contains_vc(vcs :: List.of(VCId), vc :: VCId):
   vcs.find(fun (candidate): vc_id_equal(candidate, vc)) != #false
 
+/* Detects repeated normalized VC identities. */
 fun duplicate_vc(vcs :: List.of(VCId), vc :: VCId):
   vcs.filter(~keep: fun (candidate): vc_id_equal(candidate, vc)).length() > 1
 
+/* Binds an explicit nonempty escape-resource set to one exact topology. */
 class EscapeValidationRequest(topology :: Topology,
                               escape_vcs :: NonemptyList.of(VCId)):
+  /* Rejects unknown or repeated VCs and sorts the escape selection. */
   constructor (topology :: Topology,
                escape_vcs :: NonemptyList.of(VCId)):
     for (vc in escape_vcs):
@@ -40,27 +44,34 @@ class EscapeValidationRequest(topology :: Topology,
               "duplicate escape VC " ++ vc.describe())
     super(topology, escape_vcs.sort(vc_id_less))
 
+  /* Tests whether a candidate resource is classified as escape. */
   method contains(vc :: VCId):
     contains_vc(escape_vcs, vc)
 
+  /* Formats the canonical escape-resource selection. */
   method describe():
     "escape-vcs=[" ++ String.join(
       escape_vcs.map(fun (vc): vc.describe()),
       ", "
     ) ++ "]"
 
+/* Retains viable escape acquisitions from one injection or non-escape-held origin. */
 class EscapeEntryEvidence(origin :: Injection || HeldVC,
                           decisions :: NonemptyList.of(MaterializedDecision)):
   opaque
   internal _EscapeEntryEvidence
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Formats the origin and its viable escape targets. */
   method describe():
     origin.describe() ++ " -> [" ++ String.join(
       decisions.map(fun (decision): decision.candidate_vc.describe()),
       ", "
     ) ++ "]"
 
+/* Retains reachable escape resources, backward viability, transitions, and entry evidence per
+   route. */
 class EscapeRouteEvidence(route_class :: RouteClass,
                           reachable_escape_vcs :: List.of(VCId),
                           viable_escape_vcs :: List.of(VCId),
@@ -68,19 +79,24 @@ class EscapeRouteEvidence(route_class :: RouteClass,
                           entries :: List.of(EscapeEntryEvidence)):
   opaque
   internal _EscapeRouteEvidence
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Summarizes the route's reachable escape resources and required entry states. */
   method describe():
     String.append(route_class.id.describe(), ": escape-vcs=",
                   to_string(reachable_escape_vcs.length()),
                   ", entries=", to_string(entries.length()))
 
+/* Binds per-route escape progress evidence to full-relation reachability. */
 class EscapeReachabilityEvidence(reachable :: ReachableRouting,
                                  routes :: List.of(EscapeRouteEvidence)):
   opaque
   internal _EscapeReachabilityEvidence
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Returns evidence for an exact owned route or reports a foreign/missing route. */
   method for_route(route_class :: RouteClass):
     unless reachable.materialized.contains_route_class(route_class)
     | error(~who: #'EscapeReachabilityEvidence,
@@ -93,17 +109,22 @@ class EscapeReachabilityEvidence(reachable :: ReachableRouting,
             "route class has no escape reachability evidence")
     found
 
+  /* Lists the deterministic per-route escape summaries. */
   method describe():
     String.join(routes.map(fun (route): route.describe()), "\n")
 
+/* Retains reachable transitions that stay inside the escape resource set. */
 class EscapeClosureEvidence(decisions :: List.of(MaterializedDecision)):
   opaque
   internal _EscapeClosureEvidence
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Summarizes the number of closure-preserving transitions. */
   method describe():
     "closed escape transitions=" ++ to_string(decisions.length())
 
+/* Packages checked closure, entry, progress, and projected acyclicity for the validation gate. */
 class EscapeValidationEvidence(request :: EscapeValidationRequest,
                                reachability :: EscapeReachabilityEvidence,
                                closure :: EscapeClosureEvidence,
@@ -111,14 +132,18 @@ class EscapeValidationEvidence(request :: EscapeValidationRequest,
                                acyclic_certificate :: AcyclicCertificate):
   opaque
   internal _EscapeValidationEvidence
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+/* Identifies a reachable transition leaving an escape-held resource for a non-escape VC. */
 class EscapeClosureViolation(route_class :: RouteClass,
                              decision :: MaterializedDecision):
   opaque
   internal _EscapeClosureViolation
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Formats the offending route and the resource transition leaving escape. */
   method describe():
     String.append("escape closure violation for route class ",
                   route_class.id.describe(), ": ",
@@ -126,28 +151,35 @@ class EscapeClosureViolation(route_class :: RouteClass,
                   decision.candidate_vc.describe(),
                   " leaves the escape VC set")
 
+/* Identifies a non-destination origin lacking a viable escape acquisition. */
 class MissingEscapeEntry(route_class :: RouteClass,
                          origin :: Injection || HeldVC):
   opaque
   internal _MissingEscapeEntry
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Formats the route and origin without a viable escape entry. */
   method describe():
     String.append("missing viable escape entry for route class ",
                   route_class.id.describe(), " at ", origin.describe())
 
+/* Identifies a reachable escape-held origin without an escape-only path to ejection. */
 class MissingEscapeRoute(route_class :: RouteClass,
                          origin :: Injection || HeldVC):
   opaque
   internal _MissingEscapeRoute
+  /* Restricts evidence or failure-witness construction to this module's validation path. */
   constructor ~none
 
+  /* Formats the stranded escape origin and its intended destination. */
   method describe():
     String.append("missing escape-only route for route class ",
                   route_class.id.describe(), " at ", origin.describe(),
                   "; destination is ",
                   route_class.destination.describe())
 
+/* Checks injection or held-link arrival at the route's ejection router. */
 fun origin_at_destination(materialized :: MaterializedRouting,
                           route_class :: RouteClass,
                           origin :: Injection || HeldVC):
@@ -160,6 +192,7 @@ fun origin_at_destination(materialized :: MaterializedRouting,
         route_class.destination.router
       )
 
+/* Filters already materialized decisions without querying the user predicate. */
 fun allowed_decisions(materialized :: MaterializedRouting,
                       route_class :: RouteClass,
                       origin :: Injection || HeldVC):
@@ -167,6 +200,7 @@ fun allowed_decisions(materialized :: MaterializedRouting,
     ~keep: fun (decision): decision.allowed
   )
 
+/* Selects allowed acquisitions whose candidate resources are in the escape set. */
 fun escape_decisions(materialized :: MaterializedRouting,
                      request :: EscapeValidationRequest,
                      route_class :: RouteClass,
@@ -175,12 +209,14 @@ fun escape_decisions(materialized :: MaterializedRouting,
     ~keep: fun (decision): request.contains(decision.candidate_vc)
   )
 
+/* Selects and sorts escape resources discovered by full-relation reachability. */
 fun reachable_escape_vcs(route :: RouteReachability,
                          request :: EscapeValidationRequest):
   route.reachable_vcs.filter(
     ~keep: fun (vc): request.contains(vc)
   ).sort(vc_id_less)
 
+/* Returns the first reachable escape-to-nonescape transition or closure evidence. */
 fun find_closure_violation(materialized :: MaterializedRouting,
                            reachable :: ReachableRouting,
                            request :: EscapeValidationRequest):
@@ -205,6 +241,7 @@ fun find_closure_violation(materialized :: MaterializedRouting,
   | violation
   | _EscapeClosureEvidence(closed_decisions)
 
+/* Computes backward escape-only viability from destination resources to a fixed point. */
 fun viable_escape_vcs(materialized :: MaterializedRouting,
                       route_class :: RouteClass,
                       escape_vcs :: List.of(VCId),
@@ -230,6 +267,7 @@ fun viable_escape_vcs(materialized :: MaterializedRouting,
           changed := #true
   viable.sort(vc_id_less)
 
+/* Checks escape-only progress and viable entry from every reachable non-escape origin. */
 fun analyze_escape_route(materialized :: MaterializedRouting,
                          reachable_route :: RouteReachability,
                          request :: EscapeValidationRequest):
@@ -289,6 +327,7 @@ fun analyze_escape_route(materialized :: MaterializedRouting,
             entries
           )
 
+/* Checks exact artifact ownership, closure, progress, entry, and escape-only graph acyclicity. */
 fun validate_escape_subnetwork(materialized :: MaterializedRouting,
                                reachable :: ReachableRouting,
                                dependency_graph :: VCDependencyGraph,

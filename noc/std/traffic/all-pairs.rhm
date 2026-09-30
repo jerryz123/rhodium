@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines reusable ordered source/destination route classes for any authored topology.
+/* Defines reusable ordered source/destination route classes for any authored topology. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,7 @@ export:
   all_pairs_route_ref
   all_pairs
 
+/* Normalizes a route-name prefix from a path, route reference, string, or segment list. */
 fun route_prefix_path(value :: NamePath || RouteClassRef || String || List.of(String)):
   if value is_a NamePath
   | value
@@ -16,9 +17,11 @@ fun route_prefix_path(value :: NamePath || RouteClassRef || String || List.of(St
     | value.path
     | RouteClassRef(value).path
 
+/* Marks each terminal path segment so generated route names remain unambiguous. */
 fun encoded_terminal_path(terminal :: InjectionRef || EjectionRef):
   terminal.path.segments.map(fun (segment): "terminal=" ++ segment)
 
+/* Builds a hierarchical route name encoding the ordered injection/ejection pair. */
 fun all_pairs_route_ref(source :: InjectionRef,
                         destination :: EjectionRef,
                         ~prefix: prefix :: NamePath || RouteClassRef || String || List.of(String) = "all-pairs"):
@@ -30,6 +33,7 @@ fun all_pairs_route_ref(source :: InjectionRef,
     NamePath(to_path ++ encoded_terminal_path(destination))
   )
 
+/* Generates canonically named ordered terminal pairs, excluding same-router traffic by default. */
 fun all_pairs(topology :: TopologySpec,
               ~include_local: include_local :: Boolean = #false,
               ~prefix: prefix :: NamePath || RouteClassRef || String || List.of(String) = "all-pairs"):

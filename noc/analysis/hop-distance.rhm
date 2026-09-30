@@ -1,5 +1,5 @@
 #lang rhombus
-// Computes deterministic unit-hop distances and all minimal links for directed topologies.
+/* Computes deterministic unit-hop distances and all minimal links for directed topologies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,15 +10,19 @@ export:
   HopDistances
   compute_hop_distances
 
+/* Stores one reachable source/destination pair's unit-hop distance. */
 class HopDistanceEntry(source :: NodeId, destination :: NodeId, hops :: Nat):
   opaque
   internal _HopDistanceEntry
+  /* Keeps distance entries owned by the topology analysis pass. */
   constructor ~none
 
+  /* Formats the endpoint identities and shortest hop count. */
   method describe():
     String.append(source.describe(), " -> ", destination.describe(), ": ",
                   to_string(hops))
 
+/* Compares the source and destination identities of a distance entry. */
 fun entry_matches(entry :: HopDistanceEntry,
                   source :: NodeId,
                   destination :: NodeId):
@@ -27,6 +31,7 @@ fun entry_matches(entry :: HopDistanceEntry,
     destination
   )
 
+/* Looks up a reachable pair, returning false for an absent entry. */
 fun find_entry(entries :: List.of(HopDistanceEntry),
                source :: NodeId,
                destination :: NodeId):
@@ -34,6 +39,7 @@ fun find_entry(entries :: List.of(HopDistanceEntry),
     fun (entry): entry_matches(entry, source, destination)
   )
 
+/* Reports a distance query referring to a router outside the topology. */
 fun require_node(topology :: Topology,
                  who :: Symbol,
                  subject :: String,
@@ -41,21 +47,26 @@ fun require_node(topology :: Topology,
   unless topology.contains_node(node)
   | error(~who: who, subject ++ " is not in topology: " ++ node.describe())
 
+/* Stores precomputed directed hop distances without choosing a single route. */
 class HopDistances(topology :: Topology,
                    entries :: List.of(HopDistanceEntry)):
   opaque
   internal _HopDistances
+  /* Keeps all-pairs distance construction inside this analysis module. */
   constructor ~none
 
+  /* Returns the shortest hop count, or false for an unreachable known pair. */
   method distance(source :: NodeId, destination :: NodeId):
     require_node(topology, #'distance, "source", source)
     require_node(topology, #'distance, "destination", destination)
     def entry = find_entry(entries, source, destination)
     entry?.hops
 
+  /* Tests whether a finite distance exists between known routers. */
   method reachable(source :: NodeId, destination :: NodeId):
     distance(source, destination) != #false
 
+  /* Checks that a link decreases remaining distance by exactly one hop. */
   method link_is_minimal(link_id :: LinkId, destination :: NodeId):
     require_node(
       topology,
@@ -70,6 +81,7 @@ class HopDistances(topology :: Topology,
       next_distance + 1
     )
 
+  /* Returns every shortest-step outgoing link, retaining equal-cost and parallel choices. */
   method minimal_outgoing_links(source :: NodeId, destination :: NodeId):
     require_node(
       topology,
@@ -87,9 +99,11 @@ class HopDistances(topology :: Topology,
       ~keep: fun (link): link_is_minimal(link.id, destination)
     )
 
+  /* Lists the precomputed reachable-pair distances. */
   method describe():
     String.join(entries.map(fun (entry): entry.describe()), "\n")
 
+/* Runs reverse breadth-first search from one destination to discover unit-hop distances. */
 fun append_destination_distances(topology :: Topology,
                                  destination :: NodeId,
                                  entries :: List.of(HopDistanceEntry)):
@@ -109,6 +123,7 @@ fun append_destination_distances(topology :: Topology,
         pending := pending ++ [link.source]
   result
 
+/* Precomputes directed distances for every destination in deterministic topology order. */
 fun compute_hop_distances(topology :: Topology):
   def mutable entries = []
   for (destination in topology.nodes):

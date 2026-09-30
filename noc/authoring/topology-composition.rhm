@@ -1,5 +1,5 @@
 #lang rhombus
-// Provides topology-independent naming, composition, and directed-link helpers.
+/* Provides topology-independent naming, composition, and directed-link helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,6 +17,7 @@ export:
   directed_link
   bidirectional_link
 
+/* Normalizes a hierarchy prefix and reports invalid inputs with the caller's name. */
 fun require_prefix(who :: Symbol,
                    value :: NamePath || String || List.of(String)):
   if value is_a NamePath
@@ -28,29 +29,35 @@ fun require_prefix(who :: Symbol,
           error(~who: who,
                 "topology prefix must be a nonempty String or List of Strings")
 
+/* Prepends validated prefix segments without flattening the hierarchy. */
 fun prefixed_path(prefix :: NamePath, path :: NamePath):
   NamePath(prefix.segments ++ path.segments)
 
+/* Places a router reference beneath a hierarchy prefix. */
 fun prefix_node_ref(prefix :: NamePath || String || List.of(String),
                     ref :: NodeRef):
   def prefix_path = require_prefix(#'prefix_node_ref, prefix)
   NodeRef(prefixed_path(prefix_path, ref.path))
 
+/* Places a directed-link reference beneath a hierarchy prefix. */
 fun prefix_link_ref(prefix :: NamePath || String || List.of(String),
                     ref :: LinkRef):
   def prefix_path = require_prefix(#'prefix_link_ref, prefix)
   LinkRef(prefixed_path(prefix_path, ref.path))
 
+/* Places an injection reference beneath a hierarchy prefix. */
 fun prefix_injection_ref(prefix :: NamePath || String || List.of(String),
                          ref :: InjectionRef):
   def prefix_path = require_prefix(#'prefix_injection_ref, prefix)
   InjectionRef(prefixed_path(prefix_path, ref.path))
 
+/* Places an ejection reference beneath a hierarchy prefix. */
 fun prefix_ejection_ref(prefix :: NamePath || String || List.of(String),
                         ref :: EjectionRef):
   def prefix_path = require_prefix(#'prefix_ejection_ref, prefix)
   EjectionRef(prefixed_path(prefix_path, ref.path))
 
+/* Prefixes every node, link, endpoint, and terminal while preserving VC-group declarations. */
 fun prefix_topology(prefix :: NamePath || String || List.of(String),
                     spec :: TopologySpec):
   def prefix_path = require_prefix(#'prefix_topology, prefix)
@@ -82,8 +89,7 @@ fun prefix_topology(prefix :: NamePath || String || List.of(String),
   )
   TopologySpec(nodes, links, ~injections: injections, ~ejections: ejections)
 
-// Applies the common one-injection/one-ejection-per-router attachment policy
-// without baking terminals into reusable topology-family definitions.
+/* Adds one same-named injection and ejection per router, rejecting existing attachments. */
 fun with_router_terminals(spec :: TopologySpec):
   when spec.injections.length() > 0 || spec.ejections.length() > 0
   | error(~who: #'with_router_terminals,
@@ -97,6 +103,7 @@ fun with_router_terminals(spec :: TopologySpec):
     )
   )
 
+/* Combines declarations and extra links through ordinary TopologySpec validation. */
 fun compose_topologies(specs :: NonemptyList.of(TopologySpec),
                        ~links: extra_links :: List.of(TopologyLink) = []):
   def mutable nodes = []
@@ -113,12 +120,14 @@ fun compose_topologies(specs :: NonemptyList.of(TopologySpec),
                ~injections: injections,
                ~ejections: ejections)
 
+/* Builds one symbolic directed edge with explicit VC groups. */
 fun directed_link(ref :: LinkRef,
                   source :: NodeRef,
                   destination :: NodeRef,
                   vc_groups :: NonemptyList.of(VCGroup)):
   TopologyLink(ref, source, destination, vc_groups)
 
+/* Builds two independently named, oppositely directed edges with the same VC groups. */
 fun bidirectional_link(forward_ref :: LinkRef,
                        reverse_ref :: LinkRef,
                        source :: NodeRef,

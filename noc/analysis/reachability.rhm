@@ -1,5 +1,5 @@
 #lang rhombus
-// Computes valid reachable route states from an immutable materialized routing snapshot.
+/* Computes valid reachable route states from an immutable materialized routing snapshot. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,9 +11,11 @@ export:
   ReachableRouting
   analyze_reachability
 
+/* Tests VC membership by normalized link/index identity. */
 fun contains_vc(vcs :: List.of(VCId), vc :: VCId):
   vcs.find(fun (candidate): vc_id_equal(candidate, vc)) != #false
 
+/* Checks whether the origin's current router matches the route's ejection attachment. */
 fun at_destination(materialized :: MaterializedRouting,
                    route_class :: RouteClass,
                    origin :: Injection || HeldVC):
@@ -24,27 +26,34 @@ fun at_destination(materialized :: MaterializedRouting,
       def link = materialized.topology.find_vc_link(origin.vc)
       node_id_equal(link.destination, route_class.destination.router)
 
+/* Retains one route's discovered VCs and exact reachable allowed decisions. */
 class RouteReachability(route_class :: RouteClass,
                         reachable_vcs :: List.of(VCId),
                         reachable_decisions :: List.of(MaterializedDecision)):
   opaque
   internal _RouteReachability
+  /* Keeps reachability evidence construction inside the analysis module. */
   constructor ~none
 
+  /* Tests whether a VC was discovered from this route's injection. */
   method reaches_vc(vc :: VCId):
     contains_vc(reachable_vcs, vc)
 
+  /* Formats the route identity and its VC discovery order. */
   method describe():
     def vc_names = reachable_vcs.map(fun (vc): vc.describe())
     String.append(route_class.id.describe(), ": [",
                   String.join(vc_names, ", "), "]")
 
+/* Binds per-route reachability evidence to the immutable snapshot that was traversed. */
 class ReachableRouting(materialized :: MaterializedRouting,
                        routes :: List.of(RouteReachability)):
   opaque
   internal _ReachableRouting
+  /* Keeps aggregate reachability evidence construction inside this module. */
   constructor ~none
 
+  /* Returns evidence for an exact owned route or reports missing/foreign ownership. */
   method for_route(route_class :: RouteClass):
     unless materialized.contains_route_class(route_class)
     | error(~who: #'ReachableRouting,
@@ -57,15 +66,18 @@ class ReachableRouting(materialized :: MaterializedRouting,
             "route class has no reachability result")
     found
 
+  /* Concatenates per-route decisions in deterministic route order. */
   method reachable_decisions():
     def mutable decisions = []
     for (route in routes):
       decisions := decisions ++ route.reachable_decisions
     decisions
 
+  /* Lists the per-route reachability summaries. */
   method describe():
     String.join(routes.map(fun (route): route.describe()), "\n")
 
+/* Reports a reachable non-destination origin with no allowed continuation. */
 fun dead_end(route_class :: RouteClass, origin :: Injection || HeldVC):
   error(~who: #'analyze_reachability,
         String.append("reachable dead end for route class ",
@@ -73,6 +85,7 @@ fun dead_end(route_class :: RouteClass, origin :: Injection || HeldVC):
                       "; destination is ",
                       route_class.destination.describe()))
 
+/* Reports that traversal never reached the route's ejection router. */
 fun destination_unreachable(route_class :: RouteClass):
   error(~who: #'analyze_reachability,
         String.append("destination ", route_class.destination.describe(),
@@ -80,6 +93,8 @@ fun destination_unreachable(route_class :: RouteClass):
                       route_class.id.describe(), " from ",
                       route_class.source.describe()))
 
+/* Traverses allowed snapshot decisions breadth-first, rejecting dead ends and missing destination
+   arrival. */
 fun analyze_route(materialized :: MaterializedRouting, route_class :: RouteClass):
   def mutable pending = [Injection(route_class.source)]
   def mutable reachable_vcs = []
@@ -108,6 +123,7 @@ fun analyze_route(materialized :: MaterializedRouting, route_class :: RouteClass
   | destination_unreachable(route_class)
   _RouteReachability(route_class, reachable_vcs, reachable_decisions)
 
+/* Analyzes each owned route without invoking a routing callback. */
 fun analyze_reachability(materialized :: MaterializedRouting):
   def routes = for List (route_class in materialized.route_classes):
     analyze_route(materialized, route_class)

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines finite route classes, routing origins, and topology-derived candidate queries.
+/* Defines finite route classes, routing origins, and topology-derived candidate queries. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,19 +17,25 @@ export:
   injection_origin
   held_vc_origin
 
+/* Associates an injection identity with its router attachment. */
 class InjectionTerminal(id :: InjectionId, router :: NodeId):
 
+  /* Formats an injection identity and its router attachment. */
   method describe():
     id.describe() ++ "@" ++ router.describe()
 
+/* Associates an ejection identity with its router attachment. */
 class EjectionTerminal(id :: EjectionId, router :: NodeId):
 
+  /* Formats an ejection identity and its router attachment. */
   method describe():
     id.describe() ++ "@" ++ router.describe()
 
+/* Names one source/destination terminal pair within a routing problem. */
 class RouteClass(id :: RouteClassId,
                  source :: InjectionTerminal,
                  destination :: EjectionTerminal):
+  /* Accepts explicit terminals or derives same-index terminal identities from routers. */
   constructor (id :: RouteClassId,
                source :: NodeId || InjectionTerminal,
                destination :: NodeId || EjectionTerminal):
@@ -43,11 +49,14 @@ class RouteClass(id :: RouteClassId,
       | destination
     super(id, source_terminal, destination_terminal)
 
+  /* Formats the route identity and its source/destination attachments. */
   method describe():
     String.append(id.describe(), ": ", source.describe(), " -> ",
                   destination.describe())
 
+/* Represents a packet before it acquires its first network VC. */
 class Injection(terminal :: InjectionTerminal):
+  /* Accepts an explicit terminal or derives one from a router identity. */
   constructor (terminal :: NodeId || InjectionTerminal):
     super(
       if terminal is_a NodeId
@@ -55,25 +64,32 @@ class Injection(terminal :: InjectionTerminal):
       | terminal
     )
 
+  /* Formats the terminal at which the packet enters the network. */
   method describe():
     "inject(" ++ terminal.describe() ++ ")"
 
+/* Represents a packet holding a VC at that link's destination router. */
 class HeldVC(vc :: VCId):
+  /* Formats the resource currently held by the packet. */
   method describe():
     "hold(" ++ vc.describe() ++ ")"
 
+/* Distinguishes injection state from a held-VC routing origin. */
 fun injection_origin(value :: Injection || HeldVC):
   value is_a Injection
 
+/* Distinguishes a held network resource from injection state. */
 fun held_vc_origin(value :: Injection || HeldVC):
   value is_a HeldVC
 
+/* Detects repeated numeric route-class identities. */
 fun duplicate_route_class_id(route_classes :: List.of(RouteClass),
                              id :: RouteClassId):
   route_classes.filter(
     ~keep: fun (candidate): route_class_id_equal(candidate.id, id)
   ).length() > 1
 
+/* Detects an injection identity attached to different routers. */
 fun conflicting_injection(route_classes :: List.of(RouteClass),
                           terminal :: InjectionTerminal):
   route_classes.find(
@@ -83,6 +99,7 @@ fun conflicting_injection(route_classes :: List.of(RouteClass),
       )
   ) != #false
 
+/* Detects an ejection identity attached to different routers. */
 fun conflicting_ejection(route_classes :: List.of(RouteClass),
                          terminal :: EjectionTerminal):
   route_classes.find(
@@ -92,6 +109,7 @@ fun conflicting_ejection(route_classes :: List.of(RouteClass),
       )
   ) != #false
 
+/* Deduplicates source terminals and orders them by injection identity. */
 fun unique_injections(route_classes :: List.of(RouteClass)):
   def mutable terminals = []
   for (route_class in route_classes):
@@ -101,6 +119,7 @@ fun unique_injections(route_classes :: List.of(RouteClass)):
     | terminals := terminals ++ [route_class.source]
   terminals.sort(fun (left, right): injection_id_less(left.id, right.id))
 
+/* Deduplicates destination terminals and orders them by ejection identity. */
 fun unique_ejections(route_classes :: List.of(RouteClass)):
   def mutable terminals = []
   for (route_class in route_classes):
@@ -110,18 +129,22 @@ fun unique_ejections(route_classes :: List.of(RouteClass)):
     | terminals := terminals ++ [route_class.destination]
   terminals.sort(fun (left, right): ejection_id_less(left.id, right.id))
 
+/* Wraps the user predicate over a route, origin, and candidate VC. */
 class RoutingRelation(allows :: Function.of_arity(3)):
 
+  /* Invokes the user predicate; finite evaluation and Boolean checking belong to materialization. */
   method allow(route_class :: RouteClass,
                origin :: Injection || HeldVC,
                candidate_vc :: VCId):
     allows(route_class, origin, candidate_vc)
 
+/* Binds a topology, ordered route classes, terminals, and an unevaluated relation. */
 class RoutingProblem(topology :: Topology,
                      route_classes :: NonemptyList.of(RouteClass),
                      relation :: RoutingRelation,
                      injection_terminals :: List.of(InjectionTerminal),
                      ejection_terminals :: List.of(EjectionTerminal)):
+  /* Validates route identities and terminal attachments before sorting and deduplicating them. */
   constructor (topology :: Topology,
                route_classes :: NonemptyList.of(RouteClass),
                relation :: RoutingRelation):
@@ -160,11 +183,13 @@ class RoutingProblem(topology :: Topology,
           unique_injections(ordered_routes),
           unique_ejections(ordered_routes))
 
+  /* Checks exact route-object membership, not merely a matching numeric identity. */
   method contains_route_class(route_class :: RouteClass):
     route_classes.find(
       fun (candidate): candidate === route_class
     ) != #false
 
+  /* Looks up an ordered route class by numeric identity or reports an error. */
   method find_route_class(id :: RouteClassId):
     def found = route_classes.find(
       fun (route_class): route_class_id_equal(route_class.id, id)
@@ -174,6 +199,7 @@ class RoutingProblem(topology :: Topology,
             "unknown route class " ++ id.describe())
     found
 
+  /* Resolves an injection attachment or the destination of a held VC's link. */
   method origin_node(origin :: Injection || HeldVC):
     cond
     | origin is_a Injection:
@@ -187,12 +213,14 @@ class RoutingProblem(topology :: Topology,
     | origin is_a HeldVC:
         topology.find_vc_link(origin.vc).destination
 
+  /* Checks whether an owned route has reached its destination router. */
   method at_destination(route_class :: RouteClass, origin :: Injection || HeldVC):
     unless contains_route_class(route_class)
     | error(~who: #'at_destination,
             "route class does not belong to this routing problem")
     node_id_equal(origin_node(origin), route_class.destination.router)
 
+  /* Enumerates physically legal outgoing VCs; destination arrival ejects without a policy query. */
   method candidates(route_class :: RouteClass, origin :: Injection || HeldVC):
     unless contains_route_class(route_class)
     | error(~who: #'candidates,

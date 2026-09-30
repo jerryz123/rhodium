@@ -1,5 +1,5 @@
 #lang rhombus
-// Materializes every finite routing query once into a deterministic immutable snapshot.
+/* Materializes every finite routing query once into a deterministic immutable snapshot. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,16 +10,19 @@ export:
   MaterializedRouting
   materialize_routing
 
+/* Stores one finite routing query and its checked Boolean result. */
 class MaterializedDecision(route_class :: RouteClass,
                            origin :: (Injection || HeldVC),
                            candidate_vc :: VCId,
                            allowed :: Boolean):
 
+  /* Formats the query's route, origin, candidate, and allow/deny outcome. */
   method describe():
     String.append(route_class.id.describe(), " ", origin.describe(), " -> ",
                   candidate_vc.describe(), ": ",
                   (if allowed | "allow" | "deny"))
 
+/* Compares matching origin kinds by terminal or VC identity. */
 fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
   cond
   | left is_a Injection && right is_a Injection:
@@ -28,17 +31,20 @@ fun origin_equal(left :: Injection || HeldVC, right :: Injection || HeldVC):
       vc_id_equal(left.vc, right.vc)
   | ~else: #false
 
+/* Matches an exact owned route and its normalized origin. */
 fun decision_has_origin(decision :: MaterializedDecision,
                         route_class :: RouteClass,
                         origin :: Injection || HeldVC):
   decision.route_class === route_class && origin_equal(decision.origin, origin)
 
+/* Matches the complete route/origin/candidate query. */
 fun decision_matches(decision :: MaterializedDecision,
                      route_class :: RouteClass,
                      origin :: Injection || HeldVC,
                      candidate_vc :: VCId):
   decision_has_origin(decision, route_class, origin) && vc_id_equal(decision.candidate_vc, candidate_vc)
 
+/* Stores the immutable finite relation snapshot without retaining the user callback. */
 class MaterializedRouting(topology :: Topology,
                           route_classes :: NonemptyList.of(RouteClass),
                           injection_terminals :: List.of(InjectionTerminal),
@@ -47,13 +53,16 @@ class MaterializedRouting(topology :: Topology,
   // Hiding the constructor ensures every snapshot came from the user callback.
   opaque
   internal _MaterializedRouting
+  /* Restricts snapshot construction to this module's materialization path. */
   constructor ~none
 
+  /* Checks exact route-object ownership by the snapshot. */
   method contains_route_class(route_class :: RouteClass):
     route_classes.find(
       fun (candidate): candidate === route_class
     ) != #false
 
+  /* Rejects foreign routes, wrong injection terminals, and unknown held VCs. */
   method validate_origin(route_class :: RouteClass,
                          origin :: Injection || HeldVC):
     unless contains_route_class(route_class)
@@ -69,6 +78,7 @@ class MaterializedRouting(topology :: Topology,
     | origin is_a HeldVC:
         topology.find_vc_link(origin.vc)
 
+  /* Returns the stored decisions for one validated route/origin pair. */
   method decisions_for(route_class :: RouteClass,
                        origin :: Injection || HeldVC):
     validate_origin(route_class, origin)
@@ -76,12 +86,14 @@ class MaterializedRouting(topology :: Topology,
       ~keep: fun (decision): decision_has_origin(decision, route_class, origin)
     )
 
+  /* Projects allowed VCs from stored decisions without reevaluating user code. */
   method allowed_candidates(route_class :: RouteClass,
                             origin :: Injection || HeldVC):
     decisions_for(route_class, origin).filter(
       ~keep: fun (decision): decision.allowed
     ).map(fun (decision): decision.candidate_vc)
 
+  /* Resolves an exact stored query or reports that it was never materialized. */
   method decision(route_class :: RouteClass,
                   origin :: Injection || HeldVC,
                   candidate_vc :: VCId):
@@ -96,14 +108,17 @@ class MaterializedRouting(topology :: Topology,
                           " -> ", candidate_vc.describe()))
     found
 
+  /* Returns an already stored query result. */
   method allowed(route_class :: RouteClass,
                  origin :: Injection || HeldVC,
                  candidate_vc :: VCId):
     decision(route_class, origin, candidate_vc).allowed
 
+  /* Lists all stored decisions in canonical materialization order. */
   method describe():
     String.join(decisions.map(fun (decision): decision.describe()), "\n")
 
+/* Evaluates each physically legal candidate once and rejects non-Boolean predicate results. */
 fun materialize_origin(problem :: RoutingProblem,
                        route_class :: RouteClass,
                        origin :: Injection || HeldVC):
@@ -116,6 +131,7 @@ fun materialize_origin(problem :: RoutingProblem,
                           " -> ", candidate_vc.describe()))
     MaterializedDecision(route_class, origin, candidate_vc, allowed)
 
+/* Snapshots all route/injection/held-VC queries in stable order, then discards the callback. */
 fun materialize_routing(problem :: RoutingProblem):
   def mutable decisions = []
   // This stable order also becomes the canonical order used by later passes.

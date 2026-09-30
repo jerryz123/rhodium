@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects validated routing into deterministic router, external-port, and VC wiring assignments.
+/* Projects validated routing into deterministic router, external-port, and VC wiring assignments. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,7 @@ export:
   NetworkLinkConnection
   NetworkPlan
 
+/* Resolves a router's deterministic network position or reports an internal missing node. */
 fun require_node_index(nodes :: List.of(NodeId), node :: NodeId):
   def found = nodes.find_index(
     fun (candidate): node_id_equal(candidate, node)
@@ -22,30 +23,37 @@ fun require_node_index(nodes :: List.of(NodeId), node :: NodeId):
   | error(~who: #'NetworkPlan, "internal error: missing topology node")
   found
 
+/* Maps one external injection terminal to a router input slot. */
 class NetworkInjectionPort(terminal :: InjectionTerminal,
                            router_index :: Nat,
                            input_index :: Nat):
   opaque
   internal _NetworkInjectionPort
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the external injection's router and input assignment. */
   method describe():
     String.append("inject ", terminal.describe(), " -> router[",
                   to_string(router_index), "].input[",
                   to_string(input_index), "]")
 
+/* Maps one external ejection terminal to a router target slot. */
 class NetworkEjectionPort(terminal :: EjectionTerminal,
                           router_index :: Nat,
                           target_index :: Nat):
   opaque
   internal _NetworkEjectionPort
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the external ejection's router and target assignment. */
   method describe():
     String.append("eject ", terminal.describe(), " <- router[",
                   to_string(router_index), "].target[",
                   to_string(target_index), "]")
 
+/* Maps one logical VC between its source target and destination input slots. */
 class NetworkVCConnection(vc :: VCId,
                           source_router_index :: Nat,
                           source_target_index :: Nat,
@@ -53,8 +61,10 @@ class NetworkVCConnection(vc :: VCId,
                           destination_input_index :: Nat):
   opaque
   internal _NetworkVCConnection
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the logical VC's two router-local slot assignments. */
   method describe():
     String.append(vc.describe(), ": router[",
                   to_string(source_router_index), "].target[",
@@ -62,6 +72,7 @@ class NetworkVCConnection(vc :: VCId,
                   to_string(destination_router_index), "].input[",
                   to_string(destination_input_index), "]")
 
+/* Groups a physical link's logical VC slots in link-local VC order. */
 class NetworkLinkConnection(link :: PhysicalLink,
                             source_router_index :: Nat,
                             source_target_indices :: List.of(Nat),
@@ -69,8 +80,10 @@ class NetworkLinkConnection(link :: PhysicalLink,
                             destination_input_indices :: List.of(Nat)):
   opaque
   internal _NetworkLinkConnection
+  /* Restricts artifact construction to this module's validated projection path. */
   constructor ~none
 
+  /* Formats the physical link's source and destination slot arrays. */
   method describe():
     String.append(link.id.describe(), ": router[",
                   to_string(source_router_index), "].targets",
@@ -78,12 +91,15 @@ class NetworkLinkConnection(link :: PhysicalLink,
                   to_string(destination_router_index), "].inputs",
                   to_string(destination_input_indices))
 
+/* Describes router projections and wiring assignments without instantiating hardware or hierarchy. */
 class NetworkPlan(validated_routing :: ValidatedRouting,
                   router_plans :: NonemptyList.of(RouterPlan),
                   injection_ports :: List.of(NetworkInjectionPort),
                   ejection_ports :: List.of(NetworkEjectionPort),
                   vc_connections :: List.of(NetworkVCConnection),
                   link_connections :: List.of(NetworkLinkConnection)):
+  /* Projects all routers, terminals, logical VCs, and grouped physical links from validated
+     routing. */
   constructor (validated_routing :: ValidatedRouting):
     def topology = validated_routing.topology
     def router_plans:
@@ -153,11 +169,13 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
           vc_connections,
           link_connections)
 
+  /* Returns the local plan for a known topology router. */
   method router_plan(node :: NodeId):
     unless validated_routing.topology.contains_node(node)
     | error(~who: #'NetworkPlan, "unknown network-plan node")
     router_plans[require_node_index(validated_routing.topology.nodes, node)]
 
+  /* Resolves an external injection identity to its router/input assignment. */
   method injection_port(id :: InjectionId):
     def found = injection_ports.find(
       fun (port): injection_id_equal(port.terminal.id, id)
@@ -167,6 +185,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
             "unknown external injection terminal")
     found
 
+  /* Resolves an external ejection identity to its router/target assignment. */
   method ejection_port(id :: EjectionId):
     def found = ejection_ports.find(
       fun (port): ejection_id_equal(port.terminal.id, id)
@@ -176,6 +195,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
             "unknown external ejection terminal")
     found
 
+  /* Resolves one logical VC's source/destination wiring assignment. */
   method vc_connection(vc :: VCId):
     def found = vc_connections.find(
       fun (connection): vc_id_equal(connection.vc, vc)
@@ -184,6 +204,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     | error(~who: #'NetworkPlan, "unknown network-plan VC")
     found
 
+  /* Resolves a physical link's ordered VC wiring group. */
   method link_connection(id :: LinkId):
     def found = link_connections.find(
       fun (connection): link_id_equal(connection.link.id, id)
@@ -192,6 +213,7 @@ class NetworkPlan(validated_routing :: ValidatedRouting,
     | error(~who: #'NetworkPlan, "unknown network-plan link")
     found
 
+  /* Summarizes the router, terminal, and logical-connection counts. */
   method describe():
     String.append("network plan: routers=", to_string(router_plans.length()),
                   ", injections=", to_string(injection_ports.length()),

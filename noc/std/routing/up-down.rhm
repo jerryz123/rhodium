@@ -1,5 +1,5 @@
 #lang rhombus
-// Synthesizes deterministic up*/down* routing for connected bidirectional topologies.
+/* Synthesizes deterministic up/down routing for connected bidirectional topologies. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,15 +15,19 @@ export:
 def up_phase = "up"
 def down_phase = "down"
 
+/* Tests explicit VC-group membership. */
 fun contains_name(names :: List.of(String), name :: String):
   names.contains(name)
 
+/* Detects repeated names in the up/down group selection. */
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Tests symbolic router membership by hierarchical path. */
 fun contains_node_ref(nodes :: List.of(NodeRef), node :: NodeRef):
   nodes.find(fun (candidate): node_ref_equal(candidate, node)) != #false
 
+/* Tests whether any directed physical edge reverses this link's endpoints. */
 fun reverse_link_exists(topology :: Topology, link :: PhysicalLink):
   topology.links.find(
     fun (candidate):
@@ -33,6 +37,7 @@ fun reverse_link_exists(topology :: Topology, link :: PhysicalLink):
       )
   ) != #false
 
+/* Requires valid unique selected groups to be provisioned on every physical link. */
 fun validate_vc_groups(lowered_topology :: LoweredTopology,
                        vc_groups :: NonemptyList.of(String)):
   for (name in vc_groups):
@@ -53,6 +58,7 @@ fun validate_vc_groups(lowered_topology :: LoweredTopology,
               String.append("link ", link.ref.describe(),
                             " has no up/down VC group ", name))
 
+/* Rejects self-loops and directed edges without a reverse direction. */
 fun validate_suitable_topology(lowered_topology :: LoweredTopology):
   for (link in lowered_topology.topology.links):
     when node_id_equal(link.source, link.destination)
@@ -68,18 +74,22 @@ fun validate_suitable_topology(lowered_topology :: LoweredTopology):
               lowered_topology.link_ref(link.id).describe()
             ))
 
+/* Records deterministic BFS depth, total rank, and tree parent for a router. */
 class UpDownNodeOrder(node :: NodeRef,
                       depth :: Nat,
                       rank :: Nat,
                       parent :: maybe(NodeRef)):
+  /* Formats the node's BFS order and parent, identifying the root explicitly. */
   method describe():
     String.append(node.describe(), ": depth=", to_string(depth),
                   ", rank=", to_string(rank), ", parent=",
                   (parent?.describe() || "root"))
 
+/* Looks up a router's BFS metadata, returning false when undiscovered. */
 fun find_node_order(orders :: List.of(UpDownNodeOrder), node :: NodeRef):
   orders.find(fun (order): node_ref_equal(order.node, node))
 
+/* Deduplicates adjacent router names and sorts them canonically for BFS tie-breaking. */
 fun unique_sorted_neighbors(lowered_topology :: LoweredTopology,
                             node :: NodeRef):
   def node_id = lowered_topology.node_id(node)
@@ -90,6 +100,7 @@ fun unique_sorted_neighbors(lowered_topology :: LoweredTopology,
     | neighbors := neighbors ++ [neighbor]
   neighbors.sort(node_ref_less)
 
+/* Builds a rooted deterministic BFS total order and rejects disconnected routers. */
 fun build_node_orders(lowered_topology :: LoweredTopology, root :: NodeRef):
   def mutable pending = [root]
   def mutable orders = [UpDownNodeOrder(root, 0, 0, #false)]
@@ -111,6 +122,7 @@ fun build_node_orders(lowered_topology :: LoweredTopology, root :: NodeRef):
           "up/down root cannot reach disconnected node " ++ missing.describe())
   orders
 
+/* Classifies an edge as up toward lower rank or down toward higher rank. */
 fun link_direction(lowered_topology :: LoweredTopology,
                    orders :: List.of(UpDownNodeOrder),
                    link_ref :: LinkRef):
@@ -123,19 +135,24 @@ fun link_direction(lowered_topology :: LoweredTopology,
   def destination_rank = find_node_order(orders, destination).rank
   if destination_rank < source_rank | up_phase | down_phase
 
+/* Derives the resource-visible phase carried by the direction of the most recently acquired link. */
 fun next_phase(direction :: String):
   if direction == down_phase | down_phase | up_phase
 
+/* Permits any direction while up, but forbids a return to up after a down acquisition. */
 fun turn_allowed(phase :: String, direction :: String):
   phase == up_phase || direction == down_phase
 
+/* Represents a node/destination/phase state with an allowed path to ejection. */
 class UpDownViableState(node :: NodeRef,
                         destination :: NodeRef,
                         phase :: String):
+  /* Formats the router pair and resource-visible phase. */
   method describe():
     String.append(node.describe(), " -> ", destination.describe(),
                   " [", phase, "]")
 
+/* Tests membership of an exact symbolic node/destination/phase state. */
 fun viable_state_exists(states :: List.of(UpDownViableState),
                         node :: NodeRef,
                         destination :: NodeRef,
@@ -148,9 +165,11 @@ fun viable_state_exists(states :: List.of(UpDownViableState),
       ) && state.phase == phase
   ) != #false
 
+/* Selects authored physical edges leaving one router. */
 fun outgoing_specs(spec :: TopologySpec, node :: NodeRef):
   spec.links.filter(~keep: fun (link): node_ref_equal(link.source, node))
 
+/* Tests whether an allowed turn reaches an already viable successor state. */
 fun state_has_progress(lowered_topology :: LoweredTopology,
                        orders :: List.of(UpDownNodeOrder),
                        states :: List.of(UpDownViableState),
@@ -168,6 +187,7 @@ fun state_has_progress(lowered_topology :: LoweredTopology,
       )
   ) != #false
 
+/* Computes backward viability to every destination for both phases to a fixed point. */
 fun build_viable_states(lowered_topology :: LoweredTopology,
                         orders :: List.of(UpDownNodeOrder)):
   def mutable states = []
@@ -196,12 +216,14 @@ fun build_viable_states(lowered_topology :: LoweredTopology,
               changed := #true
   states
 
+/* Synthesizes rank-oriented, viability-filtered up/down routing without granting proof authority. */
 class UpDownPolicy(lowered_topology :: LoweredTopology,
                    root :: NodeRef,
                    vc_groups :: NonemptyList.of(String),
                    node_orders :: List.of(UpDownNodeOrder),
                    viable_states :: List.of(UpDownViableState)):
   implements RoutingPolicy
+  /* Validates topology and resources, then precomputes deterministic ranks and viable states. */
   constructor (lowered_topology :: LoweredTopology,
                root :: NodeRef,
                vc_groups :: NonemptyList.of(String)):
@@ -215,6 +237,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
     def states = build_viable_states(lowered_topology, orders)
     super(lowered_topology, root, sorted_groups, orders, states)
 
+  /* Returns BFS metadata for a known router or reports a foreign node. */
   method node_order(node :: NodeRef):
     def found = find_node_order(node_orders, node)
     unless found
@@ -222,9 +245,11 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
             "node is not in up/down topology: " ++ node.describe())
     found
 
+  /* Returns the rank-oriented direction of a symbolic physical link. */
   method direction_of(link :: LinkRef):
     link_direction(lowered_topology, node_orders, link)
 
+  /* Tests precomputed destination reachability after validating nodes and phase. */
   method viable(node :: NodeRef,
                 destination :: NodeRef,
                 phase :: String = up_phase):
@@ -235,6 +260,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
     node_order(destination)
     viable_state_exists(viable_states, node, destination, phase)
 
+  /* Starts up at injection/nonselected VCs; selected held VCs carry their acquired link direction. */
   method initial_phase(context :: RoutingContext):
     cond
     | context.origin is_a RoutingInjection: up_phase
@@ -244,6 +270,7 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
         | up_phase
     | ~else: up_phase
 
+  /* Requires a selected resource, legal up/down turn, current source, and viable successor. */
   override method allows(context :: RoutingContext):
     def candidate_group_allowed = contains_name(
       vc_groups,
@@ -263,13 +290,16 @@ class UpDownPolicy(lowered_topology :: LoweredTopology,
       next_phase(direction)
     )
 
+  /* Returns the synthesized policy decision without matched-rule labels. */
   override method evaluate(context :: RoutingContext):
     RoutingPolicyEvaluation(allows(context), [])
 
+  /* Formats the explicit root and selected resource groups. */
   override method describe():
     String.append("up-down(root=", root.describe(),
                   "; vc-groups=", String.join(vc_groups, ","), ")")
 
+/* Constructs the topology-specific policy through its synthesis and validation path. */
 fun up_down(lowered_topology :: LoweredTopology,
             root :: NodeRef,
             vc_groups :: NonemptyList.of(String)):

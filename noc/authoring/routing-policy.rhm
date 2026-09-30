@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines inspectable symbolic routing contexts and topology-independent policy expressions.
+/* Defines inspectable symbolic routing contexts and topology-independent policy expressions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -41,32 +41,41 @@ export:
   routing_phase
   custom_policy
 
+/* Defines the diagnostic contract for symbolic injection and forwarding origins. */
 interface RoutingOrigin:
+  /* Requires a readable symbolic origin description. */
   method describe()
 
+/* Carries an injection terminal name and its current router attachment. */
 class RoutingInjection(terminal :: InjectionRef, router :: NodeRef):
   implements RoutingOrigin
+  /* Accepts explicit terminals or derives same-path injection names from router references. */
   constructor (terminal :: NodeRef || InjectionRef,
                router :: maybe(NodeRef) = #false):
     if terminal is_a NodeRef
     | super(InjectionRef(terminal.path), if router | router | terminal)
     | super(terminal, router)
 
+  /* Formats the injection terminal and its attached router. */
   override method describe():
     "inject(" ++ terminal.describe() ++ " @ " ++ router.describe() ++ ")"
 
+/* Carries the symbolic VC currently held by a forwarding packet. */
 class RoutingForwarding(vc :: VCRef):
   implements RoutingOrigin
 
+  /* Formats the held VC as a forwarding origin. */
   override method describe():
     "forward(" ++ vc.describe() ++ ")"
 
+/* Provides a symbolic route, origin, router attachments, and candidate VC to a policy. */
 class RoutingContext(route_class :: RouteClassSpec,
                      origin :: RoutingOrigin,
                      current_node :: NodeRef,
                      candidate_vc :: VCRef,
                      source_router :: NodeRef,
                      destination_router :: NodeRef):
+  /* Resolves omitted endpoint routers and checks injection/current-router consistency. */
   constructor (route_class :: RouteClassSpec,
                origin :: RoutingOrigin,
                current_node :: NodeRef,
@@ -89,82 +98,116 @@ class RoutingContext(route_class :: RouteClassSpec,
           resolved_source,
           resolved_destination)
 
+  /* Returns the candidate VC's symbolic physical link. */
   method candidate_link():
     candidate_vc.link
 
+  /* Formats a complete symbolic policy query for diagnostics. */
   method describe():
     String.append(route_class.ref.describe(), " ", origin.describe(),
                   " at ", current_node.describe(), " -> ",
                   candidate_vc.describe())
 
+/* Defines inspectable Boolean policy evaluation and optional matched-rule evidence. */
 interface RoutingPolicy:
+  /* Requires a decision for one physically supplied symbolic routing context. */
   method allows(context :: RoutingContext)
+  /* Requires a Boolean decision with the names of contributing policy rules. */
   method evaluate(context :: RoutingContext)
+  /* Requires a deterministic policy description for inspection and composition ordering. */
   method describe()
 
+/* Stores a policy decision and the rule names retained by its evaluation. */
 class RoutingPolicyEvaluation(allowed :: Boolean,
                               rule_names :: List.of(NonemptyString))
 
+/* Admits every supplied symbolic routing query. */
 class AllowAllPolicy():
   implements RoutingPolicy
+  /* Returns true without inspecting the query. */
   override method allows(_context :: RoutingContext): #true
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe(): "allow-all"
 
+/* Rejects every supplied symbolic routing query. */
 class DenyAllPolicy():
   implements RoutingPolicy
+  /* Returns false without inspecting the query. */
   override method allows(_context :: RoutingContext): #false
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe(): "deny-all"
 
+/* Matches an explicit nonempty set of symbolic route names. */
 class RouteClassPolicy(refs :: NonemptyList.of(RouteClassRef)):
   implements RoutingPolicy
+  /* Canonicalizes route-reference order for deterministic descriptions. */
   constructor (refs :: NonemptyList.of(RouteClassRef)):
     super(refs.sort(route_class_ref_less))
 
+  /* Tests the context's route name against the selected routes. */
   override method allows(context :: RoutingContext):
     refs.find(
       fun (ref): route_class_ref_equal(ref, context.route_class.ref)
     ) != #false
 
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "route-class(" ++ String.join(
       refs.map(fun (ref): ref.describe()),
       ", "
     ) ++ ")"
 
+/* Matches only symbolic injection origins. */
 class InjectionPolicy():
   implements RoutingPolicy
+  /* Tests whether the context begins before any VC is held. */
   override method allows(context :: RoutingContext): context.origin is_a RoutingInjection
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe(): "origin(injection)"
 
+/* Matches only symbolic held-VC origins. */
 class ForwardingPolicy():
   implements RoutingPolicy
+  /* Tests whether the context already holds a network VC. */
   override method allows(context :: RoutingContext): context.origin is_a RoutingForwarding
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe(): "origin(forwarding)"
 
+/* Restricts acquisition to explicitly named physical links. */
 class CandidateLinkPolicy(refs :: NonemptyList.of(LinkRef)):
   implements RoutingPolicy
+  /* Canonicalizes selected link-reference order. */
   constructor (refs :: NonemptyList.of(LinkRef)):
     super(refs.sort(link_ref_less))
 
+  /* Matches the candidate's link against the selected symbolic links. */
   override method allows(context :: RoutingContext):
     refs.find(
       fun (ref): link_ref_equal(ref, context.candidate_link())
     ) != #false
 
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "candidate-link(" ++ String.join(
       refs.map(fun (ref): ref.describe()),
       ", "
     ) ++ ")"
 
+/* Rejects embedded slashes in the nonempty VC-group name selection. */
 fun require_nonempty_vc_group_names(who :: Symbol,
                                     subject :: String,
                                     names :: NonemptyList.of(NonemptyString)):
@@ -172,8 +215,10 @@ fun require_nonempty_vc_group_names(who :: Symbol,
     unless !name.contains("/")
     | error(~who: who, subject ++ " must contain names without '/'")
 
+/* Matches forwarding state by the group of its held VC. */
 class CurrentVCGroupPolicy(names :: NonemptyList.of(NonemptyString)):
   implements RoutingPolicy
+  /* Validates held-group names and sorts them for deterministic inspection. */
   constructor (names :: NonemptyList.of(NonemptyString)):
     require_nonempty_vc_group_names(
       #'match_current_vc_groups,
@@ -182,18 +227,23 @@ class CurrentVCGroupPolicy(names :: NonemptyList.of(NonemptyString)):
     )
     super(names.sort(fun (left, right): left < right))
 
+  /* Matches selected held-VC groups and rejects injection origins. */
   override method allows(context :: RoutingContext):
     context.origin is_a RoutingForwarding && names.find(
       fun (name): name == context.origin.vc.group
     ) != #false
 
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "current-vc-group(" ++ String.join(names, ", ") ++ ")"
 
+/* Restricts acquisition by the candidate VC's group name. */
 class CandidateVCGroupPolicy(names :: NonemptyList.of(NonemptyString)):
   implements RoutingPolicy
+  /* Validates candidate-group names and sorts them for deterministic inspection. */
   constructor (names :: NonemptyList.of(NonemptyString)):
     require_nonempty_vc_group_names(
       #'restrict_vc_groups,
@@ -202,27 +252,35 @@ class CandidateVCGroupPolicy(names :: NonemptyList.of(NonemptyString)):
     )
     super(names.sort(fun (left, right): left < right))
 
+  /* Tests the candidate group's membership in the selection. */
   override method allows(context :: RoutingContext):
     names.contains(context.candidate_vc.group)
 
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "candidate-vc-group(" ++ String.join(names, ", ") ++ ")"
 
+/* Orders children by description for determinism, not arbitration preference. */
 fun sort_policies(policies :: NonemptyList.of(RoutingPolicy)):
   policies.sort(
     fun (left, right): left.describe() < right.describe()
   )
 
+/* Combines policy children by Boolean union in canonical description order. */
 class UnionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
   implements RoutingPolicy
+  /* Canonicalizes child order without assigning routing priority. */
   constructor (policies :: NonemptyList.of(RoutingPolicy)):
     super(sort_policies(policies))
 
+  /* Returns the union evaluation's Boolean decision. */
   override method allows(context :: RoutingContext):
     evaluate(context).allowed
 
+  /* Stops at the first accepting canonical child and retains that child's rule evidence. */
   override method evaluate(context :: RoutingContext):
     def mutable matched = #false
     for (policy in policies):
@@ -232,20 +290,25 @@ class UnionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
         | matched := child
     if matched | matched | RoutingPolicyEvaluation(#false, [])
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "union(" ++ String.join(
       policies.map(fun (policy): policy.describe()),
       ", "
     ) ++ ")"
 
+/* Requires every child policy to accept the symbolic query. */
 class IntersectionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
   implements RoutingPolicy
+  /* Canonicalizes child order for deterministic evaluation and descriptions. */
   constructor (policies :: NonemptyList.of(RoutingPolicy)):
     super(sort_policies(policies))
 
+  /* Returns the intersection evaluation's Boolean decision. */
   override method allows(context :: RoutingContext):
     evaluate(context).allowed
 
+  /* Accumulates accepting child evidence until rejection, which clears all rule names. */
   override method evaluate(context :: RoutingContext):
     def mutable allowed = #true
     def mutable rule_names = []
@@ -258,18 +321,22 @@ class IntersectionPolicy(policies :: NonemptyList.of(RoutingPolicy)):
           rule_names := []
     RoutingPolicyEvaluation(allowed, rule_names)
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "intersection(" ++ String.join(
       policies.map(fun (policy): policy.describe()),
       ", "
     ) ++ ")"
 
+/* Labels an inspectable policy branch without adding mutable packet phase state. */
 class RoutingPhasePolicy(name :: NonemptyString, policy :: RoutingPolicy):
   implements RoutingPolicy
 
+  /* Returns the labeled child's Boolean decision. */
   override method allows(context :: RoutingContext):
     evaluate(context).allowed
 
+  /* Prepends this phase name only when its child accepts the query. */
   override method evaluate(context :: RoutingContext):
     def child = policy.evaluate(context)
     RoutingPolicyEvaluation(
@@ -277,17 +344,23 @@ class RoutingPhasePolicy(name :: NonemptyString, policy :: RoutingPolicy):
       (if child.allowed | [name] ++ child.rule_names | [])
     )
 
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe():
     "phase(" ++ name ++ ": " ++ policy.describe() ++ ")"
 
+/* Wraps a labeled user predicate as an ordinary inspectable policy. */
 class CustomPolicy(label :: NonemptyString,
                    predicate :: Function.of_arity(1)):
   implements RoutingPolicy
 
+  /* Invokes the user predicate on the symbolic context. */
   override method allows(context :: RoutingContext): predicate(context)
+  /* Checks this leaf's Boolean result and returns evaluation evidence without rule names. */
   override method evaluate(context :: RoutingContext): checked_policy_evaluation(this, context)
+  /* Renders this policy's deterministic, inspectable description. */
   override method describe(): "custom(" ++ label ++ ")"
 
+/* Evaluates a leaf policy once, rejects non-Boolean results, and emits unlabeled evidence. */
 fun checked_policy_evaluation(policy :: RoutingPolicy,
                               context :: RoutingContext):
   def result = policy.allows(context)
@@ -301,18 +374,28 @@ def deny_all = DenyAllPolicy()
 def injection_policy = InjectionPolicy()
 def forwarding_policy = ForwardingPolicy()
 
+/* Constructs a policy matching the selected symbolic route names. */
 fun match_route_classes(refs :: NonemptyList.of(RouteClassRef)): RouteClassPolicy(refs)
+/* Constructs a policy matching the selected symbolic physical links. */
 fun select_candidate_links(refs :: NonemptyList.of(LinkRef)): CandidateLinkPolicy(refs)
+/* Constructs a forwarding-only match on held VC groups. */
 fun match_current_vc_groups(names :: NonemptyList.of(NonemptyString)): CurrentVCGroupPolicy(names)
+/* Constructs a candidate-acquisition restriction by VC group. */
 fun restrict_vc_groups(names :: NonemptyList.of(NonemptyString)): CandidateVCGroupPolicy(names)
+/* Combines injection-only matching with candidate VC-group selection. */
 fun inject_into_vc_groups(names :: NonemptyList.of(NonemptyString)):
   policy_intersection([injection_policy, restrict_vc_groups(names)])
+/* Relates explicit held groups to candidate groups as resource-visible routing history. */
 fun transition_vc_groups(from_names :: NonemptyList.of(NonemptyString),
                          to_names :: NonemptyList.of(NonemptyString)):
   policy_intersection(
     [match_current_vc_groups(from_names), restrict_vc_groups(to_names)]
   )
+/* Constructs a canonical Boolean union of the supplied policies. */
 fun policy_union(policies :: NonemptyList.of(RoutingPolicy)): UnionPolicy(policies)
+/* Constructs a canonical Boolean intersection of the supplied policies. */
 fun policy_intersection(policies :: NonemptyList.of(RoutingPolicy)): IntersectionPolicy(policies)
+/* Adds an inspectable name to an existing policy branch. */
 fun routing_phase(name :: NonemptyString, policy :: RoutingPolicy): RoutingPhasePolicy(name, policy)
+/* Wraps a user predicate and its nonempty diagnostic label. */
 fun custom_policy(label :: NonemptyString, predicate :: Function.of_arity(1)): CustomPolicy(label, predicate)

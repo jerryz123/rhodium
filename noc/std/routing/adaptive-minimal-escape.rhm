@@ -1,5 +1,5 @@
 #lang rhombus
-// Preserves the mesh adaptive/XY API as a wrapper around generic escape composition.
+/* Preserves the mesh adaptive/XY API as a wrapper around generic escape composition. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,9 +13,11 @@ export:
   AdaptiveMinimalEscapePolicy
   adaptive_minimal_escape
 
+/* Detects repeated names within a resource-class selection. */
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Rejects malformed, repeated, or mesh-absent group names. */
 fun validate_group_set(mesh :: RectangularMesh,
                        subject :: String,
                        names :: NonemptyList.of(String)):
@@ -30,17 +32,22 @@ fun validate_group_set(mesh :: RectangularMesh,
     | error(~who: #'adaptive_minimal_escape,
             "mesh has no VC group " ++ name)
 
+/* Tests membership in an explicit resource-class selection. */
 fun group_selected(names :: List.of(String), group :: String):
   names.contains(group)
 
+/* Tests whether adaptive and escape resource classes share a group name. */
 fun groups_overlap(left :: List.of(String), right :: List.of(String)):
   left.find(fun (name): group_selected(right, name)) != #false
 
+/* Preserves the mesh API by composing generic minimal adaptation with XY escape routing. */
 class AdaptiveMinimalEscapePolicy(mesh :: RectangularMesh,
                                   adaptive_vc_groups :: NonemptyList.of(String),
                                   escape_vc_groups :: NonemptyList.of(String),
                                   composition :: RoutingPolicy):
   implements RoutingPolicy
+  /* Validates disjoint groups and builds the ordinary policy composition with precomputed
+     distances. */
   constructor (mesh :: RectangularMesh,
                adaptive_vc_groups :: NonemptyList.of(String) = ["adaptive"],
                escape_vc_groups :: NonemptyList.of(String) = ["escape"]):
@@ -71,9 +78,12 @@ class AdaptiveMinimalEscapePolicy(mesh :: RectangularMesh,
           sorted_escape,
           composition)
 
+  /* Returns the delegated composition's Boolean decision. */
   override method allows(context :: RoutingContext):
     evaluate(context).allowed
 
+  /* Checks mesh-view references before delegating routing semantics and evidence to the
+     composition. */
   override method evaluate(context :: RoutingContext):
     // Preserve the mesh wrapper's topology-view diagnostics before delegating
     // its routing semantics to the generic composition.
@@ -82,12 +92,14 @@ class AdaptiveMinimalEscapePolicy(mesh :: RectangularMesh,
     mesh.direction_of(context.candidate_link())
     composition.evaluate(context)
 
+  /* Formats the two resource classes and fixed XY escape order. */
   override method describe():
     String.append("adaptive-minimal-escape(adaptive=",
                   String.join(adaptive_vc_groups, ","),
                   "; escape=", String.join(escape_vc_groups, ","),
                   "; escape-order=x,y)")
 
+/* Constructs the mesh wrapper with explicit or default adaptive/escape group names. */
 fun adaptive_minimal_escape(
     mesh :: RectangularMesh,
     ~adaptive_vc_groups: adaptive_vc_groups :: NonemptyList.of(String) = ["adaptive"],

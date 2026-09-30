@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines a reusable rectangular-mesh topology view and generator.
+/* Defines a reusable rectangular-mesh topology view and generator. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,12 +21,16 @@ export:
   mesh_link_ref
   rectangular_mesh
 
+/* Stores a nonnegative two-dimensional router position. */
 class MeshCoordinate(x :: Nat, y :: Nat):
 
+  /* Formats the coordinate as an x/y pair. */
   method describe():
     "[" ++ to_string(x) ++ "," ++ to_string(y) ++ "]"
 
+/* Represents one unit step along either the x or y axis. */
 class MeshDirection(axis :: String, step :: Int):
+  /* Rejects unsupported axes and non-unit signed steps. */
   constructor (axis :: String, step :: Int):
     unless axis == "x" || axis == "y"
     | error(~who: #'MeshDirection, "mesh direction axis must be 'x' or 'y'")
@@ -34,6 +38,7 @@ class MeshDirection(axis :: String, step :: Int):
     | error(~who: #'MeshDirection, "mesh direction step must be -1 or 1")
     super(axis, step)
 
+  /* Maps the axis and sign to a cardinal direction name. */
   method describe():
     cond
     | axis == "x" && step == 1: "east"
@@ -41,6 +46,7 @@ class MeshDirection(axis :: String, step :: Int):
     | step == 1: "north"
     | ~else: "south"
 
+  /* Returns the direction on the same axis with reversed step. */
   method opposite():
     MeshDirection(axis, -step)
 
@@ -49,42 +55,53 @@ def mesh_west = MeshDirection("x", -1)
 def mesh_north = MeshDirection("y", 1)
 def mesh_south = MeshDirection("y", -1)
 
+/* Compares both coordinate components. */
 fun mesh_coordinate_equal(left :: MeshCoordinate, right :: MeshCoordinate):
   left.x == right.x && left.y == right.y
 
+/* Compares the axis and signed step. */
 fun mesh_direction_equal(left :: MeshDirection, right :: MeshDirection):
   left.axis == right.axis && left.step == right.step
 
+/* Orders coordinates by x, then y. */
 fun mesh_coordinate_less(left :: MeshCoordinate, right :: MeshCoordinate):
   if left.x == right.x
   | left.y < right.y
   | left.x < right.x
 
+/* Creates the canonical symbolic router name for a coordinate. */
 fun mesh_node_ref(x :: Nat, y :: Nat):
   def coordinate = MeshCoordinate(x, y)
   NodeRef("router" ++ coordinate.describe())
 
+/* Creates the canonical outgoing-edge name from a coordinate and direction. */
 fun mesh_link_ref(source :: MeshCoordinate, direction :: MeshDirection):
   LinkRef(["router" ++ source.describe(), direction.describe()])
 
+/* Pairs a mesh coordinate with its symbolic router reference. */
 class MeshNodeBinding(coordinate :: MeshCoordinate, ref :: NodeRef)
+/* Retains an edge's coordinates, direction, and symbolic physical-link reference. */
 class MeshLinkBinding(source :: MeshCoordinate,
                       destination :: MeshCoordinate,
                       direction :: MeshDirection,
                       ref :: LinkRef)
 
+/* Looks up a coordinate binding, returning false outside the declared mesh. */
 fun find_mesh_node_by_coordinate(bindings :: List.of(MeshNodeBinding),
                                  coordinate :: MeshCoordinate):
   bindings.find(
     fun (binding): mesh_coordinate_equal(binding.coordinate, coordinate)
   )
 
+/* Looks up a coordinate binding by symbolic router name. */
 fun find_mesh_node_by_ref(bindings :: List.of(MeshNodeBinding), ref :: NodeRef):
   bindings.find(fun (binding): node_ref_equal(binding.ref, ref))
 
+/* Looks up a directional edge binding by symbolic link name. */
 fun find_mesh_link_by_ref(bindings :: List.of(MeshLinkBinding), ref :: LinkRef):
   bindings.find(fun (binding): link_ref_equal(binding.ref, ref))
 
+/* Finds an edge by source coordinate and direction, returning false at a boundary. */
 fun find_outgoing_mesh_link(bindings :: List.of(MeshLinkBinding),
                             source :: MeshCoordinate,
                             direction :: MeshDirection):
@@ -93,12 +110,15 @@ fun find_outgoing_mesh_link(bindings :: List.of(MeshLinkBinding),
       mesh_coordinate_equal(binding.source, source) && mesh_direction_equal(binding.direction, direction)
   )
 
+/* Retains symbolic topology plus coordinate/direction views for topology-specific authoring
+   policies. */
 class RectangularMesh(width :: PosInt,
                       height :: PosInt,
                       spec :: TopologySpec,
                       node_bindings :: NonemptyList.of(MeshNodeBinding),
                       link_bindings :: List.of(MeshLinkBinding),
                       vc_groups :: NonemptyList.of(VCGroup)):
+  /* Resolves a coordinate to its router reference or reports a mesh-boundary error. */
   method node_at(x :: Nat, y :: Nat):
     def coordinate = MeshCoordinate(x, y)
     def found = find_mesh_node_by_coordinate(node_bindings, coordinate)
@@ -107,23 +127,27 @@ class RectangularMesh(width :: PosInt,
             "coordinate outside mesh " ++ coordinate.describe())
     found.ref
 
+  /* Resolves a known symbolic router to its coordinate. */
   method coordinate_of(ref :: NodeRef):
     def found = find_mesh_node_by_ref(node_bindings, ref)
     unless found
     | error(~who: #'coordinate_of, "node is not in mesh " ++ ref.describe())
     found.coordinate
 
+  /* Resolves a known symbolic link to its cardinal direction. */
   method direction_of(ref :: LinkRef):
     def found = find_mesh_link_by_ref(link_bindings, ref)
     unless found
     | error(~who: #'direction_of, "link is not in mesh " ++ ref.describe())
     found.direction
 
+  /* Returns the requested directional edge, or false when that neighbor does not exist. */
   method outgoing_link(node :: NodeRef, direction :: MeshDirection):
     def coordinate = coordinate_of(node)
     def found = find_outgoing_mesh_link(link_bindings, coordinate, direction)
     found?.ref
 
+  /* Returns the oppositely directed edge between the same neighboring routers. */
   method inverse_link(ref :: LinkRef):
     def found = find_mesh_link_by_ref(link_bindings, ref)
     unless found
@@ -138,6 +162,7 @@ class RectangularMesh(width :: PosInt,
             "mesh link has no inverse " ++ ref.describe())
     inverse.ref
 
+  /* Prefixes topology references while preserving coordinate and direction metadata. */
   method prefix(prefix :: NamePath || String || List.of(String)):
     def prefixed_spec = prefix_topology(prefix, spec)
     def prefixed_nodes = node_bindings.map(
@@ -159,6 +184,7 @@ class RectangularMesh(width :: PosInt,
                     prefixed_links,
                     vc_groups)
 
+/* Rejects repeated VC-group names before constructing the mesh. */
 fun require_mesh_vc_groups(vc_groups :: NonemptyList.of(VCGroup)):
   for (group in vc_groups):
     when vc_groups.filter(
@@ -167,6 +193,7 @@ fun require_mesh_vc_groups(vc_groups :: NonemptyList.of(VCGroup)):
     | error(~who: #'rectangular_mesh,
             "duplicate VC group " ++ group.name)
 
+/* Returns the neighboring coordinate for an in-bounds step, otherwise false. */
 fun directional_mesh_destination(source :: MeshCoordinate,
                                  width :: PosInt,
                                  height :: PosInt,
@@ -182,6 +209,7 @@ fun directional_mesh_destination(source :: MeshCoordinate,
       MeshCoordinate(source.x, source.y - 1)
   | ~else: #false
 
+/* Enumerates all in-bounds edges in one direction with their coordinate bindings. */
 fun directional_mesh_links(width :: PosInt,
                            height :: PosInt,
                            direction :: MeshDirection):
@@ -204,6 +232,7 @@ fun directional_mesh_links(width :: PosInt,
         ]
   bindings
 
+/* Builds a bidirectional nonwrapping grid and sorted metadata, leaving terminals to the caller. */
 fun rectangular_mesh(width :: PosInt,
                      height :: PosInt,
                      vc_groups :: NonemptyList.of(VCGroup)):

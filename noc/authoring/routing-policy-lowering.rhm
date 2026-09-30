@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers symbolic routing policies to the sole normalized RoutingRelation callback path.
+/* Lowers symbolic routing policies to the sole normalized RoutingRelation callback path. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,18 +17,21 @@ export:
   lower_routing_policy
   lower_routing_policy_with_evidence
 
+/* Finds provenance only for the exact normalized route object owned by this lowering. */
 fun find_exact_route_binding(lowered_routes :: LoweredRouteClasses,
                              route_class :: RouteClass):
   lowered_routes.bindings.find(
     fun (binding): binding.route_class === route_class
   )
 
+/* Tests whether a named VC group appears anywhere in the authored topology. */
 fun topology_has_vc_group(topology_spec :: TopologySpec, name :: String):
   topology_spec.links.find(
     fun (link):
       link.vc_groups.find(fun (group): group.name == name) != #false
   ) != #false
 
+/* Rejects policy group references absent from the authored topology. */
 fun validate_vc_group_references(lowered_routes :: LoweredRouteClasses,
                                  names :: List.of(String)):
   for (name in names):
@@ -36,6 +39,7 @@ fun validate_vc_group_references(lowered_routes :: LoweredRouteClasses,
     | error(~who: #'lower_routing_policy,
             "unknown VC group " ++ name)
 
+/* Recursively validates known route, link, and group references without evaluating predicates. */
 fun validate_policy_references(lowered_routes :: LoweredRouteClasses,
                                policy :: RoutingPolicy):
   cond
@@ -66,6 +70,7 @@ fun validate_policy_references(lowered_routes :: LoweredRouteClasses,
       validate_policy_references(lowered_routes, policy.escape_policy)
   | ~else: #void
 
+/* Recovers injection or held-VC authoring context from normalized origin identities. */
 fun symbolic_origin(lowered_topology :: LoweredTopology,
                     origin :: Injection || HeldVC):
   cond
@@ -77,6 +82,7 @@ fun symbolic_origin(lowered_topology :: LoweredTopology,
   | origin is_a HeldVC:
       RoutingForwarding(lowered_topology.vc_ref(origin.vc))
 
+/* Recovers the current router from an injection attachment or held link's destination. */
 fun current_node_ref(lowered_topology :: LoweredTopology,
                      origin :: Injection || HeldVC):
   cond
@@ -86,6 +92,7 @@ fun current_node_ref(lowered_topology :: LoweredTopology,
       def node_id = lowered_topology.topology.find_vc_link(origin.vc).destination
       lowered_topology.node_ref(node_id)
 
+/* Records a normalized query, recovered symbolic context, Boolean result, and matched rule names. */
 class LoweredRoutingDecision(route_class :: RouteClass,
                              origin :: Injection || HeldVC,
                              candidate_vc :: VCId,
@@ -93,9 +100,11 @@ class LoweredRoutingDecision(route_class :: RouteClass,
                              allowed :: Boolean,
                              rule_names :: List.of(String))
 
+/* Owns policy provenance and accumulates evaluation evidence when its relation is queried. */
 class RoutingPolicyLowering(lowered_routes :: LoweredRouteClasses,
                             policy :: RoutingPolicy,
                             mutable decisions :: List.of(LoweredRoutingDecision) = []):
+  /* Builds a callback that translates each query, evaluates once, and records its evidence. */
   method relation():
     RoutingRelation(
       fun (route_class,
@@ -131,11 +140,13 @@ class RoutingPolicyLowering(lowered_routes :: LoweredRouteClasses,
         evaluation.allowed
     )
 
+/* Validates symbolic references and returns an evidence-owning lowering without querying it. */
 fun lower_routing_policy_with_evidence(lowered_routes :: LoweredRouteClasses,
                                        policy :: RoutingPolicy):
   validate_policy_references(lowered_routes, policy)
   RoutingPolicyLowering(lowered_routes, policy)
 
+/* Returns the normalized callback; finite enumeration and proof remain downstream operations. */
 fun lower_routing_policy(lowered_routes :: LoweredRouteClasses,
                          policy :: RoutingPolicy):
   lower_routing_policy_with_evidence(lowered_routes, policy).relation()

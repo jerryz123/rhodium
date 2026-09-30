@@ -1,5 +1,5 @@
 #lang rhombus
-// Applies a reusable traffic definition to the concrete example mesh instance.
+/* Applies a reusable traffic definition to the concrete example mesh instance. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

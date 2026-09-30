@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines embedded structural topology syntax that expands only to public authoring values.
+/* Defines embedded structural topology syntax that expands only to public authoring values. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,9 +10,11 @@ export:
   topology
 
 meta:
+  /* Uses an identifier's source spelling as its symbolic authoring name. */
   fun identifier_name(identifier :: Identifier):
     identifier.to_source_string()
 
+  /* Finds a declaration by spelling rather than lexical binding identity. */
   fun find_identifier(identifiers :: List.of(Identifier),
                       candidate :: Identifier):
     def candidate_name = identifier_name(candidate)
@@ -20,6 +22,7 @@ meta:
       fun (identifier): identifier_name(identifier) == candidate_name
     )
 
+  /* Reports a duplicate name in the selected topology declaration category. */
   fun require_fresh(identifiers :: List.of(Identifier),
                     candidate :: Identifier,
                     subject :: String):
@@ -29,6 +32,7 @@ meta:
         candidate
       )
 
+  /* Reports a reference to an undeclared router or VC group. */
   fun require_declared(identifiers :: List.of(Identifier),
                        candidate :: Identifier,
                        subject :: String):
@@ -38,6 +42,7 @@ meta:
         candidate
       )
 
+  /* Checks group declaration membership and uniqueness for one physical link. */
   fun validate_selected_groups(selected_groups :: List.of(Identifier),
                                declared_groups :: List.of(Identifier),
                                link_name :: Identifier):
@@ -52,6 +57,7 @@ meta:
         )
       seen := seen ++ [selected]
 
+  /* Collects names/count expressions and validates declaration shapes before emitting builders. */
   fun collect_declarations(clauses :: List.of(Syntax), location :: Syntax):
     def mutable group_names = []
     def mutable group_counts = []
@@ -109,6 +115,7 @@ meta:
            injection_names,
            ejection_names)
 
+  /* Checks router references and emits public injection/ejection attachment constructors. */
   fun lower_terminals(clauses :: List.of(Syntax),
                       node_names :: List.of(Identifier)):
     def mutable injections = []
@@ -130,6 +137,7 @@ meta:
       | ~else: #void
     values(injections, ejections)
 
+  /* Checks endpoints and VC selections, then emits one or two public directed-link constructors. */
   fun lower_links(clauses :: List.of(Syntax),
                   node_names :: List.of(Identifier),
                   group_names :: List.of(Identifier)):
@@ -188,6 +196,8 @@ meta:
       | ~else: #void
     links
 
+/* Expands structural syntax into public TopologySpec values, without numeric lowering or routing
+   analysis. */
 expr.macro 'topology:
               $clause
               ...':

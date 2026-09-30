@@ -1,5 +1,5 @@
 #lang rhodium
-// Selects fair router grants while honoring escape-certified fallback targets.
+/* Selects fair router grants while honoring escape-certified fallback targets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,11 +8,9 @@ import:
 export:
   RouterAllocator
 
-// Acyclic plans mark every legal request as a fallback. Escape-certified
-// plans mark only escape VCs and ejection targets. An adaptive request is
-// eligible only when its target can accept immediately; otherwise the input
-// continuously requests its fallback set. Actual output transfers advance the
-// output-greedy matcher's priorities, so backpressure never consumes fairness.
+/* Offers immediately available adaptive targets, otherwise persistent fallback requests.
+   Per-output round-robin priorities advance only on actual transfers, preserving the certificate's
+   allocation obligation under backpressure. */
 sync_circuit RouterAllocator(input_count :: PosInt,
                              target_count :: PosInt):
   input requests: Vec(input_count, Vec(target_count, Bool))

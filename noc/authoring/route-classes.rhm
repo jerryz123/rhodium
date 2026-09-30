@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines symbolic route classes independently of normalized model identities.
+/* Defines symbolic route classes independently of normalized model identities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,9 +8,11 @@ import:
 export:
   RouteClassSpec
 
+/* Declares a symbolic route between independently named injection and ejection terminals. */
 class RouteClassSpec(ref :: RouteClassRef,
                      source :: InjectionRef,
                      destination :: EjectionRef):
+  /* Accepts terminal references or converts router references to same-path terminal names. */
   constructor (ref :: RouteClassRef,
                source :: NodeRef || InjectionRef,
                destination :: NodeRef || EjectionRef):
@@ -20,6 +22,7 @@ class RouteClassSpec(ref :: RouteClassRef,
       if destination is_a NodeRef | EjectionRef(destination.path) | destination
     )
 
+  /* Formats the route name and source/destination terminal names. */
   method describe():
     String.append(ref.describe(), ": ", source.describe(), " -> ",
                   destination.describe())

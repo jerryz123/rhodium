@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds and validates a user-authored XY policy with phases encoded by VC groups.
+/* Builds and validates a user-authored XY policy with phases encoded by VC groups. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,6 +29,7 @@ def phased_topology = lower_topology(with_router_terminals(phased_mesh.spec))
 def phased_traffic = all_pairs(phased_topology.spec)
 def phased_routes = lower_route_classes(phased_topology, phased_traffic)
 
+/* Returns the next signed step on one axis, or false when that coordinate is aligned. */
 fun required_axis_direction(axis :: String,
                             current :: MeshCoordinate,
                             destination :: MeshCoordinate):
@@ -39,6 +40,7 @@ fun required_axis_direction(axis :: String,
   | axis == "y" && current.y > destination.y: mesh_south
   | ~else: #false
 
+/* Builds the example's coordinate-aware step predicate; y steps require x alignment. */
 fun axis_step_policy(axis :: String):
   custom_policy(
     axis ++ "-step",

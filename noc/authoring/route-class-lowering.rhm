@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers symbolic route classes through one normalized topology and retains provenance.
+/* Lowers symbolic route classes through one normalized topology and retains provenance. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,23 +13,28 @@ export:
   LoweredRouteClasses
   lower_route_classes
 
+/* Pairs an authored route declaration with its normalized route object. */
 class RouteClassBinding(spec :: RouteClassSpec, route_class :: RouteClass)
 
+/* Finds route provenance by symbolic name, returning false when absent. */
 fun find_binding_by_ref(bindings :: List.of(RouteClassBinding), ref :: RouteClassRef):
   bindings.find(
     fun (binding): route_class_ref_equal(binding.spec.ref, ref)
   )
 
+/* Finds route provenance by normalized route identity, returning false when absent. */
 fun find_binding_by_id(bindings :: List.of(RouteClassBinding), id :: RouteClassId):
   bindings.find(
     fun (binding): route_class_id_equal(binding.route_class.id, id)
   )
 
+/* Binds ordered authored routes and reversible provenance to one exact lowered topology. */
 class LoweredRouteClasses(lowered_topology :: LoweredTopology,
                           specs :: NonemptyList.of(RouteClassSpec),
                           route_classes :: NonemptyList.of(RouteClass),
                           bindings :: NonemptyList.of(RouteClassBinding)):
 
+  /* Resolves an authored route name to its normalized route object. */
   method route_class(ref :: RouteClassRef):
     def found = find_binding_by_ref(bindings, ref)
     unless found
@@ -37,6 +42,7 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
             "unknown route class " ++ ref.describe())
     found.route_class
 
+  /* Recovers the authored name of a normalized route identity. */
   method route_ref(id :: RouteClassId):
     def found = find_binding_by_id(bindings, id)
     unless found
@@ -44,6 +50,7 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
             "unknown route class " ++ id.describe())
     found.spec.ref
 
+  /* Looks up the complete authored route declaration. */
   method route_spec(ref :: RouteClassRef):
     def found = find_binding_by_ref(bindings, ref)
     unless found
@@ -51,17 +58,21 @@ class LoweredRouteClasses(lowered_topology :: LoweredTopology,
             "unknown route class " ++ ref.describe())
     found.spec
 
+  /* Returns the declared injection reference for an authored route. */
   method source_ref(ref :: RouteClassRef):
     route_spec(ref).source
 
+  /* Returns the declared ejection reference for an authored route. */
   method destination_ref(ref :: RouteClassRef):
     route_spec(ref).destination
 
+/* Detects repeated symbolic route names before assigning numeric identities. */
 fun duplicate_route_class_ref(specs :: List.of(RouteClassSpec), ref :: RouteClassRef):
   specs.filter(
     ~keep: fun (candidate): route_class_ref_equal(candidate.ref, ref)
   ).length() > 1
 
+/* Validates terminal references and assigns dense route IDs in canonical name order. */
 fun lower_route_classes(lowered_topology :: LoweredTopology,
                         specs :: NonemptyList.of(RouteClassSpec)):
   for (spec in specs):

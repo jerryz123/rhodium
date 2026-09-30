@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements the simple buffered NoC router driven by a validated router plan.
+/* Implements the simple buffered NoC router driven by a validated router plan. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -25,15 +25,14 @@ export:
   SimpleRouter
   SimpleRouterFamily
 
-// Carries NoC route metadata alongside an otherwise opaque payload. A simple
-// router transports this as one complete packet; a packetized router may wrap
-// it in a standard flit format.
+/* Carries a global route key beside opaque payload; simple transport treats one beat as a complete
+   packet. */
 bundle RoutedBeat(T :: DataType, route_width :: PosInt):
   route_key: Bits(route_width)
   payload: T
 
-// Couples one routed output with the allocator-availability indication owned
-// by its downstream attachment.
+/* Couples routed egress with independently supplied downstream availability for adaptive
+   allocation. */
 interface SimpleRouterTarget(T :: DataType):
   role router
   role downstream
@@ -45,7 +44,7 @@ interface SimpleRouterTarget(T :: DataType):
   downstream -> router:
     available: Bool
 
-// Fixes all widths and local port meanings before circuit elaboration.
+/* Freezes the validated decoder, local input/target meanings, and per-origin queue depth. */
 class SimpleRouterConfig(router_plan :: RouterPlan,
                          route_decoder :: RouteDecoder,
                          input_count :: PosInt,
@@ -54,10 +53,11 @@ class SimpleRouterConfig(router_plan :: RouterPlan,
   implements StableCircuitParam
   opaque
   internal _SimpleRouterConfig
+  /* Restricts configuration construction to the validated local-plan compiler. */
   constructor ~none
 
-// Gives every member of one network the same physical shape and one shared
-// route decoder. Each instance ties its site key to an integration constant.
+/* Freezes one uniform queue/port implementation and a shared decoder selected by a static site
+   key. */
 class SimpleRouterFamilyConfig(router_family_plan :: RouterFamilyPlan,
                                route_decoder :: RouterFamilyRouteDecoder,
                                input_count :: PosInt,
@@ -66,9 +66,11 @@ class SimpleRouterFamilyConfig(router_family_plan :: RouterFamilyPlan,
   implements StableCircuitParam
   opaque
   internal _SimpleRouterFamilyConfig
+  /* Restricts family configuration construction to the validated family-plan compiler. */
   constructor ~none
 
-// Freezes the router's validated hardware shape.
+/* Compiles certified local decoding and queue shape, requiring at least one forwarding or ejection
+   target. */
 fun compile_simple_router(
       router_plan :: RouterPlan,
       ~input_buffer_depth: input_buffer_depth :: PosInt = 1) :: SimpleRouterConfig:
@@ -84,6 +86,7 @@ fun compile_simple_router(
                       target_count,
                       input_buffer_depth)
 
+/* Compiles a shared certified decoder and uniform port/queue shape with nonempty targets. */
 fun compile_simple_router_family(
       router_family_plan :: RouterFamilyPlan,
       ~input_buffer_depth: input_buffer_depth :: PosInt = 1) :: SimpleRouterFamilyConfig:
@@ -97,8 +100,8 @@ fun compile_simple_router_family(
                             router_family_plan.target_count,
                             input_buffer_depth)
 
-// Selects one family member and closes only the uniform padding slots around
-// its router occurrence; endpoint and physical-link slots remain integration-owned.
+/* Ties the occurrence's constant site key and closes only family padding, not real endpoints or
+   links. */
 fun bind_simple_router_family_site(T :: DataType,
                                    config :: SimpleRouterFamilyConfig,
                                    node :: NodeId,
@@ -117,7 +120,8 @@ fun bind_simple_router_family_site(T :: DataType,
     target.available <== Bool(#false)
     target.egress.ready <== Bool(#false)
 
-// Binds one family's physical-link slots without owning router hierarchy.
+/* Binds direct ready/valid physical slots and site selection; availability follows ready only for
+   these direct links. */
 fun bind_router_plane(config :: SimpleRouterFamilyConfig,
                       ~router_site_key: router_site_key :: Bits(config.route_decoder.site_width),
                       ~site_key: site_key :: Bits(config.route_decoder.site_width),
@@ -136,7 +140,8 @@ fun bind_router_plane(config :: SimpleRouterFamilyConfig,
     target.egress <=> outgoing_link
     target.available <== target.egress.ready
 
-// Closes unconnected local slots; connected target indices are absolute array indices.
+/* Closes unattached local terminals; injection indices are local-prefix slots and target indices
+   are absolute. */
 fun close_router_local_ports(T :: DataType,
                              config :: SimpleRouterFamilyConfig,
                              ingress :: Array,
@@ -159,9 +164,7 @@ fun close_router_local_ports(T :: DataType,
         target.available <== Bool(#false)
         target.egress.ready <== Bool(#false)
 
-// Checks the route metadata contract on each external ingress offer. The
-// physical ingress index supplies the origin key that is intentionally absent
-// from the transported beat.
+/* Asserts every offered route is valid for its physical ingress origin before buffering. */
 fun monitor_router_ingress(inputs :: Array,
                            route_decoder :: RouteDecoder):
   for (input_index in 0..inputs.length()):
@@ -174,6 +177,7 @@ fun monitor_router_ingress(inputs :: Array,
            String.append("simple_router_ingress_valid_route_",
                          to_string(input_index)))
 
+/* Asserts ingress-route validity for the selected family site and physical input origin. */
 fun monitor_router_family_ingress(
       inputs :: Array,
       route_decoder :: RouterFamilyRouteDecoder,
@@ -189,9 +193,9 @@ fun monitor_router_family_ingress(
            String.append("simple_router_family_ingress_valid_route_",
                          to_string(input_index)))
 
-// Each local origin owns one standard queue of the configured depth. A transfer releases that
-// origin and acquires exactly the selected outgoing VC at the neighboring
-// router, matching the validated one-beat resource model.
+/* Queues complete packets per origin with no flow/pipe bypass, then decodes and matches certified
+   targets. Actual transfers update allocator priority; payload switching and independent target
+   availability remain separate. */
 sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
   def Beat = RoutedBeat(T, config.route_decoder.route_width)
   interface ingress[config.input_count](Decoupled(Beat), ~role: consumer)
@@ -241,8 +245,8 @@ sync_circuit SimpleRouter(T :: DataType, config :: SimpleRouterConfig):
   for (target_index in 0..config.target_count): traversal[target_index] <=> target[target_index].egress
   allocator.accepts <== vec(for List (target_index in 0..config.target_count): target[target_index].egress.valid & target[target_index].egress.ready)
 
-// Implements one member of a router family. The site key changes only which
-// prevalidated row is selected; it never changes the routing proof or policy.
+/* Realizes the same registered per-origin queues and switching in a uniform shape. A statically
+   bound site key selects only prevalidated rows; the owner wires links, endpoints, and padding. */
 sync_circuit SimpleRouterFamily(T :: DataType,
                                 config :: SimpleRouterFamilyConfig):
   def Beat = RoutedBeat(T, config.route_decoder.route_width)

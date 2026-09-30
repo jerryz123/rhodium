@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements packet-retaining wormhole routing from a validated router plan.
+/* Implements packet-retaining wormhole routing from a validated router plan. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,7 +17,8 @@ export:
   compile_wormhole_router
   WormholeRouter
 
-// Freezes the validated route decoder and local port shape before elaboration.
+/* Freezes the certified decoder, logical port shape, and per-origin queue depth before
+   elaboration. */
 class WormholeRouterConfig(router_plan :: RouterPlan,
                            route_decoder :: RouteDecoder,
                            input_count :: PosInt,
@@ -26,8 +27,10 @@ class WormholeRouterConfig(router_plan :: RouterPlan,
   implements StableCircuitParam
   opaque
   internal _WormholeRouterConfig
+  /* Restricts configuration construction to validated-plan compilation. */
   constructor ~none
 
+/* Compiles the certified decoder and queue shape, requiring at least one VC or ejection target. */
 fun compile_wormhole_router(
       router_plan :: RouterPlan,
       ~input_buffer_depth: input_buffer_depth :: PosInt = 1) :: WormholeRouterConfig:
@@ -43,9 +46,8 @@ fun compile_wormhole_router(
                         target_count,
                         input_buffer_depth)
 
-// A head acquires one validated target. Body and tail fragments retain that
-// target until the tail transfer releases it. Physical-link arbitration is a
-// separate concern and can backpressure these logical per-VC egress streams.
+/* Buffers flits per origin and acquires a target on head transfer. The input and selected target
+   remain reserved through accepted tail, so body/tail cannot reroute or interleave on that VC. */
 sync_circuit WormholeRouter(T :: DataType,
                             config :: WormholeRouterConfig):
   def Beat = VariableFlit(RoutedBeat(T, config.route_decoder.route_width))

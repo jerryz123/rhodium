@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines symbolic hierarchical NoC authoring handles and named virtual-channel groups.
+/* Defines symbolic hierarchical NoC authoring handles and named virtual-channel groups. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,6 +29,7 @@ export:
   route_class_ref_less
   vc_group_less
 
+/* Normalizes a string or segment list and rejects embedded path separators. */
 fun normalize_name_path(who :: Symbol,
                         value :: NonemptyString || NonemptyList.of(NonemptyString)):
   def segments :: NonemptyList.of(NonemptyString) = if value is_a String | [value] | value
@@ -37,115 +38,155 @@ fun normalize_name_path(who :: Symbol,
     | error(~who: who, "name path segments must not contain '/'")
   segments
 
+/* Stores a nonempty hierarchical name as explicit path segments. */
 class NamePath(segments :: NonemptyList.of(NonemptyString)):
+  /* Validates path segments before storing the normalized representation. */
   constructor (segments :: NonemptyString || NonemptyList.of(NonemptyString)):
     super(normalize_name_path(#'NamePath, segments))
 
+  /* Appends one nonempty segment, rejecting an embedded slash. */
   method child(segment :: NonemptyString):
     when segment.contains("/")
     | error(~who: #'child, "child name must not contain '/'")
     NamePath(segments ++ [segment])
 
+  /* Renders the hierarchy with slash-separated segments. */
   method describe():
     String.join(segments, "/")
 
+/* Preserves an existing NamePath or normalizes a string/segment list. */
 fun as_name_path(who :: Symbol,
                  value :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
   if value is_a NamePath
   | value
   | NamePath(value)
 
+/* Names a router independently of normalized numeric identities. */
 class NodeRef(path :: NamePath):
+  /* Normalizes the router name to a hierarchical path. */
   constructor (path :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
     super(as_name_path(#'NodeRef, path))
 
+  /* Renders the router's hierarchical name. */
   method describe():
     path.describe()
 
+/* Names a injection terminal independently of normalized numeric identities. */
 class InjectionRef(path :: NamePath):
+  /* Normalizes the injection terminal name to a hierarchical path. */
   constructor (path :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
     super(as_name_path(#'InjectionRef, path))
 
+  /* Renders the injection terminal's hierarchical name. */
   method describe():
     path.describe()
 
+/* Names a ejection terminal independently of normalized numeric identities. */
 class EjectionRef(path :: NamePath):
+  /* Normalizes the ejection terminal name to a hierarchical path. */
   constructor (path :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
     super(as_name_path(#'EjectionRef, path))
 
+  /* Renders the ejection terminal's hierarchical name. */
   method describe():
     path.describe()
 
+/* Names a physical link independently of normalized numeric identities. */
 class LinkRef(path :: NamePath):
+  /* Normalizes the physical link name to a hierarchical path. */
   constructor (path :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
     super(as_name_path(#'LinkRef, path))
 
+  /* Renders the physical link's hierarchical name. */
   method describe():
     path.describe()
 
+/* Names a route class independently of normalized numeric identities. */
 class RouteClassRef(path :: NamePath):
+  /* Normalizes the route class name to a hierarchical path. */
   constructor (path :: NamePath || NonemptyString || NonemptyList.of(NonemptyString)):
     super(as_name_path(#'RouteClassRef, path))
 
+  /* Renders the route class's hierarchical name. */
   method describe():
     path.describe()
 
+/* Declares a named, positive-size VC group on a physical link. */
 class VCGroup(name :: NonemptyString, count :: PosInt):
+  /* Rejects slash-containing group names before storing the declaration. */
   constructor (name :: NonemptyString, count :: PosInt):
     when name.contains("/")
     | error(~who: #'VCGroup, "VC-group name must not contain '/'")
     super(name, count)
 
+  /* Formats the group name and declared VC count. */
   method describe():
     name ++ "[" ++ to_string(count) ++ "]"
 
+/* Names a VC by symbolic link, group name, and group-local index. */
 class VCRef(link :: LinkRef, group :: NonemptyString, index :: Nat):
+  /* Rejects slash-containing group names; link membership and bounds are checked during lowering. */
   constructor (link :: LinkRef, group :: NonemptyString, index :: Nat):
     when group.contains("/")
     | error(~who: #'VCRef, "VC reference group must not contain '/'")
     super(link, group, index)
 
+  /* Formats the link path, group name, and group-local VC index. */
   method describe():
     String.append(link.describe(), "/", group, "[", to_string(index), "]")
 
+/* Compares hierarchical names by their segment lists. */
 fun name_path_equal(left :: NamePath, right :: NamePath):
   left.segments == right.segments
 
+/* Compares router references by their hierarchical paths. */
 fun node_ref_equal(left :: NodeRef, right :: NodeRef):
   name_path_equal(left.path, right.path)
 
+/* Compares injection terminal references by their hierarchical paths. */
 fun injection_ref_equal(left :: InjectionRef, right :: InjectionRef):
   name_path_equal(left.path, right.path)
 
+/* Compares ejection terminal references by their hierarchical paths. */
 fun ejection_ref_equal(left :: EjectionRef, right :: EjectionRef):
   name_path_equal(left.path, right.path)
 
+/* Compares physical link references by their hierarchical paths. */
 fun link_ref_equal(left :: LinkRef, right :: LinkRef):
   name_path_equal(left.path, right.path)
 
+/* Compares route class references by their hierarchical paths. */
 fun route_class_ref_equal(left :: RouteClassRef, right :: RouteClassRef):
   name_path_equal(left.path, right.path)
 
+/* Compares the symbolic link, group name, and local index of two VCs. */
 fun vc_ref_equal(left :: VCRef, right :: VCRef):
   link_ref_equal(left.link, right.link) && left.group == right.group && left.index == right.index
 
+/* Orders paths by their slash-separated diagnostic spelling. */
 fun name_path_less(left :: NamePath, right :: NamePath):
   left.describe() < right.describe()
 
+/* Orders router references by canonical path spelling. */
 fun node_ref_less(left :: NodeRef, right :: NodeRef):
   name_path_less(left.path, right.path)
 
+/* Orders injection terminal references by canonical path spelling. */
 fun injection_ref_less(left :: InjectionRef, right :: InjectionRef):
   name_path_less(left.path, right.path)
 
+/* Orders ejection terminal references by canonical path spelling. */
 fun ejection_ref_less(left :: EjectionRef, right :: EjectionRef):
   name_path_less(left.path, right.path)
 
+/* Orders physical link references by canonical path spelling. */
 fun link_ref_less(left :: LinkRef, right :: LinkRef):
   name_path_less(left.path, right.path)
 
+/* Orders route class references by canonical path spelling. */
 fun route_class_ref_less(left :: RouteClassRef, right :: RouteClassRef):
   name_path_less(left.path, right.path)
 
+/* Orders VC groups lexically by name for deterministic lowering. */
 fun vc_group_less(left :: VCGroup, right :: VCGroup):
   left.name < right.name

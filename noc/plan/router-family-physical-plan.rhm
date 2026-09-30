@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the topology-only physical-link manifest shared by stamped router families.
+/* Defines the topology-only physical-link manifest shared by stamped router families. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,24 +9,33 @@ import:
 export:
   RouterFamilyPhysicalPlan
 
+/* Compares ordered physical endpoint identities and VC counts, not channel-specific route data. */
 fun physical_link_shape_equal(left :: RouterFamilyLinkConnection,
                               right :: RouterFamilyLinkConnection) :: Boolean:
   node_id_equal(left.link.source, right.link.source) && (
     node_id_equal(left.link.destination, right.link.destination)
   ) && left.link.virtual_channels().length() == right.link.virtual_channels().length()
 
+/* Requires equal lengths and pairwise physical shape in the same link order. */
 fun physical_link_lists_equal(left :: List.of(RouterFamilyLinkConnection),
                               right :: List.of(RouterFamilyLinkConnection)) :: Boolean:
   left.length() == right.length() && for all (index in 0..left.length()):
     physical_link_shape_equal(left[index], right[index])
 
+/* Uses one family as the canonical physical-link shape for independent routing planes. */
 class RouterFamilyPhysicalPlan(canonical :: RouterFamilyPlan):
+  /* Exposes the canonical ordered router members. */
   property members: canonical.members
+  /* Exposes canonical per-site physical and padding manifests. */
   property sites: canonical.sites
+  /* Exposes the uniform physical ingress VC count. */
   property ingress_count: canonical.ingress_count
+  /* Exposes the uniform physical egress VC count. */
   property egress_count: canonical.egress_count
+  /* Exposes canonical ordered physical-link connection groups. */
   property link_connections: canonical.link_connections
 
+  /* Checks site order, physical port maxima, and incoming/outgoing link shapes across planes. */
   method matches(family :: RouterFamilyPlan) :: Boolean:
     members.length() == family.members.length() && (
       ingress_count == family.ingress_count
@@ -37,13 +46,16 @@ class RouterFamilyPhysicalPlan(canonical :: RouterFamilyPlan):
         physical_link_lists_equal(left.incoming_links, right.incoming_links)
       ) && physical_link_lists_equal(left.outgoing_links, right.outgoing_links)
 
+  /* Rejects a routing family that cannot share the canonical physical-link wiring. */
   method require_match(family :: RouterFamilyPlan):
     unless matches(family)
     | error(~who: #'RouterFamilyPhysicalPlan,
             "router family does not match the canonical physical-link manifest")
 
+  /* Returns the canonical occurrence manifest for a router. */
   method site(node :: NodeId) :: RouterFamilySitePlan:
     canonical.site(node)
 
+  /* Returns the canonical static occurrence selector for a router. */
   method site_key(node :: NodeId) :: Nat:
     canonical.site_key(node)

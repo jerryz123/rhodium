@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers symbolic topology specifications deterministically and retains identity provenance.
+/* Lowers symbolic topology specifications deterministically and retains identity provenance. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,61 +16,79 @@ export:
   LoweredTopology
   lower_topology
 
+/* Pairs a symbolic router reference with its normalized identity. */
 class NodeBinding(ref :: NodeRef, id :: NodeId)
+/* Retains the symbolic injection declaration alongside its normalized terminal. */
 class InjectionBinding(spec :: InjectionTerminalSpec,
                        terminal :: InjectionTerminal)
+/* Retains the symbolic ejection declaration alongside its normalized terminal. */
 class EjectionBinding(spec :: EjectionTerminalSpec,
                       terminal :: EjectionTerminal)
+/* Pairs a symbolic physical link with its normalized edge identity. */
 class LinkBinding(ref :: LinkRef, id :: LinkId)
+/* Pairs a symbolic group-local VC with its normalized link-local identity. */
 class VCBinding(ref :: VCRef, id :: VCId)
 
+/* Finds node provenance by symbolic reference, returning false when absent. */
 fun find_node_binding_by_ref(bindings :: List.of(NodeBinding), ref :: NodeRef):
   bindings.find(fun (binding): node_ref_equal(binding.ref, ref))
 
+/* Finds node provenance by normalized identity, returning false when absent. */
 fun find_node_binding_by_id(bindings :: List.of(NodeBinding), id :: NodeId):
   bindings.find(fun (binding): node_id_equal(binding.id, id))
 
+/* Finds injection provenance by symbolic reference, returning false when absent. */
 fun find_injection_binding_by_ref(bindings :: List.of(InjectionBinding), ref :: InjectionRef):
   bindings.find(
     fun (binding): injection_ref_equal(binding.spec.ref, ref)
   )
 
+/* Finds injection provenance by normalized identity, returning false when absent. */
 fun find_injection_binding_by_id(bindings :: List.of(InjectionBinding), id :: InjectionId):
   bindings.find(
     fun (binding): injection_id_equal(binding.terminal.id, id)
   )
 
+/* Finds ejection provenance by symbolic reference, returning false when absent. */
 fun find_ejection_binding_by_ref(bindings :: List.of(EjectionBinding), ref :: EjectionRef):
   bindings.find(
     fun (binding): ejection_ref_equal(binding.spec.ref, ref)
   )
 
+/* Finds ejection provenance by normalized identity, returning false when absent. */
 fun find_ejection_binding_by_id(bindings :: List.of(EjectionBinding), id :: EjectionId):
   bindings.find(
     fun (binding): ejection_id_equal(binding.terminal.id, id)
   )
 
+/* Finds link provenance by symbolic reference, returning false when absent. */
 fun find_link_binding_by_ref(bindings :: List.of(LinkBinding), ref :: LinkRef):
   bindings.find(fun (binding): link_ref_equal(binding.ref, ref))
 
+/* Finds link provenance by normalized identity, returning false when absent. */
 fun find_link_binding_by_id(bindings :: List.of(LinkBinding), id :: LinkId):
   bindings.find(fun (binding): link_id_equal(binding.id, id))
 
+/* Finds vc provenance by symbolic reference, returning false when absent. */
 fun find_vc_binding_by_ref(bindings :: List.of(VCBinding), ref :: VCRef):
   bindings.find(fun (binding): vc_ref_equal(binding.ref, ref))
 
+/* Finds vc provenance by normalized identity, returning false when absent. */
 fun find_vc_binding_by_id(bindings :: List.of(VCBinding), id :: VCId):
   bindings.find(fun (binding): vc_id_equal(binding.id, id))
 
+/* Detects repeated string names in a group selection. */
 fun duplicate_name(names :: List.of(String), name :: String):
   names.filter(~keep: fun (candidate): candidate == name).length() > 1
 
+/* Checks whether any symbolic link declares the selected VC-group name. */
 fun topology_has_vc_group(spec :: TopologySpec, name :: String):
   spec.links.find(
     fun (link):
       link.vc_groups.find(fun (group): group.name == name) != #false
   ) != #false
 
+/* Retains the normalized graph and bidirectional provenance for all authored objects. */
 class LoweredTopology(spec :: TopologySpec,
                       topology :: Topology,
                       node_bindings :: List.of(NodeBinding),
@@ -79,18 +97,21 @@ class LoweredTopology(spec :: TopologySpec,
                       link_bindings :: List.of(LinkBinding),
                       vc_bindings :: List.of(VCBinding)):
 
+  /* Resolves a symbolic router to its normalized identity or reports an unknown name. */
   method node_id(ref :: NodeRef):
     def found = find_node_binding_by_ref(node_bindings, ref)
     unless found
     | error(~who: #'node_id, "unknown node " ++ ref.describe())
     found.id
 
+  /* Recovers a symbolic router reference from its normalized identity. */
   method node_ref(id :: NodeId):
     def found = find_node_binding_by_id(node_bindings, id)
     unless found
     | error(~who: #'node_ref, "unknown node " ++ id.describe())
     found.ref
 
+  /* Resolves an authored injection name to its normalized terminal attachment. */
   method injection_terminal(ref :: InjectionRef):
     def found = find_injection_binding_by_ref(injection_bindings, ref)
     unless found
@@ -98,9 +119,11 @@ class LoweredTopology(spec :: TopologySpec,
             "unknown injection terminal " ++ ref.describe())
     found.terminal
 
+  /* Returns the injection provenance binding, or false when the name is absent. */
   method find_injection_binding(ref :: InjectionRef):
     find_injection_binding_by_ref(injection_bindings, ref)
 
+  /* Recovers an authored injection name from its normalized terminal identity. */
   method injection_ref(id :: InjectionId):
     def found = find_injection_binding_by_id(injection_bindings, id)
     unless found
@@ -108,6 +131,7 @@ class LoweredTopology(spec :: TopologySpec,
             "unknown injection terminal " ++ id.describe())
     found.spec.ref
 
+  /* Resolves an authored ejection name to its normalized terminal attachment. */
   method ejection_terminal(ref :: EjectionRef):
     def found = find_ejection_binding_by_ref(ejection_bindings, ref)
     unless found
@@ -115,9 +139,11 @@ class LoweredTopology(spec :: TopologySpec,
             "unknown ejection terminal " ++ ref.describe())
     found.terminal
 
+  /* Returns the ejection provenance binding, or false when the name is absent. */
   method find_ejection_binding(ref :: EjectionRef):
     find_ejection_binding_by_ref(ejection_bindings, ref)
 
+  /* Recovers an authored ejection name from its normalized terminal identity. */
   method ejection_ref(id :: EjectionId):
     def found = find_ejection_binding_by_id(ejection_bindings, id)
     unless found
@@ -125,30 +151,35 @@ class LoweredTopology(spec :: TopologySpec,
             "unknown ejection terminal " ++ id.describe())
     found.spec.ref
 
+  /* Resolves an authored physical link to its normalized edge identity. */
   method link_id(ref :: LinkRef):
     def found = find_link_binding_by_ref(link_bindings, ref)
     unless found
     | error(~who: #'link_id, "unknown link " ++ ref.describe())
     found.id
 
+  /* Recovers an authored physical-link name from its normalized edge identity. */
   method link_ref(id :: LinkId):
     def found = find_link_binding_by_id(link_bindings, id)
     unless found
     | error(~who: #'link_ref, "unknown link " ++ id.describe())
     found.ref
 
+  /* Resolves a symbolic link/group/index VC to its normalized identity. */
   method vc_id(ref :: VCRef):
     def found = find_vc_binding_by_ref(vc_bindings, ref)
     unless found
     | error(~who: #'vc_id, "unknown VC " ++ ref.describe())
     found.id
 
+  /* Recovers a symbolic link/group/index VC from its normalized identity. */
   method vc_ref(id :: VCId):
     def found = find_vc_binding_by_id(vc_bindings, id)
     unless found
     | error(~who: #'vc_ref, "unknown VC " ++ id.describe())
     found.ref
 
+  /* Validates a nonempty unique group selection and returns matching VCs in binding order. */
   method vc_ids_in_groups(names :: NonemptyList.of(String)):
     for (name in names):
       unless name.length() > 0 && !name.contains("/")
@@ -166,6 +197,8 @@ class LoweredTopology(spec :: TopologySpec,
       ) != #false
     ).map(fun (binding): binding.id)
 
+/* Assigns dense numeric identities in canonical declaration order and records reversible
+   provenance. */
 fun lower_topology(spec :: TopologySpec):
   def mutable node_bindings = []
   for (ref in spec.nodes):

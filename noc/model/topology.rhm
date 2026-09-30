@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines validated directed multigraph topologies and stable virtual-channel enumeration.
+/* Defines validated directed multigraph topologies and stable virtual-channel enumeration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,29 +9,37 @@ export:
   PhysicalLink
   Topology
 
+/* Describes a directed physical edge with a positive number of logical VCs. */
 class PhysicalLink(id :: LinkId,
                    source :: NodeId,
                    destination :: NodeId,
                    vc_count :: PosInt):
 
+  /* Enumerates this link's VCs in increasing local-index order. */
   method virtual_channels():
     for List (index in 0..vc_count):
       VCId(id, index)
 
+  /* Formats endpoints, edge identity, and VC capacity for diagnostics. */
   method describe():
     String.append(id.describe(), ": ", source.describe(), " -> ",
                   destination.describe(), " (", to_string(vc_count), " VCs)")
 
+/* Tests numeric node membership without relying on object identity. */
 fun contains_node_id(nodes :: List.of(NodeId), id :: NodeId):
   nodes.find(fun (candidate): node_id_equal(candidate, id)) != #false
 
+/* Detects repeated numeric node identities in a declaration list. */
 fun duplicate_node_id(nodes :: List.of(NodeId), id :: NodeId):
   nodes.filter(~keep: fun (candidate): node_id_equal(candidate, id)).length() > 1
 
+/* Detects repeated edge identities while allowing distinct parallel links. */
 fun duplicate_link_id(links :: List.of(PhysicalLink), id :: LinkId):
   links.filter(~keep: fun (candidate): link_id_equal(candidate.id, id)).length() > 1
 
+/* Stores a validated directed multigraph in stable identity order. */
 class Topology(nodes :: NonemptyList.of(NodeId), links :: List.of(PhysicalLink)):
+  /* Rejects duplicate identities and unknown endpoints, then sorts nodes and links. */
   constructor (nodes :: NonemptyList.of(NodeId), links :: List.of(PhysicalLink)):
     for (node in nodes):
       when duplicate_node_id(nodes, node)
@@ -52,25 +60,30 @@ class Topology(nodes :: NonemptyList.of(NodeId), links :: List.of(PhysicalLink))
                             link.destination.describe()))
     super(nodes.sort(node_id_less), links.sort(fun (left, right): link_id_less(left.id, right.id)))
 
+  /* Tests whether a router identity belongs to this topology. */
   method contains_node(id :: NodeId):
     contains_node_id(nodes, id)
 
+  /* Resolves an edge identity or reports an unknown physical link. */
   method find_link(id :: LinkId):
     def found = links.find(fun (link): link_id_equal(link.id, id))
     unless found
     | error(~who: #'find_link, "unknown link " ++ id.describe())
     found
 
+  /* Tests both physical-link membership and the link-local VC bound. */
   method contains_vc(id :: VCId):
     def link = links.find(fun (candidate): link_id_equal(candidate.id, id.link_id))
     link && id.index < link.vc_count
 
+  /* Resolves a VC to its physical link and rejects an out-of-range index. */
   method find_vc_link(id :: VCId):
     def link = find_link(id.link_id)
     unless id.index < link.vc_count
     | error(~who: #'find_vc_link, "unknown VC " ++ id.describe())
     link
 
+  /* Returns outgoing links in stable edge order, rejecting unknown routers. */
   method outgoing_links(node :: NodeId):
     unless contains_node(node)
     | error(~who: #'outgoing_links,
@@ -78,6 +91,7 @@ class Topology(nodes :: NonemptyList.of(NodeId), links :: List.of(PhysicalLink))
                           node.describe()))
     links.filter(~keep: fun (link): node_id_equal(link.source, node))
 
+  /* Returns incoming links in stable edge order, rejecting unknown routers. */
   method incoming_links(node :: NodeId):
     unless contains_node(node)
     | error(~who: #'incoming_links,
@@ -85,17 +99,20 @@ class Topology(nodes :: NonemptyList.of(NodeId), links :: List.of(PhysicalLink))
                           node.describe()))
     links.filter(~keep: fun (link): node_id_equal(link.destination, node))
 
+  /* Enumerates all VCs leaving a router in link/index order. */
   method outgoing_vcs(node :: NodeId):
     def mutable vcs = []
     for (link in outgoing_links(node)):
       vcs := vcs ++ link.virtual_channels()
     vcs
 
+  /* Enumerates every topology VC in link/index order. */
   method virtual_channels():
     def mutable vcs = []
     for (link in links):
       vcs := vcs ++ link.virtual_channels()
     vcs
 
+  /* Renders the ordered physical links as a diagnostic listing. */
   method describe():
     String.join(links.map(fun (link): link.describe()), "\n")
