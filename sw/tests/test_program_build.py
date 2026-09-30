@@ -87,6 +87,107 @@ class ProgramTargetTest(unittest.TestCase):
                 self.target.validate_target(target)
 
 
+    def test_shared_build_spec_ignores_product_and_microarchitecture_identity(self):
+        first = program_target('simple-rv5stage-rva23')
+        second = first | dict(soc='simple-spike-rva23', resolved_configuration={'core': 'spike'},
+                              configuration_fingerprint='different')
+        for suite in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup'):
+            with self.subTest(suite=suite):
+                self.assertEqual(self.target.elf_build_metadata(first, suite),
+                                 self.target.elf_build_metadata(second, suite))
+        self.assertNotEqual(self.target.target_fingerprint(first), self.target.target_fingerprint(second))
+
+    def test_shared_build_spec_tracks_binary_and_inventory_inputs(self):
+        target = program_target()
+        for change in (dict(march='rv64ima'), dict(mabi='lp64d'),
+                       dict(ram=[dict(base=0x80000000, size=0x20000)])):
+            for suite in ('isa', 'benchmark', 'coremark', 'embench', 'bringup'):
+                with self.subTest(change=change, suite=suite):
+                    self.assertNotEqual(self.target.elf_build_spec(target, suite),
+                                        self.target.elf_build_spec(target | change, suite))
+        clock = target | dict(clock_frequency_hz=200000000)
+        self.assertNotEqual(self.target.elf_build_spec(target, 'coremark'),
+                            self.target.elf_build_spec(clock, 'coremark'))
+        self.assertEqual(self.target.elf_build_spec(target, 'bringup'),
+                         self.target.elf_build_spec(clock, 'bringup'))
+        sv39 = target | dict(mmu_mode='sv39', privilege_modes=['m', 's', 'u'])
+        self.assertNotEqual(self.target.elf_build_spec(target, 'isa'),
+                            self.target.elf_build_spec(sv39, 'isa'))
+        for options in (dict(isa_selection='full'), dict(isa_selection='smoke')):
+            self.assertNotEqual(self.target.elf_build_spec(target, 'isa'),
+                                self.target.elf_build_spec(target, 'isa', options))
+
+
+class SharedELFBindingTest(unittest.TestCase):
+    def setUp(self):
+        spec = importlib.util.spec_from_file_location('elf_bind', BUILD_SCRIPTS / 'bind.py')
+        self.binder = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.binder)
+        self.directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        self.target = program_target('simple-rv5stage-rva23')
+        base = self.target['ram'][0]['base']
+        elf = self.root / 'test.elf'
+        header = b'\x7fELF\x02\x01\x01' + bytes(9)
+        header += struct.pack('<HHIQQQIHHHHHH', 2, 243, 1, base, 64, 0, 0, 64, 56, 1, 0, 0, 0)
+        segment = struct.pack('<IIQQQQQQ', 1, 5, 120, base, base, 1, 128, 1)
+        elf.write_bytes(header + segment + b'\x00')
+        build_spec = self.binder.elf_build_spec(self.target, 'isa')
+        self.manifest = dict(suite='isa', target=self.target, target_fingerprint=target_fingerprint(self.target),
+                             build_spec=build_spec, build_spec_fingerprint=target_fingerprint(build_spec),
+                             tests=[dict(name='test', elf='test.elf', sha256=hashlib.sha256(elf.read_bytes()).hexdigest())])
+        self.path = self.root / 'manifest.json'
+        self.output = self.root / 'run-manifest.json'
+        self.write_manifest()
+
+    def write_manifest(self):
+        self.path.write_text(json.dumps(self.manifest))
+
+    def test_binds_without_changing_elf_or_original_manifest(self):
+        original = self.path.read_bytes()
+        target = self.target | dict(soc='simple-spike-rva23')
+        self.binder.bind(self.path, target, self.output)
+        manifest = json.loads(self.output.read_text())
+        self.assertEqual(manifest['target'], target)
+        self.assertEqual(manifest['target_fingerprint'], target_fingerprint(target))
+        self.assertEqual(manifest['build_target'], self.target)
+        self.assertEqual(manifest['tests'][0]['sha256'], self.manifest['tests'][0]['sha256'])
+        self.assertEqual(manifest['tests'][0]['load_segments'], [dict(address=0x80000000, memory_bytes=128)])
+        self.assertEqual(self.path.read_bytes(), original)
+
+    def test_rejects_incompatible_target_or_corrupt_provenance_and_elf(self):
+        for target in (self.target | dict(march='rv64ima'), self.target | dict(harts=[1])):
+            with self.assertRaises(ValueError):
+                self.binder.bind(self.path, target, self.output)
+            self.assertFalse(self.output.exists())
+        self.manifest['build_spec_fingerprint'] = 'bad'
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, 'build specification'):
+            self.binder.bind(self.path, self.target, self.output)
+        self.manifest['build_spec_fingerprint'] = target_fingerprint(self.manifest['build_spec'])
+        self.write_manifest()
+        (self.root / 'test.elf').write_bytes(b'corrupt')
+        with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+            self.binder.bind(self.path, self.target, self.output)
+        self.assertFalse(self.output.exists())
+
+    def test_rechecks_elf_width_memory_and_safe_paths(self):
+        elf = self.root / 'test.elf'
+        original = elf.read_bytes()
+        for data, message in ((original[:4] + b'\x01' + original[5:], 'XLEN'),
+                              (original[:104] + struct.pack('<Q', 0x10001) + original[112:], 'exceeds target RAM')):
+            elf.write_bytes(data)
+            self.manifest['tests'][0]['sha256'] = hashlib.sha256(data).hexdigest()
+            self.write_manifest()
+            with self.assertRaisesRegex(ValueError, message):
+                self.binder.bind(self.path, self.target, self.output)
+        self.manifest['tests'][0]['elf'] = '../test.elf'
+        self.write_manifest()
+        with self.assertRaisesRegex(ValueError, 'invalid shared ELF path'):
+            self.binder.bind(self.path, self.target, self.output)
+
+
 class CoreMarkBuildTest(unittest.TestCase):
     def setUp(self):
         spec = importlib.util.spec_from_file_location('coremark_build', BUILD_SCRIPTS / 'build-coremark.py')
@@ -249,6 +350,20 @@ class ProgramBuildTest(unittest.TestCase):
         spec = importlib.util.spec_from_file_location('program_build', BUILD_SCRIPTS / 'build.py')
         self.builder = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.builder)
+
+    def test_native_run_targets_use_existing_manifests_and_preserve_limits(self):
+        for suite in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup'):
+            with self.subTest(suite=suite):
+                result = subprocess.run(['make', '-n', '-C', str(BUILD_SCRIPTS.parents[1] / 'sims'),
+                                         suite + '-run', 'SOC=simple-spike-rva23',
+                                         'PREBUILT_SIMULATOR=/tmp/shared-simulator/VTestDriver',
+                                         'PROGRAM_MANIFEST=/tmp/shared-suite/run-manifest.json'],
+                                        check=True, capture_output=True, text=True)
+                self.assertIn('program-test/run.py --manifest "/tmp/shared-suite/run-manifest.json"', result.stdout)
+                self.assertNotIn('sw/build/build', result.stdout)
+                self.assertNotIn('tools/run-racket.sh', result.stdout)
+                self.assertIn('--timeout ' + ('360' if suite == 'bringup' else '300'), result.stdout)
+                self.assertIn('--max-cycles ' + ('10000000' if suite == 'isa' else '100000000'), result.stdout)
 
     def test_smoke_selection_follows_capabilities_not_soc_name(self):
         target = dict(soc='mini-rv5stage-soc', xlen=64, extensions=['i', 'm', 'a', 'zba', 'zbb', 'zbs', 'zicond', 'zicboz'],
@@ -458,6 +573,13 @@ class ProgramBuildTest(unittest.TestCase):
                 manifest = json.loads((output / 'manifest.json').read_text())
                 self.assertEqual(manifest['selection'], 'full')
                 self.assertEqual(manifest['target'], program_target())
+                target_path.write_text(json.dumps(program_target('simple-spike-rva23')))
+                builder.main()
+                shared = json.loads((output / 'manifest.json').read_text())
+                self.assertEqual(count, 1)
+                self.assertEqual(shared['cache_key'], manifest['cache_key'])
+                self.assertEqual(shared['target']['soc'], 'simple-spike-rva23')
+                self.assertNotEqual(shared['target_fingerprint'], manifest['target_fingerprint'])
                 elf = output / manifest['tests'][0]['elf']
                 elf.write_bytes(b'corrupt')
                 builder.main()

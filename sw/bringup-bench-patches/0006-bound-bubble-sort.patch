@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Bound bubble-sort input for functional simulation
+Purpose: Retains bubble-sort behavior with a smaller deterministic CI input.
+SPDX-License-Identifier: Apache-2.0
+
+The 256-element input makes this quadratic workload dominate the bounded
+Bringup-Bench simulation lane. Use 128 elements only for the Rhodium functional
+profile while preserving the upstream default and full sortedness check.
+
+diff --git a/bubble-sort/bubble-sort.c b/bubble-sort/bubble-sort.c
+--- a/bubble-sort/bubble-sort.c
++++ b/bubble-sort/bubble-sort.c
+@@ -1,7 +1,11 @@
+ #include "libmin.h"
+ 
+-// supported sizes: 256 (default), 512, 1024, 2048
++// supported sizes: 128 (bounded), 256 (default), 512, 1024, 2048
++#ifdef BRINGUP_BOUNDED
++#define DATASET_SIZE 128
++#else
+ #define DATASET_SIZE 256
++#endif
+ int data[DATASET_SIZE];
+ 
+ // total swaps executed so far

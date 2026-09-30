@@ -8,6 +8,7 @@ from pathlib import Path
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
+from .programs import program_matrices
 from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry
 
 
@@ -106,8 +107,43 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(plan["simulation_matrix"]["include"], [])
                 self.assertFalse(plan["run_simulation"])
 
+    def test_native_builds_share_compatible_targets_and_preserve_every_run(self):
+        entries = self.plan('sims/Makefile')['program_matrix']
+        targets = {}
+        for entry in entries['include']:
+            soc = entry['soc']
+            isa = soc.rsplit('-', 1)[1]
+            xlen = 32 if isa.startswith('rv32') else 64
+            targets[soc] = dict(soc=soc, xlen=xlen, harts=[0], extensions=['i', isa],
+                                march=f'rv{xlen}i', mabi='ilp32' if xlen == 32 else 'lp64',
+                                clock_frequency_hz=100000000, ram=[dict(base=0x80000000, size=0x10000)])
+        matrices = program_matrices(entries, targets)
+        self.assertEqual(len(matrices['build']['include']), 8)
+        self.assertEqual(len(matrices['run']['include']), 16)
+        self.assertEqual({(entry['soc'], entry['suite']) for entry in matrices['run']['include']},
+                         {(entry['soc'], entry['suite']) for entry in entries['include']})
+        builds = {entry['build_id'] for entry in matrices['build']['include']}
+        self.assertEqual({entry['build_id'] for entry in matrices['run']['include']}, builds)
+        targets['simple-spike-rva23']['clock_frequency_hz'] *= 2
+        changed = program_matrices(entries, targets)
+        self.assertEqual(len(changed['build']['include']), 10)  # Both CoreMark variants embed the clock.
+        targets['simple-spike-rva23']['ram'][0]['size'] *= 2
+        self.assertEqual(len(program_matrices(entries, targets)['build']['include']), 14)
+
+    def test_shared_native_workflow_compiles_only_in_build_jobs(self):
+        workflow = (REPO / '.github/workflows/ci-software.yml').read_text()
+        build = workflow.split('  native-build:\n', 1)[1].split('  native:\n', 1)[0]
+        run = workflow.split('  native:\n', 1)[1].split('  arch-sail:\n', 1)[0]
+        self.assertIn('setup-riscv-toolchain', build)
+        self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
+        self.assertNotIn('setup-riscv-toolchain', run)
+        self.assertNotIn('Cache program builds', run)
+        self.assertIn('sw/build/bind.py', run)
+        self.assertIn('"$SUITE-run"', run)
+        self.assertIn("always() && !cancelled() && needs.native-plan.result == 'success'", run)
+
     def test_shared_program_build_inputs_select_every_suite(self):
-        for path in ("sw/build/program_target.py", "sw/tests/test_program_build.py"):
+        for path in ("sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
             with self.subTest(path=path):
                 plan = self.plan(path)
                 self.assertEqual(suites(plan), list(NATIVE_SUITES))
@@ -148,7 +184,7 @@ class PlanTest(unittest.TestCase):
             "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "example-noc"),
             "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "circt-hardfloat"),
             "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "example-chi"),
-            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution", "example-cores", "example-rv5stage"),
+            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "example-cores", "example-rv5stage"),
             "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
             "examples/rfpl/circuit-pair.rhdl": ("example-rfpl", "circt-rfpl", "host-hygiene"),
             "tools/write-riscv-udb-config.rhm": ("host-models", "host-cores", "host-socs", "host-hygiene"),
@@ -224,6 +260,20 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(first.isdisjoint(second))
         self.assertEqual(first | second, expected)
         self.assertEqual(combined, expected)
+
+    def test_core_execution_shards_are_nonempty_disjoint_and_exhaustive(self):
+        runner = REPO / "tools/testing/circt/run.sh"
+
+        def fixtures(group):
+            output = subprocess.run(["bash", runner, "--group", group, "--list-fixtures"], cwd=REPO, check=True, text=True, capture_output=True).stdout
+            return set(output.splitlines())
+
+        leaves = [fixtures(group) for group in ("cores-execution-frontend", "cores-execution-control", "cores-execution-datapath")]
+        combined = fixtures("cores-execution")
+        self.assertTrue(all(leaves))
+        self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
+        self.assertEqual(set.union(*leaves), combined)
+        self.assertEqual(len(combined), 44)
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()

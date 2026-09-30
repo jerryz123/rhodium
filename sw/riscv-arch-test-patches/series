@@ -14,3 +14,4 @@
 0012-ignore-unconstrained-sc-results.patch
 0013-limit-medeleg-walk-to-base-causes.patch
 0014-program-su-wrs-timer-directly.patch
+0015-honor-countinhibit-bits.patch

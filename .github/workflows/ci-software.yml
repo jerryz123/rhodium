@@ -1,4 +1,4 @@
-# Builds and runs native bare-metal suites and partitioned architectural tests.
+# Shares native ELF builds across compatible SoCs and runs per-product and architectural tests.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI software
@@ -39,14 +39,64 @@ permissions:
   contents: read
 
 jobs:
-  native:
-    name: ${{ matrix.soc }} (${{ matrix.suite }})
+  native-plan:
+    name: Group native ELF builds
     if: inputs.run-native
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 10
+    outputs:
+      build-matrix: ${{ steps.plan.outputs.build-matrix }}
+      run-matrix: ${{ steps.plan.outputs.run-matrix }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Install Racket
+        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        with:
+          architecture: x64
+          distribution: full
+          variant: CS
+          version: ${{ inputs.racket-version }}
+      - name: Restore exact Rhodium bytecode
+        uses: ./.github/actions/setup-racket-artifact
+        with:
+          racket-version: ${{ inputs.racket-version }}
+          rhombus-checksum: ${{ inputs.rhombus-checksum }}
+          artifact-name: rhodium-bytecode-${{ github.sha }}
+      - name: Generate targets and group compatible builds
+        id: plan
+        env:
+          NATIVE_MATRIX: ${{ inputs.native-matrix }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/native-targets"
+          for soc in $(jq -r '[.include[].soc] | unique | .[]' <<< "$NATIVE_MATRIX"); do
+            tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm \
+              "$soc" "$RUNNER_TEMP/native-targets/$soc.json"
+          done
+          python3 -m tools.ci.programs --matrix "$NATIVE_MATRIX" \
+            --targets "$RUNNER_TEMP/native-targets" --output "$RUNNER_TEMP/native-plan.json"
+          echo "build-matrix=$(jq -c .build "$RUNNER_TEMP/native-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "run-matrix=$(jq -c .run "$RUNNER_TEMP/native-plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/native-plan.json"
+      - name: Test native adapter contracts once
+        run: make -C sims program-test-adapter-test
+      - name: Publish generated native targets
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-targets-${{ github.sha }}
+          path: ${{ runner.temp }}/native-targets
+          if-no-files-found: error
+          retention-days: 3
+
+  native-build:
+    name: Build ${{ matrix.suite }} ELFs (${{ matrix.soc }})
+    needs: native-plan
+    if: inputs.run-native
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.native-matrix) }}
+      matrix: ${{ fromJSON(needs.native-plan.outputs.build-matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -65,57 +115,112 @@ jobs:
           echo "revision=$(git rev-parse "HEAD:$source")" >> "$GITHUB_OUTPUT"
       - name: Install RISC-V software toolchain
         uses: ./.github/actions/setup-riscv-toolchain
+      - name: Download generated native targets
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-targets-${{ github.sha }}
+          path: ${{ runner.temp }}/native-targets
+      - name: Cache program builds
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: /tmp/rhodium-program-builds/${{ matrix.build_id }}/${{ matrix.suite }}/build
+          key: "${{ runner.os }}-${{ runner.arch }}-program-v2-${{ matrix.build_id }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'sw/build/**', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sims/program-test/Makefile.inc', '.github/workflows/ci-software.yml') }}"
+      - name: Build and package selected workload ELFs
+        env:
+          SUITE: ${{ matrix.suite }}
+          SOC: ${{ matrix.soc }}
+          BUILD_ID: ${{ matrix.build_id }}
+        run: |
+          set -o pipefail
+          mkdir -p "$RUNNER_TEMP/program-logs"
+          if [[ "$SUITE" == bringup ]]; then
+            export BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor
+          fi
+          case "$SUITE" in
+            coremark|coremark_scalar) build_target="$SUITE-elf" ;;
+            *) build_target="$SUITE-elfs" ;;
+          esac
+          make -C sims "$build_target" SOC="$SOC" \
+            PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/native-targets/$SOC.json" \
+            PROGRAM_PRODUCT_ROOT="/tmp/rhodium-program-builds/$BUILD_ID" \
+            2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
+          python3 sims/program-test/archive.py \
+            --manifest "/tmp/rhodium-program-builds/$BUILD_ID/$SUITE/manifest.json" \
+            --archive "$RUNNER_TEMP/program-elfs/suite.tar.gz"
+      - name: Publish shared ELF archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/program-elfs/suite.tar.gz
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+      - name: Publish build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-build-${{ matrix.build_id }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/program-logs
+            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/manifest.json
+            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/instruction-report.json
+            /tmp/rhodium-program-builds/${{ matrix.build_id }}/*/build.log
+          if-no-files-found: warn
+          retention-days: 7
+
+  native:
+    name: ${{ matrix.soc }} (${{ matrix.suite }})
+    needs: [native-plan, native-build]
+    if: ${{ always() && !cancelled() && needs.native-plan.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.native-plan.outputs.run-matrix) }}
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install simulator runtime dependencies
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential cmake device-tree-compiler zlib1g-dev
-      - name: Restore exact Spike and FESVR libraries
+      - name: Restore exact Spike runtime libraries
+        if: contains(matrix.soc, '-spike-')
         uses: ./.github/actions/setup-fesvr
       - name: Download exact simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.soc }}-${{ github.sha }}
           path: ${{ runner.temp }}/${{ matrix.soc }}
-      - name: Verify downloaded simulator
+      - name: Download shared workload ELFs
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: native-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/program-elfs
+      - name: Verify simulator and bind shared ELFs to its target
         env:
           SOC: ${{ matrix.soc }}
+          SUITE: ${{ matrix.suite }}
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
           python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC"
           ldd "$RUNNER_TEMP/$SOC/VTestDriver"
-      - name: Test adapter contracts
-        run: make -C sims program-test-adapter-test arch-test-adapter-test
-      - name: Cache program builds
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: /tmp/rhodium-program-tests/${{ matrix.soc }}/${{ matrix.suite }}/build
-          key: "${{ runner.os }}-${{ runner.arch }}-program-${{ matrix.soc }}-${{ matrix.suite }}-${{ steps.sources.outputs.revision }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'riscv/gnu-toolchain.rhm', 'socs/products/*core-profile.rhm', 'sw/build/build.py', 'sw/build/build-coremark.py', 'sw/build/build-embench.py', 'sw/build/build-bringup-bench.py', 'sw/coremark-riscv-baremetal/**', 'sw/embench-iot-riscv-baremetal/**', 'sw/bringup-bench-riscv-baremetal/**', 'sw/bringup-bench-patches/**', 'riscv/patched_submodule.py', 'sw/build/program_target.py', 'sims/program-test/write-target.rhm', 'sw/build/isa.mk') }}"
-      - name: Build and run every selected workload
+          suite_dir="/tmp/rhodium-program-tests/$SOC/$SUITE"
+          mkdir -p "$suite_dir"
+          tar -xzf "$RUNNER_TEMP/program-elfs/suite.tar.gz" -C "$suite_dir"
+          python3 sw/build/bind.py --manifest "$suite_dir/manifest.json" \
+            --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"
+      - name: Run every selected workload
         env:
           SUITE: ${{ matrix.suite }}
           SOC: ${{ matrix.soc }}
         run: |
           set -o pipefail
-          status=0
           mkdir -p "$RUNNER_TEMP/program-logs"
-          if [[ "$SUITE" == bringup ]]; then
-            export BRINGUP_BENCHMARKS=anagram,blake2b,bubble-sort,checkers,fft-int,lz-compress,pi-calc,rho-factor
-          fi
-          make -C sims "$SUITE-test" SOC="$SOC" \
+          make -C sims "$SUITE-run" SOC="$SOC" \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" \
-            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log" || status=1
-          exit "$status"
-      - name: Package completed workload ELFs
-        if: always()
-        env:
-          SUITE: ${{ matrix.suite }}
-          SOC: ${{ matrix.soc }}
-        run: |
-          manifest="/tmp/rhodium-program-tests/$SOC/$SUITE/manifest.json"
-          if [[ -f "$manifest" ]]; then
-            python3 sims/program-test/archive.py --manifest "$manifest" \
-              --archive "$RUNNER_TEMP/program-elfs/$SUITE.tar.gz"
-          fi
+            PROGRAM_MANIFEST="/tmp/rhodium-program-tests/$SOC/$SUITE/run-manifest.json" \
+            PROGRAM_JOBS=2 2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
       - name: Publish workload results and diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -124,6 +229,7 @@ jobs:
           path: |
             ${{ runner.temp }}/program-logs
             /tmp/rhodium-program-tests/*/*/manifest.json
+            /tmp/rhodium-program-tests/*/*/run-manifest.json
             /tmp/rhodium-program-tests/*/*/instruction-report.json
             /tmp/rhodium-program-tests/*/*/build.log
             /tmp/rhodium-program-tests/*/*/results

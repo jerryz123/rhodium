@@ -97,6 +97,26 @@ port, patch, compiler, and output paths to these builders. Keep both CoreMark
 variants and all bounded workload profiles unchanged during path-only moves;
 do not infer suite selection from prior pass status.
 
+## Shared native ELF builds
+
+`build/program_target.py` projects a suite's ELF build specification from the
+generated SoC descriptor. Keep product names and resolved microarchitecture
+metadata in the full target fingerprint, outside the compilation identity.
+ISA inventory includes extensions, MMU, and privilege modes; compiled benchmarks
+include compiler ISA/ABI and RAM layout. CoreMark also embeds clock frequency.
+Each builder adds its actual selection and scale options to the specification,
+then includes source revisions, compiler identity, adapter/port bytes, and patches
+in its content-addressed cache key. Add any new target-dependent compiler input
+to this projection before allowing cross-product reuse.
+
+`build/bind.py` consumes a complete shared build manifest and validates its
+specification against the destination SoC. It checks ELF hashes, XLEN, physical
+load segments, executable entry, and boot harts before writing a separate
+`run-manifest.json` beside the build manifest. It retains the original build
+target as provenance and uses the destination's full target fingerprint for
+execution. Binding needs neither a compiler nor Rhodium elaboration. Simulator
+attestation and execution remain owned by `sims/program-test/`.
+
 ## Validation
 
 Run the focused builder tests and simulator adapters first:

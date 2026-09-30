@@ -110,7 +110,11 @@ flowchart TD
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
     Simulators --> Qualification["Per-SoC OpenSBI qualification"]
-    Simulators --> Programs["Both single-core software matrices<br/>ISA tests, benchmarks, both CoreMark variants,<br/>Embench-IoT, and bounded Bringup-Bench"]
+    Compile --> ProgramTargets["Generate native software targets<br/>group identical ELF build requirements"]
+    Simulators --> ProgramTargets
+    ProgramTargets --> ProgramBuilds["Compile native suites once per group<br/>eight groups in the current matrix"]
+    ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>sixteen SoC/suite execution jobs"]
+    Simulators --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
     Simulators --> ActRun["Six-profile ACT execution<br/>four shards each; eight for RV5Stage RVA23"]
     ActBuild --> ActRun
@@ -135,15 +139,23 @@ model-checked litmus7 selection on each; it retains build logs, manifests,
 and runner results even on failure. Its full inventory is manual only and has
 no CI job or schedule. Do not remove smoke cases because they expose a failure.
 
-Core CIRCT coverage gives scalar/frontend execution, two functional vector
-shards, alternate vector configuration, and HardFloat independent jobs and
-timeout budgets. The aggregate `cores-vector-functional` selector combines
+Core CIRCT coverage gives frontend, control, and datapath execution leaves,
+two functional vector shards, alternate vector configuration, and HardFloat
+independent jobs and timeout budgets. The aggregate `cores-execution` selector
+combines the three execution leaves; `cores-vector-functional` combines
 the two functional shards, `cores-vector` adds configurations, and `cores`
 still covers the five manifest-owned subsystem groups.
 HardFloat retains its package-owned runner and target.
 
 Both RVA23 single-core software matrices independently select ISA tests, benchmarks,
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
+`ci-software.yml` projects generated target descriptors into suite build groups,
+compiles each group once, and distributes one ELF archive to all compatible
+products. Each run binds the archive to its own full target fingerprint and
+checks its simulator attestation. Compiler installation and ELF caches belong
+only to the build jobs; the sixteen execution jobs retain every selected test.
+Native adapter contracts run once before the build matrix. A failed build does
+not prevent execution jobs from attempting other published groups.
 The two OpenSBI jobs each test the target adapter, qualify one single-core
 product under the simulation change selection, and publish separate diagnostics.
 All four Simple RV32 products select native ISA tests;
@@ -158,7 +170,7 @@ function of SoC shape and ISA, never core identity. No timeout or prior failure
 removes a workload from one core. None receives the full
 single-hart suite matrices. ACT configuration
 generation uses the exact compiled root; ISA/benchmark/CoreMark/Embench-IoT/Bringup-Bench execution needs only the
-compiler and native simulator artifact. All software builds use the same pinned
+shared ELF archive and native simulator artifact. All software builds use the same pinned
 GCC/Newlib toolchain. ACT execution consumes its shared ELF archive without installing
 the compiler or reference-model toolchain again. The configured deterministic shards cover
 the full generated inventory, including failures. They run independently with bounded process parallelism and

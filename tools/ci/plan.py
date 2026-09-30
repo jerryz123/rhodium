@@ -58,7 +58,7 @@ class Selection:
             self.all_programs()
         elif matches(path, "sw/riscv-isa-tests", "sw/riscv-isa-tests/*", "sw/build/build.py"):
             self.add_native("isa", "benchmark")
-        elif matches(path, "sw/build/program_target.py", "sw/tests/test_program_build.py"):
+        elif matches(path, "sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
             self.all_programs()
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             pass

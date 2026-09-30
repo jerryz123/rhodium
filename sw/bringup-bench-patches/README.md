@@ -37,6 +37,11 @@ read that traps in a bare-metal startup and bounds the embedded dictionary to
 cellular-automaton, Monte Carlo, N-body, activation, game, and random-statistics
 samples while retaining their original algorithm and output-hash checks.
 
+`0006-bound-bubble-sort.patch` sorts 128 deterministic values in the functional
+profile instead of the upstream default of 256. It retains the complete
+sortedness check and uses a replacement output hash calibrated by the native
+hash-alone host build before target simulation.
+
 When advancing the submodule, check each patch against the new revision,
 remove fixes already upstream, and rerun the `lz-compress` functional test on
 both single-core SoCs. The build rejects patches that no longer apply.

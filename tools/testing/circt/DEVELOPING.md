@@ -29,6 +29,15 @@ The [repository test-development guide](../DEVELOPING.md) owns test placement,
 authoring principles, and CI classification outside this backend-specific
 fixture boundary.
 
+RV5Stage scalar fixtures belong to `cores-execution-frontend`,
+`cores-execution-control`, or `cores-execution-datapath`. Their aggregate
+`cores-execution` selector remains available for local runs; CI gives each
+leaf its own timeout. Frontend covers fetch, prediction, decode, and fault
+delivery; control covers CSRs, counters, privilege, and wait/interrupt
+behavior; datapath covers FP, integer execution, writeback, retirement, and
+integrated cores. Keep the three leaves nonempty, disjoint, and exhaustive
+when adding a fixture.
+
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or
 `cores-vector-configurations` for alternate XLEN, VLEN, queue depth, and slot
@@ -39,7 +48,7 @@ the vector aggregate with the component, scalar/frontend execution, memory,
 and cache groups. CI gives the three vector leaves and the package-owned
 HardFloat runner independent jobs.
 The CI classifier check uses the runner's manifest-only listing to require
-the two functional leaves to be nonempty, disjoint, and exhaustive.
+the execution and vector functional leaves to be nonempty, disjoint, and exhaustive.
 
 Alternate vector fixtures cover parameter boundaries, not a cross-product of
 every subsystem with every supported value. Keep one behavioral owner for each

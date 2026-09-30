@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Validates program-target descriptors, fingerprints them, and inspects RISC-V ELF attributes.
+# Validates SoC targets, projects shared ELF build inputs, and inspects RISC-V ELF attributes.
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
 import json
@@ -55,6 +55,31 @@ def load_target(path):
 def target_fingerprint(target):
     encoded = json.dumps(target, sort_keys=True, separators=(',', ':')).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def elf_build_spec(target, suite, options=None):
+    """Project compilation and inventory inputs without simulator identity."""
+    validate_target(target)
+    suite = 'bringup' if suite == 'bringup-bench' else suite
+    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup'):
+        raise ValueError(f'unsupported shared ELF suite: {suite}')
+    options = options or {}
+    projected = {field: target[field] for field in ('xlen', 'march', 'mabi', 'ram')}
+    if suite in ('isa', 'benchmark'):
+        projected['extensions'] = sorted(target['extensions'])
+    if suite == 'isa':
+        projected.update(mmu_mode=target.get('mmu_mode', 'bare'),
+                         privilege_modes=target.get('privilege_modes', ['m']))
+    if suite == 'benchmark' and options.get('benchmark_selection') == 'multihart':
+        projected['harts'] = target['harts']
+    if suite in ('coremark', 'coremark_scalar'):
+        projected['clock_frequency_hz'] = target['clock_frequency_hz']
+    return dict(schema=1, suite=suite, target=projected, options=options)
+
+
+def elf_build_metadata(target, suite, options=None):
+    spec = elf_build_spec(target, suite, options)
+    return dict(build_spec=spec, build_spec_fingerprint=target_fingerprint(spec))
 
 
 def readelf_for(compiler):

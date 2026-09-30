@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from build import check_elf_memory
-from program_target import (elf_architecture, instruction_inventory, load_target, objdump_for,
+from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 from riscv.patched_submodule import materialize, read_series
 
@@ -24,6 +24,7 @@ HASH_PATTERN = re.compile(r'\*\* hashval = 0x([0-9a-fA-F]{16})\n?\Z')
 BOUNDED_HASHES = {
     'ackermann': 0x81b399a6d67918f5,
     'anagram': 0x5f33f1cf1e089aa6,
+    'bubble-sort': 0x38592eda4e570732,
     'checkers': 0x37ac1dba0e7ce03d,
     'connect4-minimax': 0x9c48901ef06d6c1e,
     'donut': 0xf16700b00ab6f89d,
@@ -160,7 +161,8 @@ def main():
         parser.error('Bringup-Bench port is incomplete')
     version = subprocess.check_output([compiler, '--version'], text=True)
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
-    key_input = (revision + version + str(source) + compiler + json.dumps(target, sort_keys=True)
+    build_metadata = elf_build_metadata(target, 'bringup', dict(benchmarks=names))
+    key_input = (revision + version + str(source) + compiler + json.dumps(build_metadata['build_spec'], sort_keys=True)
                  + json.dumps(names)).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'),
                  Path(__file__).resolve().parents[2] / 'riscv/patched_submodule.py',
@@ -258,7 +260,7 @@ def main():
                     selection='all' if not args.benchmarks else 'focused',
                     upstream_count=len(inventory), march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
-                    target_fingerprint=target_fingerprint(target), tests=tests)
+                    target_fingerprint=target_fingerprint(target), tests=tests, **build_metadata)
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (output / 'instruction-report.json').write_text(json.dumps({
         'march': target['march'], 'mabi': target['mabi'], 'compiler_arch': compiler_arch,

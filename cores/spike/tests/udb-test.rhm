@@ -43,8 +43,10 @@ check:
   rva23_yaml.contains("  MISALIGNED_LDST: true") ~is #true
   rva23_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
   rva23_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
+  rva23_yaml.contains("  LRSC_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
   rva23_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: true") ~is #true
   yaml.contains("  MISALIGNED_LDST: false") ~is #true
+  yaml.contains("  LRSC_MISALIGNED_BEHAVIOR: \"always raise misaligned exception\"") ~is #true
   yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE:") ~is #false
   yaml.contains("  MISALIGNED_SPLIT_STRATEGY:") ~is #false
   rva23_yaml.contains("  VLEN: 128") ~is #true
@@ -63,6 +65,7 @@ for (name in ["I", "M", "A", "C", "Zca", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "
 check: rv32_yaml.contains("  MISALIGNED_LDST: true") ~is #true
 check: rv32_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
 check: rv32_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
+check: rv32_yaml.contains("  LRSC_MISALIGNED_BEHAVIOR: \"always raise access fault\"") ~is #true
 for (name in ["F", "D", "Zcf", "Zcd", "V", "Zve64x", "Zvl128b", "Sv39"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 for (parameter in ["MXLEN: 32", "PHYS_ADDR_WIDTH: 32", "MTVAL_WIDTH: 32", "STVAL_WIDTH: 32", "ASID_WIDTH: 9", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):

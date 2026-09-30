@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from program_target import (elf_architecture, instruction_inventory, load_target, objdump_for,
+from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
 SCALAR_BENCHMARKS = ('median', 'qsort', 'rsort', 'towers', 'vvadd', 'memcpy',
@@ -230,11 +230,14 @@ def main():
     version = subprocess.check_output([compiler, '--version'], text=True)
     for checkout in (source, source / 'env'):
         subprocess.run(['git', '-C', str(checkout), 'diff', '--quiet', 'HEAD', '--ignore-submodules=untracked'], check=True)
+    build_metadata = elf_build_metadata(target, args.suite, dict(
+        isa_selection=args.isa_selection, benchmark_mode=args.benchmark_mode,
+        benchmark_selection=args.benchmark_selection, benchmark_hart_count=args.benchmark_hart_count))
     key = hashlib.sha256((revision + env_revision + version + str(source) + compiler
                           + str(args.isa_selection) + args.benchmark_mode
                           + args.benchmark_selection
                           + str(args.benchmark_hart_count)
-                          + json.dumps(target, sort_keys=True)).encode()
+                          + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
                          + Path(__file__).read_bytes() + (HERE / 'program_target.py').read_bytes()
                          + (HERE / 'isa.mk').read_bytes()).hexdigest()
     # Content-addressed directories prevent Make timestamps or restored caches
@@ -349,7 +352,7 @@ def main():
             tests[-1]['load_segments'] = check_elf_memory(
                 elf, target['ram'], require_executable_entry=args.suite == 'isa')
     manifest = dict(suite=args.suite, revision=revision, env_revision=env_revision,
-                    compiler=version, cache_key=key, exclusions=exclusions, tests=tests)
+                    compiler=version, cache_key=key, exclusions=exclusions, tests=tests, **build_metadata)
     if target:
         manifest.update(target=target, target_fingerprint=target_fingerprint(target))
     if args.suite == 'isa':

@@ -87,6 +87,7 @@ def sail_default():
 def architecture_params(asid_width=0):
     params = dict(MXLEN=64, NUM_PMP_ENTRIES=0, MISALIGNED_LDST=False,
                   MISALIGNED_LDST_EXCEPTION_PRIORITY="high", M_MODE_ENDIANNESS="little",
+                  LRSC_MISALIGNED_BEHAVIOR="always raise misaligned exception",
                   HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
                   SCOUNTENABLE_EN=[False] * 32, MTVEC_MODES=[0, 1], STVEC_MODES=[0, 1],
                   MTVEC_BASE_ALIGNMENT_DIRECT=4, MSTATUS_FS_LEGAL_VALUES=[0],
@@ -371,6 +372,12 @@ class ArchTestConfigTest(unittest.TestCase):
             self.assertEqual(config["memory"]["regions"][0]["attributes"]["misaligned_exceptions"][kind], {"Some": "AccessFault"})
         self.assertEqual(config["memory"]["misaligned"]["exceptions"]["amo"], {"Some": "AlignmentException"})
         self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"], {"Some": "AlignmentException"})
+        udb["params"]["LRSC_MISALIGNED_BEHAVIOR"] = "always raise access fault"
+        config = configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
+        self.assertEqual(config["memory"]["misaligned"]["exceptions"]["lrsc"], {"Some": "AccessFault"})
+        udb["params"]["LRSC_MISALIGNED_BEHAVIOR"] = "unsupported"
+        with self.assertRaisesRegex(ValueError, "LRSC_MISALIGNED_BEHAVIOR"):
+            configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
         udb["params"]["MISALIGNED_LDST"] = False
         with self.assertRaisesRegex(ValueError, "MISALIGNED_LDST must match Zicclsm"):
             configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)

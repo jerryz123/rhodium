@@ -5,3 +5,4 @@
 0003-bound-remaining-long-workloads.patch
 0004-remove-unused-anagram-argv-read.patch
 0005-bound-numeric-workloads.patch
+0006-bound-bubble-sort.patch

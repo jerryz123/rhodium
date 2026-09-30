@@ -11,7 +11,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import check_elf_memory
-from program_target import (elf_architecture, instruction_inventory, load_target, objdump_for,
+from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
 CORE_SOURCES = ('core_list_join.c', 'core_main.c', 'core_matrix.c', 'core_state.c', 'core_util.c')
@@ -73,8 +73,9 @@ def main():
     revision = subprocess.check_output(['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip()
     compiler_arch = probe_compiler(compiler, target['march'], target['mabi'], output)
     port_inputs = [port / name for name in ('core_portme.c', 'core_portme.h', 'htif.c', 'start.S', 'link.ld.in')]
+    build_metadata = elf_build_metadata(target, args.variant, dict(iterations=args.iterations))
     key_input = (revision + version + str(source) + compiler + str(args.iterations) + args.variant
-                 + json.dumps(target, sort_keys=True)).encode()
+                 + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'), *port_inputs]:
         key_input += path.read_bytes()
     key = hashlib.sha256(key_input).hexdigest()
@@ -134,7 +135,7 @@ def main():
                     compiler_flags=flag_text,
                     iterations=args.iterations, march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
-                    target_fingerprint=target_fingerprint(target), tests=tests)
+                    target_fingerprint=target_fingerprint(target), tests=tests, **build_metadata)
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (output / 'instruction-report.json').write_text(json.dumps({
         'march': target['march'], 'mabi': target['mabi'], 'compiler_arch': compiler_arch,

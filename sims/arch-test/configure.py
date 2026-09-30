@@ -369,7 +369,12 @@ def sail_config(default, udb, origin, size):
     memory["misaligned"]["exceptions"]["load_store"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["vector"] = {"None": None} if misaligned else {"Some": "AlignmentException"}
     memory["misaligned"]["exceptions"]["amo"] = {"Some": "AlignmentException"}
-    memory["misaligned"]["exceptions"]["lrsc"] = {"Some": "AlignmentException"}
+    lrsc_behavior = params["LRSC_MISALIGNED_BEHAVIOR"]
+    lrsc_exceptions = {"always raise misaligned exception": "AlignmentException",
+                       "always raise access fault": "AccessFault"}
+    if lrsc_behavior not in lrsc_exceptions:
+        raise ValueError("unsupported LRSC_MISALIGNED_BEHAVIOR")
+    memory["misaligned"]["exceptions"]["lrsc"] = {"Some": lrsc_exceptions[lrsc_behavior]}
     ram = next(region for region in memory["regions"] if region["attributes"]["mem_type"] == "MainMemory")
     ram["base"], ram["size"] = bits(origin), bits(size)
     attrs = ram["attributes"]

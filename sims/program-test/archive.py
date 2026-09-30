@@ -29,6 +29,9 @@ def package(manifest_path, archive_path):
     archive_path.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(archive_path, 'w:gz') as archive:
         archive.add(manifest_path, arcname='manifest.json')
+        report = root / 'instruction-report.json'
+        if report.is_file():
+            archive.add(report, arcname=report.name)
         for name, binary in sorted(binaries.items()):
             archive.add(binary, arcname=name)
     print(f'Packaged {len(binaries)} ELFs from {manifest_path} into {archive_path}')

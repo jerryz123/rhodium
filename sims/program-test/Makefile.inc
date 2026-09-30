@@ -1,4 +1,4 @@
-# Builds and runs target-bound software suites, including tiled multihart litmus tests.
+# Builds target software and runs locally built or shared native suites with exact simulator checks.
 # SPDX-License-Identifier: Apache-2.0
 RISCV_TESTS_DIR ?= $(REPO_DIR)/sw/riscv-isa-tests
 COREMARK_DIR ?= $(REPO_DIR)/sw/coremark
@@ -52,22 +52,30 @@ LITMUS_FULL_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-full
 LITMUS_GENERATOR_ARGS := --litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)")
 TILED_MT_HART_COUNTS := 2 4 8
 PROGRAM_TARGET_SELECTION := $(SOC_ID)
-PROGRAM_TARGET ?= $(dir $(SIMULATOR_BINARY))program-target.json
+PROGRAM_TARGET ?= $(if $(PREBUILT_PROGRAM_TARGET),$(PREBUILT_PROGRAM_TARGET),$(dir $(SIMULATOR_BINARY))program-target.json)
+NATIVE_RUN_SUITE = $(patsubst %-test,%,$(patsubst %-run,%,$@))
+NATIVE_RUN_CYCLES_isa = $(PROGRAM_MAX_CYCLES)
+NATIVE_RUN_CYCLES_benchmark = $(BENCHMARK_MAX_CYCLES)
+NATIVE_RUN_CYCLES_coremark = $(COREMARK_MAX_CYCLES)
+NATIVE_RUN_CYCLES_coremark_scalar = $(COREMARK_MAX_CYCLES)
+NATIVE_RUN_CYCLES_embench = $(EMBENCH_MAX_CYCLES)
+NATIVE_RUN_CYCLES_bringup = $(BRINGUP_MAX_CYCLES)
 
 .PHONY: program-test-setup isa-setup benchmark-setup coremark-setup coremark_scalar-setup embench-setup bringup-setup program-test-adapter-test litmus-adapter-test program-target simulator-attestation
 .PHONY: isa-elfs benchmark-elfs tiled-mt-benchmark-elfs coremark-elf coremark_scalar-elf embench-elfs bringup-elfs isa-test benchmark-test tiled-mt-benchmark-test coremark-test coremark_scalar-test embench-test bringup-test
 .PHONY: single-core-software-test
+.PHONY: isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
 .PHONY: litmus-setup litmus-elfs litmus-test litmus-smoke-elfs litmus-smoke-test litmus-full-elfs litmus-full-run litmus-full-test litmus-full-report
 program-target: $(PROGRAM_TARGET)
 
-ifeq ($(PREBUILT_SIMULATOR),)
+ifeq ($(strip $(PREBUILT_SIMULATOR)$(PREBUILT_PROGRAM_TARGET)),)
 $(PROGRAM_TARGET): $(REPO_DIR)/sims/program-test/write-target.rhm $(SIMULATOR_SOURCES)
 	mkdir -p "$(dir $(PROGRAM_TARGET))"
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(PROGRAM_TARGET)"
 else
 $(PROGRAM_TARGET):
-	@echo "Prebuilt simulator target descriptor is missing: $@" >&2; exit 2
+	@echo "Prebuilt program target descriptor is missing: $@" >&2; exit 2
 endif
 
 isa-smoke-config:
@@ -185,19 +193,20 @@ bringup-elfs: program-target
 	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" $(if $(BRINGUP_BENCHMARKS),--benchmarks "$(BRINGUP_BENCHMARKS)",)
 
-isa-test: isa-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/isa/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/isa/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(PROGRAM_MAX_CYCLES)
-
 simulator-attestation: simulator
 
-benchmark-test: benchmark-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/benchmark/manifest.json" \
+isa-test: isa-elfs
+benchmark-test: benchmark-elfs
+coremark-test: coremark-elf
+coremark_scalar-test: coremark_scalar-elf
+embench-test: embench-elfs
+bringup-test: bringup-elfs
+
+isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run: simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(PROGRAM_PRODUCT_ROOT)/$(NATIVE_RUN_SUITE)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BENCHMARK_MAX_CYCLES)
+	  --output "$(PROGRAM_PRODUCT_ROOT)/$(NATIVE_RUN_SUITE)/results" \
+	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(PROGRAM_TIMEOUT)) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
 tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation
 	@status=0; for hart_count in $(TILED_MT_HART_COUNTS); do \
@@ -237,30 +246,6 @@ litmus-full-report:
 	$(PYTHON) program-test/report-shards.py --manifest "$(LITMUS_FULL_DIR)/manifest.json" \
 	  --results-dir "$(LITMUS_FULL_DIR)/results" --shard-count $(LITMUS_FULL_SHARD_COUNT) \
 	  --output "$(LITMUS_FULL_DIR)/full-summary.json"
-
-coremark-test: coremark-elf simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
-
-coremark_scalar-test: coremark_scalar-elf simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(COREMARK_MAX_CYCLES)
-
-embench-test: embench-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/embench/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/embench/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(EMBENCH_MAX_CYCLES)
-
-bringup-test: bringup-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/bringup/manifest.json" \
-	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(BRINGUP_TIMEOUT) --max-cycles $(BRINGUP_MAX_CYCLES)
 
 single-core-software-test:
 	@status=0; for core in $(SOFTWARE_CORE); do \

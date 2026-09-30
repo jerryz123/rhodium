@@ -63,6 +63,9 @@ keep the standalone configuration's PMP support independent of that policy.
 With PMP enabled, Spike's CSR masks use 56 physical bits on RV64 and 34 on
 RV32, independently of the 44-bit CHI fabric. RV32 Bare without PMP projects
 32-bit physical addresses. RV32 retains nine ASID bits.
+The pinned MMU raises an alignment exception for misaligned LR/SC when
+misaligned scalar accesses are disabled, but an access fault when Zicclsm
+enables its misaligned-access path; project that profile-dependent choice to UDB.
 `tests/udb-test.rhm` covers scalar, RVA23, and RV32Int projections;
 `socs/tests/udb-test.rhm` checks the paired RV32Int/RV32Max FP and vector closures.
 Do not advertise `WRS.NTO` as an unconditional no-op: the pinned Spike raises

@@ -12,7 +12,7 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import check_elf_memory
-from program_target import (elf_architecture, instruction_inventory, load_target, objdump_for,
+from program_target import (elf_architecture, elf_build_metadata, instruction_inventory, load_target, objdump_for,
                             probe_compiler, readelf_for, target_fingerprint)
 
 BENCHMARKS = ('aha-mont64', 'crc32', 'depthconv', 'edn', 'huffbench', 'matmult-int',
@@ -150,9 +150,11 @@ def main():
     port_inputs = [port / name for name in ('boardsupport.c', 'boardsupport.h', 'htif.c', 'start.S', 'link.ld.in')]
     if any(not path.is_file() for path in port_inputs):
         parser.error('Embench-IoT port is incomplete')
+    build_metadata = elf_build_metadata(target, 'embench', dict(
+        scale=args.scale, local_scale=args.local_scale, warmup_heat=args.warmup_heat))
     key_input = (revision + version + str(source) + compiler + str(args.scale)
                  + str(args.local_scale)
-                 + str(args.warmup_heat) + json.dumps(target, sort_keys=True)).encode()
+                 + str(args.warmup_heat) + json.dumps(build_metadata['build_spec'], sort_keys=True)).encode()
     for path in [Path(__file__), Path(__file__).with_name('program_target.py'), *port_inputs]:
         key_input += path.read_bytes()
     key = hashlib.sha256(key_input).hexdigest()
@@ -220,7 +222,7 @@ def main():
                     functional_profiles=FUNCTIONAL_PROFILES,
                     warmup_heat=args.warmup_heat, march=target['march'], mabi=target['mabi'],
                     compiler_arch=compiler_arch, target=target,
-                    target_fingerprint=target_fingerprint(target), tests=tests)
+                    target_fingerprint=target_fingerprint(target), tests=tests, **build_metadata)
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')
     (output / 'instruction-report.json').write_text(json.dumps({
         'march': target['march'], 'mabi': target['mabi'], 'compiler_arch': compiler_arch,

@@ -322,6 +322,11 @@ checked into the upstream test tree, so it must be generated through this same
 path instead of a separate generator or manual prerequisite. Keep the pinned
 submodule pristine; the patch series, not a dirty submodule checkout, is the
 reviewable source of downstream changes.
+For implementation-specific `mcountinhibit` bits, generic ACT CSR walks do
+not assert a fixed readback value; the dedicated inhibit tests are emitted
+only for writable bits advertised by `COUNTINHIBIT_EN`. The Sail adapter
+projects the UDB LR/SC misalignment choice to its corresponding exception
+without changing the DUT claim.
 
 Always enable privileged tests as well; missing platform hooks and reference
 model mismatches must surface as build or execution failures, not suite exclusions.
@@ -520,8 +525,8 @@ uses the projected MMU and privilege modes to include their virtual-environment
 inventories when Sv39 and M/S/U are available. `SMOKE_TESTS` selects fixed
 physical-environment representatives. Both modes
 bind their manifests and simulator attestations to the generated target
-description. The target description and selection mode are part of the build
-cache key. Validate every selected ELF's physical PT_LOAD ranges (using
+description. The target's suite build specification and selection mode are part of the build
+cache key; the full descriptor still binds execution to the exact simulator. Validate every selected ELF's physical PT_LOAD ranges (using
 `p_memsz`, not file size) and executable entry before publishing a manifest,
 including on cache reuse. Physical ISA tests have no dynamic stack; the
 upstream virtual environment owns its own stack and page tables. Keep its
@@ -535,6 +540,23 @@ benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only
 each core binding consumes the identical selection. The matrix disables
 fail-fast, attempts every selected target even after failure, and uploads independent results.
 Changes to the adapter or upstream ISA sources must select that job.
+
+Native suite CI first generates the selected program targets using the shared
+Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
+projection in `sw/build/program_target.py`. Groups use actual target fields,
+not a shape/ISA naming assumption. The current six Simple products produce
+eight build groups and sixteen execution jobs. Build jobs consume
+`PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
+archives; their caches are keyed by the group and software inputs rather than
+the simulator product. `sw/build/bind.py` validates each archive against the
+execution job's downloaded target and writes its separate run manifest.
+`isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`, `embench-run`,
+and `bringup-run` run that manifest through the ordinary attested simulator
+without invoking a builder. The corresponding `*-test` targets still build and
+run for local use. Run jobs preserve all suite limits and workload coverage;
+they attempt every successfully published group even if another build failed.
+Native adapter contracts run once in the planning job. ACT retains independent
+implementation-specific generation and expectations.
 The ordinary `smoke` target specializes its payload by ISA: for RVA23, in addition
 to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
 exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses

@@ -51,6 +51,9 @@ upstream independently:
 14. `0014-program-su-wrs-timer-directly.patch` lets platforms without lower-mode
     timer MMIO protection arm the WRS wakeup timer without consuming its delay
     inside multiple T-SBI memory calls.
+15. `0015-honor-countinhibit-bits.patch` leaves implementation-specific
+    `mcountinhibit` readback out of generic CSR equality tests and generates
+    cycle/retirement inhibition checks only for writable bits advertised by UDB.
 
 The first three patches expand capability while retaining ACT's existing active
 suite inventory, the fourth makes the complete vector inventory visible to

@@ -627,9 +627,9 @@ suite for routine SoC execution; an explicit unselected `bringup-test` attempts
 all 108 and reports any failures or timeouts.
 The expensive workloads use patched, bounded input sizes and their own pinned
 output hashes; unchanged workloads retain upstream references. For example,
-checkers performs one depth-two search, LZ77 compresses and decompresses 256
-bytes once, pi-calc generates 100 digits, and rho-factor samples 4- through
-8-bit inputs. These are functional integration tests, not equivalent benchmark
+checkers performs one depth-two search, bubble-sort sorts 128 values, LZ77
+compresses and decompresses 256 bytes once, pi-calc generates 100 digits, and
+rho-factor samples 4- through 8-bit inputs. These are functional integration tests, not equivalent benchmark
 scores or substitutes for running the original upstream workloads.
 
 Use a bare-metal compiler with C headers and `libm`, not only an assembler.
@@ -638,8 +638,8 @@ CI installs a checksum-pinned GCC/Newlib release via
 `RISCV_CC=/path/to/riscv64-unknown-elf-gcc`.
 
 `PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`; each suite
-writes beneath `<soc>-<core>/`, so parallel products cannot reuse one another's
-ELFs or results. Each suite writes
+writes beneath the complete product key, keeping execution results separate.
+Each suite writes
 a manifest, build log, per-test execution logs, `results.json`, and `junit.xml`.
 Benchmark builds also write `instruction-report.json`, with executable
 instruction counts, compressed counts, unknown-decoding counts, and canonical
@@ -652,12 +652,29 @@ The runner requires confirmed HTIF success and executes the entire manifest,
 including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
-CI attaches each completed ISA, benchmark, CoreMark, Embench-IoT, and
-Mini/Tiled ISA-smoke workload as a compressed archive alongside its results.
-Each archive contains `manifest.json` and every selected ELF at the manifest's
+CI builds native suites once per distinct ELF build specification and runs the
+shared binaries on every selected compatible SoC. The current matrix has eight
+native build groups and sixteen SoC/suite execution jobs. The shared build
+artifacts contain `manifest.json`, an instruction report when available, and every selected ELF at the manifest's
 relative path, including ISA binaries without a filename extension. Extract an
-archive to an empty directory to replay the exact CI-built binaries with a
-matching simulator; the runner checks their manifest SHA-256 digests. The
+archive to an empty directory and bind it to the intended simulator target:
+
+```sh
+python3 sw/build/bind.py --manifest /absolute/path/to/suite/manifest.json \
+  --target /absolute/path/to/simulator/program-target.json \
+  --output /absolute/path/to/suite/run-manifest.json
+make -C sims bringup-run SOC=simple-spike-rva23 \
+  PREBUILT_SIMULATOR=/absolute/path/to/simulator/VTestDriver \
+  PROGRAM_MANIFEST=/absolute/path/to/suite/run-manifest.json
+```
+
+Use the matching `isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`,
+or `embench-run` target for other native suites. These targets execute existing
+ELFs without compiling them; binding rejects incompatible build inputs or
+modified ELFs, and execution still requires the exact simulator attestation.
+The usual `*-test` commands continue to build and run. For compilation using
+an existing descriptor, set `PREBUILT_PROGRAM_TARGET=/absolute/path/to/target.json`.
+Mini/Tiled ISA-smoke archives remain attached to their per-product results. The
 simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.
 
