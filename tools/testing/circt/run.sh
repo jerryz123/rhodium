@@ -249,7 +249,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:retained-memory|language:retained-state|language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:retained-memory|language:retained-memory-failure|language:retained-state|language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -498,6 +498,7 @@ run_expected_assertion_failure() {
 verify_fixture() {
   local fixture="$1"
   local top="${2:-}"
+  local expected_label="${3:-}"
   local mlir="$test_tmp_dir/$fixture.mlir"
   local verilog="$test_tmp_dir/$fixture.sv"
   local has_firmem=false
@@ -536,6 +537,12 @@ verify_fixture() {
   circt_args+=(--sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS')
   circt_args+=(--export-verilog)
   time_phase "$fixture" lowering "$circt_opt" "${circt_args[@]}" "$mlir" -o /dev/null > "$verilog"
+
+  if [[ -n "$expected_label" ]]; then
+    testbench="$(owned_fixture_file "verilog/${fixture}_tb.sv")"
+    run_expected_assertion_failure "$fixture" "$top" "$testbench" "$expected_label"
+    return 0
+  fi
 
   if [[ -f "$device_dpi_source" ]]; then
     dpi_sources+=("$device_dpi_source")
@@ -796,6 +803,7 @@ direct_fixture_specs=(
   'event-stall|event_stall_tb'
   'event-offer|event_offer_tb'
   'retained-memory|retained_memory_tb'
+  'retained-memory-failure|retained_memory_fail_tb|write_data_allowed'
   'retained-state|retained_state_tb'
   'event-retained|event_retained_tb'
   'event-retained-bank|event_retained_bank_tb'
@@ -1050,7 +1058,7 @@ for spec in "${fixture_specs[@]}"; do
 done
 
 for spec in "${direct_fixture_specs[@]}"; do
-  IFS='|' read -r fixture top <<< "$spec"
+  IFS='|' read -r fixture top expected_label <<< "$spec"
   if direct_fixture_selected "$fixture" "$top"; then
     materialize_args+=(emitter "$fixture" "$(owned_fixture_file "emit-$fixture.rhm")")
   fi
@@ -1071,12 +1079,10 @@ for spec in "${fixture_specs[@]}"; do
 done
 
 for spec in "${direct_fixture_specs[@]}"; do
-  IFS='|' read -r fixture top <<< "$spec"
-  verify_fixture "$fixture" "$top"
+  IFS='|' read -r fixture top expected_label <<< "$spec"
+  verify_fixture "$fixture" "$top" "$expected_label"
 done
 
-run_expected_assertion_failure retained-memory retained_memory_fail_tb \
-  rhodium/backend/tests/circt/verilog/retained-memory_fail_tb.sv write_data_allowed
 run_expected_assertion_failure assertions assertions_fail_tb \
   rhodium/backend/tests/circt/verilog/assertions_fail_tb.sv request_holds
 run_expected_assertion_failure event-instance event_instance_invalid_tb \

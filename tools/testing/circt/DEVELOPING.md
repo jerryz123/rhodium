@@ -77,6 +77,10 @@ either kind through the manifest. The runner resolves each declared direct
 emitter and each selected `<fixture>_tb.sv` or optional `<fixture>_dpi.cpp`
 from exactly one package-local `tests/circt/` directory; zero or multiple owners
 are errors.
+An optional third field in a direct-fixture entry names an expected assertion
+label. Such a fixture lowers its own explicit root and passes only when its
+bench fails with that label. Use separate emitters for independent compilation
+roots rather than collecting uninstantiated circuit references in a suite.
 `make examples` and `make check-example-verilog` check every concrete design's
 manifest coverage and validate only declared golden exports without running
 CIRCT or Verilator.

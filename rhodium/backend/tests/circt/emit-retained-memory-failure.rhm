@@ -1,0 +1,8 @@
+#lang rhombus
+// Emits the nested retained memory assertion as an explicit compilation root.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../circt.rhm".emit_circt
+  "../../../frontend/foundation.rhm".elaborate
+  "../../../frontend/tests/retained-memory-fixture.rhdl".MemoryFailure
+print(emit_circt(elaborate(MemoryFailure())))

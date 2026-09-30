@@ -263,7 +263,7 @@ printf '#lang racket/base\n;; Adds a source to the restored CI cache.\n' > "$pro
 ci_run() {
   local root="$1"
   shift
-  env PLTCOMPILEDROOTS="$root" PLTCOLLECTS="$fixture_repo": \
+  env RHODIUM_PRECOMPILED=0 PLTCOMPILEDROOTS="$root" PLTCOLLECTS="$fixture_repo": \
     RACKET="$real_racket" "$repo_dir/tools/run-racket.sh" "$@"
 }
 
@@ -280,7 +280,8 @@ cat > "$ci_external_source" <<'EOF'
 EOF
 # Populate the standard-library seed explicitly, as package setup does in CI,
 # rather than relying on modules loaded while bootstrapping an empty root.
-ci_run "$ci_seed" -l raco -- make -l racket/base
+# Exercise inherited artifact mode even when this regression runs outside CI.
+RHODIUM_PRECOMPILED=1 ci_run "$ci_seed" -l raco -- make -l racket/base
 ci_run "$ci_seed" -l raco -- make "$ci_external_source"
 cp -a "$ci_seed"/. "$ci_compiled_root"/
 # Racket's compilation manager compares whole-second source timestamps.

@@ -98,12 +98,9 @@ sync_circuit MemoryFailure():
   child.write_data <== write_data
   child.write_enable <== write_enable
 
-circuit MemorySuite():
-  def comparison = MemoryComparison()
-  def failure = MemoryFailure()
-
 export:
-  MemorySuite
+  MemoryComparison
+  MemoryFailure
   signature
   dependencies
   state

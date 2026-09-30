@@ -1,4 +1,4 @@
-// Requires a labeled failure from an assertion inside a nested retained memory provider.
+// Requires a labeled failure from an independently compiled retained memory hierarchy.
 // SPDX-License-Identifier: Apache-2.0
 module retained_memory_fail_tb;
   logic clock = 0, reset = 1;

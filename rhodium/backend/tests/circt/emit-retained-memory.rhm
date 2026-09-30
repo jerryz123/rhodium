@@ -1,8 +1,8 @@
 #lang rhombus
-// Emits retained/eager memory lanes and a retained-only assertion-failure top.
+// Emits the retained/eager memory comparison as an explicit compilation root.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../circt.rhm".emit_circt
   "../../../frontend/foundation.rhm".elaborate
-  "../../../frontend/tests/retained-memory-fixture.rhdl".MemorySuite
-print(emit_circt(elaborate(MemorySuite())))
+  "../../../frontend/tests/retained-memory-fixture.rhdl".MemoryComparison
+print(emit_circt(elaborate(MemoryComparison())))
