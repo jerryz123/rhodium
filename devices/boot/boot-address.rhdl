@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a byte-masked 64-bit payload-entry register behind a one-outstanding CHI SN-I port.
+/* Implements a byte-masked 64-bit payload-entry register behind a one-outstanding CHI SN-I port. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,20 +17,25 @@ import:
 
 def BootAddressWindowBytes = 0x1000
 
+/* Selects the CHI wire format and reset value of the single 64-bit boot entry. */
 class BootAddressConfig(flit :: CHIFlitParams,
                         reset_value :: Int.in(0 ..= 0xffffffffffffffff)):
   implements StableCircuitParam
 
+  /* Advertises four- and eight-byte accesses to the entry. */
   property transfers: TransferSizes(4, 8)
+  /* Advertises reads and full or byte-enabled noncopyback writes. */
   property requests:
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 
+/* Describes one boot-entry register's fabric identity and page-aligned window. */
 class BootAddressParams(name :: NonemptyString,
                         node_id :: Nat,
                         config :: BootAddressConfig,
                         base_address :: Nat):
+  /* Advertises one outstanding SN-I transaction with separate write DBID and completion. */
   property node:
     CHINodeParams(
       name,
@@ -46,10 +51,13 @@ class BootAddressParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+  /* Derives the fabric-facing counterpart of the register node. */
   property icn_port: node.icn_peer()
+  /* Maps the service page; only the first eight bytes are implemented registers. */
   property service:
     CHISubordinateServiceParams(icn_port, [AddressSet(base_address, BootAddressWindowBytes - 1)], config.requests)
 
+  /* Checks page alignment, address-width fit, and physical NodeID fit. */
   constructor (name :: NonemptyString, node_id :: Nat, config :: BootAddressConfig, base_address :: Nat):
     unless base_address mod BootAddressWindowBytes == 0
     | error(~who: #'BootAddressParams, "base address must be aligned to the boot-address window")
@@ -59,10 +67,14 @@ class BootAddressParams(name :: NonemptyString,
     | error(~who: #'BootAddressParams, "NodeID must fit in the physical NodeID width")
     super(name, node_id, config, base_address)
 
+/* Carries the occurrence's NodeID and service base into the register circuit. */
 bundle BootAddressIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
+/* Snapshots reads at request acceptance and merges writes at DAT acceptance.
+   Aligned word accesses select either half; doubleword accesses select the entire
+   entry. The subordinate engine retains transaction and response ownership. */
 sync_circuit CHIBootAddressRegister(config :: BootAddressConfig):
   def p = config.flit
   def lane_width = alignment_bits(p.data_bytes)

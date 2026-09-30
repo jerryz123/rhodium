@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a CHI-native 16550-style UART with 8-N-1 serial engines and FIFOs.
+/* Implements a CHI-native 16550-style UART with 8-N-1 serial engines and FIFOs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -30,22 +30,28 @@ def Uart16550LsrOffset = 5
 def Uart16550MsrOffset = 6
 def Uart16550ScrOffset = 7
 
+/* Selects CHI flits and physical FIFO depth for the fixed 8-N-1 UART. */
 class Uart16550Config(flit :: CHIFlitParams,
                       fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth)):
   implements StableCircuitParam
 
+  /* Returns the physical CHI DAT byte-lane count. */
   property data_bytes: flit.data_bytes
+  /* Advertises single-byte register transactions only. */
   property transfers: TransferSizes(1, 1)
+  /* Advertises reads and full or byte-enabled noncopyback writes. */
   property requests:
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 
+/* Describes a UART occurrence's identity and aligned eight-byte register window. */
 class Uart16550Params(name :: NonemptyString,
                       node_id :: Nat,
                       config :: Uart16550Config,
                       base_address :: Nat):
 
+  /* Advertises one outstanding SN-I register transaction and its completion channels. */
   property node:
     CHINodeParams(
       name,
@@ -63,7 +69,9 @@ class Uart16550Params(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+  /* Derives the fabric-facing counterpart of the UART node. */
   property icn_port: node.icn_peer()
+  /* Maps the eight UART register offsets to the single-byte service. */
   property service:
     CHISubordinateServiceParams(
       icn_port,
@@ -71,6 +79,7 @@ class Uart16550Params(name :: NonemptyString,
       config.requests
     )
 
+  /* Checks window alignment, address-width fit, and physical NodeID fit. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                config :: Uart16550Config,
@@ -86,10 +95,14 @@ class Uart16550Params(name :: NonemptyString,
             "NodeID must fit in the physical NodeID width")
     super(name, node_id, config, base_address)
 
+/* Carries the occurrence's NodeID and register-window base. */
 bundle Uart16550Identity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
+/* Composes divisor-driven 8-N-1 engines, synchronous-clear FIFOs, and 16550-subset MMIO.
+   RBR/LSR effects occur at REQ acceptance; writes apply at DAT acceptance and THR
+   backpressures for TX space. RX data outranks TX-empty interrupts; divisor zero acts as one. */
 sync_circuit Uart16550(config :: Uart16550Config):
   def p = config.flit
   def fifo_depth = config.fifo_depth
@@ -221,6 +234,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
      [Uart16550ScrOffset, scratch]]
   )
   def register_read_data = selected_read_byte.zext(p.data_width) << register_shift
+  // Snapshot and read effects share REQ acceptance, not response transfer.
   def read_rbr = request_fire & !incoming_write & !dlab & (
     incoming_relative === bits(Uart16550RbrThrDllOffset, Uart16550AddressWidth)
   ) & !rx_empty
@@ -288,6 +302,7 @@ sync_circuit Uart16550(config :: Uart16550Config):
     (supplied_write_mask & expected_write_mask) === supplied_write_mask,
     supplied_write_mask === expected_write_mask
   )
+  // Byte-mask legality is asserted below; it does not gate DAT acceptance.
 
   def receive_byte = receiver.received.valid
   def rx_has_space = (rx_count < rx_full_limit) ||| read_rbr
@@ -296,6 +311,8 @@ sync_circuit Uart16550(config :: Uart16550Config):
   rx_fifo.ingress.bits <== receiver.received.bits
   rx_fifo.egress.ready <== read_rbr & !clear_rx_fifo
 
+  // A concurrent receive owns error state over an LSR read; clear happens only
+  // without a receive, and FIFO clear does not reset the serial engines.
   when receive_byte:
     when (!rx_has_space):
       overrun_error <== Bool(#true)

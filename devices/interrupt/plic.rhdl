@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a configurable SiFive-compatible level-sensitive PLIC as a CHI SN-I device.
+/* Implements a configurable SiFive-compatible level-sensitive PLIC as a CHI SN-I device. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,24 +26,30 @@ def PlicContextBytes = 0x1000
 def PlicMaximumSources = 1023
 def PlicMaximumContexts = 15872
 
+/* Selects source/context counts, WARL priority width, and CHI wire format. */
 class PlicConfig(flit :: CHIFlitParams,
                  source_count :: Int.in(1 ..= PlicMaximumSources),
                  context_count :: Int.in(1 ..= PlicMaximumContexts),
                  priority_width :: Int.in(1 ..= 31)):
   implements StableCircuitParam
 
+  /* Returns the physical CHI DAT byte-lane count. */
   property data_bytes: flit.data_bytes
+  /* Advertises only four-byte register accesses. */
   property transfers: TransferSizes(4, 4)
+  /* Advertises reads and full or partial noncopyback writes. */
   property requests:
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 
+/* Describes a PLIC occurrence's identity and aligned 64-MiB register window. */
 class PlicParams(name :: NonemptyString,
                  node_id :: Nat,
                  config :: PlicConfig,
                  base_address :: Nat):
 
+  /* Advertises one outstanding SN-I register transaction and its completion channels. */
   property node:
     CHINodeParams(
       name,
@@ -61,7 +67,9 @@ class PlicParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+  /* Derives the fabric-facing counterpart of the PLIC node. */
   property icn_port: node.icn_peer()
+  /* Maps the PLIC window to its four-byte register service. */
   property service:
     CHISubordinateServiceParams(
       icn_port,
@@ -69,6 +77,7 @@ class PlicParams(name :: NonemptyString,
       config.requests
     )
 
+  /* Checks service-window alignment, address-width fit, and physical NodeID fit. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                config :: PlicConfig,
@@ -84,15 +93,20 @@ class PlicParams(name :: NonemptyString,
             "NodeID must fit in the physical NodeID width")
     super(name, node_id, config, base_address)
 
+/* Carries the occurrence's NodeID and register-window base. */
 bundle PlicIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
+/* Carries eligibility, priority, and architectural source ID through winner reduction. */
 bundle PlicCandidate(priority_width :: PosInt, source_id_width :: PosInt):
   valid: Bool
   priority: Bits(priority_width)
   source_id: Bits(source_id_width)
 
+/* Tracks global pending/busy gateways and per-context enables and thresholds.
+   Claims clear pending at REQ acceptance without consulting threshold; valid enabled
+   completions release gateways at DAT acceptance, allowing a still-high level to re-pend. */
 sync_circuit Plic(config :: PlicConfig):
   def p = config.flit
   def source_count = config.source_count
@@ -171,6 +185,7 @@ sync_circuit Plic(config :: PlicConfig):
   def threshold_access = context_access & (context_register_offset === bits(0, 12))
   def claim_access = context_access & (context_register_offset === bits(4, 12))
 
+  /* Chooses an eligible candidate by higher priority, then lower source ID. */
   fun prefer_candidate(left :: PlicCandidate(priority_width, source_id_width),
                        right :: PlicCandidate(priority_width, source_id_width)):
     def right_wins = right.valid & (!left.valid ||| (right.priority > left.priority) ||| (
@@ -227,10 +242,13 @@ sync_circuit Plic(config :: PlicConfig):
   def incoming_data = port.dat.request.bits
   def ordinary_data = incoming_data.opcode =/= CHIDatOpcode.DataLCrdReturn
   def write_mask_supported = register_mask === bits(0xf, data_bytes)
+  // The full-register mask rule is assertion-only, not a write-admission gate.
   transaction.write_supported <== Bool(#true)
   transaction.write_ready <== Bool(#true)
   def write_data_fire = transaction.write_data_fire
 
+  // Claims snapshot the old winner and clear pending at request acceptance;
+  // threshold affects interrupt delivery, not claim eligibility.
   def claim_fire = request_fire & !incoming_write & claim_access
   def completion_source_id = write_value
   def completion_source_index :: Bits(source_index_width) = (
@@ -249,6 +267,8 @@ sync_circuit Plic(config :: PlicConfig):
       )
       (pending_bits[source].into(Bool) ||| forwarded) & !claimed
   ).into(Mask(source_count))
+  // Claim leaves the gateway busy. Completion frees it; a still-high source
+  // can forward again on a later edge, independently of the claim context.
   def next_gateway_busy = vec(
     for List (source in 0..source_count):
       def forwarded = !gateway_busy.as_bits()[source].into(Bool) & sources[source]

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the fixed-mode HDMI contract and its CHI-backed framebuffer reader.
+/* Defines the fixed-mode HDMI contract and its CHI-backed framebuffer reader. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,15 +13,19 @@ import:
 
 def HDMIFetchLineBytes = 64
 
+/* Selects the currently supported little-endian four-byte X8R8G8B8 pixel layout. */
 enum HDMIPixelFormat
 | X8R8G8B8
 
+/* Returns the storage stride of one supported framebuffer pixel. */
 fun HDMIPixelFormat.bytes_per_pixel(format :: HDMIPixelFormat) :: PosInt:
   4
 
+/* Returns the simple-framebuffer format string for the selected pixel layout. */
 fun HDMIPixelFormat.device_tree_name(format :: HDMIPixelFormat) :: NonemptyString:
   "x8r8g8b8"
 
+/* Stores one fixed progressive raster's clock, active area, porches, sync widths, and polarities. */
 class HDMIVideoTiming(pixel_clock_hz :: PosInt,
                       horizontal_active :: PosInt,
                       horizontal_front_porch :: PosInt,
@@ -35,26 +39,37 @@ class HDMIVideoTiming(pixel_clock_hz :: PosInt,
                       vertical_sync_positive :: Boolean):
   implements StableCircuitParam
 
+  /* Counts active pixels and all horizontal blanking clocks per line. */
   property horizontal_total :: PosInt:
     horizontal_active + horizontal_front_porch + horizontal_sync + horizontal_back_porch
+  /* Counts active rows and all vertical blanking lines per frame. */
   property vertical_total :: PosInt:
     vertical_active + vertical_front_porch + vertical_sync + vertical_back_porch
+  /* Counts pixel-clock enables required for one complete frame. */
   property frame_cycles :: PosInt:
     horizontal_total * vertical_total
+  /* Derives exact frame frequency from the pixel clock and total raster size. */
   property refresh_hz:
     pixel_clock_hz / frame_cycles
 
+/* Pairs fixed timing with an unpadded contiguous framebuffer pixel layout. */
 class HDMIFixedFramebufferMode(timing :: HDMIVideoTiming,
                                pixel_format :: HDMIPixelFormat):
   implements StableCircuitParam
 
+  /* Returns the pixel storage width in bytes. */
   property bytes_per_pixel :: PosInt:
     HDMIPixelFormat.bytes_per_pixel(pixel_format)
+  /* Derives row stride without padding from active width and pixel size. */
   property pitch_bytes :: PosInt: timing.horizontal_active * bytes_per_pixel
+  /* Returns the contiguous active-frame byte count. */
   property frame_bytes :: PosInt: pitch_bytes * timing.vertical_active
+  /* Counts complete 64-byte fetch lines in one active row. */
   property fetch_lines_per_row :: PosInt: pitch_bytes / HDMIFetchLineBytes
+  /* Counts complete 64-byte fetch lines in the active framebuffer. */
   property fetch_lines_per_frame :: PosInt: frame_bytes / HDMIFetchLineBytes
 
+  /* Rejects row strides that cannot be represented by whole fetch lines. */
   constructor (timing :: HDMIVideoTiming,
                pixel_format :: HDMIPixelFormat):
     def pitch_bytes = timing.horizontal_active * HDMIPixelFormat.bytes_per_pixel(pixel_format)
@@ -63,15 +78,18 @@ class HDMIFixedFramebufferMode(timing :: HDMIVideoTiming,
             "contiguous framebuffer pitch must contain complete fetch lines")
     super(timing, pixel_format)
 
+  /* Tests the required 64-byte physical framebuffer alignment. */
   method framebuffer_base_supported(base_address :: Nat) :: Boolean:
     base_address mod HDMIFetchLineBytes == 0
 
+/* Selects CHI wire format, fixed frame geometry, outstanding slots, and TxnID interval. */
 class HDMIFrameReaderConfig(flit :: CHIFlitParams,
                             mode :: HDMIFixedFramebufferMode,
                             slots :: PosInt,
                             txn_base :: Nat):
   implements StableCircuitParam
 
+  /* Checks requester capacity, the 12-bit TxnID interval, and address-width fit of frame size. */
   constructor (flit :: CHIFlitParams,
                mode :: HDMIFixedFramebufferMode,
                slots :: PosInt,
@@ -87,15 +105,18 @@ class HDMIFrameReaderConfig(flit :: CHIFlitParams,
             "frame byte count must fit the CHI request address width")
     super(flit, mode, slots, txn_base)
 
+/* Carries requester and Home NodeIDs for the frame reader's fabric attachment. */
 bundle HDMIFrameReaderIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   home_id: Bits(p.node_id_width)
 
+/* Captures a frame's physical base, PAS, and QoS at command acceptance. */
 bundle HDMIFrameReaderCommand(p :: CHIFlitParams):
   base_address: Bits(p.request_address_width)
   pas: CHIPAS
   qos: Bits(4)
 
+/* Carries an ordered full fetch line with row/frame markers and error provenance. */
 bundle HDMIFrameReaderLine():
   data: Bits(512)
   row_end: Bool
@@ -103,6 +124,9 @@ bundle HDMIFrameReaderLine():
   error: CHIRespErr
   poisoned: Bool
 
+/* Reads exactly one contiguous frame through the retryable, nonallocating CHI read stream.
+   Adds row markers on output transfers and latches observed errors until the next command;
+   the stream retains ordering across out-of-order responses. */
 sync_circuit HDMIFrameReader(config :: HDMIFrameReaderConfig):
   def p = config.flit
   def mode = config.mode

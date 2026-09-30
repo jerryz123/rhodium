@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a CHI SN-I ACLINT with MTIMER/MSWI state and sparse time updates.
+/* Implements a CHI SN-I ACLINT with MTIMER/MSWI state and sparse time updates. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,21 +15,27 @@ import:
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/subordinate/single-beat-subordinate.rhdl").CHISingleBeatSubordinate
 
+/* Selects CHI flits and the number of contiguous machine-interrupt hart slots. */
 class AclintConfig(flit :: CHIFlitParams,
                    hart_count :: Int.in(1 ..= AclintMaximumHarts)):
   implements StableCircuitParam
 
+  /* Returns the physical CHI DAT byte-lane count. */
   property data_bytes: flit.data_bytes
+  /* Advertises one- through eight-byte timer and software-interrupt accesses. */
   property transfers: TransferSizes(1, 8)
+  /* Advertises reads and full or byte-enabled noncopyback writes. */
   property requests:
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 
+/* Describes an ACLINT occurrence at the fixed architectural address window. */
 class AclintParams(name :: NonemptyString,
                    node_id :: Nat,
                    config :: AclintConfig):
 
+  /* Advertises one outstanding SN-I transaction and its read/write completion channels. */
   property node:
     CHINodeParams(
       name,
@@ -47,7 +53,9 @@ class AclintParams(name :: NonemptyString,
       ),
       ~max_outstanding: 1
     )
+  /* Derives the fabric-facing counterpart of the ACLINT node. */
   property icn_port: node.icn_peer()
+  /* Maps the fixed ACLINT window to its supported register transactions. */
   property service:
     CHISubordinateServiceParams(
       icn_port,
@@ -55,6 +63,7 @@ class AclintParams(name :: NonemptyString,
       config.requests
     )
 
+  /* Checks that the fixed window and chosen NodeID fit the physical CHI fields. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                config :: AclintConfig):
@@ -66,9 +75,13 @@ class AclintParams(name :: NonemptyString,
             "NodeID must fit in the physical NodeID width")
     super(name, node_id, config)
 
+/* Carries the occurrence's NodeID; the register base is architecturally fixed. */
 bundle AclintIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
 
+/* Owns shared mtime and per-hart mtimecmp/MSIP registers behind the subordinate engine.
+   Reads snapshot at REQ acceptance and byte-masked writes apply at DAT acceptance;
+   mtime writes outrank tick, and time_update reports the resulting next timer value. */
 sync_circuit Aclint(config :: AclintConfig):
   def p = config.flit
   def hart_count = config.hart_count

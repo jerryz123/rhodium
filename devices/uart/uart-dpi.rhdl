@@ -1,10 +1,12 @@
 #lang rhodium
-// Implements a PTY-backed DPI model for device-level UART simulation.
+/* Implements a PTY-backed DPI model for device-level UART simulation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("devices/uart/uart.rhdl") open
 
+/* Exchanges decoded bytes with the host PTY once per simulation edge;
+   ready reserves one incoming byte for the serial transmitter. */
 dpi_import function uart_pty_tick(
   model_id: Bits(32),
   reset: Bool,
@@ -18,8 +20,9 @@ dpi_import function uart_pty_tick(
   return status: Bits(8)
 )
 
-// Connect uart_tx from a device's tx pin and uart_rx to that device's rx pin.
-// The oversample divisor must match the divisor programmed into the device.
+/* Deserializes a device's TX into PTY output and serializes PTY input onto its RX.
+   Its oversample divisor must match the device's divisor; reset suppresses hardware
+   byte transfers without discarding queued host input. */
 sync_circuit UartDPI(
     model_id :: Int.in(0 ..= 0xffffffff),
     oversample_divisor :: Int.in(1 ..= 0xffff)):

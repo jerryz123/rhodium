@@ -1,15 +1,16 @@
 #lang rhodium
-// Encodes DVI-compatible video into parallel TMDS symbols with per-channel disparity.
+/* Encodes DVI-compatible video into parallel TMDS symbols with per-channel disparity. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Carries parallel ten-bit blue, green, and red TMDS lane symbols for external serialization. */
 bundle TMDSSymbols():
   blue: Bits(10)
   green: Bits(10)
   red: Bits(10)
 
-// DVI 1.0 section 3.2.2. Symbol bit zero is transmitted first (section 3.2.3).
-// A valid input advances both the symbol register and running disparity;
-// blanking resets disparity, while invalid cycles preserve it.
+/* Encodes one accepted byte using DVI 1.0 section 3.2.2 transition minimization and disparity.
+   Valid advances registered symbols; blanking emits control and resets disparity, while
+   invalid cycles hold both. Symbol bit zero is serialized first (section 3.2.3). */
 sync_circuit TMDSChannelEncoder():
   input valid: Bool
   input data: Bits(8)
@@ -56,6 +57,8 @@ sync_circuit TMDSChannelEncoder():
   symbol_valid <== encoded_valid
   symbol <== encoded
 
+/* Registers three independently balanced TMDS lanes from one RGB888 video sample.
+   Blanking places HS/VS on blue and control 00 on green/red; adds one clock of latency. */
 sync_circuit TMDSVideoEncoder():
   input pixel_valid: Bool
   input rgb: Bits(24)

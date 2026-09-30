@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a configurable immutable CHI SN-I BootROM with native cache-line reads.
+/* Implements a configurable immutable CHI SN-I BootROM with native cache-line reads. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,14 +19,18 @@ import:
 def CHIBootROMDefaultWindowBytes = 0x2000
 def CHIBootROMMaximumTransferBytes = 64
 
+/* Defines the immutable ROM's power-of-two window and supported CHI read sizes. */
 class CHIBootROMLayout(flit :: CHIFlitParams,
                        window_bytes :: Pow2Int):
   implements StableCircuitParam
 
+  /* Advertises naturally sized reads from one byte through one 64-byte line. */
   property transfers: TransferSizes(1, CHIBootROMMaximumTransferBytes)
+  /* Advertises only ReadNoSnp; write transactions are unsupported. */
   property requests:
     [CHIRequestSupport(CHIReqOpcode.ReadNoSnp, transfers)]
 
+  /* Requires a window large enough to hold the maximum supported transfer. */
   constructor (flit :: CHIFlitParams,
                ~window_bytes: window_bytes :: Pow2Int = CHIBootROMDefaultWindowBytes):
     unless window_bytes >= CHIBootROMMaximumTransferBytes
@@ -34,24 +38,30 @@ class CHIBootROMLayout(flit :: CHIFlitParams,
             "window must contain at least one maximum-size transfer")
     super(flit, window_bytes)
 
+/* Pairs the stable service layout with an image used to elaborate ROM contents. */
 class CHIBootROMConfig(layout :: CHIBootROMLayout,
                        image :: BootROMImage):
   implements StableCircuitParam
 
+  /* Exposes the layout's CHI wire format. */
   property flit: layout.flit
+  /* Exposes the layout's padded storage size. */
   property window_bytes: layout.window_bytes
 
+  /* Checks that the selected image fits without truncation. */
   constructor (layout :: CHIBootROMLayout,
                ~image: image :: BootROMImage = DefaultRiscvBootROMImage):
     unless image.size_bytes <= layout.window_bytes
     | error(~who: #'CHIBootROMConfig, "image must fit in the BootROM window")
     super(layout, image)
 
+/* Describes one ROM's name, NodeID, and aligned address-map occurrence. */
 class CHIBootROMParams(name :: NonemptyString,
                        node_id :: Nat,
                        layout :: CHIBootROMLayout,
                        base_address :: Nat):
 
+  /* Advertises one outstanding SN-I read with CompData responses. */
   property node:
     CHINodeParams(
       name,
@@ -61,7 +71,9 @@ class CHIBootROMParams(name :: NonemptyString,
       ~supports: CHIChannelCapabilities(~req: [CHIReqOpcode.ReadNoSnp]),
       ~max_outstanding: 1
     )
+  /* Derives the fabric-facing counterpart of the ROM node. */
   property icn_port: node.icn_peer()
+  /* Maps the entire padded ROM window to the layout's read service. */
   property service:
     CHISubordinateServiceParams(
       icn_port,
@@ -69,6 +81,7 @@ class CHIBootROMParams(name :: NonemptyString,
       layout.requests
     )
 
+  /* Checks window alignment, address-width fit, and physical NodeID fit. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                layout :: CHIBootROMLayout,
@@ -84,10 +97,14 @@ class CHIBootROMParams(name :: NonemptyString,
             "NodeID must fit in the physical NodeID width")
     super(name, node_id, layout, base_address)
 
+/* Carries the occurrence's NodeID and mapped base into the circuit. */
 bundle CHIBootROMIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
+/* Serves one retained ReadNoSnp from zero-padded immutable storage.
+   Emits required DataIDs in ascending order and holds each beat under backpressure;
+   unsupported requests and ordinary write data assert. */
 sync_circuit CHIBootROM(config :: CHIBootROMConfig):
   def p = config.flit
   def window_bytes = config.window_bytes

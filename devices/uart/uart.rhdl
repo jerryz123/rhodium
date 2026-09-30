@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements reusable fixed-format 8-N-1 UART transmit and receive engines.
+/* Implements reusable fixed-format 8-N-1 UART transmit and receive engines. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,8 @@ import:
 
 def UartOversampleCount = 16
 
+/* Accepts one byte while idle and serializes start, eight LSB-first data bits, and stop.
+   Each bit occupies sixteen oversample ticks; bytes are backpressured while active. */
 sync_circuit Uart8N1Transmitter():
   input oversample_tick: Bool
   interface bytes(Decoupled(Bits(8)), ~role: consumer)
@@ -48,6 +50,7 @@ sync_circuit Uart8N1Transmitter():
                     bits(0, 4),
                     subtick + bits(1, 4))
 
+/* Separates idle/start validation, bit capture, stop checking, and recovery from a low stop. */
 hardware_enum UartReceiverState:
   Idle
   Start
@@ -55,6 +58,9 @@ hardware_enum UartReceiverState:
   Stop
   WaitIdle
 
+/* Synchronizes RX, validates the start midpoint, and samples eight LSB-first data bits.
+   Emits an unbackpressured byte and framing-error indication at stop sampling;
+   a bad stop waits for idle high before another frame. */
 sync_circuit Uart8N1Receiver():
   input oversample_tick: Bool
   input rx: Bits(1)

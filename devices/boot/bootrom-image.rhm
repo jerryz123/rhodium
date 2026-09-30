@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds validated immutable BootROM images and the default multihart RISC-V reset program.
+/* Builds validated immutable BootROM images and the default multihart RISC-V reset program. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,21 +20,26 @@ def RiscvMstatusCSR = 0x300
 def RiscvMieCSR = 0x304
 def RiscvMachineSoftwareInterruptMask = 1 << 3
 
+/* Stores a nonempty immutable byte image independently of its mapped ROM window. */
 class BootROMImage(bytes :: NonemptyList.of(Nat)):
+  /* Rejects elements outside the byte range before retaining the image. */
   constructor (bytes :: NonemptyList.of(Nat)):
     for (byte in bytes):
       unless byte < 0x100
       | error(~who: #'BootROMImage, "image elements must be bytes")
     super(bytes)
 
+  /* Returns the unpadded image length. */
   property size_bytes :: PosInt:
     bytes.length()
 
+  /* Zero-fills a requested window, rejecting windows smaller than the image. */
   method padded_bytes(window_bytes :: PosInt):
     unless size_bytes <= window_bytes
     | error(~who: #'padded_bytes, "image must fit in the BootROM window")
     bytes ++ for List (_index in size_bytes..window_bytes): 0
 
+/* Serializes encoded 32-bit instruction words in little-endian byte order. */
 fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
   def mutable bytes = []
   for (word in words):
@@ -42,40 +47,44 @@ fun instruction_words_to_bytes(words :: NonemptyList.of(Nat)):
       bytes := bytes ++ [bits.field(word, byte_index * 8, (byte_index + 1) * 8)]
   bytes
 
-// The generated reset program is equivalent to this simple assembly:
-//
-//   // Immediate mode:
-//   csrr  a0, mhartid
-//   bnez  a0, park
-//   auipc a1, device_tree_upper
-//   addi  a1, a1, device_tree_lower
-//   auipc t0, payload_upper
-//   jalr  zero, payload_lower(t0)
-//   // Indirect mode instead lets every hart sleep on its own ACLINT MSIP:
-//   csrr  a0, mhartid
-//   li    t2, MIP_MSIP
-//   csrc  mstatus, t2
-//   csrs  mie, t2
-//   ... compute t0 = AclintBase + 4 * mhartid
-//   ... compute t3 = boot_address_register
-// wait:
-//   wfi
-//   li    t4, 1
-//   slli  t4, t4, 31
-//   blt   t4, zero, rv32            // bit 31 is the sign bit only on RV32
-//   ld    t1, 0(t3)
-//   j     loaded
-// rv32:
-//   lw    t1, 0(t3)
-// loaded:
-//   beqz  t1, wait                  // tolerate spurious WFI wakeups
-//   sw    zero, 0(t0)
-//   csrc  mie, t2
-//   ... compute a1 = device_tree_address
-//   jalr  zero, 0(t1)
-// park:
-//   wfi
-//   j     park
+/* The generated reset program is equivalent to this simple assembly:
+
+     // Immediate mode:
+     csrr  a0, mhartid
+     bnez  a0, park
+     auipc a1, device_tree_upper
+     addi  a1, a1, device_tree_lower
+     auipc t0, payload_upper
+     jalr  zero, payload_lower(t0)
+     // Indirect mode instead lets every hart sleep on its own ACLINT MSIP:
+     csrr  a0, mhartid
+     li    t2, MIP_MSIP
+     csrc  mstatus, t2
+     csrs  mie, t2
+     ... compute t0 = AclintBase + 4 * mhartid
+     ... compute t3 = boot_address_register
+   wait:
+     wfi
+     li    t4, 1
+     slli  t4, t4, 31
+     blt   t4, zero, rv32            // bit 31 is the sign bit only on RV32
+     ld    t1, 0(t3)
+     j     loaded
+   rv32:
+     lw    t1, 0(t3)
+   loaded:
+     beqz  t1, wait                  // tolerate spurious WFI wakeups
+     sw    zero, 0(t0)
+     csrc  mie, t2
+     ... compute a1 = device_tree_address
+     jalr  zero, 0(t1)
+   park:
+     wfi
+     j     park */
+
+/* Builds RV32/RV64 reset code using ISA encoders and checked PC-relative targets.
+   Immediate mode boots hart zero and parks secondaries; register mode waits on each
+   hart's MSIP, selects an XLEN-appropriate load, then clears MSIP and jumps. */
 fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
                         payload_address :: Nat = RiscvBootROMPayloadAddress,
                         ~device_tree_address: device_tree_address :: Nat = 0,
@@ -89,6 +98,8 @@ fun riscv_bootrom_image(reset_address :: Nat = RiscvBootROMResetAddress,
   unless device_tree_address mod 8 == 0
   | error(~who: #'riscv_bootrom_image, "device-tree address must be eight-byte aligned")
 
+  /* Splits a PC-relative displacement into an AUIPC upper and signed low immediate,
+     rejecting targets outside the upper immediate's representable range. */
   fun pc_relative_immediates(instruction_address :: Nat,
                              target_address :: Nat,
                              target_name :: String):

@@ -1,5 +1,5 @@
 #lang rhodium
-// Buffers framebuffer rows in synchronous SRAM and emits fixed-cadence RGB video.
+/* Buffers framebuffer rows in synchronous SRAM and emits fixed-cadence RGB video. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,14 +10,16 @@ import:
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
   "hdmi.rhdl" open
 
+/* Carries RGB888 and raster sync/data-enable signals aligned with pixel_valid. */
 bundle HDMIVideo():
   rgb: Bits(24)
   hsync: Bool
   vsync: Bool
   data_enable: Bool
 
-// restart cancels the previous frame at the source. Lines accepted afterward
-// must belong to the new frame; HDMIFrameReader supplies this restart contract.
+/* Buffers complete rows in rotating single-port SRAM banks and aligns pixels with read latency.
+   Timing advances only on pixel_enable. A missing row or bad line blacks the rest of
+   the frame; restart requires the source to discard the old frame before supplying new lines. */
 sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: Int.in(2 ..) = 2):
   def t = mode.timing
   def bank_width = index_width(rows)
@@ -73,6 +75,8 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
     assert(line.bits.frame_end === (last_word & last_row), "hdmi_scanout_frame_marker")
 
   def mutable returned :: Bits(512) = bits(0, 512)
+  // A bank changes from fill-owned to scan-owned only after its last line.
+  // Releasing the last pixel makes it writable again after the read edge.
   for (bank in 0..rows):
     inst storage(SyncRam1RW(mode.fetch_lines_per_row, Bits(512), 1))
     def writing = writes & (fill_bank === bits(bank, bank_width))
@@ -144,6 +148,9 @@ sync_circuit HDMIPixelScanout(mode :: HDMIFixedFramebufferMode, ~rows: rows :: I
   underflow <== starvation
   fetch_failed <== failure
 
+/* Restarts the CHI frame reader at enabled vertical blanking and feeds the row-buffered scanout.
+   The command is sampled at restart; old CHI responses drain without becoming new-frame
+   pixels, while scanout failure status remains sticky until disable or reset. */
 sync_circuit HDMIScanout(config :: HDMIFrameReaderConfig, ~rows: rows :: Int.in(2 ..) = 2):
   input identity: HDMIFrameReaderIdentity(config.flit)
   input framebuffer: HDMIFrameReaderCommand(config.flit)

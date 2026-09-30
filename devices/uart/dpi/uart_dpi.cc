@@ -1,4 +1,4 @@
-// Bridges each UART DPI model to a nonblocking raw pseudo-terminal.
+/* Bridges each UART DPI model to a nonblocking raw pseudo-terminal. */
 // SPDX-License-Identifier: Apache-2.0
 #define _DEFAULT_SOURCE
 #define _XOPEN_SOURCE 600
@@ -24,6 +24,8 @@ namespace {
 
 constexpr std::size_t kIoChunkBytes = 256;
 
+/* Owns one PTY and independent byte queues for a model ID. Hardware reset does
+   not destroy host state; the DPI tick gates only new hardware transfers. */
 struct UartModel {
   int model_id;
   int master_fd = -1;
@@ -33,8 +35,10 @@ struct UartModel {
   std::deque<std::uint8_t> uart_to_pty;
   std::uint32_t framing_errors = 0;
 
+  /* Records the identity; terminal allocation remains lazy until first use. */
   explicit UartModel(int id) : model_id(id) {}
 
+  /* Releases both the configuration-held slave and nonblocking master. */
   ~UartModel() {
     if (configuration_fd >= 0) {
       close(configuration_fd);
@@ -44,6 +48,8 @@ struct UartModel {
     }
   }
 
+  /* Opens and configures one raw PTY, holding the slave open across client
+     reconnects. Returns 2 for allocation/open errors or 3 for termios errors. */
   int open_pty() {
     if (master_fd >= 0) {
       return 0;
@@ -99,6 +105,8 @@ struct UartModel {
     return 0;
   }
 
+  /* Drains currently available host bytes into the UART-input queue. Retries
+     EINTR, tolerates would-block/disconnect, and returns 4 for other I/O errors. */
   int read_pty() {
     std::array<char, kIoChunkBytes> bytes{};
     while (true) {
@@ -123,6 +131,8 @@ struct UartModel {
     }
   }
 
+  /* Flushes queued UART output in order, removing only successfully written
+     bytes. Would-block/disconnect preserves the suffix for a later tick. */
   int write_pty() {
     std::array<char, kIoChunkBytes> bytes{};
     while (!uart_to_pty.empty()) {
@@ -154,6 +164,8 @@ struct UartModel {
 
 std::unordered_map<std::int32_t, std::unique_ptr<UartModel>> models;
 
+/* Retrieves stable state by the ABI's 32-bit model ID, constructing it on demand.
+   The simulation caller owns serialization; the registry has no locking. */
 UartModel& model(int model_id) {
   const auto key = static_cast<std::int32_t>(model_id);
   auto found = models.find(key);
@@ -165,6 +177,10 @@ UartModel& model(int model_id) {
 
 }  // namespace
 
+/* Polls host I/O and exchanges at most one byte in each hardware direction.
+   Reset suppresses new UART transfers but retains queues and polls the PTY;
+   framing errors are counted/logged without discarding the byte. Returns zero
+   on success, 1 for null outputs, or the PTY helper's error code. */
 char uart_pty_tick(int model_id,
                    unsigned char reset,
                    unsigned char uart_to_pty_valid,
@@ -213,6 +229,7 @@ char uart_pty_tick(int model_id,
   return 0;
 }
 
+/* Lazily opens the PTY and returns a model-lifetime slave path, or null on error. */
 const char* uart_pty_path(int model_id) {
   auto& uart = model(model_id);
   if (uart.open_pty() != 0) {
@@ -221,6 +238,7 @@ const char* uart_pty_path(int model_id) {
   return uart.slave_path.c_str();
 }
 
+/* Returns the model's accumulated stop-bit errors without opening a PTY. */
 int uart_pty_framing_errors(int model_id) {
   return static_cast<int>(model(model_id).framing_errors);
 }

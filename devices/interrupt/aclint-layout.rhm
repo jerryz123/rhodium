@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the fixed architectural address and register layout of the ACLINT.
+/* Defines the fixed architectural address and register layout of the ACLINT. */
 // SPDX-License-Identifier: Apache-2.0
 
 def AclintBase = 0x02000000
