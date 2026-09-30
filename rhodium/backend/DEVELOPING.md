@@ -70,6 +70,13 @@ Record preferred names are non-semantic and may require stable suffixes when
 different shapes request one name. Whole-design collection must happen before
 module text when a declaration or alias has design-wide scope.
 
+Type-shape and rendered-type memoization belongs to one emission, not the
+process or public IR. Whole-design emission collects aliases before rendering
+types, indexes aliases by canonical shape, and retains first-seen declaration
+order. Standalone module emission creates its own empty alias environment.
+Never reuse rendered types across these environments: one shared anonymous
+type can acquire different aliases in different designs.
+
 Generated SystemVerilog references are owned by canonical examples and the
 [backend test maintenance guide](../../tools/testing/circt/DEVELOPING.md#verilog-references).
 Never update a reference before explaining the backend change that produced

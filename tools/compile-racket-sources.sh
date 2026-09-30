@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Compiles the positive Rhodium CI entrypoints into one exact-checkout bytecode artifact.
+# Times incremental compilation of the positive CI entrypoints and attests the completed root.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -21,6 +21,9 @@ if (( ${#sources[@]} == 0 )); then
 fi
 
 cd "$repo_dir"
+started=$SECONDS
+printf 'rhodium-cache: compiling %s entrypoints with %s workers\n' "${#sources[@]}" "${RHODIUM_RACO_JOBS:-2}" >&2
 env PLTCOMPILEDROOTS="$compiled_root" PLTCOLLECTS="$repo_dir": \
   raco make -j "${RHODIUM_RACO_JOBS:-2}" "${sources[@]}"
+printf 'rhodium-cache: compilation completed in %ss\n' "$((SECONDS - started))" >&2
 "$repo_dir/tools/racket-artifact.sh" write

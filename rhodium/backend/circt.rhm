@@ -12,13 +12,23 @@ export:
   emit_module_circt
 
 class CirctRecordAlias(key :: String, type :: RecordType, name :: String)
+class CirctTypes(shapes :: MutableMap, aliases :: MutableMap, rendered :: MutableMap)
 
-Parameter.def current_circt_record_aliases = []
+Parameter.def current_circt_types = #false
 Parameter.def current_circt_sync_register_ids = []
+
+fun fresh_circt_types():
+  CirctTypes(MutableMap.by(===){}, MutableMap{}, MutableMap.by(===){})
 
 // Produces the canonical CIRCT representation used to identify equal packed
 // record shapes before any source-level bundle names are attached.
 fun circt_shape_type(type :: HardwareType):
+  def types :: CirctTypes = current_circt_types()
+  unless types.shapes.has_key(type)
+  | types.shapes[type] := render_circt_shape_type(type)
+  types.shapes[type]
+
+fun render_circt_shape_type(type :: HardwareType):
   cond
   | scalar_data_type(type):
       "i" ++ to_string(scalar_width(type))
@@ -36,9 +46,9 @@ fun circt_shape_type(type :: HardwareType):
             "CIRCT lowering does not support hardware type " ++ type.describe())
 
 fun record_alias(type :: RecordType):
-  current_circt_record_aliases().find(
-    fun (alias): alias.key == circt_shape_type(type)
-  )
+  def types :: CirctTypes = current_circt_types()
+  def key = circt_shape_type(type)
+  if types.aliases.has_key(key) | types.aliases[key] | #false
 
 fun circt_record_underlying_type(type :: RecordType):
   "!hw.struct<" ++ String.join(
@@ -47,6 +57,12 @@ fun circt_record_underlying_type(type :: RecordType):
   ) ++ ">"
 
 fun circt_type(type :: HardwareType):
+  def types :: CirctTypes = current_circt_types()
+  unless types.rendered.has_key(type)
+  | types.rendered[type] := render_circt_type(type)
+  types.rendered[type]
+
+fun render_circt_type(type :: HardwareType):
   cond
   | scalar_data_type(type):
       "i" ++ to_string(scalar_width(type))
@@ -68,6 +84,7 @@ fun circt_width(type :: HardwareType):
   if scalar_data_type(type) | scalar_width(type) | 1
 
 fun collect_circt_record_aliases(design :: Design):
+  def types :: CirctTypes = current_circt_types()
   def mutable aliases = []
 
   fun unique_name(base_name :: String):
@@ -85,10 +102,10 @@ fun collect_circt_record_aliases(design :: Design):
           collect(field.type)
         when type.preferred_name
         | def key = circt_shape_type(type)
-          unless aliases.find(fun (alias): alias.key == key)
-          | aliases := aliases ++ [CirctRecordAlias(key,
-                                                    type,
-                                                    unique_name(type.preferred_name))]
+          unless types.aliases.has_key(key)
+          | def alias = CirctRecordAlias(key, type, unique_name(type.preferred_name))
+            types.aliases[key] := alias
+            aliases := aliases ++ [alias]
     | vector_type(type):
         collect(type.element_type)
     | ~else:
@@ -1176,6 +1193,10 @@ fun emit_operation(operation :: Operation):
               "no CIRCT lowering for operation " ++ operation.opcode)
 
 fun emit_module_circt(module_def :: Module):
+  parameterize { current_circt_types: fresh_circt_types() }:
+    render_module_circt(module_def)
+
+fun render_module_circt(module_def :: Module):
   require_concrete_module(module_def)
   def ports:
     module_def.inputs.map(
@@ -1208,11 +1229,11 @@ fun emit_module_circt(module_def :: Module):
 
 fun emit_circt(design :: Design):
   verify_design(design)
-  def aliases = collect_circt_record_aliases(design)
-  parameterize { current_circt_record_aliases: aliases }:
+  parameterize { current_circt_types: fresh_circt_types() }:
+    def aliases = collect_circt_record_aliases(design)
     def declarations = emit_circt_record_aliases(aliases)
     def imports = design.dpi_imports.map(emit_dpi_import)
-    def sections = (if declarations == "" | [] | [declarations]) ++ imports ++ design.modules.map(emit_module_circt)
+    def sections = (if declarations == "" | [] | [declarations]) ++ imports ++ design.modules.map(render_module_circt)
     String.append("module attributes {circt.loweringOptions = \"disallowLocalVariables\"} {\n",
                   String.join(sections, "\n\n"),
                   "\n}\n")

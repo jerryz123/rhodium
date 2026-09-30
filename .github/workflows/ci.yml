@@ -1,4 +1,4 @@
-# Orchestrates dependency-aware Rhodium CI through focused reusable workflows.
+# Orchestrates focused Rhodium CI with reusable, completed bytecode snapshots.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI
@@ -78,35 +78,36 @@ jobs:
         with:
           racket-version: ${{ env.RACKET_VERSION }}
           rhombus-checksum: ${{ env.RHOMBUS_CHECKSUM }}
-      - name: Locate checkout bytecode
-        run: echo "RHODIUM_PROJECT_BYTECODE_PATH=$RUNNER_TEMP/rhodium-compiled/${GITHUB_WORKSPACE#/}" >> "$GITHUB_ENV"
-      - name: Restore project bytecode
-        id: project-bytecode
+      - name: Locate bytecode cache
+        run: echo "RHODIUM_BYTECODE_WORKSPACE_KEY=$(printf '%s' "$GITHUB_WORKSPACE" | sha256sum | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
+      - name: Restore completed bytecode
+        id: completed-bytecode
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ${{ env.RHODIUM_PROJECT_BYTECODE_PATH }}
+            ${{ runner.temp }}/rhodium-compiled
             ${{ runner.temp }}/rhodium-project-cache
-          key: ${{ runner.os }}-${{ runner.arch }}-racket-project-v1-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt') }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-${{ github.sha }}
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-racket-project-v1-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt') }}-
+            ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-
       - name: Refresh restored project bytecode
         run: tools/refresh-racket-project-cache.sh "$GITHUB_WORKSPACE" "$PLTCOMPILEDROOTS" "$RUNNER_TEMP/rhodium-project-cache"
       - name: Compile positive CI entrypoints
         run: tools/compile-racket-sources.sh
-      - name: Save project bytecode
-        if: steps.project-bytecode.outputs.cache-hit != 'true'
+      - name: Save completed bytecode
+        if: steps.completed-bytecode.outputs.cache-hit != 'true'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            ${{ env.RHODIUM_PROJECT_BYTECODE_PATH }}
+            ${{ runner.temp }}/rhodium-compiled
             ${{ runner.temp }}/rhodium-project-cache
-          key: ${{ runner.os }}-${{ runner.arch }}-racket-project-v1-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt') }}-${{ github.sha }}
+          key: ${{ runner.os }}-${{ runner.arch }}-racket-completed-v2-${{ env.RACKET_VERSION }}-rhombus-${{ env.RHOMBUS_CHECKSUM }}-${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}-${{ hashFiles('tools/refresh-racket-project-cache.sh', 'tools/invalidate-racket-build-cache.rkt', 'tools/compile-racket-sources.sh', '.github/actions/setup-racket-cache/action.yml') }}-${{ github.sha }}
       - name: Publish exact compiled root
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: rhodium-bytecode-${{ github.sha }}
           path: ${{ runner.temp }}/rhodium-compiled
+          include-hidden-files: true
           if-no-files-found: error
           retention-days: 3
           compression-level: 0

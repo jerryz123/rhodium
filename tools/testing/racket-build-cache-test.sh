@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Verifies worktree and CI bytecode-cache reuse, invalidation, recovery, and cleanup.
+# Verifies selective invalidation, completed-root CI reuse, and worktree cache isolation and recovery.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -259,6 +259,125 @@ printf '#lang racket/base\n;; Adds a source to the restored CI cache.\n' > "$pro
 "$fixture_repo/tools/refresh-racket-project-cache.sh" \
   "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
 [[ ! -e "$ci_project_subtree/reused" ]]
+
+ci_run() {
+  local root="$1"
+  shift
+  env PLTCOMPILEDROOTS="$root" PLTCOLLECTS="$fixture_repo": \
+    RACKET="$real_racket" "$repo_dir/tools/run-racket.sh" "$@"
+}
+
+ci_seed="$fixture_dir/ci-dependency-seed"
+ci_external_source="$fixture_dir/.package-library/shared.rkt"
+ci_user_source="$fixture_repo/ci-user.rkt"
+ci_independent_source="$fixture_repo/ci-independent.rkt"
+mkdir -p "$(dirname "$ci_external_source")" "$fixture_repo/cache-fixture"
+cat > "$ci_external_source" <<'EOF'
+#lang racket/base
+;; Supplies an external package value before project compilation refreshes it.
+(provide shared)
+(define shared 1)
+EOF
+# Populate the standard-library seed explicitly, as package setup does in CI,
+# rather than relying on modules loaded while bootstrapping an empty root.
+ci_run "$ci_seed" -l raco -- make -l racket/base
+ci_run "$ci_seed" -l raco -- make "$ci_external_source"
+cp -a "$ci_seed"/. "$ci_compiled_root"/
+# Racket's compilation manager compares whole-second source timestamps.
+sleep 1
+cat > "$ci_external_source" <<'EOF'
+#lang racket/base
+;; Supplies the external package value captured in the completed build snapshot.
+(provide shared)
+(define shared 2)
+EOF
+cat > "$fixture_repo/cache-fixture/bridge.rkt" <<'EOF'
+#lang racket/base
+;; Reexports an external package through a collection-relative project import.
+(require (file "../../.package-library/shared.rkt"))
+(provide shared)
+EOF
+cat > "$ci_user_source" <<'EOF'
+#lang racket/base
+;; Observes the external package through a collection-relative bridge.
+(require (lib "cache-fixture/bridge.rkt"))
+(displayln shared)
+EOF
+cat > "$ci_independent_source" <<'EOF'
+#lang racket/base
+;; Supplies unrelated bytecode that must survive selective invalidation.
+(provide independent)
+(define independent 3)
+EOF
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
+ci_run "$ci_compiled_root" -l raco -- make "$ci_user_source" "$ci_independent_source"
+# The miniature cold seed also bootstraps Racket's own dependency fingerprints.
+# Establish a completed, warm build before measuring snapshot restoration;
+# this regression does not require cold interpreter setup to finish in one pass.
+ci_run "$ci_compiled_root" -l raco -- make "$ci_user_source" "$ci_independent_source"
+ci_external_bytecode="$ci_compiled_root/${ci_external_source%/*}/compiled/shared_rkt.zo"
+ci_external_metadata="${ci_external_bytecode%.zo}.dep"
+ci_user_bytecode="$ci_project_subtree/compiled/ci-user_rkt.zo"
+ci_independent_bytecode="$ci_project_subtree/compiled/ci-independent_rkt.zo"
+ci_external_checksum="$(cksum < "$ci_external_bytecode")"
+ci_external_metadata_checksum="$(cksum < "$ci_external_metadata")"
+ci_user_checksum="$(cksum < "$ci_user_bytecode")"
+ci_independent_checksum="$(cksum < "$ci_independent_bytecode")"
+
+# A fresh runner starts with the installation seed, then restores the entire
+# completed root, including the refreshed hidden package-cache subtree.
+mv "$ci_compiled_root" "$fixture_dir/ci-completed-snapshot"
+mkdir -p "$ci_compiled_root"
+cp -a "$ci_seed"/. "$ci_compiled_root"/
+cp -a "$fixture_dir/ci-completed-snapshot"/. "$ci_compiled_root"/
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir"
+ci_run "$ci_compiled_root" -l raco -- make --vv "$ci_user_source" "$ci_independent_source" \
+  > "$fixture_dir/ci-warm-build.out"
+# The compiler's "making" notification includes hash-equivalent timestamp
+# refreshes; only an actual compilation defeats completed-root reuse.
+if grep -Eq '(^|[[:space:]])(re)?compiling[[:space:]]' "$fixture_dir/ci-warm-build.out"; then
+  echo "completed-root warm build unexpectedly recompiled bytecode" >&2
+  tail -n 80 "$fixture_dir/ci-warm-build.out" >&2
+  exit 1
+fi
+[[ "$(cksum < "$ci_external_bytecode")" == "$ci_external_checksum" ]]
+[[ "$(cksum < "$ci_external_metadata")" == "$ci_external_metadata_checksum" ]]
+[[ "$(cksum < "$ci_user_bytecode")" == "$ci_user_checksum" ]]
+[[ "$(cksum < "$ci_independent_bytecode")" == "$ci_independent_checksum" ]]
+
+cat > "$ci_user_source" <<'EOF'
+#lang racket/base
+;; Edits one project consumer without invalidating its dependencies or unrelated bytecode.
+(require (lib "cache-fixture/bridge.rkt"))
+(displayln (+ shared 1))
+EOF
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir" 2> "$fixture_dir/ci-selective-refresh.out"
+grep -q 'changed=1 cached=3' "$fixture_dir/ci-selective-refresh.out"
+grep -q 'unreadable=0 invalidated=1 retained=2' "$fixture_dir/ci-selective-refresh.out"
+[[ ! -e "$ci_user_bytecode" ]]
+[[ "$(cksum < "$ci_external_bytecode")" == "$ci_external_checksum" ]]
+[[ "$(cksum < "$ci_independent_bytecode")" == "$ci_independent_checksum" ]]
+ci_run "$ci_compiled_root" -l raco -- make "$ci_user_source"
+
+# Unreadable dependency metadata must invalidate its cached module and its
+# importers even when the independent edit itself would not reach them.
+printf 'invalid dependency metadata\n' > "$ci_project_subtree/cache-fixture/compiled/bridge_rkt.dep"
+cat > "$ci_independent_source" <<'EOF'
+#lang racket/base
+;; Triggers a refresh while another cached module has unreadable metadata.
+(provide independent)
+(define independent 4)
+EOF
+"$fixture_repo/tools/refresh-racket-project-cache.sh" \
+  "$fixture_repo" "$ci_compiled_root" "$ci_metadata_dir" 2> "$fixture_dir/ci-unreadable-refresh.out"
+grep -q 'unreadable=1 invalidated=3 retained=0' "$fixture_dir/ci-unreadable-refresh.out"
+[[ ! -e "$ci_user_bytecode" && ! -e "$ci_independent_bytecode" ]]
+[[ "$(cksum < "$ci_external_bytecode")" == "$ci_external_checksum" ]]
+ci_run "$ci_compiled_root" -l raco -- make "$ci_user_source"
+[[ "$(PLT_COMPILED_FILE_CHECK=exists ci_run "$ci_compiled_root" "$ci_user_source")" == 3 ]]
 
 "${cache_command[@]}" clean
 [[ ! -d "$compiled_root" ]]

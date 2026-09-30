@@ -1,4 +1,4 @@
-<!-- Explains how to add, organize, classify, and maintain Rhodium tests. -->
+<!-- Defines test ownership, CI artifact reuse, and incremental bytecode validation. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Developing Rhodium tests
@@ -86,14 +86,24 @@ Cache access is serialized within one worktree. The wrapper supervises the
 cached command, releases its lock on interruption, reports long-running phases,
 and fails without an uncached retry when the cache is unavailable or busy.
 Callers that deliberately provide `PLTCOMPILEDROOTS` retain full ownership of
-that root. CI separately caches only the checkout's mirrored project bytecode
-and source manifests across runs with a key scoped to the Racket/Rhombus
-environment and cache-invalidation implementation. Before compiling, it applies
-the same source-path and transitive content invalidation as the local wrapper;
-the dependency-bytecode cache seeds the rest of the root. The cross-run cache is
-only a compilation starting point. Downstream jobs still consume a newly
-published, exact-commit bytecode artifact and verify its environment and
-absolute workspace path.
+that root. Invalidation reads each reachable module's direct `.dep` record once
+and walks reverse edges from changed sources or unreadable project metadata;
+it deletes only project bytecode, and does not recursively rescan external
+libraries for every source. Its summary reports cached, inspected, invalidated,
+retained, and unreadable module counts.
+
+CI caches the entire completed compiled root and source manifests across runs,
+including external bytecode updated by project compilation. The key scopes
+reuse to the Racket/Rhombus environment, absolute workspace path, and cache
+implementation. Restoring only project bytecode over an older dependency seed
+would mix imported-dependency fingerprints and defeat warm reuse. The package
+installation cache seeds cold builds; a completed-root cache replaces its
+bytecode with the coherent snapshot from the previous build. Source-path changes
+still clear only the checkout subtree, preserving external bytecode. CI then
+applies the same content invalidation as the local wrapper and records total
+compilation time. The cross-run cache is only a compilation starting point.
+Downstream jobs consume a newly published exact-commit artifact, including hidden
+package-cache paths, and verify its environment and absolute workspace path.
 
 ```mermaid
 flowchart TD

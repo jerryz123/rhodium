@@ -1,4 +1,4 @@
-# Tests the declarative CI policy, fail-closed coverage, and stable matrix shape.
+# Tests CI selection, fail-closed coverage, and completed build-artifact orchestration.
 # SPDX-License-Identifier: Apache-2.0
 
 import re
@@ -363,19 +363,25 @@ class PlanTest(unittest.TestCase):
     def test_project_bytecode_cache_precedes_exact_artifact(self):
         workflow = (REPO / ".github/workflows/ci.yml").read_text()
         compile_job = workflow.split("  compile-racket:\n", 1)[1].split("\n  checks:\n", 1)[0]
-        for step in ("Restore project bytecode", "Refresh restored project bytecode",
-                     "Compile positive CI entrypoints", "Save project bytecode",
+        for step in ("Restore completed bytecode", "Refresh restored project bytecode",
+                     "Compile positive CI entrypoints", "Save completed bytecode",
                      "Publish exact compiled root"):
             self.assertIn(f"- name: {step}", compile_job)
-        self.assertLess(compile_job.index("Restore project bytecode"),
+        self.assertLess(compile_job.index("Restore completed bytecode"),
                         compile_job.index("Refresh restored project bytecode"))
         self.assertLess(compile_job.index("Refresh restored project bytecode"),
                         compile_job.index("Compile positive CI entrypoints"))
         self.assertLess(compile_job.index("Compile positive CI entrypoints"),
-                        compile_job.index("Save project bytecode"))
-        self.assertLess(compile_job.index("Save project bytecode"),
+                        compile_job.index("Save completed bytecode"))
+        self.assertLess(compile_job.index("Save completed bytecode"),
                         compile_job.index("Publish exact compiled root"))
-        self.assertIn("${{ env.RHODIUM_PROJECT_BYTECODE_PATH }}", compile_job)
+        for step in ("Restore completed bytecode", "Save completed bytecode"):
+            cache_step = compile_job.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
+            self.assertIn("${{ runner.temp }}/rhodium-compiled", cache_step)
+            self.assertIn("racket-completed-v2", cache_step)
+            self.assertIn("${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}", cache_step)
+        artifact_step = compile_job.split("- name: Publish exact compiled root\n", 1)[1]
+        self.assertIn("include-hidden-files: true", artifact_step)
         self.assertIn("${{ runner.temp }}/rhodium-project-cache", compile_job)
         self.assertIn("${{ github.sha }}", compile_job)
         self.assertIn("tools/refresh-racket-project-cache.sh", compile_job)

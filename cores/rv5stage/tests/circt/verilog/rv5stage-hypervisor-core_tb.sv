@@ -40,13 +40,17 @@ module rv5stage_hypervisor_core_tb;
   function automatic logic [63:0] read64(input logic [63:0] address);
     logic [63:0] value = 0;
     assert (address + 7 < 196608) else $fatal(1, "physical read outside test RAM: %h", address);
+    // These helpers are inlined at many stimulus sites; retain their byte loops.
+    /* verilator unroll_disable */
     for (int lane = 0; lane < 8; lane++) value[lane*8 +: 8] = ram[int'(address)+lane];
     return value;
   endfunction
   task automatic write64(input int address, input logic [63:0] value);
+    /* verilator unroll_disable */
     for (int lane = 0; lane < 8; lane++) ram[address+lane] = value[lane*8 +: 8];
   endtask
   task automatic emit(input logic [31:0] instruction);
+    /* verilator unroll_disable */
     for (int lane = 0; lane < 4; lane++) ram[cursor+lane] = instruction[lane*8 +: 8];
     cursor += 4;
   endtask
@@ -99,7 +103,9 @@ module rv5stage_hypervisor_core_tb;
     cursor = 'h1000; literal_cursor = 'h3800;
     emit(32'h00004fb7); // lui x31, 4: constant pool base
     // Firmware explicitly initializes state access for host and guest software.
+    /* verilator unroll_disable */
     for (int i = 0; i < 4; i++) csrw('h30c+i,'1);
+    /* verilator unroll_disable */
     for (int i = 0; i < 4; i++) csrw('h60c+i,'1);
   endtask
   task automatic save_csr(input int address, input int offset);

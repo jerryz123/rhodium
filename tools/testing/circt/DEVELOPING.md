@@ -248,6 +248,22 @@ created in a temporary `/tmp/rhodium-circt.*` directory and removed when the
 runner exits. They are diagnostic artifacts, not checked-in outputs. The only
 source-writing mode is the intentional golden update described below.
 
+The runner reports `[circt]` elapsed timings on stderr for each fixture's
+materialization, CIRCT lowering, native build, and simulation, plus the complete
+materialization batch. Batch timing includes managed-cache preparation and
+shared module startup; per-fixture materialization includes loading, elaboration,
+emission, and artifact writes. Successful builds also print Verilator's model
+size and generation/build timing summary; full build logs remain available on
+failure. Compare warm runs on the same toolchain when assessing an optimization.
+
+Frequently inlined stimulus helpers can use scoped
+`/* verilator unroll_disable */` annotations to avoid expanding byte-access
+and ROM-setup loops at every call site. Case loops containing timing controls
+may already remain runtime loops; measure generated C++ before annotating them.
+Keep all scenarios and their order, and use explicit `begin`/`end` around
+nested loops so the annotation immediately precedes its intended loop at the
+same statement level. Do not change global DUT optimization to shrink a bench.
+
 ## Verilog references
 
 The [CIRCT test guide](README.md#toolchain-and-exact-reference-behavior) owns

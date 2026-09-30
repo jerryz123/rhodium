@@ -3,7 +3,14 @@
 ;; SPDX-License-Identifier: Apache-2.0
 
 (require racket/file
+         racket/format
          racket/match)
+
+(define (report-materialization fixture started)
+  (fprintf (current-error-port) "[circt] ~a materialization: ~as\n"
+           fixture
+           (~r (/ (- (current-inexact-monotonic-milliseconds) started) 1000)
+               #:precision '(= 3))))
 
 (match (vector->list (current-command-line-arguments))
   [(list* "materialize" output-directory specifications)
@@ -14,14 +21,17 @@
      (match remaining
        ['() (void)]
        [(list* "example" fixture example-path design-export rest)
+        (define started (current-inexact-monotonic-milliseconds))
         (define design
           (dynamic-require example-path (string->symbol design-export)))
         (call-with-output-file
          (build-path output-directory (string-append fixture ".mlir"))
          #:exists 'truncate/replace
          (lambda (out) (display (emit-circt design) out)))
+        (report-materialization fixture started)
         (loop rest)]
        [(list* "golden" fixture example-path design-export reference-export rest)
+        (define started (current-inexact-monotonic-milliseconds))
         (define design
           (dynamic-require example-path (string->symbol design-export)))
         (define reference
@@ -34,8 +44,10 @@
          (build-path output-directory (string-append fixture ".expected.sv"))
          #:exists 'truncate/replace
          (lambda (out) (display reference out)))
+        (report-materialization fixture started)
         (loop rest)]
        [(list* "emitter" fixture emitter-path rest)
+        (define started (current-inexact-monotonic-milliseconds))
         (call-with-output-file
          (build-path output-directory (string-append fixture ".mlir"))
          #:exists 'truncate/replace
@@ -48,6 +60,7 @@
           (display-to-file event-manifest
                            (build-path output-directory (string-append fixture "_manifest.h"))
                            #:exists 'truncate/replace))
+        (report-materialization fixture started)
         (loop rest)]
        [_
         (raise-user-error

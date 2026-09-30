@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Refreshes checkout bytecode against the current source inventory and contents.
+# Refreshes restored checkout bytecode while preserving the completed external dependency snapshot.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -42,6 +42,7 @@ git -C "$repo_dir" hash-object --stdin-paths < "$next_manifest" \
 if [[ ! -f "$source_manifest" ]] || ! cmp -s "$source_manifest" "$next_manifest"; then
   # A moved or deleted source can leave loadable orphan bytecode behind.
   rm -rf -- "$project_subtree"
+  printf 'rhodium-cache: source inventory changed; cleared checkout bytecode\n' >&2
 elif [[ ! -f "$content_manifest" ]] || ! cmp -s "$content_manifest" "$next_content"; then
   changed_sources="$(mktemp "$metadata_dir/.changed-sources.XXXXXX")"
   trap 'rm -f -- "$next_manifest" "$next_content" "$changed_sources"' EXIT

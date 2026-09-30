@@ -394,6 +394,40 @@ check:
   bundle_specializations_circt.contains("out wide_result : !hw.typealias<@rhodium_types::@Pair_1") ~is #true
   nested_bundle_circt.contains("hw.typedecl @Envelope : !hw.struct<payload: !hw.typealias<@rhodium_types::@Pair") ~is #true
 
+// One shared anonymous type must render against only the current design's aliases.
+fun alias_scope_design(shared :: RecordType, preferred_name :: maybe(String)):
+  def design = Design()
+  def builder = Builder(design)
+  def module_def = builder.module("AliasScope")
+  def named = builder.input(module_def, "named", RecordType(shared.fields, preferred_name))
+  def plain = builder.input(module_def, "plain", shared)
+  def named_output = builder.output(module_def, "named_result", shared)
+  def plain_output = builder.output(module_def, "plain_result", shared)
+  builder.drive(named_output, named)
+  builder.drive(plain_output, plain)
+  builder.finish(module_def)
+  design
+
+def shared_record = RecordType([RecordField("word", Bits(8))])
+def first_alias_design = alias_scope_design(shared_record, "First")
+def second_alias_design = alias_scope_design(shared_record, "Second")
+def anonymous_alias_design = alias_scope_design(shared_record, #false)
+def standalone_alias_module = emit_module_circt(first_alias_design.modules[0])
+def first_alias_circt = emit_circt(first_alias_design)
+def second_alias_circt = emit_circt(second_alias_design)
+def anonymous_alias_circt = emit_circt(anonymous_alias_design)
+
+check:
+  first_alias_circt.contains("out plain_result : !hw.typealias<@rhodium_types::@First") ~is #true
+  second_alias_circt.contains("out plain_result : !hw.typealias<@rhodium_types::@Second") ~is #true
+  second_alias_circt.contains("@First") ~is #false
+  anonymous_alias_circt.contains("out plain_result : !hw.struct<word: i8>") ~is #true
+  anonymous_alias_circt.contains("hw.type_scope") ~is #false
+  emit_circt(first_alias_design) ~is first_alias_circt
+  emit_circt(second_alias_design) ~is second_alias_circt
+  emit_module_circt(first_alias_design.modules[0]) ~is standalone_alias_module
+  standalone_alias_module.contains("hw.typealias") ~is #false
+
 def interface_circt = emit_circt(interface_fixture.design)
 
 check:
