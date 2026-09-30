@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines a validated host-side device-tree model with DTS and flattened-tree encoders.
+/* Defines a validated host-side device-tree model with DTS and flattened-tree encoders. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,16 +15,19 @@ def FDTEnd = 9
 def U32Limit = 0x100000000
 def U64Limit = 0x10000000000000000
 
+/* Checks that a nonnegative value fits one unsigned 32-bit cell, attributing errors to the caller. */
 fun require_u32(value :: Nat, who :: Symbol):
   unless value < U32Limit
   | error(~who: who, "value must fit in an unsigned 32-bit cell")
   value
 
+/* Checks that a nonnegative value fits an unsigned 64-bit field, attributing errors to the caller. */
 fun require_u64(value :: Nat, who :: Symbol):
   unless value < U64Limit
   | error(~who: who, "value must fit in an unsigned 64-bit value")
   value
 
+/* Encodes one checked 32-bit value as four big-endian bytes. */
 fun u32_bytes(value :: Nat):
   require_u32(value, #'device_tree)
   [bits.field(value, 24, 32),
@@ -32,20 +35,25 @@ fun u32_bytes(value :: Nat):
    bits.field(value, 8, 16),
    bits.field(value, 0, 8)]
 
+/* Encodes one checked 64-bit value as high then low big-endian 32-bit words. */
 fun u64_bytes(value :: Nat):
   require_u64(value, #'device_tree)
   u32_bytes(value >> 32) ++ u32_bytes(bits.field(value, 0, 32))
 
+/* Converts a string to UTF-8 bytes followed by one NUL terminator. */
 fun nul_terminated(value :: String):
   value.utf8_bytes().to_list() ++ [0]
 
+/* Appends only the zero bytes required to make the byte count a multiple of alignment. */
 fun aligned(bytes :: List.of(Byte), alignment :: PosInt):
   def padding = (alignment - (bytes.length() mod alignment)) mod alignment
   bytes ++ for List (_index in 0..padding): 0
 
+/* Formats a nonnegative value as a hexadecimal DTS literal. */
 fun hex(value :: Nat):
   "0x" ++ String.from_int(value, ~radix: 16)
 
+/* Quotes a DTS string, escaping backslashes, quotes, and newline/carriage-return/tab characters. */
 fun dts_string(value :: String):
   "\"" ++ value
     .replace("\\", "\\\\", ~all: #true)
@@ -54,10 +62,12 @@ fun dts_string(value :: String):
     .replace("\r", "\\r", ~all: #true)
     .replace("\t", "\\t", ~all: #true) ++ "\""
 
+/* Rejects embedded NULs, which would prematurely terminate a serialized device-tree string. */
 fun validate_string(value :: String, who :: Symbol):
   when value.contains("\0")
   | error(~who: who, "device-tree strings cannot contain NUL characters")
 
+/* Tests the supported ASCII name alphabet, allowing @ and * only in node names. */
 fun valid_name_char(character :: Char, ~property: property :: Boolean = #false):
   def code = character.to_int()
   def alphabetic = (code >= Char"a".to_int() && code <= Char"z".to_int()) || (code >= Char"A".to_int() && code <= Char"Z".to_int())
@@ -65,18 +75,21 @@ fun valid_name_char(character :: Char, ~property: property :: Boolean = #false):
   def punctuation = ",._+?#-".contains(to_string(character))
   alphabetic || numeric || punctuation || (!property && (character == Char"@" || character == Char"*"))
 
+/* Enforces the supported 1--31-character node or property name syntax. */
 fun validate_name(name :: String, who :: Symbol, ~property: property :: Boolean = #false):
   unless name.length() > 0 && name.length() <= 31
   | error(~who: who, "device-tree names must contain between 1 and 31 characters")
   unless for all (character in name): valid_name_char(character, ~property)
   | error(~who: who, "invalid device-tree " ++ (if property | "property" | "node") ++ " name " ++ name)
 
+/* Tests ASCII letters, digits, and underscore for symbolic DTS labels. */
 fun valid_label_char(character :: Char):
   def code = character.to_int()
   def alphabetic = (code >= Char"a".to_int() && code <= Char"z".to_int()) || (code >= Char"A".to_int() && code <= Char"Z".to_int())
   def numeric = code >= Char"0".to_int() && code <= Char"9".to_int()
   alphabetic || numeric || character == Char"_"
 
+/* Requires a nonempty label with a letter or underscore first, followed by valid label characters. */
 fun valid_label(name :: String):
   if name.length() == 0
   | #false
@@ -87,124 +100,191 @@ fun valid_label(name :: String):
       | #false
       | for all (character in name): valid_label_char(character)
 
+/* Names a symbolic node reference shared by DTS labels and DTB phandle lookup. */
 class DeviceTreeLabel(name :: String):
+  /* Validates label syntax before storing its name. */
   constructor (name :: String):
     unless valid_label(name)
     | error(~who: #'DeviceTreeLabel, "invalid device-tree label " ++ name)
     super(name)
 
+/* Defines serialization, reference discovery, DTS rendering, and presence-only behavior for property data. */
 interface DeviceTreePropertyValue:
+  /* Encodes property payload bytes using the tree's resolved label-to-phandle map. */
   method encoded_bytes(phandles :: ReadableMap) :: List.of(Byte)
+  /* Lists symbolic references that tree validation must resolve. */
   method referenced_labels() :: List.of(DeviceTreeLabel)
+  /* Renders the value syntax without the surrounding property name or semicolon. */
   method to_dts_value() :: String
+  /* Reports presence-only properties, not merely whether a payload has zero bytes. */
   method is_empty() :: Boolean
 
+/* Extends property data with a fragment suitable for a combined DTS cell sequence. */
 interface DeviceTreeCell:
   extends DeviceTreePropertyValue
+  /* Renders cell contents without angle brackets so heterogeneous cells can be concatenated. */
   method to_dts_cells() :: String
 
+/* Stores one unsigned 32-bit cell without architecture-specific address or size semantics. */
 class DeviceTreeU32(value :: Nat):
   implements DeviceTreeCell
+  /* Rejects values that cannot fit one 32-bit cell. */
   constructor (value :: Nat):
     require_u32(value, #'DeviceTreeU32)
     super(value)
+  /* Serializes the value as four big-endian bytes; no phandle resolution is needed. */
   override method encoded_bytes(_phandles :: ReadableMap): u32_bytes(value)
+  /* Reports no symbolic references for a numeric cell. */
   override method referenced_labels(): []
+  /* Renders the numeric cell as one hexadecimal literal. */
   override method to_dts_cells(): hex(value)
+  /* Wraps the numeric cell in DTS angle brackets. */
   override method to_dts_value(): "<" ++ to_dts_cells() ++ ">"
+  /* Keeps the property value explicit, including when the cell equals zero. */
   override method is_empty(): #false
 
+/* Stores one unsigned 64-bit value encoded as two consecutive 32-bit device-tree cells. */
 class DeviceTreeU64(value :: Nat):
   implements DeviceTreeCell
+  /* Rejects values wider than the paired 32-bit cells. */
   constructor (value :: Nat):
     require_u64(value, #'DeviceTreeU64)
     super(value)
+  /* Serializes the high and low words as eight big-endian bytes. */
   override method encoded_bytes(_phandles :: ReadableMap): u64_bytes(value)
+  /* Reports no symbolic references for a numeric value. */
   override method referenced_labels(): []
+  /* Renders high then low 32-bit hexadecimal cells, preserving zero halves. */
   override method to_dts_cells(): hex(value >> 32) ++ " " ++ hex(bits.field(value, 0, 32))
+  /* Wraps both cells in one DTS angle-bracket sequence. */
   override method to_dts_value(): "<" ++ to_dts_cells() ++ ">"
+  /* Keeps both cells explicit even for a zero value. */
   override method is_empty(): #false
 
+/* Refers to a labeled node without allocating its numeric phandle locally. */
 class DeviceTreePhandle(label :: DeviceTreeLabel):
   implements DeviceTreeCell
+  /* Resolves the label name into the tree's numeric phandle and emits one big-endian cell. */
   override method encoded_bytes(phandles :: ReadableMap): u32_bytes(phandles[label.name])
+  /* Exposes the target label so unresolved references fail during tree validation. */
   override method referenced_labels(): [label]
+  /* Renders a symbolic &label reference, leaving numeric allocation to the tree. */
   override method to_dts_cells(): "&" ++ label.name
+  /* Wraps the symbolic reference in DTS angle brackets. */
   override method to_dts_value(): "<" ++ to_dts_cells() ++ ">"
+  /* Keeps the reference as an explicit property value. */
   override method is_empty(): #false
 
+/* Concatenates a nonempty sequence of numeric and phandle cells in authored order. */
 class DeviceTreeCells(values :: NonemptyList.of(DeviceTreeCell)):
   implements DeviceTreePropertyValue
+  /* Concatenates each cell's resolved bytes without adding gaps between cells. */
   override method encoded_bytes(phandles :: ReadableMap):
     def mutable bytes = []
     for (value in values): bytes := bytes ++ value.encoded_bytes(phandles)
     bytes
+  /* Collects references from all cells for tree-wide validation. */
   override method referenced_labels():
     def mutable labels = []
     for (value in values): labels := labels ++ value.referenced_labels()
     labels
+  /* Renders the sequence inside one pair of DTS angle brackets; U64 contributes two cells. */
   override method to_dts_value():
     "<" ++ String.join(values.map(fun (value): value.to_dts_cells()), " ") ++ ">"
+  /* Keeps the nonempty cell sequence as an explicit property value. */
   override method is_empty(): #false
 
+/* Stores a single NUL-free string for quoted DTS and NUL-terminated UTF-8 DTB data. */
 class DeviceTreeString(value :: String):
   implements DeviceTreePropertyValue
+  /* Rejects embedded NUL characters before retaining the string. */
   constructor (value :: String):
     validate_string(value, #'DeviceTreeString)
     super(value)
+  /* Emits UTF-8 bytes followed by a NUL, including for an empty string. */
   override method encoded_bytes(_phandles :: ReadableMap): nul_terminated(value)
+  /* Reports no node references from ordinary string contents. */
   override method referenced_labels(): []
+  /* Renders a quoted, escaped DTS string. */
   override method to_dts_value(): dts_string(value)
+  /* Distinguishes an explicit empty string from a presence-only property. */
   override method is_empty(): #false
 
+/* Stores a nonempty ordered list of individually terminated device-tree strings. */
 class DeviceTreeStringList(strings :: NonemptyList.of(String)):
   implements DeviceTreePropertyValue
+  /* Checks every string for embedded NULs. */
   constructor (strings :: NonemptyList.of(String)):
     for (value in strings): validate_string(value, #'DeviceTreeStringList)
     super(strings)
+  /* Concatenates separately NUL-terminated UTF-8 strings in their original order. */
   override method encoded_bytes(_phandles :: ReadableMap):
     def mutable bytes = []
     for (value in strings): bytes := bytes ++ nul_terminated(value)
     bytes
+  /* Reports no node references from string-list contents. */
   override method referenced_labels(): []
+  /* Renders comma-separated quoted DTS strings. */
   override method to_dts_value(): String.join(strings.map(dts_string), ", ")
+  /* Keeps the string list as an explicit property value. */
   override method is_empty(): #false
 
+/* Represents a presence-only property with no DTB payload. */
 class DeviceTreeEmpty():
   implements DeviceTreePropertyValue
+  /* Produces a zero-length property payload. */
   override method encoded_bytes(_phandles :: ReadableMap): []
+  /* Reports no symbolic references for a presence-only property. */
   override method referenced_labels(): []
+  /* Provides no value text; the property renderer emits only name and semicolon. */
   override method to_dts_value(): ""
+  /* Selects presence-only DTS syntax. */
   override method is_empty(): #true
 
+/* Pairs a validated property name with typed data; numeric phandle properties remain encoder-owned. */
 class DeviceTreeProperty(name :: String, value :: DeviceTreePropertyValue):
+  /* Checks property-name syntax and rejects manually authored phandle and linux,phandle entries. */
   constructor (name :: String, value :: DeviceTreePropertyValue):
     validate_name(name, #'DeviceTreeProperty, ~property: #true)
     when name == "phandle" || name == "linux,phandle"
     | error(~who: #'DeviceTreeProperty, "phandle properties are owned by the device-tree encoder")
     super(name, value)
 
+/* Detects repeated property names within one node, independently of their values. */
 fun duplicate_property(properties :: List.of(DeviceTreeProperty), name :: String):
   properties.filter(~keep: fun (property): property.name == name).length() > 1
 
+/* Defines the node shape used by recursive validation and both encoders. */
 interface DeviceTreeNodeValue:
+  /* Exposes the node name, with an empty name reserved for the tree root. */
   property name :: String
+  /* Exposes the authored order of this node's properties. */
   property properties :: List.of(DeviceTreeProperty)
+  /* Exposes child order, which also determines preorder phandle allocation. */
   property children :: List.of(DeviceTreeNodeValue)
+  /* Exposes an optional symbolic identity for references and synthesized phandle data. */
   property label :: maybe(DeviceTreeLabel)
 
+/* Detects repeated child names within one parent, including the full unit-address suffix. */
 fun duplicate_child(children :: List.of(DeviceTreeNodeValue), name :: String):
   children.filter(~keep: fun (child): child.name == name).length() > 1
 
+/* Stores one node's name, ordered properties/children, and optional symbolic label. */
 class DeviceTreeNode(private node_name :: String,
                      private node_properties :: List.of(DeviceTreeProperty) = [],
                      private node_children :: List.of(DeviceTreeNodeValue) = [],
                      private node_label :~ maybe(DeviceTreeLabel) = #false):
   implements DeviceTreeNodeValue
+  /* Returns the stored node name without rendering the root's slash. */
   override property name: node_name
+  /* Returns properties in authored order. */
   override property properties: node_properties
+  /* Returns children in authored order. */
   override property children: node_children
+  /* Returns the optional symbolic label. */
   override property label: node_label
+  /* Validates nonempty name syntax and rejects duplicate property or sibling names.
+     The tree constructor separately enforces where an empty name may appear. */
   constructor (name :: String,
                properties :: List.of(DeviceTreeProperty) = [],
                children :: List.of(DeviceTreeNodeValue) = [],
@@ -223,7 +303,9 @@ class DeviceTreeNode(private node_name :: String,
                             " in node ", (if name == "" | "/" | name)))
     super(name, properties, children, label)
 
+/* Stores one positive-size reservation in the DTB's 64-bit memory reservation map. */
 class DeviceTreeReservation(address :: Nat, size :: PosInt):
+  /* Checks address and size widths and rejects intervals extending beyond the 64-bit address space. */
   constructor (address :: Nat, size :: PosInt):
     require_u64(address, #'DeviceTreeReservation)
     require_u64(size, #'DeviceTreeReservation)
@@ -231,10 +313,13 @@ class DeviceTreeReservation(address :: Nat, size :: PosInt):
     | error(~who: #'DeviceTreeReservation, "reservation must fit in the 64-bit address space")
     super(address, size)
 
+/* Visits a node before its descendants, preserving the supplied order of children. */
 fun walk_nodes(node :: DeviceTreeNodeValue, visit :: Function.of_arity(1)):
   visit(node)
   for (child in node.children): walk_nodes(child, visit)
 
+/* Assigns every labeled node a sequential phandle starting at one in preorder.
+   Duplicate label names are rejected; references use names rather than label-object identity. */
 fun phandle_map(root :: DeviceTreeNodeValue):
   def result = MutableMap()
   def mutable next_phandle = 1
@@ -249,7 +334,9 @@ fun phandle_map(root :: DeviceTreeNodeValue):
   )
   result
 
+/* Checks the root/name boundary and resolves every property reference against the allocated labels. */
 fun validate_tree(root :: DeviceTreeNodeValue, phandles :: ReadableMap):
+  /* Requires an unnamed, unlabeled root and named descendants, then checks references recursively. */
   fun validate_node(node :: DeviceTreeNodeValue, root_node :: Boolean):
     if root_node
     | unless node.name == ""
@@ -265,9 +352,11 @@ fun validate_tree(root :: DeviceTreeNodeValue, phandles :: ReadableMap):
     for (child in node.children): validate_node(child, #false)
   validate_node(root, #true)
 
+/* Produces two spaces per nesting level for inspection-oriented DTS text. */
 fun indentation(depth :: Nat):
   String.join(for List (_index in 0..depth): "  ", "")
 
+/* Renders an indented property, omitting the equals/value syntax for presence-only data. */
 fun render_property(property :: DeviceTreeProperty, depth :: Nat):
   indentation(depth) ++ property.name ++ (
     if property.value.is_empty()
@@ -275,6 +364,7 @@ fun render_property(property :: DeviceTreeProperty, depth :: Nat):
     | " = " ++ property.value.to_dts_value() ++ ";\n"
   )
 
+/* Renders a labeled or ordinary node in supplied property/child order with synthesized phandle data. */
 fun render_node(node :: DeviceTreeNodeValue, depth :: Nat, phandles :: ReadableMap):
   def prefix = if node.label | node.label.name ++ ": " | ""
   def node_name = if node.name == "" | "/" | node.name
@@ -289,9 +379,11 @@ fun render_node(node :: DeviceTreeNodeValue, depth :: Nat, phandles :: ReadableM
     rendered := rendered ++ render_node(child, depth + 1, phandles)
   rendered ++ indentation(depth) ++ "};\n"
 
+/* Builds the DTB strings block and name-offset map in first-use preorder, deduplicating names. */
 fun collect_property_names(root :: DeviceTreeNodeValue):
   def offsets = MutableMap()
   def mutable bytes = []
+  /* Appends a NUL-terminated property name only on first use, retaining its byte offset. */
   fun add_name(name :: String):
     unless offsets.has_key(name)
     | offsets[name] := bytes.length()
@@ -305,11 +397,13 @@ fun collect_property_names(root :: DeviceTreeNodeValue):
   )
   [offsets, bytes]
 
+/* Writes the FDT_PROP token, unpadded payload length, name offset, and four-byte-padded payload. */
 fun encode_property(name :: String,
                     value_bytes :: List.of(Byte),
                     name_offsets :: ReadableMap):
   u32_bytes(FDTProperty) ++ u32_bytes(value_bytes.length()) ++ u32_bytes(name_offsets[name]) ++ aligned(value_bytes, 4)
 
+/* Writes one begin-node/name record, synthesized and authored properties, children, and end-node token. */
 fun encode_node(node :: DeviceTreeNodeValue,
                 phandles :: ReadableMap,
                 name_offsets :: ReadableMap):
@@ -321,9 +415,11 @@ fun encode_node(node :: DeviceTreeNodeValue,
   for (child in node.children): bytes := bytes ++ encode_node(child, phandles, name_offsets)
   bytes ++ u32_bytes(FDTEndNode)
 
+/* Groups a validated rooted tree, ordered memory reservations, and a header boot-CPU identifier. */
 class DeviceTree(root :: DeviceTreeNodeValue,
                  reservations :: List.of(DeviceTreeReservation),
                  boot_cpuid :: Nat):
+  /* Validates the 32-bit boot CPU ID, unique label allocation, root shape, and reference resolution. */
   constructor (root :: DeviceTreeNodeValue,
                reservations :: List.of(DeviceTreeReservation) = [],
                ~boot_cpuid: boot_cpuid :: Nat = 0):
@@ -332,12 +428,14 @@ class DeviceTree(root :: DeviceTreeNodeValue,
     validate_tree(root, phandles)
     super(root, reservations, boot_cpuid)
 
+  /* Returns the deterministic phandle for a known label name, rejecting unknown labels. */
   method phandle_for(label :: DeviceTreeLabel):
     def phandles = phandle_map(root)
     unless phandles.has_key(label.name)
     | error(~who: #'phandle_for, "unknown device-tree label " ++ label.name)
     phandles[label.name]
 
+  /* Renders the version directive, ordered reservations, and tree using the shared phandle assignment. */
   method to_dts():
     def phandles = phandle_map(root)
     def mutable rendered = "/dts-v1/;\n"
@@ -345,6 +443,9 @@ class DeviceTree(root :: DeviceTreeNodeValue,
       rendered := rendered ++ "\n/memreserve/ " ++ hex(reservation.address) ++ " " ++ hex(reservation.size) ++ ";\n"
     rendered ++ "\n" ++ render_node(root, 0, phandles)
 
+  /* Serializes a version-17 DTB directly, without invoking dtc.
+     Emits the 40-byte header, terminated 64-bit reservation map, aligned structure tokens,
+     and deduplicated name strings, then returns an immutable byte snapshot. */
   method to_dtb():
     def phandles = phandle_map(root)
     def [name_offsets, strings] = collect_property_names(root)
