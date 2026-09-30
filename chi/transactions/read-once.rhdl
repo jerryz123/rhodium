@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements one complete retryable RN-I ReadOnce transaction with retained context.
+/* Implements one complete retryable RN-I ReadOnce transaction with retained context. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,10 @@ import:
 def CHIReadOnceResponses = response_profile("chi_read_once"):
   retryable
 
+/*
+ * Carry an aligned physical line address, Home/PAS/QoS policy, allocation hint, and opaque
+ * context.
+ */
 bundle CHIReadOnceCommand(p :: CHIFlitParams, Context :: DataType):
   address: Bits(p.request_address_width)
   home_id: Bits(p.node_id_width)
@@ -22,6 +26,10 @@ bundle CHIReadOnceCommand(p :: CHIFlitParams, Context :: DataType):
   qos: Bits(4)
   context: Context
 
+/*
+ * Return a complete snapshot line with its address, retained context, first error, and
+ * accumulated poison.
+ */
 bundle CHIReadOnceResult(p :: CHIFlitParams, Context :: DataType):
   address: Bits(p.request_address_width)
   context: Context
@@ -29,6 +37,10 @@ bundle CHIReadOnceResult(p :: CHIFlitParams, Context :: DataType):
   error: CHIRespErr
   poisoned: Bool
 
+/*
+ * Build a cacheable full-line ReadOnce REQ with caller identities and the current retry
+ * attempt.
+ */
 fun chi_read_once_request(p :: CHIFlitParams,
                           Context :: DataType,
                           node_id :: Bits(p.node_id_width),
@@ -61,6 +73,10 @@ fun chi_read_once_request(p :: CHIFlitParams,
     ~qos: command.qos
   )
 
+/*
+ * Retain one ReadOnce command through retry, reordered DAT assembly, CompAck, and completion
+ * acceptance.
+ */
 sync_circuit CHIReadOnce(p :: CHIFlitParams, Context :: DataType):
   def packet_count = 64 / p.data_bytes
   def packet_index_width = index_width(packet_count)

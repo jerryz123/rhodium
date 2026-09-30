@@ -1,5 +1,5 @@
 #lang rhodium
-// Tracks bounded subordinate transactions and associates write data with DBIDs.
+/* Tracks bounded subordinate transactions and associates write data with DBIDs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,21 +10,28 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
 
+/* Describe a request awaiting allocation of a read or write transaction slot. */
 bundle CHISNTransactionAllocation(p :: CHIFlitParams):
   write: Bool
   request: CHIReqFlit(p)
 
+/* Carry the retained request and direction with its allocated slot identity. */
 bundle CHISNAllocatedTransaction(p :: CHIFlitParams, slot_width :: PosInt):
   slot: Bits(slot_width)
   write: Bool
   request: CHIReqFlit(p)
 
+/* Associate an incoming write packet with its retained request, slot, and final-packet status. */
 bundle CHISNMatchedWrite(p :: CHIFlitParams, slot_width :: PosInt):
   slot: Bits(slot_width)
   request: CHIReqFlit(p)
   data: CHIDatFlit(p)
   last: Bool
 
+/*
+ * Track outstanding requests, match write packets by DBID, and release read and write slots
+ * independently.
+ */
 sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def slot_width = index_width(limit)
 
@@ -89,6 +96,7 @@ sync_circuit CHISNTransactionSlots(p :: CHIFlitParams, limit :: PosInt):
   def allocate = allocated.fire()
   def accept_write_data = matched_write.fire()
 
+  /* Convert a valid slot selection into an occupancy update mask. */
   fun selected_slot_mask(valid :: Bool, slot :: Bits(slot_width)):
     vec(for List (index in 0..limit): valid & (slot === bits(index, slot_width))).into(Mask(limit))
   def allocation_mask = selected_slot_mask(allocate, allocated.bits.slot)

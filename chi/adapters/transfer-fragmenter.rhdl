@@ -1,5 +1,5 @@
 #lang rhodium
-// Fragments large CHI reads and writes into serialized single-beat transactions.
+/* Fragments large CHI reads and writes into serialized single-beat transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,10 +13,18 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/protocol/fabric.rhdl") open
 
+/*
+ * Describe the largest parent transfer that can be serialized into physical DAT-beat child
+ * requests.
+ */
 class CHITransferFragmenterConfig(flit :: CHIFlitParams,
                                   max_transfer_bytes :: Pow2Int):
   implements StableCircuitParam
 
+  /*
+   * Widen supported parent read and write sizes while retaining other downstream request
+   * capabilities.
+   */
   method upstream_requests(downstream_requests :: NonemptyList.of(CHIRequestSupport)):
     downstream_requests.map(
       fun (support):
@@ -30,6 +38,7 @@ class CHITransferFragmenterConfig(flit :: CHIFlitParams,
         )
     )
 
+  /* Validate parent transfer bounds against the physical DAT beat and CHI size encoding. */
   constructor (flit :: CHIFlitParams,
                ~max_transfer_bytes: max_transfer_bytes :: Pow2Int):
     unless max_transfer_bytes >= flit.data_bytes && max_transfer_bytes <= 64
@@ -37,6 +46,10 @@ class CHITransferFragmenterConfig(flit :: CHIFlitParams,
             "maximum transfer size must be from one DAT beat through 64 bytes")
     super(flit, max_transfer_bytes)
 
+/*
+ * Derive an upstream service from a downstream service that accepts each required single-beat
+ * child opcode.
+ */
 class CHITransferFragmenterParams(config :: CHITransferFragmenterConfig,
                                   downstream_service :: CHISubordinateServiceParams):
 
@@ -50,6 +63,7 @@ class CHITransferFragmenterParams(config :: CHITransferFragmenterConfig,
       config.upstream_requests(downstream_service.requests)
     )
 
+  /* Require a legal physical-beat child transfer for every advertised fragmentable opcode. */
   constructor (config :: CHITransferFragmenterConfig,
                downstream_service :: CHISubordinateServiceParams):
     for (opcode in [CHIReqOpcode.ReadNoSnp,
@@ -64,6 +78,7 @@ class CHITransferFragmenterParams(config :: CHITransferFragmenterConfig,
       | #void
     super(config, downstream_service)
 
+/* Name the serialized child request, read, DBID, write-data, and completion phases. */
 hardware_enum CHITransferFragmenterPhase(~width: 4):
   Idle = 0
   SendRequest = 1
@@ -73,6 +88,7 @@ hardware_enum CHITransferFragmenterPhase(~width: 4):
   SendWriteData = 5
   AwaitWriteCompletion = 6
 
+/* Select a child beat address and size while preserving the parent request's remaining fields. */
 fun chi_fragmented_request(p :: CHIFlitParams,
                            request :: CHIReqFlit(p),
                            child_index :: Bits(2),
@@ -83,16 +99,22 @@ fun chi_fragmented_request(p :: CHIFlitParams,
     ~size_or_num_req: mux(last_child =/= bits(0, 2), bits(alignment_bits(p.data_bytes), 6), request.size_or_num_req)
   )
 
+/* Retag parent write data with the child DBID and normalize its single-beat packet metadata. */
 fun chi_fragmented_write_data(p :: CHIFlitParams,
                               data :: CHIDatFlit(p),
                               dbid :: Bits(12)) :~ CHIDatFlit(p):
   data.updated(~replicate: Bool(#false), ~num_dat: bits(0, 2), ~txn_id: dbid)
 
+/* Restore the parent DBID in the final write completion. */
 fun chi_fragmented_write_completion(p :: CHIFlitParams,
                                     response :: CHIRspFlit(p),
                                     parent_dbid :: Bits(12)) :~ CHIRspFlit(p):
   response.updated(~dbid_or_group_id: parent_dbid)
 
+/*
+ * Serialize one child at a time, retain parent write packets, and restore parent-visible
+ * transaction metadata.
+ */
 sync_circuit CHITransferFragmenter(config :: CHITransferFragmenterConfig):
   def p = config.flit
   interface upstream(CHISNChannels(p), ~role: node)

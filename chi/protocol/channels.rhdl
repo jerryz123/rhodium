@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines reusable ready-valid CHI Request, Home, and Subordinate Node contracts.
+/* Defines reusable ready-valid CHI Request, Home, and Subordinate Node contracts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
 
+/* Separate requester-originated RSP traffic from responses returning from the ICN. */
 interface CHIRNRspChannels(p :: CHIFlitParams):
   role node
   role icn
@@ -18,6 +19,7 @@ interface CHIRNRspChannels(p :: CHIFlitParams):
   icn -> node:
     response: Decoupled(CHIRspFlit(p))
 
+/* Expose independent requester-to-responder and responder-to-requester DAT flows. */
 interface CHIDatChannels(p :: CHIFlitParams):
   role requester
   role responder
@@ -29,8 +31,10 @@ interface CHIDatChannels(p :: CHIFlitParams):
   responder -> requester:
     response: Decoupled(CHIDatFlit(p))
 
-// RN-I recursively groups its independent REQ, RSP, and DAT flows without
-// forcing the coherent RN SNP channel onto a non-snooping requester.
+/*
+ * RN-I recursively groups its independent REQ, RSP, and DAT flows without
+ * forcing the coherent RN SNP channel onto a non-snooping requester.
+ */
 interface CHIRNIChannels(p :: CHIFlitParams):
   role icn
   role node
@@ -41,9 +45,11 @@ interface CHIRNIChannels(p :: CHIFlitParams):
     rsp: CHIRNRspChannels(p)
     dat: CHIDatChannels(p)
 
-// RN-F and RN-D share the full requester shape. These physical RSP and DAT
-// flows may carry both ordinary requester traffic and snoop responses, so they
-// remain explicit alongside the ICN-to-node SNP flow.
+/*
+ * RN-F and RN-D share the full requester shape. These physical RSP and DAT
+ * flows may carry both ordinary requester traffic and snoop responses, so they
+ * remain explicit alongside the ICN-to-node SNP flow.
+ */
 interface CHIRNChannels(p :: CHIFlitParams):
   role icn
   role node
@@ -59,8 +65,10 @@ interface CHIRNChannels(p :: CHIFlitParams):
     response_data: Decoupled(CHIDatFlit(p))
     snoops: Decoupled(CHISnpFlit(p))
 
-// SN-F and SN-I share this channel shape; their kind and capabilities remain
-// static endpoint metadata rather than changing the ready-valid wires.
+/*
+ * SN-F and SN-I share this channel shape; their kind and capabilities remain
+ * static endpoint metadata rather than changing the ready-valid wires.
+ */
 interface CHISNChannels(p :: CHIFlitParams):
   role icn
   role node
@@ -73,13 +81,16 @@ interface CHISNChannels(p :: CHIFlitParams):
     req: Decoupled(CHIReqFlit(p))
     dat: CHIDatChannels(p)
 
-// SNP has no physical TgtID field because a CHI link identifies its receiver.
-// An HN connected to an internal multi-node fabric therefore carries the
-// selected requester beside the exact SNP flit until endpoint ejection.
+/*
+ * SNP has no physical TgtID field because a CHI link identifies its receiver.
+ * An HN connected to an internal multi-node fabric therefore carries the
+ * selected requester beside the exact SNP flit until endpoint ejection.
+ */
 bundle CHISnoopDispatch(p :: CHIFlitParams):
   target_id: Bits(p.node_id_width)
   flit: CHISnpFlit(p)
 
+/* Aggregate requester traffic at a Home and retain explicit NodeIDs for snoop dispatch. */
 interface CHIHNRequesterChannels(p :: CHIFlitParams):
   role home
   role fabric
@@ -95,8 +106,10 @@ interface CHIHNRequesterChannels(p :: CHIFlitParams):
     response_data: Decoupled(CHIDatFlit(p))
     snoops: Decoupled(CHISnoopDispatch(p))
 
-// HN-I connects one recursively grouped non-snooping requester side to one
-// subordinate side.
+/*
+ * HN-I connects one recursively grouped non-snooping requester side to one
+ * subordinate side.
+ */
 interface CHIHNIChannels(p :: CHIFlitParams):
   role home
   role fabric
@@ -106,8 +119,10 @@ interface CHIHNIChannels(p :: CHIFlitParams):
     requester: CHIRNIChannels(p)
     subordinate: CHISNChannels(p)
 
-// A snoop-capable Home aggregates requester traffic by NodeID and dispatches
-// SNP to a selected RN-F while retaining the common subordinate shape.
+/*
+ * A snoop-capable Home aggregates requester traffic by NodeID and dispatches
+ * SNP to a selected RN-F while retaining the common subordinate shape.
+ */
 interface CHIHNChannels(p :: CHIFlitParams):
   role home
   role fabric

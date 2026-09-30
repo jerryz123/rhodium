@@ -1,24 +1,28 @@
 #lang rhodium
-// Defines the exact AMBA CHI opcodes and parameterized protocol flit layouts.
+/* Defines the exact AMBA CHI opcodes and parameterized protocol flit layouts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl") open
 
-// Closed non-opcode fields use nominal types so authoring mistakes are caught
-// without changing their specified packed encodings.
+/*
+ * Closed non-opcode fields use nominal types so authoring mistakes are caught
+ * without changing their specified packed encodings.
+ */
 hardware_enum CHITagOp(~width: 2):
   Invalid = 0
   Transfer = 1
   Update = 2
   MatchOrFetch = 3
 
+/* Encode the request's CHI ordering requirement. */
 hardware_enum CHIOrder(~width: 2):
   NoOrder = 0
   RequestAccepted = 1
   RequestOrder = 2
   EndpointOrder = 3
 
+/* Encode the physical address security space carried by requests and snoops. */
 hardware_enum CHIPAS(~width: 3):
   Secure = 0
   NonSecure = 1
@@ -27,12 +31,14 @@ hardware_enum CHIPAS(~width: 3):
   SystemAgent = 4
   NonSecureProtected = 5
 
+/* Encode successful, exclusive-success, and data/non-data error responses. */
 hardware_enum CHIRespErr(~width: 2):
   OK = 0
   EXOK = 1
   DERR = 2
   NDERR = 3
 
+/* Encode power-of-two byte counts from one through 64 bytes. */
 hardware_enum CHITransferSize(~width: 3):
   Bytes1 = 0
   Bytes2 = 1
@@ -42,14 +48,18 @@ hardware_enum CHITransferSize(~width: 3):
   Bytes32 = 5
   Bytes64 = 6
 
-// MemAttr[3:0] is Allocate, Cacheable, Device, Early Write Acknowledge.
+/*
+ * MemAttr[3:0] is Allocate, Cacheable, Device, Early Write Acknowledge.
+ */
 bundle CHIMemAttr():
   allocate: Bool
   cacheable: Bool
   device: Bool
   early_write_acknowledge: Bool
 
-// Opcode encodings are from Issue H Tables B13.12 through B13.16.
+/*
+ * Opcode encodings are from Issue H Tables B13.12 through B13.16.
+ */
 hardware_enum CHIReqOpcode(~width: 7):
   ReqLCrdReturn = 0x00
   ReadShared = 0x01
@@ -134,6 +144,7 @@ hardware_enum CHIReqOpcode(~width: 7):
   WriteNoSnpFullCleanInvStrg = 0x72
   WriteBackFullCleanInvPoPA = 0x79
 
+  /* Recognize atomic stores that update memory without returning the prior value. */
   method is_atomic_store(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.AtomicStoreAdd,
                      CHIReqOpcode.AtomicStoreClr,
@@ -144,6 +155,7 @@ hardware_enum CHIReqOpcode(~width: 7):
                      CHIReqOpcode.AtomicStoreUMax,
                      CHIReqOpcode.AtomicStoreUMin)
 
+  /* Recognize atomic load operations that return the prior value while updating memory. */
   method is_atomic_load(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.AtomicLoadAdd,
                      CHIReqOpcode.AtomicLoadClr,
@@ -154,15 +166,18 @@ hardware_enum CHIReqOpcode(~width: 7):
                      CHIReqOpcode.AtomicLoadUMax,
                      CHIReqOpcode.AtomicLoadUMin)
 
+  /* Recognize atomic load/store, swap, and compare request families. */
   method is_atomic(opcode) :: Bool:
     opcode.is_atomic_store() ||| opcode.is_atomic_load() ||| opcode.is_one_of(
       CHIReqOpcode.AtomicSwap,
       CHIReqOpcode.AtomicCompare
     )
 
+  /* Recognize non-snoopable reads, including separated-response reads. */
   method is_read_no_snp(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.ReadNoSnp, CHIReqOpcode.ReadNoSnpSep)
 
+  /* Recognize the ordinary and combined non-snoopable write opcode families. */
   method is_write_no_snp(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.WriteNoSnpPtl,
                      CHIReqOpcode.WriteNoSnpFull,
@@ -178,15 +193,18 @@ hardware_enum CHIReqOpcode(~width: 7):
                      CHIReqOpcode.WriteNoSnpFullCleanInvPoPA,
                      CHIReqOpcode.WriteNoSnpFullCleanInvStrg)
 
+  /* Recognize the delivered non-coherent read/full-write/partial-write checker subset. */
   method supports_initial_transaction(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.ReadNoSnp,
                      CHIReqOpcode.WriteNoSnpFull,
                      CHIReqOpcode.WriteNoSnpPtl)
 
+  /* Recognize writes in the delivered non-coherent transaction profile. */
   method is_initial_write(opcode) :: Bool:
     opcode.is_one_of(CHIReqOpcode.WriteNoSnpFull,
                      CHIReqOpcode.WriteNoSnpPtl)
 
+/* Enumerate every non-reserved Issue H RSP opcode. */
 hardware_enum CHIRspOpcode(~width: 5):
   RespLCrdReturn = 0x00
   SnpResp = 0x01
@@ -207,14 +225,17 @@ hardware_enum CHIRspOpcode(~width: 5):
   CompStashDone = 0x11
   CompCMO = 0x14
 
+  /* Recognize responses that grant a write-data buffer identifier. */
   method allocates_dbid(opcode) :: Bool:
     opcode.is_one_of(CHIRspOpcode.CompDBIDResp,
                      CHIRspOpcode.DBIDResp,
                      CHIRspOpcode.DBIDRespOrd)
 
+  /* Recognize ordinary and forwarded snoop control responses. */
   method is_snoop_response(opcode) :: Bool:
     opcode.is_one_of(CHIRspOpcode.SnpResp, CHIRspOpcode.SnpRespFwded)
 
+/* Enumerate every non-reserved Issue H SNP opcode. */
 hardware_enum CHISnpOpcode(~width: 5):
   SnpLCrdReturn = 0x00
   SnpShared = 0x01
@@ -239,6 +260,7 @@ hardware_enum CHISnpOpcode(~width: 5):
   SnpPreferUniqueFwd = 0x16
   SnpUniqueFwd = 0x17
 
+  /* Recognize snoops requiring a separate forwarded-data contribution. */
   method is_forward(opcode) :: Bool:
     opcode.is_one_of(CHISnpOpcode.SnpSharedFwd,
                      CHISnpOpcode.SnpCleanFwd,
@@ -247,15 +269,18 @@ hardware_enum CHISnpOpcode(~width: 5):
                      CHISnpOpcode.SnpPreferUniqueFwd,
                      CHISnpOpcode.SnpUniqueFwd)
 
+  /* Recognize snoops that request or invalidate stash placement. */
   method is_stash(opcode) :: Bool:
     opcode.is_one_of(CHISnpOpcode.SnpUniqueStash,
                      CHISnpOpcode.SnpMakeInvalidStash,
                      CHISnpOpcode.SnpStashUnique,
                      CHISnpOpcode.SnpStashShared)
 
+  /* Recognize the distributed virtual-memory snoop opcode. */
   method is_dvm(opcode) :: Bool:
     opcode === CHISnpOpcode.SnpDVMOp
 
+/* Enumerate every non-reserved Issue H DAT opcode. */
 hardware_enum CHIDatOpcode(~width: 4):
   DataLCrdReturn = 0x0
   SnpRespData = 0x1
@@ -268,12 +293,14 @@ hardware_enum CHIDatOpcode(~width: 4):
   DataSepResp = 0xb
   NonCopyBackWriteDataCompAck = 0xc
 
+  /* Recognize requester write payloads, cancellation, and combined write-data acknowledgement. */
   method is_write_data(opcode) :: Bool:
     opcode.is_one_of(CHIDatOpcode.CopyBackWriteData,
                      CHIDatOpcode.NonCopyBackWriteData,
                      CHIDatOpcode.WriteDataCancel,
                      CHIDatOpcode.NonCopyBackWriteDataCompAck)
 
+  /* Recognize read and snoop response-data packet families. */
   method is_response_data(opcode) :: Bool:
     opcode.is_one_of(CHIDatOpcode.SnpRespData,
                      CHIDatOpcode.CompData,
@@ -281,13 +308,16 @@ hardware_enum CHIDatOpcode(~width: 4):
                      CHIDatOpcode.SnpRespDataFwded,
                      CHIDatOpcode.DataSepResp)
 
+  /* Recognize full, partial, and forwarded snoop-data responses. */
   method is_snoop_response(opcode) :: Bool:
     opcode.is_one_of(CHIDatOpcode.SnpRespData,
                      CHIDatOpcode.SnpRespDataPtl,
                      CHIDatOpcode.SnpRespDataFwded)
 
-// Record fields are listed from the most-significant field to the
-// least-significant field so QoS occupies bits [3:0], as required by B13.9.
+/*
+ * Record fields are listed from the most-significant field to the
+ * least-significant field so QoS occupies bits [3:0], as required by B13.9.
+ */
 bundle CHIReqFlit(p :: CHIFlitParams):
   if p.req_rsvdc_width > 0:
     rsvdc: Bits(p.req_rsvdc_width)
@@ -323,6 +353,7 @@ bundle CHIReqFlit(p :: CHIFlitParams):
   tgt_id: Bits(p.node_id_width)
   qos: Bits(4)
 
+/* Pack an exact RSP payload, retaining the opcode-dependent shared wire fields. */
 bundle CHIRspFlit(p :: CHIFlitParams):
   cache_line_id: Bits(6)
   trace_tag: Bool
@@ -339,6 +370,7 @@ bundle CHIRspFlit(p :: CHIFlitParams):
   tgt_id: Bits(p.node_id_width)
   qos: Bits(4)
 
+/* Pack an exact target-less SNP payload and configured optional security fields. */
 bundle CHISnpFlit(p :: CHIFlitParams):
   if p.mecid_width > 0:
     mecid: Bits(p.mecid_width)
@@ -356,6 +388,7 @@ bundle CHISnpFlit(p :: CHIFlitParams):
   src_id: Bits(p.node_id_width)
   qos: Bits(4)
 
+/* Pack an exact DAT payload with byte enables and optional poison, check, and reserved fields. */
 bundle CHIDatFlit(p :: CHIFlitParams):
   if p.poison_width > 0:
     poison: Bits(p.poison_width)

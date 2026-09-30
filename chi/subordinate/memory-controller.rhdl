@@ -1,5 +1,8 @@
 #lang rhodium
-// Shares CHI memory configuration, transaction scheduling, and checks across SRAM and DPI backends.
+/*
+ * Shares CHI memory configuration, transaction scheduling, and checks across SRAM and DPI
+ * backends.
+ */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +19,10 @@ import:
   lib("chi/subordinate/subordinate-slots.rhdl") open
   lib("chi/protocol/messages.rhdl") open
 
+/*
+ * Carry a slot-tagged backend packet operation, including its original request and byte
+ * enables.
+ */
 bundle CHIRamMemoryOperation(p :: CHIFlitParams, slot_width :: PosInt):
   write: Bool
   slot: Bits(slot_width)
@@ -25,14 +32,17 @@ bundle CHIRamMemoryOperation(p :: CHIFlitParams, slot_width :: PosInt):
   data: Bits(p.data_width)
   mask: Mask(p.data_bytes)
 
+/* Pair a completed backend operation with its returned read data. */
 bundle CHIRamMemoryCompletion(p :: CHIFlitParams, slot_width :: PosInt):
   memory_operation: CHIRamMemoryOperation(p, slot_width)
   data: Bits(p.data_width)
 
+/* Supply the subordinate identity and mapped base address to the shared controller. */
 bundle CHIRamIdentity(p :: CHIFlitParams):
   node_id: Bits(p.node_id_width)
   base_address: Bits(p.request_address_width)
 
+/* Describe a bounded memory region and the CHI transfers its packet backend can service. */
 class CHIRamConfig(flit :: CHIFlitParams,
                    size_bytes :: Pow2Int,
                    max_outstanding :: Int.in(1 ..= 1024),
@@ -45,6 +55,10 @@ class CHIRamConfig(flit :: CHIFlitParams,
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpFull, transfers),
      CHIRequestSupport(CHIReqOpcode.WriteNoSnpPtl, transfers)]
 
+  /*
+   * Validate region capacity and transfer bounds before constructing the memory service
+   * configuration.
+   */
   constructor (flit :: CHIFlitParams,
                size_bytes :: Pow2Int,
                ~max_outstanding: max_outstanding :: Int.in(1 ..= 1024),
@@ -59,6 +73,7 @@ class CHIRamConfig(flit :: CHIFlitParams,
             "maximum transfer size must be from one DAT beat through 64 bytes and fit in the RAM")
     super(flit, size_bytes, max_outstanding, max_transfer_bytes)
 
+/* Bind a memory service to a subordinate node identity and architectural address region. */
 class CHIRamParams(name :: NonemptyString,
                    node_id :: Nat,
                    config :: CHIRamConfig,
@@ -95,6 +110,7 @@ class CHIRamParams(name :: NonemptyString,
       config.requests
     )
 
+  /* Validate subordinate kind, address alignment, region bounds, and encoded node identity. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                config :: CHIRamConfig,
@@ -118,6 +134,10 @@ class CHIRamParams(name :: NonemptyString,
           ~base_address: base_address,
           ~kind: kind)
 
+/*
+ * Check that an accepted request uses a supported opcode, transfer size, and aligned in-range
+ * address.
+ */
 fun monitor_chi_ram_request(config :: CHIRamConfig,
                             base_address :: Bits(config.flit.request_address_width),
                             valid :: Bool,
@@ -137,6 +157,7 @@ fun monitor_chi_ram_request(config :: CHIRamConfig,
     assert(address_aligned, "chi_ram_request_address_aligned")
     assert(address_supported, "chi_ram_request_address_supported")
 
+/* Check write packet byte enables and integrity fields against the retained request. */
 fun monitor_chi_ram_write_data(p :: CHIFlitParams,
                                valid :: Bool,
                                data :: CHIDatFlit(p),
@@ -163,8 +184,10 @@ fun monitor_chi_ram_write_data(p :: CHIFlitParams,
     | assert(!data.poison.or_reduce(), "chi_ram_write_data_not_poisoned")
     | #void
 
-// Fairly shares one backend issue port while retaining completions in
-// independently backpressured read and write lanes.
+/*
+ * Fairly shares one backend issue port while retaining completions in
+ * independently backpressured read and write lanes.
+ */
 sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
                                       slot_width :: PosInt,
                                       depth :: PosInt):
@@ -209,6 +232,10 @@ sync_circuit CHIRamOperationScheduler(p :: CHIFlitParams,
   read_completions.response <=> read_response
   write_completions.response <=> write_response
 
+/*
+ * Translate backend completions into CHI responses and retire slots only when their final
+ * outputs transfer.
+ */
 circuit CHIRamCompletionRouter(p :: CHIFlitParams,
                                slot_width :: PosInt):
   input node_id: Bits(p.node_id_width)
@@ -242,10 +269,12 @@ circuit CHIRamCompletionRouter(p :: CHIFlitParams,
   write_completed.valid <== write_completion.fire() & write_operation.last
   write_completed.bits <== write_operation.slot
 
-// Builds transaction machinery in the caller's module. The backend factory
-// instantiates local storage and returns a binder for Valid issue/completion
-// endpoints. Each issue must complete once, in order, retaining its operation;
-// CompletionQueue reserves response capacity before issuing nonstallable work.
+/*
+ * Builds transaction machinery in the caller's module. The backend factory
+ * instantiates local storage and returns a binder for Valid issue/completion
+ * endpoints. Each issue must complete once, in order, retaining its operation;
+ * CompletionQueue reserves response capacity before issuing nonstallable work.
+ */
 fun build_chi_ram_controller(config :: CHIRamConfig,
                              identity :: CHIRamIdentity(config.flit),
                              port :: Endpoint.of(CHISNChannels(config.flit)),

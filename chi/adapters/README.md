@@ -30,7 +30,21 @@ service-selected bank bits from REQ addresses and passes RSP/DAT unchanged.
 The stripe must cover every advertised transfer so one request stays in one
 Home. Unaffected packet metadata, including optional fields, is preserved.
 
-## Limits and next steps
+This illustrates the current boundary composition. Projection changes REQ
+addresses; fragmentation serializes child transactions and restores the parent
+response identity and packet positions.
+
+```mermaid
+flowchart LR
+  Home["Home service"] -->|"parent REQ / write DAT"| Projector["optional address projector"]
+  Projector --> Fragmenter["optional transfer fragmenter<br/>one child at a time"]
+  Fragmenter -->|"physical-beat child transfers"| SN["subordinate storage"]
+  SN -->|"child RSP / read DAT"| Fragmenter
+  Fragmenter -->|"parent RSP / read DAT"| Projector
+  Projector -->|"unchanged RSP / read DAT"| Home
+```
+
+## Limits and navigation
 
 These are serialized boundary transforms, not a crossbar, storage backend, or
 source of stripe geometry. Use the protocol-neutral

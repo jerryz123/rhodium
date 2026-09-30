@@ -1,5 +1,5 @@
 #lang rhodium
-// Owns a parameterized nonblocking inclusive LLC with shared lookup and response resources.
+/* Owns a parameterized nonblocking inclusive LLC with shared lookup and response resources. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,6 +23,10 @@ import:
   lib("rhodium/std/interconnect.rhdl").StripedAddressLayout
   lib("chi/transactions/data-checks.rhdl").monitor_chi_copyback_data
 
+/*
+ * Fix LLC geometry, striped address projection, demand slots, delayed-CompAck capacity, and
+ * victim-writeback capacity.
+ */
 class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
                             addressing :: StripedAddressLayout,
                             sets :: Pow2Int,
@@ -38,6 +42,10 @@ class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
   property capacity_bytes :: PosInt: line_count * 64
   property transaction_slots :: Int.in(1 ..= 64): home.transaction_slots
 
+  /*
+   * Require representable LLC geometry and full-line backing reads/writes within the combined
+   * subordinate transaction limit.
+   */
   constructor (home :: CHIHNFConfig,
                addressing :: StripedAddressLayout,
                ~sets: sets :: Pow2Int,
@@ -76,6 +84,10 @@ class CHIInclusiveHNFConfig(home :: CHIHNFConfig,
             "inclusive HN-F subordinate must support 64-byte reads and full writes")
     super(home, addressing, sets, ways, comp_ack_entries, victim_writeback_entries)
 
+/*
+ * Represent one demand slot's internal lookup, snoop, fill, writeback, and requester-response
+ * progression.
+ */
 hardware_enum CHIInclusiveHNFPhase(~width: 5):
   Idle = 0
   SendRequesterDBID = 1
@@ -100,7 +112,9 @@ hardware_enum CHIInclusiveHNFPhase(~width: 5):
   AwaitVictimWriteback = 20
   InstallFill = 21
 
-// Gives the shared ingress scheduler one explicit slot-targeted event surface.
+/*
+ * Gives the shared ingress scheduler one explicit slot-targeted event surface.
+ */
 hardware_enum CHIInclusiveHNFInputEventKind(~width: 3):
   RequesterData = 0
   RequesterResponse = 1
@@ -108,11 +122,16 @@ hardware_enum CHIInclusiveHNFInputEventKind(~width: 3):
   FillData = 3
   VictimWritebackCompletion = 4
 
+/* Associate one selected ingress event kind with its owning demand slot. */
 bundle CHIInclusiveHNFInputEvent(slot_width :: PosInt):
   valid: Bool
   kind: CHIInclusiveHNFInputEventKind
   slot: Bits(slot_width)
 
+/*
+ * Build cached read data with requester return routing, coherent state, and its reserved
+ * acknowledgement DBID.
+ */
 fun chi_inclusive_cached_data(p :: CHIFlitParams,
                               home_node_id :: Bits(p.node_id_width),
                               request :: CHIReqFlit(p),
@@ -131,6 +150,10 @@ fun chi_inclusive_cached_data(p :: CHIFlitParams,
     ~resp: mux(coherent, coherent_response.as_bits(), bits(0, 3))
   )
 
+/*
+ * Execute bounded inclusive LLC transactions with per-set exclusion, tracked RN-F residents,
+ * shared-array arbitration, and buffered victim writes.
+ */
 sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def home_config = config.home
   def p = config.flit
@@ -187,16 +210,24 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def subordinate_response = subordinate_response_buffer.egress
   def fill_response = fill_buffer.egress
 
+  /* Project the service-relative striped address into the dense LLC set index. */
   fun cache_set(address :: Bits(p.request_address_width)):
     config.addressing.project_offset(address - identity.service_base)[offset_width..(offset_width + set_width)]
+  /* Retain the complete global line address for LLC tag comparison. */
   fun line_address(address :: Bits(p.request_address_width)):
     address[offset_width..p.request_address_width]
+  /* Encode a demand slot as its Home subordinate transaction identifier. */
   fun slot_txn_id(slot :: Bits(slot_width)):
     slot.zext(12)
+  /*
+   * Encode both the demand slot and configured RN-F target in one snoop transaction
+   * identifier.
+   */
   fun snoop_txn_id(slot :: Bits(slot_width), target :: Bits(resident_width)):
     slot_txn_id(slot) + vec(
       for List (index in 0..resident_count): bits(index * slots, 12)
     )[target]
+  /* Advance circular demand-slot arbitration, wrapping at the configured slot count. */
   fun next_slot_priority(slot :: Bits(slot_width)):
     mux(slot === bits(slots - 1, slot_width),
         bits(0, slot_width),
@@ -439,6 +470,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
         fill_pending: fill_slot
     )
 
+  /* Recognize phases eligible to advance without selecting a new ingress event. */
   fun autonomous_phase(value :: CHIInclusiveHNFPhase):
     value.is_one_of(CHIInclusiveHNFPhase.SendRequesterDBID,
                     CHIInclusiveHNFPhase.SendSnoop,
@@ -550,6 +582,7 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
   def advance_copyback = advance_request.opcode === CHIReqOpcode.WriteBackFull
   def advance_maintenance = chi_cache_maintenance(advance_request.opcode)
 
+  /* Test whether the current slot work originates from the specified selected ingress event. */
   fun selected_input(kind :: CHIInclusiveHNFInputEventKind):
     work_from_input & (input_event.kind === kind)
   def selected_requester_data = selected_input(CHIInclusiveHNFInputEventKind.RequesterData)

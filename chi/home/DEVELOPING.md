@@ -198,16 +198,13 @@ beat against that occurrence, independently of the DUT's selected slots and
 emitted parent edges. Keep overlapping reads, buffered writebacks, full-buffer
 release, ID reuse, backpressure, error completions, and reset coverage.
 
-Rerun SingleCoreRV5StageSoC vvadd with unchanged host polling after Home
-targeting changes; inspect `tohost` snoops and pipeline replay counts, keeping
-correctness distinct from a cycle-count prediction. The standalone instrumented
-two-slot Home fixture checks exact request, requester-response, and subordinate-
-output ownership, including interleaved responses and out-of-order fills.
-SingleCoreRV5StageSoC smoke and maintenance-write probes also validate the
-Home-to-memory request and write-data edges in Perfetto. This does not establish
-complete NoC or memory-controller graph coverage.
-[Registered branching feedback](../../rhodium/event/README.md#deliberate-limits)
-has a queued-crossbar regression, and SingleCoreRV5StageSoC partial
-instrumentation, CIRCT IR verification, and SystemVerilog lowering pass.
+After Home targeting or event-ownership changes, include SingleCoreRV5StageSoC
+smoke with unchanged host polling. Inspect `tohost` snoops and pipeline replay
+counts separately from correctness. For composed tracing, verify the actual
+Home-to-memory request and write-data edges in Perfetto, together with CIRCT IR
+verification and SystemVerilog lowering. Standalone Home coverage does not
+establish complete NoC or memory-controller graph coverage; consult the
+[event compiler limits](../../rhodium/event/README.md#deliberate-limits)
+when selecting partial instrumentation.
 For source moves, update direct consumers, docs, and build/CI paths, then run
 `make check-boundaries` and affected checks through repository wrappers.

@@ -1,13 +1,15 @@
 #lang rhodium
-// Tracks a Home's pending snoop targets and retains the last dispatched NodeID.
+/* Tracks a Home's pending snoop targets and retains the last dispatched NodeID. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("chi/home/home-common.rhdl").CHIHNFConfig
 
-// Loading replaces the mask without changing the remembered responder. The
-// Home gates target.ready until its own response/data sequencing permits issue.
+/*
+ * Loading replaces the mask without changing the remembered responder. The
+ * Home gates target.ready until its own response/data sequencing permits issue.
+ */
 sync_circuit CHIHomeSnoopTargets(config :: CHIHNFConfig):
   def p = config.flit
   def endpoints = config.snoop_endpoints

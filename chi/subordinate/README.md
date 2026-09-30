@@ -27,6 +27,22 @@ different storage backends. Their configuration supports native transfers
 from one physical DAT beat through 64 bytes; a narrower service can use the
 [transfer fragmenter](../adapters/README.md).
 
+## Single-beat device contract
+
+`CHISingleBeatSubordinate(p, label)` supplies one-outstanding, single-beat
+MMIO sequencing on a native `CHISNChannels` port. It returns DBID zero for
+writes, validates write opcode/TxnID/source/target association, and holds
+responses stable under backpressure. `request_supported` gates and asserts
+ordinary requests. `read_data` is sampled on an accepted read; `request` exposes
+the retained request. `write_supported` adds device legality and asserts on
+invalid DAT; `write_ready` permits legal writes to stall without asserting.
+`request_fire` and `write_data_fire` identify the exact acceptance edges for
+device side effects; `write_data_expected` permits phase-sensitive readiness.
+Credit-return flits are consumed without starting a transaction. Reset aborts
+the transaction. Callers must restrict accepted operations and sizes to their
+single-beat read/write profile; this engine does not implement retry, coherence,
+or multibeat storage transactions.
+
 ## Single-beat request lifecycle
 
 The diagram illustrates the current engine's handshake phases; these phase

@@ -1,5 +1,5 @@
 #lang rhodium
-// Stamps composable site-selected CHI channel routers behind one physical-link interface.
+/* Stamps composable site-selected CHI channel routers behind one physical-link interface. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,10 @@ import:
   lib("noc/plan/router-family-physical-plan.rhm").RouterFamilyPhysicalPlan
   lib("noc/rtl/router.rhdl") open
 
+/*
+ * Group CHI channel router families around one physical-link shape, with an optional SNP
+ * plane.
+ */
 class CHIRouterFamilyConfigs(req :: SimpleRouterFamilyConfig,
                              rsp :: SimpleRouterFamilyConfig,
                              snp :: maybe(SimpleRouterFamilyConfig),
@@ -22,6 +26,7 @@ class CHIRouterFamilyConfigs(req :: SimpleRouterFamilyConfig,
                              physical :: RouterFamilyPhysicalPlan):
   implements StableCircuitParam
 
+  /* Require every present channel family to match the shared physical-link plan. */
   constructor (req :: SimpleRouterFamilyConfig,
                rsp :: SimpleRouterFamilyConfig,
                snp :: maybe(SimpleRouterFamilyConfig),
@@ -36,8 +41,10 @@ class CHIRouterFamilyConfigs(req :: SimpleRouterFamilyConfig,
     physical.require_match(dat.router_family_plan)
     super(req, rsp, snp, dat, physical)
 
-// Each nonempty site matrix describes one uniform local-port category across
-// corresponding router-family members. Empty matrices omit that category.
+/*
+ * Each nonempty site matrix describes one uniform local-port category across
+ * corresponding router-family members. Empty matrices omit that category.
+ */
 class CHIRouterAttachments(
       ~rni_sites: rni_sites :: List.of(NonemptyList.of(CHIRNSite)) = [],
       ~rnf_sites: rnf_sites :: List.of(NonemptyList.of(CHIRNSite)) = [],
@@ -47,6 +54,10 @@ class CHIRouterAttachments(
       ~sn_sites: sn_sites :: List.of(NonemptyList.of(CHISNSite)) = []):
   implements StableCircuitParam
 
+/*
+ * Collect site-selected requester injection and response/data ejection adapters without
+ * snoops.
+ */
 class CHIRNILocalAttachmentPlan(req :: CHINoCFamilyInjectionConfig,
                                 rsp_requester :: CHINoCFamilyInjectionConfig,
                                 rsp_response :: CHINoCFamilyEjectionConfig,
@@ -54,6 +65,7 @@ class CHIRNILocalAttachmentPlan(req :: CHINoCFamilyInjectionConfig,
                                 dat_response :: CHINoCFamilyEjectionConfig):
   implements StableCircuitParam
 
+/* Collect site-selected fully coherent requester adapters, including snoop ejection. */
 class CHIRNFLocalAttachmentPlan(req :: CHINoCFamilyInjectionConfig,
                                 rsp_requester :: CHINoCFamilyInjectionConfig,
                                 rsp_response :: CHINoCFamilyEjectionConfig,
@@ -62,6 +74,7 @@ class CHIRNFLocalAttachmentPlan(req :: CHINoCFamilyInjectionConfig,
                                 dat_response :: CHINoCFamilyEjectionConfig):
   implements StableCircuitParam
 
+/* Collect site-selected Home requester-side adapters with snoop injection. */
 class CHIHNFLocalAttachmentPlan(req :: CHINoCFamilyEjectionConfig,
                                 rsp_requester :: CHINoCFamilyEjectionConfig,
                                 rsp_response :: CHINoCFamilyInjectionConfig,
@@ -70,6 +83,7 @@ class CHIHNFLocalAttachmentPlan(req :: CHINoCFamilyEjectionConfig,
                                 dat_response :: CHINoCFamilyInjectionConfig):
   implements StableCircuitParam
 
+/* Collect site-selected Home requester-side adapters for non-snooping requesters. */
 class CHIHNILocalAttachmentPlan(req :: CHINoCFamilyEjectionConfig,
                                 rsp_requester :: CHINoCFamilyEjectionConfig,
                                 rsp_response :: CHINoCFamilyInjectionConfig,
@@ -77,18 +91,30 @@ class CHIHNILocalAttachmentPlan(req :: CHINoCFamilyEjectionConfig,
                                 dat_response :: CHINoCFamilyInjectionConfig):
   implements StableCircuitParam
 
+/*
+ * Collect site-selected Home subordinate-side request/data injection and response/data
+ * ejection adapters.
+ */
 class CHIHNSubordinateLocalAttachmentPlan(req :: CHINoCFamilyInjectionConfig,
                                           rsp :: CHINoCFamilyEjectionConfig,
                                           dat_request :: CHINoCFamilyInjectionConfig,
                                           dat_response :: CHINoCFamilyEjectionConfig):
   implements StableCircuitParam
 
+/*
+ * Collect site-selected subordinate request/data ejection and response/data injection
+ * adapters.
+ */
 class CHISNLocalAttachmentPlan(req :: CHINoCFamilyEjectionConfig,
                                rsp :: CHINoCFamilyInjectionConfig,
                                dat_request :: CHINoCFamilyEjectionConfig,
                                dat_response :: CHINoCFamilyInjectionConfig):
   implements StableCircuitParam
 
+/*
+ * Retain typed local adapters and occupied channel ordinals for router wiring and unused-port
+ * closure.
+ */
 class CHIRouterAttachmentPlan(attachments :: CHIRouterAttachments,
                               rni_locals :: List.of(CHIRNILocalAttachmentPlan),
                               rnf_locals :: List.of(CHIRNFLocalAttachmentPlan),
@@ -106,6 +132,10 @@ class CHIRouterAttachmentPlan(attachments :: CHIRouterAttachments,
                               dat_targets :: List.of(Nat)):
   implements StableCircuitParam
 
+/*
+ * Require router families and endpoint adapters to derive from the same channel plans and
+ * agree on SNP presence.
+ */
 fun require_chi_router_adapter_families(routers :: CHIRouterFamilyConfigs,
                                         adapters :: CHIChannelAdapterPlans):
   def snp_matches:
@@ -127,6 +157,10 @@ fun require_chi_router_adapter_families(routers :: CHIRouterFamilyConfigs,
   | error(~who: #'CHIRouterParams,
           "CHI adapters and routers must derive from the same channel plans")
 
+/*
+ * Validate uniform endpoint arity, unique family sites, and colocation within each attachment
+ * row.
+ */
 fun require_chi_router_attachment_rows(routers :: CHIRouterFamilyConfigs,
                                        adapters :: CHIChannelAdapterPlans,
                                        rows :: NonemptyList):
@@ -148,6 +182,7 @@ fun require_chi_router_attachment_rows(routers :: CHIRouterFamilyConfigs,
       | error(~who: #'CHIRouterParams,
               "one CHI attachment row must be colocated at one router")
 
+/* Collect the nonempty independently composable local endpoint categories. */
 fun chi_router_attachment_groups(attachments :: CHIRouterAttachments):
   [attachments.rni_sites,
    attachments.rnf_sites,
@@ -156,6 +191,7 @@ fun chi_router_attachment_groups(attachments :: CHIRouterAttachments):
    attachments.hn_subordinate_sites,
    attachments.sn_sites].filter(~keep: fun (rows): rows.length() > 0)
 
+/* Validate category row alignment and require SNP support for coherent requester attachments. */
 fun require_chi_router_attachments(routers :: CHIRouterFamilyConfigs,
                                    adapters :: CHIChannelAdapterPlans,
                                    attachments :: CHIRouterAttachments):
@@ -185,11 +221,13 @@ fun require_chi_router_attachments(routers :: CHIRouterFamilyConfigs,
             "RN-F and HN-F requester attachments require a SNP plane")
   | #void
 
+/* Bind CHI flit widths, channel router families, and a compiled local attachment plan. */
 class CHIRouterParams(flit :: CHIFlitParams,
                       routers :: CHIRouterFamilyConfigs,
                       attachment :: CHIRouterAttachmentPlan):
   implements StableCircuitParam
 
+/* Bundle independent ready-valid routed REQ, RSP, SNP, and DAT physical-link channels. */
 interface CHINoCLink(ReqBeat :: DataType,
                      RspBeat :: DataType,
                      SnpBeat :: DataType,
@@ -204,6 +242,7 @@ interface CHINoCLink(ReqBeat :: DataType,
     snp: Decoupled(SnpBeat)
     dat: Decoupled(DatBeat)
 
+/* Bundle independent routed REQ, RSP, and DAT links for a non-snooping fabric. */
 interface CHINoCLinkNoSnp(ReqBeat :: DataType,
                           RspBeat :: DataType,
                           DatBeat :: DataType):
@@ -216,6 +255,10 @@ interface CHINoCLinkNoSnp(ReqBeat :: DataType,
     rsp: Decoupled(RspBeat)
     dat: Decoupled(DatBeat)
 
+/*
+ * Derive routed physical-link payload widths and omit SNP when the router configuration has no
+ * SNP plane.
+ */
 fun chi_noc_link_type(params :: CHIRouterParams):
   def req_config = params.routers.req
   def rsp_config = params.routers.rsp
@@ -235,6 +278,7 @@ fun chi_noc_link_type(params :: CHIRouterParams):
         RoutedBeat(CHIDatFlit(params.flit), dat_config.route_decoder.route_width)
       )
 
+/* Resolve a physical connection's ordinal in the canonical per-router link list. */
 fun chi_router_link_index(canonical :: List.of(RouterFamilyLinkConnection),
                           connection :: RouterFamilyLinkConnection) :: Nat:
   def found = canonical.find_index(fun (candidate): link_id_equal(candidate.link.id, connection.link.id))
@@ -243,6 +287,7 @@ fun chi_router_link_index(canonical :: List.of(RouterFamilyLinkConnection),
           "channel router link is absent from the CHI physical-link shape")
   found
 
+/* Suppress valid on unused incoming physical-link channels. */
 fun tie_off_chi_noc_incoming(link :: Endpoint, ~snp: snp :: Boolean = #true):
   def channel_names = if snp | ["req", "rsp", "snp", "dat"] | ["req", "rsp", "dat"]
   for (name in channel_names):
@@ -250,16 +295,22 @@ fun tie_off_chi_noc_incoming(link :: Endpoint, ~snp: snp :: Boolean = #true):
     channel.valid <== Bool(#false)
     channel.bits <== dont_care(decoupled_payload_type(channel))
 
+/* Hold readiness low on unused outgoing physical-link channels. */
 fun tie_off_chi_noc_outgoing(link :: Endpoint, ~snp: snp :: Boolean = #true):
   def channel_names = if snp | ["req", "rsp", "snp", "dat"] | ["req", "rsp", "dat"]
   for (name in channel_names):
     def channel :: Endpoint = link.field(name)
     channel.ready <== Bool(#false)
 
+/*
+ * Expose a family member's site identity and incoming/outgoing physical-link arrays for
+ * wiring.
+ */
 class CHIRouterEndpoints(site_key :: Nat,
                          incoming_links :: Array,
                          outgoing_links :: Array)
 
+/* Resolve one family site's router boundary or reject a missing endpoint. */
 fun require_chi_router_endpoints(endpoints :: List.of(CHIRouterEndpoints),
                                  site_key :: Nat) :: CHIRouterEndpoints:
   def found = endpoints.find(fun (candidate): candidate.site_key == site_key)
@@ -268,8 +319,10 @@ fun require_chi_router_endpoints(endpoints :: List.of(CHIRouterEndpoints),
           "missing CHI router boundary for router-family site")
   found
 
-// Connects one complete family from its canonical physical-link manifest and
-// terminates unused members of the uniform per-router link-array shape.
+/*
+ * Connects one complete family from its canonical physical-link manifest and
+ * terminates unused members of the uniform per-router link-array shape.
+ */
 fun connect_chi_router_family(family :: RouterFamilyPhysicalPlan,
                               endpoints :: List.of(CHIRouterEndpoints),
                               ~snp: snp :: Boolean = #true):
@@ -293,11 +346,16 @@ fun connect_chi_router_family(family :: RouterFamilyPhysicalPlan,
     for (index in site.outgoing_links.length()..endpoint.outgoing_links.length()):
       tie_off_chi_noc_outgoing(endpoint.outgoing_links[index], ~snp: snp)
 
+/* Resolve a symbolic CHI endpoint's router into its compiled family site selector. */
 fun chi_router_site_key(plan :: CHIChannelAdapterPlan,
                         family :: RouterFamilyPlan,
                         site :: CHIRNSite || CHIRNICNSite || CHISNICNSite || CHISNSite) :: Nat:
   family.site_key(plan.compilation.network.router_id(site.router))
 
+/*
+ * Combine corresponding endpoint sources into one site-selected family injection
+ * configuration.
+ */
 fun chi_router_family_injection(plan :: CHIChannelAdapterPlan,
                                 family :: RouterFamilyPlan,
                                 site_width :: PosInt,
@@ -308,6 +366,7 @@ fun chi_router_family_injection(plan :: CHIChannelAdapterPlan,
       CHINoCFamilyInjectionRow(chi_router_site_key(plan, family, site), plan.injection(terminal(site)))
   compile_chi_noc_family_injection_config(plan, site_width, rows)
 
+/* Combine corresponding endpoint sinks into one site-selected family ejection configuration. */
 fun chi_router_family_ejection(plan :: CHIChannelAdapterPlan,
                                family :: RouterFamilyPlan,
                                site_width :: PosInt,
@@ -318,6 +377,10 @@ fun chi_router_family_ejection(plan :: CHIChannelAdapterPlan,
       CHINoCFamilyEjectionRow(chi_router_site_key(plan, family, site), plan.ejection(terminal(site)))
   compile_chi_noc_family_ejection_config(site_width, rows)
 
+/*
+ * Compile typed local endpoint columns and their occupied channel ordinals after validating
+ * composition.
+ */
 fun compile_chi_router_attachment_plan(
       routers :: CHIRouterFamilyConfigs,
       adapters :: CHIChannelAdapterPlans,
@@ -325,6 +388,7 @@ fun compile_chi_router_attachment_plan(
   require_chi_router_adapter_families(routers, adapters)
   require_chi_router_attachments(routers, adapters, attachments)
   def site_width = routers.req.route_decoder.site_width
+  /* Compile a corresponding non-snooping requester column across the selected family sites. */
   fun build_rni(sites :: NonemptyList) :: CHIRNILocalAttachmentPlan:
     def req = chi_router_family_injection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                           fun (site): site.req.terminal)
@@ -337,6 +401,7 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
     CHIRNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)
+  /* Compile a corresponding fully coherent requester column, including its SNP sink. */
   fun build_rnf(sites :: NonemptyList) :: CHIRNFLocalAttachmentPlan:
     def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
     def snp_routers :: SimpleRouterFamilyConfig = routers.snp
@@ -353,6 +418,7 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
     CHIRNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)
+  /* Compile a corresponding non-snooping Home requester-side column. */
   fun build_hni(sites :: NonemptyList) :: CHIHNILocalAttachmentPlan:
     def req = chi_router_family_ejection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                          fun (site): site.req.terminal)
@@ -365,6 +431,7 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
     CHIHNILocalAttachmentPlan(req, rsp_requester, rsp_response, dat_request, dat_response)
+  /* Compile a corresponding coherent Home requester-side column, including its SNP source. */
   fun build_hnf(sites :: NonemptyList) :: CHIHNFLocalAttachmentPlan:
     def snp_adapters :: CHIChannelAdapterPlan = adapters.snp
     def snp_routers :: SimpleRouterFamilyConfig = routers.snp
@@ -381,6 +448,10 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
     CHIHNFLocalAttachmentPlan(req, rsp_requester, rsp_response, snp, dat_request, dat_response)
+  /*
+   * Compile a corresponding Home subordinate-facing column independently of its requester
+   * attachment.
+   */
   fun build_hn_subordinate(sites :: NonemptyList) :: CHIHNSubordinateLocalAttachmentPlan:
     def req = chi_router_family_injection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                           fun (site): site.req.terminal)
@@ -391,6 +462,10 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_ejection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                   fun (site): site.dat_response.terminal)
     CHIHNSubordinateLocalAttachmentPlan(req, rsp, dat_request, dat_response)
+  /*
+   * Compile a corresponding subordinate device column independently of colocated Home
+   * attachments.
+   */
   fun build_sn(sites :: NonemptyList) :: CHISNLocalAttachmentPlan:
     def req = chi_router_family_ejection(adapters.req, routers.req.router_family_plan, site_width, sites,
                                          fun (site): site.req.terminal)
@@ -401,6 +476,7 @@ fun compile_chi_router_attachment_plan(
     def dat_response = chi_router_family_injection(adapters.dat, routers.dat.router_family_plan, site_width, sites,
                                                    fun (site): site.dat_response.terminal)
     CHISNLocalAttachmentPlan(req, rsp, dat_request, dat_response)
+  /* Transpose uniform site rows into endpoint columns and compile each column's local plan. */
   fun compile_columns(rows :: List.of(NonemptyList), build :: Function.of_arity(1)) :: List:
     if rows.length() == 0
     | []
@@ -448,6 +524,10 @@ fun compile_chi_router_attachment_plan(
                           dat_inputs,
                           dat_targets)
 
+/*
+ * Instantiate present channel routers, wire every composed local endpoint category, and bind
+ * the shared physical-link arrays.
+ */
 sync_circuit CHIRouter(params :: CHIRouterParams):
   def p = params.flit
   def req_config = params.routers.req

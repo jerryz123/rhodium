@@ -1,26 +1,32 @@
 #lang rhodium
-// Defines shared CHI packet positions, transfer packet sets, and physical legality.
+/* Defines shared CHI packet positions, transfer packet sets, and physical legality. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
 
-// Size and NumReq share REQ storage. These accessors expose both views so a
-// caller can select the one appropriate for the request opcode.
+/*
+ * Size and NumReq share REQ storage. These accessors expose both views so a
+ * caller can select the one appropriate for the request opcode.
+ */
 fun chi_req_size(p :: CHIFlitParams,
                  request :: CHIReqFlit(p)) :~ CHITransferSize:
   request.size_or_num_req[0..3].into(CHITransferSize)
 
+/* Return the full six-bit NumReq view without truncating the overlapping REQ field. */
 fun chi_req_num_req(p :: CHIFlitParams,
                     request :: CHIReqFlit(p)) :~ Bits(6):
   request.size_or_num_req
 
+/* Reject reserved transfer Size encodings beyond the supported one- through 64-byte sizes. */
 fun chi_size_valid(size :: CHITransferSize) :~ Bool:
   enum_valid(size)
 
-// Returns one less than the physical DAT packet count. Sizes through 16 bytes
-// always occupy one packet; larger transfers are split by Data_Width.
+/*
+ * Returns one less than the physical DAT packet count. Sizes through 16 bytes
+ * always occupy one packet; larger transfers are split by Data_Width.
+ */
 fun chi_data_beats_minus_one(size :: CHITransferSize,
                              p :: CHIFlitParams) :: Bits(2):
   def size_32_beats_minus_one = if p.data_width == 128 | 1 | 0
@@ -33,17 +39,20 @@ fun chi_data_beats_minus_one(size :: CHITransferSize,
     CHITransferSize.Bytes32: bits(size_32_beats_minus_one, 2)
     CHITransferSize.Bytes64: bits(size_64_beats_minus_one, 2)
 
+/* Check that DataID names a physical packet position for the configured DAT width. */
 fun chi_data_id_valid(data_id :: Bits(2), p :: CHIFlitParams) :~ Bool:
   cond
   | p.data_width == 128: Bool(#true)
   | p.data_width == 256: data_id.is_one_of(bits(0, 2), bits(2, 2))
   | ~else: data_id === bits(0, 2)
 
-// IHI 0050H B2.9.4: DataID identifies the physical packet within a 64-byte
-// line, including narrow transfers. CCID independently identifies a 16-byte
-// critical chunk. These sets describe naturally aligned, unelided transfers;
-// transaction engines retain their own receipt/duplicate/completion state.
-// https://documentation-service.arm.com/static/68d13eb5bd7cab51328bee7a
+/*
+ * IHI 0050H B2.9.4: DataID identifies the physical packet within a 64-byte
+ * line, including narrow transfers. CCID independently identifies a 16-byte
+ * critical chunk. These sets describe naturally aligned, unelided transfers;
+ * transaction engines retain their own receipt/duplicate/completion state.
+ * https://documentation-service.arm.com/static/68d13eb5bd7cab51328bee7a
+ */
 fun chi_transfer_data_ids(address :: Bits,
                           size :: CHITransferSize,
                           p :: CHIFlitParams) :~ Bits(4):
@@ -59,6 +68,7 @@ fun chi_transfer_data_ids(address :: Bits,
       | p.data_width == 256: bits(0x5, 4)
       | ~else: bits(0x1, 4)
 
+/* Encode a physical packet index as DataID, retaining width-dependent zero bits. */
 fun chi_transfer_data_id(beat :: Bits(2),
                          p :: CHIFlitParams) :~ Bits(2):
   cond
@@ -66,6 +76,7 @@ fun chi_transfer_data_id(beat :: Bits(2),
   | p.data_width == 256: concat(beat[0..1], bits(0, 1))
   | ~else: bits(0, 2)
 
+/* Decode a legal DataID into the physical packet index within a 64-byte line. */
 fun chi_transfer_beat(data_id :: Bits(2),
                       p :: CHIFlitParams) :~ Bits(2):
   cond
@@ -73,6 +84,7 @@ fun chi_transfer_beat(data_id :: Bits(2),
   | p.data_width == 256: concat(bits(0, 1), data_id[1..2])
   | ~else: bits(0, 2)
 
+/* Select the physical DAT packet containing an address within its 64-byte line. */
 fun chi_line_data_id(address :: Bits,
                      p :: CHIFlitParams) :~ Bits(2):
   cond
@@ -80,8 +92,10 @@ fun chi_line_data_id(address :: Bits,
   | p.data_width == 256: concat(address[5..6], bits(0, 1))
   | ~else: bits(0, 2)
 
-// Physical packet address, not a beat offset to add to the request address.
-// DataID already includes the packet's position within the request's line.
+/*
+ * Physical packet address, not a beat offset to add to the request address.
+ * DataID already includes the packet's position within the request's line.
+ */
 fun chi_data_address(address :: Bits, data_id :: Bits(2), p :: CHIFlitParams) :~ Bits:
   def packet_id = chi_transfer_data_id(chi_transfer_beat(data_id, p), p)
   address[6..address.type.packed_width()] ++ packet_id ++ bits(0, 4)

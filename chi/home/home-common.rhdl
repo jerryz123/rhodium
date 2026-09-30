@@ -1,5 +1,8 @@
 #lang rhodium
-// Defines shared coherent Home configuration, identity, request legality, and message policy without engine state.
+/*
+ * Defines shared coherent Home configuration, identity, request legality, and message policy
+ * without engine state.
+ */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +15,10 @@ import:
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
 
+/*
+ * Fix coherent Home requesters, backing-service geometry/support, and bounded demand-slot
+ * capacity.
+ */
 class CHIHNFConfig(flit :: CHIFlitParams,
                    requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                    service_mask :: Nat,
@@ -24,6 +31,10 @@ class CHIHNFConfig(flit :: CHIFlitParams,
       ~keep: fun (endpoint): endpoint.kind == CHINodeKind.RNF
     )
 
+  /*
+   * Validate requester roles, snoop coverage, unique identities, and the backing writes needed
+   * by maintenance/copyback.
+   */
   constructor (flit :: CHIFlitParams,
                requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                service_mask :: Nat,
@@ -86,6 +97,10 @@ class CHIHNFConfig(flit :: CHIFlitParams,
             "the coherent Home requires at least one RN-F requester")
     super(flit, requester_endpoints, service_mask, service_requests, transaction_slots)
 
+/*
+ * Bind coherent Home structural configuration to Home identity and one subordinate service
+ * occurrence.
+ */
 class CHIHNFParams(home :: CHIHomeParams,
                    config :: CHIHNFConfig,
                    subordinate_service :: CHISubordinateServiceParams):
@@ -95,6 +110,10 @@ class CHIHNFParams(home :: CHIHomeParams,
   property requester_endpoints: config.requester_endpoints
   property snoop_endpoints: config.snoop_endpoints
 
+  /*
+   * Require matching capacity/service geometry and legal, distinct Home/requester/subordinate
+   * identities.
+   */
   constructor (home :: CHIHomeParams,
                config :: CHIHNFConfig,
                subordinate_service :: CHISubordinateServiceParams):
@@ -129,11 +148,19 @@ class CHIHNFParams(home :: CHIHomeParams,
               "requester, Home, and subordinate NodeIDs must be distinct")
     super(home, config, subordinate_service)
 
+/*
+ * Carry occurrence-specific Home/Subordinate NodeIDs and service base into reusable Home
+ * hardware.
+ */
 bundle CHIHNFIdentity(p :: CHIFlitParams):
   home_node_id: Bits(p.node_id_width)
   subordinate_node_id: Bits(p.node_id_width)
   service_base: Bits(p.request_address_width)
 
+/*
+ * Translate delivered coherent requests to their backing operation while retaining maintenance
+ * opcodes for local handling.
+ */
 fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
   mux_lookup(opcode, ~default: CHIReqOpcode.ReadNoSnp):
     CHIReqOpcode.CleanShared: CHIReqOpcode.CleanShared
@@ -148,6 +175,7 @@ fun chi_hnf_subordinate_opcode(opcode :: CHIReqOpcode) :~ CHIReqOpcode:
     CHIReqOpcode.WriteNoSnpPtl: CHIReqOpcode.WriteNoSnpPtl
     CHIReqOpcode.WriteNoSnpFull: CHIReqOpcode.WriteNoSnpFull
 
+/* Recognize any requester NodeID admitted by this Home configuration. */
 fun chi_hnf_source_known(p :: CHIFlitParams,
                          params :: CHIHNFConfig,
                          request :: CHIReqFlit(p)) :~ Bool:
@@ -156,6 +184,7 @@ fun chi_hnf_source_known(p :: CHIFlitParams,
       bits(endpoint.node_id, p.node_id_width)
   )
 
+/* Recognize configured snoopable RN-F sources independently of RN-I traffic. */
 fun chi_hnf_source_is_rnf(p :: CHIFlitParams,
                           params :: CHIHNFConfig,
                           request :: CHIReqFlit(p)) :~ Bool:
@@ -164,6 +193,7 @@ fun chi_hnf_source_is_rnf(p :: CHIFlitParams,
       bits(endpoint.node_id, p.node_id_width)
   )
 
+/* Match a request against the capability subset advertised by its originating requester. */
 fun chi_hnf_request_supported(p :: CHIFlitParams,
                               params :: CHIHNFConfig,
                               request :: CHIReqFlit(p)) :~ Bool:
@@ -172,6 +202,10 @@ fun chi_hnf_request_supported(p :: CHIFlitParams,
       (request.src_id === bits(endpoint.node_id, p.node_id_width)) & request.opcode.is_one_of(endpoint.supports.req)
   )
 
+/*
+ * Check service-region membership and translated opcode/Size, including full-line
+ * maintenance/copyback framing.
+ */
 fun chi_hnf_service_supported(p :: CHIFlitParams,
                               request :: CHIReqFlit(p),
                               config :: CHIHNFConfig,
@@ -189,6 +223,7 @@ fun chi_hnf_service_supported(p :: CHIFlitParams,
   def copyback_supported = ordinary_supported & request.address.is_aligned(64) & (size === CHITransferSize.Bytes64) & !request.exp_comp_ack & !request.multi_req
   mux(request.opcode === CHIReqOpcode.WriteBackFull, copyback_supported, mux(chi_cache_maintenance(request.opcode), maintenance_supported, ordinary_supported)) & address_supported
 
+/* Build a policy-selected non-forward snoop with explicit address and transaction overrides. */
 fun chi_hnf_snoop(p :: CHIFlitParams,
                   home_node_id :: Bits(p.node_id_width),
                   request :: CHIReqFlit(p),
@@ -197,6 +232,10 @@ fun chi_hnf_snoop(p :: CHIFlitParams,
                   ~txn_id: txn_id :: Bits(12) = bits(0, 12)) :~ CHISnpFlit(p):
   chi_home_snoop(p, home_node_id, request, address, opcode, txn_id)
 
+/*
+ * Build a backing request with Home opcode policy and disabled early write acknowledgement for
+ * maintenance.
+ */
 fun chi_hnf_downstream_request(p :: CHIFlitParams,
                                home_node_id :: Bits(p.node_id_width),
                                subordinate_node_id :: Bits(p.node_id_width),
@@ -208,6 +247,10 @@ fun chi_hnf_downstream_request(p :: CHIFlitParams,
   chi_home_downstream_request(p, home_node_id, subordinate_node_id, request, address, size, opcode, txn_id,
                               request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode))
 
+/*
+ * Build an intervention write while preserving maintenance's backing-completion visibility
+ * boundary.
+ */
 fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
                                 subordinate_node_id :: Bits(p.node_id_width),
@@ -217,6 +260,10 @@ fun chi_hnf_snoop_write_request(p :: CHIFlitParams,
   chi_home_snoop_write_request(p, home_node_id, subordinate_node_id, request, data, txn_id,
                                request.mem_attr.early_write_acknowledge & !chi_cache_maintenance(request.opcode))
 
+/*
+ * Restore requester routing and choose unique/shared coherent state or an Invalid snapshot
+ * response.
+ */
 fun chi_hnf_upstream_read_data(p :: CHIFlitParams,
                                home_node_id :: Bits(p.node_id_width),
                                request :: CHIReqFlit(p),

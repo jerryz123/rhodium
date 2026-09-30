@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines declarative CHI response profiles and retryable transaction control.
+/* Defines declarative CHI response profiles and retryable transaction control. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,10 +9,15 @@ import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/flits.rhdl") open
 
+/* Map one or more response opcodes to the completion milestones they satisfy. */
 class CHIResponseRule(opcodes :: NonemptyList.of(CHIRspOpcode),
                       milestones :: NonemptyList.of(NonemptyString)):
   implements StableCircuitParam
 
+/*
+ * Describe accepted responses, named milestones, and retry support for one requester
+ * mechanism.
+ */
 class CHIResponseProfile(name :: NonemptyString,
                          milestones :: List.of(NonemptyString),
                          rules :: List.of(CHIResponseRule),
@@ -34,6 +39,10 @@ class CHIResponseProfile(name :: NonemptyString,
     | [CHIRspOpcode.RetryAck, CHIRspOpcode.PCrdGrant] ++ progress_opcodes
     | progress_opcodes
 
+  /*
+   * Validate milestone membership, unique opcode rules, reserved retry clauses, and nonempty
+   * coverage.
+   */
   constructor (name :: NonemptyString,
                milestones :: List.of(NonemptyString),
                rules :: List.of(CHIResponseRule),
@@ -63,6 +72,7 @@ class CHIResponseProfile(name :: NonemptyString,
             "a response profile must accept at least one response")
     super(name, milestones, rules, retryable)
 
+  /* Resolve a declared milestone name to its effect-bit index, rejecting unknown names. */
   method milestone_index(milestone :: NonemptyString) :: Nat:
     def result = milestones.find_index(fun (candidate :: NonemptyString): candidate == milestone)
     unless result is_a Nat
@@ -70,13 +80,19 @@ class CHIResponseProfile(name :: NonemptyString,
             "profile has no such milestone")
     result
 
+  /* Return the host one-bit mask for a declared milestone. */
   method milestone_mask(milestone :: NonemptyString) :: Nat:
     1 << milestone_index(milestone)
 
+  /* Combine every milestone completed by one response rule into its host effect mask. */
   method rule_effect_mask(rule :: CHIResponseRule) :: Nat:
     for values(result = 0) (milestone in rule.milestones):
       result bits.or milestone_mask(milestone)
 
+  /*
+   * Decode a wire RSP opcode into milestone bits, returning zero for unmatched or retry-only
+   * opcodes.
+   */
   method effects(opcode :: CHIRspOpcode) :~ Bits(effect_width):
     def cases:
       for List:
@@ -87,9 +103,11 @@ class CHIResponseProfile(name :: NonemptyString,
     | bits(0, effect_width)
     | mux_lookup(opcode, ~default: bits(0, effect_width), cases)
 
+  /* Test a declared milestone in the hardware effect vector. */
   method milestone(effects :: Bits(effect_width), milestone :: NonemptyString) :~ Bool:
     effects[milestone_index(milestone)].into(Bool)
 
+/* Expand named milestones, response rules, and an optional retry clause into a validated profile. */
 expr.macro 'response_profile($name): $clause; ...':
   def mutable retryable = #false
   def mutable milestones = []
@@ -129,6 +147,10 @@ expr.macro 'response_profile($name): $clause; ...':
      ~retryable: $retryable
    )'
 
+/*
+ * Collect the distinct accepted opcodes across multiple response profiles, including retry
+ * messages.
+ */
 fun chi_response_profile_opcodes(
     profiles :: NonemptyList.of(CHIResponseProfile)
 ) :: List.of(CHIRspOpcode):
@@ -136,27 +158,39 @@ fun chi_response_profile_opcodes(
     for values(opcodes = result) (opcode in profile.response_opcodes):
       if opcodes.contains(opcode) | opcodes | opcodes ++ [opcode]
 
-// Compatibility entry points delegate to the profile-owned operations.
+/*
+ * Compatibility entry points delegate to the profile-owned operations.
+ */
 fun chi_response_effects(profile :: CHIResponseProfile,
                          opcode :: CHIRspOpcode)
   :~ Bits(profile.effect_width):
   profile.effects(opcode)
 
+/* Delegate named milestone testing to the selected response profile. */
 fun chi_response_milestone(profile :: CHIResponseProfile,
                            effects :: Bits(profile.effect_width),
                            milestone :: String) :~ Bool:
   profile.milestone(effects, milestone)
 
+/* Expose AllowRetry and Protocol Credit type for one original or replayed request attempt. */
 bundle CHIRequestAttempt():
   allow_retry: Bool
   pcrd_type: Bits(4)
 
+/*
+ * Report one accepted ordinary response with decoded milestones and retry/credit
+ * classification.
+ */
 bundle CHIResponseEvent(p :: CHIFlitParams, effect_width :: PosInt):
   flit: CHIRspFlit(p)
   effects: Bits(effect_width)
   retry_ack: Bool
   protocol_credit: Bool
 
+/*
+ * Track request attempts, response milestones, and retry credit association while the caller
+ * owns completion.
+ */
 sync_circuit CHIRetryableTransactionControl(p :: CHIFlitParams, profile :: CHIResponseProfile):
   input start: Bool
   input finish: Bool

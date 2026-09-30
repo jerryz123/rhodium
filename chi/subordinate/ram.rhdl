@@ -1,5 +1,5 @@
 #lang rhodium
-// Backs the shared native-CHI memory controller with a fixed-latency lane-masked SRAM.
+/* Backs the shared native-CHI memory controller with a fixed-latency lane-masked SRAM. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_data_address
   lib("chi/protocol/channels.rhdl").CHISNChannels
 
+/* Back the shared CHI memory controller with a lane-masked synchronous single-port SRAM. */
 sync_circuit CHIRam(config :: CHIRamConfig):
   def p = config.flit
   def limit = config.max_outstanding
@@ -23,8 +24,13 @@ sync_circuit CHIRam(config :: CHIRamConfig):
   input identity: CHIRamIdentity(p)
   interface port(CHISNChannels(p), ~role: node)
 
+  /* Construct the SRAM backend and return its issue/completion connection procedure. */
   fun backend():
     inst storage(SyncRam1RW(depth, Bits(8), p.data_bytes))
+    /*
+     * Translate packet addresses and byte enables to SRAM accesses and delay completion
+     * metadata with the read result.
+     */
     fun connect(issue :: Endpoint, completion :: Endpoint):
       (
         issue |> map_valid(operation):

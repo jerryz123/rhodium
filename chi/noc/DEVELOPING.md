@@ -19,9 +19,9 @@ Directory boundaries add no RTL hierarchy or per-directory facade.
 
 | File | Responsibility |
 |---|---|
-| [`noc-authoring.rhm`](noc-authoring.rhm) | Pure CHI connection and typed local attachment-plan compilation |
+| [`noc-authoring.rhm`](noc-authoring.rhm) | Pure CHI connection expansion and per-channel route compilation |
 | [`noc-adapter.rhdl`](noc-adapter.rhdl) | Typed REQ/RSP/DAT/SNP injection, queued ejection, and endpoint helpers |
-| [`noc-router.rhdl`](noc-router.rhdl) | Three- or four-plane router-family composition and local roles |
+| [`noc-router.rhdl`](noc-router.rhdl) | Typed local attachment-plan compilation and three- or four-plane router-family composition |
 
 ## Change workflow
 

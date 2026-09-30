@@ -1,5 +1,5 @@
 #lang rhodium
-// Serializes coherent requests, interventions, and full-line copyback to backing memory.
+/* Serializes coherent requests, interventions, and full-line copyback to backing memory. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,10 @@ import:
   lib("chi/home/home-snoop-targets.rhdl").CHIHomeSnoopTargets
   lib("chi/transactions/data-checks.rhdl").monitor_chi_copyback_data
 
+/*
+ * Represent the noncaching Home's internal single-transaction snoop, backing, and
+ * requester-response phases.
+ */
 hardware_enum CHIHNFPhase(~width: 4):
   Idle = 0
   SendRequesterDBID = 1
@@ -33,6 +37,10 @@ hardware_enum CHIHNFPhase(~width: 4):
   SendSnoopWriteData = 14
   AwaitSnoopWriteCompletion = 15
 
+/*
+ * Execute one coherent transaction at a time, resolving broadcast snoops and dirty
+ * intervention before backing-memory service.
+ */
 sync_circuit CHIHNF(config :: CHIHNFConfig):
   unless config.transaction_slots == 1
   | error(~who: #'CHIHNF,

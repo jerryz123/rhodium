@@ -1,5 +1,8 @@
 #lang rhodium
-// Buffers inclusive-Home dirty victims and retains their causal owners through independent writeback progress.
+/*
+ * Buffers inclusive-Home dirty victims and retains their causal owners through independent
+ * writeback progress.
+ */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +16,10 @@ import:
   lib("chi/protocol/messages.rhdl") open
   lib("chi/home/home-common.rhdl").chi_hnf_downstream_request
 
+/*
+ * Transfer a resolved dirty victim line and its causing request from a parent Home slot into
+ * the writeback buffer.
+ */
 bundle CHIInclusiveVictimWriteback(p :: CHIFlitParams,
                                    parent_slot_width :: PosInt):
   parent_slot: Bits(parent_slot_width)
@@ -20,11 +27,16 @@ bundle CHIInclusiveVictimWriteback(p :: CHIFlitParams,
   address: Bits(p.request_address_width)
   line: Bits(512)
 
+/*
+ * Return the parent slot, preserved victim line for rollback, and backing-write completion
+ * error.
+ */
 bundle CHIInclusiveVictimWritebackCompletion(parent_slot_width :: PosInt):
   parent_slot: Bits(parent_slot_width)
   line: Bits(512)
   error: CHIRespErr
 
+/* Represent each buffered victim's request, DBID, packet-send, and completion lifecycle. */
 hardware_enum CHIInclusiveVictimWritebackPhase(~width: 3):
   Free = 0
   SendRequest = 1
@@ -33,6 +45,10 @@ hardware_enum CHIInclusiveVictimWritebackPhase(~width: 3):
   AwaitCompletion = 4
   Complete = 5
 
+/*
+ * Build one full-enabled victim write-data packet with its originating request's trace tag and
+ * QoS.
+ */
 fun chi_inclusive_victim_data(p :: CHIFlitParams,
                               home_node_id :: Bits(p.node_id_width),
                               subordinate_node_id :: Bits(p.node_id_width),
@@ -47,6 +63,10 @@ fun chi_inclusive_victim_data(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
+/*
+ * Retain bounded dirty-victim writes independently of refill, tracking DBID, data, and Comp
+ * before parent completion.
+ */
 sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
                                                entries :: PosInt,
                                                parent_slots :: PosInt):
@@ -89,10 +109,18 @@ sync_circuit CHIInclusiveVictimWritebackBuffer(p :: CHIFlitParams,
   occupancy.set.valid <== enqueue_fire
   occupancy.set.bits <== allocation_entry
 
+  /*
+   * Advance the circular writeback-entry arbitration priority, wrapping at the configured
+   * capacity.
+   */
   fun next_entry_priority(entry :: Bits(index_width(entries))):
     mux(entry === bits(entries - 1, index_width(entries)),
         bits(0, index_width(entries)),
         entry + bits(1, index_width(entries)))
+  /*
+   * Place writeback entry IDs immediately after the parent demand-slot subordinate transaction
+   * range.
+   */
   fun writeback_txn_id(entry :: Bits(index_width(entries))):
     bits(parent_slots, 12) + entry.zext(12)
 

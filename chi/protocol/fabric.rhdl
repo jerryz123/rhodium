@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines CHI fabric ports, services, and executable Home and subordinate address selection.
+/* Defines CHI fabric ports, services, and executable Home and subordinate address selection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,14 +11,19 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/link.rhdl") open
 
-// Transfer sizes are service metadata, not a property of the physical link.
+/*
+ * Transfer sizes are service metadata, not a property of the physical link.
+ */
 class CHIRequestSupport(opcode :: CHIReqOpcode, sizes :: TransferSizes):
-  // Hardware matching uses the encoded Size, unlike host service supports(bytes).
+  /*
+   * Hardware matching uses the encoded Size, unlike host service supports(bytes).
+   */
   method matches(request_opcode :: CHIReqOpcode, size :: CHITransferSize) :~ Bool:
     (request_opcode === opcode) & (
       size.as_bits() >= bits(alignment_bits(sizes.min_bytes), 3)
     ) & (size.as_bits() <= bits(alignment_bits(sizes.max_bytes), 3))
 
+/* Reject multiple size-range entries for the same opcode in one service profile. */
 fun require_unique_request_support(requests :: List.of(CHIRequestSupport),
                                    who :: Symbol):
   for (left_index in 0..requests.length()):
@@ -27,6 +32,10 @@ fun require_unique_request_support(requests :: List.of(CHIRequestSupport),
       | error(~who: who, "request support must not contain duplicate opcodes")
       | #void
 
+/*
+ * Reject duplicate request opcodes and transfer sizes outside CHI's one- through 64-byte
+ * range.
+ */
 fun require_request_support(requests :: List.of(CHIRequestSupport),
                             who :: Symbol):
   require_unique_request_support(requests, who)
@@ -35,9 +44,11 @@ fun require_request_support(requests :: List.of(CHIRequestSupport),
     | error(~who: who,
             "request support size must fit the CHI Size field")
 
+/* Bind subordinate endpoint capabilities to address regions and supported request sizes. */
 class CHISubordinateServiceParams(endpoint :: CHIICNPortParams,
                                   address_sets :: NonemptyList.of(AddressSet),
                                   requests :: NonemptyList.of(CHIRequestSupport)):
+  /* Require an SN endpoint, unique legal Size support, and opcodes emitted by its ICN peer. */
   constructor (endpoint :: CHIICNPortParams,
                address_sets :: NonemptyList.of(AddressSet),
                requests :: NonemptyList.of(CHIRequestSupport)):
@@ -51,9 +62,14 @@ class CHISubordinateServiceParams(endpoint :: CHIICNPortParams,
               "service request opcode must be emitted by its ICN port")
     super(endpoint, address_sets, requests)
 
+  /* Revalidate endpoint and request support when immutable service metadata is updated. */
   reconstructor (endpoint, address_sets, requests):
     CHISubordinateServiceParams(endpoint, address_sets, requests)
 
+  /*
+   * Query host service support for an opcode and byte count, independently of address
+   * matching.
+   */
   method supports(opcode :: CHIReqOpcode, bytes :: PosInt):
     for any (request in requests):
       request.opcode == opcode && request.sizes.contains(bytes)
@@ -61,6 +77,7 @@ class CHISubordinateServiceParams(endpoint :: CHIICNPortParams,
 annot.macro 'CHILinkParams':
   'CHIRNLinkParams || CHIRNILinkParams || CHISNLinkParams'
 
+/* Check that a physical link parameter type matches its requester or subordinate node role. */
 fun chi_link_matches_node_kind(link :: CHILinkParams, kind :: CHINodeKind):
   cond
   | [CHINodeKind.RNF, CHINodeKind.RND].contains(kind): link is_a CHIRNLinkParams
@@ -68,20 +85,24 @@ fun chi_link_matches_node_kind(link :: CHILinkParams, kind :: CHINodeKind):
   | CHINodeKind.is_subordinate(kind): link is_a CHISNLinkParams
   | ~else: #false
 
+/* Pair a fabric ICN endpoint with its role-correct physical credited-link parameters. */
 class CHIFabricPortParams(endpoint :: CHIICNPortParams,
                           link :: CHILinkParams):
+  /* Reject a physical link shape incompatible with the endpoint's node kind. */
   constructor (endpoint :: CHIICNPortParams, link :: CHILinkParams):
     unless chi_link_matches_node_kind(link, endpoint.kind)
     | error(~who: #'CHIFabricPortParams,
             "link parameter type must match the ICN port node kind")
     super(endpoint, link)
 
+/* Describe a Home's identity and bounded transaction capacity without selecting its engine. */
 class CHIHomeParams(name :: NonemptyString,
                     node_id :: Nat,
                     kind :: CHINodeKind,
                     max_outstanding :: Int.in(1 ..= 1024)):
   implements StableCircuitParam
 
+  /* Require an HN-F or HN-I role before retaining Home identity and capacity. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                kind :: CHINodeKind,
@@ -91,25 +112,33 @@ class CHIHomeParams(name :: NonemptyString,
             "home kind must be HN-F or HN-I")
     super(name, node_id, kind, max_outstanding)
 
+/* Bind a Home's address regions to supported request opcode and transfer-size profiles. */
 class CHIHomeServiceParams(home :: CHIHomeParams,
                            address_sets :: NonemptyList.of(AddressSet),
                            requests :: NonemptyList.of(CHIRequestSupport)):
+  /* Validate a Home service's unique opcode entries and CHI-representable transfer sizes. */
   constructor (home :: CHIHomeParams,
                address_sets :: NonemptyList.of(AddressSet),
                requests :: NonemptyList.of(CHIRequestSupport)):
     require_request_support(requests, #'CHIHomeServiceParams)
     super(home, address_sets, requests)
 
+  /* Query host Home-service support for an opcode and byte count. */
   method supports(opcode :: CHIReqOpcode, bytes :: PosInt):
     for any (request in requests):
       request.opcode == opcode && request.sizes.contains(bytes)
 
+/* Associate one disjoint address region with the Home selected for requester traffic. */
 class CHIHomeMapEntry(address_set :: AddressSet,
                       home :: CHIHomeParams):
   implements StableCircuitParam
 
   property target_node_id: home.node_id
 
+/*
+ * Reject overlapping System Address Map regions before generating a non-priority hardware
+ * decode.
+ */
 fun require_disjoint_sam(sam :: List, who :: Symbol):
   for (left_index in 0..sam.length()):
     for (right_index in (left_index + 1)..sam.length()):
@@ -117,6 +146,7 @@ fun require_disjoint_sam(sam :: List, who :: Symbol):
       | error(~who: who, "System Address Map entries must not overlap")
       | #void
 
+/* Associate an address region with the subordinate service selected after Home processing. */
 class CHISubordinateMapEntry(address_set :: AddressSet,
                              service :: CHISubordinateServiceParams):
   implements StableCircuitParam
@@ -124,23 +154,34 @@ class CHISubordinateMapEntry(address_set :: AddressSet,
   property endpoint: service.endpoint
   property target_node_id: service.endpoint.node_id
 
-// Shared decode mechanism; callers retain their nominal result and service contracts.
-// Map construction has already checked disjointness and NodeID/address widths.
+/*
+ * Shared decode mechanism; callers retain their nominal result and service contracts.
+ * Map construction has already checked disjointness and NodeID/address widths.
+ */
 fun chi_map_lookup(address :: Bits, address_sets :: NonemptyList.of(AddressSet), node_ids :: NonemptyList.of(Nat), node_id_width :: PosInt):
   def matches = vec(for List (address_set in address_sets): address_set.matches(address))
   def selection = matches.as_bits().into(MaybeOneHot(address_sets.length()))
   def node_id = selection.mux(for List (target in node_ids): bits(target, node_id_width), ~default: bits(0, node_id_width))
   [selection.valid, node_id]
 
+/* Return subordinate decode validity independently of a possibly zero NodeID. */
 bundle CHISubordinateLookup(node_id_width :: PosInt):
   valid: Bool
   node_id: Bits(node_id_width)
 
+/*
+ * Retain validated subordinate services and the disjoint address entries used by hardware
+ * lookup.
+ */
 class CHISubordinateMap(flit :: CHIFlitParams,
                         services :: NonemptyList.of(CHISubordinateServiceParams),
                         entries :: NonemptyList.of(CHISubordinateMapEntry)):
   implements StableCircuitParam
 
+  /*
+   * Expand service regions while rejecting conflicting NodeIDs, width overflow, and address
+   * overlap.
+   */
   constructor (flit :: CHIFlitParams,
                services :: NonemptyList.of(CHISubordinateServiceParams)):
     for (left_index in 0..services.length()):
@@ -164,9 +205,14 @@ class CHISubordinateMap(flit :: CHIFlitParams,
     require_disjoint_sam(entries, #'CHISubordinateMap)
     super(flit, services, entries)
 
+  /* Find the service entry containing a host address, or return no entry. */
   method entry(address :: Nat):
     entries.find(fun (entry): entry.address_set.contains(address))
 
+  /*
+   * Generate combinational subordinate selection, retaining an explicit validity bit for
+   * misses.
+   */
   method lookup(address :: Bits(flit.request_address_width))
     :~ CHISubordinateLookup(flit.node_id_width):
     def [valid, node_id] = chi_map_lookup(address, entries.map(fun (entry): entry.address_set), entries.map(fun (entry): entry.target_node_id), flit.node_id_width)
@@ -174,14 +220,17 @@ class CHISubordinateMap(flit :: CHIFlitParams,
       valid: valid
       node_id: node_id
 
+/* Return Home decode validity independently of a possibly zero NodeID. */
 bundle CHIHomeLookup(node_id_width :: PosInt):
   valid: Bool
   node_id: Bits(node_id_width)
 
+/* Retain a validated, disjoint requester-to-Home System Address Map. */
 class CHIHomeMap(flit :: CHIFlitParams,
                  entries :: NonemptyList.of(CHIHomeMapEntry)):
   implements StableCircuitParam
 
+  /* Reject Home entries that overlap or exceed the physical address and NodeID widths. */
   constructor (flit :: CHIFlitParams,
                entries :: NonemptyList.of(CHIHomeMapEntry)):
     for (entry in entries):
@@ -194,9 +243,11 @@ class CHIHomeMap(flit :: CHIFlitParams,
     require_disjoint_sam(entries, #'CHIHomeMap)
     super(flit, entries)
 
+  /* Find the Home-map entry containing a host address, or return no entry. */
   method entry(address :: Nat):
     entries.find(fun (entry): entry.address_set.contains(address))
 
+  /* Generate combinational Home selection, retaining an explicit validity bit for misses. */
   method lookup(address :: Bits(flit.request_address_width))
     :~ CHIHomeLookup(flit.node_id_width):
     def [valid, node_id] = chi_map_lookup(address, entries.map(fun (entry): entry.address_set), entries.map(fun (entry): entry.target_node_id), flit.node_id_width)
@@ -204,6 +255,7 @@ class CHIHomeMap(flit :: CHIFlitParams,
       valid: valid
       node_id: node_id
 
+/* Expand every Home service region into the validated requester-side address map. */
 fun chi_home_map_from_services(flit :: CHIFlitParams,
                                services :: NonemptyList.of(CHIHomeServiceParams))
   :: CHIHomeMap:
@@ -213,6 +265,7 @@ fun chi_home_map_from_services(flit :: CHIFlitParams,
       entries := entries ++ [CHIHomeMapEntry(address_set, service.home)]
   CHIHomeMap(flit, entries)
 
+/* Reject NodeID collisions across physical fabric ports and Home identities. */
 fun require_unique_node_ids(ports :: List.of(CHIFabricPortParams),
                             homes :: List.of(CHIHomeParams),
                             who :: Symbol):
@@ -225,6 +278,7 @@ fun require_unique_node_ids(ports :: List.of(CHIFabricPortParams),
       | error(~who: who, "fabric NodeIDs must be unique")
       | #void
 
+/* Validate complete fabric metadata and derive separate Home and subordinate address maps. */
 class CHIFabricParams(flit :: CHIFlitParams,
                       ports :: NonemptyList.of(CHIFabricPortParams),
                       homes :: NonemptyList.of(CHIHomeParams),
@@ -232,6 +286,10 @@ class CHIFabricParams(flit :: CHIFlitParams,
                       subordinate_services :: NonemptyList.of(CHISubordinateServiceParams),
                       home_map :: CHIHomeMap,
                       subordinate_map :: CHISubordinateMap):
+  /*
+   * Require consistent physical widths, unique identities, and service targets present in the
+   * fabric.
+   */
   constructor (flit :: CHIFlitParams,
                ports :: NonemptyList.of(CHIFabricPortParams),
                homes :: NonemptyList.of(CHIHomeParams),

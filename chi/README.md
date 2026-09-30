@@ -42,6 +42,8 @@ For a narrower dependency, import a defining module instead. See
 | Transactions | Link-local monitors, bounded non-coherent and RN-F checkers, reusable retry control, HN-I/HN-F engines, RAM and memory adapters | Monitors check advertised profiles; engines implement only the profiles below |
 | Network | Pure CHI connection compilation, per-channel adapters, and three- or four-plane router composition | [`noc/`](../noc/README.md) owns topology, routing policy, proofs, and generic routers |
 
+This diagram illustrates the package's public layers and their dependencies.
+
 ```mermaid
 flowchart TB
   facade["chi/main.rhdl<br/>public facade"]
@@ -105,81 +107,11 @@ their existing CHI facade exports remain compatible. The
 owner modules. Narrow imports reduce dependency and source-loading scope;
 they do not by themselves change the generated RTL or instantiate hardware.
 
-For stateless subordinate responses, import `lib("chi/protocol/messages.rhdl")` directly
-or use the facade. `chi_sn_dbid_response` and `chi_sn_write_completion` correlate
-responses with the request's source and TxnID and the supplied DBID;
-`chi_sn_read_completion` uses its return-node/return-TxnID fields, derives byte
-enables from the transfer, and accepts the packet's DataID and payload. These
-builders emit successful responses with the existing inactive/default optional
-fields; they do not allocate transactions, validate endpoint capabilities, or
-implement retry, error, or coherence policy.
-They return immutable values and can be called repeatedly in one circuit
-without allocating named wires or sharing state between calls.
-
-`chi_response` exposes the common inactive-field policy used by the current
-subordinate, Home, and RV5Stage RSP builders. It takes explicit source/target
-NodeIDs, TxnID, and opcode, plus required `~dbid`, `~resp`, `~error`, and `~qos`
-arguments. Other fields are zero, with `tag_op` set to `Invalid`. This is not
-a universal default for all RSP opcodes: callers needing Protocol Credit,
-trace, or other active fields must supply their own construction or updates.
-Existing semantic wrappers retain their routing and response policies.
-
-`chi_rn_write_data` constructs the current requester `NonCopyBackWriteData`
-profile from a payload, byte enables, routing IDs, and DBID. Its required
-`~data_id`, `~ccid`, and `~dbid_or_mecid` arguments keep packet-position and
-overloaded-field choices explicit. Inactive and optional fields are zero;
-this is not a general constructor for every CHI DAT profile. Callers retain
-address normalization, lane placement, masks, and cacheability policy.
-
-`protocol/messages.rhdl` also provides Home response construction and immutable
-downstream-request, snoop-write-data, and upstream-read-data transforms.
-These preserve untouched packet metadata, including optional fields. Callers
-supply routing identities and policy decisions; the helpers neither allocate
-transactions nor choose a coherence policy.
-
-`chi_home_snoop` constructs a non-forward snoop using an explicit address,
-opcode, and TxnID. `chi_home_snoop_write_request` constructs a full-packet
-backing write from intervention data, with explicit TxnID and early-write-ack
-choice. Both use the existing inactive-field zero policy, including optional
-metadata, rather than copying every request field.
-
-`CHINodeParams.icn_peer()` derives the matching ICN endpoint: it appends
-`-icn` to the name, retains NodeID, node kind, and outstanding limit, and swaps
-emitted and supported capabilities. Use explicit `CHIICNPortParams` when the
-ICN contract is intentionally different from the node's exact peer.
-`CHINodeParams` and `CHISubordinateServiceParams` support immutable `with`
-updates; reconstruction reruns their role and capability validation.
-`CHIHNFParams(home, config, subordinate_service)` derives its
-`subordinate_endpoint` from that service and validates it against the Home
-configuration.
-
-Import `lib("chi/home/home-common.rhdl")` for shared `CHIHNFConfig`,
-`CHIHNFParams`, `CHIHNFIdentity`, and Home request/message policy helpers.
-It does not instantiate a Home engine. These types remain available through
-`chi/main.rhdl` and their existing coherent-Home exports.
-
-`CHIHomeSnoopTargets(config)` in [`home/home-snoop-targets.rhdl`](home/home-snoop-targets.rhdl)
-tracks pending snoops in configured endpoint order. Its `load` valid-only input
-replaces the target mask; its `target` ready-valid output offers the lowest-index
-pending NodeID. An accepted target clears that bit and updates `expected_node`,
-which remains unchanged on a later mask load. Reset clears both registers.
-Loading takes priority over dispatch; callers should keep these events exclusive.
-The Home controls when dispatch is allowed and when responses are complete:
-an empty pending mask does not mean the last responder has finished.
-
-`CHISingleBeatSubordinate(p, label)` supplies one-outstanding, single-beat
-MMIO sequencing on a native `CHISNChannels` port. It returns DBID zero for
-writes, validates write opcode/TxnID/source/target association, and holds
-responses stable under backpressure. `request_supported` gates and asserts
-ordinary requests. `read_data` is sampled on an accepted read; `request` exposes
-the retained request. `write_supported` adds device legality and asserts on
-invalid DAT; `write_ready` permits legal writes to stall without asserting.
-`request_fire` and `write_data_fire` identify the exact acceptance edges for
-device side effects; `write_data_expected` permits phase-sensitive readiness.
-Credit-return flits are consumed without starting a transaction. Reset aborts
-the transaction. Callers must restrict accepted operations and sizes to their
-single-beat read/write profile; this engine does not implement retry, coherence,
-or multibeat storage transactions.
+For packet builders and endpoint peers, use the [protocol guide](protocol/README.md#message-construction-and-endpoint-peers).
+Shared Home configuration and target selection belong to the
+[Home guide](home/README.md#shared-configuration-and-snoop-targets); the
+[subordinate guide](subordinate/README.md#single-beat-device-contract)
+describes device request acceptance and response sequencing.
 
 The package boundary follows the protocol layering:
 
@@ -253,8 +185,6 @@ a separate critical-chunk identifier. These are the rules in
 line packet indices and DataIDs. `chi_data_address(address, data_id, p)` returns
 the packet-aligned byte address within the request's line. Memory backends use
 it instead of adding a DataID-derived offset to the request address again.
-The former checker-owned `coherent_read_data_ids` is replaced by the shared
-address-aware `chi_transfer_data_ids` API.
 
 [`protocol/coherence.rhdl`](protocol/coherence.rhdl) adds `CHICacheState`,
 `CHIResponseState`, and the packed `CHICoherentResponse` view. Because the RSP
@@ -677,7 +607,7 @@ Both Home implementations require at least one RN-F. The noncaching `CHIHNF`
 accepts one transaction at a time. `CHIInclusiveHNF` accepts one through 64,
 selected by `CHIHNFConfig.transaction_slots`; `CHIHNFParams` requires the
 advertised Home capacity to match that value. RN-I requesters may use
-`ReadOnce`, `ReadNoSnp`, `WriteNoSnpFull`, and
+`ReadOnce`, `WriteUniquePtl`, `ReadNoSnp`, `WriteNoSnpFull`, and
 `WriteNoSnpPtl`; RN-F requesters may use `ReadOnce`, `ReadClean`, `ReadUnique`, and
 `WriteUniquePtl` and `WriteBackFull`. Both requester kinds may additionally advertise
 `CleanShared`, `CleanInvalid`, and `MakeInvalid` for aligned 64-byte blocks.

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines low-level CHI checks and explicit whole-endpoint monitor functions.
+/* Defines low-level CHI checks and explicit whole-endpoint monitor functions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,7 +13,9 @@ import:
   lib("chi/transactions/transaction.rhdl") open
   lib("chi/transactions/coherent-transaction.rhdl") open
 
-// Checks one direction's four-state activation sequence against prior state.
+/*
+ * Checks one direction's four-state activation sequence against prior state.
+ */
 fun monitor_chi_activation(request :: Bool,
                            ack :: Bool,
                            previous_request :: Bool,
@@ -33,6 +35,10 @@ fun monitor_chi_activation(request :: Bool,
   assert(!ack_fall ||| !request,
          label_prefix ++ "_ack_drop_after_request")
 
+/*
+ * Check physical link credit accounting, activation-gated traffic, and deactivation credit
+ * return.
+ */
 fun monitor_chi_transport(credit_limit :: PosInt,
                           valid :: Bool,
                           credit :: Bool,
@@ -53,6 +59,10 @@ fun monitor_chi_transport(credit_limit :: PosInt,
   when (valid & lcrd_return):
     assert(!request & ack, label_prefix ++ "_lcrd_during_deactivate")
 
+/*
+ * Assert the selected ordinary SrcID or TgtID matches the monitored endpoint, excluding credit
+ * returns.
+ */
 fun monitor_chi_identity(node_id_width :: PosInt,
                          valid :: Bool,
                          identity_value :: Bits(node_id_width),
@@ -63,6 +73,7 @@ fun monitor_chi_identity(node_id_width :: PosInt,
     assert(identity_value === bits(node_id, node_id_width),
            label_prefix)
 
+/* Combine physical REQ transport checks with opcode, identity, and transfer-Size assertions. */
 fun monitor_chi_req(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
@@ -89,6 +100,7 @@ fun monitor_chi_req(p :: CHIFlitParams,
                         label_prefix)
   monitor_chi_req_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
+/* Check accepted REQ identity, advertised opcode, credit-return TxnID, and legal Size fields. */
 fun monitor_chi_req_fields(p :: CHIFlitParams,
                            valid :: Bool,
                            flit :: CHIReqFlit(p),
@@ -117,6 +129,7 @@ fun monitor_chi_req_fields(p :: CHIFlitParams,
       assert(chi_size_valid(flit.size_or_num_req[0..3].into(CHITransferSize)),
              label_prefix ++ "_size_valid")
 
+/* Combine physical RSP transport checks with opcode and endpoint-identity assertions. */
 fun monitor_chi_rsp(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
@@ -143,6 +156,7 @@ fun monitor_chi_rsp(p :: CHIFlitParams,
                         label_prefix)
   monitor_chi_rsp_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
+/* Check accepted RSP identity, advertised opcode, and credit-return TxnID. */
 fun monitor_chi_rsp_fields(p :: CHIFlitParams,
                            valid :: Bool,
                            flit :: CHIRspFlit(p),
@@ -166,6 +180,7 @@ fun monitor_chi_rsp_fields(p :: CHIFlitParams,
       assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
 
+/* Combine physical SNP transport checks with advertised opcode and credit-return assertions. */
 fun monitor_chi_snp(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
@@ -189,6 +204,7 @@ fun monitor_chi_snp(p :: CHIFlitParams,
                         label_prefix)
   monitor_chi_snp_fields(p, valid, flit, capabilities, label_prefix)
 
+/* Check accepted SNP opcode membership and the credit-return transaction identity. */
 fun monitor_chi_snp_fields(p :: CHIFlitParams,
                            valid :: Bool,
                            flit :: CHISnpFlit(p),
@@ -203,6 +219,7 @@ fun monitor_chi_snp_fields(p :: CHIFlitParams,
       assert(flit.txn_id === bits(0, 12),
              label_prefix ++ "_lcrd_txn_id_zero")
 
+/* Combine physical DAT transport checks with opcode, identity, and legal DataID assertions. */
 fun monitor_chi_dat(p :: CHIFlitParams,
                     credit_limit :: PosInt,
                     valid :: Bool,
@@ -229,6 +246,7 @@ fun monitor_chi_dat(p :: CHIFlitParams,
                         label_prefix)
   monitor_chi_dat_fields(p, valid, flit, identity_value, capabilities, node_id, identity_label, label_prefix)
 
+/* Check accepted DAT identity, advertised opcode, credit-return TxnID, and physical DataID. */
 fun monitor_chi_dat_fields(p :: CHIFlitParams,
                            valid :: Bool,
                            flit :: CHIDatFlit(p),
@@ -255,13 +273,17 @@ fun monitor_chi_dat_fields(p :: CHIFlitParams,
       assert(chi_data_id_valid(flit.data_id, p),
              label_prefix ++ "_data_id_valid")
 
+/* Normalize either endpoint view into capabilities transmitted by its physical node. */
 fun node_emitted_capabilities(endpoint :: CHIEndpointParams):
   if endpoint is_a CHINodeParams | endpoint.emits | endpoint.supports
 
+/* Normalize either endpoint view into capabilities accepted by its physical node. */
 fun node_received_capabilities(endpoint :: CHIEndpointParams):
   if endpoint is_a CHINodeParams | endpoint.supports | endpoint.emits
 
-// Coverage is derived from capabilities, never a separately maintained profile.
+/*
+ * Coverage is derived from capabilities, never a separately maintained profile.
+ */
 fun check_chi_transaction_coverage(endpoint :: CHIEndpointParams):
   def emitted = node_emitted_capabilities(endpoint)
   def received = node_received_capabilities(endpoint)
@@ -277,12 +299,15 @@ fun check_chi_transaction_coverage(endpoint :: CHIEndpointParams):
   unless supported
   | error(~who: #'check_chi_transaction_coverage, endpoint.name ++ ": requested transaction coverage is unsupported; use ~transaction_checks: #false for field/transport checks only")
 
-// A ready-valid attachment binds an explicit node contract and, optionally,
-// its real peer. This checks metadata at elaboration, without metadata wires.
+/*
+ * A ready-valid attachment binds an explicit node contract and, optionally,
+ * its real peer. This checks metadata at elaboration, without metadata wires.
+ */
 fun check_chi_channel_contract(p :: CHIFlitParams, node :: CHINodeParams, peer :: CHIICNPortParams, kinds :: List.of(CHINodeKind)):
   unless endpoint_pair_legal(node, peer, p, kinds)
   | error(~who: #'check_chi_channel_contract, "incompatible CHI monitor endpoint contracts")
 
+/* Isolate coherent requester checker registers for one monitored endpoint's accepted events. */
 sync_circuit CHIRNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
   input tx_req_event: Bool
   input tx_req: CHIReqFlit(p)
@@ -299,6 +324,7 @@ sync_circuit CHIRNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointP
   check_chi_transaction_coverage(endpoint)
   coherent_requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_coherent", tx_req_event, tx_req, tx_rsp_event, tx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat, rx_snp_event, rx_snp, ~rx_rsp_valid: rx_rsp_event, ~rx_rsp: rx_rsp)
 
+/* Wire an accepted-event stream into its own coherent requester checker instance. */
 fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
                                 tx_req_event :: Bool,
                                 tx_req :: CHIReqFlit(p),
@@ -326,6 +352,10 @@ fun monitor_chi_rn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParam
   checker.rx_rsp_event <== rx_rsp_event
   checker.rx_rsp <== rx_rsp
 
+/*
+ * Observe accepted RN-F/RN-D channel transfers and attach field checks plus optional
+ * transaction coverage.
+ */
 fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             port :: Endpoint.of(CHIRNChannels(p)),
                             ~peer: peer :: CHIICNPortParams = node.icn_peer(),
@@ -349,6 +379,10 @@ fun monitor_chi_rn_channels(p :: CHIFlitParams, node :: CHINodeParams,
   | monitor_chi_rn_transactions(p, node, label_prefix, observed.requests.valid & observed.requests.ready, observed.requests.bits, observed.requester_responses.valid & observed.requester_responses.ready, observed.requester_responses.bits, observed.request_data.valid & observed.request_data.ready, observed.request_data.bits, observed.response_data.valid & observed.response_data.ready, observed.response_data.bits, observed.snoops.valid & observed.snoops.ready, observed.snoops.bits, observed.responses.valid & observed.responses.ready, observed.responses.bits)
   | #void
 
+/*
+ * Isolate non-coherent requester checker registers for one monitored endpoint's accepted
+ * events.
+ */
 sync_circuit CHIRNITransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
   input tx_req_event: Bool
   input tx_req: CHIReqFlit(p)
@@ -361,6 +395,7 @@ sync_circuit CHIRNITransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpoint
   check_chi_transaction_coverage(endpoint)
   requester_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", tx_req_event, tx_req, rx_rsp_event, rx_rsp, tx_dat_event, tx_dat, rx_dat_event, rx_dat)
 
+/* Wire an accepted-event stream into its own non-coherent requester checker instance. */
 fun monitor_chi_rni_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
                                  tx_req_event :: Bool,
                                  tx_req :: CHIReqFlit(p),
@@ -380,6 +415,10 @@ fun monitor_chi_rni_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointPara
   checker.rx_dat_event <== rx_dat_event
   checker.rx_dat <== rx_dat
 
+/*
+ * Observe accepted RN-I channel transfers and attach field checks plus optional transaction
+ * coverage.
+ */
 fun monitor_chi_rni_channels(p :: CHIFlitParams, node :: CHINodeParams,
                              port :: Endpoint.of(CHIRNIChannels(p)),
                              ~peer: peer :: CHIICNPortParams = node.icn_peer(),
@@ -402,6 +441,7 @@ fun monitor_chi_rni_channels(p :: CHIFlitParams, node :: CHINodeParams,
   | monitor_chi_rni_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.response.valid & observed.rsp.response.ready, observed.rsp.response.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
   | #void
 
+/* Isolate subordinate checker registers for one monitored endpoint's accepted events. */
 sync_circuit CHISNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String):
   input rx_req_event: Bool
   input rx_req: CHIReqFlit(p)
@@ -414,6 +454,7 @@ sync_circuit CHISNTransactionChecks(p :: CHIFlitParams, endpoint :: CHIEndpointP
   check_chi_transaction_coverage(endpoint)
   subordinate_transaction_monitor(p, endpoint.max_outstanding, label_prefix ++ "_transaction", rx_req_event, rx_req, tx_rsp_event, tx_rsp, rx_dat_event, rx_dat, tx_dat_event, tx_dat)
 
+/* Wire an accepted-event stream into its own non-coherent subordinate checker instance. */
 fun monitor_chi_sn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParams, label_prefix :: String,
                                 rx_req_event :: Bool,
                                 rx_req :: CHIReqFlit(p),
@@ -433,6 +474,10 @@ fun monitor_chi_sn_transactions(p :: CHIFlitParams, endpoint :: CHIEndpointParam
   checker.tx_dat_event <== tx_dat_event
   checker.tx_dat <== tx_dat
 
+/*
+ * Observe accepted subordinate channel transfers and attach field checks plus optional
+ * transaction coverage.
+ */
 fun monitor_chi_sn_channels(p :: CHIFlitParams, node :: CHINodeParams,
                             port :: Endpoint.of(CHISNChannels(p)),
                             ~peer: peer :: CHIICNPortParams = node.icn_peer(),
@@ -452,7 +497,9 @@ fun monitor_chi_sn_channels(p :: CHIFlitParams, node :: CHINodeParams,
   | monitor_chi_sn_transactions(p, node, label_prefix, observed.req.valid & observed.req.ready, observed.req.bits, observed.rsp.valid & observed.rsp.ready, observed.rsp.bits, observed.dat.request.valid & observed.dat.request.ready, observed.dat.request.bits, observed.dat.response.valid & observed.dat.response.ready, observed.dat.response.bits)
   | #void
 
-// Applies the RN-F/RN-D checks to one explicitly selected endpoint.
+/*
+ * Applies the RN-F/RN-D checks to one explicitly selected endpoint.
+ */
 fun monitor_chi_rn(link :: CHIRNLinkParams,
                    endpoint :: CHIEndpointParams,
                    port :: Endpoint.of(CHIRNLink(link, endpoint)),
@@ -507,8 +554,10 @@ fun monitor_chi_rn(link :: CHIRNLinkParams,
   rn_rx_previous_request <== observed.rx_link_active_request
   rn_rx_previous_ack <== observed.rx_link_active_ack
 
-// Applies the RN-I link and eligible transaction checks to one explicitly
-// selected endpoint.
+/*
+ * Applies the RN-I link and eligible transaction checks to one explicitly
+ * selected endpoint.
+ */
 fun monitor_chi_rni(link :: CHIRNILinkParams,
                     endpoint :: CHIEndpointParams,
                     port :: Endpoint.of(CHIRNILink(link, endpoint)),
@@ -560,8 +609,10 @@ fun monitor_chi_rni(link :: CHIRNILinkParams,
   rni_rx_previous_request <== observed.rx_link_active_request
   rni_rx_previous_ack <== observed.rx_link_active_ack
 
-// Applies the SN-F/SN-I link and eligible transaction checks to one explicitly
-// selected endpoint.
+/*
+ * Applies the SN-F/SN-I link and eligible transaction checks to one explicitly
+ * selected endpoint.
+ */
 fun monitor_chi_sn(link :: CHISNLinkParams,
                    endpoint :: CHIEndpointParams,
                    port :: Endpoint.of(CHISNLink(link, endpoint)),
@@ -608,8 +659,10 @@ fun monitor_chi_sn(link :: CHISNLinkParams,
   sn_rx_previous_request <== observed.rx_link_active_request
   sn_rx_previous_ack <== observed.rx_link_active_ack
 
-// Monitors the ready-valid transaction transfers where an HN-I translates
-// one transaction leg into the other, independently of physical CHI links.
+/*
+ * Monitors the ready-valid transaction transfers where an HN-I translates
+ * one transaction leg into the other, independently of physical CHI links.
+ */
 fun monitor_chi_hni(home :: CHIHomeParams,
                     flit :: CHIFlitParams,
                     upstream_requests :: Endpoint,

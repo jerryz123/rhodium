@@ -91,12 +91,9 @@ even while another transaction wins the shared outputs. Overlapping
 transactions occupy distinct Perfetto lanes, and reused transaction IDs do not
 merge occurrences. Residency includes lookup, snoops, refill/writeback waits,
 and output backpressure; it ends on final DAT, terminal completion, copyback
-retirement, or epoch reset, not on the first response beat. For reads that require
-`CompAck`, `CHIInclusiveHNF` assigns a DBID from its configured acknowledgement
-table and releases the LLC datapath after final DAT. A later `CompAck` retires
-that table entry and ends the same-set grant reservation. Other sets can
-continue lookup, snoop, refill, and response work while acknowledgements are
-outstanding; the granted set cannot be probed or replaced before receipt.
+retirement, or epoch reset, not on the first response beat. Delayed `CompAck`
+retains the separate granted-set reservation described above, after the demand
+slot's residency has ended.
 Ordinary elaboration adds no event instrumentation or functional buffering.
 These are transaction lifetimes, not a trace of every internal FSM state.
 Separate victim-writeback and CompAck residencies are not yet annotated.
@@ -107,12 +104,32 @@ requester-response ancestry yet. Callers may observe subordinate transfers
 without adding checkpoints inside the Home or victim-writeback buffer.
 
 Home-to-memory request and write-data ancestry is supported in
-SingleCoreRV5StageSoC. The emitter enables
+SingleCoreRV5StageSoC. Its emitter enables
 [partial tracing](../../rhodium/event/README.md), so missing contracts such as
 the uncached engine's ownership become explicit ancestry gaps instead of
 blocking all instrumentation. IO-MSHR and uncached ownership remain unannotated.
 This does not establish complete NoC or memory-controller graph coverage;
 partial tracing does not change the Home's functional request/response behavior.
+
+## Shared configuration and snoop targets
+
+Import `lib("chi/home/home-common.rhdl")` for shared `CHIHNFConfig`,
+`CHIHNFParams`, `CHIHNFIdentity`, and Home request/message policy helpers.
+It does not instantiate a Home engine. These types remain available through
+`chi/main.rhdl` and their existing coherent-Home exports.
+
+`CHIHNFParams(home, config, subordinate_service)` derives its
+`subordinate_endpoint` from that service and validates it against the Home
+configuration.
+
+`CHIHomeSnoopTargets(config)` in [`home-snoop-targets.rhdl`](home-snoop-targets.rhdl)
+tracks pending snoops in configured endpoint order. Its `load` valid-only input
+replaces the target mask; its `target` ready-valid output offers the lowest-index
+pending NodeID. An accepted target clears that bit and updates `expected_node`,
+which remains unchanged on a later mask load. Reset clears both registers.
+Loading takes priority over dispatch; callers should keep these events exclusive.
+The Home controls when dispatch is allowed and when responses are complete:
+an empty pending mask does not mean the last responder has finished.
 
 ## Limits and navigation
 

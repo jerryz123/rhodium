@@ -1,5 +1,5 @@
 #lang rhombus
-// Compiles logical CHI connections into independent, validated NoC channel plans.
+/* Compiles logical CHI connections into independent, validated NoC channel plans. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,19 +29,25 @@ export:
   compile_chi_channel
   compile_chi_connections
 
-// Associates one CHI NodeID with one symbolic terminal and its physical
-// router attachment. This is the single source of endpoint facts throughout
-// CHI-to-NoC compilation.
+/*
+ * Associates one CHI NodeID with one symbolic terminal and its physical
+ * router attachment. This is the single source of endpoint facts throughout
+ * CHI-to-NoC compilation.
+ */
 class CHIInjectionSite(node_id :: Nat,
                        terminal :: InjectionRef,
                        router :: NodeRef):
+  /* Project this CHI source into the generic NoC injection-terminal description. */
   method terminal_spec(): InjectionTerminalSpec(terminal, router)
 
+/* Associate a destination NodeID with its symbolic terminal and physical router placement. */
 class CHIEjectionSite(node_id :: Nat,
                       terminal :: EjectionRef,
                       router :: NodeRef):
+  /* Project this CHI destination into the generic NoC ejection-terminal description. */
   method terminal_spec(): EjectionTerminalSpec(terminal, router)
 
+/* Extend an endpoint name with channel suffixes and construct its injection identity. */
 fun injection_site(path :: NamePath,
                    suffixes :: NonemptyList.of(NonemptyString),
                    node_id :: Nat,
@@ -51,6 +57,7 @@ fun injection_site(path :: NamePath,
     terminal_path := terminal_path.child(suffix)
   CHIInjectionSite(node_id, InjectionRef(terminal_path), router)
 
+/* Extend an endpoint name with channel suffixes and construct its ejection identity. */
 fun ejection_site(path :: NamePath,
                   suffixes :: NonemptyList.of(NonemptyString),
                   node_id :: Nat,
@@ -60,6 +67,7 @@ fun ejection_site(path :: NamePath,
     terminal_path := terminal_path.child(suffix)
   CHIEjectionSite(node_id, EjectionRef(terminal_path), router)
 
+/* Group the requester-side terminal identities for requests, responses, snoops, and data. */
 class CHIRNSite(path :: NamePath,
                 node_id :: Nat,
                 router :: NodeRef,
@@ -69,6 +77,7 @@ class CHIRNSite(path :: NamePath,
                 snp :: CHIEjectionSite,
                 dat_request :: CHIInjectionSite,
                 dat_response :: CHIEjectionSite):
+  /* Create consistently named requester terminals at one NodeID and router. */
   constructor (path :: NamePath, node_id :: Nat, router :: NodeRef):
     super(path,
           node_id,
@@ -80,6 +89,7 @@ class CHIRNSite(path :: NamePath,
           injection_site(path, ["dat", "request"], node_id, router),
           ejection_site(path, ["dat", "response"], node_id, router))
 
+/* Group the Home's requester-facing terminal identities with reversed requester directions. */
 class CHIRNICNSite(path :: NamePath,
                    node_id :: Nat,
                    router :: NodeRef,
@@ -89,6 +99,7 @@ class CHIRNICNSite(path :: NamePath,
                    snp :: CHIInjectionSite,
                    dat_request :: CHIEjectionSite,
                    dat_response :: CHIInjectionSite):
+  /* Create the aggregate Home requester-side terminals at one NodeID and router. */
   constructor (path :: NamePath, node_id :: Nat, router :: NodeRef):
     super(path,
           node_id,
@@ -100,6 +111,7 @@ class CHIRNICNSite(path :: NamePath,
           ejection_site(path, ["dat", "request"], node_id, router),
           injection_site(path, ["dat", "response"], node_id, router))
 
+/* Group the Home's subordinate-facing REQ, RSP, and DAT terminal identities. */
 class CHISNICNSite(path :: NamePath,
                    node_id :: Nat,
                    router :: NodeRef,
@@ -107,6 +119,7 @@ class CHISNICNSite(path :: NamePath,
                    rsp_response :: CHIEjectionSite,
                    dat_request :: CHIInjectionSite,
                    dat_response :: CHIEjectionSite):
+  /* Create the Home subordinate-side source and sink terminals without a SNP path. */
   constructor (path :: NamePath, node_id :: Nat, router :: NodeRef):
     super(path,
           node_id,
@@ -116,6 +129,7 @@ class CHISNICNSite(path :: NamePath,
           injection_site(path, ["dat", "request"], node_id, router),
           ejection_site(path, ["dat", "response"], node_id, router))
 
+/* Group a subordinate device's REQ, RSP, and DAT terminal identities. */
 class CHISNSite(path :: NamePath,
                 node_id :: Nat,
                 router :: NodeRef,
@@ -123,6 +137,7 @@ class CHISNSite(path :: NamePath,
                 rsp_response :: CHIInjectionSite,
                 dat_request :: CHIEjectionSite,
                 dat_response :: CHIInjectionSite):
+  /* Create subordinate device terminals with directions complementary to the Home side. */
   constructor (path :: NamePath, node_id :: Nat, router :: NodeRef):
     super(path,
           node_id,
@@ -132,10 +147,13 @@ class CHISNSite(path :: NamePath,
           ejection_site(path, ["dat", "request"], node_id, router),
           injection_site(path, ["dat", "response"], node_id, router))
 
-// Describes one permitted protocol-channel path before generic route lowering.
+/*
+ * Describes one permitted protocol-channel path before generic route lowering.
+ */
 class CHIChannelRouteSpec(ref :: RouteClassRef,
                           source :: CHIInjectionSite,
                           destination :: CHIEjectionSite):
+  /* Derive a stable symbolic route-class name from the source and destination paths. */
   constructor (source :: CHIInjectionSite,
                destination :: CHIEjectionSite):
     super(RouteClassRef(source.terminal.path.segments ++ (
@@ -144,84 +162,113 @@ class CHIChannelRouteSpec(ref :: RouteClassRef,
           source,
           destination)
 
+/* Define the channel routes contributed by one logical CHI connection. */
 interface CHIConnection:
+  /* Describe permitted request paths for this connection. */
   method req_routes() :: NonemptyList.of(CHIChannelRouteSpec)
+  /* Describe permitted response paths for this connection. */
   method rsp_routes() :: NonemptyList.of(CHIChannelRouteSpec)
+  /* Describe snoop paths, allowing an empty list for non-snooping connections. */
   method snp_routes() :: List.of(CHIChannelRouteSpec)
+  /* Describe permitted data paths for this connection. */
   method dat_routes() :: NonemptyList.of(CHIChannelRouteSpec)
 
+/* Describe request, response, and data routes between a non-snooping requester and its Home. */
 class CHIRNIConnection(node :: CHIRNSite, icn :: CHIRNICNSite):
   implements CHIConnection
 
+  /* Route requester requests to the Home. */
   override method req_routes():
     [CHIChannelRouteSpec(node.req, icn.req)]
 
+  /* Route requester responses to the Home and Home responses back to the requester. */
   override method rsp_routes():
     [CHIChannelRouteSpec(node.rsp_requester, icn.rsp_requester),
      CHIChannelRouteSpec(icn.rsp_response, node.rsp_response)]
 
+  /* Contribute no snoop routes for this non-snooping connection. */
   override method snp_routes(): []
 
+  /* Route requester data to the Home and Home data back to the requester. */
   override method dat_routes():
     [CHIChannelRouteSpec(node.dat_request, icn.dat_request),
      CHIChannelRouteSpec(icn.dat_response, node.dat_response)]
 
-// Adds the independently routed SNP path required by a fully coherent RN-F.
+/*
+ * Adds the independently routed SNP path required by a fully coherent RN-F.
+ */
 class CHIRNFConnection(node :: CHIRNSite, icn :: CHIRNICNSite):
   implements CHIConnection
 
+  /* Route requester requests to the Home. */
   override method req_routes():
     [CHIChannelRouteSpec(node.req, icn.req)]
 
+  /* Route requester responses to the Home and Home responses back to the requester. */
   override method rsp_routes():
     [CHIChannelRouteSpec(node.rsp_requester, icn.rsp_requester),
      CHIChannelRouteSpec(icn.rsp_response, node.rsp_response)]
 
+  /* Route Home snoops to the fully coherent requester. */
   override method snp_routes():
     [CHIChannelRouteSpec(icn.snp, node.snp)]
 
+  /* Route requester data to the Home and Home data back to the requester. */
   override method dat_routes():
     [CHIChannelRouteSpec(node.dat_request, icn.dat_request),
      CHIChannelRouteSpec(icn.dat_response, node.dat_response)]
 
+/* Describe request, response, and data routes between a Home and subordinate device. */
 class CHISNConnection(icn :: CHISNICNSite, node :: CHISNSite):
   implements CHIConnection
 
+  /* Route Home requests to the subordinate device. */
   override method req_routes():
     [CHIChannelRouteSpec(icn.req, node.req)]
 
+  /* Route subordinate responses back to the Home. */
   override method rsp_routes():
     [CHIChannelRouteSpec(node.rsp_response, icn.rsp_response)]
 
+  /* Contribute no snoop routes for this non-snooping connection. */
   override method snp_routes(): []
 
+  /* Route write data to the subordinate and read data back to the Home. */
   override method dat_routes():
     [CHIChannelRouteSpec(icn.dat_request, node.dat_request),
      CHIChannelRouteSpec(node.dat_response, icn.dat_response)]
 
+/* Select independent generic routing policies for each CHI channel. */
 class CHIChannelRouting(req :: RoutingPolicy,
                         rsp :: RoutingPolicy,
                         snp :: RoutingPolicy,
                         dat :: RoutingPolicy)
 
-// Records the route key derived from generic validation for one CHI path.
+/*
+ * Records the route key derived from generic validation for one CHI path.
+ */
 class CHICompiledRoute(source :: CHIInjectionSite,
                        destination :: CHIEjectionSite,
                        route_class :: RouteClass,
                        route_key :: Nat):
   opaque
   internal _CHICompiledRoute
+  /* Restrict construction to the validated channel compiler. */
   constructor ~none
 
-// Is the complete pure result for one independently routed CHI channel.
+/*
+ * Is the complete pure result for one independently routed CHI channel.
+ */
 class CHIChannelCompilation(network :: NetworkCompilation,
                             injections :: NonemptyList.of(CHIInjectionSite),
                             ejections :: NonemptyList.of(CHIEjectionSite),
                             routes :: NonemptyList.of(CHICompiledRoute)):
   opaque
   internal _CHIChannelCompilation
+  /* Restrict construction to the validated channel compiler. */
   constructor ~none
 
+  /* Resolve an injection identity or reject a terminal absent from this channel. */
   method injection(ref :: InjectionRef) :: CHIInjectionSite:
     def found = injections.find(
       fun (site): injection_ref_equal(site.terminal, ref)
@@ -231,6 +278,7 @@ class CHIChannelCompilation(network :: NetworkCompilation,
             "CHI channel has no injection terminal")
     found
 
+  /* Resolve an ejection identity or reject a terminal absent from this channel. */
   method ejection(ref :: EjectionRef) :: CHIEjectionSite:
     def found = ejections.find(
       fun (site): ejection_ref_equal(site.terminal, ref)
@@ -240,18 +288,22 @@ class CHIChannelCompilation(network :: NetworkCompilation,
             "CHI channel has no ejection terminal")
     found
 
+  /* Return the generic compiled injection-port layout for a terminal. */
   method injection_port(ref :: InjectionRef) :: NetworkInjectionPort:
     network.injection_port(ref)
 
+  /* Return the generic compiled ejection-port layout for a terminal. */
   method ejection_port(ref :: EjectionRef) :: NetworkEjectionPort:
     network.ejection_port(ref)
 
+  /* Return the validated routes originating at an existing injection terminal. */
   method routes_from(ref :: InjectionRef) :: List.of(CHICompiledRoute):
     injection(ref)
     routes.filter(
       ~keep: fun (route): injection_ref_equal(route.source.terminal, ref)
     )
 
+  /* Resolve the unique route for an injection terminal and target NodeID. */
   method route(source :: InjectionRef,
                target_node_id :: Nat) :: CHICompiledRoute:
     def found = routes.find(
@@ -265,14 +317,20 @@ class CHIChannelCompilation(network :: NetworkCompilation,
             "CHI channel has no route for the injection and target NodeID")
     found
 
+/*
+ * Group the independently compiled CHI planes, omitting SNP when no connection contributes
+ * snoops.
+ */
 class CHIChannelCompilations(req :: CHIChannelCompilation,
                              rsp :: CHIChannelCompilation,
                              snp :: maybe(CHIChannelCompilation),
                              dat :: CHIChannelCompilation)
 
+/* Use one generic routing policy for every CHI channel. */
 fun uniform_chi_routing(policy :: RoutingPolicy) :: CHIChannelRouting:
   CHIChannelRouting(policy, policy, policy, policy)
 
+/* Concatenate the channel routes selected from each logical connection. */
 fun collect_connection_routes(connections :: List.of(CHIConnection),
                               select :: Function.of_arity(1)):
   def mutable routes = []
@@ -280,6 +338,10 @@ fun collect_connection_routes(connections :: List.of(CHIConnection),
     routes := routes ++ select(connection)
   routes
 
+/*
+ * Deduplicate and sort injection terminals while rejecting inconsistent NodeID or router
+ * assignments.
+ */
 fun collect_injection_sites(routes :: NonemptyList.of(CHIChannelRouteSpec)):
   def mutable sites = []
   for (route in routes):
@@ -299,6 +361,10 @@ fun collect_injection_sites(routes :: NonemptyList.of(CHIChannelRouteSpec)):
     fun (left, right): injection_ref_less(left.terminal, right.terminal)
   )
 
+/*
+ * Deduplicate and sort ejection terminals while rejecting inconsistent NodeID or router
+ * assignments.
+ */
 fun collect_ejection_sites(routes :: NonemptyList.of(CHIChannelRouteSpec)):
   def mutable sites = []
   for (route in routes):
@@ -318,6 +384,7 @@ fun collect_ejection_sites(routes :: NonemptyList.of(CHIChannelRouteSpec)):
     fun (left, right): ejection_ref_less(left.terminal, right.terminal)
   )
 
+/* Resolve the CHI source corresponding to a validated generic injection reference. */
 fun require_injection_site(sites :: NonemptyList.of(CHIInjectionSite),
                            ref :: InjectionRef):
   def found = sites.find(
@@ -328,6 +395,7 @@ fun require_injection_site(sites :: NonemptyList.of(CHIInjectionSite),
           "validated route has no CHI injection site")
   found
 
+/* Resolve the CHI destination corresponding to a validated generic ejection reference. */
 fun require_ejection_site(sites :: NonemptyList.of(CHIEjectionSite),
                           ref :: EjectionRef):
   def found = sites.find(
@@ -338,12 +406,14 @@ fun require_ejection_site(sites :: NonemptyList.of(CHIEjectionSite),
           "validated route has no CHI ejection site")
   found
 
+/* Compare the source terminal and destination NodeID used by hardware route lookup. */
 fun same_compiled_route(left :: CHICompiledRoute,
                         right :: CHICompiledRoute):
   injection_ref_equal(left.source.terminal, right.source.terminal) && (
     left.destination.node_id == right.destination.node_id
   )
 
+/* Reject multiple route classes for one injection terminal and target NodeID. */
 fun require_unambiguous_routes(routes :: NonemptyList.of(CHICompiledRoute)):
   for (route in routes):
     when routes.filter(
@@ -352,6 +422,10 @@ fun require_unambiguous_routes(routes :: NonemptyList.of(CHICompiledRoute)):
     | error(~who: #'compile_chi_channel,
             "each CHI injection and target NodeID must select one route class")
 
+/*
+ * Validate and lower one channel through the generic NoC compiler, retaining CHI endpoint
+ * identities.
+ */
 fun compile_chi_channel(topology :: TopologySpec,
                         route_specs :: NonemptyList.of(CHIChannelRouteSpec),
                         routing_policy :: RoutingPolicy,
@@ -396,6 +470,7 @@ fun compile_chi_channel(topology :: TopologySpec,
   require_unambiguous_routes(compiled_routes)
   _CHIChannelCompilation(network, injections, ejections, compiled_routes)
 
+/* Compile each logical connection's REQ, RSP, and DAT routes and create SNP only when needed. */
 fun compile_chi_connections(topology :: TopologySpec,
                             connections :: NonemptyList.of(CHIConnection),
                             routing :: CHIChannelRouting)

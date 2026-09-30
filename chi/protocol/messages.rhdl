@@ -1,5 +1,8 @@
 #lang rhodium
-// Constructs stateless requester/subordinate messages and Home transforms without engine policy.
+/*
+ * Constructs stateless requester/subordinate messages and Home transforms without engine
+ * policy.
+ */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,8 +11,10 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/protocol.rhdl") open
 
-// Shared inactive-field policy for the current RN/SN/Home response builders,
-// not a universal default for every RSP opcode (for example PCrdGrant).
+/*
+ * Shared inactive-field policy for the current RN/SN/Home response builders,
+ * not a universal default for every RSP opcode (for example PCrdGrant).
+ */
 fun chi_response(p :: CHIFlitParams,
                  node_id :: Bits(p.node_id_width),
                  target_id :: Bits(p.node_id_width),
@@ -32,6 +37,10 @@ fun chi_response(p :: CHIFlitParams,
     ~qos: qos
   )
 
+/*
+ * Grant a subordinate write DBID, routing the successful response to the request's SrcID and
+ * TxnID.
+ */
 fun chi_sn_dbid_response(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          request :: CHIReqFlit(p),
@@ -39,12 +48,17 @@ fun chi_sn_dbid_response(p :: CHIFlitParams,
   chi_response(p, node_id, request.src_id, request.txn_id, CHIRspOpcode.DBIDResp,
                ~dbid: dbid.zext(12), ~resp: bits(0, 3), ~error: CHIRespErr.OK, ~qos: request.qos)
 
+/* Return a successful write completion retaining the subordinate's granted DBID. */
 fun chi_sn_write_completion(p :: CHIFlitParams,
                             node_id :: Bits(p.node_id_width),
                             request :: CHIReqFlit(p),
                             dbid :: Bits) :~ CHIRspFlit(p):
   chi_sn_dbid_response(p, node_id, request, dbid).updated(~opcode: CHIRspOpcode.Comp)
 
+/*
+ * Build successful read data using ReturnNID/ReturnTxnID and the transfer's legal byte-enable
+ * mask.
+ */
 fun chi_sn_read_completion(p :: CHIFlitParams,
                            node_id :: Bits(p.node_id_width),
                            request :: CHIReqFlit(p),
@@ -68,6 +82,10 @@ fun chi_sn_read_completion(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
+/*
+ * Build non-copyback requester write data with caller-selected packet position and DBID/MECID
+ * fields.
+ */
 fun chi_rn_write_data(p :: CHIFlitParams,
                       node_id :: Bits(p.node_id_width),
                       home_node_id :: Bits(p.node_id_width),
@@ -95,8 +113,10 @@ fun chi_rn_write_data(p :: CHIFlitParams,
     ~tgt_id: home_node_id
   )
 
-// Full-line copyback carries the latest coherent state. Invalid copies still
-// complete the packet sequence, but cannot write stale bytes into the Home.
+/*
+ * Full-line copyback carries the latest coherent state. Invalid copies still
+ * complete the packet sequence, but cannot write stale bytes into the Home.
+ */
 fun chi_rn_copyback_data(p :: CHIFlitParams,
                          node_id :: Bits(p.node_id_width),
                          home_node_id :: Bits(p.node_id_width),
@@ -113,6 +133,10 @@ fun chi_rn_copyback_data(p :: CHIFlitParams,
     ~resp: response
   )
 
+/*
+ * Build a Home response with the requester's routing/QoS and explicit completion opcode, DBID,
+ * and error.
+ */
 fun chi_hnf_response(p :: CHIFlitParams,
                      home_node_id :: Bits(p.node_id_width),
                      request :: CHIReqFlit(p),
@@ -122,6 +146,10 @@ fun chi_hnf_response(p :: CHIFlitParams,
   chi_response(p, home_node_id, request.src_id, request.txn_id, opcode,
                ~dbid: dbid, ~resp: bits(0, 3), ~error: error, ~qos: request.qos)
 
+/*
+ * Translate a Home-owned request to non-snoopable subordinate routing and caller-selected
+ * transfer policy.
+ */
 fun chi_home_downstream_request(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
                                 subordinate_node_id :: Bits(p.node_id_width),
@@ -151,6 +179,10 @@ fun chi_home_downstream_request(p :: CHIFlitParams,
     ~tgt_id: subordinate_node_id
   )
 
+/*
+ * Translate intervention data into a subordinate write while preserving untouched payload
+ * metadata.
+ */
 fun chi_hnf_snoop_write_data(p :: CHIFlitParams,
                              home_node_id :: Bits(p.node_id_width),
                              subordinate_node_id :: Bits(p.node_id_width),
@@ -172,6 +204,7 @@ fun chi_hnf_snoop_write_data(p :: CHIFlitParams,
     ~tgt_id: subordinate_node_id
   )
 
+/* Restore requester return routing and apply the Home's selected coherent response state. */
 fun chi_home_upstream_read_data(p :: CHIFlitParams,
                                 home_node_id :: Bits(p.node_id_width),
                                 request :: CHIReqFlit(p),
@@ -190,8 +223,10 @@ fun chi_home_upstream_read_data(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
-// Non-forward snoops leave inactive optional fields zero; Home policy supplies
-// the opcode, target address, and transaction identity explicitly.
+/*
+ * Non-forward snoops leave inactive optional fields zero; Home policy supplies
+ * the opcode, target address, and transaction identity explicitly.
+ */
 fun chi_home_snoop(p :: CHIFlitParams,
                    home_node_id :: Bits(p.node_id_width),
                    request :: CHIReqFlit(p),
@@ -209,8 +244,10 @@ fun chi_home_snoop(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
-// Materializes a full-packet backing write for accepted intervention data.
-// The Home retains acknowledgement policy and transaction allocation.
+/*
+ * Materializes a full-packet backing write for accepted intervention data.
+ * The Home retains acknowledgement policy and transaction allocation.
+ */
 fun chi_home_snoop_write_request(p :: CHIFlitParams,
                                  home_node_id :: Bits(p.node_id_width),
                                  subordinate_node_id :: Bits(p.node_id_width),
@@ -237,8 +274,10 @@ fun chi_home_snoop_write_request(p :: CHIFlitParams,
     ~qos: request.qos
   )
 
-// Reissues an RN request as an HN-owned subordinate transaction. Initial HN-I
-// traffic returns through the Home Node instead of using direct transfer.
+/*
+ * Reissues an RN request as an HN-owned subordinate transaction. Initial HN-I
+ * traffic returns through the Home Node instead of using direct transfer.
+ */
 fun chi_hni_downstream_request(p :: CHIFlitParams,
                                request :: CHIReqFlit(p),
                                home_node_id :: Nat,
@@ -259,6 +298,10 @@ fun chi_hni_downstream_request(p :: CHIFlitParams,
     ~tgt_id: subordinate_node_id
   )
 
+/*
+ * Restore requester response routing and replace a subordinate DBID with the Home's slot
+ * identifier.
+ */
 fun chi_hni_upstream_response(p :: CHIFlitParams,
                               response :: CHIRspFlit(p),
                               requester_txn_id :: Bits(12),
@@ -275,6 +318,7 @@ fun chi_hni_upstream_response(p :: CHIFlitParams,
     ~qos: requester_qos
   )
 
+/* Route write data using the recorded subordinate NodeID/DBID and restored requester QoS. */
 fun chi_hni_downstream_write_data(p :: CHIFlitParams,
                                   data :: CHIDatFlit(p),
                                   data_id :: Bits(2),
@@ -291,6 +335,7 @@ fun chi_hni_downstream_write_data(p :: CHIFlitParams,
     ~qos: requester_qos
   )
 
+/* Restore requester ReturnNID/ReturnTxnID and Home identity on returning read data. */
 fun chi_hni_upstream_read_data(p :: CHIFlitParams,
                                data :: CHIDatFlit(p),
                                requester_return_txn_id :: Bits(12),

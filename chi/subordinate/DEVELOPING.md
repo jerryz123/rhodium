@@ -108,8 +108,8 @@ behavioral benches in [`../tests/circt/`](../tests/circt/).
 - Event ownership: `event-subordinate` compares the production engine's
   external occurrence graph across reused IDs, credit returns, write stalls,
   response stalls, and reset in all four non-idle phases. Run it with device
-  simulations, then retry SingleCoreRV5StageSoC instrumentation for composed
-  network coverage.
+  simulations. Include SingleCoreRV5StageSoC instrumentation when changing
+  composed network ownership.
 
 For source moves, update direct consumers, docs, and build/CI paths together.
 Run `make check-boundaries` after module or dependency changes and use the

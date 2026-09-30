@@ -1,5 +1,5 @@
 #lang rhodium
-// Checks bounded coherent reads, full-line copyback handoffs, paired DVM, and RN-F snoops.
+/* Checks bounded coherent reads, full-line copyback handoffs, paired DVM, and RN-F snoops. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,11 +11,13 @@ import:
   lib("chi/protocol/link.rhdl").chi_initial_coherent_requester_capabilities
   "data-checks.rhdl" open
 
+/* Represent checker read phases until both data receipt and required CompAck have completed. */
 hardware_enum CHICoherentReadPhase(~width: 2):
   Free = 0
   AwaitData = 1
   AwaitCompAck = 2
 
+/* Retain a coherent read's Home/TxnID association, packet masks, and acknowledgement state. */
 bundle CHICoherentReadTransaction(p :: CHIFlitParams):
   phase: CHICoherentReadPhase
   txn_id: Bits(12)
@@ -25,6 +27,7 @@ bundle CHICoherentReadTransaction(p :: CHIFlitParams):
   received_data_ids: Bits(4)
   comp_ack_seen: Bool
 
+/* Retain a snoop's ordinary and forwarded response obligations and endpoint identities. */
 bundle CHISnoopTransaction(p :: CHIFlitParams):
   live: Bool
   forward: Bool
@@ -35,6 +38,7 @@ bundle CHISnoopTransaction(p :: CHIFlitParams):
   response_seen: Bool
   forward_data_seen: Bool
 
+/* Retain a full-copyback grant, DBID, coherent state, and complete packet-receipt mask. */
 bundle CHICopyBackTransaction(p :: CHIFlitParams):
   live: Bool
   granted: Bool
@@ -44,16 +48,22 @@ bundle CHICopyBackTransaction(p :: CHIFlitParams):
   received: Bits(4)
   state: Bits(3)
 
+/* Assert the bounded snoop/forward profile's single unelided packet at DataID zero. */
 fun coherent_single_data_fields(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   assert(data.data_id === bits(0, 2), label_prefix ++ "_data_id_zero")
   monitor_chi_unelided_data(p, data, label_prefix)
 
+/* Check full-line alignment and dataless framing when an accepted request is maintenance. */
 fun monitor_chi_cache_maintenance(p :: CHIFlitParams, valid :: Bool, request :: CHIReqFlit(p), label_prefix :: String):
   when (valid & chi_cache_maintenance(request.opcode)):
     assert(!request.multi_req & (request.size_or_num_req === bits(6, 6)), label_prefix ++ "_maintenance_line_size")
     assert(request.address[0..6] === bits(0, 6), label_prefix ++ "_maintenance_aligned")
     assert(!request.exp_comp_ack, label_prefix ++ "_maintenance_no_comp_ack")
 
+/*
+ * Track bounded coherent reads, copyback grants/data, snoops, forwarding, and paired DVM
+ * obligations.
+ */
 fun coherent_requester_transaction_monitor(p :: CHIFlitParams,
                                            limit :: PosInt,
                                            label_prefix :: String,

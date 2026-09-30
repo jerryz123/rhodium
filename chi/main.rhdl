@@ -1,5 +1,5 @@
 #lang rhodium
-// Re-exports public AMBA CHI contracts, adapters, metadata, and endpoint implementations.
+/* Re-exports public AMBA CHI contracts, adapters, metadata, and endpoint implementations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

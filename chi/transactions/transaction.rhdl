@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines bounded stateful monitoring for the initial non-coherent CHI transaction subset.
+/* Defines bounded stateful monitoring for the initial non-coherent CHI transaction subset. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   lib("chi/protocol/messages.rhdl") open
   "data-checks.rhdl" open
 
+/* Represent checker-owned non-coherent read/write lifetimes, with Free as the zero encoding. */
 hardware_enum CHIInitialTransactionPhase(~width: 3):
   Free = 0
   ReadPending = 1
@@ -18,6 +19,7 @@ hardware_enum CHIInitialTransactionPhase(~width: 3):
   WriteAwaitData = 3
   WriteAwaitComp = 4
 
+/* Retain requester TxnID, completer/DBID association, and expected/received packet masks. */
 bundle CHIRequesterTransaction(p :: CHIFlitParams):
   phase: CHIInitialTransactionPhase
   txn_id: Bits(12)
@@ -26,6 +28,7 @@ bundle CHIRequesterTransaction(p :: CHIFlitParams):
   expected_data_ids: Bits(4)
   received_data_ids: Bits(4)
 
+/* Retain subordinate request, return routing, DBID, and expected/received packet masks. */
 bundle CHISubordinateTransaction(p :: CHIFlitParams):
   phase: CHIInitialTransactionPhase
   txn_id: Bits(12)
@@ -36,6 +39,10 @@ bundle CHISubordinateTransaction(p :: CHIFlitParams):
   expected_data_ids: Bits(4)
   received_data_ids: Bits(4)
 
+/*
+ * Retain Home translation between requester return identities and the selected
+ * subordinate/DBID.
+ */
 bundle CHIHomeTransaction(p :: CHIFlitParams):
   phase: CHIInitialTransactionPhase
   requester_id: Bits(p.node_id_width)
@@ -48,10 +55,12 @@ bundle CHIHomeTransaction(p :: CHIFlitParams):
   expected_data_ids: Bits(4)
   received_data_ids: Bits(4)
 
+/* Test whether the encoded transfer fits within one physical DAT packet. */
 fun chi_initial_single_flit_size(size :: CHITransferSize,
                                  p :: CHIFlitParams):
   size.as_bits() <= bits(alignment_bits(p.data_bytes), 3)
 
+/* Assert the delivered non-coherent request framing and inactive ordering/tag fields. */
 fun chi_initial_request_fields(p :: CHIFlitParams, request :: CHIReqFlit(p), label_prefix :: String):
   assert(!request.multi_req, label_prefix ++ "_single_request")
   assert(chi_size_valid(chi_req_size(p, request)), label_prefix ++ "_size_valid")
@@ -60,10 +69,15 @@ fun chi_initial_request_fields(p :: CHIFlitParams, request :: CHIReqFlit(p), lab
   assert(!request.exp_comp_ack, label_prefix ++ "_no_comp_ack")
   assert(request.tag_op === CHITagOp.Invalid, label_prefix ++ "_tag_op_invalid")
 
+/* Assert physical DataID legality and unelided, unreplicated DAT framing. */
 fun chi_initial_data_fields(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   assert(chi_data_id_valid(data.data_id, p), label_prefix ++ "_data_id_valid")
   monitor_chi_unelided_data(p, data, label_prefix)
 
+/*
+ * Track bounded non-coherent requester reads/writes and reject identity, phase, and
+ * packet-accounting violations.
+ */
 fun requester_transaction_monitor(p :: CHIFlitParams,
                                   limit :: PosInt,
                                   label_prefix :: String,
@@ -216,6 +230,10 @@ fun requester_transaction_monitor(p :: CHIFlitParams,
   )
   entries <== next_entries
 
+/*
+ * Track bounded subordinate reads/writes through DBID, complete data receipt, and terminal
+ * completion.
+ */
 fun subordinate_transaction_monitor(p :: CHIFlitParams,
                                     limit :: PosInt,
                                     label_prefix :: String,
@@ -367,8 +385,10 @@ fun subordinate_transaction_monitor(p :: CHIFlitParams,
   )
   entries <== next_entries
 
-// Verifies the one-for-one ID and payload translation performed by an initial
-// HN-I between already-buffered ready-valid flows on its RN and SN sides.
+/*
+ * Verifies the one-for-one ID and payload translation performed by an initial
+ * HN-I between already-buffered ready-valid flows on its RN and SN sides.
+ */
 fun home_transaction_monitor(p :: CHIFlitParams,
                              home_node_id :: Nat,
                              limit :: PosInt,

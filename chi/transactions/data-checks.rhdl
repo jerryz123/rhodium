@@ -1,5 +1,5 @@
 #lang rhodium
-// Checks unelided packets and full-copyback state/masks without owning receipt state.
+/* Checks unelided packets and full-copyback state/masks without owning receipt state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,10 @@ import:
   lib("chi/protocol/flits.rhdl").CHIDatOpcode
   lib("chi/protocol/flits.rhdl").CHIRespErr
 
+/*
+ * Assert the delivered full-copyback state and mask rules, including zero data for Invalid
+ * copies.
+ */
 fun monitor_chi_copyback_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   monitor_chi_unelided_data(p, data, label_prefix)
   assert(data.opcode === CHIDatOpcode.CopyBackWriteData, label_prefix ++ "_opcode")
@@ -17,6 +21,7 @@ fun monitor_chi_copyback_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_p
   assert(data.byte_enable === mux(invalid, bits(0, p.byte_enable_width), !bits(0, p.byte_enable_width)), label_prefix ++ "_byte_enable")
   assert(!invalid ||| (data.data === bits(0, p.data_width)), label_prefix ++ "_invalid_zero_data")
 
+/* Assert that a DAT packet is neither replicated nor part of an elided packet encoding. */
 fun monitor_chi_unelided_data(p :: CHIFlitParams, data :: CHIDatFlit(p), label_prefix :: String):
   assert(data.num_dat === bits(0, 2), label_prefix ++ "_num_dat_zero")
   assert(!data.replicate, label_prefix ++ "_not_replicated")

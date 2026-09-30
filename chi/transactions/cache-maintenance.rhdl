@@ -1,5 +1,5 @@
 #lang rhodium
-// Issues one retryable dataless cache-maintenance transaction independently of snoop service.
+/* Issues one retryable dataless cache-maintenance transaction independently of snoop service. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +16,7 @@ def CHICacheMaintenanceResponses = response_profile("chi_cache_maintenance"):
   response [CHIRspOpcode.Comp]:
     completes [completion]
 
+/* Carry caller-selected line, maintenance opcode, Home/PAS, SnpMe, and retained context. */
 bundle CHICacheMaintenanceCommand(p :: CHIFlitParams, Context :: DataType):
   address: Bits(p.request_address_width)
   opcode: CHIReqOpcode
@@ -24,10 +25,12 @@ bundle CHICacheMaintenanceCommand(p :: CHIFlitParams, Context :: DataType):
   pas: CHIPAS
   context: Context
 
+/* Return the retained command context and maintenance completion error. */
 bundle CHICacheMaintenanceResult(Context :: DataType):
   context: Context
   error: CHIRespErr
 
+/* Build a full-line dataless maintenance REQ from saved command and retry-attempt policy. */
 fun chi_cache_maintenance_request(p :: CHIFlitParams, Context :: DataType,
                                   node_id :: Bits(p.node_id_width),
                                   txn_id :: Bits(12),
@@ -58,6 +61,10 @@ fun chi_cache_maintenance_request(p :: CHIFlitParams, Context :: DataType,
     ~tgt_id: command.home_id
   )
 
+/*
+ * Execute one dataless maintenance lifetime with retry association and a backpressured
+ * completion.
+ */
 sync_circuit CHICacheMaintenance(p :: CHIFlitParams, Context :: DataType):
   input node_id: Bits(p.node_id_width)
   input txn_id: Bits(12)

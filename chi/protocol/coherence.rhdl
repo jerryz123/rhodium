@@ -1,11 +1,12 @@
 #lang rhodium
-// Defines CHI coherent cache states and protocol-family classifiers.
+/* Defines CHI coherent cache states and protocol-family classifiers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("chi/protocol/flits.rhdl") open
 
+/* Represent local cache states, including dirty, partial, and empty unique variants. */
 hardware_enum CHICacheState(~width: 3):
   Invalid = 0
   SharedClean = 1
@@ -15,32 +16,39 @@ hardware_enum CHICacheState(~width: 3):
   UniqueCleanEmpty = 5
   UniqueDirtyPartial = 6
 
+  /* Test whether the cache-state value describes a present copy rather than Invalid. */
   method is_valid(state) :: Bool:
     state =/= CHICacheState.Invalid
 
+  /* Test whether the cache-state value carries dirty data responsibility. */
   method is_dirty(state) :: Bool:
     state.is_one_of(CHICacheState.SharedDirty,
                     CHICacheState.UniqueDirty,
                     CHICacheState.UniqueDirtyPartial)
 
+  /* Recognize either shared cache-state encoding. */
   method is_shared(state) :: Bool:
     state.is_one_of(CHICacheState.SharedClean, CHICacheState.SharedDirty)
 
+  /* Recognize unique ownership, including empty and partial unique copies. */
   method is_unique(state) :: Bool:
     state.is_one_of(CHICacheState.UniqueClean,
                     CHICacheState.UniqueDirty,
                     CHICacheState.UniqueCleanEmpty,
                     CHICacheState.UniqueDirtyPartial)
 
+/* Represent the coherent ownership state encoded in a response's low Resp bits. */
 hardware_enum CHIResponseState(~width: 2):
   Invalid = 0
   SharedClean = 1
   Unique = 2
   SharedDirty = 3
 
-// Resp is opcode-dependent on the wire. Coherent response contexts explicitly
-// reinterpret its packed bits through this view instead of adding CHI methods
-// to the generic Bits type.
+/*
+ * Resp is opcode-dependent on the wire. Coherent response contexts explicitly
+ * reinterpret its packed bits through this view instead of adding CHI methods
+ * to the generic Bits type.
+ */
 bundle CHICoherentResponse():
   pass_dirty: Bool
   state: CHIResponseState
@@ -61,10 +69,13 @@ export:
   chi_snoop_discards_dirty
   chi_snoop_response_state_valid
 
-// Maintenance is independent of requester kind and never implies a read fill.
+/*
+ * Maintenance is independent of requester kind and never implies a read fill.
+ */
 fun chi_cache_maintenance(opcode :: CHIReqOpcode) :~ Bool:
   opcode.is_one_of(CHIReqOpcode.CleanShared, CHIReqOpcode.CleanInvalid, CHIReqOpcode.MakeInvalid)
 
+/* Select the delivered Home snoop for a request, defaulting to clean-and-invalidate. */
 fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
   mux_lookup(opcode, ~default: CHISnpOpcode.SnpCleanInvalid):
     CHIReqOpcode.ReadOnce: CHISnpOpcode.SnpOnce
@@ -73,16 +84,21 @@ fun chi_home_snoop_opcode(opcode :: CHIReqOpcode) :~ CHISnpOpcode:
     CHIReqOpcode.ReadUnique: CHISnpOpcode.SnpUnique
     CHIReqOpcode.MakeInvalid: CHISnpOpcode.SnpMakeInvalid
 
+/* Recognize invalidating snoops that deliberately discard dirty contents. */
 fun chi_snoop_discards_dirty(opcode :: CHISnpOpcode) :~ Bool:
   opcode.is_one_of(CHISnpOpcode.SnpMakeInvalid, CHISnpOpcode.SnpMakeInvalidStash)
 
-// ReadOnce participates in coherence without acquiring a snoopable copy.
+/*
+ * ReadOnce participates in coherence without acquiring a snoopable copy.
+ */
 fun chi_request_snoops_caches(opcode :: CHIReqOpcode) :~ Bool:
   chi_request_allocates_coherent(opcode) ||| (opcode === CHIReqOpcode.ReadOnce) ||| chi_cache_maintenance(opcode)
 
+/* Identify ownership-affecting requests, including non-allocating partial writes. */
 fun chi_request_allocates_coherent(opcode :: CHIReqOpcode) :~ Bool:
   opcode.is_one_of(CHIReqOpcode.ReadClean, CHIReqOpcode.ReadUnique, CHIReqOpcode.WriteUniquePtl)
 
+/* Check the response state permitted by the delivered non-forward Home snoop profile. */
 fun chi_snoop_response_state_valid(opcode :: CHISnpOpcode, response :: CHICoherentResponse()) :~ Bool:
   mux(opcode === CHISnpOpcode.SnpClean,
       response.state.is_one_of(CHIResponseState.Invalid, CHIResponseState.SharedClean),

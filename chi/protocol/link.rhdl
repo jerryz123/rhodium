@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines CHI node roles, capabilities, credited links, and connection legality.
+/* Defines CHI node roles, capabilities, credited links, and connection legality. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   lib("chi/protocol/flits.rhdl") open
   lib("chi/protocol/coherence.rhdl").chi_rnf_snoop_opcodes
 
+/* Distinguish requester, Home, and subordinate roles independently of channel payloads. */
 enum CHINodeKind
 | RNF
 | RND
@@ -20,17 +21,21 @@ enum CHINodeKind
 | SNF
 | SNI
 
+/* Recognize either subordinate role, SN-F or SN-I. */
 fun CHINodeKind.is_subordinate(kind :: CHINodeKind):
   [CHINodeKind.SNF, CHINodeKind.SNI].contains(kind)
 
+/* Recognize either Home role, HN-F or HN-I. */
 fun CHINodeKind.is_home(kind :: CHINodeKind):
   [CHINodeKind.HNF, CHINodeKind.HNI].contains(kind)
 
+/* Describe allowed opcodes independently for each physical CHI channel. */
 class CHIChannelCapabilities(~req: req :: List.of(CHIReqOpcode) = [],
                              ~rsp: rsp :: List.of(CHIRspOpcode) = [],
                              ~snp: snp :: List.of(CHISnpOpcode) = [],
                              ~dat: dat :: List.of(CHIDatOpcode) = []):
 
+  /* Require every opcode in the supplied per-channel capability subset. */
   method contains_all(contained :: CHIChannelCapabilities):
     for all (pair in [[req, contained.req],
                       [rsp, contained.rsp],
@@ -39,6 +44,7 @@ class CHIChannelCapabilities(~req: req :: List.of(CHIReqOpcode) = [],
       for all (opcode in pair[1]):
         pair[0].contains(opcode)
 
+  /* Reject nonempty capability sets on channels excluded by the selected role. */
   method uses_only(~req: req :: Boolean,
                    ~rsp: rsp :: Boolean,
                    ~snp: snp :: Boolean,
@@ -49,10 +55,15 @@ class CHIChannelCapabilities(~req: req :: List.of(CHIReqOpcode) = [],
                            (dat || this.dat.length() == 0)]):
       condition
 
+  /* Check that any advertised SNP operations are limited to DVM snoops. */
   method is_dvm_snoop_only():
     for all (opcode in snp):
       opcode == CHISnpOpcode.SnpDVMOp
 
+/*
+ * Check that the advertised requester traffic fits the delivered non-coherent transaction
+ * checker.
+ */
 fun chi_initial_requester_capabilities(emitted :: CHIChannelCapabilities,
                                        received :: CHIChannelCapabilities):
   def allowed_emitted = CHIChannelCapabilities(
@@ -67,12 +78,15 @@ fun chi_initial_requester_capabilities(emitted :: CHIChannelCapabilities,
   )
   emitted.req.length() > 0 && allowed_emitted.contains_all(emitted) && allowed_received.contains_all(received)
 
+/* Apply the same non-coherent checker subset with requester/subordinate directions reversed. */
 fun chi_initial_subordinate_capabilities(emitted :: CHIChannelCapabilities,
                                          received :: CHIChannelCapabilities):
   chi_initial_requester_capabilities(received, emitted)
 
-// Classifies the bounded coherent-read/copyback/snoop capability subset shared by
-// endpoint validation and opt-in transaction coverage. This emits no monitor.
+/*
+ * Classifies the bounded coherent-read/copyback/snoop capability subset shared by
+ * endpoint validation and opt-in transaction coverage. This emits no monitor.
+ */
 fun chi_initial_coherent_requester_capabilities(
     emitted :: CHIChannelCapabilities,
     received :: CHIChannelCapabilities):
@@ -104,6 +118,7 @@ fun chi_initial_coherent_requester_capabilities(
     received
   ) && received.contains_all(required_received)
 
+/* Reject channel capabilities incompatible with the node kind and node/ICN direction. */
 fun validate_endpoint_capabilities(kind :: CHINodeKind,
                                    emits :: CHIChannelCapabilities,
                                    supports :: CHIChannelCapabilities,
@@ -160,11 +175,13 @@ fun validate_endpoint_capabilities(kind :: CHINodeKind,
   | error(~who: who,
           "channel capabilities are not valid for the " ++ to_string(kind) ++ " " ++ side ++ " role")
 
+/* Retain an ICN endpoint's identity, validated capabilities, and bounded outstanding capacity. */
 class CHIICNPortParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
                        emits :: CHIChannelCapabilities, supports :: CHIChannelCapabilities,
                        max_outstanding :: Int.in(1 ..= 1024)):
   implements StableCircuitParam
 
+  /* Validate the role's ICN-side channel sets before retaining endpoint metadata. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                kind :: CHINodeKind,
@@ -174,11 +191,13 @@ class CHIICNPortParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKi
     validate_endpoint_capabilities(kind, emits, supports, "icn", #'CHIICNPortParams)
     super(name, node_id, kind, emits, supports, max_outstanding)
 
+/* Retain a node endpoint's identity, validated capabilities, and bounded outstanding capacity. */
 class CHINodeParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
                     emits :: CHIChannelCapabilities, supports :: CHIChannelCapabilities,
                     max_outstanding :: Int.in(1 ..= 1024)):
   implements StableCircuitParam
 
+  /* Validate the role's node-side channel sets before retaining endpoint metadata. */
   constructor (name :: NonemptyString,
                node_id :: Nat,
                kind :: CHINodeKind,
@@ -188,18 +207,22 @@ class CHINodeParams(name :: NonemptyString, node_id :: Nat, kind :: CHINodeKind,
     validate_endpoint_capabilities(kind, emits, supports, "node", #'CHINodeParams)
     super(name, node_id, kind, emits, supports, max_outstanding)
 
+  /* Rebuild immutable node metadata through the same role and capability validation. */
   reconstructor (name, node_id, kind, emits, supports, max_outstanding):
     CHINodeParams(name, node_id, kind,
                   ~emits: emits, ~supports: supports,
                   ~max_outstanding: max_outstanding)
 
+  /* Derive an exact ICN peer by swapping capabilities and retaining identity and capacity. */
   method icn_peer() :: CHIICNPortParams:
     CHIICNPortParams(name ++ "-icn", node_id, kind,
                      ~emits: supports, ~supports: emits,
                      ~max_outstanding: max_outstanding)
 
-// A Home sees only the traffic negotiated for its address space. The parent
-// remains the complete ICN endpoint, including an RN-F's mandatory snoop plane.
+/*
+ * A Home sees only the traffic negotiated for its address space. The parent
+ * remains the complete ICN endpoint, including an RN-F's mandatory snoop plane.
+ */
 class CHIRequesterHomeParams(endpoint :: CHIICNPortParams,
                              emits :: CHIChannelCapabilities,
                              supports :: CHIChannelCapabilities):
@@ -210,6 +233,7 @@ class CHIRequesterHomeParams(endpoint :: CHIICNPortParams,
   property kind: endpoint.kind
   property max_outstanding: endpoint.max_outstanding
 
+  /* Require an RN-I/RN-F endpoint and prevent a Home projection from adding capabilities. */
   constructor (endpoint :: CHIICNPortParams,
                ~emits: emits :: CHIChannelCapabilities,
                ~supports: supports :: CHIChannelCapabilities):
@@ -222,6 +246,7 @@ class CHIRequesterHomeParams(endpoint :: CHIICNPortParams,
 annot.macro 'CHIHomeRequesterParams':
   'CHIICNPortParams || CHIRequesterHomeParams'
 
+/* Fix the RN-F/RN-D flit shape and independent channel credit limits, including SNP. */
 class CHIRNLinkParams(flit :: CHIFlitParams,
                       ~tx_req_credits: tx_req_credits :: PosInt = 2,
                       ~tx_rsp_credits: tx_rsp_credits :: PosInt = 2,
@@ -231,6 +256,7 @@ class CHIRNLinkParams(flit :: CHIFlitParams,
                       ~rx_snp_credits: rx_snp_credits :: PosInt = 2):
   implements StableCircuitParam
 
+/* Fix the RN-I flit shape and independent REQ/RSP/DAT credit limits. */
 class CHIRNILinkParams(flit :: CHIFlitParams,
                        ~tx_req_credits: tx_req_credits :: PosInt = 2,
                        ~tx_rsp_credits: tx_rsp_credits :: PosInt = 2,
@@ -239,6 +265,7 @@ class CHIRNILinkParams(flit :: CHIFlitParams,
                        ~rx_dat_credits: rx_dat_credits :: PosInt = 2):
   implements StableCircuitParam
 
+/* Fix the SN-F/SN-I flit shape and independent request/response/data credit limits. */
 class CHISNLinkParams(flit :: CHIFlitParams,
                       ~tx_rsp_credits: tx_rsp_credits :: PosInt = 2,
                       ~tx_dat_credits: tx_dat_credits :: PosInt = 2,
@@ -249,6 +276,7 @@ class CHISNLinkParams(flit :: CHIFlitParams,
 annot.macro 'CHIEndpointParams':
   'CHINodeParams || CHIICNPortParams'
 
+/* Check matching kind, NodeID, capacity, physical width, and mutual capability containment. */
 fun endpoint_pair_legal(node :: CHINodeParams,
                         icn :: CHIICNPortParams,
                         flit :: CHIFlitParams,
@@ -264,6 +292,7 @@ fun endpoint_pair_legal(node :: CHINodeParams,
   ]):
     condition
 
+/* Require identical RN link parameters and a compatible RN-F/RN-D node-to-ICN pair. */
 fun rn_connection_legal(provided :: List, required :: List):
   if provided.length() == 2 && required.length() == 2 && provided[0] is_a CHIRNLinkParams && required[0] is_a CHIRNLinkParams
   | block:
@@ -272,6 +301,7 @@ fun rn_connection_legal(provided :: List, required :: List):
       node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNF, CHINodeKind.RND])
   | #false
 
+/* Require identical RN-I link parameters and compatible non-snooping endpoint metadata. */
 fun rni_connection_legal(provided :: List, required :: List):
   if provided.length() == 2 && required.length() == 2 && provided[0] is_a CHIRNILinkParams && required[0] is_a CHIRNILinkParams
   | block:
@@ -280,6 +310,7 @@ fun rni_connection_legal(provided :: List, required :: List):
       node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.RNI])
   | #false
 
+/* Require identical SN link parameters and compatible subordinate endpoint metadata. */
 fun sn_connection_legal(provided :: List, required :: List):
   if provided.length() == 2 && required.length() == 2 && provided[0] is_a CHISNLinkParams && required[0] is_a CHISNLinkParams
   | block:
@@ -288,24 +319,28 @@ fun sn_connection_legal(provided :: List, required :: List):
       node_link == icn_link && endpoint_pair_legal(provided[1], required[1], node_link.flit, [CHINodeKind.SNF, CHINodeKind.SNI])
   | #false
 
+/* Reject endpoints outside RN-F/RN-D when constructing a physical RN link. */
 fun checked_rn_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless [CHINodeKind.RNF, CHINodeKind.RND].contains(endpoint.kind)
   | error(~who: #'CHIRNLink, "endpoint kind must be RN-F or RN-D")
   #true
 
+/* Reject any non-RN-I endpoint when constructing a physical RN-I link. */
 fun checked_rni_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless endpoint.kind == CHINodeKind.RNI
   | error(~who: #'CHIRNILink, "endpoint kind must be RN-I")
   #true
 
+/* Reject endpoints outside SN-F/SN-I when constructing a physical subordinate link. */
 fun checked_sn_endpoint(endpoint :: CHINodeParams || CHIICNPortParams)
   :: Boolean:
   unless CHINodeKind.is_subordinate(endpoint.kind)
   | error(~who: #'CHISNLink, "endpoint kind must be SN-F or SN-I")
   #true
 
+/* Expose the credited RN-F/RN-D channels and bidirectional link-activation handshakes. */
 interface CHIRNLink(link :: CHIRNLinkParams,
                     endpoint :: satisfying(checked_rn_endpoint)):
   role node
@@ -328,6 +363,7 @@ interface CHIRNLink(link :: CHIRNLinkParams,
     rx_dat: Credited(CHIDatFlit(link.flit), link.rx_dat_credits)
     rx_snp: Credited(CHISnpFlit(link.flit), link.rx_snp_credits)
 
+/* Expose credited non-snooping requester channels and link-activation handshakes. */
 interface CHIRNILink(link :: CHIRNILinkParams,
                      endpoint :: satisfying(checked_rni_endpoint)):
   role node
@@ -349,6 +385,7 @@ interface CHIRNILink(link :: CHIRNILinkParams,
     rx_rsp: Credited(CHIRspFlit(link.flit), link.rx_rsp_credits)
     rx_dat: Credited(CHIDatFlit(link.flit), link.rx_dat_credits)
 
+/* Expose credited subordinate channels and link-activation handshakes. */
 interface CHISNLink(link :: CHISNLinkParams,
                     endpoint :: satisfying(checked_sn_endpoint)):
   role node

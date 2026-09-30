@@ -32,7 +32,28 @@ be attached together or on separate fabrics. Generic router slots, topology,
 and routing validation belong to the [NoC package](../../noc/README.md), not
 this CHI layer.
 
-## Limits and next steps
+This diagram illustrates the separation between host compilation and the
+current RTL attachment path. Ejection's queue absorbs backpressure before the
+typed adapter; the endpoint still uses native ready-valid CHI channels.
+
+```mermaid
+flowchart LR
+  subgraph Host["elaboration"]
+    Connections["CHI sites and connections"] --> Compiler["pure NoC compiler"]
+    Compiler --> Plans["validated route and attachment plans"]
+  end
+  subgraph RTL["hardware"]
+    Source["CHI source"] --> Inject["typed injection"]
+    Inject --> Routers["REQ / RSP / DAT<br/>optional SNP routers"]
+    Routers --> Queue["one-entry ejection queue"]
+    Queue --> Eject["typed ejection"]
+    Eject --> Sink["CHI sink"]
+  end
+  Plans -.-> Inject
+  Plans -.-> Eject
+```
+
+## Limits and navigation
 
 A compiled plan is required before RTL attachment; the CHI adapter does not
 perform runtime pathfinding or insert a credited-link bridge. See the

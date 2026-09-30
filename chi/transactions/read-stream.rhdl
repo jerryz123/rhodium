@@ -1,5 +1,5 @@
 #lang rhodium
-// Streams ordered 64-byte lines through concurrent CHI ReadOnce transactions.
+/* Streams ordered 64-byte lines through concurrent CHI ReadOnce transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +11,7 @@ import:
   lib("chi/protocol/channels.rhdl").CHIRNIChannels
   lib("chi/transactions/read-once.rhdl") open
 
+/* Describe a physical line stream with byte count, stride, Home, and memory-access policy. */
 bundle CHIReadStreamCommand(p :: CHIFlitParams):
   start_address: Bits(p.request_address_width)
   byte_count: Bits(p.request_address_width)
@@ -20,6 +21,7 @@ bundle CHIReadStreamCommand(p :: CHIFlitParams):
   allocate: Bool
   qos: Bits(4)
 
+/* Return one ordered 64-byte line with its valid-byte count, final marker, error, and poison. */
 bundle CHIReadStreamLine(p :: CHIFlitParams):
   address: Bits(p.request_address_width)
   data: Bits(512)
@@ -28,9 +30,11 @@ bundle CHIReadStreamLine(p :: CHIFlitParams):
   error: CHIRespErr
   poisoned: Bool
 
-// The slot array is both the outstanding ReadOnce window and the completion
-// reorder buffer. Restart discards buffered old lines, but keeps in-flight
-// TxnIDs reserved until their late completions arrive.
+/*
+ * The slot array is both the outstanding ReadOnce window and the completion
+ * reorder buffer. Restart discards buffered old lines, but keeps in-flight
+ * TxnIDs reserved until their late completions arrive.
+ */
 sync_circuit CHIReadStream(p :: CHIFlitParams,
                            slots :: PosInt,
                            txn_base :: Nat):
@@ -72,6 +76,7 @@ sync_circuit CHIReadStream(p :: CHIFlitParams,
   reg errors(Vec(slots, CHIRespErr))
   reg poison(Vec(slots, Bool))
 
+  /* Advance the circular issue/output slot index, wrapping at the configured slot count. */
   fun following_slot(slot :: Bits(index_width(slots))):
     mux(slot === bits(slots - 1, index_width(slots)),
         bits(0, index_width(slots)),

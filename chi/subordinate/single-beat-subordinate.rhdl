@@ -1,5 +1,8 @@
 #lang rhodium
-// Owns one-at-a-time CHI MMIO transaction sequencing while devices supply decode, snapshots, and write policy.
+/*
+ * Owns one-at-a-time CHI MMIO transaction sequencing while devices supply decode, snapshots,
+ * and write policy.
+ */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,6 +14,10 @@ import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/protocol/messages.rhdl") open
 
+/*
+ * Name the serialized request, DBID, write-data, and completion phases of a single-beat device
+ * access.
+ */
 hardware_enum CHISingleBeatPhase:
   Idle
   ReadResponse
@@ -18,6 +25,10 @@ hardware_enum CHISingleBeatPhase:
   WriteData
   WriteResponse
 
+/*
+ * Serialize one device transaction, retain request and read snapshots under backpressure, and
+ * expose acceptance events.
+ */
 sync_circuit CHISingleBeatSubordinate(p :: CHIFlitParams, label :: NonemptyString):
   interface port(CHISNChannels(p), ~role: node)
   input node_id: Bits(p.node_id_width)

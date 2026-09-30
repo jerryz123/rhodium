@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements the initial non-coherent CHI HN-I transaction engine.
+/* Implements the initial non-coherent CHI HN-I transaction engine. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,8 +16,10 @@ import:
   lib("chi/protocol/fabric.rhdl") open
   lib("chi/transactions/monitor.rhdl") open
 
-// Describes the protocol and endpoint contract without requiring either side
-// to be realized as a physical CHI link.
+/*
+ * Describes the protocol and endpoint contract without requiring either side
+ * to be realized as a physical CHI link.
+ */
 class CHIHNIParams(home :: CHIHomeParams,
                    requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                    subordinate_map :: CHISubordinateMap):
@@ -25,6 +27,10 @@ class CHIHNIParams(home :: CHIHomeParams,
 
   property flit: subordinate_map.flit
 
+  /*
+   * Validate HN-I role, identity widths/collisions, non-coherent capabilities, and subordinate
+   * opcode coverage.
+   */
   constructor (home :: CHIHomeParams,
                requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams),
                subordinate_map :: CHISubordinateMap):
@@ -82,6 +88,7 @@ class CHIHNIParams(home :: CHIHomeParams,
                 "requester opcode must be supported by at least one subordinate service")
     super(home, requester_endpoints, subordinate_map)
 
+/* Match a request's address, opcode, and Size against the mapped subordinate service profiles. */
 fun chi_hni_subordinate_supported(p :: CHIFlitParams,
                                   request :: CHIReqFlit(p),
                                   services :: NonemptyList.of(CHISubordinateServiceParams)):
@@ -94,8 +101,10 @@ fun chi_hni_subordinate_supported(p :: CHIFlitParams,
       ))
   ))
 
-// Translates the initial HN-I transaction profile over ready-valid channels so
-// the NoC can own transport independently of transaction semantics.
+/*
+ * Translates the initial HN-I transaction profile over ready-valid channels so
+ * the NoC can own transport independently of transaction semantics.
+ */
 sync_circuit CHIHNI(params :: CHIHNIParams):
   def p :: CHIFlitParams = params.flit
   def home = params.home

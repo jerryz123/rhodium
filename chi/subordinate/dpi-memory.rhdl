@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements a native CHI subordinate memory backed by a simulator DPI model.
+/* Implements a native CHI subordinate memory backed by a simulator DPI model. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,14 +8,14 @@ import:
   lib("chi/protocol/protocol.rhdl").chi_data_address
   lib("chi/protocol/channels.rhdl").CHISNChannels
 
-// A fixed-width DPI boundary covers every CHI data width supported by
-// CHIFlitParams while keeping one stable C ABI for simulator models.
+/* Register a memory region through the fixed-width DPI ABI shared by all supported CHI widths. */
 dpi_import function rhodium_chi_memory_init(
   model_id: Bits(32),
   capacity: Bits(64),
   base_address: Bits(64)
 ) -> (return status: Bits(8))
 
+/* Read or byte-mask-write one packet in the registered sparse host memory region. */
 dpi_import function rhodium_chi_memory_access(
   model_id: Bits(32),
   capacity: Bits(64),
@@ -29,6 +29,10 @@ dpi_import function rhodium_chi_memory_access(
   return status: Bits(8)
 )
 
+/*
+ * Back the shared CHI memory controller with a sparse host memory model through the
+ * fixed-width DPI ABI.
+ */
 sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
   unless model_id < (1 << 32) && config.size_bytes < (1 << 64)
   | error(~who: #'CHIDPIMemory, "model identity and capacity must fit the DPI ABI")
@@ -43,7 +47,15 @@ sync_circuit CHIDPIMemory(config :: CHIRamConfig, model_id :: Nat):
   when (!reset_active().into(Bool)):
     assert(init_status === bits(0, 8), "chi_dpi_memory_initialized")
 
+  /*
+   * Construct the DPI backend connection procedure using this memory model's identity and
+   * region.
+   */
   fun backend():
+    /*
+     * Issue fixed-width host memory accesses and align returned data and status with retained
+     * operation metadata.
+     */
     fun connect(issue :: Endpoint, completion :: Endpoint):
       def operation = issue.bits
       def relative_address = chi_data_address(operation.request.address, operation.data_id, p) - identity.base_address
