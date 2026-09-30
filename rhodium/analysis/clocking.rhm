@@ -26,21 +26,30 @@ class ClockingReport(summary :: DesignTemporalSummary, clocks :: List.of(ModuleC
   property environment: summary.environment
 
 /* Projects a single completed analysis into its manifest, structured report, and text. */
-class ClockingPlan(prepared :: PreparedRTL, findings :: ClockingReport):
+class ClockingPlan(prepared :: PreparedRTL, findings :: ClockingReport, messages :: List.of(Diagnostic)):
   implements TargetPlan
   /* Expose the same prepared hierarchy used to derive temporal provenance. */
   override method manifest(): prepared.manifest
   /* Return the stored findings without rerunning analysis. */
   override method report(): findings
+  /* Expose the same stored diagnostics to inspection and verification callers. */
+  override method diagnostics(): messages
   /* Format the stored summary as one text artifact named for the prepared top. */
   override method emit():
     [Artifact(prepared.rtl.top.name ++ ".clocking.txt", "text/plain", dump_design_temporal_report(findings.summary))]
 
-/* Create a clock-analysis target with optional CDC enforcement.
-   An environment factory receives the fresh prepared top and augments remapped
-   program declarations; strict mode propagates CDC failures during preparation. */
-fun clocking_target(~check_cdc: check_cdc :: Boolean = #false,
-                    ~environment: environment :: maybe(Function.of_arity(1)) = #false):
+/* Project a finding's source attribution without retaining live operation references.
+   The default unknown Location becomes absent instead of invented source precision. */
+fun finding_diagnostic(code :: String, severity :: String, message :: String,
+                       operation :: Operation, instance_path :: List.of(Operation)):
+  def location = operation.location
+  def source = if location.path == "<unknown>" && !location.line && !location.column | #false | location
+  Diagnostic(code, severity, message, source, instance_path.map(fun (instance): instance.attribute("name")))
+
+/* Analyze the selected program once and retain all findings, including CDC errors.
+   The optional environment factory augments remapped top declarations; callers
+   decide whether error diagnostics should block dependent workflow steps. */
+fun clocking_target(~environment: environment :: maybe(Function.of_arity(1)) = #false):
   /* Prepare concrete provenance, reject child-owned environments, and analyze once.
      Merge the factory's assumptions with top metadata before environment validation. */
   fun prepare(program :: ElaboratedProgram, options :: CompileOptions):
@@ -51,6 +60,8 @@ fun clocking_target(~check_cdc: check_cdc :: Boolean = #false,
     def declared = module_clocking_environment(prepared.rtl.top)
     def extra :: TemporalEnvironment = if environment | environment(prepared.rtl.top) | TemporalEnvironment()
     def resolved = TemporalEnvironment(declared.input_contracts ++ extra.input_contracts, declared.clock_relationships ++ extra.clock_relationships)
-    def summary = if check_cdc | verify_design_cdc(prepared.rtl, resolved) | summarize_design_temporal(prepared.rtl, resolved)
-    ClockingPlan(prepared, ClockingReport(summary, prepared.rtl.design.modules.map(summarize_module_clocking)))
-  CompilationTarget(if check_cdc | "clocking-cdc" | "clocking", prepare)
+    def summary = summarize_design_temporal(prepared.rtl, resolved)
+    def errors = summary.cdc_violations.map(fun (violation): finding_diagnostic("clocking.cdc-violation", "error", cdc_violation_message(violation), violation.operation, violation.instance_path))
+    def warnings = summary.reconvergences.map(fun (finding): finding_diagnostic("clocking.reconvergence", "warning", reconvergence_message(finding), finding.operation, finding.instance_path))
+    ClockingPlan(prepared, ClockingReport(summary, prepared.rtl.design.modules.map(summarize_module_clocking)), errors ++ warnings)
+  CompilationTarget("clocking", prepare)

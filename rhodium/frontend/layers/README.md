@@ -132,17 +132,18 @@ of top `Clock` inputs. Hardware-conditional declarations are rejected during
 construction; child-owned declarations and environment conflicts are rejected
 by the clock-analysis target. Timing metadata survives portable materialization.
 
-`clocking_target()` is report-only. `clocking_target(~check_cdc: #true)` enforces
-the conservative policy: static, exact-clock, and declared-identical inputs
-are safe; other sampled data requires recognized crossing evidence. Reset
-inputs remain inventory-only pending RDC semantics. Findings are returned in
-`compiled.report.summary`, with readable text in `compiled.artifacts`. Strict
-failure raises one aggregate error before returning a compilation result.
+`clocking_target()` reports errors under the conservative policy: static,
+exact-clock, and declared-identical inputs are safe; other sampled data requires
+recognized crossing evidence. Reset inputs remain inventory-only pending RDC
+semantics. Findings are returned in `compiled.report.summary`, readable text in
+`compiled.artifacts`, and generic errors/warnings in `compiled.diagnostics`.
+The complete report remains available on CDC errors; verification callers check
+`compiled.has_errors` before dependent work.
 
 The retained summary also diagnoses distinct verified crossing identities
 that later reach one clocked sink through `summary.reconvergences`. These
-findings preserve source and hierarchy lineage but do not make otherwise legal
-crossings fail strict CDC verification.
+findings preserve source and hierarchy lineage and produce warning diagnostics
+without setting `has_errors` on otherwise clean designs.
 
 The low-level `sync_level_crossing(source, stages)` hook records a stable-level
 promise around an ordinary resetless register chain using the certified

@@ -9,7 +9,8 @@ export compile_program
 
 /* Prepare exactly the supplied target and collect its projections once.
    Reject an invalid plan or an empty/duplicate-named artifact set before returning.
-   Provider and emitter failures propagate; this orchestration publishes no files. */
+   Error diagnostics remain available alongside complete artifacts. Provider and
+   emitter failures propagate; this orchestration publishes no files. */
 fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget,
                     ~options: options :: CompileOptions = CompileOptions()):
   def plan = target.prepare(program, options)
@@ -17,6 +18,7 @@ fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget,
   | error(~who: #'compile_program, "target preparation must return a TargetPlan")
   def manifest = plan.manifest()
   def report = plan.report()
+  def diagnostics = plan.diagnostics()
   def artifacts = plan.emit()
   unless artifacts.length() > 0
   | error(~who: #'compile_program, "target must return a nonempty artifact set")
@@ -25,4 +27,4 @@ fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget,
     when artifact.name in names
     | error(~who: #'compile_program, "target must return unique artifact names")
     names.add(artifact.name)
-  CompilationResult(target.name, manifest, artifacts, report)
+  CompilationResult(target.name, manifest, artifacts, report, diagnostics)

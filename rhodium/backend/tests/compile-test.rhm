@@ -30,6 +30,8 @@ def again = compile_program(retained, circt_target)
 check:
   result.target ~is "circt"
   result.report ~is #false
+  result.diagnostics ~is []
+  result.has_errors ~is #false
   result.manifest.top ~is "Identity"
   result.artifacts.map(fun (artifact): artifact.name) ~is ["Identity.mlir"]
   result.artifacts[0].content ~is again.artifacts[0].content
@@ -120,3 +122,41 @@ check:
   published ~is #false
   compile_program(retained, duplicate_artifacts) ~throws "unique artifact names"
   retained.design.sealed ~is #false
+
+// Diagnostic projection failures cannot leak an otherwise valid prepared result.
+class BrokenDiagnostics(plan :: TargetPlan):
+  implements TargetPlan
+  override method manifest(): plan.manifest()
+  override method diagnostics(): error("diagnostics failed deliberately")
+  override method emit(): plan.emit()
+def fail_diagnostics = CompilationTarget("circt-diagnostics-test", fun (program, options): BrokenDiagnostics(circt_target.prepare(program, options)))
+fun publish_failed_diagnostics(): published := compile_program(retained, fail_diagnostics)
+check:
+  publish_failed_diagnostics() ~throws "diagnostics failed deliberately"
+  published ~is #false
+  Diagnostic("circt.test", "fatal", "invalid severity") ~throws "diagnostic severity"
+  Diagnostic("", "error", "missing code") ~throws "must not be empty"
+  Diagnostic("circt.test", "note", "") ~throws "must not be empty"
+
+// Each plan projection is collected once; findings do not suppress real emission.
+def projections = MutableList[]
+class ObservedPlan(plan :: TargetPlan):
+  implements TargetPlan
+  override method manifest():
+    projections.add("manifest")
+    plan.manifest()
+  override method report():
+    projections.add("report")
+    plan.report()
+  override method diagnostics():
+    projections.add("diagnostics")
+    [Diagnostic("circt.test", "note", "observed compilation")]
+  override method emit():
+    projections.add("emit")
+    plan.emit()
+def observed = compile_program(concrete, CompilationTarget("circt-observed", fun (program, options): ObservedPlan(circt_target.prepare(program, options))))
+check:
+  projections.snapshot() ~is ["manifest", "report", "diagnostics", "emit"]
+  observed.has_errors ~is #false
+  observed.diagnostics[0].severity ~is "note"
+  observed.artifacts[0].content ~is concrete_result.artifacts[0].content

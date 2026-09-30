@@ -26,7 +26,7 @@ sync_circuit ReconvergentLevels():
   combined <== sampled
 
 def clocked_program = elaborate_program(ReconvergentLevels())
-def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
 def design = clocked_program.design
@@ -34,6 +34,8 @@ def report = clocked_compilation.artifacts[0].content
 def finding = clocked.summary.reconvergences[0]
 
 check:
+  clocked_compilation.has_errors ~is #false
+  clocked_compilation.diagnostics[0].severity ~is "warning"
   clocked.summary.reconvergences.length() ~is 1
   finding is_a CrossingReconvergence ~is #true
   finding.arrivals.length() ~is 2

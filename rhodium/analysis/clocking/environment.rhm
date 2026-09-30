@@ -1,5 +1,5 @@
 #lang rhombus
-// Resolves symbolic temporal summaries against validated top-level environment contracts.
+/* Resolves symbolic temporal summaries against validated top-level environment contracts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,7 +11,8 @@ import:
 
 export:
   summarize_design_temporal
-  verify_design_cdc
+  cdc_violation_message
+  reconvergence_message
   dump_design_temporal_report
 
 fun fail(message :: String):
@@ -385,29 +386,13 @@ fun cdc_violation_name(violation :: CdcViolation):
   append_path(sink_name ++ "." ++ violation.input_name,
               violation.input_path)
 
+/* Format one structured violation with its occurrence, input leaf, and policy reason. */
 fun cdc_violation_message(violation :: CdcViolation):
   String.append(cdc_violation_name(violation),
                 ": ",
                 describe_classification(violation.classification),
                 "; ",
                 violation.reason)
-
-// Enforces the first conservative CDC policy. Reset inputs remain inventory-
-// only until RDC semantics are explicit; all other unsafe sampling requires a
-// structurally verified sync-level crossing at the first destination stage.
-fun verify_design_cdc(elaboration :: DesignElaboration,
-                      environment :: TemporalEnvironment = TemporalEnvironment()):
-  def summary = summarize_design_temporal(elaboration, environment)
-  when summary.cdc_violations.length() > 0
-  | def count = summary.cdc_violations.length()
-    def lines = summary.cdc_violations.map(
-      fun (violation): "  " ++ cdc_violation_message(violation)
-    )
-    error(~who: #'verify_design_cdc,
-          String.append(to_string(count),
-                        if count == 1 | " CDC violation:\n" | " CDC violations:\n",
-                        String.join(lines, "\n")))
-  summary
 
 fun append_path(name :: String, path :: List.of(String || Nat)):
   def mutable result = name
@@ -511,13 +496,16 @@ fun append_sinks(lines :: List.of(String),
       result := result ++ ["    " ++ append_path(input.name, input.path) ++ ": " ++ describe_classification(input.classification) ++ " <- " ++ origins]
   result
 
+/* Name the reconverging sink consistently in diagnostics and the text report. */
+fun reconvergence_message(finding :: CrossingReconvergence):
+  "reconvergence " ++ hierarchical_name(finding.instance_path, operation_name(finding.operation)) ++ " " ++ finding.kind
+
+/* Append ordered crossing arrivals while sharing the diagnostic sink description. */
 fun append_reconvergences(lines :: List.of(String),
                           summary :: DesignTemporalSummary):
   def mutable result = lines
   for (finding in summary.reconvergences):
-    def sink_name = hierarchical_name(finding.instance_path,
-                                      operation_name(finding.operation))
-    result := result ++ ["  reconvergence " ++ sink_name ++ " " ++ finding.kind]
+    result := result ++ ["  " ++ reconvergence_message(finding)]
     for (arrival in finding.arrivals):
       def crossing = arrival.provenance.crossing
       def crossing_name = hierarchical_name(crossing.instance_path,

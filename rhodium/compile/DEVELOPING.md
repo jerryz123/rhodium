@@ -31,7 +31,7 @@ or metadata copying.
   provenance to a deterministic depth-first report. Traverse shared definitions
   per occurrence while retaining materialization's per-definition reuse.
 - `../analysis/clocking.rhm`: clock-analysis target, structured findings, and
-  optional CDC enforcement using the same concrete preparation helper.
+  CDC errors/reconvergence warnings using the same concrete preparation helper.
 - `../backend/circt-target.rhm`: the first target and plan, using the existing
   internal CIRCT emitter.
 
@@ -46,6 +46,14 @@ future explicit driver.
 Add new target behavior to its owner. Keep new selection mechanisms tied to a
 real supported backend rather than introducing placeholder emitters. Keep preparation fresh and scoped to the selected top. Keep generated
 artifacts out of version control.
+
+Collect each plan projection once, including diagnostics. Error-severity findings
+must not suppress completed artifacts; enforcement belongs in the invoking
+workflow. Keep `has_errors` derived from diagnostics and preserve exception
+propagation for failures that prevent a trustworthy result. Generic diagnostics
+contain detached locations and instance-name paths; target reports own live
+prepared-graph references. Test diagnostic projection failures using the real
+CIRCT plan's existing failure-injection coverage.
 
 `tests/rtl-test.rhm` checks fresh concrete/retained preparation, nested occurrence
 paths, expansion reuse and limits, unused providers, and source preservation.

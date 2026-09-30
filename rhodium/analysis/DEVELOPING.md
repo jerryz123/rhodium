@@ -21,7 +21,7 @@ Keep the stages distinct:
    symbolic leaf provenance.
 2. Environment resolution validates top-boundary timing declarations and
    resolves symbolic origins in one selected design.
-3. CDC enforcement interprets the resolved summary under the current policy.
+3. CDC classification derives violations from the resolved summary under the current policy.
 4. Reconvergence remains a diagnostic over verified crossing identities rather
    than an automatic violation.
 
@@ -37,7 +37,7 @@ an analysis report a prerequisite for CIRCT lowering.
 | [`clocking/declarations.rhm`](clocking/declarations.rhm) | Environment metadata attachment, collection, and explicit reference remapping |
 | [`clocking/types.rhm`](clocking/types.rhm) | Result, environment, provenance, classification, violation, and reconvergence objects |
 | [`clocking/module.rhm`](clocking/module.rhm) | Clock/reset inventory and reusable hierarchy-aware provenance |
-| [`clocking/environment.rhm`](clocking/environment.rhm) | Boundary validation, classification resolution, CDC violations, and strict policy |
+| [`clocking/environment.rhm`](clocking/environment.rhm) | Boundary validation, classification resolution, CDC violations, and shared message formatting |
 | [`../frontend/support/clocking.rhm`](../frontend/support/clocking.rhm) | Ambient synchronous-circuit expansion and single-clock certification consumer |
 | [`../frontend/layers/clocking.rhm`](../frontend/layers/clocking.rhm) | Author declarations and durable crossing evidence |
 | [`../core/verify.rhm`](../core/verify.rhm) | Structural crossing-evidence invariants |
@@ -65,8 +65,16 @@ add direct public runners or specialized elaboration wrappers. An optional targe
 environment factory must bind to the prepared top, and its declarations augment
 remapped program metadata. Validate all timing assumptions before returning a result.
 
+Compute temporal findings once, then store generic diagnostics alongside the
+report. Emit CDC errors before reconvergence warnings, preserving each list's
+occurrence and leaf order. Share formatting helpers with the text report and
+never parse report text to recover structure. A completed analysis with errors
+still returns its report artifact; verification callers enforce `has_errors`.
+Do not turn invalid environments or unexpected exceptions into diagnostic-only
+results, or add another strict analysis wrapper.
+
 When changing CDC policy, keep raw provenance and classification available to
-report-only consumers. Add a violation only when the policy can name the exact
+inspection consumers. Add a violation only when the policy can name the exact
 sink, leaf, origin, and reason. Do not turn protocol coherency, reset-domain
 crossing, physical placement, or MTBF assumptions into clock-domain facts.
 
@@ -79,7 +87,7 @@ belongs only here.
 The focused ownership is:
 
 - `clocking-target-test.rhm` for compilation, source preservation, declaration
-  remapping, retained expansion, strict CDC failure, and explicit environments;
+  remapping, retained expansion, diagnostic attribution, workflow gating, and explicit environments;
 - `clocking-test.rhm` for internal clock/reset inventories, aliases, and certification;
 - `clocking-provenance-test.rhm` for leaf-sensitive hierarchy provenance;
 - `clocking-environment-test.rhm` for boundary facts and invalid environments;

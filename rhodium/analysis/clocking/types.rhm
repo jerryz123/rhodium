@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines backend-independent clock-analysis summaries, environments, and report objects.
+/* Defines backend-independent clock-analysis summaries, environments, and report objects. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -121,8 +121,8 @@ class CrossedProvenance(crossing :: CrossingReference,
                         destination_clock :: maybe(ControlReference)):
   implements TemporalProvenance
 
-// A sink-input classification records what is known independently of whether
-// a caller chooses report-only analysis or the strict CDC policy.
+/* A sink-input classification records what is known independently of whether
+   the caller inspects diagnostics or gates dependent work on their severity. */
 class StaticInput():
   implements SinkInputClassification
 class SameClock(clock :: ControlReference):

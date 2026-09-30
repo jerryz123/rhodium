@@ -1,5 +1,5 @@
 #lang rhodium
-/* Demonstrates strict CDC acceptance through the standard two-stage stable-level synchronizer. */
+/* Demonstrates explicit CDC error gating through the standard two-stage stable-level synchronizer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,7 +19,7 @@ sync_circuit SyncLevelTop():
   synchronized_level <== synchronizer.synchronized
 
 def clocked_program = elaborate_program(SyncLevelTop())
-def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
 def design = clocked_program.design
@@ -30,6 +30,7 @@ def synchronized_output = clocked.summary.output_leaves.find(
 )
 
 check:
+  clocked_compilation.has_errors ~is #false
   synchronized_output.origins[0] is_a CrossedProvenance ~is #true
   report.contains("asynchronous_input") ~is #true
   report.contains("crossed synchronizer.cdc.sync_level") ~is #true

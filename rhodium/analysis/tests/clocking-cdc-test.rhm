@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks strict CDC policy, sync-level approval, lineage, and pre-crossing fan-in rejection.
+// Checks CDC findings, sync-level approval, lineage, and pre-crossing fan-in rejection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -49,8 +49,7 @@ block:
     summary.cdc_violations[0].operation === destination.operation ~is #true
     summary.cdc_violations[0].classification is_a AsynchronousClock ~is #true
     dump_design_temporal_report(summary).contains("destination.next: asynchronous_clock") ~is #true
-    verify_design_cdc(elaboration, environment) ~throws "1 CDC violation"
-    verify_design_cdc(elaboration, environment) ~throws "requires explicit crossing evidence"
+    summary.cdc_violations[0].reason ~is "requires explicit crossing evidence"
 
 block:
   def design = Design()
@@ -70,7 +69,7 @@ block:
                                              [stage0, stage1])
   builder.finish(top)
   verify_design(design)
-  def summary = verify_design_cdc(
+  def summary = summarize_design_temporal(
     DesignElaboration(design, top),
     TemporalEnvironment(
       [TopInputContract(level, [], AsynchronousInputTiming())]
@@ -113,15 +112,17 @@ block:
                               [stage0, stage1])
   builder.finish(top)
   verify_design(design)
+  def summary = summarize_design_temporal(
+    DesignElaboration(design, top),
+    TemporalEnvironment(
+      [],
+      [AsynchronousClockRelationship(clock_a, destination_clock),
+       AsynchronousClockRelationship(clock_b, destination_clock)]
+    )
+  )
   check:
-    verify_design_cdc(
-      DesignElaboration(design, top),
-      TemporalEnvironment(
-        [],
-        [AsynchronousClockRelationship(clock_a, destination_clock),
-         AsynchronousClockRelationship(clock_b, destination_clock)]
-      )
-    ) ~throws "expected one declared timing source"
+    summary.cdc_violations.length() ~is 1
+    cdc_violation_message(summary.cdc_violations[0]).contains("expected one declared timing source") ~is #true
 
 block:
   def design = Design()
@@ -144,14 +145,16 @@ block:
                               [stage0, stage1])
   builder.finish(top)
   verify_design(design)
+  def summary = summarize_design_temporal(
+    DesignElaboration(design, top),
+    TemporalEnvironment(
+      [TopInputContract(asynchronous_pin, [], AsynchronousInputTiming())],
+      [AsynchronousClockRelationship(source_clock, destination_clock)]
+    )
+  )
   check:
-    verify_design_cdc(
-      DesignElaboration(design, top),
-      TemporalEnvironment(
-        [TopInputContract(asynchronous_pin, [], AsynchronousInputTiming())],
-        [AsynchronousClockRelationship(source_clock, destination_clock)]
-      )
-    ) ~throws "mixed_timing_fan_in"
+    summary.cdc_violations.length() ~is 1
+    cdc_violation_message(summary.cdc_violations[0]).contains("mixed_timing_fan_in") ~is #true
 
 block:
   def design = Design()
@@ -173,7 +176,7 @@ block:
   builder.drive(sampled.next, builder.bit_xor(top, left, right))
   builder.finish(top)
   verify_design(design)
-  def summary = verify_design_cdc(
+  def summary = summarize_design_temporal(
     DesignElaboration(design, top),
     TemporalEnvironment(
       [TopInputContract(asynchronous_level, [], AsynchronousInputTiming())]
@@ -181,6 +184,7 @@ block:
   )
   def finding = summary.reconvergences[0]
   check:
+    summary.cdc_violations ~is []
     summary.reconvergences.length() ~is 1
     finding.operation === sampled.operation ~is #true
     finding.arrivals.length() ~is 2
@@ -227,7 +231,6 @@ block:
     summary.cdc_violations[1].instance_path[0] === response.operation ~is #true
     report.contains("worker.state.next: asynchronous_clock") ~is #true
     report.contains("response.state.next: asynchronous_clock") ~is #true
-    verify_design_cdc(elaboration, environment) ~throws "2 CDC violations"
 
 block:
   def design = Design()
@@ -245,13 +248,14 @@ block:
                 builder.bit_xor(top, synchronized, synchronized))
   builder.finish(top)
   verify_design(design)
-  def summary = verify_design_cdc(
+  def summary = summarize_design_temporal(
     DesignElaboration(design, top),
     TemporalEnvironment(
       [TopInputContract(asynchronous_level, [], AsynchronousInputTiming())]
     )
   )
   check:
+    summary.cdc_violations ~is []
     summary.reconvergences.length() ~is 0
 
 block:
@@ -275,7 +279,7 @@ block:
   builder.drive(sampled.next, builder.bit_xor(top, left, right))
   builder.finish(top)
   verify_design(design)
-  def summary = verify_design_cdc(
+  def summary = summarize_design_temporal(
     DesignElaboration(design, top),
     TemporalEnvironment(
       [TopInputContract(asynchronous_left, [], AsynchronousInputTiming()),
@@ -283,4 +287,5 @@ block:
     )
   )
   check:
+    summary.cdc_violations ~is []
     summary.reconvergences.length() ~is 1

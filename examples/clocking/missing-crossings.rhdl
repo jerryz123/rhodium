@@ -92,7 +92,7 @@ def broken = broken_compilation.report
 def broken_design = broken_program.design
 def broken_report = broken_compilation.artifacts[0].content
 def clocked_program = elaborate_program(CorrectedCrossingSystem())
-def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked_compilation = compile_program(clocked_program, clocking_target())
 def clocked = clocked_compilation.report
 // Hardware consumers use the original program; findings refer to the target copy.
 def design = clocked_program.design
@@ -104,7 +104,9 @@ check:
   broken_report.contains("worker.state.next: asynchronous_clock") ~is #true
   broken_report.contains("response.state.next: asynchronous_clock") ~is #true
   broken_report.contains("interrupt_sink.state.next: asynchronous_input") ~is #true
-  compile_program(broken_program, clocking_target(~check_cdc: #true)) ~throws "3 CDC violations"
+  broken_compilation.has_errors ~is #true
+  broken_compilation.diagnostics.map(fun (diagnostic): diagnostic.code) ~is ["clocking.cdc-violation", "clocking.cdc-violation", "clocking.cdc-violation"]
+  clocked_compilation.has_errors ~is #false
   clocked.summary.cdc_violations.length() ~is 0
   report.contains("cdc_violations") ~is #false
 

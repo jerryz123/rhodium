@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks target-only clock analysis, fresh declaration bindings, retained expansion, and CDC failures.
+// Checks target-only clock analysis, fresh declaration bindings, retained expansion, and completed CDC diagnostics.
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../clocking.rhm" open
@@ -27,6 +27,14 @@ def second = compile_program(program, target)
 def report = first.report
 check:
   first.target ~is "clocking"
+  first.has_errors ~is #true
+  first.diagnostics.length() ~is 1
+  first.diagnostics[0].code ~is "clocking.cdc-violation"
+  first.diagnostics[0].severity ~is "error"
+  first.diagnostics[0].path ~is []
+  first.diagnostics[0].location ~is #false
+  first.diagnostics[0].message.contains("sample.next: asynchronous_clock") ~is #true
+  first.diagnostics.map(fun (diagnostic): [diagnostic.code, diagnostic.severity, diagnostic.message, diagnostic.path]) ~is second.diagnostics.map(fun (diagnostic): [diagnostic.code, diagnostic.severity, diagnostic.message, diagnostic.path])
   report is_a ClockingReport ~is #true
   report.summary.cdc_violations.length() ~is 1
   report.summary.cdc_violations[0].reason.contains("crossing evidence") ~is #true
@@ -43,12 +51,12 @@ check:
   dump_ir(design) ~is before
   design.sealed ~is #false
 
-// Enforcement completes the same analysis and fails without returning a result.
-def mutable published = #false
-fun strict(): published := compile_program(program, clocking_target(~check_cdc: #true))
+// A verification caller gates dependent work while keeping the completed report.
+def mutable dependent_runs = 0
+unless first.has_errors | dependent_runs := dependent_runs + 1
 check:
-  strict() ~throws "1 CDC violation"
-  published ~is #false
+  dependent_runs ~is 0
+  first.artifacts[0].content.contains("cdc_violations") ~is #true
   design.sealed ~is #false
 
 // External environments bind to the prepared top and augment declarations.
@@ -68,13 +76,21 @@ def clean_state = clean_builder.register(clean_top, "sample", Bits(8), clean_clo
 clean_builder.drive(clean_state.next, clean_data)
 clean_builder.finish(clean_top)
 def clean = ElaboratedProgram(clean_design, clean_top)
+def mutable environment_calls = 0
 fun clean_environment(prepared_top :: Module):
+  environment_calls := environment_calls + 1
   TemporalEnvironment([TopInputContract(prepared_top.find_input("data").value, [], SynchronousInputTiming(prepared_top.find_input("clock").value))])
-def checked = compile_program(clean, clocking_target(~check_cdc: #true, ~environment: clean_environment))
+def checked = compile_program(clean, clocking_target(~environment: clean_environment))
 check:
+  environment_calls ~is 1
+  checked.has_errors ~is #false
+  checked.diagnostics ~is []
   checked.report.summary.cdc_violations ~is []
   checked.report.environment.input_contracts[0].input.module_def === checked.report.top ~is #true
   clean_design.sealed ~is #false
+
+unless checked.has_errors | dependent_runs := dependent_runs + 1
+check: dependent_runs ~is 1
 
 // A retained top expands before temporal analysis; declarations from its
 // provider bind to the copied implementation, without any frontend dependency.
@@ -83,6 +99,7 @@ def signature = ModuleSignature([PortSignature("clock", Clock), PortSignature("r
 def definition = ConstructDefinition(ConstructIdentity("RetainedSampler"), [], signature,
                                      [[OutputLeafDependency([], [])]], ~state: SingleClockState("clock", "reset"))
 def mutable calls = 0
+def mutable known_timing = #true
 fun expand(builder :: Builder, selected :: ConstructDefinition):
   calls := calls + 1
   def body = builder.module("Sampler")
@@ -92,17 +109,94 @@ fun expand(builder :: Builder, selected :: ConstructDefinition):
   def sample = builder.register(body, "sample", Bits(8), clock)
   builder.drive(sample.next, input)
   builder.drive(builder.output(body, "result", Bits(8)), sample.current)
-  declare_clocking_environment(body, TemporalEnvironment([TopInputContract(input, [], SynchronousInputTiming(clock))]))
+  declare_clocking_environment(body, TemporalEnvironment([TopInputContract(input, [], if known_timing | SynchronousInputTiming(clock) | UnknownInputTiming())]))
   builder.finish(body)
   ExpansionResult(body)
 def retained = ElaboratedProgram(Design(), definition, Map.by(===){definition: ExpansionProvider(expand)})
-def retained_result = compile_program(retained, clocking_target(~check_cdc: #true))
+def retained_result = compile_program(retained, clocking_target())
 check:
   calls ~is 1
   retained_result.manifest.lowerings.length() ~is 1
   retained_result.manifest.lowerings[0].path ~is []
   retained_result.manifest.lowerings[0].definition === definition ~is #true
+  retained_result.has_errors ~is #false
+  retained_result.diagnostics ~is []
   retained_result.report.summary.cdc_violations ~is []
   retained_result.report.environment.input_contracts[0].input.module_def === retained_result.report.top ~is #true
   retained.design.modules ~is []
   retained.design.sealed ~is #false
+
+// The same retained definition can complete with errors on a later preparation.
+known_timing := #false
+def unsafe_retained = compile_program(retained, clocking_target())
+check:
+  calls ~is 2
+  unsafe_retained.has_errors ~is #true
+  unsafe_retained.diagnostics.length() ~is 1
+  unsafe_retained.artifacts[0].content.contains("cdc_violations") ~is #true
+  unsafe_retained.report.top === retained_result.report.top ~is #false
+  retained_result.has_errors ~is #false
+  retained.design.modules ~is []
+  retained.design.sealed ~is #false
+
+// Shared bodies must retain separate instance paths and aggregate leaf attribution.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def child = builder.module("LeafSampler")
+  def clock = builder.input(child, "clock", Clock)
+  def data = builder.input(child, "data", VectorType(2, Bits(1)))
+  def sample = builder.register(child, "sample", VectorType(2, Bits(1)), clock, #false, #false, Location("sampler.rhdl", 12, 4))
+  builder.drive(sample.next, data)
+  builder.finish(child)
+  def top = builder.module("SharedSamplers")
+  def top_clock = builder.input(top, "clock", Clock)
+  def top_data = builder.input(top, "data", VectorType(2, Bits(1)))
+  for (name in ["first", "second"]):
+    def instance = builder.instance(top, child, name)
+    builder.drive(instance.input("clock"), top_clock)
+    builder.drive(instance.input("data"), top_data)
+  declare_clocking_environment(top, TemporalEnvironment([TopInputContract(top_data, [], AsynchronousInputTiming())]))
+  builder.finish(top)
+  def program = ElaboratedProgram(design, top)
+  def before = dump_ir(design)
+  def result = compile_program(program, clocking_target())
+  check:
+    result.diagnostics.map(fun (diagnostic): diagnostic.path) ~is [["first"], ["first"], ["second"], ["second"]]
+    result.diagnostics.map(fun (diagnostic): diagnostic.location.describe()) ~is ["sampler.rhdl:12:4", "sampler.rhdl:12:4", "sampler.rhdl:12:4", "sampler.rhdl:12:4"]
+    result.report.summary.cdc_violations.map(fun (violation): violation.input_path) ~is [[0], [1], [0], [1]]
+    result.diagnostics[0].message.contains("first.sample.next[0]") ~is #true
+    result.diagnostics[3].message.contains("second.sample.next[1]") ~is #true
+    dump_ir(design) ~is before
+    design.sealed ~is #false
+
+// Reconvergence stays advisory. When a raw sample is also present, error findings
+// precede warnings even though the reconverging sink was declared first.
+for (raw_sample in [#false, #true]):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("Reconvergence")
+  def clock = builder.input(top, "clock", Clock)
+  def level = builder.input(top, "level", Bits(1))
+  def synchronized:
+    for List (name in ["left", "right"]):
+      def first = builder.register(top, name ++ "0", Bits(1), clock)
+      def second = builder.register(top, name ++ "1", Bits(1), clock)
+      builder.drive(first.next, level)
+      builder.drive(second.next, first.current)
+      builder.sync_level_crossing(top, level, clock, [first, second])
+      second.current
+  def sample = builder.register(top, "sample", Bits(1), clock)
+  builder.drive(sample.next, builder.bit_xor(top, synchronized[0], synchronized[1]))
+  when raw_sample
+  | def raw = builder.register(top, "raw", Bits(1), clock)
+    builder.drive(raw.next, level)
+  declare_clocking_environment(top, TemporalEnvironment([TopInputContract(level, [], AsynchronousInputTiming())]))
+  builder.finish(top)
+  def result = compile_program(ElaboratedProgram(design, top), clocking_target())
+  check:
+    result.has_errors ~is raw_sample
+    result.diagnostics.map(fun (diagnostic): diagnostic.severity) ~is (if raw_sample | ["error", "warning"] | ["warning"])
+    result.diagnostics.map(fun (diagnostic): diagnostic.code) ~is (if raw_sample | ["clocking.cdc-violation", "clocking.reconvergence"] | ["clocking.reconvergence"])
+    result.report.summary.reconvergences.length() ~is 1
+    result.artifacts[0].content.contains("reconvergence sample rtl.register") ~is #true

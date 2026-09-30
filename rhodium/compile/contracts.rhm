@@ -15,6 +15,7 @@ export:
   CompileManifest
   CompilationResult
   CompilationReport
+  Diagnostic
 
 /* Bounds portable expansion per compilation, including changing-specialization recursion.
    The budget counts distinct expanded definitions, not instance occurrences. */
@@ -49,10 +50,26 @@ class CompileManifest(top :: String, signature :: ModuleSignature,
                       modules :: List.of(String), lowerings :: List.of(LoweringDecision))
 /* Target-owned structured findings; hardware emitters may omit this projection. */
 interface CompilationReport
-/* A completed target result containing its manifest, artifacts, and optional report.
+/* A target-qualified finding detached from live IR. Instance paths distinguish
+   occurrences of a shared definition; absent source locations stay absent. */
+class Diagnostic(code :: String, severity :: String, message :: String,
+                 location :: maybe(Location) = #false, path :: List.of(String) = []):
+  /* Validate severity and nonempty diagnostic text before a result can expose it. */
+  constructor (code :: String, severity :: String, message :: String,
+               location :: maybe(Location) = #false, path :: List.of(String) = []):
+    unless severity in ["error", "warning", "note"]
+    | error(~who: #'Diagnostic, "diagnostic severity must be error, warning, or note")
+    unless code != "" && message != ""
+    | error(~who: #'Diagnostic, "diagnostic code and message must not be empty")
+    super(code, severity, message, location, path)
+
+/* A completed target result containing its artifacts, report, and diagnostics.
    The compiler constructs it only after preparation and artifact validation succeed. */
 class CompilationResult(target :: String, manifest :: CompileManifest,
-                        artifacts :: List.of(Artifact), report :: maybe(CompilationReport) = #false)
+                        artifacts :: List.of(Artifact), report :: maybe(CompilationReport) = #false,
+                        diagnostics :: List.of(Diagnostic) = []):
+  property has_errors:
+    for any (diagnostic in diagnostics): diagnostic.severity == "error"
 
 /* Target-owned prepared state with manifest, artifact, and optional report projections.
    No concrete RTL type is required, so later targets may retain higher-level constructs. */
@@ -63,3 +80,5 @@ interface TargetPlan:
   method emit() :: List.of(Artifact)
   /* Return structured findings when supported; ordinary emission targets default to none. */
   method report() :: maybe(CompilationReport): #false
+  /* Return stored findings without enforcing workflow policy or rerunning analysis. */
+  method diagnostics() :: List.of(Diagnostic): []

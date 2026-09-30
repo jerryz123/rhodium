@@ -226,8 +226,9 @@ must not infer the top or hierarchy from module-list positions.
 The [`layers/clocking.rhm`](layers/clocking.rhm) layer is included in the standard
 profile. It records root timing declarations as metadata during ordinary
 elaboration. Select `clocking_target()` through `compile_program` to resolve
-those declarations and obtain a report; `clocking_target(~check_cdc: #true)`
-also rejects unsafe sampling without verified crossing evidence. The target
+those declarations and obtain a report with diagnostics. Unsafe sampling without
+verified crossing evidence produces errors; verification callers check the
+compilation result's `has_errors` before continuing dependent work. The target
 analyzes a fresh concrete graph and preserves the source program. See the
 [clock-analysis contract](../analysis/README.md).
 

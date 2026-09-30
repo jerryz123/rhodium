@@ -3,9 +3,10 @@
 
 # Clocking, CDC, and RDC next steps
 
-The report-only temporal analysis, root-owned environment declarations, and
-strict closed-design CDC checks for the inspectable, resetless `SyncLevel`
-crossing are implemented. Current behavior and ownership live in the
+Temporal analysis, root-owned environment declarations, and closed-design CDC
+diagnostics for the inspectable, resetless `SyncLevel` crossing are implemented.
+The clock target returns complete findings; verification callers gate dependent
+work on the compilation result's `has_errors`. Current behavior and ownership live in the
 [clocking analysis guide](analysis/DEVELOPING.md),
 [frontend guide](frontend/DEVELOPING.md), and
 [standard-library guide](std/DEVELOPING.md). This plan records work that is

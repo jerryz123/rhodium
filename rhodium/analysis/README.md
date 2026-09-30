@@ -26,13 +26,19 @@ circuit Sample():
   synchronous_input(data, clock)
 
 def program = elaborate_program(Sample())
-def compiled = compile_program(program, clocking_target(~check_cdc: #true))
+def compiled = compile_program(program, clocking_target())
 def findings = compiled.report
 def text = compiled.artifacts[0].content
+// A verification workflow can save/display findings before stopping dependent work.
+if compiled.has_errors
+| error("clock analysis found CDC errors")
+| #void
 ```
 
-`clocking_target()` reports findings; `clocking_target(~check_cdc: #true)` also
-rejects CDC violations. Both run the same temporal analysis through compilation.
+`clocking_target()` always returns the complete findings when analysis finishes.
+CDC violations become error diagnostics; reconvergence findings become warnings.
+Verification workflows check `compiled.has_errors` before dependent work.
+Inspection workflows use the same result without rerunning analysis.
 Ordinary elaboration records declarations without executing this analysis.
 There are no separate public analysis runners or clock-aware elaboration wrappers.
 
@@ -51,7 +57,14 @@ The returned `ClockingReport` in `compiled.report` contains:
 | `environment` | Validated timing contracts bound to that graph |
 
 The single `<top>.clocking.txt` artifact contains the readable temporal report.
-Strict failure raises an aggregate error before any compilation result is returned.
+It remains available when `compiled.has_errors` is true. `compiled.diagnostics`
+contains one `clocking.cdc-violation` error per violation, followed by one
+`clocking.reconvergence` warning per reconvergence finding. Each group preserves
+analysis traversal order, including distinct occurrences of shared modules and
+aggregate input leaves. Diagnostic messages include sink attribution; `.path`
+contains instance names and `.location` is the copied source location when known.
+Invalid IR, timing environments, or failed preparation still raise exceptions
+without a partial result.
 
 The stages are related, but they answer different questions and have different
 owners:
@@ -179,9 +192,9 @@ is the smallest complete example.
 Every `DesignTemporalSummary` contains a deterministic `cdc_violations` list.
 Each `CdcViolation` identifies the hierarchy path, clocked operation and sink
 kind, sampled input leaf, resolved classification, original provenance, and a
-reason. These findings are available in report-only compilation results.
+reason. These findings are available in every completed clock-analysis result.
 
-`clocking_target(~check_cdc: #true)` enforces the current conservative policy:
+`clocking_target()` classifies CDC errors under the current conservative policy:
 
 - static, exact same-clock, and declared-identical sampling are safe;
 - raw incompatible-clock and asynchronous-input sampling require recognized
@@ -192,10 +205,11 @@ reason. These findings are available in report-only compilation results.
 - reset and reset-value sink inputs remain inventory-only until RDC semantics
   exist.
 
-Strict verification reports the complete violation set in one error rather
-than stopping at the first unsafe leaf. Use
+The result retains the complete violation set and report even when errors exist.
+A verification workflow stops dependent emission, simulation, or publication when
+`compiled.has_errors` is true. Use
 [`missing-crossings.rhdl`](../../examples/clocking/missing-crossings.rhdl) to
-compare report-only findings with a corrected strict design, and
+compare erroneous findings with a corrected synchronized design, and
 [`sync-level.rhdl`](../../examples/clocking/sync-level.rhdl) for the standard
 stable-level synchronizer path.
 
@@ -215,7 +229,7 @@ hierarchy paths, and original source lineage. Repeated fanout from one crossing
 identity does not create a finding.
 
 Independently synchronized controls can legitimately meet, so reconvergence
-does not make strict clock-target compilation reject an otherwise legal design. Consumers
+produces warnings without setting `has_errors` on an otherwise clean result. Consumers
 must apply any protocol-specific coherency policy themselves. See
 [`reconvergence.rhdl`](../../examples/clocking/reconvergence.rhdl).
 
