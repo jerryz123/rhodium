@@ -359,9 +359,11 @@ overlay mechanism; its extension list and parameter values are unchanged.
 Remove the correction when the pinned UDB accepts legal zero-GEILEN harts.
 The active [GEILEN=0 validation plan](arch-test/PLAN.md) tracks the remaining
 full-shard result separately from this reference-model correction.
-The overlay also removes UDB's erroneous Shvstvala requirement that EBREAK
-report its PC: the profile explicitly exempts EBREAK/C.EBREAK. All other
-trap-value requirements remain enforced, and DUT reporting choices stay intact.
+The overlay also removes UDB's erroneous Sstvala and Shvstvala requirements
+that EBREAK report its PC: the profiles explicitly exempt EBREAK/C.EBREAK.
+UDB has only one breakpoint-reporting flag, so this narrower exception cannot
+be expressed by that flag. All other trap-value requirements remain enforced,
+and DUT reporting choices stay intact.
 
 `Za64rs` and `Za128rs` are reservation bounds, not Sail extension switches.
 Validate their versions and bounds against Sail's naturally aligned reservation

@@ -410,7 +410,7 @@ def test_config(name, compiler, objdump, sail, udb):
 
 def act_udb_configuration(udb, overlay):
     """Apply pinned UDB schema corrections without changing DUT capabilities."""
-    if any(entry["name"] == "H" for entry in udb["implemented_extensions"]):
+    if any(entry["name"] in ("H", "Sstvala") for entry in udb["implemented_extensions"]):
         return {**udb, "arch_overlay": str(overlay.resolve())}
     return udb
 

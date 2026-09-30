@@ -1,0 +1,17 @@
+# Corrects UDB 0.1.16's Sstvala requirement: EBREAK/C.EBREAK are exempt from address reporting.
+# SPDX-License-Identifier: Apache-2.0
+# UDB's single breakpoint flag cannot represent the profile's EBREAK exception.
+# https://github.com/riscv/riscv-profiles/blob/main/src/profiles.adoc
+requirements:
+  param:
+    allOf:
+      - {name: REPORT_VA_IN_STVAL_ON_INSTRUCTION_ACCESS_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_LOAD_ACCESS_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_STORE_AMO_ACCESS_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_INSTRUCTION_PAGE_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_LOAD_PAGE_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_STORE_AMO_PAGE_FAULT, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_INSTRUCTION_MISALIGNED, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_LOAD_MISALIGNED, equal: true}
+      - {name: REPORT_VA_IN_STVAL_ON_STORE_AMO_MISALIGNED, equal: true}
+      - {name: REPORT_ENCODING_IN_STVAL_ON_ILLEGAL_INSTRUCTION, equal: true}

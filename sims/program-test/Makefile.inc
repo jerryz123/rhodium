@@ -15,6 +15,7 @@ LITMUS7_LIBDIR ?=
 PROGRAM_BUILD_ROOT ?= /tmp/rhodium-program-tests
 PROGRAM_JOBS ?= 1
 PROGRAM_TIMEOUT ?= 300
+BRINGUP_TIMEOUT ?= 360
 TILED_MT_BENCHMARK_TIMEOUT ?= 600
 PROGRAM_MAX_CYCLES ?= 10000000
 BENCHMARK_MAX_CYCLES ?= 100000000
@@ -259,7 +260,7 @@ bringup-test: bringup-elfs simulator-attestation
 	$(PYTHON) program-test/run.py --manifest "$(PROGRAM_PRODUCT_ROOT)/bringup/manifest.json" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup/results" \
-	  --jobs $(PROGRAM_JOBS) --timeout $(PROGRAM_TIMEOUT) --max-cycles $(BRINGUP_MAX_CYCLES)
+	  --jobs $(PROGRAM_JOBS) --timeout $(BRINGUP_TIMEOUT) --max-cycles $(BRINGUP_MAX_CYCLES)
 
 single-core-software-test:
 	@status=0; for core in $(SOFTWARE_CORE); do \

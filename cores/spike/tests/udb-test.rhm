@@ -41,8 +41,12 @@ for (name in ["B", "Zcb", "Zcmop", "Zfa", "Zfh", "Zfhmin", "V", "Zve32x", "Zve64
 check:
   rva23_yaml.contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
   rva23_yaml.contains("  MISALIGNED_LDST: true") ~is #true
+  rva23_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
+  rva23_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
   rva23_yaml.contains("  VECTOR_LS_MISALIGNED_LEGAL: true") ~is #true
   yaml.contains("  MISALIGNED_LDST: false") ~is #true
+  yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE:") ~is #false
+  yaml.contains("  MISALIGNED_SPLIT_STRATEGY:") ~is #false
   rva23_yaml.contains("  VLEN: 128") ~is #true
   rva23_yaml.contains("  ELEN: 64") ~is #true
   rva23_yaml.contains("  CACHE_BLOCK_SIZE: 64") ~is #true
@@ -57,6 +61,8 @@ def rv32_yaml = rv32.to_yaml()
 for (name in ["I", "M", "A", "C", "Zca", "Zve32x", "Zvl32b", "Zvl64b", "Zvbb", "Zvkt", "Zihpm", "Svbare"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #true
 check: rv32_yaml.contains("  MISALIGNED_LDST: true") ~is #true
+check: rv32_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
+check: rv32_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
 for (name in ["F", "D", "Zcf", "Zcd", "V", "Zve64x", "Zvl128b", "Sv39"]):
   check: (for any (entry in rv32.extensions): entry.name == name) ~is #false
 for (parameter in ["MXLEN: 32", "PHYS_ADDR_WIDTH: 32", "MTVAL_WIDTH: 32", "STVAL_WIDTH: 32", "ASID_WIDTH: 9", "VLEN: 64", "ELEN: 32", "VECTOR_LS_INDEX_MAX_EEW: \"32\""]):

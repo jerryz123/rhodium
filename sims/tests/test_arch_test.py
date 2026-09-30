@@ -155,11 +155,20 @@ class ArchTestConfigTest(unittest.TestCase):
                     self.assertEqual(config["extensions"]["Svpbmt"]["supported"], svpbmt)
                     self.assertEqual(config["extensions"]["Svnapot"]["supported"], svnapot)
 
-    def test_hypervisor_schema_overlay_preserves_architecture(self):
+    def test_schema_overlays_preserve_architecture(self):
         project = runpy.run_path(str(RUNNER.with_name("configure.py")))["act_udb_configuration"]
         udb = vector_udb()
         overlay = RUNNER.parent / "udb-overlay"
         self.assertIs(project(udb, overlay), udb)
+        udb["implemented_extensions"].append({"name": "Sstvala", "version": "= 1.0.0"})
+        result = project(udb, overlay)
+        self.assertEqual(result["params"], udb["params"])
+        self.assertEqual(result["implemented_extensions"], udb["implemented_extensions"])
+        self.assertEqual(result["arch_overlay"], str(overlay.resolve()))
+        self.assertNotIn("arch_overlay", udb)
+        h_only = vector_udb()
+        h_only["implemented_extensions"].append({"name": "H", "version": "= 1.0.0"})
+        self.assertEqual(project(h_only, overlay)["arch_overlay"], str(overlay.resolve()))
         udb["implemented_extensions"].append({"name": "H", "version": "= 1.0.0"})
         udb["params"]["NUM_EXTERNAL_GUEST_INTERRUPTS"] = 0
         result = project(udb, overlay)

@@ -216,6 +216,8 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      boolean_parameter("MUTABLE_MISA_C", #true)]
   when has("sscofpmf")
   | parameters := parameters ++ [natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
+  when has("zicclsm")
+  | parameters := parameters ++ [natural_parameter("MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE", 0), string_parameter("MISALIGNED_SPLIT_STRATEGY", "custom")]
   when profile.pmp_regions > 0
   | parameters := parameters ++ [
       natural_parameter("NUM_USABLE_PMP_ENTRIES", profile.pmp_regions),

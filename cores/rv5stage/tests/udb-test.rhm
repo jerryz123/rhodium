@@ -169,6 +169,8 @@ check:
   rv64_yaml.contains("  CONFIG_PTR_ADDRESS: 0") ~is #true
   rv64_yaml.contains("  NUM_PMP_ENTRIES: 0") ~is #true
   rv64_yaml.contains("  MISALIGNED_LDST: true") ~is #true
+  rv64_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
+  rv64_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
   rv64_yaml.contains("{ name: \"Zicclsm\", version: \"= 1.0.0\" }") ~is #true
   rv64_yaml.contains("  LRSC_FAIL_ON_NON_EXACT_LRSC: true") ~is #true
   rv64_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0, 1, 2, 3]") ~is #true
@@ -202,6 +204,8 @@ check:
   rv32_yaml.contains("{ name: \"S\", version: \"= 1.13.0\" }") ~is #true
   rv32_yaml.contains("{ name: \"Svade\",") ~is #false
   rv32_yaml.contains("  CONFIG_PTR_ADDRESS: 0") ~is #true
+  rv32_yaml.contains("  MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE: 0") ~is #true
+  rv32_yaml.contains("  MISALIGNED_SPLIT_STRATEGY: \"custom\"") ~is #true
   rv32_yaml.contains("  MSTATUS_FS_LEGAL_VALUES: [0]") ~is #true
   rv32_yaml.contains("  TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY: false") ~is #true
   rv5stage_udb_configuration(
