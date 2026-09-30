@@ -48,30 +48,22 @@ case. A source-tree litmus7 build also needs `LITMUS7_LIBDIR`; see the
 [simulator workflow](../sims/README.md) for sharding, result paths, and the
 CI-pinned herdtools7 revision. Neither Make target installs litmus7.
 
-The older bare-metal litmus adapter discovers every case in the pinned upstream
-non-mixed-size inventory that its branch-free RV64I translator can preserve
-exactly and that has an unambiguous precomputed Herd RVWMO state set. The
-current pin yields 84 cases, including MP, SB, and IRIW+addrs. Use a tiled SoC
-for their two, three, or four active harts. `LITMUS_RUNS` changes the bounded
-repetitions; `LITMUS_CASES` defaults to `all` or accepts a comma-separated
-subset of supported names. A passing run means no forbidden state was observed,
-not that every model-allowed state appeared or that the full upstream corpus
-is covered.
-
-The litmus7 profiles use upstream's RISC-V code generator instead of the
-branch-free instruction translator. Supply an installed executable with
+All litmus builds use upstream's RISC-V litmus7 code generator. Supply an
+installed executable with
 `LITMUS7=/path/to/litmus7` to a profile target; source-tree builds
 also need `LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir`. The port runs
 litmus7's static worker pool on physical harts without pthreads. Its output
 histogram is checked by the host runner against the pinned Herd states, since
 litmus7's own condition result is not a memory-model pass/fail result. The
 bare-metal port emits the test identity and complete histogram, omitting the
-unused witness footer to limit simulated HTIF traffic. The path discovers
-additional candidate cases, including branches and memory outcomes. It filters
+unused witness footer to limit simulated HTIF traffic. The builder discovers
+model-backed candidate cases, including branches and memory outcomes. It filters
 Zalasr acquire/release ordinary loads and stores when the selected target lacks
 `zalasr`; a case is qualified only after its ELF builds and runs on the selected
-SoC. `litmus-test` remains the explicit 84-case adapter target, with
-`LITMUS_CASES=MP,LB+ctrls` for a bounded adapter selection. The profile path
+SoC. `litmus-test` uses the same builder for explicit subsets, with
+`LITMUS_CASES=MP,LB+ctrls` and `LITMUS_RUNS` controlling selection and samples.
+A passing run means no forbidden state was observed, not that every allowed
+state appeared or that the full upstream corpus is covered. The builder
 does not download or install herdtools7. For a whole-inventory
 build survey, the builder's `--keep-going` option retains successful ELFs and
 records failed case names and stages in `manifest.json`, then exits nonzero if

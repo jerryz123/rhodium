@@ -74,7 +74,7 @@ sync_circuit RV5StageMmuDataPortFixture():
   mmu.satp <== satp
   mmu.invalidate_all <== invalidate_all
   mmu.ordered_busy <== ordered_busy
-  inject_flow(Valid(Bits(64)), ~valid: replay_pending, ~bits: replay_pc) |> mmu.instruction_replay_owner
+  inject_interface(Valid(Bits(64)), ~valid: replay_pending, ~bits: replay_pc) |> mmu.instruction_replay_owner
 
 export:
   RV5StageMmuDataPortFixture

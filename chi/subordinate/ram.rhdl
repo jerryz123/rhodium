@@ -55,10 +55,4 @@ sync_circuit CHIRam(config :: CHIRamConfig):
   build_chi_ram_controller(config, identity, port, backend)
 
 export:
-  CHIRamMemoryOperation
-  CHIRamMemoryCompletion
-  CHIRamConfig
-  CHIRamParams
-  CHIRamIdentity
-  build_chi_ram_controller
   CHIRam

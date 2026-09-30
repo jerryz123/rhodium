@@ -28,13 +28,13 @@ circuit GenericFlowBoundary():
   output sink_bits: Bits(8)
   output sink_tag: Bits(2)
 
-  inject_flow(
+  inject_interface(
     TaggedFlow(Bits(8)),
     ~valid: source_valid,
     ~bits: source_bits,
     ~tag: source_tag,
     ~ready: source_ready
-  ) |> eject_flow(
+  ) |> eject_interface(
          ~valid: sink_valid,
          ~bits: sink_bits,
          ~tag: sink_tag,
@@ -47,11 +47,11 @@ circuit ControlFlowBoundary():
   output source_ready: Bool
   output sink_valid: Bool
 
-  inject_flow(
+  inject_interface(
     DecoupledCtrl(),
     ~valid: source_valid,
     ~ready: source_ready
-  ) |> eject_flow(~valid: sink_valid, ~ready: sink_ready)
+  ) |> eject_interface(~valid: sink_valid, ~ready: sink_ready)
 
 interface ResponseFlow():
   role requester
@@ -70,11 +70,11 @@ circuit ReverseProviderFlowBoundary():
   output source_request: Bits(8)
   output sink_response: Bits(16)
 
-  inject_flow(
+  inject_interface(
     ResponseFlow(),
     ~response: source_response,
     ~request: source_request
-  ) |> eject_flow(~response: sink_response, ~request: sink_request)
+  ) |> eject_interface(~response: sink_response, ~request: sink_request)
 
 sync_circuit DetachedFlowBoundary():
   input source_valid: Bool
@@ -85,8 +85,8 @@ sync_circuit DetachedFlowBoundary():
   output sink_bits: Bits(8)
 
   def sink = Decoupled(Bits(8)) |> pipe(1)
-    |> eject_flow(~valid: sink_valid, ~bits: sink_bits, ~ready: sink_ready)
-  inject_flow(
+    |> eject_interface(~valid: sink_valid, ~bits: sink_bits, ~ready: sink_ready)
+  inject_interface(
     Decoupled(Bits(8)),
     ~valid: source_valid,
     ~bits: source_bits,
@@ -118,14 +118,14 @@ circuit NestedFlowBoundary():
   output source_acknowledge: Bool
   output sink_data: Bits(8)
 
-  inject_flow(
+  inject_interface(
     NestedFlow(),
-    ~channel: flow_fields(
+    ~channel: interface_fields(
       ~data: source_data,
       ~acknowledge: source_acknowledge
     )
-  ) |> eject_flow(
-         ~channel: flow_fields(
+  ) |> eject_interface(
+         ~channel: interface_fields(
            ~data: sink_data,
            ~acknowledge: sink_acknowledge
          )
@@ -149,12 +149,12 @@ circuit FilterValidWrongProtocol():
 
 circuit InjectFlowMissingBinding():
   input source_valid: Bool
-  inject_flow(Valid(Bits(8)), ~valid: source_valid)
+  inject_interface(Valid(Bits(8)), ~valid: source_valid)
 
 circuit EjectFlowMissingBinding():
   interface ingress(Valid(Bits(8)), ~role: consumer)
   output sink_valid: Bool
-  ingress |> eject_flow(~valid: sink_valid)
+  ingress |> eject_interface(~valid: sink_valid)
 
 circuit ToValidWrongProtocol():
   interface ingress(Valid(Bits(8)), ~role: consumer)

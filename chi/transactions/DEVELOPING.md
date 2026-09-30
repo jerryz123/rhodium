@@ -72,7 +72,7 @@ no-retry copyback lifetime; specialized retry engines remain separate.
 ### Retry response profiles
 
 Response effect decoding and milestone testing belong to `CHIResponseProfile`.
-Keep public free-function compatibility entry points delegating to the methods.
+Call the profile methods directly; response decoding has no parallel free-function API.
 Milestone names are nonempty; constructor checks retain declaration membership,
 uniqueness, reserved opcodes, and retry-only profiles.
 

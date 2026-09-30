@@ -47,7 +47,6 @@ Dependency enforcement and extension workflow are documented in
 | [`instruction-pattern.rhdl`](instruction-pattern.rhdl) | `encoding_pattern`, `instruction_pattern` | Convert pure value/care images to typed Rhodium `Pattern`s |
 | [`instruction-fields.rhdl`](instruction-fields.rhdl) | `instruction_field`, `immediate_bits`, `instruction_immediate` | Materialize descriptor-owned slices and extended immediates |
 | [`compressed.rhdl`](compressed.rhdl) | `RiscvCompressedExpansion`, `RiscvCompressedExpander`, `compressed_selector_cases` | Recognize legal C encodings and emit canonical 32-bit instructions |
-| [`mop.rhdl`](mop.rhdl) | `resolve_mop_decode_cases` | Compatibility name for the standard decode-overlay operation |
 | [`decode.rhdl`](decode.rhdl) | `instruction_cases`, `component_output`, and relation helpers | Build catalog-independent RISC-V decode relations over typed patterns |
 | [`csr.rhdl`](csr.rhdl) | `RiscvCsrOperation`, `CsrBank`, `csr_bits`, `csr_bank` | Define CSR operation intent and exact-key CSR recognition, reads, and writes |
 | [`vector.rhdl`](vector.rhdl) | `RiscvVectorState`, `vector_type`, `vector_configure` | Define the architectural vector-state value and profile-selected vtype legality; no state storage |
@@ -160,9 +159,8 @@ The standard decode library's `overlay_decode_cases` helper supports extensions
 that redefine only part of a broader fallback encoding. It subtracts explicit
 override input sets from fallback rows, returning one disjoint relation. Core
 decode therefore need not depend on row priority when an extension assigns
-architectural behavior to an existing hint or fallback region. `mop.rhdl`
-retains `resolve_mop_decode_cases` as a compatibility name for existing MOP
-consumers; new generic composition should use the standard helper directly.
+architectural behavior to an existing hint or fallback region. Import the
+standard helper directly for MOP and other decode overlays.
 
 The [pure-model guide](../README.md#compressed-instruction-expansion) explains
 the shared host and hardware expansion path.

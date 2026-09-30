@@ -440,7 +440,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     context: eviction_context
   def eviction_command_valid = gather_state === RV5StageDataGatherState.EvictionReady
   wire eviction_command_ready: Bool
-  inject_flow(Decoupled(hardware_value_type(eviction_command)), ~valid: eviction_command_valid, ~bits: eviction_command, ~ready: eviction_command_ready) |> writeback.command
+  inject_interface(Decoupled(hardware_value_type(eviction_command)), ~valid: eviction_command_valid, ~bits: eviction_command, ~ready: eviction_command_ready) |> writeback.command
   def writeback_command_fire = eviction_command_valid & eviction_command_ready
   writeback.victim_state <== eviction_state
   writeback.snoop_pending <== snoop_pending
@@ -583,7 +583,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     line: mux(snoop_gather_result,
               gathered_line,
               bits(0, RV5StageCacheLineBytes * 8)).as_vec(Bits(64))
-  inject_flow(Valid(RV5StageDataSnoopLookupResult()), ~valid: snoop_direct_result ||| snoop_gather_result, ~bits: snoop_result) |> snoop.lookup_result
+  inject_interface(Valid(RV5StageDataSnoopLookupResult()), ~valid: snoop_direct_result ||| snoop_gather_result, ~bits: snoop_result) |> snoop.lookup_result
 
   // S4 owns the backing engines for the next cycle. An older miss or mutation
   // prevents S3 advancement; the retained S3 request rereads after that work.
@@ -700,7 +700,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
                   bits(0, width)))
     writeback: response_request.writeback
     origin: response_request.origin
-  inject_flow(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
+  inject_interface(Valid(RV5StageDataResp(xlen, vector_completion_slots)), ~valid: produces_response, ~bits: response) |> to_decoupled() |> service_responses.ingress
   when produces_response:
     assert(service_responses.ingress.ready, "l1d_slow_response_capacity")
 
@@ -739,7 +739,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
     data: vec(for List (_way in 0..ways): refill_tag)
     mask: install_way_mask
   def traced_tag_port = (
-    inject_flow(Valid(ReadWriteRequest(set_width, Bits(tag_width), ways)), ~valid: array_lookup_issue ||| install_refill ||| snoop_lookup_start, ~bits: tag_port_request)
+    inject_interface(Valid(ReadWriteRequest(set_width, Bits(tag_width), ways)), ~valid: array_lookup_issue ||| install_refill ||| snoop_lookup_start, ~bits: tag_port_request)
       |> trace_valid_event("dcache/arrays.tags", ~fields: request):
         index: request.address
         write: request.write
@@ -794,7 +794,7 @@ sync_circuit RV5StageL1DCache(xlen :: XLen,
         local_mutation_commit: local_mutation_lane_mask
     )
   def traced_data_port = (
-    inject_flow(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
+    inject_interface(Valid(ReadWriteRequest(data_address_width, Bits(8), data_lanes)), ~valid: array_data_read ||| cache_write ||| gather_issue ||| store_drain, ~bits: data_port_request)
       |> trace_valid_event("dcache/arrays.data", ~fields: request):
         index: request.address
         write: request.write

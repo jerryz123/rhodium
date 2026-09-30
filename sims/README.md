@@ -554,11 +554,12 @@ nonempty `pending` list; only complete shards count toward full coverage.
 No forbidden observation is a bounded test result, not a proof of memory-model
 compliance or of observing every allowed outcome.
 
-The previous branch-free 84-case adapter remains available separately for
-adapter debugging and explicit subsets:
+For explicit subsets, `litmus-test` uses the same litmus7 builder and model
+checker. `LITMUS_CASES` selects names and `LITMUS_RUNS` controls samples:
 
 ```sh
-make -C sims litmus-test SOC=tiled CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls
+make -C sims litmus-test SOC=tiled CORE=spike ISA=rva23 LITMUS_CASES=MP,LB+ctrls \
+  LITMUS7=/path/to/litmus7 LITMUS7_LIBDIR=/path/to/herdtools7/litmus/libdir
 ```
 
 Scalar benchmarks are `median`, `qsort`, `rsort`, `towers`, `vvadd`, `memcpy`,

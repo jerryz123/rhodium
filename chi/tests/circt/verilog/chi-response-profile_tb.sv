@@ -2,8 +2,8 @@
 // SPDX-License-Identifier: Apache-2.0
 module chi_response_profile_tb;
   logic [4:0] opcode;
-  wire [1:0] effects, legacy_effects;
-  wire dbid, completion, legacy_dbid, retry_only;
+  wire [1:0] effects;
+  wire dbid, completion, retry_only;
   CHIResponseProfileFixture dut(.*);
   initial begin
     for (int op = 0; op < 32; op++) begin
@@ -16,8 +16,7 @@ module chi_response_profile_tb;
         default: expected = 2'b00;
       endcase
       #1;
-      assert (effects === expected && legacy_effects === expected &&
-              dbid === expected[0] && legacy_dbid === expected[0] &&
+      assert (effects === expected && dbid === expected[0] &&
               completion === expected[1] && retry_only === 1'b0)
         else $fatal(1, "profile decode for opcode %0h", op);
     end

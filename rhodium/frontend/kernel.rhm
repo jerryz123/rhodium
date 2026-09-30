@@ -107,15 +107,9 @@ interface StableCircuitParam:
   method same_stable_circuit_param(other :: StableCircuitParam) :: Boolean:
     this == other
 
-// Keeps legacy module wrappers usable while new references expose signatures
-// independently of their concrete implementation.
+// Exposes signature-bearing references independently of concrete implementations.
 interface CircuitDefinition:
-  method core_module()
-  method definition_reference():
-    def module_def = this.core_module()
-    unless module_def is_a Module
-    | frontend_fail("legacy circuit definition must return a module")
-    circuit_reference(module_def)
+  method definition_reference()
 
 fun circuit_reference(definition :: Module || CircuitDefinition,
                       location :: Location = Location()):
@@ -229,7 +223,6 @@ class CircuitReference(identity :: CircuitIdentity,
     super(identity, signature, implementation, clock_port, reset_port)
 
   override method definition_reference(): this
-  override method core_module(): materialize_circuit(this)
 
 // Providers live in the program environment, never in the core descriptor.
 class RetainedCircuitReference(definition :: ConstructDefinition,
@@ -239,7 +232,6 @@ class RetainedCircuitReference(definition :: ConstructDefinition,
   property clock_port: #false
   property reset_port: #false
   override method definition_reference(): this
-  override method core_module(): frontend_fail("retained circuit requires materialize_rtl")
 
 fun retained_circuit(definition :: ConstructDefinition, implementation :: Function.of_arity(0)):
   def provider = ExpansionProvider(

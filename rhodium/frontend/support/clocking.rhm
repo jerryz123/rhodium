@@ -60,7 +60,6 @@ class SyncCircuitDefinition(module_def :: Module,
     clock_port,
     reset_port
   )
-  override method core_module(): module_def
   override method definition_reference(): reference
 
 Parameter.def current_sync_domain = #false

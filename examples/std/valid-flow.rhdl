@@ -19,7 +19,7 @@ circuit AcceptedFilteredValid():
 
   ingress |> to_valid()
     |> filter_valid(payload => payload[0].into(Bool))
-    |> eject_flow(~valid: egress.valid, ~bits: egress.bits)
+    |> eject_interface(~valid: egress.valid, ~bits: egress.bits)
 
 sync_circuit CheckedValidToDecoupled():
   interface ingress(Valid(Bits(8)), ~role: consumer)

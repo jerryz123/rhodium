@@ -75,7 +75,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
   def retained_attempts = for Array (slot in 0..slots):
     def index = bits(slot, index_width(slots))
     def capture = captures[slot] |> filter_valid(_token => request_index(tail) === index)
-    def offered = inject_flow(Valid(Token), ~valid: pending & !recover & (request_index(next_request) === index), ~bits: requests[slot])
+    def offered = inject_interface(Valid(Token), ~valid: pending & !recover & (request_index(next_request) === index), ~bits: requests[slot])
     def occupied = if slots == 1 | queued | (index - request_index(head)).zext(Cursor.width) < count
     def name = "request-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, resolved & (request_index(head) === index), occupied, ~name: name)
@@ -230,7 +230,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     def ack_bits = RV5StageVectorCompletion(xlen, slots):
       tag: index
       data: bits(0, xlen.width)
-    def offered = inject_flow(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: ack_bits, ~ready: acknowledgement_ready[slot])
+    def offered = inject_interface(Decoupled(RV5StageVectorCompletion(xlen, slots)), ~valid: acknowledgements[slot], ~bits: ack_bits, ~ready: acknowledgement_ready[slot])
     def name = "ack-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, offered.fire(), acknowledgements[slot], ~name: name)
     describe_interface_contract(capture, offered, name, ~trace_model: interface_trace_retained(~name: name))

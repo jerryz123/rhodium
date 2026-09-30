@@ -407,7 +407,7 @@ backpressure is intentional:
 
 ```rhombus
 source |> to_valid()
-  |> eject_flow(~valid: sink_valid, ~bits: sink_bits)
+  |> eject_interface(~valid: sink_valid, ~bits: sink_bits)
 ```
 
 `to_decoupled()` performs the checked inverse for a nonbackpressured `Valid(T)`
@@ -438,14 +438,14 @@ admission without changing the functional offer.
 
 ## Circuit boundaries
 
-The flow facade retains `inject_flow(protocol, ...)` and `eject_flow(...)` as
-convenience aliases for the interface layer's generic `inject_interface` and
-`eject_interface` boundaries. Each named binding corresponds to a declared
-protocol member. A `Decoupled(T)` boundary therefore names `~valid`, `~bits`,
+Use the interface layer's generic `inject_interface(protocol, ...)` and
+`eject_interface(...)` boundaries to connect circuit wires to flow stages.
+Each named binding corresponds to a declared protocol member. A `Decoupled(T)`
+boundary therefore names `~valid`, `~bits`,
 and `~ready`, while a `Valid(T)` boundary names only `~valid` and `~bits`:
 
 ```rhombus
-inject_flow(
+inject_interface(
   Decoupled(Request()),
   ~valid: source_valid,
   ~bits: source_bits,
@@ -453,13 +453,13 @@ inject_flow(
 )
   |> pipe(1)
   |> map_flow(request => translate(request))
-  |> eject_flow(~valid: sink_valid, ~bits: sink_bits, ~ready: sink_ready)
+  |> eject_interface(~valid: sink_valid, ~bits: sink_bits, ~ready: sink_ready)
 ```
 
 On injection, forward arguments are readable hardware values and return-path
 arguments are driveable places. Ejection reverses those requirements: forward
 arguments are driveable places and return-path arguments are readable values.
-Nested interface members use `flow_fields(~field: value, ...)` to group their
+Nested interface members use `interface_fields(~field: value, ...)` to group their
 named leaves. The helpers work from declared member directions, including
 custom protocols and control-only interfaces; they add neither storage nor
 hierarchy.

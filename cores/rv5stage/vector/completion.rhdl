@@ -141,7 +141,7 @@ sync_circuit RV5StageVectorCompletionUnit(xlen :: XLen, vlen :: VectorLength, ve
   def memory_results = for Array (slot in 0..vector_completion_slots):
     def tag = bits(slot, tag_width)
     def capture = accepted_per_slot[slot] |> filter_valid(operation => operation.tag === tag)
-    def returned = inject_flow(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
+    def returned = inject_interface(Valid(Writeback()), ~valid: slow_result.valid & (slow_result.bits.tag === tag), ~bits: slow_result.bits)
     def name = "memory-result-" ++ to_string(slot)
     describe_interface_retained_storage(capture.valid, returned.valid, authorized_slots[slot] & entries[slot].memory & !completed[slot], ~name: name)
     describe_interface_contract(capture, returned, name, ~trace_model: interface_trace_retained(~name: name))

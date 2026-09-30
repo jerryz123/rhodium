@@ -1,5 +1,5 @@
 #lang rhodium
-// Exercises profile methods and compatibility calls with combined and retry-only response effects.
+// Exercises response-profile methods with combined and retry-only response effects.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,16 +20,12 @@ def profile = response_profile("profile_decode"):
 circuit CHIResponseProfileFixture():
   input opcode: CHIRspOpcode
   output effects: Bits(2)
-  output legacy_effects: Bits(2)
   output dbid: Bool
   output completion: Bool
-  output legacy_dbid: Bool
   output retry_only: Bits(1)
   effects <== profile.effects(opcode)
-  legacy_effects <== chi_response_effects(profile, opcode)
   dbid <== profile.milestone(effects, "dbid")
   completion <== profile.milestone(effects, "completion")
-  legacy_dbid <== chi_response_milestone(profile, effects, "dbid")
   retry_only <== CHIResponseProfile("retry_only", [], [], ~retryable: #true).effects(opcode)
 
 circuit InvalidResponseEffects(T :: DataType):

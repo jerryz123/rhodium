@@ -31,25 +31,19 @@ Zicclsm; include the physical variant in ISA smoke for such targets.
 Validate ELF32 and ELF64 load segments including BSS and executable entry on
 both fresh builds and cache reuse. Record upstream inventory gaps (currently
 RV32 CBO-zero) separately from target capability exclusions; never select by
-observed pass status. `build-litmus.py` discovers
-the branch-free RV64I cases in upstream's model-run `@all` inventory, combines
-their exact instruction rows with the pinned Herd state log, and links a
-Rhodium-owned multihart runtime from `litmus-riscv-baremetal/` against the
-existing RISC-V benchmark startup/HTIF support. Model-log names are not
-source-path unique, so the builder
-explicitly chooses only the qualified MP, SB, and LB variants and skips other
-ambiguous names. It rejects syntax outside its explicit subset instead of
-silently dropping instructions or inventing allowed outcomes. `opensbi.py`
-derives firmware layout from the selected target descriptor and builds OpenSBI `FW_JUMP`.
-With an explicit `litmus7` executable, the builder instead selects cases by
+observed pass status. `opensbi.py` derives firmware layout from the selected
+target descriptor and builds OpenSBI `FW_JUMP`.
+`build-litmus.py` requires an explicit `litmus7` executable and selects cases by
 source thread table and pinned model-state inventory, asks litmus7 to emit
 static pre-silicon RISC-V C, and links its test body and generated IO/random
-helpers with `litmus7-port.c` and `litmus7-main.c`. The port implements only the
+helpers with `litmus7-port.c` and `litmus7-main.c` against the existing RISC-V
+benchmark startup/HTIF support. The port implements only the
 fixed-hart worker and option interfaces exercised by that build mode; generated
 files stay in the content-addressed build directory. The simulator result
 runner checks the complete histogram against the pinned Herd states and requires
 at least the requested number of samples. Source-identical duplicate names
-may share one case; distinct ambiguous sources remain excluded. Keep the tool
+may share one case; the builder explicitly selects the qualified MP, SB, and LB
+variants, and other distinct ambiguous sources remain excluded. Keep the tool
 binary, support directory, target, and port in the cache identity.
 The tiled smoke and full profiles both require this litmus7 path. Smoke names
 live in `litmus-riscv-baremetal/smoke-cases.txt`; the builder validates every

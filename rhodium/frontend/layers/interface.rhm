@@ -2442,7 +2442,7 @@ fun inject_interface(type :: InterfaceType,
     bindings,
     #'inject_interface
   )
-  def link :: Handle = interface_link(type, "inject_flow")
+  def link :: Handle = interface_link(type, "inject_interface")
   def circuit_endpoint:
     if type.provider_role == type.roles[0] | link.left | link.right
   def interface_endpoint :: Endpoint:
@@ -2472,7 +2472,7 @@ fun finish_ejected_interface(source :: InterfaceType || InterfaceEndpoint || Int
                              bindings :: Map):
   def detached_link:
     if source is_a InterfaceType
-    | interface_link(source, "eject_flow")
+    | interface_link(source, "eject_interface")
     | #false
   def handle:
     if source is_a InterfaceHandle | source | detached_link

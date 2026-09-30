@@ -111,8 +111,8 @@ The kernel distinguishes live hardware from deferred frontend descriptions:
   generator-parameter boundary.
 - `RegisterPathValue` delays the choice between a register's current value and
   its next-state place until read or drive context is known.
-- `CircuitDefinition` retains the legacy `core_module()` wrapper protocol and
-  supplies a default concrete `definition_reference()` adapter.
+- `CircuitDefinition` requires `definition_reference()` so wrappers expose
+  their signature-bearing reference without realizing its implementation.
 - `CircuitReference` separates declaration identity and a core `ModuleSignature`
   from an implementation recipe. Signature inspection and sync wiring policy
   do not execute the recipe. `materialize_circuit` is the explicit concrete

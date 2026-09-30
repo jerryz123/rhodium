@@ -1552,6 +1552,4 @@ sync_circuit CHIInclusiveHNF(config :: CHIInclusiveHNFConfig):
 
 export:
   CHIInclusiveHNFConfig
-  // Compatibility-only implementation state, not CHI protocol vocabulary.
-  CHIInclusiveHNFPhase
   CHIInclusiveHNF

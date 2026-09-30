@@ -75,8 +75,6 @@ export:
   CHIResponseProfile
   response_profile
   chi_response_profile_opcodes
-  chi_response_effects
-  chi_response_milestone
   CHIRequestAttempt
   CHIResponseEvent
   CHIRetryableTransactionControl
@@ -209,8 +207,6 @@ export:
   CHIHNFIdentity
   CHIHNF
   CHIInclusiveHNFConfig
-  // Compatibility-only implementation state, not CHI protocol vocabulary.
-  CHIInclusiveHNFPhase
   CHIInclusiveHNF
   CHIRNLink
   CHIRNILink

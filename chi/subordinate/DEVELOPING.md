@@ -20,7 +20,7 @@ hierarchy or per-directory facade.
 |---|---|
 | [`subordinate-slots.rhdl`](subordinate-slots.rhdl) | Transaction occupancy, DBID association, and packet receipt |
 | [`memory-controller.rhdl`](memory-controller.rhdl) | Shared configuration, native multibeat scheduling, and request checks |
-| [`ram.rhdl`](ram.rhdl) | `SyncRam1RW` backend and compatibility re-exports |
+| [`ram.rhdl`](ram.rhdl) | `SyncRam1RW` backend |
 | [`dpi-memory.rhdl`](dpi-memory.rhdl), [`dpi/chi_memory.cc`](dpi/chi_memory.cc) | DPI bridge and bounded sparse native byte store |
 | [`single-beat-subordinate.rhdl`](single-beat-subordinate.rhdl) | Common one-outstanding MMIO phases and responses |
 
@@ -35,8 +35,8 @@ same-cycle occupancy bypass without revisiting that invariant.
 
 `memory-controller.rhdl` owns the common `CHIRamConfig`, `CHIRamParams`,
 `CHIRamIdentity`, operation/completion payloads, and `build_chi_ram_controller`.
-`ram.rhdl` owns only the `SyncRam1RW` backend and re-exports shared bindings
-for existing importers. `dpi-memory.rhdl` imports the controller directly and
+`ram.rhdl` owns and exports only the `SyncRam1RW` backend. Import shared bindings
+from `memory-controller.rhdl`. `dpi-memory.rhdl` imports the controller directly and
 owns the DPI ABI, access enable/reset policy, and model-status assertion.
 `dpi/chi_memory.{h,cc}` owns the bounded sparse byte store shared by DPI and
 native simulation adapters. Its process-local model ID is independent of the

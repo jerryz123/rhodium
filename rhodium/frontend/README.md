@@ -130,10 +130,9 @@ owns single-clock certification and reset behavior. Clock/reset port names
 alone never opt an ordinary module into automatic propagation.
 
 `circuit_reference(module_or_definition)` adapts existing concrete definitions;
-`circuit_signature` inspects either kind. Legacy `CircuitDefinition` wrappers
-that implement `core_module()` remain supported. Their default adapter needs
-the existing module; only `CircuitReference` guarantees inspection without
-implementation construction.
+`circuit_signature` inspects either kind. `CircuitDefinition` wrappers implement
+`definition_reference()` and return their signature-bearing reference directly.
+Keep implementation construction in the reference recipe so inspection remains lazy.
 
 This API preserves ordinary eager circuit elaboration. The resulting design
 still contains concrete RTL instances, so existing analyses and CIRCT emission

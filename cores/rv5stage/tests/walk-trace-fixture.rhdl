@@ -33,7 +33,7 @@ sync_circuit RV5StageWalkTrace():
     privilege: PrivilegeMode.Supervisor
     sum: Bool(#false)
     mxr: Bool(#false)
-  def submitted = inject_flow(Decoupled(RV5StageTranslationRequest()), ~valid: command_valid, ~bits: translation, ~ready: command_ready) |> trace_event("translation", ~when: !cancel, ~fields: request):
+  def submitted = inject_interface(Decoupled(RV5StageTranslationRequest()), ~valid: command_valid, ~bits: translation, ~ready: command_ready) |> trace_event("translation", ~when: !cancel, ~fields: request):
     address: request.virtual_address
   submitted |> walker.request
   def requested = walker.memory.request |> trace_event("pte", ~fields: location):

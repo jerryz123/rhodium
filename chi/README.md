@@ -351,9 +351,7 @@ and the final completion condition remain endpoint-owned.
 Profiles expose `effects(opcode)` to decode an RSP into milestone bits and
 `milestone(effects, name)` to test one named bit. Milestone names must be
 nonempty and declared by the profile. Unknown opcodes decode to zero; a
-retry-only profile has a one-bit zero effect vector. The existing
-`chi_response_effects` and `chi_response_milestone` functions remain compatible
-entry points delegating to these methods.
+retry-only profile has a one-bit zero effect vector.
 
 [`transactions/read-once.rhdl`](transactions/read-once.rhdl) composes that
 control into a complete one-outstanding RN-I `ReadOnce` requester. It accepts
@@ -501,9 +499,9 @@ settled. Repeated reset initialization preserves memory contents.
 Both implementations use the same transaction controller from
 [`subordinate/memory-controller.rhdl`](subordinate/memory-controller.rhdl), including configuration,
 identity, DBID handling, multibeat sequencing, and runtime checks. Their external
-ports remain native `CHISNChannels`. Existing imports of `CHIRamConfig`,
-`CHIRamParams`, and `CHIRamIdentity` through `main.rhdl` or `subordinate/ram.rhdl` continue
-to work; the controller module also provides them directly.
+ports remain native `CHISNChannels`. Import `CHIRamConfig`, `CHIRamParams`,
+and `CHIRamIdentity` from `subordinate/memory-controller.rhdl` or the `main.rhdl`
+facade; `subordinate/ram.rhdl` exports only the concrete `CHIRam` backend.
 
 [`adapters/transfer-fragmenter.rhdl`](adapters/transfer-fragmenter.rhdl) widens an intentionally
 narrow subordinate service. The serialized adapter emits one child request per

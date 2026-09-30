@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits complete opcode decoding for CHI response-profile methods and compatibility entry points.
+// Emits complete opcode decoding for CHI response-profile methods.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

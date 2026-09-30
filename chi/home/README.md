@@ -133,9 +133,8 @@ an empty pending mask does not mean the last responder has finished.
 
 ## Limits and navigation
 
-`CHIInclusiveHNFPhase` names internal implementation states, not CHI protocol
-states; it remains exported only for source compatibility. The noncaching
-Home remains single-transaction and broadcast-based. General ordering,
+Inclusive-Home implementation states are private, not CHI protocol vocabulary.
+The noncaching Home remains single-transaction and broadcast-based. General ordering,
 broader retry use, same-set parallelism, and additional coherent request
 families are outside the delivered profile. See the
 [Home engine limits](../README.md#initial-coherent-home-engines) and

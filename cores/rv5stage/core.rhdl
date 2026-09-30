@@ -1361,7 +1361,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wb_memory_offer |> offer_decoupled() |> scalar_data.request
   wb_fp_path |> filter_valid(_operation => wb_attempt & wb_offer_bits.fp_compute)
     |> map_valid(operation => operation.fp_issue)
-    |> eject_flow(~valid: wb_fp.issue.valid, ~bits: wb_fp.issue.bits)
+    |> eject_interface(~valid: wb_fp.issue.valid, ~bits: wb_fp.issue.bits)
   def wb_page_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (scalar_data.request.valid & scalar_data.request_fault)
   // The arbiter qualifies the fault for this owner. Pipeline and delayed
   // completion faults still use their retained instruction address context.

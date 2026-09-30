@@ -158,20 +158,6 @@ fun chi_response_profile_opcodes(
     for values(opcodes = result) (opcode in profile.response_opcodes):
       if opcodes.contains(opcode) | opcodes | opcodes ++ [opcode]
 
-/*
- * Compatibility entry points delegate to the profile-owned operations.
- */
-fun chi_response_effects(profile :: CHIResponseProfile,
-                         opcode :: CHIRspOpcode)
-  :~ Bits(profile.effect_width):
-  profile.effects(opcode)
-
-/* Delegate named milestone testing to the selected response profile. */
-fun chi_response_milestone(profile :: CHIResponseProfile,
-                           effects :: Bits(profile.effect_width),
-                           milestone :: String) :~ Bool:
-  profile.milestone(effects, milestone)
-
 /* Expose AllowRetry and Protocol Credit type for one original or replayed request attempt. */
 bundle CHIRequestAttempt():
   allow_retry: Bool
@@ -297,8 +283,6 @@ export:
   CHIResponseProfile
   response_profile
   chi_response_profile_opcodes
-  chi_response_effects
-  chi_response_milestone
   CHIRequestAttempt
   CHIResponseEvent
   CHIRetryableTransactionControl

@@ -33,8 +33,9 @@ defining public modules, not `main.rhdl`. Keep endpoint contracts separate from
 opt-in monitors, NoC composition, Home engines, and storage implementations at
 their use sites. Import protocol-neutral address/transfer types directly from
 `rhodium/std/interconnect.rhdl`, even though CHI retains compatibility re-exports.
-The facade remains available for convenient external use and compatibility
-coverage in `chi/tests/`; do not remove or rename its existing exports.
+The facade remains available for convenient external use and public-contract
+coverage in `chi/tests/`. Export public contracts from their defining owners;
+do not retain duplicate API spellings or export internal implementation states.
 Use the existing owners before introducing another aggregation layer.
 
 ## Implementation map

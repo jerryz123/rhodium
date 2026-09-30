@@ -1,12 +1,11 @@
 #lang rhombus
-// Checks shared CHI memory configuration, legacy imports, service metadata, and invalid regions.
+// Checks shared CHI memory configuration, service metadata, and invalid regions.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<
   "../main.rhdl" as chi
   "../subordinate/memory-controller.rhdl" as memory
-  "../subordinate/ram.rhdl" as ram
 
 def flit = chi.CHIFlitParams()
 def config = chi.CHIRamConfig(flit, 64, ~max_outstanding: 2, ~max_transfer_bytes: 64)
@@ -51,15 +50,9 @@ check:
   chi.CHIRamParams("outside", 9, config, ~base_address: (1 << 44)) ~throws "memory region must fit"
   chi.CHIRamParams("wide-node", 128, config) ~throws "NodeID must fit"
 
-// Both existing import paths retain the shared nominal configuration and payload types.
+// The facade exposes the shared configuration from its defining controller.
 check:
   chi.CHIRamConfig === memory.CHIRamConfig ~is #true
-  ram.CHIRamConfig === memory.CHIRamConfig ~is #true
-  ram.CHIRamParams === memory.CHIRamParams ~is #true
-  ram.CHIRamIdentity === memory.CHIRamIdentity ~is #true
-  ram.CHIRamMemoryOperation === memory.CHIRamMemoryOperation ~is #true
-  ram.CHIRamMemoryCompletion === memory.CHIRamMemoryCompletion ~is #true
-  ram.build_chi_ram_controller === memory.build_chi_ram_controller ~is #true
   memory.CHIRamParams("requester", 9, config, ~kind: chi.CHINodeKind.RNI) ~throws "kind must be SN-F or SN-I"
 
 // Constructor validation is shared by SRAM and DPI, including every DAT width.

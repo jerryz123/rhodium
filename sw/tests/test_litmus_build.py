@@ -1,11 +1,15 @@
 # Tests litmus selection, bare-metal adaptation, stream binding, and model outcomes.
 # SPDX-License-Identifier: Apache-2.0
 import importlib.util
+import io
+import json
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -21,36 +25,104 @@ PATHS = {
 
 
 class LitmusBuildTest(unittest.TestCase):
-    def test_pinned_cases_keep_their_original_instructions_and_thread_counts(self):
-        for name, hart_count, instruction in (
-                ('MP', 2, 'sw x5,0(x6)'),
-                ('SB', 2, 'lw x7,0(x8)'),
-                ('IRIW+addrs', 4, 'add x10,x9,x7')):
-            with self.subTest(name=name):
-                parsed_name, registers, threads = BUILDER.parse_case(
-                    SOURCE / 'tests' / PATHS[name])
-                fields, states = BUILDER.model_states(SOURCE / 'model-results/herd.logs', name)
-                asm = BUILDER.assembly(registers, threads, fields)
-                self.assertEqual(parsed_name, name)
-                self.assertEqual(len(threads), hart_count)
-                self.assertIn(f'  {instruction}\n', asm)
-                self.assertEqual(len(states), {'MP': 4, 'SB': 4, 'IRIW+addrs': 15}[name])
-                self.assertIn(f'#define LITMUS_HARTS {hart_count}',
-                              BUILDER.header(name, hart_count, fields, states, 10))
+    def test_selected_litmus7_builds_reuse_checksums_and_keep_failure_inventory(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            tool = root / 'litmus7'
+            tool.write_bytes(b'pinned litmus7')
+            target = dict(soc='tiled-test', xlen=64, harts=list(range(8)),
+                          extensions=['i', 'm', 'a'], march='rv64ima', mabi='lp64',
+                          clock_frequency_hz=100000000,
+                          ram=[dict(base=0x80000000, size=0x1000000)])
+            target_path = root / 'target.json'
+            target_path.write_text(json.dumps(target))
+            selection = root / 'cases.txt'
+            selection.write_text('# Explicit selection\nMP\nSB\n')
+            commands = []
+            fail_sb = False
+
+            def check_output(command, **kwargs):
+                if command[0] == 'git':
+                    return 'pinned-revision\n'
+                if '--version' in command or '-version' in command:
+                    return 'pinned-tool-version\n'
+                raise AssertionError(command)
+
+            def run(command, **kwargs):
+                if command[0] == 'git':
+                    return subprocess.CompletedProcess(command, 0)
+                commands.append(command)
+                output = Path(command[command.index('-o') + 1])
+                if command[0] == str(tool):
+                    name = Path(command[-1]).stem
+                    if fail_sb and name == 'SB':
+                        return subprocess.CompletedProcess(command, 1)
+                    (output / f'{name}.c').write_text('''typedef struct {
+  volatile int c,sense;
+  int n ;
+} sense_t;
+void init(sense_t *p, int n) {
+  p->n = p->c = n;
+  p->sense = 0;
+}
+__attribute__ ((noinline)) static void barrier_wait(sense_t *p) {
+  int rem = __sync_add_and_fetch(&p->c,-1) ;
+}
+void output(FILE *out) {
+  fflush(out);
+}
+''')
+                else:
+                    output.write_bytes(b'compiled ELF')
+                return subprocess.CompletedProcess(command, 0)
+
+            args = ['build-litmus.py', '--source', str(SOURCE), '--runtime',
+                    str(ROOT / 'sw/litmus-riscv-baremetal'), '--riscv-tests',
+                    str(ROOT / 'sw/riscv-isa-tests'), '--target', str(target_path),
+                    '--compiler', 'test-gcc', '--litmus7', str(tool), '--runs', '3']
+            with (patch.object(BUILDER.shutil, 'which', side_effect=lambda value: value),
+                  patch.object(BUILDER.subprocess, 'check_output', side_effect=check_output),
+                  patch.object(BUILDER.subprocess, 'run', side_effect=run),
+                  patch.object(BUILDER, 'probe_compiler', return_value='rv64ima'),
+                  patch.object(BUILDER, 'readelf_for', return_value='test-readelf'),
+                  patch.object(BUILDER, 'elf_architecture', return_value='rv64ima'),
+                  patch.object(BUILDER, 'check_elf_memory', return_value=[]),
+                  patch('sys.stdout', new_callable=io.StringIO)):
+                build_args = args + ['--output', str(root / 'built'), '--tests-file', str(selection)]
+                with patch.object(sys, 'argv', build_args):
+                    BUILDER.main()
+                    manifest = json.loads((root / 'built/manifest.json').read_text())
+                    self.assertEqual([test['name'] for test in manifest['tests']], ['MP', 'SB'])
+                    self.assertEqual(manifest['generator'], 'litmus7')
+                    self.assertEqual(manifest['build_failures'], [])
+                    for test in manifest['tests']:
+                        self.assertEqual(test['harts'], [0, 1])
+                        self.assertEqual(test['litmus_min_samples'], 3)
+                        self.assertEqual(len(test['litmus_allowed_states']), 4)
+                    self.assertEqual(len(commands), 6)
+                    BUILDER.main()
+                    self.assertEqual(len(commands), 6)
+                    elf = root / 'built' / manifest['tests'][0]['elf']
+                    elf.write_bytes(b'changed ELF')
+                    BUILDER.main()
+                    self.assertEqual(len(commands), 9)
+                fail_sb = True
+                with patch.object(sys, 'argv', args + ['--output', str(root / 'partial'),
+                                                       '--tests', 'MP,SB', '--keep-going']):
+                    with self.assertRaises(SystemExit) as failure:
+                        BUILDER.main()
+                self.assertEqual(failure.exception.code, 1)
+                partial = json.loads((root / 'partial/manifest.json').read_text())
+                self.assertEqual([test['name'] for test in partial['tests']], ['MP'])
+                self.assertEqual(partial['attempted_cases'], 2)
+                self.assertEqual(partial['build_failures'],
+                                 [dict(name='SB', source='tests/' + PATHS['SB'], stage='generation')])
 
     def test_iriw_forbidden_outcome_is_absent_from_pinned_model(self):
-        fields, states = BUILDER.model_states(SOURCE / 'model-results/herd.logs', 'IRIW+addrs')
-        self.assertEqual(fields, [(1, 5), (1, 8), (3, 5), (3, 8)])
-        self.assertNotIn([1, 0, 1, 0], states)
-
-    def test_discovers_all_unambiguous_supported_cases_in_pinned_inventory(self):
-        cases = BUILDER.discover_cases(SOURCE, SOURCE / 'model-results/herd.logs', 8)
-        self.assertEqual(len(cases), 84)
-        for name, path in PATHS.items():
-            self.assertEqual(cases[name][0], SOURCE / 'tests' / path)
-        self.assertEqual(sum(any(instruction.startswith('fence ')
-                                 for thread in entry[2] for instruction in thread)
-                             for entry in cases.values()), 72)
+        cases = BUILDER.discover_litmus7_cases(SOURCE, SOURCE / 'model-results/herd.logs', 8)
+        self.assertEqual(cases['IRIW+addrs'][1], 4)
+        self.assertEqual(len(cases['IRIW+addrs'][2]), 15)
+        self.assertNotIn('1:x5=1; 1:x8=0; 3:x5=1; 3:x8=0;', cases['IRIW+addrs'][2])
 
     def test_litmus7_discovery_uses_source_thread_tables_and_model_states(self):
         cases = BUILDER.discover_litmus7_cases(SOURCE, SOURCE / 'model-results/herd.logs', 8)
@@ -131,23 +203,6 @@ const char *instruction = "amoadd.w";
             self.assertNotIn('_impure_ptr', undefined)
             self.assertIn('litmus_baremetal_stdout_stream', undefined)
             self.assertIn('litmus_baremetal_stderr_stream', undefined)
-
-    def test_unknown_instruction_is_rejected_instead_of_silently_removed(self):
-        source = (SOURCE / 'tests' / PATHS['MP']).read_text()
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'MP.litmus'
-            path.write_text(source.replace('sw x5,0(x6)', 'bogus x5,x6,x7', 1))
-            with self.assertRaisesRegex(ValueError, 'unsupported instruction'):
-                BUILDER.parse_case(path)
-
-    def test_litmus_instruction_cannot_clobber_runtime_registers(self):
-        source = (SOURCE / 'tests' / PATHS['MP']).read_text()
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'MP.litmus'
-            path.write_text(source.replace('lw x5,0(x6)', 'lw x1,0(x6)', 1))
-            with self.assertRaisesRegex(ValueError, 'runtime-reserved register'):
-                BUILDER.parse_case(path)
-
 
 if __name__ == '__main__':
     unittest.main()

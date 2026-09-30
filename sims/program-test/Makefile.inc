@@ -148,11 +148,13 @@ tiled-mt-benchmark-elfs: program-target
 litmus-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \
 	  (echo 'Litmus tests require a tiled SoC' >&2; exit 2)
+	@test -n "$(LITMUS7)" || \
+	  (echo 'Litmus tests require an explicit pinned LITMUS7 executable' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-litmus.py --source "$(LITMUS_DIR)" \
 	  --runtime "$(LITMUS_PORT_DIR)" --riscv-tests "$(RISCV_TESTS_DIR)" \
 	  --output "$(LITMUS_BUILD_DIR)" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --runs $(LITMUS_RUNS) --tests "$(LITMUS_CASES)" \
-	  $(if $(LITMUS7),--litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)"))
+	  $(LITMUS_GENERATOR_ARGS)
 
 litmus-smoke-elfs litmus-full-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(TILED_MT_SOCS))" || \

@@ -1,9 +1,8 @@
 #lang rhombus
-// Checks independent circuit signatures, lazy concrete realization, legacy wrappers, and reference ownership.
+// Checks independent circuit signatures, lazy concrete realization, definition wrappers, and reference ownership.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../core/ir.rhm" as core
   "../../core/printer.rhm".dump_ir
   "../../frontend/foundation.rhm" open
   "../../frontend/layers/hierarchy.rhm" open
@@ -37,13 +36,13 @@ check:
   next_elaboration.top === first.attribute("module") ~is #false
   circuit_signature(next_elaboration.top).output("result").type.width ~is 8
 
-class Legacy(module_def :: core.Module):
+class Definition(reference :: CircuitReference):
   implements CircuitDefinition
-  override method core_module(): module_def
+  override method definition_reference(): reference
 
-def legacy = elaborate_with_top(Legacy(Leaf()))
+def wrapped = elaborate_with_top(Definition(reference))
 check:
-  dump_ir(legacy.design) ~is dump_ir(next_elaboration.design)
+  dump_ir(wrapped.design) ~is dump_ir(next_elaboration.design)
 
 // Sync wiring requirements are checked from the signature before running
 // an implementation recipe, including when the ambient domain is missing.
@@ -58,7 +57,7 @@ check:
 def wrong_signature = CircuitReference(CircuitIdentity("Wrong"), ModuleSignature([], []), fun (): Leaf())
 check:
   elaborate(wrong_signature) ~throws "does not match the declared signature"
-  elaborate(Legacy(next_elaboration.top)) ~throws "different design"
+  elaborate(Definition(circuit_reference(next_elaboration.top))) ~throws "different design"
   CircuitReference(CircuitIdentity("BadSync"), signature, fun (): Leaf(), "clock", "reset") ~throws "Clock and Reset"
   CircuitReference(CircuitIdentity("PartialSync"), sync_signature, fun (): SyncLeaf(), "clock") ~throws "both clock and reset"
 

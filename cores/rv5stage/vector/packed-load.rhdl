@@ -98,7 +98,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   write.valid <== (load_piece & carry_valid & !same_row) ||| flush_carry ||| split_load ||| full_row
   write.bits <== mux(split_load ||| full_row, combined, carry)
   def accepted = wb |> filter_valid(_tag => successful)
-  def release_event = inject_flow(Valid(Tag), ~valid: release_slot, ~bits: head)
+  def release_event = inject_interface(Valid(Tag), ~valid: release_slot, ~bits: head)
   describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")
   describe_interface_contract(accepted, release_event, "accepted-beats", ~trace_model: interface_trace_queue(~name: "accepted-beats"))
   (
