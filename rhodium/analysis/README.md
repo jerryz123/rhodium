@@ -1,40 +1,57 @@
-<!-- Documents optional backend-independent analyses over Rhodium core IR. -->
+<!-- Documents clock-analysis compilation, timing declarations, findings, and CDC policy. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # Rhodium analysis
 
-Analysis packages inspect finished, verified public core IR without changing the
-hardware, authoring syntax, or backend output. They may depend on
-[`rhodium/core/`](../core/); core does not depend on analysis. Frontends and
-downstream tools opt into an analysis when they need its policy or reports.
-Contributors changing analysis implementation or policy should read
-[`DEVELOPING.md`](DEVELOPING.md).
-
-Temporal provenance and CDC APIs require concrete core designs and modules.
-For an `ElaboratedProgram`, call
-[`materialize_rtl(program)`](../lowering/README.md) first and analyze its
-`.design` or `.top`; a retained instance is an explicit error at temporal
-analysis entry points. Analyses never execute implementation providers.
-
-Module clock-use inventory and single-clock certification also accept the
-first retained contract: a declared pure-combinational child has no clocked
-effects. This lets sync parents certify their own concrete state during
-construction. Materialization checks that every provider actually satisfies
-that purity contract before returning concrete RTL.
+Clock analysis runs through `compile_program` with an explicit `clocking_target`.
+The target prepares fresh concrete RTL, resolves timing declarations, and returns
+structured findings plus a deterministic text report. It does not change the
+source or emit hardware. Contributors should read [DEVELOPING.md](DEVELOPING.md).
 
 ## Clocking analysis
 
-Import [`clocking.rhm`](clocking.rhm), the stable public entry point, and choose
-the narrowest operation that answers the question:
+```rhombus
+#lang rhodium
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/analysis/clocking.rhm").clocking_target
 
-| Question | API | Result or behavior |
-|---|---|---|
-| Which clocks and resets does one module use? | `summarize_module_clocking` | `Combinational`, `SingleClock`, or `MultiClock`, plus a separate reset-use inventory |
-| Does one module obey an expected ambient clock? | `verify_single_clock` | The same clock-use summary, or an error naming the first mismatched clocked operation |
-| Where can each output and clocked sink input originate? | `summarize_module_temporal` | Reusable, hierarchy-aware `ModuleTemporalSummary` with symbolic top inputs |
-| What does that provenance mean at a closed design boundary? | `summarize_design_temporal` | Report-only `DesignTemporalSummary` resolved against a validated `TemporalEnvironment` |
-| Must every sampled data leaf satisfy the current CDC policy? | `verify_design_cdc` | The design summary, or one aggregate error containing every `CdcViolation` |
-| Is readable deterministic text sufficient? | `dump_temporal_report` or `dump_design_temporal_report` | A report derived from the corresponding structured summary |
+circuit Sample():
+  input clock: Clock
+  input data: Bits(8)
+  output result: Bits(8)
+  reg sampled(Bits(8), ~clock: clock)
+  sampled <== data
+  result <== sampled
+  synchronous_input(data, clock)
+
+def program = elaborate_program(Sample())
+def compiled = compile_program(program, clocking_target(~check_cdc: #true))
+def findings = compiled.report
+def text = compiled.artifacts[0].content
+```
+
+`clocking_target()` reports findings; `clocking_target(~check_cdc: #true)` also
+rejects CDC violations. Both run the same temporal analysis through compilation.
+Ordinary elaboration records declarations without executing this analysis.
+There are no separate public analysis runners or clock-aware elaboration wrappers.
+
+The target expands reachable retained constructs using their portable providers.
+Clock-use contracts alone do not establish interior sampling provenance or CDC
+correctness. Source preservation, expansion limits, occurrence reports, and
+artifact failure behavior follow the [compilation contract](../compile/README.md).
+
+The returned `ClockingReport` in `compiled.report` contains:
+
+| Field | Meaning |
+|---|---|
+| `clocks` | Module clock/reset inventories in prepared module order |
+| `summary` | `DesignTemporalSummary` with output origins, classified sinks, CDC violations, and reconvergence diagnostics |
+| `elaboration`, `design`, `top` | The fresh verified concrete graph referenced by the findings |
+| `environment` | Validated timing contracts bound to that graph |
+
+The single `<top>.clocking.txt` artifact contains the readable temporal report.
+Strict failure raises an aggregate error before any compilation result is returned.
 
 The stages are related, but they answer different questions and have different
 owners:
@@ -80,9 +97,8 @@ consumes core-verified crossing evidence, not a frontend declaration or a
 
 ## Inventory module clock use
 
-Call `summarize_module_clocking(module_def, ambient_reset)` when the task is to
-inventory explicit clocked effects in one finished module. The result separates
-two dimensions:
+The target inventories explicit clocked effects for every prepared module in
+`compiled.report.clocks`. Each result separates two dimensions:
 
 - `Combinational`, `SingleClock`, and `MultiClock` describe clock use. A
   `MultiClock` groups operations by clock; a `SingleClock` retains its complete
@@ -90,21 +106,19 @@ two dimensions:
 - `NoReset`, `AmbientReset`, and `LocalReset` group those operations by reset
   use. Reset inventory does not imply reset-domain analysis.
 
-`verify_single_clock(module_def, expected_clock, ambient_reset)` applies only
-the expected-clock policy. The frontend's ambient `sync_circuit` support uses
-it to certify the ordinary clock operands that the frontend emitted.
+The frontend independently certifies the ambient clock of `sync_circuit` during
+construction and after retained materialization. This is an internal hardware
+validation step, not a public analysis execution path.
 
 Clock identity follows transparent `rtl.wire` aliases. An equal-width cast to
-`Clock` remains a distinct identity; `same_clock_value` exposes this same rule
-to callers. Start with
+`Clock` remains a distinct identity. Start with
 [`report.rhm`](../../examples/clocking/report.rhm) for clock-use and temporal
 reports over an existing design.
 
 ## Trace reusable temporal provenance
 
-Call `summarize_module_temporal(module_def)` to trace one finished module and
-its completed instance hierarchy without assuming how the top-level inputs are
-timed. The analysis is leaf-sensitive for records and vectors. It records:
+The target first traces the completed hierarchy without assuming how top-level
+inputs are timed. The analysis is leaf-sensitive for records and vectors. It records:
 
 - output-leaf origins in `output_leaves`;
 - every supported clocked sink and its sampled input leaves in `sinks`;
@@ -124,9 +138,19 @@ conditions, but symbolic external inputs are not CDC violations by themselves.
 
 ## Close the design with an environment
 
-Call `summarize_design_temporal(elaboration, environment)` when the top module
-and its external timing context are known. The explicit `DesignElaboration`
-selects the top; a `TemporalEnvironment` adds only boundary facts:
+The selected program top supplies the design boundary. Frontend declarations
+are stored as remappable metadata and must belong to that top; declarations in
+reachable children are rejected by the target. Builder clients can attach a
+`TemporalEnvironment` with `declare_clocking_environment(top, environment)`
+before finishing the module.
+
+For an already built program, pass
+`clocking_target(~environment: fun (prepared_top): TemporalEnvironment(...))`.
+The factory runs on the fresh prepared top; obtain its inputs using
+`prepared_top.find_input(name).value`. Captured source values are rejected by
+ownership validation. Factory declarations augment program declarations;
+overlap and conflicting relationships are errors. An environment adds only
+boundary facts:
 
 - `TopInputContract` assigns `UnknownInputTiming`, `SynchronousInputTiming`, or
   `AsynchronousInputTiming` to a top data-input leaf or aggregate subtree.
@@ -145,7 +169,7 @@ being treated as raw safe sampling.
 construction of an environment, while
 [`relationships.rhm`](../../examples/clocking/relationships.rhm) compares the
 relationship classifications. Most authors should use the root-owned
-declarations and elaboration wrappers in the
+declarations in the
 [frontend clocking layer](../frontend/layers/README.md#clock-domains-and-cdc-analysis);
 [`frontend-environment.rhdl`](../../examples/clocking/frontend-environment.rhdl)
 is the smallest complete example.
@@ -155,10 +179,9 @@ is the smallest complete example.
 Every `DesignTemporalSummary` contains a deterministic `cdc_violations` list.
 Each `CdcViolation` identifies the hierarchy path, clocked operation and sink
 kind, sampled input leaf, resolved classification, original provenance, and a
-reason. This makes `summarize_design_temporal` suitable for report-only tools.
+reason. These findings are available in report-only compilation results.
 
-`verify_design_cdc` runs the same analysis and then enforces the current
-conservative policy:
+`clocking_target(~check_cdc: #true)` enforces the current conservative policy:
 
 - static, exact same-clock, and declared-identical sampling are safe;
 - raw incompatible-clock and asynchronous-input sampling require recognized
@@ -192,22 +215,17 @@ hierarchy paths, and original source lineage. Repeated fanout from one crossing
 identity does not create a finding.
 
 Independently synchronized controls can legitimately meet, so reconvergence
-does not make `verify_design_cdc` reject an otherwise legal design. Consumers
+does not make strict clock-target compilation reject an otherwise legal design. Consumers
 must apply any protocol-specific coherency policy themselves. See
 [`reconvergence.rhdl`](../../examples/clocking/reconvergence.rhdl).
 
 ## Public API and ownership
 
-Use the re-exports from [`clocking.rhm`](clocking.rhm); files under
-[`clocking/`](clocking/) are implementation units, not alternate import paths.
-The public surface is organized as follows:
-
-| Surface | Stable entry points and result families |
-|---|---|
-| Clock-use certification | `summarize_module_clocking`, `verify_single_clock`, `same_clock_value`; `ModuleClockingSummary`, `ClockUse`, `ClockGroup`, and reset-use results |
-| Reusable provenance | `summarize_module_temporal`, `dump_temporal_report`; provenance, sink, crossing, reconvergence, and `ModuleTemporalSummary` objects |
-| Closed-design analysis | `summarize_design_temporal`, `dump_design_temporal_report`; timing contracts, clock relationships, classifications, and `DesignTemporalSummary` |
-| Strict policy | `verify_design_cdc`; structured `CdcViolation` results remain available on successful and report-only summaries |
+[`clocking.rhm`](clocking.rhm) exports the target factory, `ClockingReport`,
+`declare_clocking_environment`, and the data types used to express environments
+and inspect findings. `compile_program` is the only public analysis execution
+entry point. Files under `clocking/` implement algorithms and metadata storage;
+they are not alternate public execution APIs.
 
 Ownership stays narrow:
 

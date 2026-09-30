@@ -1,0 +1,56 @@
+#lang rhombus
+// Checks lazy synchronous wiring, state sharing boundaries, and mixed clock certification.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../lowering/program.rhm".materialize_reachable_rtl
+  "../foundation.rhm" open
+  "../kernel.rhm" as kernel
+  "../support/clocking.rhm" as sync
+  "../../core/main.rhm" as core
+  "../../analysis/clocking/module.rhm" open
+  "retained-state-fixture.rhdl" as fixture
+
+check:
+  fixture.calls_after_composition ~is 0
+  fixture.reference.clock_port ~is "clock"
+  fixture.reference.reset_port ~is "reset"
+  summarize_module_clocking(fixture.program.top) is_a SingleClock ~is #true
+  summarize_module_temporal(fixture.program.top) ~throws "compile target"
+
+def before = core.dump_ir(fixture.program.design)
+def start = fixture.call_count()
+def first = materialize_reachable_rtl(fixture.program).rtl
+def second = materialize_reachable_rtl(fixture.program).rtl
+check:
+  fixture.call_count() ~is start + 2
+  core.dump_ir(fixture.program.design) ~is before
+  first.top.find_instance("first").attribute("module") === first.top.find_instance("second").attribute("module") ~is #true
+  first.top.find_instance("first").results[0] === first.top.find_instance("second").results[0] ~is #false
+  first.top.find_instance("first").attribute("module") === second.top.find_instance("first").attribute("module") ~is #false
+  materialize_reachable_rtl(fixture.nested_program).rtl.design.sealed ~is #true
+  elaborate_with_top(fixture.Top(fixture.reference)).design.sealed ~is #true
+
+// Deliberately use the kernel to bypass automatic sync wiring: certification
+// must reject a foreign retained clock before the provider is invoked.
+fun wrong_body():
+  def foreign = kernel.input("foreign", core.Clock)
+  def child = kernel.inst("child", fixture.reference)
+  kernel.connect(child.input("clock"), foreign)
+  kernel.connect(child.input("reset"), kernel.active_module().find_input("reset").value)
+  kernel.connect(child.input("source"), kernel.literal(core.Bits(8), 0))
+  kernel.connect(child.input("enable"), kernel.cast(kernel.literal(core.Bits(1), 0), fixture.signature.input("enable").type))
+  kernel.connect(child.input("clear"), kernel.cast(kernel.literal(core.Bits(1), 0), fixture.signature.input("clear").type))
+fun wrong_domain():
+  sync.build_sync_circuit(CircuitIdentity("WrongDomain"), "WrongDomain", [], wrong_body)
+def count_before_invalid = fixture.call_count()
+check:
+  kernel.run_program_elaboration(wrong_domain) ~throws "instead of expected clock"
+  fixture.call_count() ~is count_before_invalid
+
+// State breaks only the declared registered path, never a combinational bypass.
+def count_before_feedback = fixture.call_count()
+check:
+  core.verify_program(fixture.feedback(#false).design) ~is #void
+  materialize_reachable_rtl(fixture.feedback(#true)).rtl ~throws "combinational cycle"
+  fixture.call_count() ~is count_before_feedback
+  materialize_reachable_rtl(fixture.feedback(#false)).rtl.design.sealed ~is #true

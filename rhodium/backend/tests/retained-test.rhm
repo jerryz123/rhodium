@@ -5,11 +5,15 @@
 import:
   "../circt.rhm" open
   "../../core/ir.rhm".Design
-  "../../lowering/program.rhm".materialize_rtl
+  "../../lowering/program.rhm" open
   "../../frontend/tests/retained-fixture.rhdl" as fixture
+  "../../frontend/tests/retained-metadata-fixture.rhdl" as metadata_fixture
+  "../../frontend/tests/detached-interface-fixture.rhdl" as detached_fixture
+  "../../frontend/tests/retained-state-fixture.rhdl" as state_fixture
+  "../../frontend/tests/retained-memory-fixture.rhdl" as memory_fixture
 
-def rtl = materialize_rtl(fixture.program)
-def clocked = materialize_rtl(fixture.clocked_program)
+def rtl = materialize_reachable_rtl(fixture.program).rtl
+def clocked = materialize_reachable_rtl(fixture.clocked_program).rtl
 
 // Fresh designs allocate different IDs. Rename only the generated SSA names
 // used by these fixtures; preserve authored names, ports, instructions, and uses.
@@ -20,7 +24,11 @@ fun canonical_circt(design :: Design):
     for (value in module_def.values, index in 0..module_def.values.length()):
       names["%__rhodium_value_" ++ to_string(value.id)] := "%canonical_value_" ++ scope ++ to_string(index)
     for (op in module_def.operations, index in 0..module_def.operations.length()):
-      names["%__rhodium_clock_" ++ to_string(op.id)] := "%canonical_clock_" ++ scope ++ to_string(index)
+      for (prefix in ["clock", "not_mask", "memory_index", "zext_zero", "assert", "vector_index"]):
+        names["%__rhodium_" ++ prefix ++ "_" ++ to_string(op.id)] := "%canonical_" ++ prefix ++ "_" ++ scope ++ to_string(index)
+    for (memory in module_def.memories, index in 0..module_def.memories.length()):
+      for (prefix in ["memory", "memory_clock", "memory_reset"]):
+        names["%__rhodium_" ++ prefix ++ "_" ++ to_string(memory.id)] := "%canonical_" ++ prefix ++ "_" ++ scope ++ to_string(index)
   def mutable text = emit_circt(design)
   // Longest first prevents an ID that prefixes another ID from consuming it.
   for (name in names.keys().sort(fun (a, b): a.length() > b.length())):
@@ -28,7 +36,20 @@ fun canonical_circt(design :: Design):
   text
 
 check:
-  canonical_circt(rtl.design) ~is canonical_circt(fixture.eager.design)
-  canonical_circt(clocked.design) ~is canonical_circt(fixture.clocked_eager.design)
-  emit_circt(fixture.program.design) ~throws "materialize_rtl"
-  emit_module_circt(fixture.program.top) ~throws "materialize_rtl"
+  canonical_circt(rtl.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(fixture.eager.design, fixture.eager.top)).rtl.design)
+  canonical_circt(clocked.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(fixture.clocked_eager.design, fixture.clocked_eager.top)).rtl.design)
+  emit_circt(fixture.program.design) ~throws "compile target"
+  emit_module_circt(fixture.program.top) ~throws "compile target"
+
+check:
+  canonical_circt(materialize_reachable_rtl(metadata_fixture.program).rtl.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(metadata_fixture.eager.design, metadata_fixture.eager.top)).rtl.design)
+
+for (pair in [[detached_fixture.program, detached_fixture.eager], [detached_fixture.array_program, detached_fixture.array_eager], [detached_fixture.nested_program, detached_fixture.nested_eager]]):
+  check:
+    canonical_circt(materialize_reachable_rtl(pair[0]).rtl.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(pair[1].design, pair[1].top)).rtl.design)
+
+check:
+  canonical_circt(materialize_reachable_rtl(state_fixture.program).rtl.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(state_fixture.eager.design, state_fixture.eager.top)).rtl.design)
+
+check:
+  canonical_circt(materialize_reachable_rtl(memory_fixture.program).rtl.design) ~is canonical_circt(materialize_reachable_rtl(ElaboratedProgram(memory_fixture.eager.design, memory_fixture.eager.top)).rtl.design)

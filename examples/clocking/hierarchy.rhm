@@ -1,11 +1,14 @@
 #lang rhombus
-// Shows one reusable child receiving distinct temporal classifications at two instances.
+/* Shows one reusable child receiving distinct temporal classifications at two instances. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
 
+/* Select next-state timing by instance path and register name, distinguishing shared bodies. */
 fun nested_next_classification(summary :: DesignTemporalSummary,
                                instance_name :: String):
   def sink = summary.sinks.find(
@@ -37,15 +40,18 @@ builder.drive(second.input("data"), data)
 def finished_top = builder.finish(top)
 def verified_system = verify_design(system)
 
-def environment = TemporalEnvironment(
-  [TopInputContract(data, [], SynchronousInputTiming(clock_a))],
-  [AsynchronousClockRelationship(clock_a, clock_b)]
-)
-def summary = summarize_design_temporal(
-  DesignElaboration(system, top),
-  environment
-)
-def report = dump_design_temporal_report(summary)
+/* Build timing assumptions from the target-owned top so no source IR enters the report. */
+fun environment(prepared_top :: Module):
+  def clock_a = prepared_top.find_input("clock_a").value
+  def clock_b = prepared_top.find_input("clock_b").value
+  def data = prepared_top.find_input("data").value
+  TemporalEnvironment(
+    [TopInputContract(data, [], SynchronousInputTiming(clock_a))],
+    [AsynchronousClockRelationship(clock_a, clock_b)]
+  )
+def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def summary = compiled.report.summary
+def report = compiled.artifacts[0].content
 
 check:
   nested_next_classification(summary, "first") is_a SameClock ~is #true

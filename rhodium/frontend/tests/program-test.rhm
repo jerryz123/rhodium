@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../lowering/program.rhm".materialize_reachable_rtl
   "../../core/main.rhm" as core
   "../foundation.rhm" open
   "../layers/hierarchy.rhm" open
@@ -11,11 +12,11 @@ import:
   "circuit-reference-fixture.rhm" as references
 
 for (program in fixture.programs, legacy in fixture.legacy_designs):
-  def rtl = materialize_rtl(program)
+  def rtl = materialize_reachable_rtl(program).rtl
   check:
-    rtl.design === program.design ~is #true
-    rtl.top === program.top ~is #true
-    core.dump_ir(rtl.design) ~is core.dump_ir(legacy)
+    rtl.design === program.design ~is #false
+    rtl.top === program.top ~is #false
+    core.dump_ir(rtl.design) ~is core.dump_ir(materialize_reachable_rtl(ElaboratedProgram(legacy, legacy.find_module_named(program.top.name))).rtl.design)
 
 // Keep this test's recipe counter local: other suites also import the fixture.
 def mutable calls = 0
@@ -30,12 +31,12 @@ check:
   program is_a ElaboratedProgram ~is #true
   program.design.sealed ~is #false
   calls ~is 1
-def rtl = materialize_rtl(program)
-def again = materialize_rtl(program)
+def rtl = materialize_reachable_rtl(program).rtl
+def again = materialize_reachable_rtl(program).rtl
 check:
-  program.design.sealed ~is #true
+  program.design.sealed ~is #false
   calls ~is 1
-  again.top === rtl.top ~is #true
+  again.top === rtl.top ~is #false
   core.dump_ir(elaborate(references.Leaf())) ~is core.dump_ir(rtl.design)
   core.dump_ir(elaborate_with_top(references.Leaf()).design) ~is core.dump_ir(rtl.design)
 
@@ -49,7 +50,7 @@ circuit Cycle():
 
 def cyclic = elaborate_program(Cycle())
 check:
-  materialize_rtl(cyclic) ~throws "combinational cycle"
+  materialize_reachable_rtl(cyclic).rtl ~throws "combinational cycle"
   elaborate(Cycle()) ~throws "combinational cycle"
   elaborate_with_top(Cycle()) ~throws "combinational cycle"
   elaborate_program(#false) ~throws "did not select a top circuit"

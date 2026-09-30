@@ -1,12 +1,14 @@
 #lang rhombus
-// Checks byte-identical CIRCT across program materialization and legacy authoring paths.
+// Checks explicit CIRCT compilation across frontend program authoring paths.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../circt.rhm".emit_circt
-  "../../lowering/program.rhm".materialize_rtl
+  "../circt-target.rhm".circt_target
+  "../../compile/program.rhm".compile_program
+  "../../lowering/program.rhm".ElaboratedProgram
   "../../frontend/tests/program-fixture.rhdl" as fixture
 
-for (program in fixture.programs, legacy in fixture.legacy_designs):
+for (program in fixture.programs, eager in fixture.legacy_designs):
+  def expected = ElaboratedProgram(eager, eager.find_module_named(program.top.name))
   check:
-    emit_circt(materialize_rtl(program).design) ~is emit_circt(legacy)
+    compile_program(program, circt_target).artifacts[0].content ~is compile_program(expected, circt_target).artifacts[0].content

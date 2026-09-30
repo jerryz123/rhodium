@@ -1,5 +1,5 @@
 #lang rhombus
-// Carries sync-circuit metadata and expands ambient clock/reset policy into explicit kernel operations.
+/* Carries sync-circuit metadata and expands ambient clock/reset policy into explicit kernel operations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -31,11 +31,14 @@ export:
 
 class SyncDomain(clock :: Value, reset :: Value)
 
-// Marks the implicit control ports introduced by sync_circuit so inspection
-// tools can distinguish them from explicitly authored Clock and Reset ports.
+/* Stores detached sync control-port names and certifies their concrete realization. */
 class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
                           reset_port :: AsciiIdentifier):
-  implements ModuleMetadataPayload
+  implements kernel.MaterializationCheck
+  /* Recheck the destination body against its declared clock/reset after expansion. */
+  override method check_materialized(module_def :: Module):
+    verify_single_clock(module_def, module_def.find_input(clock_port).value, module_def.find_input(reset_port).value)
+  /* Copy the detached port-name contract; it contains no live IR to rebind. */
   override method remap_ir(remap :: Function.of_arity(1)):
     SyncCircuitMetadata(clock_port, reset_port)
 
@@ -254,10 +257,11 @@ fun instantiate_reset_when(name :: AsciiIdentifier,
   def reference = kernel.circuit_reference(child, location)
   unless reference.clock_port
   | sync_fail("~reset_when requires a sync_circuit child", location)
-  // Realize the child before constructing the parent's local reset logic,
-  // preserving eager declaration order and keeping the recipe outside that scope.
+  // Ordinary recipes retain eager declaration order outside the local reset
+  // scope. Retained children bind controls here and expand later.
   require_sync_domain(location)
-  kernel.materialize_circuit(reference, location)
+  unless reference is_a kernel.RetainedCircuitReference
+  | kernel.materialize_circuit(reference, location)
   ambient_reset_when(
     condition,
     fun (): instantiate(name, reference, #false, #false, location),

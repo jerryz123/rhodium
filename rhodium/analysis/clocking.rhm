@@ -1,11 +1,56 @@
 #lang rhombus
-// Exposes backend-independent clock-use and temporal-provenance analysis over core IR.
+/* Defines the clock-analysis compile target, structured findings, and timing declaration data. */
 // SPDX-License-Identifier: Apache-2.0
-
 import:
-  "clocking/module.rhm" open
+  "../core/ir.rhm" open
+  "../compile/contracts.rhm" open
+  "../compile/rtl.rhm" open
+  "clocking/types.rhm" open
+  "clocking/declarations.rhm" open
+  "clocking/module.rhm".summarize_module_clocking
   "clocking/environment.rhm" open
 
 export:
-  all_from("clocking/module.rhm")
-  all_from("clocking/environment.rhm")
+  clocking_target
+  ClockingReport
+  declare_clocking_environment
+  all_from("clocking/types.rhm")
+
+/* Carries temporal findings and module clock inventories for the prepared graph.
+   Its live IR references belong to that graph, never to the caller's source design. */
+class ClockingReport(summary :: DesignTemporalSummary, clocks :: List.of(ModuleClockingSummary)):
+  implements CompilationReport
+  property elaboration: summary.elaboration
+  property design: summary.elaboration.design
+  property top: summary.elaboration.top
+  property environment: summary.environment
+
+/* Projects a single completed analysis into its manifest, structured report, and text. */
+class ClockingPlan(prepared :: PreparedRTL, findings :: ClockingReport):
+  implements TargetPlan
+  /* Expose the same prepared hierarchy used to derive temporal provenance. */
+  override method manifest(): prepared.manifest
+  /* Return the stored findings without rerunning analysis. */
+  override method report(): findings
+  /* Format the stored summary as one text artifact named for the prepared top. */
+  override method emit():
+    [Artifact(prepared.rtl.top.name ++ ".clocking.txt", "text/plain", dump_design_temporal_report(findings.summary))]
+
+/* Create a clock-analysis target with optional CDC enforcement.
+   An environment factory receives the fresh prepared top and augments remapped
+   program declarations; strict mode propagates CDC failures during preparation. */
+fun clocking_target(~check_cdc: check_cdc :: Boolean = #false,
+                    ~environment: environment :: maybe(Function.of_arity(1)) = #false):
+  /* Prepare concrete provenance, reject child-owned environments, and analyze once.
+     Merge the factory's assumptions with top metadata before environment validation. */
+  fun prepare(program :: ElaboratedProgram, options :: CompileOptions):
+    def prepared = prepare_rtl(program, options, "clock analysis requires concrete temporal provenance")
+    for (module_def in prepared.rtl.design.modules):
+      when !(module_def === prepared.rtl.top) && has_clocking_declarations(module_def)
+      | error(~who: #'clocking_target, "clocking environment declarations must belong to the elaborated top circuit")
+    def declared = module_clocking_environment(prepared.rtl.top)
+    def extra :: TemporalEnvironment = if environment | environment(prepared.rtl.top) | TemporalEnvironment()
+    def resolved = TemporalEnvironment(declared.input_contracts ++ extra.input_contracts, declared.clock_relationships ++ extra.clock_relationships)
+    def summary = if check_cdc | verify_design_cdc(prepared.rtl, resolved) | summarize_design_temporal(prepared.rtl, resolved)
+    ClockingPlan(prepared, ClockingReport(summary, prepared.rtl.design.modules.map(summarize_module_clocking)))
+  CompilationTarget(if check_cdc | "clocking-cdc" | "clocking", prepare)

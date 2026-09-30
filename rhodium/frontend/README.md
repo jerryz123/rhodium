@@ -76,30 +76,32 @@ hardware:
 2. The circuit body constructs ports, operations, state, instances, and drives.
 3. Stable equivalent calls reuse the same module definition.
 4. `elaborate_program` returns an `ElaboratedProgram` with a completed design
-   and explicit top. `materialize_rtl` verifies it and returns a concrete
-   `DesignElaboration`.
-5. `elaborate` and `elaborate_with_top` include materialization, returning a
+   and explicit top. Pass it to `compile_program` with the desired target.
+5. `elaborate` and `elaborate_with_top` finalize concrete construction, returning a
    verified core `Design` or `DesignElaboration`, respectively.
 
 The explicit phase boundary is available in both language profiles:
 
 ```rhombus
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+
 def program = elaborate_program(Top())
-def rtl = materialize_rtl(program)
-// Existing backend and analysis APIs consume rtl.design or rtl.top.
+def result = compile_program(program, circt_target)
 ```
 
 Program construction completes circuit bodies and closes the frontend context.
 It checks the selected top's ownership and completion; whole-design verification
-occurs at materialization. For example, a cycle across finished instances is
-rejected by `materialize_rtl`, while legacy `elaborate` still rejects it before
+occurs during target preparation. For example, a cycle across finished instances is
+rejected during compilation, while eager `elaborate` rejects it before
 returning. Existing construction-local and sync-certification checks remain at
 their authoring boundaries.
 
 Ordinary `CircuitReference` recipes still run during program elaboration.
-Concrete-only programs preserve the identity materialization path. Programs
-with opted-in retained children expand into fresh concrete designs. See the [program API](../lowering/README.md) for direct Builder usage
-and the limits of this initial concrete identity case.
+Compilation prepares fresh reachable RTL for both concrete and retained programs.
+Eager construction preserves its original graph when no expansion is required.
+See the [program contract](../lowering/README.md) for direct Builder usage.
 
 ### Circuit families and explicit tops
 
@@ -138,17 +140,20 @@ This API preserves ordinary eager circuit elaboration. The resulting design
 still contains concrete RTL instances, so existing analyses and CIRCT emission
 remain applicable after materialization. `CircuitReference` itself does not
 retain abstract instances; opt into the separate API below.
-Signatures describe typed physical ports; nominal interface roles, grouped
-endpoint reconstruction, and tracing metadata continue to come from the
-materialized implementation. Dynamically constructed references use ordinary
-instance member lookup; existing circuit declarations retain their richer
-expansion-time port information.
+Signatures describe typed physical ports. Both kinds of reference accept
+`~declarations`, an immutable list of extension-owned `CircuitDeclaration`
+objects. The interface layer supplies [detached interface declarations](layers/README.md#detached-interface-declarations)
+for nominal roles, grouped members, arrays, and nested endpoints. They bind to
+instance ports without inspecting an implementation. Ordinary references
+without declarations keep reconstructing groups from concrete module metadata.
+Dynamically constructed references use ordinary instance member lookup;
+existing circuit declarations retain their richer expansion-time port information.
 
 `retained_circuit(definition, implementation)` pairs a core `ConstructDefinition`
 with a zero-argument circuit recipe. `inst child(reference)` records its typed
 ports and provider without executing that recipe. `elaborate_program` preserves
 these instances; legacy `elaborate` and `elaborate_with_top` expand them before
-returning. The explicit top remains an ordinary circuit module.
+returning.
 
 ```rhombus
 def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
@@ -157,13 +162,38 @@ def definition = ConstructDefinition(ConstructIdentity("Leaf"), [8], signature,
 def retained = retained_circuit(definition, fun (): Leaf())
 ```
 
-This first retained contract is combinational, with data ports and declared
+A retained reference may also be the selected top. `elaborate_program(reference)`
+returns its detached `ConstructDefinition` as `.top`, with no synthetic wrapper
+or provider execution. Concrete elaboration returns the expanded implementation
+as `.top`. `leaf_paths(type)` is available from the public language to describe
+exact scalar, record, and vector leaves without importing compiler modules.
+
+The default retained contract is combinational, with data ports and declared
 leaf dependencies. It supports ordinary typed port access, including aggregate
 ports, and nesting inside ordinary or synchronous RTL parents. Each provider
 runs in a fresh frontend context supplied by the materializer; captured live
 modules or hardware values are invalid. No provider runs while inspecting the
-signature or elaborating the parent. Nominal grouped interface reconstruction
-and existing interface/trace metadata remapping remain future integrations.
+signature or elaborating the parent. Declared grouped interfaces support ordinary
+Flow connections before expansion; implementation-owned tracing contracts are
+checked and consumed after expansion. Materialization remaps interface and trace
+metadata into the new design.
+
+For register-state children, give `ConstructDefinition` the keyword
+`~state: SingleClockState("clock", "reset")` and include those typed inputs in
+its signature. A retained reference then participates in `sync_circuit` ambient
+clock/reset propagation, including `inst child(reference, ~reset_when: clear)`.
+Composition does not run the provider. Expansion validates the declared domain,
+reset behavior, permitted state, and combinational dependencies; sync
+certification runs again before concrete elaboration returns. The contract
+permits registers, including resetless ones, but does not declare fixed latency.
+Opt into asynchronous-read storage and synchronous writes with
+`SingleClockState("clock", "reset", ~async_read_memory: #true)`, and add
+`~clocked_assertions: #true` when the implementation or its children assert
+properties. These permissions are independent. Memory writes still follow their
+explicit enables during reset; scoped reset suppresses assertions without
+clearing storage. See the [core contract](../core/README.md#retained-constructs)
+for the supported effects and validation rules.
+
 See the [materialization contract](../lowering/README.md) for provider reuse,
 recursion, effects, and dependency checks.
 
@@ -193,14 +223,13 @@ def top = logical.top
 `Module.find_instance(name)` provides stable direct-instance inspection; tools
 must not infer the top or hierarchy from module-list positions.
 
-The [`layers/clocking.rhm`](layers/clocking.rhm) layer builds on that explicit-
-top seam and is included in the standard profile. Its
-`elaborate_with_clocking` wrapper collects temporal environment declarations
-from the root circuit, validates them after ordinary elaboration, and returns
-the unchanged design together with its resolved clocking report.
-`elaborate_with_cdc` additionally rejects unsafe clock-domain sampling unless
-the first destination register carries structurally verified crossing
-evidence.
+The [`layers/clocking.rhm`](layers/clocking.rhm) layer is included in the standard
+profile. It records root timing declarations as metadata during ordinary
+elaboration. Select `clocking_target()` through `compile_program` to resolve
+those declarations and obtain a report; `clocking_target(~check_cdc: #true)`
+also rejects unsafe sampling without verified crossing evidence. The target
+analyzes a fresh concrete graph and preserves the source program. See the
+[clock-analysis contract](../analysis/README.md).
 
 ### Ports and drivers
 

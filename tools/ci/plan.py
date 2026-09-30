@@ -62,7 +62,7 @@ class Selection:
             self.all_programs()
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             pass
-        elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
+        elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
 
         if path.endswith((".rhm", ".rhdl")) and not matches(path, "tools/emacs/*"):
@@ -132,7 +132,7 @@ class Selection:
         elif matches(path, "rhodium/std/*", "flow/*"):
             self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "circt-language", "circt-std", "circt-protocols", *CIRCT_CORE_CHECKS, "example-rtl", "example-clocking", "example-std", "example-noc", "example-riscv", "example-chi", "example-cores", "example-rv5stage")
             self.simulation = True
-        elif matches(path, "rhodium/backend/*"):
+        elif matches(path, "rhodium/backend/*", "rhodium/compile/*"):
             self.add_checks("host-backend", *CIRCT_CHECKS)
             self.simulation = True
         elif matches(path, "examples/rtl/*"):

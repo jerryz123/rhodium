@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/analysis/clocking.rhm").clocking_target
   lib("rhodium/frontend/layers/clocking.rhm") open
 
 circuit BadClockingOutputContract():
@@ -12,4 +14,4 @@ circuit BadClockingOutputContract():
   result <== data
   synchronous_input(result, clock)
 
-def clocked = elaborate_with_clocking(BadClockingOutputContract())
+def clocked = compile_program(elaborate_program(BadClockingOutputContract()), clocking_target())

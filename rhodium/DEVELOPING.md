@@ -37,10 +37,15 @@ flowchart LR
   Kernel --> Lowering["lowering/program.rhm"]
   Lowering --> Core
 
-  Clocking["clocking layer"] --> Analysis["analysis/*"]
+  Clocking["clocking layer"] --> Analysis["analysis/clocking/*"]
   Analysis --> Core
+  ClockTarget["analysis/clocking.rhm target"] --> Analysis
+  ClockTarget --> Compile
 
+  Compile["compile/*"] --> Core
+  Compile --> Lowering
   Backend["backend/*"] --> Core
+  Backend --> Compile
   Formal["formal/*"] --> Core
   Diagram["diagram/*"] --> Core
   Diagram --> InterfaceMeta["interface metadata"]
@@ -67,15 +72,20 @@ the [clocking plan](CLOCKING_PLAN.md).
 
 ## Dependency rules
 
-- Core never imports lowering, analysis, frontend, backend, or RFPL code.
+- Core never imports compilation, lowering, analysis, frontend, backend, or RFPL code.
 - Portable lowering depends only on core. It owns program materialization;
   backend selection and frontend construction remain outside that package.
-- Analysis consumes completed core IR and does not import authoring or lowering
-  packages.
+- Compilation depends only on core and portable lowering. Targets are explicit
+  objects supplied by callers; compilation never imports a backend registry.
+- Internal analysis consumes completed core IR and does not import authoring,
+  compilation, or lowering packages. Only `analysis/clocking.rhm`, the public
+  target adapter, imports neutral compile contracts and RTL preparation.
 - Frontend code never imports a backend. Frontend layers do not import sibling
   layers; reusable cross-layer machinery belongs in `frontend/support/`.
-- Backends and formal tools consume verified core IR without importing
-  frontend syntax or elaboration.
+- Backend emitters and formal tools consume verified core IR without importing
+  frontend syntax or elaboration. Optional backend target adapters may import
+  neutral compile contracts and preparation helpers; they do not import lowering
+  directly.
 - Standard, flow, and domain libraries use the public language rather than
   Rhodium implementation modules. Flow may depend on std, but std and Rhodium
   implementation packages must not import flow. Flow must not import downstream
@@ -93,9 +103,10 @@ the [clocking plan](CLOCKING_PLAN.md).
 |---|---|---|
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
-| [`lowering/`](lowering/README.md) | Program envelope and verified concrete RTL materialization | Core IR, signatures, construct contracts, Builder, schemas, verifier, dependency summaries; local graph copier |
-| [`analysis/`](analysis/README.md) | Optional certification, provenance, and diagnostic passes over completed public IR | Core and other analysis modules |
-| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder; `lowering/program.rhm` |
+| [`lowering/`](lowering/README.md) | Program envelope, checked state expansion, and extension certification after concrete verification | Core IR, signatures, construct contracts and instance views, Builder, schemas, verifier, dependency summaries; local graph copier |
+| [`compile/`](compile/README.md) | Explicit target orchestration, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts; portable lowering; neutral local contracts |
+| [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
+| [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder, verifier; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |
 | [`frontend/foundation.rhm`](frontend/foundation.rhm) | Circuits, ports, connections, elaboration, basic types including `Bool`, extension-defined hardware type declarations and protocols, receiver-owned scalar membership and width extension, selection, and representation methods | Kernel, support, approved core type APIs |
 | [`frontend/layers/`](frontend/layers/README.md) | Independently selectable notation and abstractions over existing semantics | Kernel, support, approved core APIs and analyses |
@@ -107,15 +118,15 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../rheg/`](../rheg/README.md) | Independent C++ event collector, manifest-bound snapshots, and streaming/standalone Perfetto export | Runtime: C++ standard library only; exporter: runtime and private nlohmann JSON dependency |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
-| [`backend/`](backend/README.md) | Consume verified public IR; currently lower it through CIRCT | Core only |
+| [`backend/`](backend/README.md) | Consume verified public IR; CIRCT emitter and explicit CIRCT target | Core; neutral compile contracts and RTL preparation only in the target adapter |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
-| [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; backend emission; optional event instrumentation and RHEG export; external C++ libraries |
+| [`../sims/`](../sims/README.md) | Executable SoC harnesses, FESVR host model, target payloads, and simulator bindings | Public SoC, CHI, flow, device (`devices/uart/uart-dpi.rhdl`), and Rhodium surfaces; explicit compilation targets; optional event instrumentation and RHEG export; external C++ libraries |
 | [`../sram/`](../sram/README.md) | Technology-independent post-CIRCT memory-site selection, macro-interface adaptation, tiling, and manifests | CIRCT/MLIR libraries; technology catalogs beneath `sram/` |
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
 | [`../hardfloat/`](../hardfloat/README.md) | Rhodium port of Berkeley HardFloat representations and floating-point units | Public `#lang rhodium` authoring surface only |
-| [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/backend surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
+| [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/compilation surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
 
 The event compiler and RHEG exchange generated descriptors and fixed DPI calls;
 neither imports the other's implementation. Event inference consumes generic
@@ -432,7 +443,7 @@ it when adding, removing, or changing a layer's direct dependencies.
 | `conditional.rhm` | Flat hardware `when`/`elsewhen` priority chains where omitted register updates hold, plus exact-key `switch`, memory-write, and assertion effects | core IR, kernel, mux-lookup support |
 | `hierarchy.rhm` | Binding-derived concrete/retained instances, child-member access, and sync-child propagation | core IR and construct bindings, clocking support, instance-member support |
 | `sync.rhm` | Sync circuits with ambient clock and synchronous reset | kernel, clocking support, generator-parameter support |
-| `clocking.rhm` | Root-owned timing and clock relationships, durable sync-level evidence, immediate reports, and opt-in CDC enforcement | core IR, kernel, clocking analysis, clocking support |
+| `clocking.rhm` | Root-owned timing metadata, clock relationships, and durable sync-level evidence | core IR, kernel, clocking data types and declaration metadata, clocking support |
 
 </details>
 

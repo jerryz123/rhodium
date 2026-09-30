@@ -1,0 +1,80 @@
+#lang rhombus
+// Checks lazy grouped member binding and physical, nominal, and array declaration diagnostics.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../foundation.rhm" open
+  "../layers/interface.rhm" open
+  "../../core/main.rhm" as core
+  "../../lowering/program.rhm".ExpansionProvider
+  "../../lowering/program.rhm".materialize_reachable_rtl
+  "detached-interface-fixture.rhdl" as fixture
+
+check:
+  fixture.calls_after_connections ~is [0, 0, 0]
+  core.signature_equal(circuit_signature(fixture.retained), fixture.signature) ~is #true
+  fixture.program.top.find_instance("first").opcode ~is "construct.instance"
+
+def before = core.dump_ir(fixture.program.design)
+def count_before = fixture.call_count()
+def first = materialize_reachable_rtl(fixture.program).rtl
+def second = materialize_reachable_rtl(fixture.program).rtl
+check:
+  fixture.call_count() ~is count_before + 2
+  first.top.find_instance("first").attribute("module") === first.top.find_instance("second").attribute("module") ~is #true
+  first.top.find_instance("first").attribute("module") === second.top.find_instance("first").attribute("module") ~is #false
+  core.dump_ir(fixture.program.design) ~is before
+  first.top.metadata_for("rhodium.circuit.declarations")[0].operation === first.top.find_instance("first") ~is #true
+  first.top.metadata_for("rhodium.circuit.declarations")[0].declarations[0] === fixture.declarations[0] ~is #true
+  materialize_reachable_rtl(fixture.wrong_program()).rtl ~throws "does not match declared interface"
+
+def ordinary_before = fixture.call_count()
+def ordinary = fixture.ordinary_design()
+check:
+  fixture.call_count() ~is ordinary_before + 1
+  CircuitReference(CircuitIdentity("Duplicate"), fixture.signature, fun (): fixture.Pass(), ~declarations: fixture.declarations ++ fixture.declarations) ~throws "duplicate or shadowed"
+  CircuitReference(CircuitIdentity("Width"), ModuleSignature([], []), fun (): fixture.Pass(), ~declarations: fixture.declarations) ~throws "does not match physical signature"
+  InterfaceDeclaration("bad", fixture.declarations[0].type, "missing") ~throws "unknown interface role"
+  CircuitReference(CircuitIdentity("Shadow"), fixture.signature, fun (): fixture.Pass(), ~declarations: [InterfaceDeclaration("ingress_in", fixture.declarations[0].type, "consumer")]) ~throws "duplicate or shadowed"
+
+def bad_ordinary = CircuitReference(CircuitIdentity("Wrong"), fixture.signature, fun (): fixture.WrongNominal(), ~declarations: fixture.declarations)
+check:
+  elaborate_with_top(fixture.Top(bad_ordinary)) ~throws "does not match declared interface"
+
+def short_array = [InterfaceDeclaration("ingress", fixture.declarations[0].type, "consumer", ~count: 1), InterfaceDeclaration("egress", fixture.declarations[1].type, "producer", ~count: 1)]
+def bad_array = CircuitReference(CircuitIdentity("BadArray"), interface_signature(fixture.array_declarations), fun (): fixture.ArrayPass(), ~declarations: short_array)
+check:
+  elaborate_with_top(bad_array) ~throws "does not match declared interface array"
+
+def before_bad_connection = fixture.call_count()
+check:
+  fixture.invalid_connection() ~throws "requires the exact interface specialization"
+  fixture.call_count() ~is before_bad_connection
+  CircuitReference(CircuitIdentity("Role"), fixture.signature, fun (): fixture.Pass(), ~declarations: [InterfaceDeclaration("ingress", fixture.declarations[0].type, "producer")]) ~throws "does not match physical signature"
+
+// Declaration validators must not turn aliases of the same provider into
+// conflicts, and merging those validators must not discard either contract.
+def base = fixture.retained
+def alias_one = RetainedCircuitReference(base.definition, base.provider, ~declarations: base.declarations)
+def alias_two = RetainedCircuitReference(base.definition, base.provider, ~declarations: base.declarations)
+def aliases = fixture.aliases(alias_one, alias_two)
+def calls_before_aliases = fixture.call_count()
+def alias_rtl = materialize_reachable_rtl(aliases).rtl
+check:
+  fixture.call_count() ~is calls_before_aliases + 1
+  alias_rtl.top.find_instance("first").attribute("module") === alias_rtl.top.find_instance("second").attribute("module") ~is #true
+  elaborate_with_top(alias_one).top.name ~is "Pass"
+
+class RejectImplementation():
+  implements CircuitDeclaration
+  override method member_names(): []
+  override method port_names(): []
+  override method validate_signature(signature :: ModuleSignature): #void
+  override method validate_implementation(module_def :: core.Module): error("additional declaration rejected implementation")
+  override method member(instance :: core.HardwareEntity, name :: String): #false
+def rejecting = RetainedCircuitReference(base.definition, base.provider, ~declarations: base.declarations ++ [RejectImplementation()])
+def conflicting = RetainedCircuitReference(base.definition, ExpansionProvider(fun (builder, definition): base.provider.expand(builder, definition)), ~declarations: base.declarations)
+check:
+  materialize_reachable_rtl(fixture.aliases(alias_one, rejecting)).rtl ~throws "additional declaration rejected implementation"
+  materialize_reachable_rtl(fixture.aliases(rejecting, alias_one)).rtl ~throws "additional declaration rejected implementation"
+  elaborate_with_top(rejecting) ~throws "additional declaration rejected implementation"
+  fixture.aliases(alias_one, conflicting) ~throws "conflicting portable providers"

@@ -86,7 +86,7 @@ feed [hardware generation](../../noc/rtl/README.md).
 Rhodium's
 [clock-crossing checker](../../rhodium/analysis/README.md#review-or-enforce-cdc-violations)
 traces signal provenance through logic, hierarchy, records, and vectors.
-Opt-in `elaborate_with_cdc` rejects unsafe or unknown-timing sampling unless
+Compilation with `clocking_target(~check_cdc: #true)` rejects unsafe or unknown-timing sampling unless
 verified crossing evidence permits it; it does not insert synchronizers or
 claim blanket safety for buses, handshakes, or reset crossings.
 

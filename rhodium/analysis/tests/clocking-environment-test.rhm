@@ -4,7 +4,8 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
-  "../../../rhodium/analysis/clocking.rhm" open
+  "../clocking/module.rhm" open
+  "../clocking/environment.rhm" open
 
 fun local_sink(summary, name):
   summary.sinks.find(

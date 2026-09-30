@@ -97,19 +97,49 @@ downstream consumers. Its constructor validates top ownership and completion;
 whole-design certification comes from `verify_design`, not from the result
 wrapper. These APIs accept concrete RTL. The separate
 [`ElaboratedProgram`](../lowering/README.md) envelope crosses that verification
-boundary through `materialize_rtl`.
+boundary through a concrete compile target.
 
-### Retained combinational constructs
+### Retained constructs
 
 `ConstructIdentity(name, revision)` names a library declaration.
 `ConstructDefinition(identity, parameters, signature, dependencies)` describes
 one specialization without a body or callback. Parameters are immutable host
 booleans, strings, integers, hardware types, and recursively composed lists.
-Ports are data types; this initial contract owns no clocks, state, or effects.
+By default ports are data types and the contract permits no state or effects.
+Optional `~state: SingleClockState(clock_port, reset_port)` permits registers
+on the declared rising-edge `Clock` input, with active-high synchronous reset
+from the declared `Reset` input or resetless operation. All other inputs and
+all outputs must be data types. Scoped resets may add reset conditions by OR;
+they must preserve assertion of the declared reset. Clock wires are aliases,
+but computed or cast clocks do not satisfy the declared domain.
+
+This state contract permits registers; it does not promise a fixed latency,
+require a particular register count, or describe a transaction protocol.
+Two independent keyword permissions extend `SingleClockState`; both default to
+`#false`:
+
+- `~async_read_memory: #true` admits the existing `Memory` resource,
+  asynchronous reads, and synchronous writes on the declared clock. Reads
+  retain their combinational address dependencies. Storage is uninitialized;
+  reset neither clears memory nor suppresses a write. The explicit write enable
+  controls whether each rising edge writes, including during reset.
+- `~clocked_assertions: #true` admits assertions on that clock. Their reset
+  suppression must preserve the declared active-high reset; scoped OR resets
+  may suppress them additionally. Conditions, activation guards, labels, source
+  locations, and origins remain part of the expanded RTL.
+
+These permissions bound the implementation's effects, not its resource count
+or assertion predicates. They are checked through ordinary and retained child
+hierarchy before and after expansion. A retained child's permissions must be a
+subset of its parent's, without executing the child provider to discover them.
+Synchronous-read memory, DPI, and CDC effects remain outside these permissions.
+An assertion permission never authorizes a consumer to discard assertions.
 
 Dependencies contain one list per output port, and one `OutputLeafDependency`
 per aggregate leaf in `leaf_paths(type)` order. Each entry lists `InputLeaf`
-indices and paths; an empty list declares independence from all inputs.
+indices and paths; an empty list declares same-cycle independence from all
+inputs. Stateful constructs must still declare their combinational bypass
+paths; register state does not imply that every output is registered.
 Invalid, missing, and misordered leaves are rejected during construction.
 
 `Builder.construct_instance(parent, definition, name)` creates a
@@ -180,6 +210,12 @@ for generated names. Construction goes through `Builder`; after verification,
 the supported public use is read-only inspection. User-authored IR mutation
 and rewriting remain deferred until a transformation motivates coherent
 transaction and handle-validity semantics.
+
+Extension metadata implements `ModuleMetadataPayload`. Its `remap_ir(remap)`
+method participates in [portable materialization](../lowering/README.md), and
+nested extension-owned views implement the parent `IRRemappable` protocol.
+Core assigns no semantics to their fields; the owner must explicitly remap live
+references and retain only immutable descriptors. The default rejects copying.
 
 ### Hierarchy
 
@@ -507,11 +543,11 @@ verification boundaries. `Builder.instance` uses an exact name, while
 `Builder.suggested_instance` deterministically allocates a collision-free
 name.
 
-The core API is re-exported by [`main.rhm`](main.rhm). CIRCT is imported
-separately from [`../backend/circt.rhm`](../backend/circt.rhm). Optional
-clock-use and temporal-provenance inspection is exported separately by
-[`../analysis/clocking.rhm`](../analysis/clocking.rhm); those policy, report,
-and environment objects are not part of the core API.
+The core API is re-exported by [`main.rhm`](main.rhm). Use
+[`compile_program`](../compile/README.md) with the
+[CIRCT target](../backend/README.md) for MLIR output or the
+[clock-analysis target](../analysis/README.md) for temporal reports.
+Target policy, reports, and environment objects are not part of the core API.
 
 ## Verification contract
 

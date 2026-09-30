@@ -1,0 +1,64 @@
+#lang rhombus
+/* Stores timing declarations as remappable metadata independently of analysis execution. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/ir.rhm" open
+  "types.rhm" open
+
+export:
+  declare_clocking_environment
+  module_clocking_environment
+  has_clocking_declarations
+
+def namespace = "rhodium.clocking.environment"
+
+/* Rebind every live input and clock reference through the destination resolver.
+   Leaf paths, asynchronous timing markers, and descriptive strings remain unchanged. */
+fun remap_environment(environment :: TemporalEnvironment, remap :: Function.of_arity(1)):
+  def inputs = environment.input_contracts.map(
+    fun (contract):
+      def timing = contract.timing
+      TopInputContract(remap(contract.input), contract.path, if timing is_a SynchronousInputTiming | SynchronousInputTiming(remap(timing.clock)) | timing)
+  )
+  def relationships = environment.clock_relationships.map(
+    fun (relationship):
+      cond
+      | relationship is_a IdenticalClockRelationship:
+          IdenticalClockRelationship(remap(relationship.left), remap(relationship.right))
+      | relationship is_a DerivedClockRelationship:
+          DerivedClockRelationship(remap(relationship.source), remap(relationship.destination), relationship.description)
+      | relationship is_a AsynchronousClockRelationship:
+          AsynchronousClockRelationship(remap(relationship.left), remap(relationship.right))
+      | relationship is_a ExclusiveClockRelationship:
+          ExclusiveClockRelationship(remap(relationship.left), remap(relationship.right), relationship.description)
+      | ~else: error(~who: #'clocking_target, "unsupported clock relationship")
+  )
+  TemporalEnvironment(inputs, relationships)
+
+/* Stores timing assumptions as module metadata without running analysis.
+   Remapping keeps declarations attached to the graph selected by a compile target. */
+class ClockingDeclarations(environment :: TemporalEnvironment):
+  implements ModuleMetadataPayload
+  /* Copy the environment with destination-owned input and clock values. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    ClockingDeclarations(remap_environment(environment, remap))
+
+/* Attach one declaration fragment to an open module.
+   Semantic validation and top-only ownership checks occur during target preparation. */
+fun declare_clocking_environment(module_def :: Module, environment :: TemporalEnvironment):
+  module_def.add_metadata(namespace, ClockingDeclarations(environment))
+  #void
+
+/* Detect even an empty declaration fragment so child declarations cannot evade checks. */
+fun has_clocking_declarations(module_def :: Module):
+  module_def.metadata_for(namespace).length() > 0
+
+/* Collect fragments in attachment order without resolving or deduplicating them.
+   The environment analyzer remains responsible for contradictory or duplicate assumptions. */
+fun module_clocking_environment(module_def :: Module):
+  def inputs = MutableList[]
+  def relationships = MutableList[]
+  for (entry in module_def.metadata_for(namespace)):
+    for (contract in entry.environment.input_contracts): inputs.add(contract)
+    for (relationship in entry.environment.clock_relationships): relationships.add(relationship)
+  TemporalEnvironment(inputs.snapshot(), relationships.snapshot())

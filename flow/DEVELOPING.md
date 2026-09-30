@@ -194,8 +194,8 @@ names. Compiler-facing composition and static-information tests remain in
 [`examples/std`](../examples/std/). The `std` backend group and `examples-std`
 target cover both foundational standard modules and flow.
 
-Use the persistent worktree-specific compiled root required by
-[`AGENTS.md`](../AGENTS.md#verification). The wrappers select it when omitted:
+Use the repository wrappers, which select the persistent worktree-specific
+compiled root automatically:
 
 ```sh
 tools/run-racket-tests.sh flow/tests/std-flow-test.rhm flow/tests/std-flow-chain-test.rhm flow/tests/std-flow-static-test.rhm

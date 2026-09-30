@@ -1,0 +1,37 @@
+#lang rhombus
+/* Prepares fresh reachable RTL and occurrence-specific portable-expansion reports for concrete targets. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "contracts.rhm" open
+  "../core/ir.rhm" open
+  "../core/signature.rhm".module_signature
+  "../lowering/program.rhm" open
+
+export:
+  ElaboratedProgram
+  PreparedRTL
+  prepare_rtl
+
+/* Pairs a fresh, verified top closure with the manifest derived from that same graph. */
+class PreparedRTL(rtl :: DesignElaboration, manifest :: CompileManifest)
+
+/* Expand the selected closure without mutating the source, then derive occurrence
+   reports from definition identity. The reason is target-supplied explanation text,
+   not a capability-selection rule. */
+fun prepare_rtl(program :: ElaboratedProgram, options :: CompileOptions, reason :: String):
+  def result = materialize_reachable_rtl(program, ~expansion_limit: options.expansion_limit)
+  def definitions = MutableMap.by(===){}
+  for (definition in result.expansions.keys()): definitions[result.expansions[definition]] := definition
+  def decisions = MutableList[]
+  /* Walk each instance occurrence in deterministic depth-first order.
+     Do not deduplicate shared modules here: their expansion is reused, but their
+     source paths and parent-instance attribution must remain distinct. */
+  fun visit(module_def :: Module, path :: List.of(String), location :: maybe(Location), origin :: maybe(Origin)):
+    when definitions.has_key(module_def)
+    | decisions.add(LoweringDecision(path, definitions[module_def], "expand", reason, module_def.name, location, origin))
+    for (operation in module_def.operations):
+      when operation.opcode == "rtl.instance"
+      | visit(operation.attribute("module"), path ++ [operation.attribute("name")], operation.location, operation.origin)
+  visit(result.rtl.top, [], #false, #false)
+  def manifest = CompileManifest(result.rtl.top.name, module_signature(result.rtl.top), result.rtl.design.modules.map(fun (module_def): module_def.name), decisions.snapshot())
+  PreparedRTL(result.rtl, manifest)

@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Provides shared instance-member and chained hardware-field syntax for hierarchy-aware layers.
+/* Provides shared instance-member and chained hardware-field syntax for hierarchy-aware layers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -43,7 +43,7 @@ fun instance_member(instance :: Instance || ConstructInstance, name :: String):
       if output_binding
       | output_binding.value
       | block:
-          def resolved = if instance is_a ConstructInstance | #false | resolved_member(instance, name)
+          def resolved = kernel.declared_instance_member(instance, name) || (if instance is_a ConstructInstance | #false | resolved_member(instance, name))
           unless resolved
           | error(~who: #'inst,
                   String.append("instance ",

@@ -1,11 +1,12 @@
 #lang rhombus
-// Summarizes clock use and hierarchy-aware temporal provenance for completed core modules.
+/* Summarizes clock use and hierarchy-aware temporal provenance for completed core modules. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../core/types.rhm" open
   "../../core/ir.rhm" open
   "../../core/ops.rhm" open
+  "../../core/construct.rhm".ConstructDefinition
   "../../core/dependencies.rhm" open
   "../../core/verify.rhm".require_concrete_module
   "types.rhm" open
@@ -122,6 +123,26 @@ fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
     | "ambient": AmbientReset(pending.reset, pending.operations)
     | "local": LocalReset(pending.reset, pending.operations)
 
+/* Classify concrete clocked effects and declared retained state without executing providers.
+   Only concrete materialization can reveal a retained body's interior provenance. */
+fun operation_clock_use(operation :: Operation):
+  def spec = clock_operation_spec(operation.opcode)
+  cond
+  | spec is_a ClockedOperationSpec:
+      ClockUse(operation, canonical_wire_value(operation.operands[spec.clock_operand]),
+               if spec.reset_operand is_a Nat | operation.operands[spec.reset_operand] | #false)
+  | operation.opcode == "construct.instance":
+      def definition :: ConstructDefinition = operation.attribute("definition")
+      if definition.state
+      | def controls = for Map (port in definition.signature.inputs, place in operation.places): values(port.name, place.driver)
+        def clock = controls[definition.state.clock_port]
+        def reset = controls[definition.state.reset_port]
+        unless clock && reset
+        | error(~who: #'summarize_module_clocking, "retained clock/reset input is undriven")
+        ClockUse(operation, canonical_wire_value(clock), reset)
+      | #false
+  | ~else: #false
+
 fun summarize_module_clocking(module_def :: Module,
                               ambient_reset :: maybe(Value) = #false):
   unless module_def.finished
@@ -131,15 +152,9 @@ fun summarize_module_clocking(module_def :: Module,
   def mutable clock_groups = []
   def mutable clock_uses = []
   for (operation in module_def.operations):
-    def spec = clock_operation_spec(operation.opcode)
-    when spec is_a ClockedOperationSpec
-    | def clock = canonical_wire_value(operation.operands[spec.clock_operand])
-      def reset:
-        if spec.reset_operand is_a Nat
-        | operation.operands[spec.reset_operand]
-        | #false
-      def use = ClockUse(operation, clock, reset)
-      clock_uses := clock_uses ++ [use]
+    def use = operation_clock_use(operation)
+    when use
+    | clock_uses := clock_uses ++ [use]
       clock_groups := add_clock_use(clock_groups, use)
   def reset_uses = summarize_reset_uses(clock_uses, ambient_reset)
   match clock_groups.length()
@@ -154,16 +169,7 @@ fun summary_clock_groups(summary :: ModuleClockingSummary):
   cond
   | summary is_a Combinational: []
   | summary is_a SingleClock:
-      [ClockGroup(summary.clock,
-                  summary.clocked_operations.map(
-                    fun (operation):
-                      def spec = clock_operation_spec(operation.opcode)
-                      ClockUse(operation,
-                               canonical_wire_value(operation.operands[spec.clock_operand]),
-                               if spec.reset_operand is_a Nat
-                               | operation.operands[spec.reset_operand]
-                               | #false)
-                  ))]
+      [ClockGroup(summary.clock, summary.clocked_operations.map(operation_clock_use))]
   | summary is_a MultiClock: summary.clock_groups
 
 fun verify_single_clock(module_def :: Module,

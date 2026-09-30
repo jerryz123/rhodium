@@ -3,11 +3,12 @@
 
 # CIRCT backend
 
-The backend is the CIRCT-specific consumer of Rhodium's public hardware IR. The
-normal entry point accepts a completed concrete-RTL `Design`, verifies it, and emits textual
-CIRCT MLIR. This directory owns CIRCT dialect selection, type representation,
-SSA names, and operation dispatch; it imports [`../core/`](../core/README.md)
-but no frontend syntax or elaboration modules.
+The CIRCT compile target lowers a selected hardware program to textual CIRCT
+MLIR. Use `compile_program(program, circt_target)` for both frontend programs
+and Builder-created hardware. Compilation verifies the source and prepares a
+fresh concrete graph containing the selected top and its reachable hierarchy.
+This directory owns CIRCT dialect selection, type representation, SSA names,
+and operation dispatch.
 Contributors changing lowering or backend coverage should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
@@ -23,23 +24,27 @@ flowchart LR
 Rhodium stops at CIRCT MLIR; CIRCT's lowering passes and `ExportVerilog` own
 SystemVerilog generation.
 
-## Emission API
+## Compilation API
 
-[`circt.rhm`](circt.rhm) exports two functions:
+```rhombus
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
 
-- `emit_circt(design)` is the whole-design API. It calls `verify_design`, which
-  reuses a successful prior verification of the same sealed design, collects
-  design-wide record aliases and DPI declarations, emits every `hw.module`,
-  and wraps the result in a builtin MLIR `module`.
-- `emit_module_circt(module_def)` emits one `hw.module`. It does not run design
-  verification or establish the design-wide record-alias scope, so callers
-  producing a complete design should use `emit_circt`.
+// design and top are finished Builder-created hardware.
+def result = compile_program(ElaboratedProgram(design, top), circt_target)
+def mlir = result.artifacts[0].content
+```
 
-For an `ElaboratedProgram`, first call
-[`materialize_rtl(program)`](../lowering/README.md), then pass its `.design`
-to `emit_circt`. Neither emission API accepts a program envelope or runs
-implementation providers. Direct Builder-created designs remain valid inputs
-without a frontend or program wrapper.
+Frontend callers supply `elaborate_program(Top())` as the program. The result
+contains one `<top>.mlir` artifact, the physical port signature, and a report
+of portable expansions per instance occurrence. The source graph remains
+unchanged; unrelated modules and unused providers do not enter the output.
+See the [compiler contract](../compile/README.md) for options and failures.
+
+The selected top defines compilation scope. To compile independent roots, make
+one explicit request for each root. There is no whole-inventory program mode.
 
 An unsupported verified type or opcode is a backend error. The backend does not
 add pseudo-CIRCT operations to avoid an explicit lowering decision.

@@ -107,37 +107,37 @@ described in the [layer contributor guide](DEVELOPING.md#static-information-and-
 
 ### Clocking environments and CDC enforcement
 
-Import `clocking.rhm` explicitly and use `elaborate_with_clocking` when a
-completed design should be analyzed in a top-level temporal environment:
+The clocking layer records timing declarations during ordinary elaboration.
+Select the clock-analysis target to resolve them and produce findings:
 
 ```rhombus
 import:
   lib("rhodium/frontend/layers/clocking.rhm") open
+  lib("rhodium/analysis/clocking.rhm").clocking_target
+  lib("rhodium/compile/program.rhm").compile_program
 
 circuit Top():
   input clock: Clock
   input data: Bits(8)
   synchronous_input(data, clock)
 
-def clocked = elaborate_with_clocking(Top())
-def design = clocked.design
-def report = clocked.summary
+def compiled = compile_program(elaborate_program(Top()), clocking_target())
+def findings = compiled.report.summary
 ```
 
 `synchronous_input`, `asynchronous_input`, and `unknown_input_timing` attach a
 contract to a top data input or aggregate subtree. `identical_clocks`,
 `derived_clock`, `asynchronous_clocks`, and `exclusive_clocks` describe pairs
-of top `Clock` inputs. These declarations are legal only while the wrapper is
-elaborating its explicit top circuit; child-owned and hardware-conditional
-declarations are rejected. The result retains the `DesignElaboration`, the
-validated `TemporalEnvironment`, and the resolved `DesignTemporalSummary`.
+of top `Clock` inputs. Hardware-conditional declarations are rejected during
+construction; child-owned declarations and environment conflicts are rejected
+by the clock-analysis target. Timing metadata survives portable materialization.
 
-`elaborate_with_clocking` remains report-only. `elaborate_with_cdc` applies the
-first conservative policy: static, exact-clock, and declared-identical inputs
+`clocking_target()` is report-only. `clocking_target(~check_cdc: #true)` enforces
+the conservative policy: static, exact-clock, and declared-identical inputs
 are safe; other sampled data requires recognized crossing evidence. Reset
-inputs remain inventory-only pending RDC semantics. Both forms expose the
-complete structured list through `summary.cdc_violations`; the strict form
-raises one aggregate error after the full hierarchy has been classified.
+inputs remain inventory-only pending RDC semantics. Findings are returned in
+`compiled.report.summary`, with readable text in `compiled.artifacts`. Strict
+failure raises one aggregate error before returning a compilation result.
 
 The retained summary also diagnoses distinct verified crossing identities
 that later reach one clocked sink through `summary.reconvergences`. These
@@ -1012,6 +1012,56 @@ connects exact flows or compatible provider-to-peer contracts; operand order
 is irrelevant. Individual fields remain accessible, and frontend metadata
 reconstructs endpoints through instances without guessing from port names.
 
+### Detached interface declarations
+
+`InterfaceDeclaration(name, type, role, ~count: count)` describes a grouped
+boundary independently of a module body. Omit `~count` for a scalar endpoint;
+a positive count describes an array, including a singleton array. Nested
+interfaces come from the supplied nominal `InterfaceType`.
+
+```rhombus
+import lib("flow/main.rhdl") open
+
+circuit Pass():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  ingress |> egress
+
+def boundaries = [InterfaceDeclaration("ingress", Decoupled(Bits(8)), "consumer"),
+                  InterfaceDeclaration("egress", Decoupled(Bits(8)), "producer")]
+def signature = interface_signature(boundaries)
+def reference = CircuitReference(CircuitIdentity("Pass"), signature,
+                                 fun (): Pass(), ~declarations: boundaries)
+```
+
+`interface_signature` constructs the corresponding core `ModuleSignature`.
+Optional `~inputs` and `~outputs` lists of `PortSignature` prepend ordinary
+ports, allowing scalar signals or explicit clock/reset ports alongside groups.
+Each declaration exposes flat `input_ports()` and `output_ports()` lists.
+Directions use the same `<name>_in`/`<name>_out` mapping as ordinary interface
+syntax; arrays use `<name>_<index>_in`/`<name>_<index>_out`. Nested interfaces
+remain fields in those direction records. This API does not introduce port
+aliases or infer protocols from physical port names.
+
+Pass the same `~declarations` to `retained_circuit(definition, implementation)`
+to expose `child.ingress`, `child.egress`, array indexing, and nested fields
+without running its recipe. The core construct still declares its physical
+signature and output-leaf dependencies explicitly. Interface declarations add
+nominal meaning; they do not certify latency, state, or transaction behavior.
+
+Reference construction checks port direction/type compatibility, member-name
+collisions, and overlapping declarations. Connections use existing nominal
+compatibility and role checks immediately. When an ordinary reference is
+realized or a retained provider expands, its actual interface metadata must
+match the declaration's specialization, role, physical bindings, and array
+membership/order. Equal wire widths alone do not satisfy this check. Failed
+validation is an error, with no fallback to guessed interfaces.
+
+Declarations contain no module, value, place, or instance objects. Recipes
+retain their existing [elaboration lifetime](../README.md#circuits-and-elaboration).
+Register-state references use the explicit [single-clock contract](../README.md#circuits-and-elaboration). Contributor ownership and
+validation live in [DEVELOPING.md](DEVELOPING.md).
+
 ### Read-only observations
 
 Interfaces describe connectivity and do not carry monitor factories or
@@ -1133,6 +1183,14 @@ left of `<=>`. Scalar endpoint connections keep using the same syntax for
 interface refinement merge and split.
 
 ### Links, transforms, and pipelines
+
+A configured transform may name an ordinary or retained implementation instance.
+Its presentation metadata keeps that symbolic link until materialization remaps
+it to the concrete instance. Intrinsic trace controls remain owned by the
+portable implementation; competing trace summaries are checked again after
+expansion, before a concrete design is returned. A child-bound
+`interface_trace_queue(instance, ~name: ...)` likewise retains the named storage
+binding until expansion; missing storage remains an error.
 
 `interface_link(protocol)` creates a local pair of complementary endpoint
 views over forward-readable, exactly-one-driver wires. An `InterfaceHandle`

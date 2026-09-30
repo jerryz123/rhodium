@@ -5,7 +5,7 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/analysis/clocking.rhm" open
-  "../../../rhodium/frontend/layers/clocking.rhm".ClockingElaboration
+  "../../../rhodium/compile/program.rhm".compile_program
   "clocking-composed.rhdl" as composed
   "clocking-standard.rhdl" as standard
 
@@ -19,11 +19,13 @@ fun next_classification(summary, name):
     fun (input): input.name == "next"
   ).classification
 
-def clocked = composed.clocked
+def compiled = compile_program(composed.program, clocking_target())
+def clocked = compiled.report
+def standard_report = compile_program(standard.program, clocking_target()).report
 def summary = clocked.summary
 
 check:
-  clocked is_a ClockingElaboration ~is #true
+  clocked is_a ClockingReport ~is #true
   clocked.design === clocked.elaboration.design ~is #true
   clocked.top === clocked.elaboration.top ~is #true
   clocked.environment.input_contracts.length() ~is 7
@@ -37,5 +39,5 @@ check:
   next_classification(summary, "exclusive_sink") is_a ExclusiveClock ~is #true
   next_classification(summary, "asynchronous_input_sink") is_a AsynchronousEnvironmentInput ~is #true
   next_classification(summary, "unknown_input_sink") is_a UnknownInput ~is #true
-  dump_ir(composed.clocked.design) ~is dump_ir(standard.clocked.design)
+  dump_ir(clocked.design) ~is dump_ir(standard_report.design)
   verify_design(clocked.design) ~is #void

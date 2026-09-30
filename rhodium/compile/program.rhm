@@ -1,0 +1,28 @@
+#lang rhombus
+/* Compiles through an explicit target and publishes a result only after complete artifact emission. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "contracts.rhm" open
+  "../lowering/program.rhm".ElaboratedProgram
+
+export compile_program
+
+/* Prepare exactly the supplied target and collect its projections once.
+   Reject an invalid plan or an empty/duplicate-named artifact set before returning.
+   Provider and emitter failures propagate; this orchestration publishes no files. */
+fun compile_program(program :: ElaboratedProgram, target :: CompilationTarget,
+                    ~options: options :: CompileOptions = CompileOptions()):
+  def plan = target.prepare(program, options)
+  unless plan is_a TargetPlan
+  | error(~who: #'compile_program, "target preparation must return a TargetPlan")
+  def manifest = plan.manifest()
+  def report = plan.report()
+  def artifacts = plan.emit()
+  unless artifacts.length() > 0
+  | error(~who: #'compile_program, "target must return a nonempty artifact set")
+  def names = MutableSet{}
+  for (artifact in artifacts):
+    when artifact.name in names
+    | error(~who: #'compile_program, "target must return unique artifact names")
+    names.add(artifact.name)
+  CompilationResult(target.name, manifest, artifacts, report)

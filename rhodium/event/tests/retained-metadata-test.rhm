@@ -1,0 +1,75 @@
+#lang rhombus
+// Checks Flow diagrams, trace controls, instrumentation, and metadata identity after materialization.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../main.rhm" open
+  "../../core/main.rhm" open
+  "../../lowering/program.rhm".materialize_reachable_rtl
+  "../../diagram/main.rhm" open
+  "../../backend/circt.rhm".emit_circt
+  "../../frontend/layers/interface.rhm" open
+  "../../frontend/tests/retained-metadata-fixture.rhdl" as fixture
+
+// Module IDs are allocation identities. Compare every serialized topology field
+// after replacing only that ID, leaving names, ordering, ports, and routes exact.
+fun topology(logical :: DesignElaboration):
+  diagram(logical).modules.map(
+    fun (module_def): diagram_module_to_json(DiagramModule(0, module_def.name, module_def.blocks, module_def.channels))
+  )
+
+def before = dump_ir(fixture.program.design)
+def first = materialize_reachable_rtl(fixture.program).rtl
+def second = materialize_reachable_rtl(fixture.program).rtl
+def original_lane = fixture.program.top.find_instance("first").attribute("module")
+def lane = first.top.find_instance("first").attribute("module")
+def again_lane = second.top.find_instance("first").attribute("module")
+def queue = module_interface_transforms(lane).find(fun (item): item.kind == "queue")
+def queue_contract = module_interface_transforms(queue.implementation.module_def).find(fun (item): item.trace_model)
+def queue_storage = queue_contract.trace_model.queue_storage()
+def events = module_interface_events(lane)
+def again_events = module_interface_events(again_lane)
+def manifest = infer_event_manifest(first, ~dynamic: #true)
+def eager_manifest = infer_event_manifest(fixture.eager, ~dynamic: #true)
+def traced = instrument_events(first)
+def link = module_interface_links(first.top)[0]
+def original_link = module_interface_links(fixture.program.top)[0]
+def projected = link.left.nested_endpoints[0][1].bindings.find(fun (binding): binding.entity is_a Place).entity
+
+check:
+  link.left === original_link.left ~is #false
+  link.left.type === original_link.left.type ~is #true
+  projected.parent.module_def === first.top ~is #true
+  projected.parent === link.left.bindings.find(fun (binding): binding.entity is_a Place).entity ~is #true
+  topology(first) ~is topology(fixture.eager)
+  event_manifest_to_json(manifest) ~is event_manifest_to_json(eager_manifest)
+  event_manifest_to_json(infer_event_manifest(second, ~dynamic: #true)) ~is event_manifest_to_json(manifest)
+  verify_design(traced.instrumented.design) ~is #void
+  emit_circt(traced.instrumented.design).contains("rheg_instance") ~is #true
+  queue.implementation.operation.module_def === lane ~is #true
+  queue.implementation.module_def === queue_storage.module_def ~is #true
+  queue_contract.module_def === queue.implementation.module_def ~is #true
+  queue_storage.module_def.metadata.find(fun (entry): entry.payload === queue_storage) != #false ~is #true
+  (for all (control in queue_storage.controls()): control.module_def === queue_storage.module_def) ~is #true
+  queue.implementation.input_bindings[0].place.module_def === lane ~is #true
+  lane === first.top.find_instance("second").attribute("module") ~is #true
+  lane === original_lane ~is #false
+  lane === again_lane ~is #false
+  events[0] === again_events[0] ~is #false
+  events[0].input === again_events[0].input ~is #false
+  events[0].fields[0].value.module_def === lane ~is #true
+  events[0].input.type === module_interface_events(original_lane)[0].input.type ~is #true
+  module_interface_array_groups(first.top)[0].groups[0].module_def === first.top ~is #true
+  module_trace_instances(first.top)[0].value === first.top.inputs.find(fun (port): port.name == "identity").value ~is #true
+  dump_ir(fixture.program.design) ~is before
+  fixture.program.design.sealed ~is #false
+
+// Mutating a metadata-owned cache/list in one result cannot affect the source
+// or another independently materialized design.
+events[0].parents := [19]
+events[0].input.nested_endpoints := [["sentinel", events[0].input]]
+check:
+  again_events[0].parents ~is #false
+  module_interface_events(original_lane)[0].parents ~is #false
+  again_events[0].input.nested_endpoints ~is []
+  module_interface_events(original_lane)[0].input.nested_endpoints ~is []

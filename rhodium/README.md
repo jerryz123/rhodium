@@ -49,7 +49,8 @@ flowchart LR
 | [`std/`](std/README.md) | Foundational protocols, host utilities, decode, storage, and generic generators |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and typed pipeline composition |
 | [`lowering/`](lowering/README.md) | Program construction and materialization into verified concrete RTL |
-| [`analysis/`](analysis/README.md) | Optional reports and certification over a completed design |
+| [`analysis/`](analysis/README.md) | Clock-analysis compile target and internal certification |
+| [`compile/`](compile/README.md) | Explicit target compilation, artifacts, and lowering decisions |
 | [`backend/`](backend/README.md) | CIRCT lowering and emitted hardware |
 | [`formal/`](formal/README.md) | Rosette-backed equivalence, reachability, and combinational properties |
 | [`diagram/`](diagram/README.md) | Logical hierarchy, interface, and flow views |

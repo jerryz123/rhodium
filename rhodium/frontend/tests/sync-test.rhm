@@ -5,6 +5,8 @@
 import:
   "../../../rhodium/core/main.rhm" open
   "../../../rhodium/analysis/clocking.rhm" open
+  "../../../rhodium/compile/program.rhm".compile_program
+  "../../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../examples/rtl/sync-counter.rhdl" as implicit_fixture
   "../../../examples/lop/counter-composed.rhdl" as composed_example
@@ -44,10 +46,7 @@ def local_reset_design = embedded.run_elaboration(
   fun (): composed_fixture.LocalResetCounter()
 )
 def local_reset_module = local_reset_design.modules[0]
-def local_reset_summary = summarize_module_clocking(
-  local_reset_module,
-  local_reset_module.find_input("reset").value
-)
+def local_reset_summary = compile_program(ElaboratedProgram(local_reset_design, local_reset_module), clocking_target()).report.clocks[0]
 def local_reset_register = local_reset_module.operations.find(
   fun (operation): operation.opcode == "rtl.register_reset"
 )

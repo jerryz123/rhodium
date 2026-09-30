@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/analysis/clocking.rhm").clocking_target
   lib("rhodium/frontend/layers/hierarchy.rhm") open
   lib("rhodium/frontend/layers/clocking.rhm") open
 
@@ -18,4 +20,4 @@ circuit Top():
   child.clock <== clock
   child.data <== data
 
-def clocked = elaborate_with_clocking(Top())
+def clocked = compile_program(elaborate_program(Top()), clocking_target())

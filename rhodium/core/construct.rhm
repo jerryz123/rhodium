@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines immutable combinational construct contracts and signature-bound instances.
+/* Defines immutable retained hardware contracts with explicit single-clock state and effect permissions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,30 +9,58 @@ import:
 
 export:
   ConstructIdentity
+  SingleClockState
   ConstructDefinition
   ConstructInstance
 
+/* Names a retained declaration and its semantic revision.
+   Definition identity, rather than the display name alone, controls expansion reuse. */
 class ConstructIdentity(name :: AsciiIdentifier, revision :: String = "1")
 
+/* Accept immutable host scalars, well-formed hardware types, and nested lists.
+   Reject live IR and mutable configuration captured as specialization parameters. */
 fun stable_parameter(value :: Boolean || String || Number || HardwareType || List):
   cond
   | value is_a List: for all (item in value): stable_parameter(item)
   | value is_a HardwareType: type_well_formed(value)
   | ~else: value is_a Boolean || value is_a String || value is_a Int
 
-// Each output has one dependency entry per leaf, in leaf_paths order.
-// This first contract is pure combinational: data ports, no state or effects.
+/* Permits registers on one rising-edge clock with synchronous active-high reset
+   or resetless state. Memory and assertion permissions are independent and transitive;
+   they do not admit arbitrary effects. */
+class SingleClockState(clock_port :: AsciiIdentifier, reset_port :: AsciiIdentifier,
+                       async_read_memory :: Boolean = #false,
+                       clocked_assertions :: Boolean = #false):
+  /* Store detached control-port names and explicit optional effect permissions. */
+  constructor (clock_port :: AsciiIdentifier, reset_port :: AsciiIdentifier,
+               ~async_read_memory: async_read_memory :: Boolean = #false,
+               ~clocked_assertions: clocked_assertions :: Boolean = #false):
+    super(clock_port, reset_port, async_read_memory, clocked_assertions)
+
+/* Describes a retained implementation boundary without storing its body or provider.
+   Every output leaf has a same-cycle dependency entry, even when state is allowed. */
 class ConstructDefinition(identity :: ConstructIdentity,
                           parameters :: List,
                           signature :: ModuleSignature,
-                          dependencies :: List.of(List.of(OutputLeafDependency))):
+                          dependencies :: List.of(List.of(OutputLeafDependency)),
+                          state :: maybe(SingleClockState) = #false):
+  /* Validate immutable parameters, legal control/data ports, and complete ordered
+     output-leaf dependencies before the definition can enter a mixed IR design. */
   constructor (identity :: ConstructIdentity, parameters :: List,
                signature :: ModuleSignature,
-               dependencies :: List.of(List.of(OutputLeafDependency))):
+               dependencies :: List.of(List.of(OutputLeafDependency)),
+               ~state: state :: maybe(SingleClockState) = #false):
     unless stable_parameter(parameters)
     | error(~who: #'ConstructDefinition, "construct parameters must be immutable host data")
-    unless for all (port in signature.inputs ++ signature.outputs): data_type(port.type)
-    | error(~who: #'ConstructDefinition, "combinational constructs require data ports")
+    if state
+    | def clock = signature.input(state.clock_port)
+      def reset = signature.input(state.reset_port)
+      unless clock && clock_type(clock.type) && reset && reset_type(reset.type)
+      | error(~who: #'ConstructDefinition, "state contract requires Clock and Reset input ports")
+      unless (for all (port in signature.outputs): data_type(port.type)) && (for all (port in signature.inputs): port === clock || port === reset || data_type(port.type))
+      | error(~who: #'ConstructDefinition, "state contract permits only its declared controls and data ports")
+    | unless for all (port in signature.inputs ++ signature.outputs): data_type(port.type)
+      | error(~who: #'ConstructDefinition, "combinational constructs require data ports")
     unless dependencies.length() == signature.outputs.length()
     | error(~who: #'ConstructDefinition, "construct dependencies must describe every output")
     for (port in signature.outputs, entries in dependencies):
@@ -42,17 +70,20 @@ class ConstructDefinition(identity :: ConstructIdentity,
         for (input in entry.input_leaves):
           unless input.input_index < signature.inputs.length() && input.path in leaf_paths(signature.inputs[input.input_index].type)
           | error(~who: #'ConstructDefinition, "construct dependency references an invalid input leaf")
-    super(identity, parameters, signature, dependencies)
+    super(identity, parameters, signature, dependencies, state)
 
+/* Binds a detached construct boundary to ordinary parent-owned values and places. */
 class ConstructInstance(operation :: Operation,
                         definition :: ConstructDefinition,
                         input_bindings :: List.of(Port),
                         output_bindings :: List.of(Port)):
   implements HardwareEntity
+  /* Return the parent-side place driven by a named input connection; reject unknown ports. */
   method input(name :: String):
     def port = input_bindings.find(fun (port): port.name == name)
     unless port | error(~who: #'input, "construct instance has no input named " ++ name)
     port.place
+  /* Return the parent-side value read from a named output; reject unknown ports. */
   method output(name :: String):
     def port = output_bindings.find(fun (port): port.name == name)
     unless port | error(~who: #'output, "construct instance has no output named " ++ name)

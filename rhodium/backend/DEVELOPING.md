@@ -3,7 +3,7 @@
 
 # Developing the CIRCT backend
 
-Read the backend [README](README.md) for the public emission API, type
+Read the backend [README](README.md) for the public compilation API, type
 representation, and supported lowering contract. This guide owns the
 implementation workflow behind that contract.
 
@@ -14,6 +14,18 @@ designs, assigns deterministic CIRCT names, collects design-wide record aliases
 and DPI declarations, lowers each public IR operation, and prints textual MLIR.
 It may import public core modules but never frontend syntax, elaboration, or
 analysis policy.
+
+[`circt-target.rhm`](circt-target.rhm) is the public target entry point. It
+imports neutral compile contracts and `prepare_rtl`, then uses the same emitter
+on the prepared concrete design. Compilation owns requests/results; lowering
+owns graph copying and verification. Keep `circt.rhm` independent of both.
+
+`emit_circt` and `emit_module_circt` in `circt.rhm` are internal implementation
+utilities, not alternate program compilation APIs. The target uses whole-design
+emission only after scope selection and preparation. Operation tests and native
+fixtures may call these utilities directly to test concrete IR, including
+intentional multi-module inventories. Production export drivers use
+`compile_program` with an explicit top; do not infer a root from module order.
 
 ```mermaid
 flowchart LR

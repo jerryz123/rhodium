@@ -1,0 +1,96 @@
+#lang rhombus
+// Validates register-state contracts through explicit Builder providers and nested hierarchy.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../program.rhm" open
+
+def signature = ModuleSignature([PortSignature("clock", Clock), PortSignature("reset", Reset), PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def definition = ConstructDefinition(ConstructIdentity("Register"), [], signature, [[OutputLeafDependency([], [])]], ~state: SingleClockState("clock", "reset"))
+
+class FinishedCheck(reject :: Boolean = #false):
+  implements MaterializationCheck
+  override method remap_ir(remap :: Function.of_arity(1)): FinishedCheck(reject)
+  override method check_materialized(module_def :: Module):
+    unless module_def.finished && module_def.design.sealed
+    | error(~who: #'FinishedCheck, "certification ran before concrete verification")
+    when reject | error(~who: #'FinishedCheck, "deferred certification failed")
+    when module_def.operations.find(fun (op): op.opcode == "construct.instance")
+    | error(~who: #'FinishedCheck, "certification ran before expansion")
+
+fun body(builder :: Builder, kind :: String):
+  def module_def = builder.module("Register_" ++ kind.replace("-", "_"))
+  def clock = builder.input(module_def, "clock", Clock)
+  def reset = builder.input(module_def, "reset", Reset)
+  def source = builder.input(module_def, "source", Bits(8))
+  def output = builder.output(module_def, "result", Bits(8))
+  cond
+  | kind == "nested" || kind == "nested-clock":
+      def child = builder.instance(module_def, body(builder, "valid"), "nested")
+      def actual_clock = if kind == "nested-clock" | builder.cast(module_def, builder.constant(module_def, Bits(1), 0), Clock) | clock
+      builder.drive(child.input("clock"), actual_clock)
+      builder.drive(child.input("reset"), reset)
+      builder.drive(child.input("source"), source)
+      builder.drive(output, child.output("result"))
+  | ~else:
+      def clock_alias = builder.wire(module_def, "alias", Clock)
+      builder.drive(clock_alias, clock)
+      def actual_clock = if kind == "clock" | builder.cast(module_def, builder.constant(module_def, Bits(1), 0), Clock) | builder.read(clock_alias)
+      def actual_reset = if kind == "reset" | builder.cast(module_def, builder.constant(module_def, Bits(1), 0), Reset) | reset
+      def reg = if kind == "resetless" | builder.register(module_def, "held", Bits(8), actual_clock) | builder.register(module_def, "held", Bits(8), actual_clock, actual_reset, builder.constant(module_def, Bits(8), 0))
+      builder.drive(reg.next, source)
+      builder.drive(output, if kind == "dependency" | source | reg.current)
+  builder.finish(module_def)
+  module_def
+
+fun program(kind :: String):
+  def builder = Builder(Design())
+  def top = builder.module("Top")
+  def child = builder.construct_instance(top, definition, "child")
+  for (port in signature.inputs): builder.drive(child.input(port.name), builder.input(top, port.name, port.type))
+  builder.drive(builder.output(top, "result", Bits(8)), child.output("result"))
+  top.add_metadata("finished-check", FinishedCheck(kind == "certification"))
+  builder.finish(top)
+  ElaboratedProgram(builder.design, top, {definition: ExpansionProvider(fun (scratch :: Builder, selected :: ConstructDefinition): ExpansionResult(body(scratch, kind)))})
+
+check:
+  materialize_reachable_rtl(program("valid")).rtl.design.sealed ~is #true
+  materialize_reachable_rtl(program("resetless")).rtl.design.sealed ~is #true
+  materialize_reachable_rtl(program("nested")).rtl.design.sealed ~is #true
+  materialize_reachable_rtl(program("clock")).rtl ~throws "outside its declared domain"
+  materialize_reachable_rtl(program("nested-clock")).rtl ~throws "outside its declared domain"
+  materialize_reachable_rtl(program("reset")).rtl ~throws "does not preserve its declared reset"
+  materialize_reachable_rtl(program("certification")).rtl ~throws "deferred certification failed"
+  materialize_reachable_rtl(program("dependency")).rtl ~throws "exceeds its declared combinational dependencies"
+
+// Certification also runs on freshly prepared concrete programs.
+def direct = Builder(Design())
+def concrete = body(direct, "valid")
+def parent = direct.module("Direct")
+parent.add_metadata("finished-check", FinishedCheck())
+direct.finish(parent)
+check:
+  materialize_reachable_rtl(ElaboratedProgram(direct.design, parent)).rtl.top === parent ~is #false
+
+// A pure wrapper cannot conceal a nested state contract merely because the
+// retained instance opcode is structurally classified.
+def pure_signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def pure = ConstructDefinition(ConstructIdentity("Pure"), [], pure_signature, [[OutputLeafDependency([], [])]])
+fun hidden_state(builder :: Builder, selected :: ConstructDefinition):
+  def module_def = builder.module("Pure")
+  def source = builder.input(module_def, "source", Bits(8))
+  def child = builder.construct_instance(module_def, definition, "hidden")
+  def control = builder.constant(module_def, Bits(1), 0)
+  builder.drive(child.input("clock"), builder.cast(module_def, control, Clock))
+  builder.drive(child.input("reset"), builder.cast(module_def, control, Reset))
+  builder.drive(child.input("source"), source)
+  builder.drive(builder.output(module_def, "result", Bits(8)), child.output("result"))
+  builder.finish(module_def)
+  ExpansionResult(module_def)
+def pure_builder = Builder(Design())
+def pure_top = pure_builder.module("PureTop")
+def pure_child = pure_builder.construct_instance(pure_top, pure, "child")
+pure_builder.drive(pure_child.input("source"), pure_builder.input(pure_top, "source", Bits(8)))
+pure_builder.finish(pure_top)
+check:
+  materialize_reachable_rtl(ElaboratedProgram(pure_builder.design, pure_top, {pure: ExpansionProvider(hidden_state)})).rtl ~throws "contains state or effects"

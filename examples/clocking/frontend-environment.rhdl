@@ -1,12 +1,14 @@
 #lang rhodium/base
-// Demonstrates root-owned timing declarations and an immediate report from the selectable clocking layer.
+/* Demonstrates root-owned timing declarations and a report from the clock-analysis compile target. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/frontend/layers/sequential.rhm") open
   lib("rhodium/frontend/layers/clocking.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
 
+/* Sample inputs from local, remote, and asynchronous sources to expose distinct timing findings. */
 circuit ClockingEnvironment():
   input destination_clock: Clock
   input source_clock: Clock
@@ -32,10 +34,14 @@ circuit ClockingEnvironment():
   asynchronous_input(asynchronous_pin)
   asynchronous_clocks(destination_clock, source_clock)
 
-def clocked = elaborate_with_clocking(ClockingEnvironment())
-def design = clocked.design
-def report = dump_design_temporal_report(clocked.summary)
+def clocked_program = elaborate_program(ClockingEnvironment())
+def clocked_compilation = compile_program(clocked_program, clocking_target())
+def clocked = clocked_compilation.report
+// Hardware consumers use the original program; findings refer to the target copy.
+def design = clocked_program.design
+def report = clocked_compilation.artifacts[0].content
 
+/* Find the next-state timing classification for the named top-level register sink. */
 fun next_classification(name :: String):
   def sink = clocked.summary.sinks.find(
     fun (candidate): candidate.instance_path.length() == 0 && candidate.operation.attribute("name", #false) == name

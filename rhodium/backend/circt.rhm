@@ -1,5 +1,5 @@
 #lang rhombus
-// Lowers the public Rhodium hardware IR to textual CIRCT HW, Comb, and Seq MLIR.
+/* Implements internal concrete-IR emission for the CIRCT compile target and backend fixtures. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

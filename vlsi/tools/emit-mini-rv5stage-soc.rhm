@@ -1,9 +1,12 @@
 #lang rhombus
-// Emits CIRCT MLIR for the repository MiniRV5StageSoC used by the SRAM mapping prototype.
+/* Emits CIRCT MLIR for the repository MiniRV5StageSoC used by the SRAM mapping prototype. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/backend/circt-target.rhm".circt_target
+  "../../rhodium/compile/program.rhm".compile_program
+  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../../socs/products/mini-rv5stage-soc.rhdl" as soc
 
-print(emit_circt(soc.design))
+def program = ElaboratedProgram(soc.design, soc.design.find_module_named("MiniSoC"))
+print(compile_program(program, circt_target).artifacts[0].content)

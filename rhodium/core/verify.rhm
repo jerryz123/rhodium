@@ -1,5 +1,5 @@
 #lang rhombus
-// Verifies Rhodium schemas, ownership, use-def links, types, drivers, and graph invariants.
+/* Verifies Rhodium schemas, ownership, use-def links, types, drivers, and graph invariants. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -901,7 +901,7 @@ fun require_concrete_modules(module_defs :: List.of(Module)):
       for (operation in candidate.operations):
         when operation is_a Operation
         | when operation.opcode == "construct.instance"
-          | fail_operation(operation, "retained construct requires materialize_rtl before concrete RTL consumption")
+          | fail_operation(operation, "retained construct requires a concrete compile target before RTL consumption")
           when operation.opcode == "rtl.instance"
           | def child = operation.attribute("module", #false)
             when child is_a Module | visit(child)

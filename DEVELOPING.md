@@ -5,9 +5,8 @@
 
 Read the user-facing [`README.md`](README.md) first for the language model,
 quick start, public capabilities, and project navigation. This guide is for
-changes to the repository itself. [`AGENTS.md`](AGENTS.md) contains the
-mandatory execution and source-editing guardrails; this guide and the nearest
-component `DEVELOPING.md` own architecture, workflow, and maintenance detail.
+changes to the repository itself. This guide and the nearest component
+`DEVELOPING.md` own architecture, workflow, and maintenance detail.
 
 ## Set up a development checkout
 
@@ -38,6 +37,7 @@ Choose the lowest package that owns the behavior before editing:
 | Streaming components and configured topology stages | [`flow/DEVELOPING.md`](flow/DEVELOPING.md) |
 | Backend-independent analysis | [`rhodium/analysis/DEVELOPING.md`](rhodium/analysis/DEVELOPING.md) |
 | Portable program materialization | [`rhodium/lowering/DEVELOPING.md`](rhodium/lowering/DEVELOPING.md) |
+| Explicit target compilation | [`rhodium/compile/DEVELOPING.md`](rhodium/compile/DEVELOPING.md) |
 | CIRCT lowering | [`rhodium/backend/DEVELOPING.md`](rhodium/backend/DEVELOPING.md) |
 | Logical diagram extraction or rendering | [`rhodium/diagram/DEVELOPING.md`](rhodium/diagram/DEVELOPING.md) |
 | Event dependency inference or compiler instrumentation | [`rhodium/event/DEVELOPING.md`](rhodium/event/DEVELOPING.md) |
@@ -145,8 +145,7 @@ compiled roots, CI classification, fixtures, and checked-in artifacts.
 
 Start with the smallest owning target. Add `make check-boundaries` for package
 movement or import changes, and use broader targets only when the change spans
-their scope. Follow the isolated Racket and Rhombus execution rules in
-[`AGENTS.md`](AGENTS.md#verification).
+their scope.
 
 Documentation-only changes require, at minimum, purpose-header, path, anchor,
 code-fence, Mermaid-structure, and `git diff --check` validation. Confirm every
@@ -155,10 +154,9 @@ copying a stale catalog.
 
 ## Maintain documentation ownership
 
-The repository-wide README/DEVELOPING structure and content-routing rules are
-in [`AGENTS.md`](AGENTS.md#readme-and-developing-structure). Apply that structure
-when maintaining a component guide; this contributor guide does not define a
-second documentation template.
+Keep public usage, behavior, and limits in README files. Keep architecture,
+source ownership, change workflow, and validation procedures in DEVELOPING
+guides. Link between the pair instead of duplicating their content.
 
 ## Maintain compatibility and generated artifacts
 

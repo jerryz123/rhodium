@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the recursively composable explicit-role interface frontend layer.
+/* Defines explicit-role interfaces, detached declarations, and remappable trace metadata. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,6 +19,8 @@ import:
   "../support/variants.rhm".enum_values
 
 export:
+  InterfaceDeclaration
+  interface_signature
   InterfaceDirection
   InterfaceCompatibility
   InterfaceIdentity
@@ -305,7 +307,11 @@ fun interface_directions(type :: InterfaceType):
 
 class InterfaceBinding(direction :: InterfaceDirection,
                        port_name :: String,
-                       entity :: Value || Place)
+                       entity :: Value || Place):
+  implements IRRemappable
+  /* Rebind the live endpoint entity while retaining its detached direction and port name. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceBinding(direction, port_name, remap(entity))
 
 // Marks a linear interface object that can participate in topology composition.
 interface InterfaceTopologySource
@@ -316,9 +322,14 @@ class InterfaceEndpoint(type :: InterfaceType,
                         bindings :: NonemptyList.of(InterfaceBinding),
                         view :: String,
                         mutable nested_endpoints :: List = []):
+  implements IRRemappable
   implements kernel.HardwareEntity
   implements Callable
   implements InterfaceTopologySource
+
+  /* Copy bindings and cached nested endpoints into the destination graph; retain type and roles. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceEndpoint(type, role, represented_role, remap(bindings), view, remap(nested_endpoints))
 
   // A concrete endpoint is a generic topology terminal when it appears as
   // the callee on the right of `|>`. A detached handle remains a sink with
@@ -432,37 +443,79 @@ class InterfaceGroup(module_def :: Module,
                      role :: String,
                      bindings :: NonemptyList.of(InterfaceBinding)):
   implements ModuleMetadataPayload
+  /* Rebind the owning module and physical bindings while retaining the nominal interface type. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceGroup(remap(module_def), name, type, role, remap(bindings))
 class InterfaceArrayGroup(module_def :: Module,
                           name :: String,
                           groups :: NonemptyList.of(InterfaceGroup)):
   implements ModuleMetadataPayload
+  /* Rebind the module and reuse remapped element groups in their original order. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceArrayGroup(remap(module_def), name, remap(groups))
 
 // Describes one possible transaction route through an N-to-M interface
 // transform. Indices refer to the flattened top-level endpoint arrays.
 class InterfaceTraceRoute(input_index :: Nat, output_index :: Nat)
 
-// Certifies combinational transfer separately from possible static routes.
-// Absence of this contract never implies zero-latency runtime propagation.
-class InterfaceTraceCombinational(guard :: maybe(Value) = #false)
+/* Certifies combinational transfer with an optional guard, independently of static routes. */
+class InterfaceTraceCombinational(guard :: maybe(Value) = #false):
+  implements IRRemappable
+  /* Rebind the optional transfer guard used by this combinational trace relation. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceCombinational(remap(guard))
 
-// Certifies fixed latency for survivors, with synchronous reset and optional flush.
-class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: maybe(Value) = #false)
+/* Certifies a fixed cycle delay for survivors of synchronous reset and optional flush. */
+class InterfaceTraceFixedLatency(cycles :: PosInt, flush :: maybe(Value) = #false):
+  implements IRRemappable
+  /* Retain the cycle count and rebind the optional flush signal. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceFixedLatency(cycles, remap(flush))
 
-class InterfaceElasticStage(advance :: Value, valid :: Value)
+/* Identifies the valid and advance signals that establish one elastic residency stage. */
+class InterfaceElasticStage(advance :: Value, valid :: Value):
+  implements IRRemappable
+  /* Rebind the stage's advance and valid signals to destination state. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceElasticStage(remap(advance), remap(valid))
 class InterfaceElasticStages(module_def :: Module, stages :: NonemptyList.of(InterfaceElasticStage), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceElastic(instance :: maybe(Instance), stages :: NonemptyList.of(InterfaceElasticStage))
+  /* Copy the owner and ordered stage descriptions through the shared remapper. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceElasticStages(remap(module_def), remap(stages), name)
+/* Associates elastic-stage evidence with the declaring module or an immediate child instance. */
+class InterfaceTraceElastic(instance :: maybe(Instance), stages :: NonemptyList.of(InterfaceElasticStage)):
+  implements IRRemappable
+  /* Rebind the instance and elastic-stage evidence used to reconstruct transfers. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceElastic(remap(instance), remap(stages))
 
 // One transaction owner may emit repeatedly until release; outputs do not pop it.
 class InterfaceRetainedStorage(module_def :: Module, capture :: Value, release :: Value, active :: Value, name :: String):
   implements ModuleMetadataPayload
+  /* Rebind the owner and capture, release, and active-state evidence. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceRetainedStorage(remap(module_def), remap(capture), remap(release), remap(active), name)
   method controls(): [capture, release, active]
-class InterfaceTraceRetained(instance :: maybe(Instance), storage :: InterfaceRetainedStorage)
+/* Associates one retained transaction owner with a local or child implementation. */
+class InterfaceTraceRetained(instance :: maybe(Instance), storage :: InterfaceRetainedStorage):
+  implements IRRemappable
+  /* Rebind the instance and its retained-storage evidence together. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceRetained(remap(instance), remap(storage))
 
 // Independently allocated owners; each output selects one entry using actual grants.
 class InterfaceRetainedBank(module_def :: Module, entries :: NonemptyList.of(InterfaceRetainedStorage), grants :: NonemptyList.of(NonemptyList.of(Value)), name :: String):
   implements ModuleMetadataPayload
-class InterfaceTraceRetainedBank(instance :: maybe(Instance), storage :: InterfaceRetainedBank)
+  /* Copy the owner, entry evidence, and selection grants without retaining source state. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceRetainedBank(remap(module_def), remap(entries), remap(grants), name)
+/* Associates independently allocated transaction owners with their implementation instance. */
+class InterfaceTraceRetainedBank(instance :: maybe(Instance), storage :: InterfaceRetainedBank):
+  implements IRRemappable
+  /* Rebind the instance and the bank evidence used to track entry ownership. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceRetainedBank(remap(instance), remap(storage))
 // Connects two annotated route occurrences through one retained transaction
 // storage declaration without adding a functional interface connection.
 class InterfaceTraceEdge(module_def :: Module,
@@ -470,6 +523,9 @@ class InterfaceTraceEdge(module_def :: Module,
                          child :: InterfaceEndpoint,
                          storage :: InterfaceRetainedStorage):
   implements ModuleMetadataPayload
+  /* Rebind parent/child endpoints and storage evidence within the copied owner module. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceEdge(remap(module_def), remap(parent), remap(child), remap(storage))
 
 // Certifies an in-order, async-read queue using its functional storage controls.
 class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
@@ -477,32 +533,81 @@ class InterfaceQueueStorage(module_def :: Module, depth :: PosInt,
                             read_address :: Value, write_address :: Value,
                             stored_valid :: Value, bypass :: Value, name :: String = "data"):
   implements ModuleMetadataPayload
+  /* Rebind queue controls, addresses, occupancy evidence, and bypass signal; retain depth and name. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceQueueStorage(remap(module_def), depth, remap(enqueue), remap(dequeue), remap(read_address), remap(write_address), remap(stored_valid), remap(bypass), name)
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
-class InterfaceTraceQueue(instance :: maybe(Instance), storage :: InterfaceQueueStorage)
+/* Associates an in-order queue's storage evidence with its implementation instance. */
+class InterfaceTraceQueue(instance :: maybe(Instance), storage :: InterfaceQueueStorage):
+  implements IRRemappable
+  /* Rebind the instance and queue-storage evidence used to track buffered transfers. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceQueue(remap(instance), remap(storage))
 
 // Ordered retained entries support repeated reads and multi-entry contributions.
 class InterfaceWindowStorage(module_def :: Module, depth :: PosInt,
                              enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
                              selected :: NonemptyList.of(Value), name :: String, live :: maybe(Value) = #false):
   implements ModuleMetadataPayload
+  /* Rebind window controls, count, selection, and live-entry evidence; retain depth and name. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceWindowStorage(remap(module_def), depth, remap(enqueue), remap(release_count), remap(count), remap(flush), remap(selected), name, remap(live))
   method controls(): [enqueue, release_count, count, flush] ++ selected ++ ((live ?> List) || [])
-class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage)
+/* Associates a retained-entry window with its implementation instance. */
+class InterfaceTraceWindow(instance :: maybe(Instance), storage :: InterfaceWindowStorage):
+  implements IRRemappable
+  /* Rebind the instance and window evidence used to track entry lifetimes. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceWindow(remap(instance), remap(storage))
 class InterfaceSelection(module_def :: Module, grants :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
-class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value), pending :: Boolean = #false)
-class InterfaceTraceRouting(predicates :: NonemptyList.of(Value))
-// Zero-storage replication: every output transfers exactly when the input does.
-class InterfaceTraceAtomicFork(output_count :: PosInt)
-// Zero-storage rendezvous: every input transfers exactly when the output does.
-class InterfaceTraceAtomicJoin(input_count :: PosInt)
+  /* Rebind selection grants and their owning module. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceSelection(remap(module_def), remap(grants), name)
+/* Describes grant-selected transfer, with optional pending-request residency. */
+class InterfaceTraceSelection(instance :: maybe(Instance), grants :: NonemptyList.of(Value), pending :: Boolean = #false):
+  implements IRRemappable
+  /* Rebind the selected instance and grant evidence while retaining the pending policy. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceSelection(remap(instance), remap(grants), pending)
+/* Describes transfer routes controlled by the supplied hardware predicates. */
+class InterfaceTraceRouting(predicates :: NonemptyList.of(Value)):
+  implements IRRemappable
+  /* Rebind routing predicates so the trace model observes destination decisions. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceRouting(remap(predicates))
+/* Certifies zero-storage replication: every output transfers exactly with the input. */
+class InterfaceTraceAtomicFork(output_count :: PosInt):
+  implements IRRemappable
+  /* Copy the detached output-count policy; there are no live references to resolve. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceAtomicFork(output_count)
+/* Certifies zero-storage rendezvous: every input transfers exactly with the output. */
+class InterfaceTraceAtomicJoin(input_count :: PosInt):
+  implements IRRemappable
+  /* Copy the detached input-count policy; there are no live references to resolve. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceAtomicJoin(input_count)
 // One resident item, captured on acceptance, retained for independent recipients.
 class InterfaceBroadcastStorage(module_def :: Module, accept :: Value, pending :: NonemptyList.of(Value), name :: String = "data"):
   implements ModuleMetadataPayload
+  /* Rebind acceptance and pending-recipient state in the owning destination module. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceBroadcastStorage(remap(module_def), remap(accept), remap(pending), name)
   method controls(): [accept] ++ pending
-class InterfaceTraceBufferedBroadcast(instance :: maybe(Instance), storage :: InterfaceBroadcastStorage)
+/* Associates independently completing recipients with their shared buffered owner. */
+class InterfaceTraceBufferedBroadcast(instance :: maybe(Instance), storage :: InterfaceBroadcastStorage):
+  implements IRRemappable
+  /* Rebind the instance and buffered-broadcast evidence used for recipient lifetimes. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceBufferedBroadcast(remap(instance), remap(storage))
 
 class InterfaceTraceModel(routes :: NonemptyList.of(InterfaceTraceRoute),
                           dynamic :: maybe(InterfaceTraceCombinational || InterfaceTraceFixedLatency || InterfaceTraceElastic || InterfaceTraceRetained || InterfaceTraceRetainedBank || InterfaceTraceQueue || InterfaceTraceWindow || InterfaceTraceSelection || InterfaceTraceRouting || InterfaceTraceAtomicFork || InterfaceTraceBufferedBroadcast || InterfaceTraceAtomicJoin) = #false):
+  implements IRRemappable
+  /* Share immutable route descriptions and rebind the dynamic transfer evidence. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTraceModel(routes, remap(dynamic))
   method latency_cycles():
     cond
     | dynamic is_a InterfaceTraceFixedLatency: dynamic.cycles
@@ -563,10 +668,21 @@ class InterfaceTransformGroup(module_def :: Module,
                               implementation :: maybe(Instance),
                               trace_model :: maybe(InterfaceTraceModel) = #false,
                               contract_name :: maybe(String) = #false):
-  implements ModuleMetadataPayload
+  implements kernel.MaterializationCheck
+  /* Recertify interface contracts against the finished destination implementation. */
+  override method check_materialized(module_def :: Module):
+    validate_interface_contracts(module_def)
+  /* Rebind endpoints, implementation, properties, and tracing through one identity map.
+     Contract and transform names remain detached descriptions. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceTransformGroup(remap(module_def), kind, remap(input), remap(output), remap(properties), remap(implementation), remap(trace_model), contract_name)
 class InterfaceEventField(name :: String, value :: Value, encoding :: String,
                           isa :: String = "", pc :: String = "",
-                          symbols :: List.of(Map) = [], label :: Boolean = #false)
+                          symbols :: List.of(Map) = [], label :: Boolean = #false):
+  implements IRRemappable
+  /* Rebind the sampled value and symbolic encodings while retaining descriptive field metadata. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceEventField(name, remap(value), encoding, isa, pc, remap(symbols), label)
 
 // Capture expressions are local observations, independent of lineage metadata.
 fun event_field(name :: String, value :: HardwareEntity,
@@ -615,6 +731,10 @@ class InterfaceEventGroup(module_def :: Module,
                           mutable parents :: maybe(List.of(Nat)) = #false,
                           residency :: maybe(String) = #false):
   implements ModuleMetadataPayload
+  /* Rebind event endpoints, handshake signals, payload, and sampled fields.
+     Stable parent IDs and source labels retain their original event attribution. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceEventGroup(remap(module_def), site_index, label, remap(input), remap(output), remap(payload), location, remap(valid), remap(ready), remap(fields), stalls, parents, residency)
   // Resolve after elaboration so the storage declaration may follow its input.
   method residency_bank():
     residency && module_def.metadata_for(interface_retained_bank_namespace).find(fun (item): item.name == residency)
@@ -629,11 +749,17 @@ class InterfaceConnectionGroup(module_def :: Module,
                                source :: InterfaceEndpoint,
                                destination :: InterfaceEndpoint):
   implements ModuleMetadataPayload
+  /* Rebind both connection endpoints and their common owning module. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceConnectionGroup(remap(module_def), remap(source), remap(destination))
 class InterfaceLinkGroup(module_def :: Module,
                          name :: String,
                          left :: InterfaceEndpoint,
                          right :: InterfaceEndpoint):
   implements ModuleMetadataPayload
+  /* Rebind both local link views and owner while retaining the link name. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    InterfaceLinkGroup(remap(module_def), name, remap(left), remap(right))
 
 def interface_group_namespace = "rhodium.interface.group"
 def interface_array_group_namespace = "rhodium.interface.array-group"
@@ -662,6 +788,9 @@ fun module_interface_transforms(module_def :: Module):
 // Instance context is hierarchy metadata, never transaction payload or lineage.
 class TraceInstance(label :: String, value :: Value):
   implements ModuleMetadataPayload
+  /* Rebind the traced object while preserving its user-visible label. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    TraceInstance(label, remap(value))
 fun module_trace_instances(module_def :: Module):
   module_def.metadata_for("rhodium.interface.trace-instance")
 fun describe_trace_instance(label :: AsciiIdentifier, identity :: HardwareEntity):
@@ -848,6 +977,103 @@ fun direction_port_name(endpoint_name :: String,
                         role :: String):
   def suffix = if interface_direction.from_role == role | "out" | "in"
   endpoint_name ++ "_" ++ suffix
+
+/* Describes scalar or array interface members without constructing a module body.
+   Uses the same nominal types, direction records, and physical names as ordinary ports. */
+class InterfaceDeclaration(name :: AsciiIdentifier, type :: InterfaceType, role :: String,
+                           count :: maybe(PosInt) = #false):
+  implements kernel.CircuitDeclaration
+  /* Validate the chosen role before storing a detached scalar or positive-length array. */
+  constructor (name :: AsciiIdentifier, type :: InterfaceType, role :: String,
+               ~count: count :: maybe(PosInt) = #false):
+    validate_interface_declaration(type, role)
+    super(name, type, role, count)
+
+  /* Expand array elements in index order using the ordinary name_index convention. */
+  method elements():
+    if count
+    | for List (index in 0..count): InterfaceDeclaration(name ++ "_" ++ to_string(index), type, role)
+    | [this]
+
+  /* Select physical input or output descriptors from each element's role and directions. */
+  method ports(output :: Boolean):
+    def result = MutableList[]
+    for (element in this.elements()):
+      for (direction in type.directions):
+        when (direction.from_role == role) == output
+        | result.add(kernel.PortSignature(direction_port_name(element.name, direction, role), direction.type))
+    result.snapshot()
+
+  /* Return the ordered physical ports consumed by the declared circuit role. */
+  method input_ports(): this.ports(#false)
+  /* Return the ordered physical ports produced by the declared circuit role. */
+  method output_ports(): this.ports(#true)
+
+  /* Reserve the group name and, for arrays, every individually addressable element name. */
+  override method member_names():
+    [name] ++ (if count | this.elements().map(fun (element): element.name) | [])
+
+  /* List all owned physical ports in element and interface-direction order. */
+  override method port_names():
+    def result = MutableList[]
+    for (element in this.elements()):
+      for (direction in type.directions): result.add(direction_port_name(element.name, direction, role))
+    result.snapshot()
+
+  /* Require the expected name, type, and direction for each physical interface port. */
+  override method validate_signature(signature :: kernel.ModuleSignature):
+    for (element in this.elements()):
+      for (direction in type.directions):
+        def port_name = direction_port_name(element.name, direction, role)
+        def port = if direction.from_role == role | signature.output(port_name) | signature.input(port_name)
+        unless port && type_equal(port.type, direction.type)
+        | error(~who: #'InterfaceDeclaration, "interface declaration does not match physical signature: " ++ port_name)
+
+  /* Require matching nominal groups and bindings to actual module ports.
+     Array metadata must preserve element order and refer to those same group objects. */
+  override method validate_implementation(module_def :: Module):
+    for (element in this.elements()):
+      def group = module_interface_groups(module_def).find(fun (candidate): candidate.name == element.name)
+      unless group && group.role == role && interface_type_same_specialization(group.type, type) && group.bindings.map(fun (binding): binding.port_name) == type.directions.map(fun (direction): direction_port_name(element.name, direction, role))
+      | error(~who: #'InterfaceDeclaration, "implementation does not match declared interface " ++ element.name)
+      for (binding in group.bindings, direction in type.directions):
+        def port = if direction.from_role == role | module_def.find_output(binding.port_name) | module_def.find_input(binding.port_name)
+        def entity = port && (if direction.from_role == role | port.place | port.value)
+        unless binding.direction.from_role == direction.from_role && binding.direction.to_role == direction.to_role && type_equal(binding.direction.type, direction.type) && binding.entity === entity
+        | error(~who: #'InterfaceDeclaration, "implementation has an invalid declared interface binding " ++ binding.port_name)
+    def array = module_interface_array_groups(module_def).find(fun (candidate): candidate.name == name)
+    when count
+    | unless array && array.groups.map(fun (group): group.name) == this.elements().map(fun (element): element.name) && (for all (group in array.groups): module_interface_groups(module_def).find(fun (candidate): candidate.name == group.name) === group)
+      | error(~who: #'InterfaceDeclaration, "implementation does not match declared interface array " ++ name)
+
+  /* Bind a scalar declaration to parent-side instance values and places without a body. */
+  method endpoint(instance :: HardwareEntity):
+    def bindings = type.directions.map(
+      fun (direction):
+        def port_name = direction_port_name(name, direction, role)
+        InterfaceBinding(direction, port_name,
+                         if direction.from_role == role | instance.output(port_name) | instance.input(port_name))
+    )
+    InterfaceEndpoint(type, role, role, bindings, "instance")
+
+  /* Resolve a group or array-element member; return false for names outside this declaration. */
+  override method member(instance :: HardwareEntity, member_name :: String):
+    if count && member_name == name
+    | Array(& this.elements().map(fun (element): element.endpoint(instance)))
+    | def element = this.elements().find(fun (candidate): candidate.name == member_name)
+      element && element.endpoint(instance)
+
+/* Append grouped ports after explicit scalar ports and validate the resulting boundary.
+   ModuleSignature rejects collisions across declarations and both port directions. */
+fun interface_signature(declarations :: List.of(InterfaceDeclaration),
+                        ~inputs: inputs :: List.of(kernel.PortSignature) = [],
+                        ~outputs: outputs :: List.of(kernel.PortSignature) = []):
+  def input_ports = MutableList(& inputs)
+  def output_ports = MutableList(& outputs)
+  for (declaration in declarations):
+    for (port in declaration.input_ports()): input_ports.add(port)
+    for (port in declaration.output_ports()): output_ports.add(port)
+  kernel.ModuleSignature(input_ports.snapshot(), output_ports.snapshot())
 
 fun nested_endpoint(endpoint :: InterfaceEndpoint,
                     member :: InterfaceMember):

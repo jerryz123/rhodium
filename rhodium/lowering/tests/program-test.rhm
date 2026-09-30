@@ -1,5 +1,5 @@
 #lang rhombus
-// Checks direct-Builder program boundaries, identity materialization, and whole-design validation.
+// Checks direct-Builder program boundaries, fresh reachable materialization, and whole-design validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,18 +23,18 @@ check:
   design.sealed ~is #false
   ElaboratedProgram(Design(), top) ~throws "owned by the elaborated design"
 
-def rtl = materialize_rtl(program)
-def again = materialize_rtl(program)
+def rtl = materialize_reachable_rtl(program).rtl
+def again = materialize_reachable_rtl(program).rtl
 check:
   rtl is_a DesignElaboration ~is #true
-  rtl.design === design ~is #true
-  rtl.top === top ~is #true
-  rtl.top.inputs[0].value === source ~is #true
-  again.design === rtl.design ~is #true
-  again.top === rtl.top ~is #true
+  rtl.design === design ~is #false
+  rtl.top === top ~is #false
+  rtl.top.inputs[0].value === source ~is #false
+  again.design === rtl.design ~is #false
+  again.top === rtl.top ~is #false
   dump_ir(rtl.design) ~is before
-  design.sealed ~is #true
-  builder.module("TooLate") ~throws "sealed"
+  design.sealed ~is #false
+  rtl.design.sealed ~is #true
 
 // A valid selected top does not certify other modules in the design.
 def invalid_design = Design()
@@ -44,5 +44,5 @@ invalid_builder.finish(valid_top)
 def unfinished = invalid_builder.module("Unfinished")
 def invalid_program = ElaboratedProgram(invalid_design, valid_top)
 check:
-  materialize_rtl(invalid_program) ~throws "has not been finished"
+  materialize_reachable_rtl(invalid_program).rtl ~throws "has not been finished"
   invalid_design.sealed ~is #false

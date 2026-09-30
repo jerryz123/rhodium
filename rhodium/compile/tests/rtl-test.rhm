@@ -1,0 +1,117 @@
+#lang rhombus
+// Checks fresh top-aware preparation, occurrence reports, expansion limits, and source preservation.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../contracts.rhm" open
+  "../rtl.rhm" open
+  "../../core/main.rhm" open
+  "../../lowering/program.rhm" open
+
+def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def definition = ConstructDefinition(ConstructIdentity("Identity"), [8], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
+def outer = ConstructDefinition(ConstructIdentity("Outer"), [], signature, definition.dependencies)
+def mutable calls = 0
+fun expand(builder :: Builder, selected :: ConstructDefinition):
+  calls := calls + 1
+  def body = builder.module("Identity")
+  def source = builder.input(body, "source", Bits(8))
+  builder.drive(builder.output(body, "result", Bits(8)), source)
+  builder.finish(body)
+  ExpansionResult(body)
+def provider = ExpansionProvider(expand)
+fun expand_outer(builder :: Builder, selected :: ConstructDefinition):
+  def body = builder.module("Outer")
+  def source = builder.input(body, "source", Bits(8))
+  def instance = builder.construct_instance(body, definition, "inner", Location("nested", 3, 4))
+  builder.drive(instance.input("source"), source)
+  builder.drive(builder.output(body, "result", Bits(8)), instance.output("result"))
+  builder.finish(body)
+  ExpansionResult(body, Map.by(===){definition: provider})
+
+def design = Design()
+def builder = Builder(design)
+def top = builder.module("Top")
+def source = builder.input(top, "source", Bits(8))
+for (name in ["left", "right"]):
+  def instance = builder.construct_instance(top, outer, name, Location("parent", 5, 2))
+  builder.drive(instance.input("source"), source)
+  builder.drive(builder.output(top, name, Bits(8)), instance.output("result"))
+builder.finish(top)
+// Neither unused provider execution nor unused names may influence compilation.
+def unused = builder.module("Identity")
+def unused_definition = ConstructDefinition(ConstructIdentity("Unused"), [], signature, definition.dependencies)
+def unused_instance = builder.construct_instance(unused, unused_definition, "unused")
+builder.drive(unused_instance.input("source"), builder.constant(unused, Bits(8), 0))
+builder.finish(unused)
+def program = ElaboratedProgram(design, top, Map.by(===){outer: ExpansionProvider(expand_outer)})
+def before = dump_ir(design)
+def first = prepare_rtl(program, CompileOptions(), "concrete target")
+def second = prepare_rtl(program, CompileOptions(), "concrete target")
+check:
+  calls ~is 2
+  first.manifest.modules ~is ["Top", "Outer", "Identity"]
+  first.manifest.lowerings.map(fun (decision): decision.path) ~is [["left"], ["left", "inner"], ["right"], ["right", "inner"]]
+  first.manifest.lowerings[1].definition === definition ~is #true
+  first.manifest.lowerings[1].location.describe() ~is "nested:3:4"
+  first.manifest.lowerings[2].implementation ~is "Outer"
+  first.rtl.top === second.rtl.top ~is #false
+  first.rtl.design.sealed ~is #true
+  design.sealed ~is #false
+  dump_ir(design) ~is before
+  prepare_rtl(program, CompileOptions(1), "limited") ~throws "expansion limit"
+
+// Concrete inputs also clone and import only used declarations.
+def concrete_design = Design()
+def concrete_builder = Builder(concrete_design)
+def concrete_top = concrete_builder.module("Concrete")
+concrete_builder.finish(concrete_top)
+def unused_dpi = concrete_builder.dpi_import("unused_observer", ["data"], [Bits(8)])
+def concrete_program = ElaboratedProgram(concrete_design, concrete_top)
+def concrete = prepare_rtl(concrete_program, CompileOptions(), "concrete target")
+check:
+  concrete.rtl.design === concrete_design ~is #false
+  concrete_design.sealed ~is #false
+  concrete.manifest.lowerings ~is []
+  concrete.rtl.design.dpi_imports.length() ~is 0
+  concrete_design.dpi_imports.length() ~is 1
+
+// The complete source still receives structural validation, even when a bad
+// sibling is outside the selected closure.
+def bad_design = Design()
+def bad_builder = Builder(bad_design)
+def good = bad_builder.module("Good")
+bad_builder.finish(good)
+def unfinished = bad_builder.module("Unfinished")
+check:
+  prepare_rtl(ElaboratedProgram(bad_design, good), CompileOptions(), "concrete target") ~throws "has not been finished"
+
+// Provider recursion and environment conflicts retain the materializer's errors.
+fun recursive_provider(builder :: Builder, selected :: ConstructDefinition):
+  def body = builder.module("Recursive")
+  def source = builder.input(body, "source", Bits(8))
+  def instance = builder.construct_instance(body, selected, "self")
+  builder.drive(instance.input("source"), source)
+  builder.drive(builder.output(body, "result", Bits(8)), instance.output("result"))
+  builder.finish(body)
+  ExpansionResult(body)
+fun conflicting_provider(builder :: Builder, selected :: ConstructDefinition):
+  def result = expand_outer(builder, selected)
+  ExpansionResult(result.module_def, Map.by(===){selected: provider})
+check:
+  prepare_rtl(ElaboratedProgram(Design(), outer, Map.by(===){outer: ExpansionProvider(recursive_provider)}), CompileOptions(), "concrete target") ~throws "Outer -> Outer"
+  prepare_rtl(ElaboratedProgram(Design(), outer, Map.by(===){outer: ExpansionProvider(conflicting_provider)}), CompileOptions(), "concrete target") ~throws "conflicting portable providers"
+
+// Closure preparation must not silently lose external live-IR metadata.
+class ExternalReference(module_def :: Module):
+  implements ModuleMetadataPayload
+  override method remap_ir(remap :: Function.of_arity(1)): ExternalReference(remap(module_def))
+def metadata_design = Design()
+def metadata_builder = Builder(metadata_design)
+def metadata_top = metadata_builder.module("MetadataTop")
+def external = metadata_builder.module("External")
+metadata_builder.finish(external)
+metadata_top.add_metadata("external", ExternalReference(external))
+metadata_builder.finish(metadata_top)
+check:
+  prepare_rtl(ElaboratedProgram(metadata_design, metadata_top), CompileOptions(), "concrete target") ~throws "unmapped IR reference"
+  metadata_design.sealed ~is #false

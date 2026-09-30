@@ -1,0 +1,23 @@
+#lang rhombus
+// Compares diagrams, event inference, and instrumentation through detached retained interfaces.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../main.rhm" open
+  "../../core/ir.rhm".DesignElaboration
+  "../../core/verify.rhm".verify_design
+  "../../lowering/program.rhm".materialize_reachable_rtl
+  "../../diagram/main.rhm" open
+  "../../frontend/tests/detached-interface-fixture.rhdl" as fixture
+
+fun topology(logical :: DesignElaboration):
+  diagram(logical).modules.map(
+    fun (module_def): diagram_module_to_json(DiagramModule(0, module_def.name, module_def.blocks, module_def.channels))
+  )
+for (pair in [[fixture.program, fixture.eager], [fixture.array_program, fixture.array_eager], [fixture.nested_program, fixture.nested_eager]]):
+  def rtl = materialize_reachable_rtl(pair[0]).rtl
+  check:
+    topology(rtl) ~is topology(pair[1])
+  when !(pair[0] === fixture.array_program)
+  | check:
+      event_manifest_to_json(infer_event_manifest(rtl, ~dynamic: #true)) ~is event_manifest_to_json(infer_event_manifest(pair[1], ~dynamic: #true))
+      verify_design(instrument_events(rtl).instrumented.design) ~is #void

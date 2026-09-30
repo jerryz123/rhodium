@@ -1,11 +1,14 @@
 #lang rhombus
-// Resolves an explicit SoC/core/ISA product and optionally instruments that same elaboration.
+/* Resolves an explicit SoC/core/ISA product and optionally instruments that same elaboration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
   rhombus/private/dynamic_require open
   "../rhodium/core/ir.rhm".DesignElaboration
+  "../rhodium/lowering/program.rhm".ElaboratedProgram
+  "../rhodium/compile/program.rhm".compile_program
+  "../rhodium/backend/circt-target.rhm".circt_target
   "../rhodium/event/instrument.rhm".EventInstrumentedElaboration
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
   "../socs/products/selection.rhm" open
@@ -23,9 +26,10 @@ def product = if selectors.length() == 1
 when tracing && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Simple, SoCShape.Tiled].contains(product.selection.shape))
 | error(~who: #'emit_soc_harness, "tracing supports simple or tiled RV5Stage only")
 
-def emit_circt = dynamic_require("rhodium/backend/circt.rhm", #'emit_circt)
-
 def resolved_config = if product | product.configuration() | #false
+
+/* Build the selected harness from the same resolved configuration used for attestation.
+   Preserve an explicit top so compilation never infers scope from module inventory order. */
 fun selected_elaboration(product :: ResolvedSoCProduct):
   def config = resolved_config
   match product.selection.shape
@@ -40,11 +44,13 @@ fun selected_elaboration(product :: ResolvedSoCProduct):
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
       elaborate_with_top(harness(config))
 
+/* Instrument the selected hierarchy with partial event coverage while retaining gaps. */
 fun traced_elaboration(elaboration :: DesignElaboration):
   def instrument = dynamic_require("rhodium/event/main.rhm", #'instrument_events)
   def config = dynamic_require("rhodium/event/main.rhm", #'EventInstrumentationConfig)
   instrument(elaboration, config(~partial: #true))
 
+/* Serialize the descriptor paired with this exact instrumented elaboration. */
 fun trace_manifest(traced :: EventInstrumentedElaboration):
   def convert = dynamic_require("rhodium/event/main.rhm", #'event_manifest_to_cpp)
   convert(traced.manifest)
@@ -55,11 +61,17 @@ def event_manifest_cpp = if tracing | trace_manifest(traced) | ""
 def trace_clock_frequency_hz = if tracing | product.description.clocks.clock_frequency_hz | 0
 def ordinary_design = if product | elaboration.design | dynamic_require(selectors[0], #'design)
 def design = if tracing | traced.instrumented.design | ordinary_design
+def top = cond
+| tracing: traced.instrumented.top
+| product: elaboration.top
+| ~else: design.find_module_named("SoCHarness")
+unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
+def compiled = compile_program(ElaboratedProgram(design, top), circt_target)
 when product
 | block:
     println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
     println("// rhodium-harness-variant: " ++ (if tracing | "trace" | "normal"))
-print(emit_circt(design))
+print(compiled.artifacts[0].content)
 
 export:
   event_manifest_cpp

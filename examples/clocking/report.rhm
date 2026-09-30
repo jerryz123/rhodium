@@ -1,23 +1,21 @@
 #lang rhombus
-// Produces clock-use and hierarchy-aware temporal reports for a sync design.
+/* Produces clock-use and hierarchy-aware temporal reports for a sync design. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../rhodium/analysis/clocking.rhm" open
+  "../../rhodium/compile/program.rhm".compile_program
+  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../rtl/sync-counter.rhdl" as counter
 
 def top = counter.design.modules.find(
   fun (module_def): module_def.name == "CounterTop"
 )
-def child = counter.design.modules.find(
-  fun (module_def): module_def.name == "Counter"
-)
-def clocking = summarize_module_clocking(
-  child,
-  child.find_input("reset").value
-)
-def temporal = summarize_module_temporal(top)
-def report = dump_temporal_report(temporal)
+def compiled = compile_program(ElaboratedProgram(counter.design, top), clocking_target())
+def child = compiled.report.design.modules.find(fun (module_def): module_def.name == "Counter")
+def clocking = compiled.report.clocks.find(fun (summary): summary.module_def === child)
+def temporal = compiled.report.summary
+def report = compiled.artifacts[0].content
 
 check:
   clocking is_a SingleClock ~is #true

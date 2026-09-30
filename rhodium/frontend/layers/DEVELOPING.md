@@ -143,6 +143,24 @@ never let it execute unguarded.
 
 ## Implementation map
 
+`InterfaceDeclaration` implements the kernel's `CircuitDeclaration` protocol.
+Its immutable name, nominal type, role, and optional array count describe a
+boundary without active construction context. Share `direction_port_name` with
+ordinary interface declarations, and bind endpoints to actual instance ports.
+Check implementation metadata against real module boundary entities as well as
+nominal identity and array membership. Do not reconstruct a declaration by
+executing a recipe, or use a protocol display name as nominal identity.
+The kernel owns attachment and validation timing; see its
+[declaration lifecycle](../DEVELOPING.md#deferred-values-and-static-information).
+
+Interface metadata and nested endpoint/trace views implement the core
+`IRRemappable` protocol. Each owner reconstructs its own fields, using the shared
+resolver for IR references, instance bindings, endpoints, arrays, storage
+payloads, and event captures. Keep nominal interface descriptors shared and
+immutable. Preserve cached nested endpoints through the resolver; do not rerun
+frontend projection or construction callbacks during copying. Materialization
+owns graph ordering and identity, following the [lowering guide](../../lowering/DEVELOPING.md).
+
 `InterfaceEventGroup.parents` is set once during circuit construction, either by
 the checkpoint's `~parents` option or `describe_interface_event_parents`. Share
 local-endpoint normalization and preserve the annotation's identity and site
@@ -185,6 +203,17 @@ declaring these contracts.
 | State and effects | [`wire.rhm`](wire.rhm), [`sequential.rhm`](sequential.rhm), [`memory.rhm`](memory.rhm), [`sync-memory.rhm`](sync-memory.rhm), [`assertion.rhm`](assertion.rhm), [`dpi.rhm`](dpi.rhm) | clocking, fields, kernel effect lowering | [`../../../rhodium/frontend/tests/register-shorthand-test.rhm`](../../../rhodium/frontend/tests/register-shorthand-test.rhm), [`../../../rhodium/frontend/tests/memory-test.rhm`](../../../rhodium/frontend/tests/memory-test.rhm), [`../../../rhodium/frontend/tests/sync-memory-test.rhm`](../../../rhodium/frontend/tests/sync-memory-test.rhm), [`../../../rhodium/frontend/tests/assertion-test.rhm`](../../../rhodium/frontend/tests/assertion-test.rhm), [`../../../rhodium/frontend/tests/clocked-dpi-test.rhm`](../../../rhodium/frontend/tests/clocked-dpi-test.rhm) |
 | Control, hierarchy, and domains | [`conditional.rhm`](conditional.rhm), [`hierarchy.rhm`](hierarchy.rhm), [`sync.rhm`](sync.rhm), [`clocking.rhm`](clocking.rhm) | clocking, instance members, mux lookup, kernel conditional lowering | [`../../../rhodium/frontend/tests/conditional-test.rhm`](../../../rhodium/frontend/tests/conditional-test.rhm), [`../../../rhodium/frontend/tests/nested-circuit-test.rhm`](../../../rhodium/frontend/tests/nested-circuit-test.rhm), [`../../../rhodium/frontend/tests/sync-test.rhm`](../../../rhodium/frontend/tests/sync-test.rhm), [`../../../rhodium/frontend/tests/clocking-test.rhm`](../../../rhodium/frontend/tests/clocking-test.rhm) |
 | Interfaces and topology | [`interface.rhm`](interface.rhm) | fields, generator parameters, instance members | [`../../../rhodium/frontend/tests/interface-test.rhm`](../../../rhodium/frontend/tests/interface-test.rhm), [`../../../rhodium/frontend/tests/interface-array-test.rhm`](../../../rhodium/frontend/tests/interface-array-test.rhm), [`../../../rhodium/frontend/tests/interface-monitor-test.rhm`](../../../rhodium/frontend/tests/interface-monitor-test.rhm) |
+
+Interface transform metadata remaps concrete implementation views and their
+storage controls with the enclosing design. `InterfaceTransformGroup` implements
+`MaterializationCheck` to revalidate interface contracts after materialization,
+including when ordinary modules contain retained descendants. Keep storage
+controls in their owning module and eager checks for concrete children.
+
+Clocking declarations attach analysis-owned remappable metadata during normal
+elaboration. The layer does not collect a dynamic environment or execute analysis.
+The clock compile target enforces top ownership and environment consistency after
+materialization. Keep conditional-effect rejection in the authoring layer.
 
 ## Validation
 

@@ -237,8 +237,8 @@ report and CDC contracts.
 
 | Example | Primary lesson |
 |---|---|
-| [`clocking/frontend-environment.rhdl`](clocking/frontend-environment.rhdl) | Root input-timing declarations and a resolved elaboration report |
-| [`clocking/sync-level.rhdl`](clocking/sync-level.rhdl) | Strict CDC elaboration, retained `SyncLevel` evidence, and synchronizer attributes |
+| [`clocking/frontend-environment.rhdl`](clocking/frontend-environment.rhdl) | Root input-timing declarations and a clock-target compilation report |
+| [`clocking/sync-level.rhdl`](clocking/sync-level.rhdl) | Strict CDC compilation, retained `SyncLevel` evidence, and synchronizer attributes |
 | [`clocking/reconvergence.rhdl`](clocking/reconvergence.rhdl) | Structured diagnostics for convergence after individually legal crossings |
 | [`clocking/missing-crossings.rhdl`](clocking/missing-crossings.rhdl) | Hierarchical missing-crossing reports and a corrected synchronized design |
 | [`clocking/single-clock.rhm`](clocking/single-clock.rhm) | Top-level synchronous input contracts applied to an existing shift register |

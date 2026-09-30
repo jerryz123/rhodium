@@ -22,7 +22,7 @@ check:
   verify_program(design) ~is #void
   top.find_instance("child") === child.operation ~is #true
   dump_ir(design).contains("construct.instance @Split") ~is #true
-  verify_design(design) ~throws "materialize_rtl"
+  verify_design(design) ~throws "compile target"
   ConstructDefinition(ConstructIdentity("Missing"), [], signature, [[]]) ~throws "every output leaf"
   ConstructDefinition(ConstructIdentity("BadInput"), [], signature,
                       [[OutputLeafDependency(["a"], [InputLeaf(1, [])]), OutputLeafDependency(["b"], [])]]) ~throws "invalid input leaf"
@@ -39,3 +39,12 @@ check:
 bad_builder.finish(bad_top)
 check:
   verify_program(bad_design) ~throws "undriven"
+
+// Stateful boundaries retain explicit same-cycle dependencies and typed controls.
+def sync_signature = ModuleSignature([PortSignature("clock", Clock), PortSignature("reset", Reset), PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def state = SingleClockState("clock", "reset")
+check:
+  ConstructDefinition(ConstructIdentity("Register"), [], sync_signature, [[OutputLeafDependency([], [])]], ~state: state).state === state ~is #true
+  ConstructDefinition(ConstructIdentity("BadClock"), [], sync_signature, [[OutputLeafDependency([], [])]], ~state: SingleClockState("source", "reset")) ~throws "Clock and Reset input ports"
+  ConstructDefinition(ConstructIdentity("MissingReset"), [], sync_signature, [[OutputLeafDependency([], [])]], ~state: SingleClockState("clock", "missing")) ~throws "Clock and Reset input ports"
+  ConstructDefinition(ConstructIdentity("ExtraClock"), [], ModuleSignature(sync_signature.inputs ++ [PortSignature("extra", Clock)], sync_signature.outputs), [[OutputLeafDependency([], [])]], ~state: state) ~throws "only its declared controls"

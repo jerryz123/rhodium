@@ -1,12 +1,14 @@
 #lang rhodium
-// Demonstrates a diagnostic when independently synchronized levels reconverge.
+/* Demonstrates a diagnostic when independently synchronized levels reconverge. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/std/cdc.rhdl") open
   lib("rhodium/analysis/clocking.rhm").CrossingReconvergence
-  lib("rhodium/analysis/clocking.rhm").dump_design_temporal_report
+  lib("rhodium/analysis/clocking.rhm").clocking_target
 
+/* Recombine independently synchronized bits so analysis can identify reconvergence. */
 sync_circuit ReconvergentLevels():
   input(asynchronous_left, asynchronous_right): Bits(1)
   output combined: Bits(1)
@@ -23,9 +25,12 @@ sync_circuit ReconvergentLevels():
   sampled <== left_sync.synchronized ^ right_sync.synchronized
   combined <== sampled
 
-def clocked = elaborate_with_cdc(ReconvergentLevels())
-def design = clocked.design
-def report = dump_design_temporal_report(clocked.summary)
+def clocked_program = elaborate_program(ReconvergentLevels())
+def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked = clocked_compilation.report
+// Hardware consumers use the original program; findings refer to the target copy.
+def design = clocked_program.design
+def report = clocked_compilation.artifacts[0].content
 def finding = clocked.summary.reconvergences[0]
 
 check:

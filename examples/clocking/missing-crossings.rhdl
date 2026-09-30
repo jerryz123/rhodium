@@ -1,13 +1,14 @@
 #lang rhodium
-// Shows complete hierarchical CDC findings and the same design repaired with SyncLevel.
+/* Shows complete hierarchical CDC findings and the same design repaired with SyncLevel. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/std/cdc.rhdl") open
   lib("rhodium/analysis/clocking.rhm").CdcViolation
-  lib("rhodium/analysis/clocking.rhm").dump_design_temporal_report
-  lib("rhodium/analysis/clocking.rhm").verify_design_cdc
+  lib("rhodium/analysis/clocking.rhm").clocking_target
 
+/* Sample a single bit on the explicitly supplied clock without crossing protection. */
 circuit SampleBit():
   input clock: Clock
   input data: Bits(1)
@@ -17,6 +18,7 @@ circuit SampleBit():
   state <== data
   sampled <== state
 
+/* Expose command, response, and asynchronous interrupt crossings through shared samplers. */
 circuit MissingCrossingSystem():
   input(ingress_clock, core_clock, egress_clock): Clock
   input command: Bits(1)
@@ -43,6 +45,7 @@ circuit MissingCrossingSystem():
   asynchronous_clocks(ingress_clock, core_clock)
   asynchronous_clocks(core_clock, egress_clock)
 
+/* Protect each level crossing with a SyncLevel before sampling in its destination domain. */
 circuit CorrectedCrossingSystem():
   input(ingress_clock, core_clock, egress_clock): Clock
   input(core_reset, egress_reset): Reset
@@ -83,12 +86,17 @@ circuit CorrectedCrossingSystem():
   asynchronous_clocks(ingress_clock, core_clock)
   asynchronous_clocks(core_clock, egress_clock)
 
-def broken = elaborate_with_clocking(MissingCrossingSystem())
-def broken_design = broken.design
-def broken_report = dump_design_temporal_report(broken.summary)
-def clocked = elaborate_with_cdc(CorrectedCrossingSystem())
-def design = clocked.design
-def report = dump_design_temporal_report(clocked.summary)
+def broken_program = elaborate_program(MissingCrossingSystem())
+def broken_compilation = compile_program(broken_program, clocking_target())
+def broken = broken_compilation.report
+def broken_design = broken_program.design
+def broken_report = broken_compilation.artifacts[0].content
+def clocked_program = elaborate_program(CorrectedCrossingSystem())
+def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked = clocked_compilation.report
+// Hardware consumers use the original program; findings refer to the target copy.
+def design = clocked_program.design
+def report = clocked_compilation.artifacts[0].content
 
 check:
   broken.summary.cdc_violations.length() ~is 3
@@ -96,7 +104,7 @@ check:
   broken_report.contains("worker.state.next: asynchronous_clock") ~is #true
   broken_report.contains("response.state.next: asynchronous_clock") ~is #true
   broken_report.contains("interrupt_sink.state.next: asynchronous_input") ~is #true
-  verify_design_cdc(broken.elaboration, broken.environment) ~throws "3 CDC violations"
+  compile_program(broken_program, clocking_target(~check_cdc: #true)) ~throws "3 CDC violations"
   clocked.summary.cdc_violations.length() ~is 0
   report.contains("cdc_violations") ~is #false
 

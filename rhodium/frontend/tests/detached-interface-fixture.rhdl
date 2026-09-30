@@ -1,0 +1,156 @@
+#lang rhodium
+// Builds grouped, array, and nested retained boundaries without executing their implementations.
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  lib("rhodium/core/signature.rhm").leaf_paths
+
+interface Envelope():
+  role producer
+  role consumer
+  provider producer
+  producer -> consumer:
+    channel: Decoupled(Bits(8))
+
+interface Other():
+  role producer
+  role consumer
+  provider producer
+  producer -> consumer:
+    valid: Bool
+    bits: Bits(8)
+  consumer -> producer:
+    ready: Bool
+
+circuit Pass():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  ingress |> egress
+
+circuit ArrayPass():
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  for (i in 0..2): ingress[i] |> egress[i]
+
+circuit NestedPass():
+  interface ingress(Envelope(), ~role: consumer)
+  interface egress(Envelope(), ~role: producer)
+  ingress.channel |> egress.channel
+
+circuit WrongNominal():
+  interface ingress(Other(), ~role: consumer)
+  interface egress(Other(), ~role: producer)
+  ingress |> egress
+
+def declarations = [InterfaceDeclaration("ingress", Decoupled(Bits(8)), "consumer"), InterfaceDeclaration("egress", Decoupled(Bits(8)), "producer")]
+def array_declarations = [InterfaceDeclaration("ingress", Decoupled(Bits(8)), "consumer", ~count: 2), InterfaceDeclaration("egress", Decoupled(Bits(8)), "producer", ~count: 2)]
+def nested_declarations = [InterfaceDeclaration("ingress", Envelope(), "consumer"), InterfaceDeclaration("egress", Envelope(), "producer")]
+def signature = interface_signature(declarations)
+
+// Mirror each output record onto the opposite endpoint's input record. This
+// preserves leaf precision in both data and ready directions when stages chain.
+fun definition(name :: String, boundaries :: List.of(InterfaceDeclaration)):
+  def ports = interface_signature(boundaries)
+  def dependencies:
+    for List (port in ports.outputs):
+      def source_name = (if port.name.starts_with("ingress") | port.name.replace("ingress", "egress") | port.name.replace("egress", "ingress")).replace("_out", "_in")
+      def indices = for List (i in 0..ports.inputs.length()): i
+      def index = indices.find(fun (i): ports.inputs[i].name == source_name)
+      leaf_paths(port.type).map(fun (path): OutputLeafDependency(path, [InputLeaf(index, path)]))
+  ConstructDefinition(ConstructIdentity(name), [], ports, dependencies)
+
+def mutable calls = 0
+fun counted():
+  calls := calls + 1
+  Pass()
+def retained = retained_circuit(definition("Pass", declarations), counted, ~declarations: declarations)
+def ordinary = CircuitReference(CircuitIdentity("Pass"), signature, counted, ~declarations: declarations)
+def mutable array_calls = 0
+def mutable nested_calls = 0
+fun counted_array():
+  array_calls := array_calls + 1
+  ArrayPass()
+fun counted_nested():
+  nested_calls := nested_calls + 1
+  NestedPass()
+def array_retained = retained_circuit(definition("ArrayPass", array_declarations), counted_array, ~declarations: array_declarations)
+def nested_retained = retained_circuit(definition("NestedPass", nested_declarations), counted_nested, ~declarations: nested_declarations)
+def wrong = retained_circuit(definition("Wrong", declarations), fun (): WrongNominal(), ~declarations: declarations)
+
+sync_circuit Top(child):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def selected = child || Pass()
+  inst first(selected)
+  inst second(selected)
+  ingress |> trace_event("before", ~payload: #true) |> first.ingress
+  first.egress |> second.ingress
+  second.egress |> trace_event("after", ~payload: #true) |> egress
+
+circuit ArrayTop(child):
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  inst stage(child || ArrayPass())
+  // Exercise both array indexing and the existing element-member spelling.
+  ingress[0] |> stage.ingress[0]
+  ingress[1] |> stage.ingress_1
+  stage.egress <=> egress
+
+sync_circuit NestedTop(child):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  inst stage(child || NestedPass())
+  ingress |> trace_event("before") |> stage.ingress.channel
+  stage.egress.channel |> trace_event("after") |> egress
+
+sync_circuit WidthTop():
+  interface ingress(Decoupled(Bits(16)), ~role: consumer)
+  inst stage(retained)
+  ingress |> stage.ingress
+
+fun invalid_connection(): elaborate_program(WidthTop())
+
+def program = elaborate_program(Top(retained))
+def array_program = elaborate_program(ArrayTop(array_retained))
+def nested_program = elaborate_program(NestedTop(nested_retained))
+def calls_after_connections = [calls, array_calls, nested_calls]
+def eager = elaborate_with_top(Top(#false))
+def array_eager = elaborate_with_top(ArrayTop(#false))
+def nested_eager = elaborate_with_top(NestedTop(#false))
+fun call_count(): calls
+fun ordinary_design(): elaborate_with_top(Top(ordinary))
+fun wrong_program(): elaborate_program(Top(wrong))
+
+circuit Aliases(first_ref, second_ref):
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  inst first(first_ref)
+  inst second(second_ref)
+  ingress |> first.ingress
+  first.egress |> second.ingress
+  second.egress |> egress
+fun aliases(first_ref, second_ref): elaborate_program(Aliases(first_ref, second_ref))
+export:
+  aliases
+  invalid_connection
+  declarations
+  array_declarations
+  signature
+  retained
+  ordinary
+  definition
+  program
+  array_program
+  nested_program
+  eager
+  array_eager
+  nested_eager
+  calls_after_connections
+  call_count
+  ordinary_design
+  wrong_program
+  Pass
+  ArrayPass
+  WrongNominal
+  Top
+  ArrayTop

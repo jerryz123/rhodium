@@ -249,7 +249,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
+    language:retained-memory|language:retained-state|language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
@@ -789,6 +789,8 @@ direct_fixture_specs=(
   'event-join|event_join_tb'
   'event-stall|event_stall_tb'
   'event-offer|event_offer_tb'
+  'retained-memory|retained_memory_tb'
+  'retained-state|retained_state_tb'
   'event-retained|event_retained_tb'
   'event-retained-bank|event_retained_bank_tb'
   'aclint|aclint_tb'
@@ -1067,6 +1069,8 @@ for spec in "${direct_fixture_specs[@]}"; do
   verify_fixture "$fixture" "$top"
 done
 
+run_expected_assertion_failure retained-memory retained_memory_fail_tb \
+  rhodium/backend/tests/circt/verilog/retained-memory_fail_tb.sv write_data_allowed
 run_expected_assertion_failure assertions assertions_fail_tb \
   rhodium/backend/tests/circt/verilog/assertions_fail_tb.sv request_holds
 run_expected_assertion_failure event-instance event_instance_invalid_tb \

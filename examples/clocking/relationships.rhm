@@ -1,11 +1,14 @@
 #lang rhombus
-// Compares exact, identical, derived, asynchronous, and unknown clock relationships.
+/* Compares exact, identical, derived, asynchronous, and unknown clock relationships. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
 
+/* Find the next-state timing classification for the named top-level register sink. */
 fun next_classification(summary :: DesignTemporalSummary, name :: String):
   def sink = summary.sinks.find(
     fun (candidate): candidate.instance_path.length() == 0 && candidate.operation.attribute("name", #false) == name
@@ -38,23 +41,33 @@ builder.drive(unknown_sink.next, unknown_data)
 def finished_top = builder.finish(top)
 def verified_system = verify_design(system)
 
-def environment = TemporalEnvironment(
-  [TopInputContract(exact_data, [], SynchronousInputTiming(destination_clock)),
-   TopInputContract(identical_data, [], SynchronousInputTiming(identical_clock)),
-   TopInputContract(derived_data, [], SynchronousInputTiming(derived_clock)),
-   TopInputContract(asynchronous_data, [], SynchronousInputTiming(asynchronous_clock)),
-   TopInputContract(unknown_data, [], SynchronousInputTiming(unknown_clock))],
-  [IdenticalClockRelationship(destination_clock, identical_clock),
-   DerivedClockRelationship(derived_clock,
-                            destination_clock,
-                            "source clock is frequency-related"),
-   AsynchronousClockRelationship(destination_clock, asynchronous_clock)]
-)
-def summary = summarize_design_temporal(
-  DesignElaboration(system, top),
-  environment
-)
-def report = dump_design_temporal_report(summary)
+/* Build timing assumptions from the target-owned top so no source IR enters the report. */
+fun environment(prepared_top :: Module):
+  def destination_clock = prepared_top.find_input("destination_clock").value
+  def identical_clock = prepared_top.find_input("identical_clock").value
+  def derived_clock = prepared_top.find_input("derived_clock").value
+  def asynchronous_clock = prepared_top.find_input("asynchronous_clock").value
+  def unknown_clock = prepared_top.find_input("unknown_clock").value
+  def exact_data = prepared_top.find_input("exact_data").value
+  def identical_data = prepared_top.find_input("identical_data").value
+  def derived_data = prepared_top.find_input("derived_data").value
+  def asynchronous_data = prepared_top.find_input("asynchronous_data").value
+  def unknown_data = prepared_top.find_input("unknown_data").value
+  TemporalEnvironment(
+    [TopInputContract(exact_data, [], SynchronousInputTiming(destination_clock)),
+     TopInputContract(identical_data, [], SynchronousInputTiming(identical_clock)),
+     TopInputContract(derived_data, [], SynchronousInputTiming(derived_clock)),
+     TopInputContract(asynchronous_data, [], SynchronousInputTiming(asynchronous_clock)),
+     TopInputContract(unknown_data, [], SynchronousInputTiming(unknown_clock))],
+    [IdenticalClockRelationship(destination_clock, identical_clock),
+     DerivedClockRelationship(derived_clock,
+                              destination_clock,
+                              "source clock is frequency-related"),
+     AsynchronousClockRelationship(destination_clock, asynchronous_clock)]
+  )
+def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def summary = compiled.report.summary
+def report = compiled.artifacts[0].content
 
 check:
   next_classification(summary, "exact_sink") is_a SameClock ~is #true

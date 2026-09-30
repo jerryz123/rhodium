@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/analysis/clocking.rhm").clocking_target
   lib("rhodium/frontend/layers/clocking.rhm") open
 
 circuit BadClockingDuplicateRelationship():
@@ -11,4 +13,4 @@ circuit BadClockingDuplicateRelationship():
   identical_clocks(left, right)
   identical_clocks(right, left)
 
-def clocked = elaborate_with_clocking(BadClockingDuplicateRelationship())
+def clocked = compile_program(elaborate_program(BadClockingDuplicateRelationship()), clocking_target())

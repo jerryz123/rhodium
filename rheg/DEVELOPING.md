@@ -242,7 +242,7 @@ No symbol lookup or graph mutation belongs here.
 
 Build/test commands run from the repository root. The collector script's Racket
 JSON check uses the persistent worktree-specific cache through the repository
-wrapper, following [AGENTS.md](../AGENTS.md#verification):
+wrapper:
 
 ```sh
 bash rheg/tests/run-event-collector.sh

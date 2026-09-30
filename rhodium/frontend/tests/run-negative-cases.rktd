@@ -77,7 +77,6 @@
  ("bad-sync-write-explicit-clock.rhdl" "explicit clock/reset controls are not allowed inside sync_circuit")
  ("bad-sync-assert-explicit-domain.rhdl" "explicit clock/reset controls are not allowed inside sync_circuit")
  ("bad-sync-dpi-explicit-clock.rhdl" "explicit clock/reset controls are not allowed inside sync_circuit")
- ("bad-clocking-without-wrapper.rhdl" "clocking declarations require elaborate_with_clocking")
  ("bad-clocking-child-declaration.rhdl" "clocking environment declarations must belong to the elaborated top circuit")
  ("bad-clocking-output-contract.rhdl" "input timing declaration must reference a readable hardware value")
  ("bad-clocking-conditional.rhdl" "input timing declaration is not supported inside when")

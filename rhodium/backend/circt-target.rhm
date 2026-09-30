@@ -1,0 +1,21 @@
+#lang rhombus
+/* Supplies the CIRCT compile target using fresh portable RTL preparation and the existing emitter. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../compile/contracts.rhm" open
+  "../compile/rtl.rhm" open
+  "circt.rhm".emit_circt
+
+export circt_target
+
+/* Holds verified concrete preparation for one CIRCT compilation.
+   Emission reuses this graph rather than executing providers a second time. */
+class CirctPlan(prepared :: PreparedRTL):
+  implements TargetPlan
+  /* Return the physical boundary and occurrence decisions recorded during preparation. */
+  override method manifest(): prepared.manifest
+  /* Emit the prepared closure as one named MLIR artifact through the internal emitter. */
+  override method emit():
+    [Artifact(prepared.rtl.top.name ++ ".mlir", "text/x-mlir", emit_circt(prepared.rtl.design))]
+
+def circt_target = CompilationTarget("circt", fun (program, options): CirctPlan(prepare_rtl(program, options, "CIRCT requires concrete RTL; use the portable implementation")))

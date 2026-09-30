@@ -1,17 +1,21 @@
 #lang rhombus
-// Shows one top-level timing contract certifying data sampled throughout a sync_circuit.
+/* Shows one top-level timing contract certifying data sampled throughout a sync_circuit. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/core/main.rhm") open
   lib("rhodium/analysis/clocking.rhm") open
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
   "../rtl/reset-shift-register.rhdl" as shift_register
 
+/* Select a named top-level sink from the hierarchy-aware temporal summary. */
 fun local_sink(summary :: DesignTemporalSummary, name :: String):
   summary.sinks.find(
     fun (sink): sink.instance_path.length() == 0 && sink.operation.attribute("name", #false) == name
   )
 
+/* Find the next-state classification for one aggregate leaf path of a selected sink. */
 fun next_classification(sink :: TemporalSink,
                         path :: List.of(String || Nat)):
   sink.inputs.find(
@@ -22,21 +26,18 @@ def system = shift_register.design
 def top = system.modules.find(
   fun (module_def): module_def.name == "ResetShiftRegister"
 )
-def clock = top.find_input("clock").value
-def data_in = top.find_input("data_in").value
-def shift = top.find_input("shift").value
-
-// The sync_circuit has already certified that its registers use `clock`, so
-// the environment describes each external data input only once at the top.
-def environment = TemporalEnvironment(
-  [TopInputContract(data_in, [], SynchronousInputTiming(clock)),
-   TopInputContract(shift, [], SynchronousInputTiming(clock))]
-)
-def summary = summarize_design_temporal(
-  DesignElaboration(system, top),
-  environment
-)
-def report = dump_design_temporal_report(summary)
+/* Build timing assumptions from the target-owned top so no source IR enters the report. */
+fun environment(prepared_top :: Module):
+  def clock = prepared_top.find_input("clock").value
+  def data_in = prepared_top.find_input("data_in").value
+  def shift = prepared_top.find_input("shift").value
+  TemporalEnvironment(
+    [TopInputContract(data_in, [], SynchronousInputTiming(clock)),
+     TopInputContract(shift, [], SynchronousInputTiming(clock))]
+  )
+def compiled = compile_program(ElaboratedProgram(system, top), clocking_target(~environment: environment))
+def summary = compiled.report.summary
+def report = compiled.artifacts[0].content
 
 check:
   next_classification(local_sink(summary, "stages"), [0]) is_a SameClock ~is #true

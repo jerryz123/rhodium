@@ -100,12 +100,6 @@ component. A small leaf directory may link to its parent's guide instead of
 creating a boilerplate companion file. Do not apply this policy to vendored or
 submodule documentation.
 
-Every `README.md` and `DEVELOPING.md` must state or explicitly link to the
-[source documentation requirements](#source-documentation), including the
-`tests/` exemption. Put this contributor pointer in the README's navigation and
-the requirement in DEVELOPING's change workflow; do not duplicate its full text
-across the pair.
-
 For each `README.md`, use this reader-facing progression:
 
 1. **Purpose and entry point:** State what the component does, when to use it,

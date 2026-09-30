@@ -368,7 +368,7 @@ functional signals. Preserve reset suppression and independent sequence epochs.
 ## Focused validation
 
 Use the persistent worktree-specific compiled root through the repository
-wrappers, following [AGENTS.md](../../AGENTS.md#verification):
+wrappers:
 
 ```sh
 make event-test

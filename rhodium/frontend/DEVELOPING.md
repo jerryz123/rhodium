@@ -30,7 +30,7 @@ flowchart TD
 
 | Location | Implementation responsibility |
 |---|---|
-| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, program construction, and compatibility materialization |
+| [`kernel.rhm`](kernel.rhm) | Own the active elaboration context, module specialization, deferred values, construction calls into the core Builder, conditional effect collection, program construction, and eager construction finalization |
 | [`foundation.rhm`](foundation.rhm) | Export the common authoring surface: circuits, ports, connection, elaboration entry points, base hardware annotations, and public extension protocols |
 | [`support/`](support/) | Share non-profile macro and static-information machinery across the foundation and independent layers |
 | [`layers/`](layers/DEVELOPING.md) | Implement independently selectable authoring features over existing semantics |
@@ -61,22 +61,25 @@ following lifecycle:
 5. Instantiation and top selection normalize through `circuit_reference`.
    Ordinary references use `materialize_circuit` in the active context.
    Retained children record a construct instance and its provider environment
-   without realizing the implementation.
+   without realizing the implementation. A retained top records its definition
+   and provider directly in the program envelope.
 6. The context is deactivated on success or failure. Successful
    `run_program_elaboration` returns an `ElaboratedProgram` with the completed
    design and selected top.
-7. Compatibility entry points call `lowering.materialize_rtl`, which performs
-   core whole-design verification and returns `DesignElaboration`. The explicit
-   `elaborate_program` API leaves this step to its caller.
+7. Eager entry points verify and certify their concrete construction graph,
+   returning `DesignElaboration`. When constructs require expansion they call
+   the internal reachable materializer. The explicit `elaborate_program` API
+   leaves preparation to the selected compile target.
 
 Keep frontend checks close to the authoring construct when they diagnose syntax,
 static information, or an elaboration-time contract. Put representation-wide
 invariants in the core verifier so every frontend and direct Builder client is
 checked.
 
-The [lowering package](../lowering/DEVELOPING.md) owns the concrete identity
-case and portable expansion. No backend is imported by the frontend or
-materializer. Existing sync certification still occurs during construction.
+The [lowering package](../lowering/DEVELOPING.md) owns portable expansion.
+The frontend owns final verification of its eager construction graph. No backend is imported by the frontend or
+materializer. Sync certification checks concrete local effects and retained
+clock contracts during construction, then reruns after materialization.
 
 ## Specialization and cache safety
 
@@ -129,18 +132,42 @@ instance with the same Value/Place wiring representation.
 
 Sync wrappers expose their control-port names through the reference rather
 than requiring instantiation to match a particular wrapper class. Actual
-`sync_circuit` construction retains its existing clock certification. Instance
-members continue to use the concrete instance's bindings and interface-layer
-metadata for concrete children. Retained children use `ConstructInstance`
-bindings and do not consult concrete-module member resolvers. Detached nominal
-interface descriptors are a separate future change.
+`sync_circuit` construction checks retained clock bindings alongside local
+effects. `SyncCircuitMetadata` implements `MaterializationCheck` to repeat
+certification on finished concrete modules before elaboration returns. Instance
+members first bind explicit declarations to the instance's Value/Place ports.
+Concrete children without a matching declaration retain the existing metadata
+resolver path. Retained children never inspect a concrete module for members.
+
+`CircuitDeclaration` is the kernel-owned extension protocol. Implementations
+provide `member_names`, `port_names`, `validate_signature`,
+`validate_implementation`, and `member`. The kernel checks member collisions
+and overlapping port ownership at reference construction, validates ordinary
+implementations before caching them, and attaches retained declaration checks
+without wrapping the expansion callback. Provider registration merges checks
+for the same callback and rejects different callbacks for one definition.
+Materialization validates the merged checks against the complete concrete body,
+including checks registered after that body was first expanded.
+Layers own declaration semantics and immutable fields;
+core physical signatures and portable lowering do not import those layers.
+
+Instance attachment is operation-keyed `CircuitInstanceDeclarations` metadata.
+It retains only immutable descriptors plus a remappable operation reference,
+so member lookup needs no global instance registry. The shared member dispatcher
+consults that attachment before its legacy concrete-module resolvers. Copying
+remaps the operation while sharing detached descriptors; it does not execute
+member-binding callbacks. Interface declarations and their physical mapping are
+owned by `layers/interface.rhm`.
 
 `retained_circuit` packages a frontend recipe in an opaque `ExpansionProvider`.
 Its callback receives a fresh Builder, establishes a new FrontendContext, and
 returns an ExpansionResult plus nested providers. `inst` registers providers in
 the current context and constructs only the retained boundary. The final
-ElaboratedProgram snapshots that environment. No frontend callback lives in
-core IR, and portable lowering never imports the frontend.
+ElaboratedProgram snapshots that environment. Provider callbacks stay outside
+core descriptors, and portable lowering never imports the frontend. Retained references
+expose control-port names from their explicit `SingleClockState`. The scoped
+reset instantiation path skips eager realization for these references; ordinary
+references retain their previous realization order.
 
 [`support/hardware-literal.rhm`](support/hardware-literal.rhm) implements the
 public `HardwareLiteral` protocol on that deferred boundary. Field, annotation,

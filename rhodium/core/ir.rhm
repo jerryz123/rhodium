@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines public Rhodium hardware IR objects and their ownership relationships.
+/* Defines public Rhodium hardware IR objects and their ownership relationships. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,6 +24,7 @@ export:
   Port
   Register
   Instance
+  IRRemappable
   ModuleMetadataPayload
   ModuleMetadata
   Module
@@ -250,12 +251,17 @@ class.together:
               "instance has no output named " ++ name)
       binding.value
 
-  // Attaches extension-owned, nonsemantic inspection data to a finished design
-  // without turning the described abstraction into a hardware operation.
-  interface ModuleMetadataPayload:
+  /* Lets extensions rebind live IR without teaching the core their field layouts. */
+  interface IRRemappable:
+    /* Reject unsupported copying instead of leaking source-owned references into a target. */
     method remap_ir(remap :: Function.of_arity(1)):
-      error(~who: #'materialize_rtl, "module metadata does not support IR remapping")
+      error(~who: #'materialize_reachable_rtl, "module metadata does not support IR remapping")
 
+  /* Marks extension data attachable to a module, with an explicit IR-copy protocol. */
+  interface ModuleMetadataPayload:
+    extends IRRemappable
+
+  /* Associates one extension payload with its owner-defined lookup namespace. */
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
 
   class Module(design :: Design,

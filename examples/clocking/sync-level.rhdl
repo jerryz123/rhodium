@@ -1,12 +1,14 @@
 #lang rhodium
-// Demonstrates strict CDC acceptance through the standard two-stage stable-level synchronizer.
+/* Demonstrates strict CDC acceptance through the standard two-stage stable-level synchronizer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  lib("rhodium/compile/program.rhm").compile_program
   lib("rhodium/std/cdc.rhdl") open
   lib("rhodium/analysis/clocking.rhm").CrossedProvenance
-  lib("rhodium/analysis/clocking.rhm").dump_design_temporal_report
+  lib("rhodium/analysis/clocking.rhm").clocking_target
 
+/* Use a standard single-bit synchronizer and expose its verified crossing evidence. */
 sync_circuit SyncLevelTop():
   input asynchronous_level: Bits(1)
   output synchronized_level: Bits(1)
@@ -16,9 +18,12 @@ sync_circuit SyncLevelTop():
   synchronizer.level <== asynchronous_level
   synchronized_level <== synchronizer.synchronized
 
-def clocked = elaborate_with_cdc(SyncLevelTop())
-def design = clocked.design
-def report = dump_design_temporal_report(clocked.summary)
+def clocked_program = elaborate_program(SyncLevelTop())
+def clocked_compilation = compile_program(clocked_program, clocking_target(~check_cdc: #true))
+def clocked = clocked_compilation.report
+// Hardware consumers use the original program; findings refer to the target copy.
+def design = clocked_program.design
+def report = clocked_compilation.artifacts[0].content
 
 def synchronized_output = clocked.summary.output_leaves.find(
   fun (output): clocked.top.outputs[output.output_index].name == "synchronized_level"

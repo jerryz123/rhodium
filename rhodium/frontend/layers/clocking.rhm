@@ -1,18 +1,15 @@
-#lang rhombus/and_meta
-// Adds temporal environment declarations, sync-level evidence, and optional CDC enforcement.
+#lang rhombus
+/* Records timing declarations for compile targets and authors verified sync-level evidence. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  rhombus/meta open
   "../../core/ir.rhm" open
-  "../../analysis/clocking.rhm" open
+  "../../analysis/clocking/types.rhm" open
+  "../../analysis/clocking/declarations.rhm".declare_clocking_environment
   "../kernel.rhm" as kernel
   "../support/clocking.rhm".ambient_clock
 
 export:
-  ClockingElaboration
-  elaborate_with_clocking
-  elaborate_with_cdc
   sync_level_crossing
   synchronous_input
   asynchronous_input
@@ -22,54 +19,29 @@ export:
   asynchronous_clocks
   exclusive_clocks
 
-class ClockingElaboration(elaboration :: DesignElaboration,
-                          environment :: TemporalEnvironment,
-                          summary :: DesignTemporalSummary):
-  property design: elaboration.design
-  property top: elaboration.top
-
-class PendingInputContract(module_def :: Module,
-                           contract :: TopInputContract)
-class PendingClockRelationship(module_def :: Module,
-                               relationship :: IdenticalClockRelationship || DerivedClockRelationship || AsynchronousClockRelationship || ExclusiveClockRelationship)
-class ClockingCollector(mutable input_contracts :: List.of(PendingInputContract) = [],
-                        mutable clock_relationships :: List.of(PendingClockRelationship) = [])
-
-Parameter.def current_clocking_collector = #false
-
-fun require_collector():
-  def collector = current_clocking_collector()
-  unless collector is_a ClockingCollector
-  | kernel.frontend_fail("clocking declarations require elaborate_with_clocking")
-  collector
-
+/* Require a structural declaration in an active module, outside hardware conditionals. */
 fun prepare_declaration(kind :: String):
-  def collector = require_collector()
   kernel.reject_unsupported_conditional_effect(
     kind,
     Location(),
     "declare timing intent structurally at the top circuit"
   )
-  [collector, kernel.active_module()]
+  kernel.active_module()
 
+/* Accept only a readable value reference; timing declarations do not synthesize reads. */
 fun declaration_value(entity :: HardwareEntity, role :: String):
   unless entity is_a Value
   | kernel.frontend_fail(role ++ " must reference a readable hardware value")
   entity
 
+/* Attach a top-input timing fragment for later target validation and analysis. */
 fun add_input_contract(input :: HardwareEntity,
                        path :: List,
                        timing :: UnknownInputTiming || SynchronousInputTiming || AsynchronousInputTiming):
-  let [collector, module_def] = prepare_declaration("input timing declaration")
-  collector.input_contracts := collector.input_contracts ++ [
-    PendingInputContract(module_def,
-                         TopInputContract(declaration_value(input,
-                                                            "input timing declaration"),
-                                          path,
-                                          timing))
-  ]
-  #void
+  def module_def = prepare_declaration("input timing declaration")
+  declare_clocking_environment(module_def, TemporalEnvironment([TopInputContract(declaration_value(input, "input timing declaration"), path, timing)]))
 
+/* Declare that an input leaf is synchronous to the supplied readable clock. */
 fun synchronous_input(input :: HardwareEntity,
                       clock :: HardwareEntity,
                       path :: List = []):
@@ -78,20 +50,21 @@ fun synchronous_input(input :: HardwareEntity,
                      SynchronousInputTiming(declaration_value(clock,
                                                               "synchronous input clock")))
 
+/* Mark an input leaf as explicitly asynchronous to the design clocks. */
 fun asynchronous_input(input :: HardwareEntity, path :: List = []):
   add_input_contract(input, path, AsynchronousInputTiming())
 
+/* Record that an input leaf has no known timing provenance, without assuming safety. */
 fun unknown_input_timing(input :: HardwareEntity, path :: List = []):
   add_input_contract(input, path, UnknownInputTiming())
 
+/* Attach one structural relationship without running clock analysis during elaboration. */
 fun add_clock_relationship(kind :: String,
                            make_relationship :: Function.of_arity(0)):
-  let [collector, module_def] = prepare_declaration(kind)
-  collector.clock_relationships := collector.clock_relationships ++ [
-    PendingClockRelationship(module_def, make_relationship())
-  ]
-  #void
+  def module_def = prepare_declaration(kind)
+  declare_clocking_environment(module_def, TemporalEnvironment([], [make_relationship()]))
 
+/* Declare two readable clock references to denote the same timing domain. */
 fun identical_clocks(left :: HardwareEntity, right :: HardwareEntity):
   add_clock_relationship(
     "clock relationship declaration",
@@ -99,6 +72,7 @@ fun identical_clocks(left :: HardwareEntity, right :: HardwareEntity):
                                        declaration_value(right, "clock relationship"))
   )
 
+/* Record a described derivation from source clock to destination clock. */
 fun derived_clock(source :: HardwareEntity,
                   destination :: HardwareEntity,
                   description :: String):
@@ -109,6 +83,7 @@ fun derived_clock(source :: HardwareEntity,
                                      description)
   )
 
+/* Declare two clocks unrelated for synchronous transfer reasoning. */
 fun asynchronous_clocks(left :: HardwareEntity, right :: HardwareEntity):
   add_clock_relationship(
     "clock relationship declaration",
@@ -116,6 +91,7 @@ fun asynchronous_clocks(left :: HardwareEntity, right :: HardwareEntity):
                                           declaration_value(right, "clock relationship"))
   )
 
+/* Record the author's described mutual-exclusion relationship between two clocks. */
 fun exclusive_clocks(left :: HardwareEntity,
                      right :: HardwareEntity,
                      description :: String):
@@ -126,9 +102,8 @@ fun exclusive_clocks(left :: HardwareEntity,
                                        description)
   )
 
-// This low-level authoring hook is public so an ordinary standard-library
-// circuit can retain verifiable evidence without importing frontend internals.
-// Core verification, not this declaration, proves the register-chain shape.
+/* Attach inspectable register-chain evidence using an explicit or ambient destination
+   clock. Core verification, not this authoring hook, proves the crossing shape. */
 fun sync_level_crossing(source :: HardwareEntity,
                         destination_clock_or_stages :: HardwareEntity || List.of(HardwareEntity),
                         explicit_stages :: maybe(List.of(HardwareEntity)) = #false):
@@ -144,34 +119,3 @@ fun sync_level_crossing(source :: HardwareEntity,
   | kernel.sync_level_crossing(source,
                                ambient_clock(),
                                destination_clock_or_stages)
-
-fun ensure_root_declarations(elaboration :: DesignElaboration,
-                             pending_declarations :: List):
-  for (pending in pending_declarations):
-    unless pending.module_def === elaboration.top
-    | kernel.frontend_fail(
-        "clocking environment declarations must belong to the elaborated top circuit"
-      )
-
-fun run_clocking_elaboration(program :: Function.of_arity(0),
-                             enforce_cdc :: Boolean = #false):
-  def collector = ClockingCollector()
-  def elaboration = parameterize { current_clocking_collector: collector }:
-                      kernel.run_elaboration_with_top(program)
-  ensure_root_declarations(elaboration, collector.input_contracts)
-  ensure_root_declarations(elaboration, collector.clock_relationships)
-  def environment = TemporalEnvironment(
-    collector.input_contracts.map(fun (pending): pending.contract),
-    collector.clock_relationships.map(fun (pending): pending.relationship)
-  )
-  def summary:
-    if enforce_cdc
-    | verify_design_cdc(elaboration, environment)
-    | summarize_design_temporal(elaboration, environment)
-  ClockingElaboration(elaboration, environment, summary)
-
-expr.macro 'elaborate_with_clocking($body)':
-  'run_clocking_elaboration(fun (): $body)'
-
-expr.macro 'elaborate_with_cdc($body)':
-  'run_clocking_elaboration(fun (): $body, #true)'

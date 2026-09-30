@@ -15,6 +15,7 @@ export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
 RISCV_UDB_CONFIGURATION ?=
 RISCV_UDB_OUTPUT ?= /tmp/rhodium-udb/$(RISCV_UDB_CONFIGURATION).yaml
 
+COMPILE_TESTS := $(sort $(wildcard rhodium/compile/tests/*-test.rhm))
 LOWERING_TESTS := $(sort $(wildcard rhodium/lowering/tests/*-test.rhm))
 CORE_TESTS := $(sort $(wildcard rhodium/core/tests/*-test.rhm))
 ANALYSIS_TESTS := $(sort $(wildcard rhodium/analysis/tests/*-test.rhm))
@@ -52,7 +53,7 @@ RV5STAGE_EXAMPLES := $(sort $(shell find examples/rv5stage -type f \( -name '*.r
 EXAMPLES := $(sort $(shell find examples -path examples/formal -prune -o -type f \( -name '*.rhm' -o -name '*.rhdl' \) -print) $(RFPL_EXAMPLES))
 RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
-  $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) \
+  $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) $(COMPILE_TESTS) \
   $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
   $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
@@ -134,7 +135,7 @@ event-runtime-test: check-boundaries
 	FIXTURES="event-runtime event-pipeline event-window event-frontend event-home event-subordinate event-fesvr event-feedback event-branching event-partial event-elastic event-queue event-arbiter event-crossbar event-demux event-atomic-fork event-broadcast event-join event-stall event-offer event-offer-register event-parents event-retained event-retained-bank" bash tools/testing/circt/run.sh
 
 backend-test: check-boundaries
-	tools/run-racket-tests.sh $(BACKEND_TESTS)
+	tools/run-racket-tests.sh $(COMPILE_TESTS) $(BACKEND_TESTS)
 
 formal-test: check-boundaries
 	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \

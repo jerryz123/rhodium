@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the foundational circuit, port, connection, and elaboration surface shared by Rhodium profiles.
+/* Defines the foundational circuit, port, connection, and elaboration surface shared by Rhodium profiles. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,19 +8,21 @@ import:
   "kernel.rhm".StableCircuitParam
   "kernel.rhm".CircuitIdentity
   "kernel.rhm".CircuitDefinition
+  "kernel.rhm".CircuitDeclaration
   "kernel.rhm".CircuitReference
   "kernel.rhm".RetainedCircuitReference
   "kernel.rhm".retained_circuit
   "kernel.rhm".ConstructIdentity
   "kernel.rhm".ConstructDefinition
+  "kernel.rhm".SingleClockState
   "kernel.rhm".InputLeaf
+  "kernel.rhm".leaf_paths
   "kernel.rhm".OutputLeafDependency
   "kernel.rhm".PortSignature
   "kernel.rhm".ModuleSignature
   "kernel.rhm".circuit_reference
   "kernel.rhm".circuit_signature
   "kernel.rhm".ElaboratedProgram
-  "kernel.rhm".materialize_rtl
   "kernel.rhm".input as kernel_input
   "kernel.rhm".output as kernel_output
   "kernel.rhm".build_circuit as kernel_build_circuit
@@ -56,19 +58,21 @@ export:
   StableCircuitParam
   CircuitIdentity
   CircuitDefinition
+  CircuitDeclaration
   CircuitReference
   RetainedCircuitReference
   retained_circuit
   ConstructIdentity
   ConstructDefinition
+  SingleClockState
   InputLeaf
   OutputLeafDependency
+  leaf_paths
   PortSignature
   ModuleSignature
   circuit_reference
   circuit_signature
   ElaboratedProgram
-  materialize_rtl
   HardwareType
   DataType
   ScalarDataType

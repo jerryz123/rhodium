@@ -1,9 +1,12 @@
 #lang rhombus
-// Emits CIRCT MLIR for the minimal Rhodium leaf used by the VLSI prototype.
+/* Emits CIRCT MLIR for the minimal Rhodium leaf used by the VLSI prototype. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../rhodium/backend/circt.rhm" open
+  "../../rhodium/backend/circt-target.rhm".circt_target
+  "../../rhodium/compile/program.rhm".compile_program
+  "../../rhodium/lowering/program.rhm".ElaboratedProgram
   "../src/rhodium-top.rhdl" as top
 
-print(emit_circt(top.design))
+def program = ElaboratedProgram(top.design, top.design.find_module_named("RhodiumTop"))
+print(compile_program(program, circt_target).artifacts[0].content)

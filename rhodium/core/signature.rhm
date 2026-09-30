@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines detached typed module signatures for inspecting interfaces before implementation construction.
+/* Defines detached typed module signatures for inspecting interfaces before implementation construction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,14 +15,18 @@ export:
   OutputLeafDependency
   leaf_paths
 
+/* A physical port name and hardware type detached from any module or live IR. */
 class PortSignature(name :: String, type :: HardwareType):
+  /* Reject reserved names and malformed types before a detached boundary is used. */
   constructor (name :: String, type :: HardwareType):
     unless name is_a AsciiIdentifier && !name.starts_with("__rhodium_") && type_well_formed(type)
     | error(~who: #'PortSignature, "port signature requires a name and a well-formed hardware type")
     super(name, type)
 
+/* An ordered physical boundary with independent input and output sequences. */
 class ModuleSignature(inputs :: List.of(PortSignature),
                       outputs :: List.of(PortSignature)):
+  /* Require unique names across both directions; retain caller-specified port order. */
   constructor (inputs :: List.of(PortSignature), outputs :: List.of(PortSignature)):
     def ports = inputs ++ outputs
     for (port in ports):
@@ -30,12 +34,15 @@ class ModuleSignature(inputs :: List.of(PortSignature),
       | error(~who: #'ModuleSignature, "port signature names must be unique")
     super(inputs, outputs)
 
+  /* Find a named input descriptor, returning false when it is absent. */
   method input(name :: String):
     inputs.find(fun (port): port.name == name)
 
+  /* Find a named output descriptor, returning false when it is absent. */
   method output(name :: String):
     outputs.find(fun (port): port.name == name)
 
+/* Snapshot the ordered boundary of a finished module without retaining its live ports. */
 fun module_signature(module_def :: Module):
   unless module_def.finished
   | error(~who: #'module_signature, "module signature requires a finished module")
@@ -44,18 +51,24 @@ fun module_signature(module_def :: Module):
     module_def.outputs.map(fun (port): PortSignature(port.name, port.type))
   )
 
+/* Compare corresponding names and structural types; reordering changes the boundary. */
 fun signature_ports_equal(left :: List.of(PortSignature), right :: List.of(PortSignature)):
   left.length() == right.length() && (
     for all (a in left, b in right):
       a.name == b.name && type_equal(a.type, b.type)
   )
 
+/* Require equal ordered inputs and outputs, including their direction. */
 fun signature_equal(left :: ModuleSignature, right :: ModuleSignature):
   signature_ports_equal(left.inputs, right.inputs) && signature_ports_equal(left.outputs, right.outputs)
 
+/* Identifies a scalar input leaf by its signature index and aggregate projection path. */
 class InputLeaf(input_index :: Nat, path :: List.of(String || Nat))
+/* Lists the input leaves that may affect one output leaf in the same cycle. */
 class OutputLeafDependency(path :: List.of(String || Nat), input_leaves :: List.of(InputLeaf))
 
+/* Enumerate scalar leaves in record declaration order and ascending vector indices.
+   A scalar contributes the empty projection path. */
 fun leaf_paths(type :: HardwareType) :: List.of(List.of(String || Nat)):
   cond
   | record_type(type):

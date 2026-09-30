@@ -1,0 +1,63 @@
+<!-- Defines compile orchestration ownership, target preparation boundaries, and focused validation. -->
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+
+# Developing target compilation
+
+Read [README.md](README.md) for the public request, artifact, manifest, and
+source-lifetime contracts. This package owns target-neutral compilation, not
+source elaboration or any target's textual emitter.
+
+## Architecture and ownership
+
+Follow the [package dependency contract](../DEVELOPING.md). Compilation imports
+core and portable lowering only. Backends opt in by importing these neutral
+interfaces; the compiler never imports a target registry. The clock-analysis
+target also imports compilation; internal analysis algorithms, core, lowering,
+and frontend remain independent of it.
+
+A target owns preparation and its `TargetPlan`. Keep that interface independent
+of concrete RTL so direct construct adapters can eventually bypass portable
+expansion. The concrete helper uses the existing verifier and materializer;
+it must not grow a second implementation of provider recursion, state checking,
+or metadata copying.
+
+## Implementation map
+
+- `contracts.rhm`: immutable requests/results, occurrence decisions, and the
+  target-owned plan protocol; imports public core descriptors only.
+- `program.rhm`: invokes the explicit target and returns a complete result only
+  after emission and artifact-set validation.
+- `rtl.rhm`: asks lowering for a fresh reachable graph and maps its expansion
+  provenance to a deterministic depth-first report. Traverse shared definitions
+  per occurrence while retaining materialization's per-definition reuse.
+- `../analysis/clocking.rhm`: clock-analysis target, structured findings, and
+  optional CDC enforcement using the same concrete preparation helper.
+- `../backend/circt-target.rhm`: the first target and plan, using the existing
+  internal CIRCT emitter.
+
+The lowering result maps construct definitions to destination modules. Derive
+reports from this map and copied instance locations, never generated name
+heuristics. A retained top uses an empty occurrence path. Artifact names and
+module names belong to the selected target; file publication belongs to a
+future explicit driver.
+
+## Change workflow and validation
+
+Add new target behavior to its owner. Keep new selection mechanisms tied to a
+real supported backend rather than introducing placeholder emitters. Keep preparation fresh and scoped to the selected top. Keep generated
+artifacts out of version control.
+
+`tests/rtl-test.rhm` checks fresh concrete/retained preparation, nested occurrence
+paths, expansion reuse and limits, unused providers, and source preservation.
+`../backend/tests/compile-test.rhm` checks the real CIRCT target with Builder-owned concrete and retained
+fixtures, mixed hierarchy, deterministic output, compatibility, and failures.
+
+```sh
+tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm
+make backend-test check-boundaries ci-plan-test
+```
+
+The backend host target and shared compile manifest include this package's tests.
+Changes to portable materialization additionally need its host tests and shared
+frontend/LOP regressions. Use existing native fixtures when emitted behavior
+changes; exact emitter equality requires no new simulation model.

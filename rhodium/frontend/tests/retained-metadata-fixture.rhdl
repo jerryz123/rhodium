@@ -1,0 +1,57 @@
+#lang rhodium
+// Composes Flow storage and trace metadata beside a retained combinational child.
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("flow/main.rhdl") open
+
+def signature = ModuleSignature([PortSignature("source", Bits(8))], [PortSignature("result", Bits(8))])
+def definition = ConstructDefinition(ConstructIdentity("MetadataIdentity"), [], signature, [[OutputLeafDependency([], [InputLeaf(0, [])])]])
+circuit MetadataIdentity():
+  input source: Bits(8)
+  output result: Bits(8)
+  result <== source
+
+def retained = retained_circuit(definition, fun (): MetadataIdentity())
+
+sync_circuit MetadataLane():
+  interface ingress(Decoupled(Bits(8)), ~role: consumer)
+  interface egress(Decoupled(Bits(8)), ~role: producer)
+  def accepted = ingress |> trace_event("accepted", ~stalls: #true, ~fields: value):
+    captured: value
+  def buffered = accepted |> queue(3, ~flow: #true, ~pipe: #true) |> pipe(1)
+  buffered |> trace_event("completed", ~payload: #true, ~stalls: #true) |> egress
+
+interface MetadataEnvelope():
+  role producer
+  role consumer
+  provider producer
+  producer -> consumer:
+    channel: Decoupled(Bits(8))
+
+sync_circuit MetadataTop(retain):
+  input identity: Bits(8)
+  output result: Bits(8)
+  trace_instance("chip", identity)
+  interface nested_in(MetadataEnvelope(), ~role: consumer)
+  interface nested_out(MetadataEnvelope(), ~role: producer)
+  def bridge = interface_link(MetadataEnvelope(), "bridge")
+  nested_in.channel |> bridge.left.field("channel")
+  bridge.right.field("channel") |> nested_out.channel
+  interface ingress[2](Decoupled(Bits(8)), ~role: consumer)
+  interface egress[2](Decoupled(Bits(8)), ~role: producer)
+  inst first(MetadataLane())
+  inst second(MetadataLane())
+  ingress[0] |> first.ingress
+  first.egress |> egress[0]
+  ingress[1] |> second.ingress
+  second.egress |> egress[1]
+  inst side(if retain | retained | MetadataIdentity())
+  side.source <== identity
+  result <== side.result
+
+def program = elaborate_program(MetadataTop(#true))
+def eager = elaborate_with_top(MetadataTop(#false))
+export:
+  program
+  eager

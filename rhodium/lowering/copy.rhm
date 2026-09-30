@@ -1,19 +1,22 @@
 #lang rhombus
-// Clones mixed module graphs into fresh concrete RTL with explicit object and metadata remapping.
+/* Clones mixed module graphs into fresh concrete RTL with explicit object and metadata remapping. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open
+  "../core/construct.rhm".ConstructInstance
   "../core/builder.rhm".Builder
 
 export:
   copy_module_body
+  make_ir_remapper
 
-// The caller creates module shells and supplies child expansion. Allocation of
-// values/places precedes attribute copying, so forward references remain valid.
+/* Populate a caller-owned module shell using an explicit child resolver.
+   Allocate values, places, and memories before attributes to preserve forward references.
+   Rebuild use-def and driver links, but leave metadata and final sealing to the caller. */
 fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
                      resolve_child :: Function.of_arity(1), objects :: MutableMap,
-                     remap_import :: Function.of_arity(1)):
+                     remap :: Function.of_arity(1)):
   def ids = MutableMap{}
   for (op in original.operations): ids[op.id] := builder.design.fresh_id()
   for (value in original.values):
@@ -28,18 +31,6 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     def replacement = Memory(builder.design.fresh_id(), memory.name, memory.depth, memory.element_type, target, ids[memory.defining_op_id])
     objects[memory] := replacement
     target.add_memory(replacement)
-
-  fun remap(value :: Boolean || String || Number || List || Map || HardwareType || Value || Place || Memory || DpiImport || Module || Operation):
-    cond
-    | value is_a Value || value is_a Place || value is_a Memory || value is_a Module || value is_a Operation:
-        unless objects.has_key(value)
-        | error(~who: #'materialize_rtl, "unmapped IR reference in attributes or metadata")
-        objects[value]
-    | value is_a DpiImport: remap_import(value)
-    | value is_a List: value.map(remap)
-    | value is_a Map:
-        for Map (key in value.keys()): values(remap(key), remap(value[key]))
-    | ~else: value
 
   for (op in original.operations):
     def is_instance = op.opcode in ["rtl.instance", "construct.instance"]
@@ -65,6 +56,50 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     def replacement = Port(port.name, "output", port.type, #false, remap(port.place))
     objects[port] := replacement
     target.add_output(replacement)
-  for (entry in original.metadata):
-    target.add_metadata(entry.namespace, entry.payload.remap_ir(remap))
-  builder.finish(target)
+  target.finish_collections()
+
+/* Create one identity-preserving resolver for the entire materialization.
+   Live IR must already be mapped, except lazily copied DPI declarations and projected
+   places. Extension objects own their remapping; unsupported references fail explicitly. */
+fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)):
+  def active = MutableSet.by(===){}
+  /* Resolve or clone one reference while preserving shared extension objects.
+     Arrays and views receive fresh storage; immutable descriptors may be shared.
+     Reject recursive extension graphs instead of retaining source-owned mutable objects. */
+  fun remap(value :: Boolean || String || Number || List || Map || Array || HardwareType || Value || Place || Memory || DpiImport || Module || Operation || Port || Instance || ConstructInstance || IRRemappable):
+    cond
+    | objects.has_key(value): objects[value]
+    | value is_a Place && value.parent:
+        def parent = remap(value.parent)
+        // Remapping the parent may already have copied this child through its
+        // preserved projection tree. Reuse that object even on a deep-first visit.
+        if objects.has_key(value)
+        | objects[value]
+        | def replacement = Place(#false, value.name, value.type, parent.module_def, parent.owner_op_id,
+                                  remap(value.driver), parent, value.projection_key)
+          objects[value] := replacement
+          for (child in value.projected_places): replacement.add_projected_place(remap(child))
+          replacement
+    | value is_a Value || value is_a Place || value is_a Memory || value is_a Module || value is_a Operation:
+        error(~who: #'materialize_reachable_rtl, "unmapped IR reference in attributes or metadata")
+    | value is_a DpiImport: remap_import(value)
+    | value is_a List: value.map(remap)
+    | value is_a Map:
+        for Map (key in value.keys()): values(remap(key), remap(value[key]))
+    | value is_a Port || value is_a Instance || value is_a ConstructInstance || value is_a IRRemappable || value is_a Array:
+        when value in active | error(~who: #'materialize_reachable_rtl, "cyclic metadata remapping")
+        active.add(value)
+        def replacement:
+          cond
+          | value is_a Port: Port(value.name, value.direction, value.type, remap(value.value), remap(value.place))
+          | value is_a Instance: Instance(remap(value.operation), remap(value.module_def), remap(value.input_bindings), remap(value.output_bindings))
+          | value is_a ConstructInstance:
+              def operation = remap(value.operation)
+              Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
+          | value is_a Array: Array(& (for List (item in value): remap(item)))
+          | ~else: value.remap_ir(remap)
+        active.remove(value)
+        objects[value] := replacement
+        replacement
+    | ~else: value
+  remap
