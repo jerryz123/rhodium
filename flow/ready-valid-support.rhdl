@@ -1,5 +1,5 @@
 #lang rhodium
-// Resolves ready-valid protocol families for standard flow-stage implementations.
+/* Resolves ready-valid protocol families for standard flow-stage implementations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,14 +7,14 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
 
 meta:
-  // Recovers the exact payload authoring surface supplied by a pipeline's
-  // left operand. Missing information is harmless; runtime protocol checks
-  // remain the authority for whether a value is a valid flow source.
+  /* Recovers the exact payload authoring surface supplied by a pipeline's
+     left operand. When static information is absent, host-side protocol
+     validation still determines whether the source is usable. */
   fun flow_payload_static_infos(source_infos :: Syntax):
     interface_member_static_infos(source_infos, 'bits')
 
-// Evaluates one inline payload body with an ordinary binder for reusable
-// configured stages or a source-informed binder for direct pipelines.
+/* Evaluates one inline payload body with an ordinary binder for reusable
+   configured stages or a source-informed binder for direct pipelines. */
 expr.macro
 | 'flow_payload_body(#false,
                      $(payload :: Identifier),
@@ -29,18 +29,18 @@ expr.macro
          statinfo.macro '$payload': '$payload_infos'
          $body)($value))'
 
-// A flow stage can be specialized by a payload type, a complete protocol, an
-// endpoint to connect immediately, or a handle to extend compositionally.
+/* A flow stage can be specialized by a payload type, a complete protocol, an
+   endpoint to connect immediately, or a handle to extend compositionally. */
 annot.macro 'FlowSource':
   'DataType || InterfaceType || Endpoint || Handle'
 
-// Public stage functions admit hardware literals only far enough to issue the
-// stage-owned diagnostic; literals are not valid flow topology sources.
+/* Public stage functions admit hardware literals only far enough to issue the
+   stage-owned diagnostic; literals are not valid flow topology sources. */
 annot.macro 'FlowSourceArgument':
   'FlowSource || HardwareLiteral'
 
-// Resolves an endpoint, handle, ready-valid protocol, or shorthand payload
-// type to the exact protocol expected at a new flow stage's input.
+/* Resolves an endpoint, handle, ready-valid protocol, or shorthand payload
+   type to the exact protocol expected at a new flow stage's input. */
 fun flow_protocol_type(source_or_type :~ FlowSource):
   unless source_or_type is_a FlowSource
   | error(~who: #'flow_protocol_type,
@@ -67,14 +67,15 @@ fun flow_protocol_type(source_or_type :~ FlowSource):
             "flow-control chaining requires a Decoupled or Irrevocable protocol")
   normalized
 
+/* Extracts the payload DataType after nominal ready-valid protocol validation. */
 fun flow_payload_type(source_or_type :~ FlowSource):
   def protocol = flow_protocol_type(source_or_type)
   protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits"
   ).type
 
-// Resolves the non-backpressured Valid family independently so ready-valid
-// stages cannot accidentally accept a protocol with no readiness signal.
+/* Resolves the non-backpressured Valid family independently so ready-valid
+   stages cannot accidentally accept a protocol with no readiness signal. */
 fun valid_flow_protocol_type(source_or_type :~ FlowSource):
   unless source_or_type is_a FlowSource
   | error(~who: #'valid_flow_protocol_type,
@@ -101,14 +102,16 @@ fun valid_flow_protocol_type(source_or_type :~ FlowSource):
             "Valid-flow chaining requires a Valid protocol")
   normalized
 
+/* Extracts the payload DataType after validating the nonbackpressured Valid
+   family separately from ready-valid protocols. */
 fun valid_flow_payload_type(source_or_type :~ FlowSource):
   def protocol = valid_flow_protocol_type(source_or_type)
   protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits"
   ).type
 
-// Resolves the payloadless ready-valid family for configured Ctrl stages.
-// Detached topology must start from DecoupledCtrl() or IrrevocableCtrl().
+/* Resolves the payloadless ready-valid family for configured Ctrl stages.
+   Detached topology must start from DecoupledCtrl() or IrrevocableCtrl(). */
 fun ctrl_flow_protocol_type(source_or_type :~ FlowSource):
   def protocol:
     cond
@@ -133,23 +136,23 @@ fun ctrl_flow_protocol_type(source_or_type :~ FlowSource):
   protocol
 
 namespace FlowSource:
-  // Canonicalizes ready-valid sources without replacing the original source
-  // that configured stages still need for topology composition.
+  /* Canonicalizes ready-valid sources without replacing the original source
+     that configured stages still need for topology composition. */
   export annot.macro 'to_ready_valid_protocol':
     'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
                   flow_protocol_type(source))'
 
-  // Canonicalizes non-backpressured Valid sources at host API boundaries.
+  /* Canonicalizes non-backpressured Valid sources at host API boundaries. */
   export annot.macro 'to_valid_protocol':
     'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
                   valid_flow_protocol_type(source))'
 
-  // Validates and retains the nominal payloadless ready-valid protocol.
+  /* Validates and retains the nominal payloadless ready-valid protocol. */
   export annot.macro 'to_control_protocol':
     'converting(fun (source :: FlowSourceArgument) :: InterfaceType:
                   ctrl_flow_protocol_type(source))'
 
-// Replaces a protocol's payload without weakening its behavioral contract.
+/* Replaces a protocol's payload without weakening its behavioral contract. */
 fun flow_protocol_with_payload(protocol :: InterfaceType,
                                payload_type :: DataType):
   def normalized = decoupled_protocol_type(protocol)

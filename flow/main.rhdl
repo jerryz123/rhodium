@@ -1,5 +1,5 @@
 #lang rhodium
-// Re-exports transport protocols, flit formats, and reusable flow generators.
+/* Re-exports transport protocols, flit formats, and reusable flow generators. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

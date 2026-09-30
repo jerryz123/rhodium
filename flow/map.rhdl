@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines inline payload transformation as a generic interface handle.
+/* Defines inline payload transformation as a generic interface handle. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Joins two local interface links around direct combinational assignments.
-// The links are consumed as components and their outer ends become the new
-// handle's ends.
+/* Joins two local interface links around direct combinational assignments.
+   The links are consumed as components and their outer ends become the new
+   handle's ends. */
 fun finish_map_flow_handle(input_link :: Handle,
                            output_link :: Handle,
                            mapped_bits :: Hardware.packable):
@@ -22,9 +22,9 @@ fun finish_map_flow_handle(input_link :: Handle,
     ~trace_model: interface_trace_combinational()
   )
 
-// Mapping configuration produces a unary flow operation. A colon block
-// attached to the call extends an arrow expression such as a record
-// constructor; the binder-block form remains useful for multiline mappings.
+/* Mapping configuration produces a unary flow operation. A colon block
+   attached to the call extends an arrow expression such as a record
+   constructor; the binder-block form remains useful for multiline mappings. */
 expr.macro
 | 'map_flow(~stable: #true,
             $(payload :: Identifier) => $body_head ...):
@@ -45,6 +45,8 @@ expr.macro
 | 'map_flow($(payload :: Identifier)): $body':
     'map_flow_impl(#false, #false, $payload): $body'
 
+/* Builds fresh links around an elaborated payload mapping and infers its result
+   type; the output is Decoupled unless the caller promises mapping stability. */
 expr.macro
 | 'map_flow_impl($stable,
                  $payload_infos,
@@ -75,9 +77,9 @@ expr.macro
        )
        finish_interface_transform(map_flow_source, map_flow_handle)'
 
-// A direct pipeline supplies the source's exact static information before the
-// configured mapping function is expanded. Attach the `bits` member's surface
-// to the inline binder while preserving the ordinary reusable-stage form.
+/* A direct pipeline supplies the source's exact static information before the
+   configured mapping function is expanded. Attach the `bits` member's surface
+   to the inline binder while preserving the ordinary reusable-stage form. */
 immediate_callee.macro 'map_flow $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

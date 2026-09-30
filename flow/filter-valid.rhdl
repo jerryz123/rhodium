@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines inline filtering for nonbackpressured Valid flows.
+/* Defines inline filtering for nonbackpressured Valid flows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,8 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+/* Connects a combinational Valid filter and records lineage only for retained
+   occurrences; rejected events require neither storage nor an acceptance path. */
 fun finish_filter_valid_handle(input_link :: Handle,
                                output_link :: Handle,
                                keep :: Bool):
@@ -20,14 +22,16 @@ fun finish_filter_valid_handle(input_link :: Handle,
     ~trace_model: interface_trace_combinational(~guard: keep)
   )
 
-// A rejected Valid event is dropped because the source cannot be
-// backpressured. The payload is forwarded combinationally when retained.
+/* A rejected Valid event is dropped because the source cannot be
+   backpressured. The payload is forwarded combinationally when retained. */
 expr.macro
 | 'filter_valid($(payload :: Identifier) => $predicate ...)':
     'filter_valid($payload): $predicate ...'
 | 'filter_valid($(payload :: Identifier)): $predicate':
     'filter_valid_impl(#false, $payload): $predicate'
 
+/* Builds fresh Valid links, elaborates the inline Boolean predicate, and
+   returns the source-dependent filtered topology. */
 expr.macro
 | 'filter_valid_impl($payload_infos,
                      $(payload :: Identifier)): $predicate':
@@ -54,7 +58,7 @@ expr.macro
        )
        finish_interface_transform(filter_valid_source, filter_valid_handle)'
 
-// Direct Valid pipelines retain the exact payload surface in the predicate.
+/* Direct Valid pipelines retain the exact payload surface in the predicate. */
 immediate_callee.macro 'filter_valid $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

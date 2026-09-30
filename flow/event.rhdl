@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines transparent event checkpoints with explicit transfer controls for tracing.
+/* Defines transparent event checkpoints with explicit transfer controls for tracing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,8 +7,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Preserves a ready-valid transaction while attaching a compiler-visible event
-// site to the identity transform.
+/* Configures a transparent ready-valid checkpoint with compiler-visible event
+   metadata. Qualification gates observation only; functional validity, payload,
+   and readiness are forwarded unchanged. */
 fun trace_event_config(label :: String,
                        ~parents: parents :: maybe(List.of(Endpoint)) = #false,
                        ~when: qualification :: Bool = Bool(#true),
@@ -41,8 +42,8 @@ fun trace_event_config(label :: String,
       )
     )
 
-// Valid has no reverse readiness member, so its transparent event checkpoint
-// forwards only the offer and payload.
+/* Configures a transparent Valid checkpoint with no reverse readiness path.
+   Qualification and captures affect observation only, not forwarded events. */
 fun trace_valid_event_config(label :: String,
                              ~parents: parents :: maybe(List.of(Endpoint)) = #false,
                              ~when: qualification :: Bool = Bool(#true),
@@ -69,40 +70,45 @@ fun trace_valid_event_config(label :: String,
       )
     )
 
-// Binds upstream checkpoint selection after both endpoints exist, without
-// introducing a functional connection or specifying a storage lifetime.
+/* Binds upstream checkpoint selection after both endpoints exist, without
+   introducing a functional connection or specifying a storage lifetime. */
 fun trace_parents(child :: Endpoint, parents :: List.of(Endpoint)):
   describe_interface_event_parents(child, parents)
 
-// Labels the current module's hierarchy with a stable runtime identity.
+/* Labels the current module's hierarchy with a stable runtime identity. */
 fun trace_instance(label :: String, identity :: HardwareEntity):
   describe_trace_instance(label, identity)
 
-// Connects a child event to a previously retained parent event without
-// changing the ready-valid datapath. The named retained-storage declaration
-// owns the cross-cycle lifetime; this helper only records the causal relation.
+/* Connects a child event to a previously retained parent event without
+   changing the ready-valid datapath. The named retained-storage declaration
+   owns the cross-cycle lifetime; this helper only records the causal relation. */
 fun trace_edge(parent :: Endpoint,
                child :: Endpoint,
                ~scope: scope :: String = "data"):
   describe_interface_trace_edge(parent, child, ~scope: scope)
 
-// Bind the observed payload with its hardware surface, like map_valid. The
-// generic annotation owns validation; these macros only configure observation.
+/* Bind the observed payload with its hardware surface, like map_valid. The
+   generic annotation owns validation; these macros only configure observation. */
 expr.macro
 | 'trace_event($label, $option, ..., ~fields: $(payload :: Identifier)): $field; ...':
     'trace_event_config($label, $option, ..., ~capture: capture_fields($payload): $field; ...)'
 | 'trace_event($arg, ...)': 'trace_event_config($arg, ...)'
 | 'trace_event': 'trace_event_config'
 
+/* Configures a Valid-only checkpoint, optionally capturing named payload fields
+   without introducing readiness or changing functional event delivery. */
 expr.macro
 | 'trace_valid_event($label, $option, ..., ~fields: $(payload :: Identifier)): $field; ...':
     'trace_valid_event_config($label, $option, ..., ~capture: capture_fields($payload): $field; ...)'
 | 'trace_valid_event($arg, ...)': 'trace_valid_event_config($arg, ...)'
 | 'trace_valid_event': 'trace_valid_event_config'
 
+/* Expands named capture clauses into a reusable payload-observation function. */
 expr.macro 'capture_fields($(payload :: Identifier)): $field; ...':
   'capture_fields_impl(#false, $payload): $field; ...'
 
+/* Checks capture-clause syntax and builds event fields under a typed payload
+   binder, using source static information when available. */
 expr.macro 'capture_fields_impl($payload_infos,
                                 $(payload :: Identifier)): $field; ...':
   def [capture, ...] = for List (clause in [field, ...]):
@@ -119,8 +125,8 @@ expr.macro 'capture_fields_impl($payload_infos,
      flow_payload_body($payload_infos, $payload, typed_capture_bits):
        [$capture, ...]'
 
-// A direct checkpoint pipeline can expose the exact source payload surface in
-// named capture expressions without changing the configured checkpoint API.
+/* A direct checkpoint pipeline can expose the exact source payload surface in
+   named capture expressions without changing the configured checkpoint API. */
 immediate_callee.macro 'trace_event $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])
@@ -139,6 +145,8 @@ immediate_callee.macro 'trace_event $tail ...':
   | ~else:
       syntax_meta.error("invalid trace_event immediate pipeline form", '$tail ...')
 
+/* Supplies direct Valid pipelines' payload static information to capture
+   expressions while retaining the reusable checkpoint configuration form. */
 immediate_callee.macro 'trace_valid_event $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

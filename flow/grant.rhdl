@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines optional-one-hot grant routing and merging with intrinsic event lineage.
+/* Defines optional-one-hot grant routing and merging with intrinsic event lineage. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,9 +9,9 @@ export:
   GrantDemux
   GrantMerge
 
-// A zero grant blocks the input; a one-hot grant routes it to the selected
-// output. At most one grant bit may be asserted. Selection may change while
-// stalled, so the output offers use the Decoupled contract.
+/* A zero grant blocks the input; a one-hot grant routes it to the selected
+   output. At most one grant bit may be asserted. Selection may change while
+   stalled, so the output offers use the Decoupled contract. */
 circuit GrantDemux(T :: DataType, output_count :: PosInt):
   interface ingress(Decoupled(T), ~role: consumer)
   input grants: MaybeOneHot(output_count)
@@ -27,9 +27,9 @@ circuit GrantDemux(T :: DataType, output_count :: PosInt):
     egress[output_index].bits <== ingress.bits
   describe_interface_contract(ingress, egress, "data", ~kind: "grant-demux", ~trace_model: interface_trace_routing(for List (index in 0..output_count): grants[index]))
 
-// A zero grant produces no offer; a one-hot grant selects the corresponding
-// input. At most one grant bit may be asserted. Readiness is returned only to
-// the selected input, and the output remains Decoupled under changing grants.
+/* A zero grant produces no offer; a one-hot grant selects the corresponding
+   input. At most one grant bit may be asserted. Readiness is returned only to
+   the selected input, and the output remains Decoupled under changing grants. */
 circuit GrantMerge(T :: DataType, input_count :: PosInt):
   interface ingress[input_count](Decoupled(T), ~role: consumer)
   input grants: MaybeOneHot(input_count)

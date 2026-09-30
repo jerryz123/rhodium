@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines pipelines with fixed-latency or actual elastic stage-control trace contracts.
+/* Defines elastic and fixed-latency pipelines with corresponding transfer trace contracts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("rhodium/std/shift-register.rhdl").shift_register
   lib("flow/ready-valid-support.rhdl") open
 
-// Each stage stores one item, contributes one cycle of unloaded latency, and
-// propagates readiness combinationally backward. Stored payloads remain stable
-// under backpressure.
+/* Each stage stores one item, contributes one cycle of unloaded latency, and
+   propagates readiness combinationally backward. Stored payloads remain stable
+   under backpressure. */
 sync_circuit Pipe(T :: DataType, stages :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -46,8 +46,9 @@ sync_circuit Pipe(T :: DataType, stages :: PosInt):
   describe_interface_elastic_stages(ready.take(stages), valid_sources)
   describe_interface_contract(ingress, egress, "data", ~kind: "pipe", ~trace_model: interface_trace_elastic())
 
-// Valid has no backpressure: every stage advances on every clock, and each
-// asserted input cycle emerges after exactly `stages` cycles unless flushed.
+/* Advances validity every clock and captures payload only for valid inputs.
+   Input occurrences emerge after exactly stages cycles unless flushed; flush
+   clears validity at the edge without gating current output or resetting data. */
 sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable :: Boolean = #false):
 
   interface ingress(Valid(T), ~role: consumer)
@@ -79,8 +80,9 @@ sync_circuit ValidPipe(T :: DataType, stages :: PosInt, ~flushable: flushable ::
 
   describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
-// Payload advances even through invalid cycles, keeping late validity and
-// cancellation logic off every payload register's write-enable path.
+/* Shifts payload every clock, including invalid cycles, while validity tracks
+   fixed-latency delivery. Optional flush clears validity at the edge and keeps
+   cancellation logic off the payload register write-enable path. */
 sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt, ~flushable: flushable :: Boolean = #false):
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)
@@ -100,9 +102,9 @@ sync_circuit ValidPipeAlwaysCapture(T :: DataType, stages :: PosInt, ~flushable:
 
   describe_interface_contract(ingress, egress, "data", ~kind: "valid-pipe-always-capture", ~trace_model: interface_trace_fixed_latency(stages, ~flush: if flushable | clear | #false))
 
-// The control-only specialization stores just the validity of each token.
-// Its output is irrevocable because an occupied stage cannot withdraw while
-// its downstream endpoint is stalled.
+/* The control-only specialization stores just the validity of each token.
+   Its output is irrevocable because an occupied stage cannot withdraw while
+   its downstream endpoint is stalled. */
 sync_circuit CtrlPipe(stages :: PosInt):
 
   interface ingress(DecoupledCtrl(), ~role: consumer)
@@ -128,9 +130,9 @@ sync_circuit CtrlPipe(stages :: PosInt):
     when (ready[index]):
       stage_valid[index] <== valid_sources[index]
 
-// Configuration produces a unary flow operation. A payload type constructs
-// an unconnected handle; an endpoint connects immediately and exposes the far
-// endpoint; an earlier handle remains an unconnected composed handle.
+/* Configuration produces a unary flow operation. A payload type constructs
+   an unconnected handle; an endpoint connects immediately and exposes the far
+   endpoint; an earlier handle remains an unconnected composed handle. */
 fun pipe(stages :: PosInt)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -147,6 +149,8 @@ fun pipe(stages :: PosInt)
       )
     )
 
+/* Configures a fixed-latency Valid pipeline with valid-qualified payload
+   capture, adding a flush port only when a flush signal is supplied. */
 fun valid_pipe(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -166,6 +170,8 @@ fun valid_pipe(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
       )
     )
 
+/* Configures an always-capturing payload pipeline; optional flush clears
+   validity at the clock edge without resetting or gating payload registers. */
 fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -184,8 +190,8 @@ fun valid_pipe_always_capture(stages :: PosInt, ~flush: flush :: maybe(Bool) = #
       )
     )
 
-// Control-only chaining uses the same configured unary topology rule without
-// introducing a dummy payload field.
+/* Control-only chaining uses the same configured unary topology rule without
+   introducing a dummy payload field. */
 fun ctrl_pipe(stages :: PosInt)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, Endpoint):

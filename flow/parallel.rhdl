@@ -1,21 +1,21 @@
 #lang rhodium
-// Provides parallel composition for generic interface-handle shapes.
+/* Provides parallel composition for generic interface-handle shapes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
   lib("flow/ready-valid-support.rhdl").FlowSource
 
-// Endpoint, handle, and sink topology objects are callable for ordinary `|>`
-// composition, but they are not configured stage functions.
+/* Endpoint, handle, and sink topology objects are callable for ordinary `|>`
+   composition, but they are not configured stage functions. */
 fun configured_parallel_stage(path :: Function.of_arity(1)):
   path is_a Function && !(
     path is_a Endpoint || path is_a Handle || path is_a Sink
   )
 
-// Configures independent unary stages for an array-shaped source. Connected
-// endpoint arrays produce endpoint arrays; type seeds and earlier handles
-// produce one composed array-shaped handle.
+/* Configures independent unary stages for an array-shaped source. Connected
+   endpoint arrays produce endpoint arrays; type seeds and earlier handles
+   produce one composed array-shaped handle. */
 expr.macro 'parallel($path, ...)':
   'fun (parallel_source :: FlowSource || Array) :~ InterfaceTransformResult(parallel_source, InterfaceArrayFields):
      def parallel_paths = Array($path, ...)

@@ -1,13 +1,13 @@
 #lang rhodium
-// Presents nonbackpressured Valid occurrences as best-effort Decoupled offers.
+/* Presents nonbackpressured Valid occurrences as best-effort Decoupled offers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// An unaccepted occurrence is discarded; persistence and retry belong to the
-// caller. Unlike to_decoupled, this boundary does not require same-cycle acceptance.
+/* An unaccepted occurrence is discarded; persistence and retry belong to the
+   caller. Unlike to_decoupled, this boundary does not require same-cycle acceptance. */
 fun offer_decoupled()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):

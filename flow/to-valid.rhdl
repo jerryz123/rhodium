@@ -1,11 +1,13 @@
 #lang rhodium
-// Converts an always-accepted ready-valid flow into same-cycle Valid events.
+/* Converts an always-accepted ready-valid flow into same-cycle Valid events. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+/* Configures an always-ready sink that forwards every input offer as a
+   same-cycle Valid occurrence, with no buffering or downstream backpressure. */
 fun to_valid()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):

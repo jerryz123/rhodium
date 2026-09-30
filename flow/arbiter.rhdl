@@ -1,13 +1,13 @@
 #lang rhodium
-// Defines fixed-priority arbiters and grant-certified ready-valid trace selection.
+/* Defines fixed-priority arbiters and grant-certified ready-valid trace selection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Lower indices have priority. Since Valid has no backpressure, simultaneous
-// lower-priority events are intentionally dropped instead of held for retry.
+/* Lower indices have priority. Since Valid has no backpressure, simultaneous
+   lower-priority events are intentionally dropped instead of held for retry. */
 circuit ValidArbiter(T :: DataType, n :: PosInt):
 
   interface ingress[n](Valid(T), ~role: consumer)
@@ -26,8 +26,8 @@ circuit ValidArbiter(T :: DataType, n :: PosInt):
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "valid-arbiter", ~trace_model: interface_trace_selection(~pending: #true))
 
-// Lower indices have higher priority. The output uses Decoupled because a new
-// higher-priority arrival may change the selected payload while stalled.
+/* Lower indices have higher priority. The output uses Decoupled because a new
+   higher-priority arrival may change the selected payload while stalled. */
 circuit Arbiter(T :: DataType, n :: PosInt):
 
   interface ingress[n](Decoupled(T), ~role: consumer)
@@ -48,7 +48,7 @@ circuit Arbiter(T :: DataType, n :: PosInt):
   describe_interface_selection(for List (index in 0..n): grant[index])
   describe_interface_contract(ingress, egress, "data", ~kind: "arbiter", ~trace_model: interface_trace_selection(~pending: #true))
 
-// Lower indices have higher priority among payloadless token offers.
+/* Lower indices have higher priority among payloadless token offers. */
 circuit CtrlArbiter(n :: PosInt):
 
   interface ingress[n](DecoupledCtrl(), ~role: consumer)
@@ -63,8 +63,8 @@ circuit CtrlArbiter(n :: PosInt):
   egress.valid <== grant.valid
   chosen <== grant.index
 
-// A connected endpoint array supplies its input count. A disconnected
-// topology starts from a payload type and states the count in arbiter.
+/* A connected endpoint array supplies its input count. A disconnected
+   topology starts from a payload type and states the count in arbiter. */
 fun arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):
@@ -99,8 +99,8 @@ fun arbiter(n :: maybe(PosInt) = #false)
       )
     )
 
-// A connected Valid endpoint array supplies its own input count. A
-// disconnected topology starts from a payload type and states the count once.
+/* A connected Valid endpoint array supplies its own input count. A
+   disconnected topology starts from a payload type and states the count once. */
 fun valid_arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):

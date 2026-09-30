@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines payload-bearing and control-only configurable ready-valid queues.
+/* Defines payload-bearing and control-only configurable ready-valid queues. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("rhodium/std/counter.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Queue uses asynchronous-read storage. A synchronous-read option belongs here
-// once Rhodium has a corresponding memory primitive. Stored payloads remain stable
-// under backpressure.
+/* Stores a FIFO in one payload register at depth one or asynchronous-read memory
+   with wrapping pointers at larger depths. Pipe allows full replacement and
+   flow allows empty bypass; only bypass mode weakens the output to Decoupled. */
 sync_circuit Queue(T :: DataType,
                    depth :: PosInt,
                    ~pipe: pipe :: Boolean = #false,
@@ -20,23 +20,25 @@ sync_circuit Queue(T :: DataType,
   interface egress(Egress, ~role: producer)
   output count: Bits(index_width(depth + 1))
 
-  // Flow changes an empty queue into a combinational bypass. Pipe lets a full
-  // queue replace the item being removed without inserting a bubble. These
-  // host choices remove disabled paths from the elaborated hardware instead
-  // of leaving constant-false dependencies for hierarchy analysis to follow.
+  /* Computes admission from fullness, adding same-cycle removal in pipe mode.
+     Host configuration omits disabled combinational paths from the circuit. */
   fun ready_for_input(full :: Bool):
     if pipe | (!full ||| egress.ready) | !full
+  /* Includes an input offer in output validity only when empty bypass is enabled. */
   fun valid_for_output(empty :: Bool):
     if flow | (!empty ||| ingress.valid) | !empty
+  /* Selects the live input for an empty flow-through queue; otherwise reads
+     the stored head without changing its backpressure-stable payload. */
   fun bits_for_output(empty :: Bool, stored_bits :: Hardware.of(T)):
     if flow | mux(empty, ingress.bits, stored_bits) | stored_bits
 
-  // A flow-through transfer does not touch storage, so internal enqueue and
-  // dequeue events differ from the externally visible ready-valid handshakes.
+  /* A flow-through transfer does not touch storage, so internal enqueue and
+     dequeue events differ from the externally visible ready-valid handshakes. */
   fun stores_input(empty :: Bool, ingress_ready :: Bool):
     if flow
     | ingress.valid & ingress_ready & !(empty & egress.ready)
     | ingress.valid & ingress_ready
+  /* Removes only a stored head; an empty bypass transfer does not consume storage. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
   if (depth == 1)
@@ -98,8 +100,8 @@ sync_circuit Queue(T :: DataType,
 
   describe_interface_contract(ingress, egress, "data", ~kind: "queue", ~trace_model: interface_trace_queue())
 
-// Tokens are indistinguishable, so the control-only queue needs occupancy
-// state but no payload memory or read/write pointers.
+/* Tokens are indistinguishable, so the control-only queue needs occupancy
+   state but no payload memory or read/write pointers. */
 sync_circuit CtrlQueue(depth :: PosInt,
                        ~pipe: pipe :: Boolean = #false,
                        ~flow: flow :: Boolean = #false):
@@ -109,14 +111,19 @@ sync_circuit CtrlQueue(depth :: PosInt,
   interface egress(Egress, ~role: producer)
   output count: Bits(index_width(depth + 1))
 
+  /* Allows full-queue admission on simultaneous removal only in pipe mode. */
   fun ready_for_input(full :: Bool):
     if pipe | (!full ||| egress.ready) | !full
+  /* Includes a live control offer when flow mode bypasses empty storage. */
   fun valid_for_output(empty :: Bool):
     if flow | (!empty ||| ingress.valid) | !empty
+  /* Counts accepted tokens as stores except when an empty flow-through token
+     is immediately accepted downstream. */
   fun stores_input(empty :: Bool, ingress_ready :: Bool):
     if flow
     | ingress.valid & ingress_ready & !(empty & egress.ready)
     | ingress.valid & ingress_ready
+  /* Removes only a stored token, excluding empty flow-through transfers. */
   fun removes_output(empty :: Bool): !empty & egress.ready
 
   if (depth == 1)
@@ -157,8 +164,9 @@ sync_circuit CtrlQueue(depth :: PosInt,
           occupancy - bits(1, count_width)
         )
       #void
-// Instantiates a queue in the ambient sync domain and returns its downstream
-// endpoint. Use an explicit Queue instance when count must remain accessible.
+/* Configures a fresh queue in the ambient sync domain, returning a connected
+   endpoint or composed handle according to the source. Use an explicit Queue
+   instance when occupancy must remain accessible. */
 fun queue(depth :: PosInt,
           ~pipe: pipe_enabled :: Boolean = #false,
           ~flow: flow_enabled :: Boolean = #false)
@@ -180,7 +188,7 @@ fun queue(depth :: PosInt,
       )
     )
 
-// Configures the payloadless token FIFO in the ambient sync domain.
+/* Configures the payloadless token FIFO in the ambient sync domain. */
 fun ctrl_queue(depth :: PosInt,
                ~pipe: pipe_enabled :: Boolean = #false,
                ~flow: flow_enabled :: Boolean = #false)

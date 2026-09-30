@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines payload-bearing and control-only selected demultiplexers.
+/* Defines payload-bearing and control-only selected demultiplexers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Select is interpreted as part of the current Decoupled offer and may change
-// while stalled. Encodings outside 0 through n - 1 select no output and block
-// the input instead of silently discarding it.
+/* Select is interpreted as part of the current Decoupled offer and may change
+   while stalled. Encodings outside 0 through n - 1 select no output and block
+   the input instead of silently discarding it. */
 circuit Demux(T :: DataType, n :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -26,8 +26,8 @@ circuit Demux(T :: DataType, n :: PosInt):
 
   ingress.ready <== selected_ready
 
-// Routes a payloadless token to exactly the selected output. Invalid selector
-// encodings block the token rather than consuming it.
+/* Routes a payloadless token to exactly the selected output. Invalid selector
+   encodings block the token rather than consuming it. */
 circuit CtrlDemux(n :: PosInt):
 
   interface ingress(DecoupledCtrl(), ~role: consumer)
@@ -43,9 +43,9 @@ circuit CtrlDemux(n :: PosInt):
 
   ingress.ready <== selected_ready
 
-// Builds an inline payload-selected routing handle. The caller selects whether
-// the output retains an Irrevocable input contract; ordinary mappings weaken
-// to Decoupled because the selector body may capture changing hardware.
+/* Builds an inline payload-selected routing handle. The caller selects whether
+   the output retains an Irrevocable input contract; ordinary mappings weaken
+   to Decoupled because the selector body may capture changing hardware. */
 fun finish_demux_flow_handle(input_link :: Handle,
                              output_links :: Array,
                              selector :: Hardware.packable):
@@ -70,9 +70,9 @@ fun finish_demux_flow_handle(input_link :: Handle,
     ~trace_model: interface_trace_routing(selected_outputs)
   )
 
-// A payload type defaults to Decoupled, while an explicit ready-valid
-// InterfaceType retains that exact contract. Configuration produces a unary
-// cardinality-changing stage for ordinary pipeline composition.
+/* Configures inline payload-selected routing with an indexable output array.
+   Outputs default to Decoupled; an explicit stable-selector promise retains
+   the normalized input contract, including an Irrevocable source. */
 expr.macro
 | 'demux_flow($count,
               ~stable: #true,
@@ -88,6 +88,8 @@ expr.macro
 | 'demux_flow($count, $(payload :: Identifier)): $selector':
     'demux_flow_impl($count, #false, #false, $payload): $selector'
 
+/* Builds fresh routing links and elaborates the inline selector; only an
+   explicit stable promise preserves the input protocol. */
 expr.macro
 | 'demux_flow_impl($count,
                    $stable,
@@ -123,7 +125,7 @@ expr.macro
        )
        finish_interface_transform(demux_flow_source, demux_flow_handle)'
 
-// Direct pipelines retain the exact payload surface inside the selector.
+/* Direct pipelines retain the exact payload surface inside the selector. */
 immediate_callee.macro 'demux_flow $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

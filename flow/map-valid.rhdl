@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines inline payload transformation for non-backpressured Valid flows.
+/* Defines inline payload transformation for non-backpressured Valid flows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,8 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+/* Connects mapped payload and validity without a readiness path and records
+   the combinational relationship between input and output occurrences. */
 fun finish_map_valid_handle(input_link :: Handle,
                             output_link :: Handle,
                             mapped_bits :: Hardware.packable):
@@ -18,8 +20,8 @@ fun finish_map_valid_handle(input_link :: Handle,
     ~trace_model: interface_trace_combinational()
   )
 
-// Mapping is purely combinational because Valid has no readiness path or
-// pending-offer contract. Configuration produces a unary flow operation.
+/* Mapping is purely combinational because Valid has no readiness path or
+   pending-offer contract. Configuration produces a unary flow operation. */
 expr.macro
 | 'map_valid($(payload :: Identifier) => $body_head ...):
     $(body_tail :: Block)':
@@ -30,6 +32,8 @@ expr.macro
 | 'map_valid($(payload :: Identifier)): $body':
     'map_valid_impl(#false, $payload): $body'
 
+/* Builds fresh Valid links, elaborates the inline mapping,
+   and derives the output payload type from its hardware result. */
 expr.macro
 | 'map_valid_impl($payload_infos,
                   $(payload :: Identifier)): $body':
@@ -58,7 +62,7 @@ expr.macro
        )
        finish_interface_transform(map_valid_source, map_valid_handle)'
 
-// Direct Valid pipelines retain the exact payload surface inside the mapping.
+/* Direct Valid pipelines retain the exact payload surface inside the mapping. */
 immediate_callee.macro 'map_valid $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

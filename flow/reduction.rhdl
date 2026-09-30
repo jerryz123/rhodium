@@ -1,18 +1,24 @@
 #lang rhodium
-// Builds shared balanced Boolean reductions for all-except-one flow conditions.
+/* Builds shared balanced Boolean reductions for all-except-one flow conditions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
 
+/* Retains a host-side tree of hardware Boolean values, with conjunctions at
+   internal nodes and child links used to distribute all-except-one results. */
 class AndReductionNode(value :: Bool,
                        left :: maybe(AndReductionNode),
                        right :: maybe(AndReductionNode))
 
+/* Carries the full conjunction and a same-order vector of conjunctions that
+   each omit exactly one input; omitting the sole input yields true. */
 bundle AndExclusionReduction(n :: PosInt):
   all: Bool
   except: Vec(n, Bool)
 
+/* Builds a balanced conjunction tree from leaf values, retaining its host
+   structure for the subsequent shared exclusion down-sweep. */
 fun build_and_reduction_tree(input_values :: List) :: AndReductionNode:
   tree_reduce(
     input_values.map(
@@ -22,6 +28,8 @@ fun build_and_reduction_tree(input_values :: List) :: AndReductionNode:
       AndReductionNode(left.value & right.value, left, right)
   )
 
+/* Propagates the conjunction outside each subtree to its leaves, incorporating
+   the sibling's reduction and preserving the original input order. */
 fun distribute_and_exclusions(node :: AndReductionNode, outside :: Bool):
   if !node.left
   | [outside]
@@ -29,9 +37,9 @@ fun distribute_and_exclusions(node :: AndReductionNode, outside :: Bool):
       distribute_and_exclusions(node.right, outside & node.left.value)
     )
 
-// Returns the full conjunction and one conjunction per omitted input. A
-// balanced up-sweep/down-sweep shares work between every result, giving linear
-// hardware size and logarithmic logic depth.
+/* Returns the full conjunction and one conjunction per omitted input. A
+   balanced up-sweep/down-sweep shares work between every result, giving linear
+   hardware size and logarithmic logic depth. */
 fun and_exclusion_reduce(input_values :: Hardware.packable) :~ Hardware.packable:
   def input_type = hardware_value_type(input_values)
   unless input_type is_a VectorType && bool_type(input_type.element_type)

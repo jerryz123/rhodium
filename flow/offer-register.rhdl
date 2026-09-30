@@ -1,13 +1,13 @@
 #lang rhodium
-// Defines a rewritable one-slot offer with intrinsic capture, replacement, and release lineage.
+/* Defines a rewritable one-slot offer with intrinsic capture, replacement, and release lineage. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
 
-// A Valid update installs or replaces the current offer, including while the
-// egress is stalled. Without an update, an accepted offer clears the slot.
-// Replacement under stall is why the egress contract is Decoupled.
+/* A Valid update installs or replaces the current offer, including while the
+   egress is stalled. Without an update, an accepted offer clears the slot.
+   Replacement under stall is why the egress contract is Decoupled. */
 sync_circuit OfferRegister(T :: DataType):
 
   interface update(Valid(T), ~role: consumer)

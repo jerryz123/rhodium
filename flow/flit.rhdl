@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines ready-valid packet serialization and conversions among standard flit formats.
+/* Defines ready-valid packet serialization and conversions among standard flit formats. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,8 @@ import:
   lib("flow/queue.rhdl").Queue
   lib("flow/ready-valid-support.rhdl") open
 
+/* Builds a modulo-packet counter advanced only by successful transfers and
+   returns its phase together with first- and last-flit predicates. */
 fun flit_phase_state(flits_per_packet :: PosInt, transfer :: Bool):
   inst phase_counter(Counter(flits_per_packet))
   phase_counter.enable <== transfer
@@ -17,15 +19,21 @@ fun flit_phase_state(flits_per_packet :: PosInt, transfer :: Bool):
                                           index_width(flits_per_packet))
   [phase_counter.value, first, last]
 
+/* Returns transfer-counted packet boundaries for transforms that do not need
+   the phase index itself. */
 fun flit_phase(flits_per_packet :: PosInt, transfer :: Bool):
   def [_phase, first, last] = flit_phase_state(flits_per_packet, transfer)
   [first, last]
 
+/* Completes a flit adapter's link composition while retaining the original
+   endpoint, handle, or type seed's topology semantics. */
 fun finish_flit_transform(source :: FlowSource,
                           input_link :: Handle,
                           output_link :: Handle):
   finish_interface_transform(source, interface_transform(input_link, output_link))
 
+/* Requires a nonzero packed payload width before constructing packet storage
+   or chunk slices, attributing elaboration errors to the requesting generator. */
 fun packet_payload_width(T :: DataType, who :: Symbol) :: PosInt:
   def payload_width = T.packed_width()
   unless payload_width is_a PosInt
@@ -33,8 +41,9 @@ fun packet_payload_width(T :: DataType, who :: Symbol) :: PosInt:
           "packet payload must have a packable DataType")
   payload_width
 
-// Serializes the packed representation of one queued payload into
-// least-significant chunk first order.
+/* Holds one queued payload while sending least-significant chunks first.
+   Zero-pads the final chunk and retains the payload until its last flit is
+   accepted, keeping each framed output stable under backpressure. */
 sync_circuit Packetizer(T :: DataType, chunk_width :: PosInt):
   def payload_width = packet_payload_width(T, #'Packetizer)
   def chunk_count = (payload_width + chunk_width - 1) div chunk_width
@@ -59,7 +68,9 @@ sync_circuit Packetizer(T :: DataType, chunk_width :: PosInt):
     payload: chunks[phase]
   payload_queue.egress.ready <== egress.ready & last
 
-// Reassembles explicitly framed fixed-size packets into a completion queue.
+/* Collects low-order chunks first and queues each reconstructed payload on
+   the last accepted flit. Checks boundary markers against transfer phase,
+   discards final padding, and retains completed payloads under backpressure. */
 sync_circuit Reassembler(T :: DataType, chunk_width :: PosInt):
   def payload_width = packet_payload_width(T, #'Reassembler)
   def chunk_count = (payload_width + chunk_width - 1) div chunk_width
@@ -93,8 +104,8 @@ sync_circuit Reassembler(T :: DataType, chunk_width :: PosInt):
   when input_transfer:
     chunks <== next_chunks
 
-// Adds canonical head and tail markers from successful-transfer phase. Stalls
-// do not advance phase, so generated framing remains stable under backpressure.
+/* Adds canonical head and tail markers from successful-transfer phase. Stalls
+   do not advance phase, so generated framing remains stable under backpressure. */
 fun frame_fixed_flits(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -118,6 +129,8 @@ fun frame_fixed_flits(flits_per_packet :: PosInt)
       payload: input_endpoint.bits.payload
     finish_flit_transform(source, input_link, output_link)
 
+/* Asserts that transferred boundary markers match a fixed packet length;
+   stalled offers do not advance the expected phase. */
 fun check_fixed_framing(first :: Bool,
                         last :: Bool,
                         transfer :: Bool,
@@ -128,8 +141,8 @@ fun check_fixed_framing(first :: Bool,
   assert(!transfer ||| (last === expected_last),
          "fixed_flit_last_matches_phase")
 
-// Strengthens an explicitly framed variable packet into a fixed-length
-// contract by checking markers against successful-transfer phase.
+/* Strengthens an explicitly framed variable packet into a fixed-length
+   contract by checking markers against successful-transfer phase. */
 fun require_fixed_framing(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -153,8 +166,8 @@ fun require_fixed_framing(flits_per_packet :: PosInt)
     check_fixed_framing(input_endpoint.bits.head, input_endpoint.bits.tail, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
 
-// Removes checked explicit boundaries from a fixed-length packet. The phase
-// monitor fires on the same successful transfers that define implicit framing.
+/* Removes checked explicit boundaries from a fixed-length packet. The phase
+   monitor fires on the same successful transfers that define implicit framing. */
 fun strip_fixed_framing(flits_per_packet :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -176,7 +189,7 @@ fun strip_fixed_framing(flits_per_packet :: PosInt)
     check_fixed_framing(input_endpoint.bits.first, input_endpoint.bits.last, transfer, flits_per_packet)
     finish_flit_transform(source, input_link, output_link)
 
-// Forgets the fixed-length guarantee without changing explicit boundary bits.
+/* Forgets the fixed-length guarantee without changing explicit boundary bits. */
 fun forget_fixed_framing()
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):

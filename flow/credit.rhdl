@@ -1,5 +1,5 @@
 #lang rhodium
-// Bridges ready-valid flows across bounded single-hop credited transport.
+/* Bridges ready-valid flows across bounded single-hop credited transport. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,9 +8,9 @@ import:
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/queue.rhdl").Queue
 
-// Tracks an owned resource balance. A decrement requires a resource present
-// before the edge; simultaneous increment and decrement therefore cannot
-// manufacture a zero-balance resource for immediate use.
+/* Tracks an owned resource balance. A decrement requires a resource present
+   before the edge; simultaneous increment and decrement therefore cannot
+   manufacture a zero-balance resource for immediate use. */
 sync_circuit CreditCounter(limit :: PosInt):
 
   def count_width = index_width(limit + 1)
@@ -40,8 +40,8 @@ sync_circuit CreditCounter(limit :: PosInt):
   empty <== state_empty
   full <== state_full
 
-// Converts internal ready-valid traffic to credited transport. Readiness is
-// based only on registered credits, never on a grant arriving this cycle.
+/* Converts internal ready-valid traffic to credited transport. Readiness is
+   based only on registered credits, never on a grant arriving this cycle. */
 sync_circuit CreditSender(T :: DataType, credit_limit :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -58,8 +58,8 @@ sync_circuit CreditSender(T :: DataType, credit_limit :: PosInt):
   balance.decrement <== link.valid
   credit_count <== balance.count
 
-// Converts credited transport back to a buffered ready-valid flow. Reserved
-// capacity includes both buffered payloads and credits still held remotely.
+/* Converts credited transport back to a buffered ready-valid flow. Reserved
+   capacity includes both buffered payloads and credits still held remotely. */
 sync_circuit CreditBuffer(T :: DataType, depth :: PosInt):
 
   input grant_enable: Bool
@@ -88,6 +88,8 @@ sync_circuit CreditBuffer(T :: DataType, depth :: PosInt):
          "credit_buffer_occupancy_reserved")
   monitor_credited(link)
 
+/* Normalizes a credited endpoint, handle, protocol, or payload type and checks
+   that its credit limit matches the receiving buffer's configured depth. */
 fun credited_stage_protocol(source_or_type :: FlowSource, credit_limit :: PosInt):
   def protocol:
     cond
@@ -109,6 +111,8 @@ fun credited_stage_protocol(source_or_type :: FlowSource, credit_limit :: PosInt
           "credit buffer depth must match the protocol credit limit")
   normalized
 
+/* Configures a fresh sender whose registered credit balance gates input
+   acceptance, returning a credited endpoint or a composed handle. */
 fun credit_sender(credit_limit :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, Endpoint):
@@ -124,6 +128,8 @@ fun credit_sender(credit_limit :: PosInt)
       )
     )
 
+/* Configures credited receive storage with matching capacity and a live grant
+   enable; disabling new grants does not revoke credits already issued. */
 fun credit_buffer(depth :: PosInt,
                   ~grant_enable: grant_enable :: Bool = Bool(#true))
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, Endpoint)):

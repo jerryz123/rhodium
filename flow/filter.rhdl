@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines inline ready-valid filtering that consumes rejected payloads.
+/* Defines inline ready-valid filtering that consumes rejected payloads. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// Filtering may depend on live sideband state, so its output is conservatively
-// Decoupled even when its input is Irrevocable. A rejected token is consumed
-// without waiting for downstream readiness.
+/* Filtering may depend on live sideband state, so its output is conservatively
+   Decoupled even when its input is Irrevocable. A rejected token is consumed
+   without waiting for downstream readiness. */
 fun finish_filter_flow_handle(input_link :: Handle,
                               output_link :: Handle,
                               keep :: Bool):
@@ -24,12 +24,16 @@ fun finish_filter_flow_handle(input_link :: Handle,
     ~trace_model: interface_trace_combinational(~guard: keep)
   )
 
+/* Configures a payload predicate for a reusable filtering stage that consumes
+   rejected input offers independently of downstream readiness. */
 expr.macro
 | 'filter_flow($(payload :: Identifier) => $predicate ...)':
     'filter_flow($payload): $predicate ...'
 | 'filter_flow($(payload :: Identifier)): $predicate':
     'filter_flow_impl(#false, $payload): $predicate'
 
+/* Builds fresh links, binds the inline predicate to the input payload, and
+   returns a Decoupled output even when the source is irrevocable. */
 expr.macro
 | 'filter_flow_impl($payload_infos,
                     $(payload :: Identifier)): $predicate':
@@ -56,7 +60,7 @@ expr.macro
        )
        finish_interface_transform(filter_flow_source, filter_flow_handle)'
 
-// Direct pipelines retain the precise payload surface inside the predicate.
+/* Direct pipelines retain the precise payload surface inside the predicate. */
 immediate_callee.macro 'filter_flow $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])

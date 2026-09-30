@@ -1,17 +1,19 @@
 #lang rhodium
-// Converts indexed replicated state into reliable changes and applies received updates locally.
+/* Converts indexed replicated state into reliable changes and applies received updates locally. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/circular-priority.rhdl") open
 
-// Identifies one member of a replicated state vector and carries its complete
-// replacement value.
+/* Identifies one member of a replicated state vector and carries its complete
+   replacement value. */
 bundle IndexedState(T :: DataType, count :: PosInt):
   index: Bits(index_width(count))
   value: T
 
+/* Requires an initial hardware literal with the exact packed state type, so
+   published snapshots and replicated registers share one reset representation. */
 fun require_state_initial(T :: DataType,
                           initial :: HardwareLiteral,
                           who :: Symbol) :: HardwareLiteral:
@@ -22,9 +24,9 @@ fun require_state_initial(T :: DataType,
   | error(~who: who, "initial literal must have the state DataType")
   initial
 
-// Emits fair, irrevocable snapshots for vector elements that differ from the
-// last value successfully transferred for that index. Changes that return to
-// the published value before selection are intentionally coalesced.
+/* Emits fair, irrevocable snapshots for vector elements that differ from the
+   last value successfully transferred for that index. Changes that return to
+   the published value before selection are intentionally coalesced. */
 sync_circuit StateChangeSource(T :: DataType,
                                count :: PosInt,
                                initial :: HardwareLiteral):
@@ -79,8 +81,8 @@ sync_circuit StateChangeSource(T :: DataType,
   elsewhen transfer:
     held_valid <== Bool(#false)
 
-// Applies every accepted update to a local register and exposes the retained
-// value independently of later flow activity.
+/* Applies every accepted update to a local register and exposes the retained
+   value independently of later flow activity. */
 sync_circuit StateReplica(T :: DataType,
                           initial :: HardwareLiteral):
   def initial_value = require_state_initial(T, initial, #'StateReplica)

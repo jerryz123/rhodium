@@ -1,5 +1,5 @@
 #lang rhodium
-// Multiplexes independently backpressured virtual channels over one flow.
+/* Multiplexes independently backpressured virtual channels over one flow. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,13 +15,13 @@ export:
   VcMux
   VcDemux
 
-// A physical transfer identifies the virtual channel carrying its payload.
+/* A physical transfer identifies the virtual channel carrying its payload. */
 bundle VcBeat(T :: DataType, vc_count :: PosInt):
   vc: Bits(index_width(vc_count))
   payload: T
 
-// Couples one multiplexed physical flow with the per-VC downstream readiness
-// needed to avoid selecting a blocked logical channel.
+/* Couples one multiplexed physical flow with the per-VC downstream readiness
+   needed to avoid selecting a blocked logical channel. */
 interface VcLink(T :: DataType, vc_count :: PosInt):
   role source
   role destination
@@ -33,13 +33,14 @@ interface VcLink(T :: DataType, vc_count :: PosInt):
   destination -> source:
     vc_ready: Vec(vc_count, Bool)
 
-// Fairly selects one ready virtual channel without letting a blocked channel
-// prevent another channel from using the shared physical flow.
+/* Fairly selects one ready virtual channel without letting a blocked channel
+   prevent another channel from using the shared physical flow. */
 sync_circuit VcMux(T :: DataType, vc_count :: PosInt):
   interface ingress[vc_count](Decoupled(T), ~role: consumer)
   input vc_ready: Vec(vc_count, Bool)
   interface egress(Decoupled(VcBeat(T, vc_count)), ~role: producer)
 
+  /* Configures payload tagging with this lane's constant virtual-channel index. */
   fun tag_vc(vc_index :: Nat):
     map_flow(payload):
       VcBeat(T, vc_count):
@@ -48,8 +49,8 @@ sync_circuit VcMux(T :: DataType, vc_count :: PosInt):
   def tagged = for Array (vc_index in 0..vc_count): ingress[vc_index] |> gate_flow(vc_ready[vc_index]) |> tag_vc(vc_index)
   (tagged |> rr_arbiter()) <=> egress
 
-// Delivers each physical transfer to its named virtual channel and exposes
-// every channel's readiness so an upstream mux can avoid blocked channels.
+/* Delivers each physical transfer to its named virtual channel and exposes
+   every channel's readiness so an upstream mux can avoid blocked channels. */
 sync_circuit VcDemux(T :: DataType, vc_count :: PosInt):
   interface ingress(Decoupled(VcBeat(T, vc_count)), ~role: consumer)
   interface egress[vc_count](Decoupled(T), ~role: producer)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines an inline heterogeneous ready-valid join as an interface handle.
+/* Defines an inline heterogeneous ready-valid join as an interface handle. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,8 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+/* Wires a two-input atomic rendezvous around a mapped payload: each input
+   can transfer only when the other is valid and the output is ready. */
 fun finish_zip_flow_handle(left_link :: Handle,
                            right_link :: Handle,
                            output_link :: Handle,
@@ -28,8 +30,8 @@ fun finish_zip_flow_handle(left_link :: Handle,
     ~trace_model: interface_trace_atomic_join(2)
   )
 
-// The source is a two-element Array of payload/protocol types or endpoints.
-// Configuration produces a unary heterogeneous join stage.
+/* The source is a two-element Array of payload/protocol types or endpoints.
+   Configuration produces a unary heterogeneous join stage. */
 expr.macro
 | 'zip_flow($(left_payload :: Identifier),
             $(right_payload :: Identifier) => $body ...)':
@@ -60,6 +62,7 @@ expr.macro
        def zip_right_endpoint :: Endpoint = zip_right_link.right
        def $left_payload = zip_left_endpoint.bits
        def $right_payload = zip_right_endpoint.bits
+       /* Evaluates the inline mapping with both input payloads bound. */
        fun compute_zipped_bits(): $body
        def zipped_bits = compute_zipped_bits()
        def zip_output_link = interface_link(

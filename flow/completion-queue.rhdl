@@ -1,16 +1,16 @@
 #lang rhodium
-// Bridges ready-valid requests to nonstallable issues and completions with reserved response buffering.
+/* Bridges ready-valid requests to nonstallable issues and completions with reserved response buffering. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/queue.rhdl").Queue
 
-// Each accepted request reserves one response slot and emits one immediate
-// Valid issue. The producer must later present exactly one Valid completion;
-// completions cannot be backpressured and emerge in their arrival order.
-// Pipelined admission may replace a retiring reservation; registered admission
-// cannot.
+/* Each accepted request reserves one response slot and emits one immediate
+   Valid issue. The producer must later present exactly one Valid completion;
+   completions cannot be backpressured and emerge in their arrival order.
+   Pipelined admission may replace a retiring reservation; registered admission
+   cannot. */
 sync_circuit CompletionQueue(Request :: DataType,
                              Response :: DataType,
                              depth :: PosInt,

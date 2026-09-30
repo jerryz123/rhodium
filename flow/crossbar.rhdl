@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines grant-controlled payload traversal between ready-valid flow arrays.
+/* Defines grant-controlled payload traversal between ready-valid flow arrays. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,14 +11,14 @@ export:
   GrantCrossbar
   grant_crossbar
 
-// The grant matrix is input-major and must be a one-to-one matching: at most
-// one output may select each input, and at most one input may select each
-// output. Grant generation is deliberately separate so arbitration policy,
-// fairness, and domain-specific eligibility remain outside this datapath.
-//
-// Selection may change while an output is stalled, so outputs expose the
-// Decoupled rather than Irrevocable contract. Insert a queue or pipe after the
-// crossbar when a stable pending offer is required.
+/* The grant matrix is input-major and must be a one-to-one matching: at most
+   one output may select each input, and at most one input may select each
+   output. Grant generation is deliberately separate so arbitration policy,
+   fairness, and domain-specific eligibility remain outside this datapath.
+
+   Selection may change while an output is stalled, so outputs expose the
+   Decoupled rather than Irrevocable contract. Insert a queue or pipe after the
+   crossbar when a stable pending offer is required. */
 circuit GrantCrossbar(T :: DataType,
                       input_count :: PosInt,
                       output_count :: PosInt):
@@ -44,9 +44,9 @@ circuit GrantCrossbar(T :: DataType,
     output_stage.egress |> egress[output_index]
     output_stage
 
-// Configures a grant-controlled crossbar for an eventual endpoint or type
-// array. Grants remain an explicit sideband because they control, rather than
-// participate in, payload transfer.
+/* Configures a grant-controlled crossbar for an eventual endpoint or type
+   array. Grants remain an explicit sideband because they control, rather than
+   participate in, payload transfer. */
 fun grant_crossbar(output_count :: PosInt,
                    ~grants: grants :~ Hardware.packable)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, InterfaceArrayFields)):

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements traceable shallow FIFOs with a fixed head, compact validity, and optional flush.
+/* Implements traceable shallow FIFOs with a fixed head, compact validity, and optional flush. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,9 @@ import:
   lib("rhodium/std/reduction.rhdl").tree_reduce
   lib("flow/ready-valid-support.rhdl") open
 
+/* Stores a compact prefix of valid entries and shifts the head out on removal.
+   Pipe allows full replacement; flow allows empty bypass. Flush clears
+   occupancy at the edge without resetting payloads or gating current offers. */
 sync_circuit ShiftQueue(T :: DataType,
                         depth :: PosInt,
                         ~pipe: pipe :: Boolean = #false,
@@ -64,7 +67,7 @@ sync_circuit ShiftQueue(T :: DataType,
   describe_interface_window_storage(depth, enqueue, released, count, clear, [occupied[0]], ~live: if flow | bypass | #false)
   describe_interface_contract(ingress, egress, "data", ~kind: "shift-queue", ~trace_model: interface_trace_window())
 
-// Configures a fresh fixed-head FIFO for an endpoint or disconnected topology.
+/* Configures a fresh fixed-head FIFO for an endpoint or disconnected topology. */
 fun shift_queue(depth :: PosInt,
                 ~pipe: pipe_enabled :: Boolean = #false,
                 ~flow: flow_enabled :: Boolean = #false,

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines atomic forks and certifies payload-bearing flow replication for tracing.
+/* Defines atomic forks and certifies payload-bearing flow replication for tracing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,9 +8,9 @@ import:
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/reduction.rhdl").and_exclusion_reduce
 
-// Every output transfers in the same cycle or none do. Unlike Broadcast, the
-// fork has no storage and does not retain independently pending recipients.
-// Output offers are Decoupled because each valid depends on peer readiness.
+/* Every output transfers in the same cycle or none do. Unlike Broadcast, the
+   fork has no storage and does not retain independently pending recipients.
+   Output offers are Decoupled because each valid depends on peer readiness. */
 circuit AtomicFork(T :: DataType, n :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -24,9 +24,9 @@ circuit AtomicFork(T :: DataType, n :: PosInt):
     egress[index].valid <== ingress.valid & ready_reduction.except[index]
     egress[index].bits <== ingress.bits
 
-// Only selected outputs participate in the atomic transfer. An empty mask
-// consumes the input without producing an output, which makes the selection
-// predicate a total payload-to-recipient-set operation.
+/* Only selected outputs participate in the atomic transfer. An empty mask
+   consumes the input without producing an output, which makes the selection
+   predicate a total payload-to-recipient-set operation. */
 circuit SelectiveAtomicFork(T :: DataType, n :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -44,8 +44,8 @@ circuit SelectiveAtomicFork(T :: DataType, n :: PosInt):
     egress[index].valid <== ingress.valid & selected[index] & ready_reduction.except[index]
     egress[index].bits <== ingress.bits
 
-// The control-only specialization atomically duplicates indistinguishable
-// tokens without manufacturing a payload.
+/* The control-only specialization atomically duplicates indistinguishable
+   tokens without manufacturing a payload. */
 circuit CtrlAtomicFork(n :: PosInt):
 
   interface ingress(DecoupledCtrl(), ~role: consumer)
@@ -58,7 +58,8 @@ circuit CtrlAtomicFork(n :: PosInt):
   for (index in 0..n):
     egress[index].valid <== ingress.valid & ready_reduction.except[index]
 
-// Instantiates an atomic fork and returns its indexable output endpoint array.
+/* Configures a fresh atomic fork with indexable outputs, returning connected
+   endpoints or a composed handle according to the source. */
 fun atomic_fork(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):
@@ -75,9 +76,9 @@ fun atomic_fork(n :: PosInt)
       )
     )
 
-// Configures an atomic fork whose participating outputs are selected from the
-// current payload. Decoupled payload and selection changes remain legal while
-// stalled because no selected branch can transfer independently.
+/* Configures an atomic fork whose participating outputs are selected from the
+   current payload. Decoupled payload and selection changes remain legal while
+   stalled because no selected branch can transfer independently. */
 expr.macro
 | 'selective_atomic_fork($count,
                          $(payload :: Identifier) => $selection ...)':
@@ -86,6 +87,8 @@ expr.macro
                          $(payload :: Identifier)): $selection':
     'selective_atomic_fork_impl($count, #false, $payload): $selection'
 
+/* Builds fresh links and a selective fork, elaborating payload-to-Mask
+   selection logic and preserving the source-dependent topology result. */
 expr.macro
 | 'selective_atomic_fork_impl($count,
                               $payload_infos,
@@ -126,7 +129,7 @@ expr.macro
          )
        )'
 
-// Direct pipelines retain the exact payload surface inside the selection.
+/* Direct pipelines retain the exact payload surface inside the selection. */
 immediate_callee.macro 'selective_atomic_fork $tail ...':
   ~static_infos: source_infoss
   def payload_infos = flow_payload_static_infos(source_infoss[0])
@@ -152,7 +155,7 @@ immediate_callee.macro 'selective_atomic_fork $tail ...':
         '$tail ...'
       )
 
-// Configures the payloadless atomic fork for control-only token flows.
+/* Configures the payloadless atomic fork for control-only token flows. */
 fun ctrl_atomic_fork(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):

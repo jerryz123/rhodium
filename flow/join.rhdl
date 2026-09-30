@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines payload-bearing and control-only atomic ready-valid joins.
+/* Defines payload-bearing and control-only atomic ready-valid joins. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,14 +8,14 @@ import:
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/reduction.rhdl").and_exclusion_reduce
 
-// Carries the selection that defines which lanes in a joined value are
-// meaningful alongside the complete fixed-shape payload vector.
+/* Carries the selection that defines which lanes in a joined value are
+   meaningful alongside the complete fixed-shape payload vector. */
 bundle SelectedValues(T :: DataType, n :: PosInt):
   selection: Mask(n)
   values: Vec(n, T)
 
-// The output becomes valid only when every input is valid. Readiness is gated
-// so no input can transfer unless all peers transfer in the same cycle.
+/* The output becomes valid only when every input is valid. Readiness is gated
+   so no input can transfer unless all peers transfer in the same cycle. */
 circuit Join(T :: DataType, n :: PosInt):
 
   interface ingress[n](Decoupled(T), ~role: consumer)
@@ -32,9 +32,9 @@ circuit Join(T :: DataType, n :: PosInt):
   for (index in 0..n):
     ingress[index].ready <== egress.ready & valid_reduction.except[index]
 
-// Atomically consumes one selection token and exactly the selected data
-// inputs. Unselected inputs do not participate and remain unconsumed. An empty
-// selection produces one explicitly empty result without consuming data.
+/* Atomically consumes one selection token and exactly the selected data
+   inputs. Unselected inputs do not participate and remain unconsumed. An empty
+   selection produces one explicitly empty result without consuming data. */
 circuit SelectiveJoin(T :: DataType, n :: PosInt):
 
   interface selection(Decoupled(Mask(n)), ~role: consumer)
@@ -57,9 +57,9 @@ circuit SelectiveJoin(T :: DataType, n :: PosInt):
   for (index in 0..n):
     ingress[index].ready <== selection.valid & selected[index] & egress.ready & valid_reduction.except[index]
 
-// The source array contains the selection flow first, followed by one or more
-// homogeneous data flows. All sources participate through ordinary `|>`
-// composition, and the result records which data lanes were selected.
+/* The source array contains the selection flow first, followed by one or more
+   homogeneous data flows. All sources participate through ordinary `|>`
+   composition, and the result records which data lanes were selected. */
 fun selective_join():
   fun (selective_join_source :: FlowSource || Array)
     :~ InterfaceTransformResult(selective_join_source, Endpoint):
@@ -104,8 +104,8 @@ fun selective_join():
       )
     )
 
-// Rendezvous payloadless tokens without allowing any valid input to transfer
-// unless every peer participates in the same cycle.
+/* Rendezvous payloadless tokens without allowing any valid input to transfer
+   unless every peer participates in the same cycle. */
 circuit CtrlJoin(n :: PosInt):
 
   interface ingress[n](DecoupledCtrl(), ~role: consumer)

@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines round-robin arbitration that retains one input through a complete packet.
+/* Defines round-robin arbitration that retains one input through a complete packet. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,11 +8,11 @@ import:
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/circular-priority.rhdl") open
 
-// The primitive receives packet boundaries as an explicit sideband so packet
-// representation remains a frontend-layer choice. An unlocked arbiter selects
-// by round-robin priority. Transferring a non-final beat locks that input until
-// one of its final beats transfers; bubbles and stalls cannot transfer
-// ownership. Priority rotates only after a complete packet.
+/* The primitive receives packet boundaries as an explicit sideband so packet
+   representation remains a frontend-layer choice. An unlocked arbiter selects
+   by round-robin priority. Transferring a non-final beat locks that input until
+   one of its final beats transfers; bubbles and stalls cannot transfer
+   ownership. Priority rotates only after a complete packet. */
 sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
   interface ingress[n](Decoupled(T), ~role: consumer)
   input ends_packet: Vec(n, Bool)
@@ -62,8 +62,8 @@ sync_circuit PacketRRArbiter(T :: DataType, n :: PosInt):
     locked <== Bool(#true)
     owner <== selected_index
 
-// Configures packet arbitration with an inline final-beat predicate. Connected
-// endpoint arrays infer their input count; disconnected paths state it once.
+/* Configures packet arbitration with an inline final-beat predicate. Connected
+   endpoint arrays infer their input count; disconnected paths state it once. */
 expr.macro
 | 'packet_rr_arbiter($(packet :: Identifier) => $predicate ...)':
     'packet_rr_arbiter($packet): $predicate ...'
@@ -75,6 +75,8 @@ expr.macro
 | 'packet_rr_arbiter($count, $(packet :: Identifier)): $predicate':
     'packet_rr_arbiter_impl($count, $packet): $predicate'
 
+/* Normalizes input sources, builds one final-beat predicate per payload, and
+   connects a fresh packet arbiter while preserving topology composition. */
 expr.macro
 | 'packet_rr_arbiter_impl($configured_count,
                           $(packet :: Identifier)): $predicate':
@@ -124,6 +126,7 @@ expr.macro
          for List (packet_rr_index in 0..packet_rr_input_count):
            def packet_rr_input :: Endpoint = packet_rr_input_endpoints[packet_rr_index]
            def $packet = packet_rr_input.bits
+           /* Evaluates the inline packet-end predicate for this input's payload. */
            fun compute_packet_end(): $predicate
            def packet_rr_ends :: Bool = compute_packet_end()
            packet_rr_ends

@@ -1,16 +1,18 @@
 #lang rhodium
-// Selects one request from a hardware-supplied circular starting priority.
+/* Selects one request from a hardware-supplied circular starting priority. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Carries a circular selector's optional one-hot grant and encoded index;
+   the index is meaningful only when valid is asserted. */
 bundle CircularPriorityChoice(n :: PosInt, index_width :: PosInt):
   valid: Bool
   grant: MaybeOneHot(n)
   index: Bits(index_width)
 
-// The start index must be in range. Selection first considers requests at or
-// above start, then wraps to the ordinary lower-index-first priority result.
-// Both paths are built once; this avoids constructing one complete arbiter for
-// every possible start value.
+/* The start index must be in range. Selection first considers requests at or
+   above start, then wraps to the ordinary lower-index-first priority result.
+   Both paths are built once; this avoids constructing one complete arbiter for
+   every possible start value. */
 fun circular_priority_onehot(requests :: Hardware.packable,
                              start :: Bits) :~ Hardware.packable:
   def request_type = hardware_value_type(requests)

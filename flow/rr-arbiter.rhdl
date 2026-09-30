@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines round-robin arbiters and grant-certified ready-valid trace selection.
+/* Defines round-robin arbiters and grant-certified ready-valid trace selection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,9 @@ import:
   lib("flow/ready-valid-support.rhdl") open
   lib("flow/circular-priority.rhdl") open
 
-// The arbiter owns transfer-based rotation around one combinational circular
-// selector. Selection may change while stalled, so the output deliberately
-// remains Decoupled rather than claiming an irrevocable offer.
+/* The arbiter owns transfer-based rotation around one combinational circular
+   selector. Selection may change while stalled, so the output deliberately
+   remains Decoupled rather than claiming an irrevocable offer. */
 sync_circuit RRArbiter(T :: DataType, n :: PosInt):
 
   interface ingress[n](Decoupled(T), ~role: consumer)
@@ -42,7 +42,7 @@ sync_circuit RRArbiter(T :: DataType, n :: PosInt):
       choice.index + bits(1, width)
     )
 
-// The payloadless specialization owns the same direct rotating state.
+/* The payloadless specialization owns the same direct rotating state. */
 sync_circuit CtrlRRArbiter(n :: PosInt):
 
   interface ingress[n](DecoupledCtrl(), ~role: consumer)
@@ -69,8 +69,8 @@ sync_circuit CtrlRRArbiter(n :: PosInt):
       choice.index + bits(1, width)
     )
 
-// A connected endpoint array supplies its own input count. A disconnected
-// topology starts from a payload type and states the count once in rr_arbiter.
+/* A connected endpoint array supplies its own input count. A disconnected
+   topology starts from a payload type and states the count once in rr_arbiter. */
 fun rr_arbiter(n :: maybe(PosInt) = #false)
   :: ((source :: FlowSource || Array) -> InterfaceTransformResult(source, Endpoint)):
   fun (source :: FlowSource || Array) :~ InterfaceTransformResult(source, Endpoint):

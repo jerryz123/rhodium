@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines explicitly ordered one-to-one matching over a hardware request matrix.
+/* Defines explicitly ordered one-to-one matching over a hardware request matrix. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,11 +9,11 @@ export:
   GreedyMatcher
   OutputGreedyRoundRobinMatcher
 
-// Requests and grants use the same input-major matrix shape. Matching is
-// independent of payloads, ready signals, and any domain-specific resource
-// meaning assigned to rows or columns. Lower input indices have priority, and
-// each input takes the lowest still-unclaimed requested output. The result is
-// maximal, but the fixed priority provides no fairness guarantee.
+/* Requests and grants use the same input-major matrix shape. Matching is
+   independent of payloads, ready signals, and any domain-specific resource
+   meaning assigned to rows or columns. Lower input indices have priority, and
+   each input takes the lowest still-unclaimed requested output. The result is
+   maximal, but the fixed priority provides no fairness guarantee. */
 circuit GreedyMatcher(input_count :: PosInt, output_count :: PosInt):
   input requests: Vec(input_count, Vec(output_count, Bool))
   output grants: Vec(input_count, Vec(output_count, Bool))
@@ -35,11 +35,11 @@ circuit GreedyMatcher(input_count :: PosInt, output_count :: PosInt):
 
   grants <== vec(grant_rows)
 
-// Greedily considers outputs in fixed index order. Within each output, inputs
-// still unmatched by earlier outputs use an independent rotating priority. This
-// is a maximal, not maximum-cardinality, matcher; rotation does not make the
-// fixed inter-output ordering fair. A selected output advances only when its
-// grant is accepted, so backpressure cannot consume its input priority.
+/* Greedily considers outputs in fixed index order. Within each output, inputs
+   still unmatched by earlier outputs use an independent rotating priority. This
+   is a maximal, not maximum-cardinality, matcher; rotation does not make the
+   fixed inter-output ordering fair. A selected output advances only when its
+   grant is accepted, so backpressure cannot consume its input priority. */
 sync_circuit OutputGreedyRoundRobinMatcher(input_count :: PosInt,
                                            output_count :: PosInt):
   input requests: Vec(input_count, Vec(output_count, Bool))

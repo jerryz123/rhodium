@@ -1,11 +1,13 @@
 #lang rhodium
-// Defines inline one-to-many fanout for non-backpressured Valid flows.
+/* Defines inline one-to-many fanout for non-backpressured Valid flows. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
+/* Configures combinational duplication of each Valid occurrence onto all
+   outputs, without buffering or independent recipient acceptance. */
 fun fork_valid(n :: PosInt)
   :: ((source :: FlowSource) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :: FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):

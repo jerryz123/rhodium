@@ -1,14 +1,14 @@
 #lang rhodium
-// Defines payload-bearing and control-only exactly-once broadcast buffers.
+/* Defines payload-bearing and control-only exactly-once broadcast buffers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
   lib("flow/ready-valid-support.rhdl") open
 
-// One payload is held while a pending mask records which consumers still need
-// it. Each output can accept independently without receiving duplicates, and
-// every asserted output remains stable until its consumer accepts it.
+/* One payload is held while a pending mask records which consumers still need
+   it. Each output can accept independently without receiving duplicates, and
+   every asserted output remains stable until its consumer accepts it. */
 sync_circuit Broadcast(T :: DataType, n :: PosInt):
 
   interface ingress(Decoupled(T), ~role: consumer)
@@ -45,8 +45,8 @@ sync_circuit Broadcast(T :: DataType, n :: PosInt):
     elsewhen (pending[index] & egress[index].ready):
       pending[index] <== Bool(#false)
 
-// Payloadless broadcast retains only the per-recipient pending mask. Each
-// output's valid offer remains asserted until that recipient accepts it.
+/* Payloadless broadcast retains only the per-recipient pending mask. Each
+   output's valid offer remains asserted until that recipient accepts it. */
 sync_circuit CtrlBroadcast(n :: PosInt):
 
   interface ingress(DecoupledCtrl(), ~role: consumer)
@@ -74,7 +74,7 @@ sync_circuit CtrlBroadcast(n :: PosInt):
     elsewhen (pending[index] & egress[index].ready):
       pending[index] <== Bool(#false)
 
-// Configures a one-slot broadcast with independently accepted irrevocable outputs.
+/* Configures a one-slot broadcast with independently accepted irrevocable outputs. */
 fun broadcast(n :: PosInt)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, InterfaceArrayFields)):
   fun (source :~ FlowSource) :~ InterfaceTransformResult(source, InterfaceArrayFields):
