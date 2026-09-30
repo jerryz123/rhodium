@@ -202,7 +202,7 @@ GNU cross-linker lacks that support, select a complete LLVM installation with
 `OPENSBI_LLVM=/path/to/llvm/bin`.
 
 Run a caller-provided S-mode ELF linked at the `next_stage_address` recorded in
-`layout.json`:
+`layout.json` after building `opensbi-firmware`:
 
 ```sh
 make -C sims opensbi-run SOC=simple-rv5stage-rva23 \
@@ -675,6 +675,14 @@ ELFs without compiling them; binding rejects incompatible build inputs or
 modified ELFs, and execution still requires the exact simulator attestation.
 The usual `*-test` commands continue to build and run. For compilation using
 an existing descriptor, set `PREBUILT_PROGRAM_TARGET=/absolute/path/to/target.json`.
+Platform qualifications use this same artifact flow. `litmus-smoke-run` executes
+a bound litmus archive without litmus7 or a compiler. `opensbi-smoke-run`
+executes a bound firmware/payload archive; OpenSBI binding additionally requires
+`--fdt /absolute/path/to/execution-platform.dtb`, generated for that exact
+product with `sims/opensbi/write-device-tree.rhm`. Incompatible device trees or
+boot layouts cannot share firmware. Both commands accept `PROGRAM_MANIFEST`
+and `PREBUILT_SIMULATOR` as above, retain their suite-specific checks, and do
+not compile software. Their corresponding `*-test` commands build and run locally.
 Mini/Tiled ISA-smoke archives remain attached to their per-product results. The
 simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.

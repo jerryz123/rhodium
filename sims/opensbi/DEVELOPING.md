@@ -46,3 +46,16 @@ Keep generated firmware, layouts, logs, and payload ELFs under
 `/tmp/rhodium-software`. When changing layout policy, retain explicit checks
 that firmware, the next stage, the FDT reservation, and all loaded ELF segments
 fit the selected architectural RAM without overlap.
+
+`opensbi-elfs` builds firmware and the qualification payload and writes the
+shared manifest. CI supplies `PREBUILT_PROGRAM_TARGET` and
+`PREBUILT_OPENSBI_FDT` from its planning artifact, so firmware compilation does
+not elaborate Rhodium. The common archive includes both ELFs and the DTB;
+the common binder requires the execution product's DTB and checks relocated
+firmware and payload ranges without compiler tools.
+`opensbi-smoke-run` runs that bound manifest through the ordinary workload
+runner with bounded process-group execution and JSON/JUnit diagnostics.
+`opensbi-test` composes build and run locally. `opensbi-run` remains the
+caller-selected next-stage path but no longer builds firmware implicitly;
+build `opensbi-firmware` first. DTB projection stays here, and firmware build
+identity stays in `sw/build/opensbi.py`.

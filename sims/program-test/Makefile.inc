@@ -66,7 +66,7 @@ NATIVE_RUN_CYCLES_bringup = $(BRINGUP_MAX_CYCLES)
 .PHONY: single-core-software-test
 .PHONY: isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run
 .PHONY: isa-smoke-config isa-smoke-elfs isa-smoke
-.PHONY: litmus-setup litmus-elfs litmus-test litmus-smoke-elfs litmus-smoke-test litmus-full-elfs litmus-full-run litmus-full-test litmus-full-report
+.PHONY: litmus-setup litmus-elfs litmus-test litmus-smoke-elfs litmus-smoke-test litmus-smoke-run litmus-full-elfs litmus-full-run litmus-full-test litmus-full-report
 program-target: $(PROGRAM_TARGET)
 
 ifeq ($(strip $(PREBUILT_SIMULATOR)$(PREBUILT_PROGRAM_TARGET)),)
@@ -225,8 +225,10 @@ litmus-test: litmus-elfs simulator-attestation
 	  --output "$(LITMUS_BUILD_DIR)/results" --jobs $(PROGRAM_JOBS) \
 	  --timeout $(PROGRAM_TIMEOUT) --max-cycles $(LITMUS_MAX_CYCLES)
 
-litmus-smoke-test: litmus-smoke-elfs simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(LITMUS_SMOKE_DIR)/manifest.json" \
+litmus-smoke-test: litmus-smoke-elfs
+
+litmus-smoke-test litmus-smoke-run: simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(LITMUS_SMOKE_DIR)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
 	  --output "$(LITMUS_SMOKE_DIR)/results" --jobs $(PROGRAM_JOBS) \
 	  --timeout $(LITMUS_SMOKE_TIMEOUT) --max-cycles $(LITMUS_PROFILE_MAX_CYCLES)

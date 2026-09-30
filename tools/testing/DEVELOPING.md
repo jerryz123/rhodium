@@ -108,8 +108,10 @@ flowchart TD
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
     Compile --> Simulators["Reusable simulator workflow<br/>fourteen exact products for simulation;<br/>six Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
-    Simulators --> LitmusSmoke["Tiled litmus smoke matrix<br/>Spike and RV5Stage"]
-    Simulators --> Qualification["Per-SoC OpenSBI qualification"]
+    Compile --> QualificationTargets["Generate qualification targets and DTBs<br/>group compatible builds"]
+    QualificationTargets --> QualificationBuilds["Shared litmus / OpenSBI build artifacts"]
+    QualificationBuilds --> Qualification["Per-product qualification execution<br/>litmus histograms; OpenSBI handoff"]
+    Simulators --> Qualification
     Compile --> ProgramTargets["Generate native software targets<br/>group identical ELF build requirements"]
     Simulators --> ProgramTargets
     ProgramTargets --> ProgramBuilds["Compile native suites once per group<br/>eight groups in the current matrix"]
@@ -120,7 +122,6 @@ flowchart TD
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
-    LitmusSmoke --> Gate
     Qualification --> Gate
     Programs --> Gate
     ActRun --> Gate
@@ -134,9 +135,13 @@ simulation workflow remains independent from backend fixtures and owns the
 repository's harness and ISA-smoke flow. Each OpenSBI qualification has its own
 job budget and uses the matching exact-commit single-core simulator artifact,
 so firmware execution cannot consume another SoC's or the harness job's budget.
-The tiled litmus smoke matrix in that workflow has one job per core and runs the same bounded,
-model-checked litmus7 selection on each; it retains build logs, manifests,
-and runner results even on failure. Its full inventory is manual only and has
+That workflow groups litmus builds by software requirements and OpenSBI builds
+by derived boot layout and generated DTB contents. Litmus7 and target compilers
+belong only to build jobs, and the common ELF archive/binder feeds all compatible
+execution products. Each tiled product runs the same bounded, model-checked
+litmus7 selection with its independent 90-minute budget; OpenSBI retains a
+45-minute budget per single-core product. Both retain build diagnostics and
+runner results even on failure. The full litmus inventory is manual only and has
 no CI job or schedule. Do not remove smoke cases because they expose a failure.
 
 Core CIRCT coverage gives frontend, control, and datapath execution leaves,
@@ -156,8 +161,10 @@ checks its simulator attestation. Compiler installation and ELF caches belong
 only to the build jobs; the sixteen execution jobs retain every selected test.
 Native adapter contracts run once before the build matrix. A failed build does
 not prevent execution jobs from attempting other published groups.
-The two OpenSBI jobs each test the target adapter, qualify one single-core
-product under the simulation change selection, and publish separate diagnostics.
+Qualification adapters run once in the planning job. Each OpenSBI execution
+qualifies one single-core product under simulation change selection and
+publishes separate diagnostics. A failed qualification build does not prevent
+execution jobs from attempting other published build groups.
 All four Simple RV32 products select native ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
 All six Simple products select their own ACT generation and execution: four

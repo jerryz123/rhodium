@@ -91,7 +91,7 @@ class ProgramTargetTest(unittest.TestCase):
         first = program_target('simple-rv5stage-rva23')
         second = first | dict(soc='simple-spike-rva23', resolved_configuration={'core': 'spike'},
                               configuration_fingerprint='different')
-        for suite in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup'):
+        for suite in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'litmus'):
             with self.subTest(suite=suite):
                 self.assertEqual(self.target.elf_build_metadata(first, suite),
                                  self.target.elf_build_metadata(second, suite))
@@ -116,6 +116,15 @@ class ProgramTargetTest(unittest.TestCase):
         for options in (dict(isa_selection='full'), dict(isa_selection='smoke')):
             self.assertNotEqual(self.target.elf_build_spec(target, 'isa'),
                                 self.target.elf_build_spec(target, 'isa', options))
+
+    def test_litmus_reuse_tracks_harts_extensions_clock_and_workload_options(self):
+        target = program_target()
+        spec = self.target.elf_build_spec(target, 'litmus', dict(runs=1, tests=['MP'], generator='litmus7'))
+        for change in (dict(harts=[0, 1]), dict(extensions=['i', 'm', 'a']), dict(clock_frequency_hz=200000000)):
+            self.assertNotEqual(spec, self.target.elf_build_spec(target | change, 'litmus', spec['options']))
+        for options in (dict(runs=2, tests=['MP'], generator='litmus7'),
+                        dict(runs=1, tests=['SB'], generator='litmus7')):
+            self.assertNotEqual(spec, self.target.elf_build_spec(target, 'litmus', options))
 
 
 class SharedELFBindingTest(unittest.TestCase):

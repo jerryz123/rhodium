@@ -73,6 +73,14 @@ def execute(test, simulator, root, output, timeout, cycles):
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
             raise ValueError(f'ELF checksum mismatch: {elf}')
+        if 'payload' in test:
+            payload = test['payload']
+            path = (root / payload['elf']).resolve()
+            if not path.is_relative_to(root.resolve()):
+                raise ValueError('auxiliary payload is outside the suite')
+            if hashlib.sha256(path.read_bytes()).hexdigest() != payload['sha256']:
+                raise ValueError(f'ELF checksum mismatch: {path}')
+            command.insert(-1, '+payload=' + str(path))
         with log_path.open('w') as log:
             process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
             with ACTIVE_LOCK:

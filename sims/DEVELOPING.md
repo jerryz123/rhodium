@@ -555,8 +555,16 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
-Native adapter contracts run once in the planning job. ACT retains independent
-implementation-specific generation and expectations.
+Native adapter contracts run once in the planning job. Platform qualifications
+use the same grouping/archive/binding machinery in `ci-simulation.yml`:
+`qualification-plan` emits targets and OpenSBI DTBs, `qualification-build`
+compiles each compatible group, and `qualification` executes every product.
+`litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
+neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
+auxiliary `payload`, passed through FESVR's existing `+payload` option; its DTB
+is a checksum-bearing manifest file. Keep firmware relocation validation in the
+software builder/binder rather than adding another ELF loader to the simulator.
+ACT retains independent implementation-specific generation and expectations.
 The ordinary `smoke` target specializes its payload by ISA: for RVA23, in addition
 to boot and UART/PLIC behavior it executes vector loads/stores, checks VLEN=128,
 exercises ELEN=64, and checks Zvbb plus double/half vector FP results. It uses
@@ -594,9 +602,12 @@ not an extension switch. The adapter checks its version, MXLEN, and UXLEN before
 accepting that mapping. Other supervisor guarantees retain their modeled
 extension switches; preserve the exact published UDB input.
 
-The separate tiled-litmus smoke CI matrix builds both Spike and RV5Stage tiled
-simulators and runs the same checked-in, litmus7-generated case selection on
-each. It never runs the full profile. The full profile is manual: build its
+The platform qualification matrix runs the same checked-in, litmus7-generated
+smoke selection on both exact tiled simulators. Litmus7 and ELFs are built only
+in the shared build jobs; execution retains histogram checking and its own
+90-minute job budget. OpenSBI executions retain independent 45-minute budgets
+and share firmware only when layout and generated DTB contents match.
+CI never runs the full litmus profile. The full profile is manual: build its
 ELFs once, then run disjoint name-sorted shards with separate output paths.
 `program-test/run.py` checkpoints completed cases atomically after each result,
 so an interrupted shard can resume only with identical manifest, simulator,

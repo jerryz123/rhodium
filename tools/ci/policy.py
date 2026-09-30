@@ -98,6 +98,15 @@ SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
                          if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
 
 
+def qualification_products():
+    """Select existing platform qualifications by shape and ISA, never core identity."""
+    suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
+              'tiled': ('litmus', 'litmus-smoke-run', 90)}
+    return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2])
+            for soc, shape, _core in SIMULATOR_PRODUCTS
+            if shape in suites and SELECTIONS[soc][2] == 'rva23']
+
+
 def native_products(suite):
     return tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
                  if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))

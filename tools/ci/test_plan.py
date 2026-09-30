@@ -9,7 +9,7 @@ from pathlib import Path
 from .gate import failures
 from .plan import Selection, plan_for_paths
 from .programs import program_matrices
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry, qualification_products
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -148,6 +148,43 @@ class PlanTest(unittest.TestCase):
                 plan = self.plan(path)
                 self.assertEqual(suites(plan), list(NATIVE_SUITES))
                 self.assertTrue(plan["run_program_arch"])
+
+    def test_qualifications_group_compatible_builds_without_removing_product_runs(self):
+        entries = qualification_products()
+        self.assertEqual({(entry['soc'], entry['suite']) for entry in entries}, {
+            ('simple-rv5stage-rva23', 'opensbi'), ('simple-spike-rva23', 'opensbi'),
+            ('tiled-rv5stage-rva23', 'litmus'), ('tiled-spike-rva23', 'litmus')})
+        targets = {entry['soc']: dict(soc=entry['soc'], xlen=64,
+                    harts=list(range(8)) if entry['suite'] == 'litmus' else [0],
+                    extensions=['i', 'm', 'a', 'zicsr', 'zifencei', 'zicntr'],
+                    march='rv64ima_zicsr_zifencei_zicntr', mabi='lp64',
+                    clock_frequency_hz=100000000, boot=dict(payload_address=0x80000000),
+                    ram=[dict(base=0x80000000, size=0x800000)]) for entry in entries}
+        fdts = {entry['soc']: b'identical generated platform DTB' for entry in entries if entry['suite'] == 'opensbi'}
+        plan = program_matrices(dict(include=entries), targets, fdts)
+        self.assertEqual(len(plan['build']['include']), 2)
+        self.assertEqual(len(plan['run']['include']), 4)
+        for entry, run in zip(entries, plan['run']['include']):
+            self.assertEqual({key: run[key] for key in entry}, entry)
+        fdts['simple-spike-rva23'] = b'different devices'
+        self.assertEqual(len(program_matrices(dict(include=entries), targets, fdts)['build']['include']), 3)
+        targets['tiled-spike-rva23']['harts'] = [0, 1, 2, 3]
+        self.assertEqual(len(program_matrices(dict(include=entries), targets, fdts)['build']['include']), 4)
+
+    def test_qualification_execution_consumes_only_prebuilt_artifacts(self):
+        workflow = (REPO / '.github/workflows/ci-simulation.yml').read_text()
+        build = workflow.split('  qualification-build:\n', 1)[1].split('  qualification:\n', 1)[0]
+        run = workflow.split('  qualification:\n', 1)[1]
+        self.assertIn('setup-riscv-toolchain', build)
+        self.assertIn('Build pinned litmus7', build)
+        self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
+        self.assertIn('PREBUILT_OPENSBI_FDT=', build)
+        self.assertIn('sw/build/bind.py', run)
+        self.assertIn('"$RUN_TARGET"', run)
+        self.assertIn('timeout-minutes: ${{ matrix.timeout }}', run)
+        self.assertIn("always() && !cancelled() && needs.qualification-plan.result == 'success'", run)
+        for compile_step in ('setup-riscv-toolchain', 'setup-racket', 'opam', 'litmus7', 'Cache qualification builds'):
+            self.assertNotIn(compile_step, run)
 
     def test_opensbi_sources_select_simulation_without_program_matrices(self):
         for path in ("sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sw/opensbi"):
@@ -359,10 +396,9 @@ class PlanTest(unittest.TestCase):
         self.assertIn('make -C sims "$target" SOC="$SOC"', simulation)
         self.assertIn("if: matrix.shape != 'simple'", simulation)
         self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
-        self.assertIn("tiled-litmus-smoke:", simulation)
-        self.assertIn("{soc: tiled-rv5stage-rva23, core: rv5stage}", simulation)
-        self.assertIn("{soc: tiled-spike-rva23, core: spike}", simulation)
-        self.assertIn("litmus-smoke-test", simulation)
+        self.assertIn("qualification-plan:", simulation)
+        self.assertIn("qualification_products", simulation)
+        self.assertIn("litmus-smoke-elfs", simulation)
         self.assertNotIn("litmus-full", simulation)
         self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
         self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)

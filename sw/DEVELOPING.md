@@ -44,7 +44,7 @@ runner checks the complete histogram against the pinned Herd states and requires
 at least the requested number of samples. Source-identical duplicate names
 may share one case; the builder explicitly selects the qualified MP, SB, and LB
 variants, and other distinct ambiguous sources remain excluded. Keep the tool
-binary, support directory, target, and port in the cache identity.
+binary, support directory, suite build specification, and port in the cache identity.
 The tiled smoke and full profiles both require this litmus7 path. Smoke names
 live in `litmus-riscv-baremetal/smoke-cases.txt`; the builder validates every
 name against the current target-filtered inventory instead of silently
@@ -91,7 +91,7 @@ port, patch, compiler, and output paths to these builders. Keep both CoreMark
 variants and all bounded workload profiles unchanged during path-only moves;
 do not infer suite selection from prior pass status.
 
-## Shared native ELF builds
+## Shared software builds
 
 `build/program_target.py` projects a suite's ELF build specification from the
 generated SoC descriptor. Keep product names and resolved microarchitecture
@@ -110,6 +110,20 @@ load segments, executable entry, and boot harts before writing a separate
 target as provenance and uses the destination's full target fingerprint for
 execution. Binding needs neither a compiler nor Rhodium elaboration. Simulator
 attestation and execution remain owned by `sims/program-test/`.
+
+Litmus uses this same boundary: its compilation specification includes hart IDs,
+ISA/ABI, RAM, clock frequency, case selection, and embedded sample count, but not
+core or SoC identity. The pinned litmus7 binary, support files, model log, source
+revisions, compiler, and runtime bytes still invalidate the build cache.
+Histogram checking remains an execution contract, not a build-group selector.
+
+OpenSBI projects its minimum firmware ISA and firmware/jump/FDT layout and adds
+the checksum of the actual generated platform DTB. `opensbi.py manifest` records
+the relocatable firmware, S-mode qualification payload, and DTB as one archive.
+Binding requires the destination's generated DTB, checks both image hashes and
+their relocated RAM ranges, and retains build provenance. Do not replace that
+DTB comparison with equality of ISA or product names. Image symbol ownership is
+checked during compilation; execution checks the unchanged published images.
 
 ## Validation
 

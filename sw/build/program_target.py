@@ -61,17 +61,28 @@ def elf_build_spec(target, suite, options=None):
     """Project compilation and inventory inputs without simulator identity."""
     validate_target(target)
     suite = 'bringup' if suite == 'bringup-bench' else suite
-    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup'):
+    if suite not in ('isa', 'benchmark', 'coremark', 'coremark_scalar', 'embench', 'bringup', 'litmus', 'opensbi'):
         raise ValueError(f'unsupported shared ELF suite: {suite}')
     options = options or {}
+    if suite == 'opensbi':
+        from opensbi import target_layout
+        layout = target_layout(target)
+        layout.pop('soc')
+        digest = options.get('fdt_sha256')
+        if not isinstance(digest, str) or not re.fullmatch('[0-9a-f]{64}', digest):
+            raise ValueError('OpenSBI build specification requires the generated FDT checksum')
+        return dict(schema=1, suite=suite, target=layout, options=options)
     projected = {field: target[field] for field in ('xlen', 'march', 'mabi', 'ram')}
-    if suite in ('isa', 'benchmark'):
+    if suite in ('isa', 'benchmark', 'litmus'):
         projected['extensions'] = sorted(target['extensions'])
     if suite == 'isa':
         projected.update(mmu_mode=target.get('mmu_mode', 'bare'),
                          privilege_modes=target.get('privilege_modes', ['m']))
     if suite == 'benchmark' and options.get('benchmark_selection') == 'multihart':
         projected['harts'] = target['harts']
+    if suite == 'litmus':
+        projected['harts'] = target['harts']
+        projected['clock_frequency_hz'] = target['clock_frequency_hz']
     if suite in ('coremark', 'coremark_scalar'):
         projected['clock_frequency_hz'] = target['clock_frequency_hz']
     return dict(schema=1, suite=suite, target=projected, options=options)

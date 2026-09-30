@@ -12,7 +12,7 @@ import subprocess
 import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from program_target import load_target, readelf_for  # noqa: E402
+from program_target import load_target, readelf_for, elf_build_metadata, target_fingerprint  # noqa: E402
 
 
 FDT_RESERVATION_SIZE = 64 * 1024
@@ -155,7 +155,7 @@ def validate_firmware(layout, firmware):
             raise ValueError('OpenSBI load segment overlaps its next stage')
 
 
-def validate_smoke(layout, smoke, readelf):
+def validate_smoke_layout(layout, smoke):
     entry, segments = elf_load_segments(smoke, 2)
     if entry != layout['next_stage_address']:
         raise ValueError('smoke entry does not match the OpenSBI jump address')
@@ -165,6 +165,10 @@ def validate_smoke(layout, smoke, readelf):
             raise ValueError('smoke load segment overlaps OpenSBI')
         if segment['physical'] + segment['size'] > layout['fdt_address']:
             raise ValueError('smoke load segment overlaps the relocated FDT reservation')
+
+
+def validate_smoke(layout, smoke, readelf):
+    validate_smoke_layout(layout, smoke)
     symbols = subprocess.check_output([readelf, '-sW', str(smoke)], text=True)
     for symbol in ('tohost', 'fromhost'):
         if re.search(rf'\b{symbol}$', symbols, re.MULTILINE):
@@ -201,14 +205,20 @@ def build_firmware(args):
     output = Path(args.output).resolve()
     build = output / 'build'
     output.mkdir(parents=True, exist_ok=True)
+    subprocess.run(['git', '-C', str(source), 'diff', '--quiet', 'HEAD'], check=True)
+    llvm = str(llvm_tool_directory(args.llvm, output)) + '/' if args.llvm else None
     configuration = {
-        'layout': layout,
+        'layout': {key: value for key, value in layout.items() if key != 'soc'},
         'firmware_options': 1,
         'fdt': str(fdt),
         'fdt_sha256': hashlib.sha256(fdt_data).hexdigest(),
         'source': str(source),
         'compiler': str(args.compiler),
+        'compiler_version': subprocess.check_output([args.compiler, '--version'], text=True),
         'llvm': str(Path(args.llvm).resolve()) if args.llvm else None,
+        'llvm_versions': {name: subprocess.check_output([llvm + name, '--version'], text=True)
+                         for name in ('clang', 'ld.lld')} if llvm else None,
+        'builder_sha256': hashlib.sha256(Path(__file__).read_bytes()).hexdigest(),
         'source_revision': subprocess.check_output(
             ['git', '-C', str(source), 'rev-parse', 'HEAD'], text=True).strip(),
     }
@@ -230,7 +240,6 @@ def build_firmware(args):
         'FW_OPTIONS=0x1',
     ]
     if args.llvm:
-        llvm = str(llvm_tool_directory(args.llvm, output)) + '/'
         command.append(f'LLVM={llvm}')
         command.append('platform-cflags-y=-Wno-sometimes-uninitialized -Wno-unused-but-set-variable')
     else:
@@ -249,6 +258,30 @@ def build_firmware(args):
     if entry != layout['firmware_link_address']:
         raise RuntimeError(f'OpenSBI entry 0x{entry:x} does not match its relocatable link address')
     validate_firmware(layout, output / 'fw_jump.elf')
+
+
+def write_manifest(args):
+    """Publish the firmware, qualification payload, and embedded FDT as one checked build."""
+    target = load_target(args.target)
+    layout = target_layout(target)
+    root = Path(args.output).resolve()
+    firmware, payload = root / 'fw_jump.elf', root / 'opensbi_smoke.elf'
+    fdt = root / 'platform.dtb'
+    validate_firmware(layout, firmware)
+    validate_smoke(layout, payload, readelf_for(args.compiler))
+    fdt_bytes = validate_fdt(layout, fdt)
+    digest = lambda path: hashlib.sha256(path.read_bytes()).hexdigest()
+    metadata = elf_build_metadata(target, 'opensbi', dict(fdt_sha256=hashlib.sha256(fdt_bytes).hexdigest()))
+    provenance = json.loads((root / 'build-configuration.json').read_text())
+    expected_layout = {key: value for key, value in layout.items() if key != 'soc'}
+    if provenance['layout'] != expected_layout or provenance['fdt_sha256'] != metadata['build_spec']['options']['fdt_sha256']:
+        raise ValueError('OpenSBI firmware was built for another layout or device tree')
+    write_json(root / 'manifest.json', dict(
+        suite='opensbi', target=target, target_fingerprint=target_fingerprint(target), **metadata,
+        files=[dict(path='platform.dtb', sha256=digest(fdt))],
+        tests=[dict(name='opensbi', elf='fw_jump.elf', sha256=digest(firmware),
+                    payload=dict(elf='opensbi_smoke.elf', sha256=digest(payload)))],
+        provenance=provenance))
 
 
 def build_smoke(args):
@@ -292,13 +325,20 @@ def main():
     smoke.add_argument('--compiler', required=True)
     smoke.add_argument('--output', required=True)
 
+    manifest = subparsers.add_parser('manifest')
+    manifest.add_argument('--target', required=True)
+    manifest.add_argument('--output', required=True)
+    manifest.add_argument('--compiler', required=True)
+
     args = parser.parse_args()
     if args.command == 'layout':
         write_json(args.output, target_layout(load_target(args.target)))
     elif args.command == 'firmware':
         build_firmware(args)
-    else:
+    elif args.command == 'smoke':
         build_smoke(args)
+    else:
+        write_manifest(args)
 
 
 if __name__ == '__main__':

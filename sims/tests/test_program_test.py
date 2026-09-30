@@ -71,9 +71,28 @@ class ProgramArchiveTest(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, message):
                     self.archive.package(manifest_path, archive_path)
                 self.assertFalse(archive_path.exists())
+
+    def test_packages_firmware_auxiliary_payload_and_device_tree_with_checksums(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            images = []
+            for name in ('firmware.elf', 'smoke.elf', 'platform.dtb'):
+                (root / name).write_bytes(name.encode())
+                images.append(dict(elf=name, sha256=hashlib.sha256(name.encode()).hexdigest()))
+            manifest = root / 'manifest.json'
+            manifest.write_text(json.dumps(dict(tests=[images[0] | dict(payload=images[1])],
+                files=[dict(path=images[2]['elf'], sha256=images[2]['sha256'])])))
+            path = root / 'suite.tar.gz'
+            self.archive.package(manifest, path)
+            with tarfile.open(path) as archive:
+                self.assertEqual(set(archive.getnames()), {'manifest.json', 'firmware.elf', 'smoke.elf', 'platform.dtb'})
+            (root / 'smoke.elf').write_bytes(b'corrupt')
+            with self.assertRaisesRegex(ValueError, 'checksum mismatch'):
+                self.archive.package(manifest, path)
+
 class ProgramRunnerTest(unittest.TestCase):
     def run_suite(self, bodies, timeout=3, corrupt=False, target=None, matching_metadata=True,
-                  contracts=None, runner_args=None):
+                  contracts=None, runner_args=None, payload=None):
         self.directory = tempfile.TemporaryDirectory(prefix='rhodium-program-test-')
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
@@ -83,6 +102,7 @@ class ProgramRunnerTest(unittest.TestCase):
                              'args = sys.argv[1:]\n'
                              "if args[0].startswith('+boot-harts='): args = args[1:]\n"
                              "assert args[:3] == ['+permissive', '+max-cycles=123', '+permissive-off']\n"
+                             "if args[3].startswith('+payload='): args = args[:3] + args[4:]\n"
                              'exec(Path(args[3]).read_text())\n')
         simulator.chmod(0o755)
         tests = []
@@ -93,6 +113,11 @@ class ProgramRunnerTest(unittest.TestCase):
                         sha256='bad' if corrupt else hashlib.sha256(elf.read_bytes()).hexdigest())
             if contracts and name in contracts:
                 test.update(contracts[name])
+            if payload is not None:
+                path = root / 'payload.elf'
+                path.write_bytes(b'S-mode payload')
+                test['payload'] = dict(elf=path.name, sha256=hashlib.sha256(path.read_bytes()).hexdigest()
+                                       if payload else 'bad')
             tests.append(test)
         manifest = root / 'manifest.json'
         manifest_data = dict(suite='test', tests=tests)
@@ -114,6 +139,15 @@ class ProgramRunnerTest(unittest.TestCase):
                                  capture_output=True, text=True)
         summary = root / 'results/results.json'
         return process, json.loads(summary.read_text()) if summary.exists() else None
+
+    def test_auxiliary_payload_uses_existing_fesvr_loader_and_is_checksum_checked(self):
+        body = "assert any(arg.startswith('+payload=') for arg in sys.argv); print('SoC harness simulation passed')"
+        process, results = self.run_suite({'opensbi': body}, payload=True)
+        self.assertEqual(process.returncode, 0, process.stderr)
+        self.assertEqual(results['tests'][0]['status'], 'passed')
+        process, results = self.run_suite({'opensbi': body}, payload=False)
+        self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(results['tests'][0]['status'], 'error')
 
     def test_runs_all_tests_despite_failure_and_requires_completion(self):
         process, results = self.run_suite({

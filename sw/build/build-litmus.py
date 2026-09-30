@@ -13,7 +13,7 @@ import sys
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from build import check_elf_memory
 from program_target import (elf_architecture, load_target, probe_compiler, readelf_for,
-                            target_fingerprint)
+                            target_fingerprint, elf_build_metadata)
 
 # The upstream model log keys outcomes by name, not path. Resolve only the
 # duplicate names whose source variant we intentionally qualify here.
@@ -177,8 +177,9 @@ def main():
     version = subprocess.check_output([compiler, '--version'], text=True)
     codegen_march = litmus7_codegen_march(target['extensions'])
     compiler_arch = probe_compiler(compiler, codegen_march, target['mabi'], output)
-    key_bytes = (revision + riscv_tests_revision + version + compiler + json.dumps(target, sort_keys=True)
-                 + codegen_march + str(args.runs) + ','.join(selected)).encode()
+    metadata = elf_build_metadata(target, 'litmus', dict(runs=args.runs, tests=selected, generator='litmus7'))
+    key_bytes = (revision + riscv_tests_revision + version + compiler + metadata['build_spec_fingerprint']
+                 + codegen_march).encode()
     litmus7_digest = hashlib.sha256(Path(litmus7).read_bytes()).hexdigest()
     key_bytes += litmus7_digest.encode()
     key_bytes += str(args.litmus7_libdir or '').encode()
@@ -294,7 +295,7 @@ def main():
                     inventory_cases=len(candidates),
                     discovered_cases=len(cases),
                     attempted_cases=len(selected), build_failures=build_failures, target=target,
-                    target_fingerprint=target_fingerprint(target), tests=tests)
+                    target_fingerprint=target_fingerprint(target), tests=tests, **metadata)
     manifest['litmus7_version'] = subprocess.check_output([litmus7, '-version'], text=True).strip()
     manifest['litmus7_sha256'] = litmus7_digest
     (output / 'manifest.json').write_text(json.dumps(manifest, indent=2) + '\n')

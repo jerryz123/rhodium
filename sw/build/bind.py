@@ -12,7 +12,19 @@ from build import check_elf_memory
 from program_target import elf_build_spec, load_target, target_fingerprint, validate_target
 
 
-def bind(manifest_path, target, output):
+def checked_file(root, name, digest):
+    relative = PurePosixPath(name)
+    if relative.is_absolute() or '..' in relative.parts:
+        raise ValueError('invalid shared ELF path')
+    path = (root / name).resolve()
+    if not path.is_relative_to(root) or not path.is_file():
+        raise ValueError('shared ELF is missing or outside its suite')
+    if hashlib.sha256(path.read_bytes()).hexdigest() != digest:
+        raise ValueError('shared ELF checksum mismatch')
+    return path
+
+
+def bind(manifest_path, target, output, fdt=None):
     root = manifest_path.parent.resolve()
     if output.resolve() == manifest_path.resolve() or output.parent.resolve() != root:
         raise ValueError('write the execution manifest beside, separately from, the build manifest')
@@ -27,6 +39,18 @@ def bind(manifest_path, target, output):
         raise ValueError('invalid ELF build specification')
     if spec != elf_build_spec(target, manifest['suite'], spec['options']):
         raise ValueError('shared ELF build specification does not match the execution target')
+    if manifest['suite'] == 'opensbi':
+        from opensbi import target_layout, validate_fdt
+        if fdt is None:
+            raise ValueError('OpenSBI binding requires the execution target device tree')
+        layout = target_layout(target)
+        digest = hashlib.sha256(validate_fdt(layout, fdt)).hexdigest()
+        if digest != spec['options']['fdt_sha256']:
+            raise ValueError('OpenSBI device tree does not match the execution target')
+        if manifest.get('files') != [dict(path='platform.dtb', sha256=digest)]:
+            raise ValueError('invalid OpenSBI device tree artifact')
+    for file in manifest.get('files', []):
+        checked_file(root, file['path'], file['sha256'])
     tests = manifest['tests']
     if not tests or manifest.get('build_failures'):
         raise ValueError('shared ELF suite must be complete and nonempty')
@@ -34,18 +58,21 @@ def bind(manifest_path, target, output):
     if len(names) != len(set(names)):
         raise ValueError('shared ELF test names must be unique')
     for test in tests:
-        relative = PurePosixPath(test['elf'])
-        if relative.is_absolute() or '..' in relative.parts:
-            raise ValueError('invalid shared ELF path')
-        elf = (root / test['elf']).resolve()
-        if not elf.is_relative_to(root) or not elf.is_file():
-            raise ValueError('shared ELF is missing or outside its suite')
+        elf = checked_file(root, test['elf'], test['sha256'])
         data = elf.read_bytes()
-        if hashlib.sha256(data).hexdigest() != test['sha256']:
-            raise ValueError('shared ELF checksum mismatch')
         if data[:5] != b'\x7fELF' + bytes([2 if target['xlen'] == 64 else 1]):
             raise ValueError('shared ELF class does not match target XLEN')
-        test['load_segments'] = check_elf_memory(elf, target['ram'], require_executable_entry=True)
+        if manifest['suite'] == 'opensbi':
+            from opensbi import validate_firmware, validate_smoke_layout
+            validate_firmware(layout, elf)
+            payload = test['payload']
+            payload_elf = checked_file(root, payload['elf'], payload['sha256'])
+            validate_smoke_layout(layout, payload_elf)
+            payload['load_segments'] = check_elf_memory(payload_elf, target['ram'], require_executable_entry=True)
+        else:
+            if 'payload' in test:
+                raise ValueError('auxiliary payloads require an OpenSBI build')
+            test['load_segments'] = check_elf_memory(elf, target['ram'], require_executable_entry=True)
         harts = test.get('harts', [0])
         if not harts or any(hart not in target['harts'] for hart in harts):
             raise ValueError('shared ELF boot harts do not match the execution target')
@@ -59,9 +86,10 @@ def main():
     parser.add_argument('--manifest', type=Path, required=True)
     parser.add_argument('--target', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--fdt', type=Path, help='execution target OpenSBI device tree')
     args = parser.parse_args()
     try:
-        bind(args.manifest, load_target(args.target), args.output)
+        bind(args.manifest, load_target(args.target), args.output, args.fdt)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
 

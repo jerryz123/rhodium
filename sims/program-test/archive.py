@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Packages manifest-selected RISC-V ELFs for exact CI workload replay.
+# Packages checksum-bearing workload images and supporting files for exact CI replay.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import hashlib
@@ -15,7 +15,9 @@ def package(manifest_path, archive_path):
     if not tests:
         raise ValueError('workload manifest contains no ELFs')
     binaries = {}
-    for test in tests:
+    images = tests + [test['payload'] for test in tests if 'payload' in test]
+    images += [dict(elf=file['path'], sha256=file['sha256']) for file in manifest.get('files', [])]
+    for test in images:
         name = test['elf']
         relative = PurePosixPath(name)
         if relative.is_absolute() or '..' in relative.parts or name == 'manifest.json':
@@ -34,7 +36,7 @@ def package(manifest_path, archive_path):
             archive.add(report, arcname=report.name)
         for name, binary in sorted(binaries.items()):
             archive.add(binary, arcname=name)
-    print(f'Packaged {len(binaries)} ELFs from {manifest_path} into {archive_path}')
+    print(f'Packaged {len(binaries)} workload artifacts from {manifest_path} into {archive_path}')
 
 
 def main():

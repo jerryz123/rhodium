@@ -1,8 +1,8 @@
-# Builds OpenSBI FW_JUMP and qualifies its generic-platform handoff on a concrete SoC.
+# Builds shared OpenSBI qualification artifacts and runs their attested generic-platform handoff.
 # SPDX-License-Identifier: Apache-2.0
 OPENSBI_SOURCE ?= $(REPO_DIR)/sw/opensbi
 OPENSBI_BUILD_ROOT ?= /tmp/rhodium-software
-OPENSBI_OUTPUT := $(OPENSBI_BUILD_ROOT)/$(SOC_ID)/opensbi
+OPENSBI_OUTPUT ?= $(OPENSBI_BUILD_ROOT)/$(SOC_ID)/opensbi
 OPENSBI_LAYOUT := $(OPENSBI_OUTPUT)/layout.json
 OPENSBI_FDT := $(OPENSBI_OUTPUT)/platform.dtb
 OPENSBI_FIRMWARE := $(OPENSBI_OUTPUT)/fw_jump.elf
@@ -10,8 +10,9 @@ OPENSBI_SMOKE := $(OPENSBI_OUTPUT)/opensbi_smoke.elf
 OPENSBI_SCRIPT := $(REPO_DIR)/sw/build/opensbi.py
 OPENSBI_FDT_SCRIPT := $(CURDIR)/opensbi/write-device-tree.rhm
 OPENSBI_MAX_CYCLES ?= 50000000
+OPENSBI_TIMEOUT ?= 1800
 
-.PHONY: opensbi-setup opensbi-layout opensbi-firmware opensbi-smoke-elf opensbi-run opensbi-test opensbi-adapter-test
+.PHONY: opensbi-setup opensbi-layout opensbi-firmware opensbi-smoke-elf opensbi-elfs opensbi-smoke-run opensbi-run opensbi-test opensbi-adapter-test
 
 opensbi-setup:
 	git -C $(REPO_DIR) submodule update --init sw/opensbi
@@ -22,10 +23,16 @@ $(OPENSBI_LAYOUT): $(PROGRAM_TARGET) $(OPENSBI_SCRIPT)
 	mkdir -p "$(OPENSBI_OUTPUT)"
 	$(PYTHON) $(OPENSBI_SCRIPT) layout --target "$(PROGRAM_TARGET)" --output "$@"
 
+ifneq ($(strip $(PREBUILT_OPENSBI_FDT)),)
+$(OPENSBI_FDT): $(PREBUILT_OPENSBI_FDT)
+	mkdir -p "$(OPENSBI_OUTPUT)"
+	cp "$<" "$@"
+else
 $(OPENSBI_FDT): $(OPENSBI_FDT_SCRIPT) $(SIMULATOR_SOURCES)
 	mkdir -p "$(OPENSBI_OUTPUT)"
 	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" \
 	  sims/opensbi/write-device-tree.rhm $(PROGRAM_TARGET_SELECTION) "$(abspath $@)"
+endif
 
 opensbi-firmware: $(OPENSBI_LAYOUT) $(OPENSBI_FDT) $(OPENSBI_SCRIPT)
 	@test -f "$(OPENSBI_SOURCE)/Makefile" || \
@@ -42,7 +49,16 @@ $(OPENSBI_SMOKE): $(OPENSBI_LAYOUT) $(OPENSBI_SCRIPT) \
 	  --source opensbi/tests/smoke.S --linker opensbi/tests/smoke.ld \
 	  --compiler "$(RISCV_CC)" --output "$@"
 
-opensbi-run: opensbi-firmware simulator-attestation
+opensbi-elfs: opensbi-firmware opensbi-smoke-elf
+	$(PYTHON) $(OPENSBI_SCRIPT) manifest --target "$(PROGRAM_TARGET)" --compiler "$(RISCV_CC)" --output "$(OPENSBI_OUTPUT)"
+
+opensbi-smoke-run: simulator-attestation
+	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(OPENSBI_OUTPUT)/manifest.json)" \
+	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
+	  --output "$(OPENSBI_OUTPUT)/results" --timeout $(OPENSBI_TIMEOUT) --max-cycles $(OPENSBI_MAX_CYCLES)
+
+opensbi-run: simulator-attestation
+	@test -f "$(OPENSBI_FIRMWARE)" || (echo 'Build opensbi-firmware before opensbi-run' >&2; exit 2)
 	@test -n "$(NEXT_STAGE)" || \
 	  (echo 'NEXT_STAGE is required and must be linked at the address in $(OPENSBI_LAYOUT)' >&2; exit 2)
 	@test -f "$(abspath $(NEXT_STAGE))" || \
@@ -51,9 +67,9 @@ opensbi-run: opensbi-firmware simulator-attestation
 	  +payload="$(abspath $(NEXT_STAGE))" \
 	  "$(OPENSBI_FIRMWARE)"
 
-opensbi-test: $(OPENSBI_SMOKE)
-	$(MAKE) opensbi-run SOC="$(SOC_ID)" TRACE="$(TRACE)" PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
-	  BUILD_ROOT="$(BUILD_ROOT)" PROGRAM_TARGET="$(PROGRAM_TARGET)" NEXT_STAGE="$(OPENSBI_SMOKE)" \
+opensbi-test: opensbi-elfs
+	$(MAKE) opensbi-smoke-run SOC="$(SOC_ID)" TRACE="$(TRACE)" PREBUILT_SIMULATOR="$(PREBUILT_SIMULATOR)" \
+	  BUILD_ROOT="$(BUILD_ROOT)" PROGRAM_TARGET="$(PROGRAM_TARGET)" OPENSBI_OUTPUT="$(OPENSBI_OUTPUT)" \
 	  OPENSBI_BUILD_ROOT="$(OPENSBI_BUILD_ROOT)" OPENSBI_MAX_CYCLES="$(OPENSBI_MAX_CYCLES)" \
 	  OPENSBI_LLVM="$(OPENSBI_LLVM)"
 
