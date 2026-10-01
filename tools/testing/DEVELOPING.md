@@ -139,7 +139,7 @@ flowchart TD
     ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>sixteen SoC/suite execution jobs"]
     Simulators --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
-    Simulators --> ActRun["Six-profile ACT execution<br/>four shards each; eight for RV5Stage RVA23"]
+    Simulators --> ActRun["Six-profile ACT execution<br/>16 RV5Stage RVA23; 8 RV5Stage RV32 / Spike RVA23;<br/>4 Spike RV32"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
     Simulation --> Gate
@@ -193,8 +193,11 @@ publishes separate diagnostics. A failed qualification build does not prevent
 execution jobs from attempting other published build groups.
 All four Simple RV32 products select native ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
-All six Simple products select their own ACT generation and execution: four
-shards each, except RV5Stage RVA23 with eight. Shared SoC dependencies
+All six Simple products select their own ACT generation and execution: sixteen
+shards for RV5Stage RVA23, eight for both RV5Stage RV32 profiles and Spike RVA23,
+and four for both Spike RV32 profiles. Counts live in `tools/ci/policy.py` and
+only split execution; each profile still generates one shared ELF archive and
+builds one simulator. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All six CI Mini and both Tiled
 products receive capability-filtered ISA smoke; both Tiled cores run the

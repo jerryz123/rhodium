@@ -627,9 +627,9 @@ class ArchTestGenerationTest(unittest.TestCase):
             root = Path(directory)
             elfs = root / 'elfs'
             (elfs / 'nested').mkdir(parents=True)
-            for index in range(11):
+            for index in range(35):
                 (elfs / 'nested' / f'{index}.elf').touch()
-            for shard_count in (4, 8):
+            for shard_count in (4, 8, 16):
                 partitions = [sharder.partition(elfs, root / f'shard-{i}/elfs', i, shard_count) for i in range(shard_count)]
                 combined = [elf for group in partitions for elf in group]
                 self.assertEqual(len(combined), len(set(combined)))
@@ -637,7 +637,7 @@ class ArchTestGenerationTest(unittest.TestCase):
             (elfs / 'nested/0.elf').unlink()
             sharder.partition(elfs, root / 'shard-0/elfs', 0, 8)
             self.assertFalse((root / 'shard-0/elfs/nested/0.elf').is_symlink())
-            self.assertEqual(len(list(elfs.rglob('*.elf'))), 10)
+            self.assertEqual(len(list(elfs.rglob('*.elf'))), 34)
             foreign = root / 'foreign/elfs'
             foreign.mkdir(parents=True)
             (foreign / 'keep.elf').symlink_to(elfs / 'nested/1.elf')

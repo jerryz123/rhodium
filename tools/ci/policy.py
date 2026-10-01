@@ -137,9 +137,19 @@ def arch_products():
                  if shape == 'simple')
 
 
+# Resource partitioning may depend on implementation speed; test coverage does not.
+ARCH_SHARD_COUNTS = {
+    'simple-rv5stage-rva23': 16,
+    'simple-rv5stage-rv32int': 8,
+    'simple-rv5stage-rv32max': 8,
+    'simple-spike-rva23': 8,
+    'simple-spike-rv32int': 4,
+    'simple-spike-rv32max': 4,
+}
+
+
 def arch_shards():
-    # Resource partitioning may depend on implementation speed; test coverage does not.
     return tuple(dict(**product, shard=shard, shard_count=count)
                  for product in arch_products()
-                 for count in (8 if product['configuration'] == 'simple-rv5stage-rva23' else 4,)
+                 for count in (ARCH_SHARD_COUNTS[product['configuration']],)
                  for shard in range(count))

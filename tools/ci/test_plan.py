@@ -468,7 +468,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 
-    def test_arch_execution_matrix_splits_only_slow_rva23_rv5stage(self):
+    def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
         workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
         arch_job = workflow.split("  arch:\n", 1)[1]
         plan = self.plan("sims/Makefile")
@@ -477,9 +477,20 @@ class PlanTest(unittest.TestCase):
         actual = {(entry["configuration"], entry["shard"]) for entry in entries}
         self.assertEqual(len(entries), len(actual))
         self.assertIn("matrix: ${{ fromJSON(inputs.arch-run-matrix) }}", arch_job)
-        expected = {(configuration, shard) for configuration in SINGLE_CORE_SOCS
-                    for shard in range(8 if configuration == "simple-rv5stage-rva23" else 4)}
+        counts = {
+            "simple-rv5stage-rva23": 16,
+            "simple-rv5stage-rv32int": 8,
+            "simple-rv5stage-rv32max": 8,
+            "simple-spike-rva23": 8,
+            "simple-spike-rv32int": 4,
+            "simple-spike-rv32max": 4,
+        }
+        self.assertEqual(set(counts), set(SINGLE_CORE_SOCS))
+        expected = {(configuration, shard) for configuration, count in counts.items()
+                    for shard in range(count)}
         self.assertEqual(actual, expected)
+        for entry in entries:
+            self.assertEqual(entry["shard_count"], counts[entry["configuration"]])
         self.assertIn("ACT_SHARDS=${{ matrix.shard_count }}", arch_job)
 
     def test_arch_jobs_restore_and_check_every_spike_runtime(self):

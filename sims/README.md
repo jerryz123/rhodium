@@ -720,8 +720,9 @@ CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT o
 pushes to `main`; manual dispatch selects all six. The native suites consume
 each core's exact-commit executable, with the matching patched Spike runtime
 where needed. ACT builds or reuses one verified, complete profile-specific ELF
-inventory for each single-core SoC, then partitions it across four execution
-jobs (eight for RV5Stage RVA23) consuming that SoC's exact-commit executable.
+inventory for each single-core SoC, then partitions it across independent
+execution jobs consuming that SoC's exact-commit executable. The
+[CI policy guide](../tools/testing/DEVELOPING.md#ci-ownership) documents shard allocation.
 Spike shards restore the producer's pinned libraries.
 ISA/benchmark/CoreMark/Embench-IoT binaries and complete ACT ELF bundles are cached
 by their build inputs, but results are always rerun. Full Linux suite validation remains
