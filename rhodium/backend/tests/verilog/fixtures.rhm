@@ -1,0 +1,746 @@
+#lang rhombus
+/* Builds frontend-independent combinational and clocked fixtures for both emission routes. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  "../../../core/main.rhm" open
+  "../../../core/signature.rhm".module_signature
+  "../../../lowering/program.rhm" open
+export:
+  make_program
+  make_keyword_program
+  make_hierarchy_program
+  make_aggregate_program
+  make_sequential_program
+  make_type_program
+  make_arithmetic_program
+  make_dynamic_program
+  make_write_set_program
+  make_partial_program
+  make_memory_program
+  make_sync_memory_program
+  make_assertion_program
+  make_assertion_names_program
+  make_cdc_program
+  make_dpi_program
+  make_invalid_cdc_program
+
+class Signed(width :: PosInt):
+  implements SignedArithmeticType
+  override method describe(): "fixture-signed<" ++ to_string(width) ++ ">"
+  override method type_equal(other): other is_a Signed && width == other.width
+  override method packed_width(): width
+  override method with_bit_width(width): Signed(width)
+
+fun make_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("Combinational" ++ to_string(width))
+  def a = builder.input(top, "a", Bits(width))
+  def b = builder.input(top, "b", Bits(width))
+  def selector = builder.input(top, "selector", Bits(2))
+  def collision = builder.input(top, "_sv_0", Bits(width))
+  def forward = builder.wire(top, "forward", Bits(width))
+  def inverted_sum = builder.bit_not(top, builder.read(forward))
+  def sum = builder.add(top, a, b)
+  builder.drive(forward, sum)
+  def difference = builder.sub(top, a, b)
+  def sa = builder.cast(top, a, Signed(width))
+  def sb = builder.cast(top, b, Signed(width))
+  def zero = builder.constant(top, Bits(width), 0)
+  def constant = builder.constant(top, Bits(width), (2 ** width) - 1)
+  def outputs:
+    [["sum", sum], ["difference", difference],
+     ["both", builder.bit_and(top, a, b)],
+     ["either", builder.bit_or(top, a, b)],
+     ["parity", builder.bit_xor(top, a, b)],
+     ["inverted_sum", inverted_sum],
+     ["equal", builder.eq(top, a, b)],
+     ["less", builder.ult(top, a, b)],
+     ["signed_less", builder.slt(top, sa, sb)],
+     ["signed_sum", builder.add(top, sa, sb)],
+     ["signed_difference", builder.sub(top, sa, sb)],
+     ["wrapped_zero", builder.eq(top, sum, zero)],
+     ["selected", builder.mux_lookup(top, selector, collision, [[1, sum], [2, difference]])],
+     ["ones", constant]]
+  for (entry in outputs):
+    def value :: Value = entry[1]
+    builder.drive(builder.output(top, entry[0], value.type), value)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_keyword_program():
+  def design = Design()
+  def builder = Builder(design)
+  def leaf = builder.module("wire")
+  def child_source = builder.input(leaf, "begin", Bits(5))
+  builder.drive(builder.output(leaf, "end", Bits(5)), child_source)
+  builder.finish(leaf)
+  def top = builder.module("module")
+  def source = builder.input(top, "input", Bits(5))
+  def child = builder.instance(top, leaf, "always")
+  builder.drive(child.input("begin"), source)
+  builder.drive(builder.output(top, "output", Bits(5)), child.output("end"))
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// All input/output ordering is deliberately nonalphabetical. Repeated children
+// receive different data, so port swaps and shared bindings change behavior.
+fun make_hierarchy_program(width :: PosInt, consumed_ids :: Nat = 0, on_expand = fun (): #void):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def suffix = to_string(width)
+  fun arithmetic_body(builder :: Builder, name :: String):
+    def body = builder.module(name)
+    def b = builder.input(body, "b", Bits(width))
+    def a = builder.input(body, "a", Bits(width))
+    builder.drive(builder.output(body, "sum", Bits(width)), builder.add(body, a, b))
+    builder.drive(builder.output(body, "difference", Bits(width)), builder.sub(body, a, b))
+    builder.finish(body)
+    body
+  def leaf = arithmetic_body(builder, "ArithmeticLeaf" ++ suffix)
+  def nested = builder.module("Nested" ++ suffix)
+  def y = builder.input(nested, "y", Bits(width))
+  def x = builder.input(nested, "x", Bits(width))
+  def child = builder.instance(nested, leaf, "_sv_0")
+  builder.drive(child.input("a"), x)
+  builder.drive(child.input("b"), y)
+  for (name in ["sum", "difference"]):
+    builder.drive(builder.output(nested, name, Bits(width)), child.output(name))
+  builder.finish(nested)
+
+  def signature = module_signature(leaf)
+  def dependencies = [[OutputLeafDependency([], [InputLeaf(0, []), InputLeaf(1, [])])],
+                      [OutputLeafDependency([], [InputLeaf(0, []), InputLeaf(1, [])])]]
+  def definition = ConstructDefinition(ConstructIdentity("PortableArithmetic"), [width], signature, dependencies)
+  fun expand(destination :: Builder, selected :: ConstructDefinition):
+    on_expand()
+    ExpansionResult(arithmetic_body(destination, "PortableArithmetic" ++ suffix))
+  def provider = ExpansionProvider(expand)
+  def top = builder.module("Hierarchy" ++ suffix)
+  def a = builder.input(top, "a", Bits(width))
+  def b = builder.input(top, "b", Bits(width))
+  def c = builder.input(top, "_sv_1", Bits(width))
+  def forward = builder.wire(top, "forward", Bits(width))
+  def first = builder.instance(top, nested, "a")
+  def second = builder.instance(top, nested, "a_instance")
+  def combined = builder.instance(top, leaf, "_sv_0")
+  def portable = builder.construct_instance(top, definition, "portable")
+  def again = builder.construct_instance(top, definition, "portable_again")
+  builder.drive(first.input("x"), a)
+  builder.drive(first.input("y"), b)
+  builder.drive(second.input("x"), b)
+  builder.drive(second.input("y"), c)
+  builder.drive(combined.input("a"), builder.read(forward))
+  builder.drive(combined.input("b"), second.output("difference"))
+  builder.drive(portable.input("a"), combined.output("sum"))
+  builder.drive(portable.input("b"), first.output("difference"))
+  builder.drive(again.input("a"), second.output("sum"))
+  builder.drive(again.input("b"), combined.output("difference"))
+  for (entry in [["first", first], ["second", second], ["combined", combined], ["portable", portable], ["again", again]]):
+    for (name in ["sum", "difference"]):
+      builder.drive(builder.output(top, entry[0] ++ "_" ++ name, Bits(width)), entry[1].output(name))
+  builder.drive(forward, first.output("sum"))
+  builder.finish(top)
+  // This valid independent root must never enter the selected artifact.
+  arithmetic_body(builder, "Unreachable" ++ suffix)
+  ElaboratedProgram(design, top, Map.by(===){definition: provider})
+
+// Mix record MSB order with vector LSB order, including recursive projections.
+fun make_aggregate_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def flags_type = VectorType(2, Bits(3))
+  def item_type = RecordType([RecordField("tag", Bits(1)), RecordField("payload", Bits(width)), RecordField("flags", flags_type)])
+  def items_type = VectorType(2, item_type)
+  def packet_type = RecordType([RecordField("header", Bits(3)), RecordField("items", items_type), RecordField("trailer", Bits(1))])
+  def packed_width = packet_type.packed_width()
+
+  fun field(value :: Value, name :: String): builder.record_get(value.module_def, value, name)
+  fun element(value :: Value, index :: Nat): builder.vector_get(value.module_def, value, index)
+  // Reverse write order at every level, proving that construction order cannot
+  // replace the declared record layout or logical vector index order.
+  fun scatter(place :: Place, value :: Value):
+    cond
+    | record_type(place.type):
+        for (record_field in place.type.fields.reverse()):
+          scatter(builder.project(place, record_field.name), field(value, record_field.name))
+    | vector_type(place.type):
+        for (index in (place.type.length - 1) >=..= 0):
+          scatter(builder.project_vector(place, index), element(value, index))
+    | ~else: builder.drive(place, value)
+
+  def child = builder.module("AggregateChild" ++ to_string(width))
+  def incoming = builder.input(child, "incoming", packet_type)
+  def child_items = field(incoming, "items")
+  def reversed_items = builder.vector_create(child, items_type, [element(child_items, 1), element(child_items, 0)])
+  def bindings:
+    [["trailer", field(incoming, "trailer")],
+     ["items", reversed_items],
+     ["header", builder.bit_not(child, field(incoming, "header"))]]
+  def transformed = builder.record_create(child, packet_type, bindings)
+  scatter(builder.output(child, "result", packet_type), transformed)
+  builder.finish(child)
+
+  def top = builder.module("Aggregates" ++ to_string(width))
+  def a = builder.input(top, "a", Bits(width))
+  def b = builder.input(top, "b", Bits(width))
+  def selector = builder.input(top, "selector", Bits(2))
+  def packet = builder.input(top, "packet", packet_type)
+  def wire = builder.wire(top, "staged", packet_type)
+  def forward = builder.read(wire)
+  def payload_place = builder.project(builder.project_vector(builder.project(wire, "items"), 0), "payload")
+  def picked = builder.read(payload_place)
+  def first = builder.instance(top, child, "first")
+  def second = builder.instance(top, child, "second")
+  builder.drive(first.input("incoming"), forward)
+  scatter(second.input("incoming"), packet)
+
+  fun constant(bits :: PosInt, value :: Nat): builder.constant(top, Bits(bits), value)
+  fun item(tag :: Nat, payload :: Value, lo :: Nat, hi :: Nat):
+    def flags = builder.vector_create(top, flags_type, [constant(3, lo), constant(3, hi)])
+    builder.record_create(top, item_type, [["flags", flags], ["payload", payload], ["tag", constant(1, tag)]])
+  def built_items = builder.vector_create(top, items_type, [item(1, a, 1, 6), item(0, b, 2, 3)])
+  // Mix a whole subtree drive with sibling field/element drives on the same wire.
+  builder.drive(builder.project(wire, "trailer"), constant(1, 1))
+  def wire_items = builder.project(wire, "items")
+  builder.drive(builder.project_vector(wire_items, 1), element(built_items, 1))
+  scatter(builder.project_vector(wire_items, 0), element(built_items, 0))
+  builder.drive(builder.project(wire, "header"), constant(3, 5))
+  def chosen = builder.mux_lookup(top, selector, packet, [[1, forward], [2, first.output("result")]])
+  def selected_items = builder.mux_lookup(top, selector, built_items, [[2, field(packet, "items")]])
+  def bits = builder.cast(top, packet, Bits(packed_width))
+  def halves_type = VectorType(2, Bits(packed_width / 2))
+  def halves = builder.cast(top, bits, halves_type)
+  def swapped = builder.vector_create(top, halves_type, [element(halves, 1), element(halves, 0)])
+  def reinterpreted = builder.cast(top, swapped, packet_type)
+  def singleton_type = RecordType([RecordField("only", VectorType(1, Bits(width)))])
+  def singleton = builder.record_create(top, singleton_type, [["only", builder.vector_create(top, VectorType(1, Bits(width)), [a])]])
+  def single = element(field(singleton, "only"), 0)
+  def outputs:
+    [["built", forward], ["first", first.output("result")], ["second", second.output("result")],
+     ["chosen", chosen], ["selected_items", selected_items], ["reinterpreted", reinterpreted],
+     ["picked", picked], ["single", single], ["roundtrip", builder.cast(top, bits, packet_type)]]
+  for (entry in outputs):
+    def value :: Value = entry[1]
+    builder.drive(builder.output(top, entry[0], value.type), value)
+  scatter(builder.output(top, "projected", packet_type), packet)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Repeated stateful children use independent controls. Pipeline state has no
+// initialization; the simulation oracle starts checking each stage only after
+// enough rising edges. Aggregate reset values exercise the recursive packed ABI.
+fun make_sequential_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def lanes_type = VectorType(2, Bits(width))
+  def packet_type = RecordType([RecordField("tag", Bits(3)), RecordField("lanes", lanes_type)])
+  def child = builder.module("StateCell" ++ to_string(width))
+  def clock = builder.input(child, "clock", Clock)
+  def reset = builder.input(child, "reset", Reset)
+  def enable = builder.input(child, "enable", Bits(1))
+  def data = builder.input(child, "data", Bits(width))
+  def seed = builder.input(child, "seed", Bits(width))
+  def packet = builder.input(child, "packet", packet_type)
+  def one = builder.constant(child, Bits(width), 1)
+  def ones = builder.constant(child, Bits(width), (2 ** width) - 1)
+  def reset_lanes = builder.vector_create(child, lanes_type, [ones, one])
+  def reset_packet = builder.record_create(child, packet_type, [["tag", builder.constant(child, Bits(3), 5)], ["lanes", reset_lanes]])
+  def count = builder.register(child, "state_count", Bits(width), clock, reset, seed)
+  def p0 = builder.register(child, "state_p0", Bits(width), clock)
+  def p1 = builder.register(child, "state_p1", Bits(width), clock)
+  def packed = builder.register(child, "state_packed", packet_type, clock, reset, reset_packet)
+  def lanes = builder.register(child, "state_lanes", lanes_type, clock)
+  builder.drive(count.next, builder.mux_lookup(child, enable, count.current, [[1, builder.add(child, count.current, one)]]))
+  builder.drive(p0.next, data)
+  builder.drive(p1.next, p0.current)
+  builder.drive(packed.next, builder.mux_lookup(child, enable, packed.current, [[1, packet]]))
+  builder.drive(lanes.next, builder.record_get(child, packed.current, "lanes"))
+  def outputs:
+    [["count", count.current], ["p0", p0.current], ["p1", p1.current],
+     ["packed", packed.current], ["lanes", lanes.current], ["clock_echo", clock], ["reset_echo", reset]]
+  for (entry in outputs):
+    def value :: Value = entry[1]
+    builder.drive(builder.output(child, entry[0], value.type), value)
+  builder.finish(child)
+  def top = builder.module("Sequential" ++ to_string(width))
+  for (prefix in ["first", "second"]):
+    def instance = builder.instance(top, child, prefix)
+    for (port in child.inputs):
+      def source = builder.input(top, prefix ++ "_" ++ port.name, port.type)
+      // Forward control wires exercise the same connection path as data nets.
+      def wire = builder.wire(top, prefix ++ "_wire_" ++ port.name, port.type)
+      builder.drive(instance.input(port.name), builder.read(wire))
+      builder.drive(wire, source)
+    for (port in child.outputs):
+      builder.drive(builder.output(top, prefix ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Exercise shared structural aliases independently of preferred names, keyword
+// fields, package/instance/port name collisions, and two packed array dimensions.
+fun make_type_program(consumed_ids :: Nat = 0, result_port :: String = "Packet"):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def row_type = VectorType(3, Bits(3))
+  def grid_type = VectorType(2, row_type)
+  def fields = [RecordField("logic", grid_type), RecordField("_sv_bits_3", Bits(3))]
+  def packet_type = RecordType(fields, "Packet")
+  def alias_type = RecordType(fields, "OtherName")
+  def other_type = RecordType([RecordField("bits", Bits(21))], "Packet")
+  def child = builder.module("TypeNames_types")
+  def incoming = builder.input(child, "incoming", packet_type)
+  def grid = builder.record_get(child, incoming, "logic")
+  def swapped = builder.vector_create(child, grid_type, [builder.vector_get(child, grid, 1), builder.vector_get(child, grid, 0)])
+  def bindings = [["_sv_bits_3", builder.record_get(child, incoming, "_sv_bits_3")], ["logic", swapped]]
+  builder.drive(builder.output(child, "swapped", packet_type), builder.record_create(child, packet_type, bindings))
+  def other = builder.cast(child, incoming, other_type)
+  def restored = builder.cast(child, builder.record_get(child, other, "bits"), alias_type)
+  builder.drive(builder.output(child, "restored", alias_type), restored)
+  builder.finish(child)
+  def top = builder.module("TypeNames")
+  def source = builder.input(top, "TypeNames_types", Bits(21))
+  def instance = builder.instance(top, child, "TypeNames_types_1")
+  builder.drive(instance.input("incoming"), builder.cast(top, source, packet_type))
+  builder.drive(builder.output(top, result_port, packet_type), instance.output("restored"))
+  builder.drive(builder.output(top, "swapped", packet_type), instance.output("swapped"))
+  def matrix = builder.record_get(top, instance.output("restored"), "logic")
+  builder.drive(builder.output(top, "matrix", grid_type), matrix)
+  def last = builder.vector_get(top, builder.vector_get(top, matrix, 0), 2)
+  builder.drive(builder.output(top, "last", Bits(3)), last)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Keep all count bits and expose narrow results both directly and through wider
+// consumers. Anonymous aggregate outputs also retain their structure and layout.
+fun make_arithmetic_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("Arithmetic" ++ to_string(width))
+  def a = builder.input(top, "a", Bits(width))
+  def b = builder.input(top, "b", Bits(width))
+  def narrow = builder.input(top, "narrow", Bits(1))
+  def same = builder.input(top, "same", Bits(width))
+  def wide = builder.input(top, "wide", Bits(width + 3))
+  def sa = builder.cast(top, a, Signed(width))
+  def sb = builder.cast(top, b, Signed(width))
+  def product = builder.mul(top, a, b)
+  def shifted = builder.shl(top, a, wide)
+  def signed_extended = builder.sext(top, sa, width + 3)
+  def joined = builder.concat(top, [a, b, builder.constant(top, Bits(1), 1)])
+  def payload_type = RecordType([RecordField("product", Bits(width)), RecordField("shifted", Bits(width)), RecordField("extended", Signed(width + 3))])
+  def payload = builder.record_create(top, payload_type, [["product", product], ["shifted", shifted], ["extended", signed_extended]])
+  def outputs:
+    [["product", product], ["signed_product", builder.mul(top, sa, sb)],
+     ["widened_product", builder.zext(top, product, width + 3)],
+     ["joined", joined], ["full", builder.extract(top, a, width - 1, 0)],
+     ["msb", builder.extract(top, a, width - 1, width - 1)], ["lsb", builder.extract(top, a, 0, 0)],
+     ["cross_slice", builder.extract(top, joined, width + 1, 1)], ["truncated", builder.trunc(top, joined, width)],
+     ["zero_extended", builder.zext(top, a, width + 3)], ["sign_extended", signed_extended],
+     ["widened_shift", builder.zext(top, shifted, width + 3)],
+     ["extended_right", builder.shrs(top, signed_extended, wide)], ["payload", payload]]
+  for (entry in outputs):
+    def value :: Value = entry[1]
+    builder.drive(builder.output(top, entry[0], value.type), value)
+  for (entry in [["narrow", narrow], ["same", same], ["wide", wide]]):
+    def amount :: Value = entry[1]
+    def shifts:
+      [["left", builder.shl(top, a, amount)], ["right", builder.shru(top, a, amount)],
+       ["arithmetic", builder.shrs(top, sa, amount)], ["signed_left", builder.shl(top, sa, amount)]]
+    for (shift in shifts):
+      def value :: Value = shift[1]
+      builder.drive(builder.output(top, shift[0] ++ "_" ++ entry[0], value.type), value)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Dynamic reads/replacements cover scalar and nested aggregate elements. State
+// accumulates enabled writes, so unchanged elements and pre-edge values matter.
+fun make_dynamic_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("Dynamic" ++ to_string(width))
+  def clock = builder.input(top, "clock", Clock)
+  def reset = builder.input(top, "reset", Reset)
+  def enable = builder.input(top, "enable", Bits(1))
+  def element_type = RecordType([RecordField("tag", Bits(3)), RecordField("lanes", VectorType(2, Bits(width)))])
+  for (length in [1, 3, 4]):
+    def suffix = "_" ++ to_string(length)
+    def index = builder.input(top, "index" ++ suffix, Bits(count_index_width(length)))
+    def read_index = builder.input(top, "read_index" ++ suffix, Bits(count_index_width(length)))
+    for (entry in [["scalar", Bits(width)], ["aggregate", element_type]]):
+      def type :: DataType = entry[1]
+      def prefix = entry[0] ++ suffix
+      def vector_type = VectorType(length, type)
+      def source = builder.input(top, prefix ++ "_source", vector_type)
+      def element = builder.input(top, prefix ++ "_element", type)
+      def replaced = builder.vector_inject(top, source, index, element)
+      def zero = builder.cast(top, builder.constant(top, Bits(vector_type.packed_width()), 0), vector_type)
+      def state = builder.register(top, prefix ++ "_storage", vector_type, clock, reset, zero)
+      def next = builder.vector_inject(top, state.current, index, element)
+      builder.drive(state.next, builder.mux_lookup(top, enable, state.current, [[1, next]]))
+      def outputs:
+        [["read", builder.vector_index(top, source, index)], ["updated", replaced],
+         ["after", builder.vector_index(top, replaced, read_index)], ["state", state.current],
+         ["state_read", builder.vector_index(top, state.current, read_index)]]
+      for (output in outputs):
+        def value :: Value = output[1]
+        builder.drive(builder.output(top, prefix ++ "_" ++ output[0], value.type), value)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Reversing every port vector must preserve valid write-set results, including
+// state accumulated through repeated updates. Ports may outnumber elements.
+fun make_write_set_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("WriteSet" ++ to_string(width))
+  def clock = builder.input(top, "clock", Clock)
+  def reset = builder.input(top, "reset", Reset)
+  def element_type = RecordType([RecordField("tag", Bits(3)), RecordField("lanes", VectorType(2, Bits(width)))])
+  fun reverse_ports(value :: Value):
+    def type :: VectorType = value.type
+    def elements = for List (index in (type.length - 1) >=..= 0): builder.vector_get(top, value, index)
+    builder.vector_create(top, type, elements)
+  for (config in [[1, 1], [1, 3], [3, 2], [4, 3]]):
+    def length :: PosInt = config[0]
+    def ports :: PosInt = config[1]
+    def suffix = "_" ++ to_string(length) ++ "_" ++ to_string(ports)
+    def enables = builder.input(top, "enables" ++ suffix, VectorType(ports, Bits(1)))
+    def indices = builder.input(top, "indices" ++ suffix, VectorType(ports, Bits(count_index_width(length))))
+    def reversed_enables = reverse_ports(enables)
+    def reversed_indices = reverse_ports(indices)
+    for (entry in [["scalar", Bits(width)], ["aggregate", element_type]]):
+      def type :: DataType = entry[1]
+      def prefix = entry[0] ++ suffix
+      def vector_type = VectorType(length, type)
+      def source = builder.input(top, prefix ++ "_source", vector_type)
+      def elements = builder.input(top, prefix ++ "_elements", VectorType(ports, type))
+      def reversed_elements = reverse_ports(elements)
+      def updated = builder.vector_write_set(top, source, enables, indices, elements)
+      def permuted = builder.vector_write_set(top, source, reversed_enables, reversed_indices, reversed_elements)
+      def zero = builder.cast(top, builder.constant(top, Bits(vector_type.packed_width()), 0), vector_type)
+      def state = builder.register(top, prefix ++ "_storage", vector_type, clock, reset, zero)
+      def permuted_state = builder.register(top, prefix ++ "_permuted_storage", vector_type, clock, reset, zero)
+      builder.drive(state.next, builder.vector_write_set(top, state.current, enables, indices, elements))
+      builder.drive(permuted_state.next, builder.vector_write_set(top, permuted_state.current, reversed_enables, reversed_indices, reversed_elements))
+      for (output in [["updated", updated], ["permuted", permuted], ["state", state.current], ["permuted_state", permuted_state.current]]):
+        builder.drive(builder.output(top, prefix ++ "_" ++ output[0], vector_type), output[1])
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Partial selection keeps aggregate shapes and care masks intact. Noncanonical
+// cube values test Builder normalization; reversed rows test unordered decode.
+fun make_partial_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("Partial" ++ to_string(width))
+  def hot = builder.input(top, "hot", Bits(3))
+  def code = builder.input(top, "code", Bits(4))
+  def scalars = for List (index in 0..3): builder.input(top, "data" ++ to_string(index), Bits(width))
+  def packet_type = RecordType([RecordField("tag", Bits(3)), RecordField("lanes", VectorType(2, Bits(width)))])
+  def packets = for List (index in 0..3): builder.input(top, "packet" ++ to_string(index), packet_type)
+  def vectors = packets.map(fun (packet): builder.record_get(top, packet, "lanes"))
+  def packed_width = 2 * width + 3
+  def packed_mask = (2 ** packed_width) - 1
+  def care = rkt.quotient(packed_mask, 3)
+  def rows = [[11, 12, rkt.quotient(packed_mask, 5), care], [7, 13, packed_mask, packed_mask], [0, 15, 0, 0]]
+  def decoded = builder.decode(top, code, Bits(4), packet_type, rows, rkt.quotient(packed_mask, 7), packed_mask - care)
+  def reordered = builder.decode(top, code, Bits(4), packet_type, rows.reverse(), rkt.quotient(packed_mask, 7), packed_mask - care)
+  def wide_type = VectorType(3, Bits(width + 1))
+  def wide_mask = (2 ** (3 * (width + 1))) - 1
+  def high = 2 ** (packed_width - 1)
+  def wide_rows = [[0, high + 1, wide_mask, wide_mask], [1, high + 1, rkt.quotient(wide_mask, 5), rkt.quotient(wide_mask, 3)], [high, high + 1, 0, 0]]
+  def wide_decode = builder.decode(top, packets[0], packet_type, wide_type, wide_rows, rkt.quotient(wide_mask, 7), wide_mask - rkt.quotient(wide_mask, 3))
+  def mask = (2 ** width) - 1
+  def free = rkt.quotient(mask, 3)
+  def forced = (mask - free) bits.and (rkt.quotient(mask, 5))
+  def dc = builder.dont_care(top, Bits(width))
+  def zero = builder.constant(top, Bits(width), 0)
+  def ones = builder.constant(top, Bits(width), mask)
+  def dc_masked = builder.bit_or(top, builder.bit_and(top, dc, builder.constant(top, Bits(width), free)), builder.constant(top, Bits(width), forced))
+  def decode_bits = builder.cast(top, decoded, Bits(packed_width))
+  def outputs:
+    [["scalar_choice", builder.onehot_mux(top, hot, scalars)],
+     ["packet_choice", builder.onehot_mux(top, hot, packets)], ["vector_choice", builder.onehot_mux(top, hot, vectors)],
+     ["single_choice", builder.onehot_mux(top, builder.constant(top, Bits(1), 1), [scalars[0]])],
+     ["decoded", decoded], ["reordered", reordered], ["wide_decode", wide_decode],
+     ["empty_decode", builder.decode(top, code, Bits(4), Bits(1), [], 1, 1)],
+     ["catch_all", builder.decode(top, code, Bits(4), Bits(width), [[15, 0, rkt.quotient(mask, 3), mask]], 0, 0)],
+     ["raw_dc", dc], ["zero_dc", builder.bit_and(top, dc, zero)], ["ones_dc", builder.bit_or(top, dc, ones)],
+     ["masked_dc", dc_masked], ["masked_decode", builder.bit_and(top, decode_bits, builder.constant(top, Bits(packed_width), care))]]
+  for (entry in outputs):
+    def value :: Value = entry[1]
+    builder.drive(builder.output(top, entry[0], value.type), value)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Two occurrences have independent clocks and storage. Register reset must not
+// clear memory or suppress its writes; sampled reads observe pre-edge contents.
+fun make_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def child = builder.module("MemoryChild" ++ to_string(width))
+  def clock = builder.input(child, "clock", Clock)
+  def reset = builder.input(child, "reset", Reset)
+  def packet_type = RecordType([RecordField("tag", Bits(3)), RecordField("lanes", VectorType(2, Bits(width)))])
+  for (depth in [1, 3, 4]):
+    def suffix = "_" ++ to_string(depth)
+    def address_type = Bits(memory_address_width(depth))
+    def reads = for List (port in 0..2): builder.input(child, "read" ++ to_string(port) ++ suffix, address_type)
+    def addresses = for List (port in 0..2): builder.input(child, "address" ++ to_string(port) ++ suffix, address_type)
+    def enables = for List (port in 0..2): builder.input(child, "enable" ++ to_string(port) ++ suffix, Bits(1))
+    for (kind in ["scalar", "aggregate"], type in [Bits(width), packet_type]):
+      def prefix = kind ++ suffix
+      def data = for List (port in 0..2): builder.input(child, prefix ++ "_data" ++ to_string(port), type)
+      def memory = builder.memory(child, prefix ++ "_storage", depth, type)
+      def read_values = reads.map(fun (address): builder.memory_read_async(child, memory, address))
+      for (port in 0..2): builder.memory_write(child, memory, addresses[port], data[port], clock, enables[port])
+      def zero = builder.cast(child, builder.constant(child, Bits(type.packed_width()), 0), type)
+      def sampled = builder.register(child, prefix ++ "_sample_storage", type, clock, reset, zero)
+      builder.drive(sampled.next, read_values[0])
+      for (name in ["read0", "read1", "sampled"], value in read_values ++ [sampled.current]):
+        builder.drive(builder.output(child, prefix ++ "_" ++ name, type), value)
+  // These resources have no access-generated results from which to collect
+  // their element types. Even an unused resource needs a valid typed declaration.
+  builder.memory(child, "unused", 2, RecordType([RecordField("_sv_bits_7", VectorType(2, Bits(7)))]))
+  def write_only = builder.memory(child, "write_only", 1, Bits(width))
+  builder.memory_write(child, write_only, builder.constant(child, Bits(1), 0), builder.constant(child, Bits(width), 0), clock, builder.constant(child, Bits(1), 1))
+  def read_only = builder.memory(child, "read_only", 2, Bits(width))
+  def unknown = builder.memory_read_async(child, read_only, builder.constant(child, Bits(1), 0))
+  builder.drive(builder.output(child, "read_only_zero", Bits(width)), builder.bit_and(child, unknown, builder.constant(child, Bits(width), 0)))
+  builder.finish(child)
+  def top = builder.module("Memories" ++ to_string(width))
+  for (side in ["first", "second"]):
+    def instance = builder.instance(top, child, side)
+    for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Independent child checks exercise guard/reset suppression and pre-update
+// state sampling; intentional failure runs select one check at a time.
+fun make_assertion_program(consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def child = builder.module("AssertionChild")
+  def clock = builder.input(child, "clock", Clock)
+  def reset = builder.input(child, "reset", Reset)
+  def guard = builder.input(child, "guard", Bits(1))
+  def condition = builder.input(child, "condition", Bits(1))
+  def unnamed_guard = builder.input(child, "unnamed_guard", Bits(1))
+  def unnamed_condition = builder.input(child, "unnamed_condition", Bits(1))
+  def sample_guard = builder.input(child, "sample_guard", Bits(1))
+  def next_state = builder.input(child, "next_state", Bits(1))
+  def expected_state = builder.input(child, "expected_state", Bits(1))
+  def state = builder.register(child, "state_storage", Bits(1), clock, reset, builder.constant(child, Bits(1), 0))
+  builder.drive(state.next, next_state)
+  builder.drive(builder.output(child, "state", Bits(1)), state.current)
+  builder.assert(child, condition, clock, reset, guard, "named_check")
+  builder.assert(child, unnamed_condition, clock, reset, unnamed_guard)
+  builder.assert(child, builder.eq(child, state.current, expected_state), clock, reset, sample_guard, "sample_check")
+  builder.finish(child)
+  def top = builder.module("AssertionChecks")
+  for (side in ["first", "second"]):
+    def instance = builder.instance(top, child, side)
+    for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Direct-emitter names must handle duplicate labels, keywords, ports, package
+// identity, and generated nets without losing the original diagnostic text.
+fun make_assertion_names_program(consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def top = builder.module("AssertionNames")
+  def clock = builder.input(top, "check", Clock)
+  def reset = builder.input(top, "reset", Reset)
+  def yes = builder.constant(top, Bits(1), 1)
+  for (label in ["check", "check", "check_assert_1", "assert", "_sv_0", "AssertionNames_types", #false]):
+    builder.assert(top, yes, clock, reset, yes, label)
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Stable-level evidence adds attributes to explicit resetless chains. Ordinary
+// state alongside the chains must remain unmarked, and each child owns its state.
+fun make_cdc_program(consumed_ids :: Nat = 0, marked :: Boolean = #true):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def child = builder.module("CdcChild")
+  def clock = builder.input(child, "clock", Clock)
+  for (length in [2, 3]):
+    def suffix = to_string(length)
+    def source = builder.input(child, "source" ++ suffix, Bits(1))
+    def stages = for List (index in 0..length): builder.register(child, "stage" ++ suffix ++ "_" ++ to_string(index), Bits(1), clock)
+    def mutable prior = source
+    for (stage in stages):
+      builder.drive(stage.next, prior)
+      prior := stage.current
+    builder.drive(builder.output(child, "sync" ++ suffix, Bits(1)), prior)
+    when marked
+    | builder.sync_level_crossing(child, source, clock, stages)
+  def data = builder.input(child, "data", Bits(1))
+  def ordinary = builder.register(child, "ordinary_storage", Bits(1), clock)
+  builder.drive(ordinary.next, data)
+  builder.drive(builder.output(child, "ordinary", Bits(1)), ordinary.current)
+  builder.finish(child)
+  def top = builder.module("CdcChecks")
+  for (side in ["first", "second"]):
+    def instance = builder.instance(top, child, side)
+    for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Builder permits creating the evidence before whole-graph verification. These
+// malformed chains must fail before a target can apply synthesis attributes.
+fun make_invalid_cdc_program(kind :: String):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("InvalidCdc")
+  def clock = builder.input(top, "clock", Clock)
+  def other_clock = builder.input(top, "other_clock", Clock)
+  def reset = builder.input(top, "reset", Reset)
+  def source = builder.input(top, "source", Bits(1))
+  def zero = builder.constant(top, Bits(1), 0)
+  def stage0 = if kind == "reset" | builder.register(top, "stage0", Bits(1), clock, reset, zero) | builder.register(top, "stage0", Bits(1), clock)
+  def stage1 = builder.register(top, "stage1", Bits(1), (if kind == "clock" | other_clock | clock))
+  builder.drive(stage0.next, source)
+  builder.drive(stage1.next, (if kind == "chain" | source | stage0.current))
+  when kind == "fanout"
+  | builder.drive(builder.output(top, "leaked", Bits(1)), stage0.current)
+  builder.drive(builder.output(top, "result", Bits(1)), stage1.current)
+  builder.sync_level_crossing(top, source, clock, [stage0, stage1])
+  builder.finish(top)
+  ElaboratedProgram(design, top)
+
+// Calls consume pre-edge input registers; later registers capture pre-edge DPI
+// results. Two occurrences exercise independent enables/clocks and context scope.
+fun make_dpi_program(consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def child = builder.module("DpiChild")
+  def clock = builder.input(child, "clock", Clock)
+  def reset = builder.input(child, "reset", Reset)
+  def identity = builder.input(child, "identity", Bits(8))
+  def proc_enable = builder.input(child, "proc_enable", Bits(1))
+  def pair_enable = builder.input(child, "pair_enable", Bits(1))
+  def single_enable = builder.input(child, "single_enable", Bits(1))
+  for (width in [1, 3, 8, 16, 32, 33, 64, 65, 129]):
+    def suffix = to_string(width)
+    def type = Bits(width)
+    def return_type = Bits(if width in [1, 3, 8, 16, 32, 64] | width | 32)
+    def data = builder.input(child, "data" ++ suffix, type)
+    def input_state = builder.register(child, "input_storage" ++ suffix, type, clock, reset, builder.constant(child, type, 0))
+    builder.drive(input_state.next, data)
+    def inputs = [identity, input_state.current]
+    def procedure = builder.dpi_import("rhdl_dpi_proc" ++ suffix, (if width == 1 | ["_sv_0", "input"] | ["identity", "value"]), [Bits(8), type])
+    def pair = builder.dpi_import_results("rhdl_dpi_pair" ++ suffix, ["identity", "value"], [Bits(8), type], [DpiResult("inverted", type, "out"), DpiResult("tag", Bits(8), "out"), DpiResult("result", return_type, "return")])
+    def single = builder.dpi_import("rhdl_dpi_single" ++ suffix, ["identity", "value"], [Bits(8), type], "result", return_type)
+    builder.dpi_call(child, procedure, inputs, clock, proc_enable)
+    when width == 8
+    | builder.dpi_call(child, procedure, inputs, clock, pair_enable)
+    def pair_results = builder.dpi_register_results(child, ["pair_out" ++ suffix, "pair_tag" ++ suffix, "pair_return" ++ suffix], pair, inputs, clock, pair_enable)
+    def single_result = builder.dpi_register(child, "single_result" ++ suffix, single, inputs, clock, single_enable)
+    def sampled = builder.register(child, "sample_storage" ++ suffix, return_type, clock)
+    builder.drive(sampled.next, pair_results[2])
+    for (name in ["inverted", "tag", "result", "single", "sampled"], value in pair_results ++ [single_result, sampled.current]):
+      builder.drive(builder.output(child, name ++ suffix, value.type), value)
+  builder.finish(child)
+  def top = builder.module("DpiChecks")
+  for (side in ["first", "second"], identity in [0, 1]):
+    def instance = builder.instance(top, child, side)
+    for (port in child.inputs):
+      if port.name == "identity"
+      | builder.drive(instance.input(port.name), builder.constant(top, Bits(8), identity))
+      | builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  // Unused declarations are not part of a selected program's ABI.
+  builder.dpi_import("unused_dpi", ["value"], [Bits(129)], "result", Bits(129))
+  ElaboratedProgram(design, top)
+
+/* Exercise fixed memory ports with scalar, record, and vector storage. Masks
+   cross record fields; two child occurrences must keep their own arrays. */
+fun make_sync_memory_program(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def builder = Builder(design)
+  def child = builder.module("SyncMemoryChild" ++ to_string(width))
+  def clock = builder.input(child, "clock", Clock)
+  def reset = builder.input(child, "reset", Reset)
+  def packet = RecordType([RecordField("high", Bits(1)), RecordField("lanes", VectorType(2, Bits(width))), RecordField("low", Bits(1))])
+  for (depth in [1, 3, 4]):
+    def suffix = "_" ++ to_string(depth)
+    def address_type = Bits(memory_address_width(depth))
+    def read_address = builder.input(child, "read_address" ++ suffix, address_type)
+    def write_address = builder.input(child, "write_address" ++ suffix, address_type)
+    def read_enable = builder.input(child, "read_enable" ++ suffix, Bits(1))
+    def write_enable = builder.input(child, "write_enable" ++ suffix, Bits(1))
+    def shared_enable = builder.input(child, "shared_enable" ++ suffix, Bits(1))
+    def shared_write = builder.input(child, "shared_write" ++ suffix, Bits(1))
+    for (kind in ["plain", "bits", "word", "record", "vector"], type in [Bits(width), Bits(width), Bits(width), packet, VectorType(2, Bits(width))], granularity in [#false, 1, width, 2, width]):
+      def prefix = kind ++ suffix
+      def data = builder.input(child, prefix ++ "_data", type)
+      def mask = if granularity | builder.input(child, prefix ++ "_mask", Bits(type.packed_width() / granularity)) | #false
+      for (mode in ["separate", "shared"]):
+        def memory = builder.sync_memory(child, prefix ++ "_" ++ mode, depth, type, clock, mode == "separate", mode == "separate", mode == "shared", granularity)
+        def result:
+          if mode == "separate"
+          | block:
+              def read = memory.read_ports[0]
+              def write = memory.write_ports[0]
+              builder.drive(read.address, read_address)
+              builder.drive(read.enable, read_enable)
+              builder.drive(write.address, write_address)
+              builder.drive(write.data, data)
+              builder.drive(write.enable, write_enable)
+              when mask | builder.drive(write.mask, mask)
+              read.data
+          | block:
+              def port = memory.read_write_ports[0]
+              builder.drive(port.address, write_address)
+              builder.drive(port.enable, shared_enable)
+              builder.drive(port.write, shared_write)
+              builder.drive(port.write_data, data)
+              when mask | builder.drive(port.write_mask, mask)
+              port.read_data
+        def zero = builder.cast(child, builder.constant(child, Bits(type.packed_width()), 0), type)
+        def sample = builder.register(child, prefix ++ "_" ++ mode ++ "_sample", type, clock, reset, zero)
+        builder.drive(sample.next, result)
+        builder.drive(builder.output(child, prefix ++ "_" ++ mode ++ "_data", type), result)
+        builder.drive(builder.output(child, prefix ++ "_" ++ mode ++ "_sampled", type), sample.current)
+  // Neither a read-only memory nor a write-only memory requires a fake port.
+  def read_only = builder.sync_memory(child, "read_only", 2, Bits(width), clock, #true, #false)
+  builder.drive(read_only.read_ports[0].address, builder.constant(child, Bits(1), 0))
+  builder.drive(read_only.read_ports[0].enable, builder.constant(child, Bits(1), 1))
+  builder.drive(builder.output(child, "read_only_zero", Bits(width)), builder.bit_and(child, read_only.read_ports[0].data, builder.constant(child, Bits(width), 0)))
+  def write_type = RecordType([RecordField("_sv_bits_7", VectorType(2, Bits(7)))])
+  def write_only = builder.sync_memory(child, "write_only", 1, write_type, clock, #false, #true, #false, 2)
+  builder.drive(write_only.write_ports[0].address, builder.constant(child, Bits(1), 0))
+  builder.drive(write_only.write_ports[0].data, builder.cast(child, builder.constant(child, Bits(14), 0), write_type))
+  builder.drive(write_only.write_ports[0].enable, builder.constant(child, Bits(1), 1))
+  builder.drive(write_only.write_ports[0].mask, builder.constant(child, Bits(7), 127))
+  builder.finish(child)
+  def top = builder.module("SyncMemories" ++ to_string(width))
+  for (side in ["first", "second"]):
+    def instance = builder.instance(top, child, side)
+    for (port in child.inputs): builder.drive(instance.input(port.name), builder.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in child.outputs): builder.drive(builder.output(top, side ++ "_" ++ port.name, port.type), instance.output(port.name))
+  builder.finish(top)
+  ElaboratedProgram(design, top)

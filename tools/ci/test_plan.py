@@ -9,7 +9,7 @@ from pathlib import Path
 from .gate import failures
 from .plan import Selection, plan_for_paths
 from .programs import program_matrices
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry, qualification_products
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, DIRECT_SMOKE_TESTS, qualification_products
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -38,6 +38,29 @@ class PlanTest(unittest.TestCase):
 
     def assert_checks(self, path, *expected):
         self.assertTrue(set(expected).issubset(check_keys(self.plan(path))), path)
+
+    def test_direct_verilog_routes_have_explicit_tool_requirements(self):
+        plan = self.plan("rhodium/backend/verilog.rhm")
+        entries = {entry["key"]: entry for entry in plan["checks_matrix"]["include"]}
+        self.assertFalse(entries["verilog-direct"]["circt"])
+        self.assertTrue(entries["verilog-direct"]["verilator"])
+        self.assertTrue(entries["circt-verilog-differential"]["circt"])
+        self.assert_checks("rhodium/core/ops.rhm", "verilog-direct")
+        for path in ("rhodium/backend/tests/verilog/run.py", "rhodium/compile/rtl.rhm"):
+            self.assert_checks(path, "host-backend", "verilog-direct", "circt-verilog-differential")
+
+    def test_authored_backend_integration_dependencies(self):
+        for path in ("rhodium/backend/tests/verilog/emit-integration.rhm",
+                     "rhodium/backend/tests/verilog/run-integration.py",
+                     "rhodium/std/sync-ram.rhdl", "rhodium/std/ready-valid.rhdl",
+                     "rhodium/std/tests/circt/verilog/sync-ram_tb.sv",
+                     "examples/std/sync-ram.rhdl", "devices/uart/uart-dpi.rhdl",
+                     "devices/uart/dpi/uart_dpi.cc", "devices/uart/dpi/uart_dpi.h",
+                     "devices/tests/uart-dpi-fixture.rhdl",
+                     "devices/tests/circt/verilog/uart-dpi_tb.sv",
+                     "devices/tests/circt/verilog/uart-dpi_dpi.cpp"):
+            with self.subTest(path=path):
+                self.assert_checks(path, "verilog-direct", "circt-verilog-differential")
 
     def test_documentation_selects_no_execution(self):
         for path in ("README.md", "LICENSE", "NOTICE", "DCO", "flow/DEVELOPING.md", "sram/README.md"):
@@ -70,11 +93,12 @@ class PlanTest(unittest.TestCase):
 
     def test_simulation_builds_and_runs_all_qualified_products(self):
         plan = self.plan("sims/Makefile")
-        expected = [dict(soc=soc, shape=shape, core=core)
-                    for soc, shape, core in SIMULATOR_PRODUCTS]
+        expected = [simulator_entry(*product) for product in SIMULATOR_PRODUCTS]
+        expected.append(simulator_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
         self.assertEqual(plan["simulation_matrix"]["include"],
-                         [simulation_entry(*product) for product in SIMULATOR_PRODUCTS])
+                         [simulation_entry(*product) for product in SIMULATOR_PRODUCTS]
+                         + [simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog")])
         self.assertEqual({entry["soc"] for entry in expected},
                          {"mini-rv5stage-rv32int", "mini-spike-rv32int", "simple-rv5stage-rv32int", "simple-spike-rv32int",
                           "mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
@@ -84,10 +108,35 @@ class PlanTest(unittest.TestCase):
                 self.assertIn(simulation_entry("mini-rv5stage-rv32max", "mini", "rv5stage"),
                               self.plan(path)["simulation_matrix"]["include"])
 
+    def test_direct_simulator_is_an_isolated_smoke_variant(self):
+        for path in ('rhodium/backend/verilog.rhm', 'rhodium/compile/rtl.rhm',
+                     'cores/rv5stage/core.rhdl', 'sims/Makefile', '.github/workflows/ci.yml'):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                builds = plan['simulator_matrix']['include']
+                runs = plan['simulation_matrix']['include']
+                self.assertEqual(len({entry['simulator_id'] for entry in builds}), len(builds))
+                self.assertEqual({entry['simulator_id'] for entry in builds},
+                                 {entry['simulator_id'] for entry in runs})
+                direct = [entry for entry in runs if entry['backend'] == 'verilog']
+                self.assertEqual(len(direct), 1)
+                self.assertEqual(direct[0]['soc'], 'simple-rv5stage-rva23')
+                self.assertEqual(direct[0]['simulator_id'], 'simple-rv5stage-rva23-verilog')
+                self.assertEqual(direct[0]['software_tests'].split(), list(DIRECT_SMOKE_TESTS))
+                self.assertFalse(direct[0]['qualification'])
+                self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
+        build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
+        run = (REPO / '.github/workflows/ci-simulation.yml').read_text().split('  qualification-plan:', 1)[0]
+        for workflow in (build, run):
+            self.assertIn("if: matrix.backend == 'circt'", workflow)
+            self.assertIn('RTL_BACKEND: ${{ matrix.backend }}', workflow)
+            self.assertIn('matrix.simulator_id', workflow)
+        self.assertIn('--backend "$RTL_BACKEND"', run)
+
     def test_software_selection_is_identical_for_matching_shape_and_isa(self):
         entries = self.plan("sims/Makefile")["simulation_matrix"]["include"]
         for (shape, isa), tests in SOFTWARE_TESTS.items():
-            products = [entry for entry in entries if (entry["shape"], entry["isa"]) == (shape, isa)]
+            products = [entry for entry in entries if entry["qualification"] and (entry["shape"], entry["isa"]) == (shape, isa)]
             self.assertEqual({entry["core"] for entry in products}, {"rv5stage", "spike"})
             self.assertEqual({entry["software_tests"] for entry in products}, {" ".join(tests)})
 
@@ -234,8 +283,17 @@ class PlanTest(unittest.TestCase):
             with self.subTest(path=path):
                 self.assert_checks(path, *expected)
 
-    def test_flow_and_standard_library_share_the_same_plan(self):
-        self.assertEqual(self.plan("flow/queue.rhdl"), self.plan("rhodium/std/ready-valid.rhdl"))
+    def test_flow_and_standard_library_share_the_base_plan(self):
+        flow = self.plan("flow/queue.rhdl")
+        standard = self.plan("rhodium/std/ready-valid.rhdl")
+        # The authored backend fixtures import std directly and do not import Flow.
+        integration_checks = {"verilog-direct", "circt-verilog-differential"}
+        self.assertEqual(check_keys(standard) - check_keys(flow), integration_checks)
+        standard["checks_matrix"]["include"] = [
+            entry for entry in standard["checks_matrix"]["include"]
+            if entry["key"] not in integration_checks
+        ]
+        self.assertEqual(flow, standard)
 
     def test_simulation_only_paths_do_not_expand_host_checks(self):
         for path in ("sram/map-memories.py", "vlsi/sim/Makefile", "vlsi/designs/mini-rv5stage-soc/sky130/sram-map.yaml"):
@@ -395,8 +453,8 @@ class PlanTest(unittest.TestCase):
         self.assertIn(".simulation_matrix", root)
         self.assertIn("matrix: ${{ fromJSON(inputs.matrix) }}", build)
         self.assertIn("matrix: ${{ fromJSON(inputs.matrix) }}", simulation)
-        self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", build)
-        self.assertIn("name: ${{ matrix.soc }}-${{ github.sha }}", simulation)
+        self.assertIn("name: ${{ matrix.simulator_id }}-${{ github.sha }}", build)
+        self.assertIn("name: ${{ matrix.simulator_id }}-${{ github.sha }}", simulation)
         self.assertIn("SOFTWARE_TESTS: ${{ matrix.software_tests }}", simulation)
         self.assertIn('for target in $SOFTWARE_TESTS', simulation)
         self.assertIn('make -C sims "$target" SOC="$SOC"', simulation)
@@ -406,7 +464,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("qualification_products", simulation)
         self.assertIn("litmus-smoke-elfs", simulation)
         self.assertNotIn("litmus-full", simulation)
-        self.assertIn("if: matrix.soc == 'simple-rv5stage-rva23'", simulation)
+        self.assertIn("if: matrix.qualification && matrix.soc == 'simple-rv5stage-rva23'", simulation)
         self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)
         self.assertIn("Restore pinned Spike runtime libraries", software)
 

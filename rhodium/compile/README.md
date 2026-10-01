@@ -4,8 +4,8 @@
 # Compile a program
 
 This package compiles an elaborated program through an explicitly supplied
-target. CIRCT and clock analysis supply targets. Compilation returns in-memory
-artifacts, a manifest, diagnostics, and optional structured findings; it does not
+target. CIRCT, direct SystemVerilog, and clock analysis supply targets.
+Compilation returns in-memory artifacts, a manifest, diagnostics, and optional structured findings; it does not
 write files or run external tools. Contributors should
 read [DEVELOPING.md](DEVELOPING.md).
 
@@ -113,14 +113,16 @@ the source and keep emission free of publication side effects.
 [`rtl.rhm`](rtl.rhm) supplies `prepare_rtl(program, options, reason)` for targets
 requiring concrete RTL and re-exports `ElaboratedProgram` for target input
 annotations. It returns a `PreparedRTL` containing `.rtl` and
-`.manifest`. CIRCT uses this helper and expands every reachable retained
-construct through its portable implementation. A future target can supply
+`.manifest`. CIRCT and direct SystemVerilog use this helper and expand every
+reachable retained construct through its portable implementation. A future target can supply
 its own plan without first erasing retained constructs.
 
 Use the [clock-analysis target](../analysis/README.md) for temporal reports or
-CDC diagnostics; it expands retained constructs for concrete provenance.
+CDC diagnostics; it expands retained constructs for concrete provenance. The
+[direct SystemVerilog target](../backend/README.md#direct-systemverilog) emits
+its documented scalar combinational subset without CIRCT.
 
 All public program compilation goes through `compile_program` with an explicit
 target. Materialization and textual emission are implementation steps owned by
-the target. Direct construct adapters, capability negotiation, force-expansion
-selection, and other targets are subsequent work.
+the target. Direct construct adapters, capability negotiation, and force-expansion
+selection are subsequent work.

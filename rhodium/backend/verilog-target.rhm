@@ -1,0 +1,20 @@
+#lang rhombus
+/* Supplies direct SystemVerilog compilation with fresh portable RTL preparation. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../compile/contracts.rhm" open
+  "../compile/rtl.rhm" open
+  "verilog.rhm".emit_verilog
+
+export verilog_target
+
+/* Retain one prepared graph for both the manifest and atomic in-memory emission. */
+class VerilogPlan(prepared :: PreparedRTL):
+  implements TargetPlan
+  /* Preserve authored port names and the preparation's portable-expansion report. */
+  override method manifest(): prepared.manifest
+  /* Return SystemVerilog only after all live operations pass backend checks. */
+  override method emit():
+    [Artifact(prepared.rtl.top.name ++ ".sv", "text/x-systemverilog", emit_verilog(prepared.rtl.design))]
+
+def verilog_target = CompilationTarget("verilog", fun (program, options): VerilogPlan(prepare_rtl(program, options, "SystemVerilog requires concrete RTL; use the portable implementation")))

@@ -1,0 +1,484 @@
+#lang rhombus
+/* Checks direct target manifests, deterministic names, source isolation, and invalid supported IR. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "verilog/fixtures.rhm" open
+  "../verilog-target.rhm".verilog_target
+  "../verilog.rhm".verilog_opcode_policy
+  "../circt-target.rhm".circt_target
+  "../../compile/program.rhm".compile_program
+  "../../core/main.rhm" open
+  "../../lowering/program.rhm".ElaboratedProgram
+
+for (width in [1, 5, 65]):
+  def program = make_program(width)
+  def before = dump_ir(program.design)
+  def result = compile_program(program, verilog_target)
+  def circt = compile_program(program, circt_target)
+  def again = compile_program(program, verilog_target)
+  def shifted = compile_program(make_program(width, 100), verilog_target)
+  check:
+    result.target ~is "verilog"
+    result.has_errors ~is #false
+    result.diagnostics ~is []
+    result.artifacts[0].name ~is "Combinational" ++ to_string(width) ++ ".sv"
+    result.artifacts[0].media_type ~is "text/x-systemverilog"
+    result.artifacts[0].content ~is again.artifacts[0].content
+    result.artifacts[0].content ~is shifted.artifacts[0].content
+    result.manifest.top ~is program.top.name
+    result.manifest.modules ~is [program.top.name]
+    result.manifest.signature ~is circt.manifest.signature
+    result.manifest.lowerings ~is []
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+  // Compilation may not seal the original inventory against later construction.
+  def builder = Builder(program.design)
+  def unused = builder.module("Unused")
+  builder.finish(unused)
+  check:
+    compile_program(program, verilog_target).artifacts[0].content ~is result.artifacts[0].content
+
+def keyword = compile_program(make_keyword_program(), verilog_target)
+check:
+  keyword.manifest.top ~is "module"
+  keyword.manifest.signature.inputs[0].name ~is "input"
+  keyword.manifest.signature.outputs[0].name ~is "output"
+  keyword.artifacts[0].content.contains("module \\module (") ~is #true
+  keyword.artifacts[0].content.contains("\\input ") ~is #true
+  keyword.artifacts[0].content.contains("\\output ") ~is #true
+
+// Missing drivers are invalid uses of otherwise supported output ports.
+def invalid_design = Design()
+def invalid_builder = Builder(invalid_design)
+def invalid_top = invalid_builder.module("Undriven")
+invalid_builder.output(invalid_top, "result", Bits(5))
+invalid_builder.finish(invalid_top)
+check:
+  compile_program(ElaboratedProgram(invalid_design, invalid_top), verilog_target) ~throws "undriven"
+
+// Shared definitions are emitted once, while portable occurrence reports retain
+// both paths. Preparing either backend cannot seal or mutate the original graph.
+for (width in [1, 5, 65]):
+  def mutable calls = 0
+  def program = make_hierarchy_program(width, 0, fun (): calls := calls + 1)
+  def before = dump_ir(program.design)
+  def circt = compile_program(program, circt_target)
+  check: calls ~is 1
+  def direct = compile_program(program, verilog_target)
+  check: calls ~is 2
+  def again = compile_program(program, verilog_target)
+  check: calls ~is 3
+  def circt_again = compile_program(program, circt_target)
+  check: calls ~is 4
+  def text = direct.artifacts[0].content
+  def suffix = to_string(width)
+  check:
+    direct.artifacts.length() ~is 1
+    direct.artifacts[0].name ~is "Hierarchy" ++ suffix ++ ".sv"
+    direct.manifest.modules.length() ~is 4
+    direct.manifest.modules ~is circt.manifest.modules
+    direct.manifest.signature ~is circt.manifest.signature
+    direct.manifest.lowerings.map(fun (decision): decision.path) ~is [["portable"], ["portable_again"]]
+    direct.manifest.lowerings.map(fun (decision): decision.action) ~is ["expand", "expand"]
+    text ~is again.artifacts[0].content
+    text ~is compile_program(make_hierarchy_program(width, 100), verilog_target).artifacts[0].content
+    circt.artifacts[0].content ~is circt_again.artifacts[0].content
+    text.contains("Unreachable") ~is #false
+    text.contains("\\a_instance_1 (") ~is #true
+    text.contains("\\a_instance (") ~is #true
+    text.contains("\\_sv_0 (") ~is #true
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+  for (name in direct.manifest.modules):
+    check: text.split("\n").filter(~keep: fun (line): line == ("module \\" ++ name ++ " (")).length() ~is 1
+
+// A child input is a supported scalar place and still requires a driver.
+def hierarchy_design = Design()
+def hierarchy_builder = Builder(hierarchy_design)
+def child = hierarchy_builder.module("Child")
+def source = hierarchy_builder.input(child, "source", Bits(5))
+hierarchy_builder.drive(hierarchy_builder.output(child, "result", Bits(5)), source)
+hierarchy_builder.finish(child)
+def parent = hierarchy_builder.module("Parent")
+hierarchy_builder.instance(parent, child, "undriven_child")
+hierarchy_builder.finish(parent)
+check:
+  compile_program(ElaboratedProgram(hierarchy_design, parent), verilog_target) ~throws "undriven"
+
+// Aggregate physical widths never replace the logical signature in the manifest.
+for (width in [1, 5, 65]):
+  def program = make_aggregate_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  def circt = compile_program(program, circt_target)
+  def again = compile_program(program, verilog_target)
+  check:
+    direct.manifest.signature ~is circt.manifest.signature
+    record_type(direct.manifest.signature.inputs[3].type) ~is #true
+    direct.manifest.signature.inputs[3].type.packed_width() ~is 2 * width + 18
+    direct.manifest.modules ~is ["Aggregates" ++ to_string(width), "AggregateChild" ++ to_string(width)]
+    direct.artifacts.length() ~is 1
+    direct.artifacts[0].content ~is again.artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_aggregate_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// Incomplete and overlapping field/element writes are invalid supported uses.
+for (aggregate in [RecordType([RecordField("a", Bits(3)), RecordField("b", Bits(3))]), VectorType(2, Bits(3))]):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("InvalidAggregate")
+  def output = builder.output(top, "result", aggregate)
+  def first = if record_type(aggregate) | builder.project(output, "a") | builder.project_vector(output, 0)
+  def value = builder.constant(top, Bits(3), 1)
+  builder.drive(first, value)
+  check:
+    builder.drive(first, value) ~throws "already has a driver"
+    builder.drive(output, builder.cast(top, builder.constant(top, Bits(6), 0), aggregate)) ~throws "cannot mix"
+    builder.finish(top) ~throws "incomplete"
+
+// State does not change preparation ownership, logical control types, or naming.
+for (width in [1, 5, 65]):
+  def program = make_sequential_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  def circt = compile_program(program, circt_target)
+  check:
+    direct.manifest.signature ~is circt.manifest.signature
+    clock_type(direct.manifest.signature.inputs[0].type) ~is #true
+    reset_type(direct.manifest.signature.inputs[1].type) ~is #true
+    direct.manifest.modules ~is ["Sequential" ++ to_string(width), "StateCell" ++ to_string(width)]
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_sequential_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// A register's next-state place is still a required single-driver connection.
+def state_design = Design()
+def state_builder = Builder(state_design)
+def state_top = state_builder.module("UndrivenState")
+def state_clock = state_builder.input(state_top, "clock", Clock)
+def state = state_builder.register(state_top, "state", Bits(5), state_clock)
+state_builder.drive(state_builder.output(state_top, "result", Bits(5)), state.current)
+state_builder.finish(state_top)
+check:
+  compile_program(ElaboratedProgram(state_design, state_top), verilog_target) ~throws "undriven"
+
+
+// The target representation preserves named structure while sharing physical
+// shapes across modules and disambiguating package, typedef, and member names.
+def typed_program = make_type_program()
+def typed_before = dump_ir(typed_program.design)
+def typed = compile_program(typed_program, verilog_target)
+def typed_text = typed.artifacts[0].content
+check:
+  typed_text.contains("package \\TypeNames_types_2 ;") ~is #true
+  typed_text.contains("} \\Packet ;") ~is #true
+  typed_text.contains("} \\Packet_1 ;") ~is #true
+  typed_text.contains("typedef logic [2:0] \\_sv_bits_3_1 ;") ~is #true
+  typed_text.split("\n").filter(~keep: fun (line): line == "  typedef struct packed {").length() ~is 2
+  typed_text.contains(".\\logic ") ~is #true
+  typed_text.contains(".\\_sv_bits_3 ") ~is #true
+  typed_text.contains("'{\\logic :") ~is #true
+  typed.manifest.signature ~is compile_program(typed_program, circt_target).manifest.signature
+  typed_text ~is compile_program(make_type_program(100), verilog_target).artifacts[0].content
+  dump_ir(typed_program.design) ~is typed_before
+
+
+// Width-changing operations and signed authoring types retain compile metadata
+// and source isolation just like other concrete RTL in the same target.
+for (width in [1, 5, 65]):
+  def program = make_arithmetic_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  def circt = compile_program(program, circt_target)
+  check:
+    direct.manifest.signature ~is circt.manifest.signature
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_arithmetic_program(width, 100), verilog_target).artifacts[0].content
+    record_type(direct.manifest.signature.outputs[13].type) ~is #true
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// Reject invalid uses of the now-supported slice/resize operations at Builder.
+def bit_design = Design()
+def bit_builder = Builder(bit_design)
+def bit_top = bit_builder.module("InvalidBits")
+def bit_source = bit_builder.input(bit_top, "source", Bits(5))
+check:
+  bit_builder.extract(bit_top, bit_source, 5, 0) ~throws "extract indices"
+  bit_builder.extract(bit_top, bit_source, 1, 2) ~throws "extract indices"
+  bit_builder.trunc(bit_top, bit_source, 5) ~throws "smaller"
+  bit_builder.zext(bit_top, bit_source, 5) ~throws "larger"
+  bit_builder.sext(bit_top, bit_source, 8) ~throws "SignedArithmeticType"
+
+
+// Dynamic operators preserve structural port types and source graph isolation.
+for (width in [1, 5, 65]):
+  def program = make_dynamic_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  check:
+    direct.manifest.signature ~is compile_program(program, circt_target).manifest.signature
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_dynamic_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// Out-of-range encodings are partial runtime values, not invalid IR. Width and
+// element-type mismatches are invalid supported uses and must still be rejected.
+for (length in [1, 3, 4]):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("InvalidDynamic")
+  def vector = builder.input(top, "source", VectorType(length, Bits(5)))
+  def index = builder.input(top, "index", Bits(count_index_width(length)))
+  def wrong_index = builder.input(top, "wrong_index", Bits(count_index_width(length) + 1))
+  def element = builder.input(top, "element", Bits(5))
+  // Equal physical width does not make distinct logical element types valid.
+  def wrong_element = builder.input(top, "wrong_element", RecordType([RecordField("value", Bits(5))]))
+  check:
+    builder.vector_index(top, vector, wrong_index) ~throws "selector has the wrong Bits width"
+    builder.vector_inject(top, vector, wrong_index, element) ~throws "selector has the wrong Bits width"
+    builder.vector_inject(top, vector, index, wrong_element) ~throws "element has the wrong hardware type"
+
+
+// The unordered primitive follows the same preparation/manifest contract.
+for (width in [1, 5, 65]):
+  def program = make_write_set_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  check:
+    direct.manifest.signature ~is compile_program(program, circt_target).manifest.signature
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_write_set_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// Shape/type errors are compile-time failures, unlike invalid runtime indices
+// or collisions, whose values are outside the primitive's defined contract.
+def writes_design = Design()
+def writes_builder = Builder(writes_design)
+def writes_top = writes_builder.module("InvalidWriteSet")
+fun writes_input(name :: String, type :: HardwareType): writes_builder.input(writes_top, name, type)
+def writes_source = writes_input("source", VectorType(3, Bits(5)))
+def writes_enables = writes_input("enables", VectorType(2, Bits(1)))
+def writes_indices = writes_input("indices", VectorType(2, Bits(2)))
+def writes_elements = writes_input("elements", VectorType(2, Bits(5)))
+check:
+  writes_builder.vector_write_set(writes_top, writes_source, writes_input("bad_enable", VectorType(2, Bits(2))), writes_indices, writes_elements) ~throws "enables must be"
+  writes_builder.vector_write_set(writes_top, writes_source, writes_enables, writes_input("bad_count", VectorType(1, Bits(2))), writes_elements) ~throws "indices have the wrong vector type"
+  writes_builder.vector_write_set(writes_top, writes_source, writes_enables, writes_input("bad_width", VectorType(2, Bits(3))), writes_elements) ~throws "indices have the wrong vector type"
+  writes_builder.vector_write_set(writes_top, writes_source, writes_enables, writes_indices, writes_input("bad_element_count", VectorType(3, Bits(5)))) ~throws "elements have the wrong vector type"
+  writes_builder.vector_write_set(writes_top, writes_source, writes_enables, writes_indices, writes_input("bad_element_type", VectorType(2, RecordType([RecordField("value", Bits(5))])))) ~throws "elements have the wrong vector type"
+
+// Care masks are semantic constraints, independent of backend choices for Xs.
+for (width in [1, 5, 65]):
+  def program = make_partial_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  check:
+    direct.manifest.signature ~is compile_program(program, circt_target).manifest.signature
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_partial_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+def partial_design = Design()
+def partial_builder = Builder(partial_design)
+def partial_top = partial_builder.module("InvalidPartial")
+def partial_selector = partial_builder.input(partial_top, "selector", Bits(2))
+def partial_data = partial_builder.input(partial_top, "data", Bits(5))
+def partial_record_type = RecordType([RecordField("value", Bits(5))])
+def partial_record = partial_builder.input(partial_top, "record", partial_record_type)
+check:
+  partial_builder.onehot_mux(partial_top, partial_selector, [partial_data]) ~throws "choice count must equal selector width"
+  partial_builder.onehot_mux(partial_top, partial_selector, []) ~throws "choice count must equal selector width"
+  partial_builder.onehot_mux(partial_top, partial_record, [partial_data, partial_data]) ~throws "selector must be Bits"
+  partial_builder.onehot_mux(partial_top, partial_selector, [partial_data, partial_record]) ~throws "exactly the same DataType"
+  partial_builder.decode(partial_top, partial_selector, Bits(2), Bits(5), [[0, 2, 0, 31], [1, 1, 1, 31]], 0, 31) ~throws "overlap"
+  partial_builder.decode(partial_top, partial_record, Bits(5), Bits(5), [], 0, 31) ~throws "selector has the wrong DataType"
+  partial_builder.decode(partial_top, partial_selector, Bits(2), Bits(5), [[0, 4, 0, 31]], 0, 31) ~throws "does not fit its packed width"
+  partial_builder.decode(partial_top, partial_selector, Bits(2), Bits(5), [], 32, 31) ~throws "does not fit its packed width"
+
+// Memory resources survive preparation with stable local identities and shapes.
+for (width in [1, 5, 65]):
+  def program = make_memory_program(width)
+  def before = dump_ir(program.design)
+  def direct = compile_program(program, verilog_target)
+  check:
+    direct.manifest.signature ~is compile_program(program, circt_target).manifest.signature
+    direct.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    direct.artifacts[0].content ~is compile_program(make_memory_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+// A memory's explicit clock, address width, enable, and logical element type
+// remain Builder contracts. Two ports cannot introduce unrelated clocks.
+def memory_design = Design()
+def memory_builder = Builder(memory_design)
+def memory_top = memory_builder.module("InvalidMemory")
+fun memory_input(name :: String, type :: HardwareType): memory_builder.input(memory_top, name, type)
+def memory_resource = memory_builder.memory(memory_top, "storage", 3, Bits(5))
+def memory_clock = memory_input("clock", Clock)
+def memory_other_clock = memory_input("other_clock", Clock)
+def memory_address = memory_input("address", Bits(2))
+def memory_bad_address = memory_input("bad_address", Bits(3))
+def memory_data = memory_input("data", Bits(5))
+def memory_enable = memory_input("enable", Bits(1))
+check:
+  memory_builder.memory_read_async(memory_top, memory_resource, memory_bad_address) ~throws "memory address must be Bits(2)"
+  memory_builder.memory_write(memory_top, memory_resource, memory_bad_address, memory_data, memory_clock, memory_enable) ~throws "memory address must be Bits(2)"
+  memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_input("bad_data", RecordType([RecordField("value", Bits(5))])), memory_clock, memory_enable) ~throws "data has the wrong DataType"
+  memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_enable, memory_enable) ~throws "clock must be Clock"
+  memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_clock, memory_input("bad_enable", Bits(2))) ~throws "enable must be a one-bit"
+memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_clock, memory_enable)
+check:
+  memory_builder.memory_write(memory_top, memory_resource, memory_address, memory_data, memory_other_clock, memory_enable) ~throws "ports must use the same clock"
+
+// Assertions retain source identity and metadata through the same target seam.
+def assertion_program = make_assertion_program()
+def assertion_before = dump_ir(assertion_program.design)
+def assertion_direct = compile_program(assertion_program, verilog_target)
+check:
+  assertion_direct.manifest.signature ~is compile_program(assertion_program, circt_target).manifest.signature
+  assertion_direct.artifacts[0].content ~is compile_program(assertion_program, verilog_target).artifacts[0].content
+  assertion_direct.artifacts[0].content ~is compile_program(make_assertion_program(100), verilog_target).artifacts[0].content
+  dump_ir(assertion_program.design) ~is assertion_before
+  assertion_program.design.sealed ~is #false
+
+def assertion_names = compile_program(make_assertion_names_program(), verilog_target).artifacts[0].content
+check:
+  assertion_names ~is compile_program(make_assertion_names_program(100), verilog_target).artifacts[0].content
+  assertion_names.contains("\\check_assert_2 : assert property") ~is #true
+  assertion_names.contains("\\check_assert_3 : assert property") ~is #true
+  assertion_names.contains("\\check_assert_1 : assert property") ~is #true
+  assertion_names.contains("\\assert : assert property") ~is #true
+  assertion_names.contains("assertion failed: check") ~is #true
+
+def assert_design = Design()
+def assert_builder = Builder(assert_design)
+def assert_top = assert_builder.module("InvalidAssertion")
+def assert_bit = assert_builder.input(assert_top, "bit", Bits(1))
+def assert_wide = assert_builder.input(assert_top, "wide", Bits(2))
+def assert_clock = assert_builder.input(assert_top, "clock", Clock)
+def assert_reset = assert_builder.input(assert_top, "reset", Reset)
+check:
+  assert_builder.assert(assert_top, assert_wide, assert_clock, assert_reset, assert_bit) ~throws "condition must be a one-bit"
+  assert_builder.assert(assert_top, assert_bit, assert_bit, assert_reset, assert_bit) ~throws "clock must be Clock"
+  assert_builder.assert(assert_top, assert_bit, assert_clock, assert_bit, assert_bit) ~throws "reset must be Reset"
+  assert_builder.assert(assert_top, assert_bit, assert_clock, assert_reset, assert_wide) ~throws "guard must be a one-bit"
+
+// Every registered opcode needs an explicit policy. This audits coverage of
+// the current registry rather than asserting that deferred features don't exist.
+check:
+  verilog_opcode_policy.keys().sort() ~is schemas.map(fun (schema): schema.opcode).sort()
+  (for all (opcode in verilog_opcode_policy.keys()): verilog_opcode_policy[opcode] in ["emit", "prepare", "defer"]) ~is #true
+
+// Metadata adds only attributes to the five designated stage variables. The
+// endpoint drivers are recovered from emitted connections, not hard-coded IDs.
+def cdc_program = make_cdc_program()
+def cdc_before = dump_ir(cdc_program.design)
+def cdc_result = compile_program(cdc_program, verilog_target)
+def cdc_text = cdc_result.artifacts[0].content
+def cdc_lines = cdc_text.split("\n")
+def cdc_attributes = cdc_lines.filter(~keep: fun (line): line.contains("(* async_reg = \"TRUE\" *)"))
+check:
+  cdc_result.manifest.signature ~is compile_program(cdc_program, circt_target).manifest.signature
+  cdc_text ~is compile_program(cdc_program, verilog_target).artifacts[0].content
+  cdc_text ~is compile_program(make_cdc_program(100), verilog_target).artifacts[0].content
+  cdc_text.replace("(* async_reg = \"TRUE\" *) ", "", ~all: #true) ~is compile_program(make_cdc_program(0, #false), verilog_target).artifacts[0].content
+  cdc_attributes.length() ~is 5
+  (for all (line in cdc_attributes): !line.contains("wire ")) ~is #true
+  dump_ir(cdc_program.design) ~is cdc_before
+  cdc_program.design.sealed ~is #false
+for (name in ["sync2", "sync3", "ordinary"]):
+  def drive = cdc_lines.filter(~keep: fun (line): line.contains("assign \\" ++ name ++ " "))[0]
+  def driver = drive.split(" = ")[1]
+  check:
+    (cdc_attributes.find(fun (line): line.contains(driver)) != #false) ~is (name != "ordinary")
+for (kind in ["clock", "reset", "chain", "fanout"], message in ["stages must use the destination clock", "stages must be resetless registers", "stages must form a direct register chain", "intermediate stages must not have functional fanout"]):
+  check:
+    compile_program(make_invalid_cdc_program(kind), verilog_target) ~throws message
+
+// Foreign declarations are deduplicated per using module, with the original C
+// symbol preserved behind private SV names; preparation omits unused imports.
+def dpi_program = make_dpi_program()
+def dpi_before = dump_ir(dpi_program.design)
+def dpi_direct = compile_program(dpi_program, verilog_target)
+def dpi_text = dpi_direct.artifacts[0].content
+check:
+  dpi_direct.manifest.signature ~is compile_program(dpi_program, circt_target).manifest.signature
+  dpi_text ~is compile_program(dpi_program, verilog_target).artifacts[0].content
+  dpi_text ~is compile_program(make_dpi_program(100), verilog_target).artifacts[0].content
+  dump_ir(dpi_program.design) ~is dpi_before
+  dpi_program.design.sealed ~is #false
+  dpi_text.split("import \"DPI-C\"").length() ~is 28
+  dpi_text.contains("unused_dpi") ~is #false
+  dpi_text.contains("Rhodium DPI requires simulation") ~is #true
+
+// Returning an arbitrary wide vector has no supported Verilator/C return ABI;
+// callers retain wide data using out arguments and a supported return type.
+for (width in [33, 65, 129]):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("WideDpiReturn")
+  def clock = builder.input(top, "clock", Clock)
+  def enable = builder.input(top, "enable", Bits(1))
+  def data = builder.input(top, "data", Bits(width))
+  def imported = builder.dpi_import("wide_return", ["value"], [Bits(width)], "result", Bits(width))
+  def result = builder.dpi_register(top, "result_storage", imported, [data], clock, enable)
+  builder.drive(builder.output(top, "result", Bits(width)), result)
+  builder.finish(top)
+  check:
+    compile_program(ElaboratedProgram(design, top), verilog_target) ~throws "unsupported DPI return width"
+
+// Invalid uses of the supported foreign-call contract fail before emission.
+def bad_dpi_design = Design()
+def bad_dpi_builder = Builder(bad_dpi_design)
+def bad_dpi_top = bad_dpi_builder.module("InvalidDpi")
+def bad_dpi_clock = bad_dpi_builder.input(bad_dpi_top, "clock", Clock)
+def bad_dpi_enable = bad_dpi_builder.input(bad_dpi_top, "enable", Bits(1))
+def bad_dpi_value = bad_dpi_builder.input(bad_dpi_top, "value", Bits(8))
+def bad_dpi_proc = bad_dpi_builder.dpi_import("procedure", ["value"], [Bits(8)])
+def bad_dpi_func = bad_dpi_builder.dpi_import("function", ["value"], [Bits(8)], "result", Bits(8))
+check:
+  bad_dpi_builder.dpi_call(bad_dpi_top, bad_dpi_proc, [], bad_dpi_clock, bad_dpi_enable) ~throws "input count does not match"
+  bad_dpi_builder.dpi_call(bad_dpi_top, bad_dpi_proc, [bad_dpi_enable], bad_dpi_clock, bad_dpi_enable) ~throws "input has the wrong hardware type"
+  bad_dpi_builder.dpi_call(bad_dpi_top, bad_dpi_proc, [bad_dpi_value], bad_dpi_enable, bad_dpi_enable) ~throws "DPI clock must be Clock"
+  bad_dpi_builder.dpi_call(bad_dpi_top, bad_dpi_proc, [bad_dpi_value], bad_dpi_clock, bad_dpi_value) ~throws "DPI enable must be a one-bit"
+  bad_dpi_builder.dpi_call(bad_dpi_top, bad_dpi_func, [bad_dpi_value], bad_dpi_clock, bad_dpi_enable) ~throws "result-bearing DPI functions"
+
+
+// Preparation preserves memory port identity, local names, and the source graph.
+for (width in [1, 5, 65]):
+  def program = make_sync_memory_program(width)
+  def before = dump_ir(program.design)
+  def result = compile_program(program, verilog_target)
+  check:
+    result.manifest.signature ~is compile_program(program, circt_target).manifest.signature
+    result.artifacts[0].content ~is compile_program(program, verilog_target).artifacts[0].content
+    result.artifacts[0].content ~is compile_program(make_sync_memory_program(width, 100), verilog_target).artifacts[0].content
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+
+
+// Invalid supported memory configurations fail at construction or preparation.
+block:
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("InvalidSyncMemory")
+  def clock = builder.input(top, "clock", Clock)
+  check:
+    builder.sync_memory(top, "uneven", 3, Bits(10), clock, #true, #true, #false, 4) ~throws "must divide"
+    builder.sync_memory(top, "read_mask", 3, Bits(8), clock, #true, #false, #false, 2) ~throws "write-capable"
+  def memory = builder.sync_memory(top, "storage", 3, Bits(8), clock, #false, #true, #false, 2)
+  def port = memory.write_ports[0]
+  builder.drive(port.address, builder.constant(top, Bits(2), 0))
+  builder.drive(port.data, builder.constant(top, Bits(8), 0))
+  builder.drive(port.enable, builder.constant(top, Bits(1), 1))
+  check:
+    builder.drive(port.mask, builder.constant(top, Bits(3), 0)) ~throws "type"
+  builder.finish(top)
+  check:
+    compile_program(ElaboratedProgram(design, top), verilog_target) ~throws "storage.write.mask is undriven"

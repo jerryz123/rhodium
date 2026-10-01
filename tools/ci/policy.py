@@ -50,6 +50,8 @@ CHECKS = (
     Check("example-chi", "Examples / CHI", "examples-chi", timeout=15),
     Check("example-cores", "Examples / processor cores", "examples-cores", timeout=15),
     Check("example-rv5stage", "Examples / RV5Stage", "examples-rv5stage", timeout=15),
+    Check("verilog-direct", "SystemVerilog / direct", "verilog-test", verilator=True),
+    Check("circt-verilog-differential", "SystemVerilog / differential", "backend-differential-test", circt=True, verilator=True),
     Check("circt-language", "CIRCT / language", "ci-circt-language-test", circt=True, verilator=True),
     Check("circt-std", "CIRCT / standard library", "ci-circt-std-test", circt=True, verilator=True),
     Check("circt-protocols", "CIRCT / protocols", "ci-circt-protocols-test", circt=True, verilator=True),
@@ -112,10 +114,22 @@ def native_products(suite):
                  if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))
 
 
-def simulation_entry(soc, shape, core):
+# Backend variants reuse the architectural product and software target descriptor.
+# Only simulator build/run matrices include this additional qualification.
+DIRECT_SMOKE_PRODUCT = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
+DIRECT_SMOKE_TESTS = ('smoke', 'host-mmio-test', 'uart-pty-test')
+
+
+def simulator_entry(soc, shape, core, backend='circt'):
+    return dict(soc=soc, shape=shape, core=core, backend=backend,
+                simulator_id=soc + ('-verilog' if backend == 'verilog' else ''))
+
+
+def simulation_entry(soc, shape, core, backend='circt'):
     isa = SELECTIONS[soc][2]
-    return dict(soc=soc, shape=shape, core=core, isa=isa,
-                software_tests=" ".join(SOFTWARE_TESTS[shape, isa]))
+    tests = DIRECT_SMOKE_TESTS if backend == 'verilog' else SOFTWARE_TESTS[shape, isa]
+    return dict(**simulator_entry(soc, shape, core, backend), isa=isa,
+                qualification=backend == 'circt', software_tests=" ".join(tests))
 
 
 def arch_products():

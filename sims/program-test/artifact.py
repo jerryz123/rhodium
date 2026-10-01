@@ -25,10 +25,13 @@ def main():
     parser.add_argument('--binary', type=Path, required=True)
     parser.add_argument('--soc', required=True)
     parser.add_argument('--target', type=Path)
+    parser.add_argument('--backend', choices=('circt', 'verilog'), default='circt')
     parser.add_argument('--variant', choices=('normal', 'trace'), default='normal')
-    parser.add_argument('--rtl', type=Path, help='emitted MLIR used to build this binary (required for recording)')
+    parser.add_argument('--rtl', type=Path, help='emitted RTL (MLIR or SystemVerilog) used to build this binary (required for recording)')
     parser.add_argument('--configuration', type=Path, help='resolved configuration accompanying ACT payloads')
     args = parser.parse_args()
+    if args.variant == 'trace' and args.backend != 'circt':
+        parser.error('tracing requires the CIRCT backend')
     root = Path(__file__).resolve().parents[2]
     metadata = dict(commit=subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),
                     soc=args.soc, system=platform.system(), machine=platform.machine(),
@@ -45,14 +48,15 @@ def main():
         if args.configuration and configuration_fingerprint(json.loads(args.configuration.read_text())) != fingerprint:
             raise ValueError('ACT payload configuration differs from the simulator')
         metadata.update(target_fingerprint=target_fingerprint(target),
-                        configuration_fingerprint=fingerprint, variant=args.variant)
+                        configuration_fingerprint=fingerprint, variant=args.variant, backend=args.backend)
         if args.mode == 'record':
             if not args.rtl:
                 raise ValueError('recording requires --rtl from the simulator build')
             rtl = args.rtl.read_text()
             if (f'// rhodium-configuration-sha256: {fingerprint}\n' not in rtl
-                    or f'// rhodium-harness-variant: {args.variant}\n' not in rtl):
-                raise ValueError('emitted RTL configuration or harness variant differs from the target')
+                    or f'// rhodium-harness-variant: {args.variant}\n' not in rtl
+                    or f'// rhodium-rtl-backend: {args.backend}\n' not in rtl):
+                raise ValueError('emitted RTL configuration, backend, or harness variant differs from the target')
     except (ValueError, KeyError, OSError) as error:
         parser.error(str(error))
     path = args.binary.with_suffix('.json')
@@ -61,7 +65,7 @@ def main():
     else:
         recorded = json.loads(path.read_text())
         if any(recorded.get(key) != value for key, value in metadata.items()):
-            parser.error('simulator artifact does not match this commit, platform, SoC, binary checksum, target configuration, or harness variant')
+            parser.error('simulator artifact does not match this commit, platform, SoC, binary checksum, target configuration, backend, or harness variant')
 
 
 if __name__ == '__main__':

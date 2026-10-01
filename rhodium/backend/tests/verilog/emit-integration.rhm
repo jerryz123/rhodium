@@ -1,0 +1,48 @@
+#lang rhombus
+/* Compiles existing authored fixtures through explicit targets and checks their shared boundary. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  rhombus/private/dynamic_require open
+  "../../../core/main.rhm" open
+  "../../../core/signature.rhm".module_signature
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "../../../compile/program.rhm".compile_program
+  "../../verilog-target.rhm".verilog_target
+
+def arguments = current_command_line()
+unless arguments.length() == 2 && arguments[0] in ["direct", "circt"]
+| error("expected direct|circt sync-ram|uart-dpi")
+def fixture = match arguments[1]
+| "sync-ram": ["examples/std/sync-ram.rhdl", "SyncRamExample"]
+| "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", "UartDPI"]
+| ~else: error("unknown integration fixture")
+def design :: Design = dynamic_require(fixture[0], #'design)
+def top = design.find_module_named(fixture[1])
+unless top | error("integration fixture is missing its explicit top")
+def before = dump_ir(design)
+def was_sealed = design.sealed
+def program = ElaboratedProgram(design, top)
+def direct = compile_program(program, verilog_target)
+unless direct.manifest.top == fixture[1] && direct.manifest.signature == module_signature(top)
+| error("direct target changed the authored fixture boundary")
+def result:
+  if arguments[0] == "direct"
+  | direct
+  | block:
+      // Loading CIRCT is confined to the comparison route; direct runs need
+      // neither that backend module nor the external CIRCT toolchain.
+      def target = dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
+      def reference = compile_program(program, target)
+      unless direct.manifest.top == reference.manifest.top && direct.manifest.signature == reference.manifest.signature && direct.manifest.modules == reference.manifest.modules
+      | error("integration target manifests disagree")
+      // Compare occurrence decisions by their public identity/action fields;
+      // diagnostic reasons intentionally describe the selected backend.
+      def direct_decisions = direct.manifest.lowerings.map(fun (decision): [decision.path, decision.definition, decision.action, decision.implementation])
+      def reference_decisions = reference.manifest.lowerings.map(fun (decision): [decision.path, decision.definition, decision.action, decision.implementation])
+      unless direct_decisions == reference_decisions
+      | error("integration target lowering decisions disagree")
+      reference
+unless dump_ir(design) == before && design.sealed == was_sealed
+| error("compilation mutated the authored fixture")
+print(result.artifacts[0].content)

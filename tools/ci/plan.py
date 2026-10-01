@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, arch_products, arch_shards
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, arch_products, arch_shards
 
 
 def matches(path, *patterns):
@@ -33,7 +33,7 @@ class Selection:
         self.arch = True
 
     def all(self):
-        self.add_checks(*(HOST_CHECKS | EXAMPLE_CHECKS | CIRCT_CHECKS))
+        self.add_checks(*(check.key for check in CHECKS))
         self.simulation = True
         self.all_programs()
 
@@ -64,6 +64,14 @@ class Selection:
             pass
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
+
+        # Authored backend integrations reuse SyncRam/Valid and the UART PTY
+        # model/benches. Their dependencies must select both emission routes.
+        if not documentation and matches(path, "rhodium/std/*", "devices/uart/uart.rhdl",
+                                         "devices/uart/uart-dpi.rhdl", "devices/uart/dpi/*",
+                                         "devices/tests/uart-dpi*", "devices/tests/circt/verilog/uart-dpi*",
+                                         "examples/std/sync-ram.rhdl"):
+            self.add_checks("verilog-direct", "circt-verilog-differential")
 
         if path.endswith((".rhm", ".rhdl")) and not matches(path, "tools/emacs/*"):
             self.add_checks("host-hygiene")
@@ -107,11 +115,11 @@ class Selection:
         elif path == "tools/testing/run-negative.rkt":
             self.add_checks(*HOST_CHECKS)
         elif path == "tools/run-racket-tests.sh":
-            self.add_checks(*HOST_CHECKS, *EXAMPLE_CHECKS)
+            self.add_checks(*HOST_CHECKS, "verilog-direct", *EXAMPLE_CHECKS)
             self.simulation = True
             self.all_programs()
         elif matches(path, "tools/run-racket.sh", "tools/racket-build-cache.sh", "tools/refresh-racket-project-cache.sh", "tools/invalidate-racket-build-cache.rkt"):
-            self.add_checks(*HOST_CHECKS, *CIRCT_CHECKS, *EXAMPLE_CHECKS)
+            self.add_checks(*HOST_CHECKS, "verilog-direct", *CIRCT_CHECKS, *EXAMPLE_CHECKS)
             self.simulation = True
             self.all_programs()
         elif path == "tools/testing/racket-build-cache-test.sh":
@@ -133,7 +141,7 @@ class Selection:
             self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "circt-language", "circt-std", "circt-protocols", *CIRCT_CORE_CHECKS, "example-rtl", "example-clocking", "example-std", "example-noc", "example-riscv", "example-chi", "example-cores", "example-rv5stage")
             self.simulation = True
         elif matches(path, "rhodium/backend/*", "rhodium/compile/*"):
-            self.add_checks("host-backend", *CIRCT_CHECKS)
+            self.add_checks("host-backend", "verilog-direct", *CIRCT_CHECKS)
             self.simulation = True
         elif matches(path, "examples/rtl/*"):
             self.add_checks("example-rtl", "circt-language")
@@ -210,16 +218,20 @@ class Selection:
         run_simulator = self.simulation or run_program_native or self.arch
         products = (SIMULATOR_PRODUCTS if self.simulation else
                     tuple(product for product in SIMULATOR_PRODUCTS if product[0] in SINGLE_CORE_SOCS))
+        builds = [simulator_entry(*product) for product in products] if run_simulator else []
+        simulations = []
+        if self.simulation:
+            builds.append(simulator_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
+            simulations = [simulation_entry(*product) for product in SIMULATOR_PRODUCTS]
+            simulations.append(simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
         return {
             "run_compile": run_checks or run_simulator,
             "run_checks": run_checks,
             "checks_matrix": matrix,
             "run_simulator": run_simulator,
-            "simulator_matrix": {"include": [dict(soc=soc, shape=shape, core=core)
-                                             for soc, shape, core in products]} if run_simulator else {"include": []},
+            "simulator_matrix": {"include": builds},
             "run_simulation": self.simulation,
-            "simulation_matrix": {"include": [simulation_entry(soc, shape, core)
-                                            for soc, shape, core in SIMULATOR_PRODUCTS]} if self.simulation else {"include": []},
+            "simulation_matrix": {"include": simulations},
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,

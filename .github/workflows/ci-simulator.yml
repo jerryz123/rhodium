@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   build:
-    name: Build ${{ matrix.soc }} simulator
+    name: Build ${{ matrix.simulator_id }} simulator
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(inputs.matrix) }}
@@ -53,15 +53,18 @@ jobs:
       - name: Install Verilator
         uses: ./.github/actions/setup-verilator
       - name: Install CIRCT
+        if: matrix.backend == 'circt'
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
       - name: Build and attest simulator
         env:
           SOC: ${{ matrix.soc }}
+          RTL_BACKEND: ${{ matrix.backend }}
+          SIMULATOR_ID: ${{ matrix.simulator_id }}
         run: |
           make -C sims simulator program-target SOC="$SOC"
-          ldd "/tmp/rhodium-sims/$SOC/obj/VTestDriver"
+          ldd "/tmp/rhodium-sims/$SIMULATOR_ID/obj/VTestDriver"
       - name: Test Spike DPI integration
         if: matrix.core == 'spike'
         run: |
@@ -71,10 +74,10 @@ jobs:
       - name: Publish exact simulator and target descriptor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.soc }}-${{ github.sha }}
+          name: ${{ matrix.simulator_id }}-${{ github.sha }}
           path: |
-            /tmp/rhodium-sims/${{ matrix.soc }}/obj/VTestDriver
-            /tmp/rhodium-sims/${{ matrix.soc }}/obj/VTestDriver.json
-            /tmp/rhodium-sims/${{ matrix.soc }}/obj/program-target.json
+            /tmp/rhodium-sims/${{ matrix.simulator_id }}/obj/VTestDriver
+            /tmp/rhodium-sims/${{ matrix.simulator_id }}/obj/VTestDriver.json
+            /tmp/rhodium-sims/${{ matrix.simulator_id }}/obj/program-target.json
           if-no-files-found: error
           retention-days: 3

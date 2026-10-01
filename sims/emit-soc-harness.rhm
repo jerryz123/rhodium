@@ -1,5 +1,5 @@
 #lang rhombus
-/* Resolves an explicit SoC/core/ISA product and optionally instruments that same elaboration. */
+/* Compiles an explicitly selected SoC harness through CIRCT or direct SV, with optional CIRCT tracing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,7 +8,6 @@ import:
   "../rhodium/core/ir.rhm".DesignElaboration
   "../rhodium/lowering/program.rhm".ElaboratedProgram
   "../rhodium/compile/program.rhm".compile_program
-  "../rhodium/backend/circt-target.rhm".circt_target
   "../rhodium/event/instrument.rhm".EventInstrumentedElaboration
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
   "../socs/products/selection.rhm" open
@@ -16,10 +15,17 @@ import:
   "../socs/products/metadata.rhm" open
 
 def arguments = current_command_line()
-def tracing = arguments.length() == 4 && arguments[0] == "--trace"
-unless arguments.length() == 1 || arguments.length() == 3 || tracing
-| error(~who: #'emit_soc_harness, "expected shape, core, and explicit ISA, a fixture path, or --trace shape core ISA")
-def selectors = if tracing | arguments.drop(1) | arguments
+def backend_option = arguments.length() > 0 && arguments[0] == "--backend"
+when backend_option && arguments.length() < 2
+| error(~who: #'emit_soc_harness, "--backend requires circt or verilog")
+def backend = if backend_option | arguments[1] | "circt"
+unless backend in ["circt", "verilog"] | error(~who: #'emit_soc_harness, "backend must be circt or verilog")
+def remaining = if backend_option | arguments.drop(2) | arguments
+def tracing = remaining.length() == 4 && remaining[0] == "--trace"
+unless remaining.length() == 1 || remaining.length() == 3 || tracing
+| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace shape core ISA")
+when tracing && backend != "circt" | error(~who: #'emit_soc_harness, "tracing currently requires the CIRCT backend")
+def selectors = if tracing | remaining.drop(1) | remaining
 def product = if selectors.length() == 1
 | #false
 | resolve_soc_product(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
@@ -66,10 +72,16 @@ def top = cond
 | product: elaboration.top
 | ~else: design.find_module_named("SoCHarness")
 unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
-def compiled = compile_program(ElaboratedProgram(design, top), circt_target)
+// Load only the selected backend. Both receive the same explicit top and
+// preserve the product's configuration and harness identity comments.
+def target = if backend == "verilog"
+| dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
+| dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
+def compiled = compile_program(ElaboratedProgram(design, top), target)
 when product
 | block:
     println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
+    println("// rhodium-rtl-backend: " ++ backend)
     println("// rhodium-harness-variant: " ++ (if tracing | "trace" | "normal"))
 print(compiled.artifacts[0].content)
 

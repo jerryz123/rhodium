@@ -76,6 +76,27 @@ applicable native ISA inventory, and ACT. They use Bare translation and
 VLEN64/ELEN32. Native FP tests are selected for RV32Max only. The existing
 RV64-only benchmark ports are not selected for RV32.
 
+### Select RTL emission
+
+`RTL_BACKEND=circt` is the default simulator build route. Opt into direct
+SystemVerilog emission with:
+
+```sh
+make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=verilog
+```
+
+The direct route uses the same circuit, Verilator driver, FESVR transport, DPI
+models, and payload. It does not invoke CIRCT. Builds live under
+`$(BUILD_ROOT)/<product>-verilog/`, separate from the default CIRCT objects;
+configuration attestation reads the emitted `SoCHarness.sv` and records the
+backend. Prebuilt reuse must request the same `RTL_BACKEND`; a backend mismatch
+is rejected before execution. CI qualifies the additional
+`simple-rv5stage-rva23-verilog` build with `smoke`, `host-mmio-test`, and
+`uart-pty-test`, reusing the existing architectural configuration. The direct route
+currently supports untraced builds (`TRACE=0`). Use the default CIRCT route
+for event tracing. Other products and broader workloads require their own
+execution validation before claiming parity.
+
 The host emitters require an explicit third architectural selector:
 
 ```sh

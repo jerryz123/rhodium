@@ -1,0 +1,33 @@
+#lang rhombus
+/* Emits the Builder simulation fixtures without importing or invoking CIRCT. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  "fixtures.rhm" open
+  "../../../compile/program.rhm".compile_program
+  "../../verilog-target.rhm".verilog_target
+// DPI artifacts are separate because their live foreign effects reject synthesis.
+def args = rkt.#{current-command-line-arguments}()
+cond
+| rkt.#{vector-length}(args) == 0:
+    for (width in [1, 5, 65]):
+      print(compile_program(make_memory_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_partial_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_write_set_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_dynamic_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_arithmetic_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_hierarchy_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_aggregate_program(width), verilog_target).artifacts[0].content)
+      print(compile_program(make_sequential_program(width), verilog_target).artifacts[0].content)
+    print(compile_program(make_keyword_program(), verilog_target).artifacts[0].content)
+    print(compile_program(make_type_program(), verilog_target).artifacts[0].content)
+
+    print(compile_program(make_assertion_program(), verilog_target).artifacts[0].content)
+    print(compile_program(make_assertion_names_program(), verilog_target).artifacts[0].content)
+    print(compile_program(make_cdc_program(), verilog_target).artifacts[0].content)
+| rkt.#{vector-length}(args) == 1 && rkt.#{vector-ref}(args, 0) == "dpi":
+    print(compile_program(make_dpi_program(), verilog_target).artifacts[0].content)
+| rkt.#{vector-length}(args) == 2 && rkt.#{vector-ref}(args, 0) == "sync_memory":
+    print(compile_program(make_sync_memory_program(rkt.#{string->number}(rkt.#{vector-ref}(args, 1))), verilog_target).artifacts[0].content)
+| ~else: error("expected no arguments, dpi, or sync_memory WIDTH")

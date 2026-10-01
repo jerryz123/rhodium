@@ -906,6 +906,22 @@ fun emit_sync_memory(operation :: Operation):
   def mutable place_index = 0
   def mutable result_index = 0
   def mutable port_operations = []
+  /* CIRCT 1.155 drops a single whole-word mask when creating memory helpers.
+     Fold that mask into the write enable explicitly. On shared ports, leave
+     reads enabled independently of the mask and keep write mode unchanged. */
+  fun port_enable(enable :: Place, mask :: maybe(Place), write :: maybe(Place)) :: String:
+    def original = value_ref(enable.driver)
+    if mask && mask_width == 1
+    | block:
+        def masked = "%__rhodium_sync_memory_masked_enable_" ++ to_string(operation.id)
+        port_operations := port_operations ++ ["    " ++ masked ++ " = comb.and " ++ original ++ ", " ++ value_ref(mask.driver) ++ " : i1"]
+        if write
+        | block:
+            def selected = "%__rhodium_sync_memory_enable_" ++ to_string(operation.id)
+            port_operations := port_operations ++ ["    " ++ selected ++ " = comb.mux " ++ value_ref(write.driver) ++ ", " ++ masked ++ ", " ++ original ++ " : i1"]
+            selected
+        | masked
+    | original
   when operation.attribute("has_read")
   | def address = operation.places[place_index]
     def enable = operation.places[place_index + 1]
@@ -934,6 +950,7 @@ fun emit_sync_memory(operation :: Operation):
     def enable = operation.places[place_index + 2]
     def mask:
       if mask_width | operation.places[place_index + 3] | #false
+    def enable_ref = port_enable(enable, mask, #false)
     def port_data_ref:
       if flat_element
       | value_ref(data.driver)
@@ -948,7 +965,7 @@ fun emit_sync_memory(operation :: Operation):
       String.append("    seq.firmem.write_port ", memory_ref, "[",
                     value_ref(address.driver), "] = ", port_data_ref,
                     ", clock ", clock_ref, " enable ",
-                    value_ref(enable.driver),
+                    enable_ref,
                     if mask | " mask " ++ value_ref(mask.driver) | "",
                     " : ", memory_type,
                     if mask_width | ", i" ++ to_string(mask_width) | "")
@@ -962,6 +979,7 @@ fun emit_sync_memory(operation :: Operation):
     def write_mask:
       if mask_width | operation.places[place_index + 4] | #false
     def read_data = operation.results[result_index]
+    def enable_ref = port_enable(enable, write_mask, write)
     def port_write_data_ref:
       if flat_element
       | value_ref(write_data.driver)
@@ -981,7 +999,7 @@ fun emit_sync_memory(operation :: Operation):
                     " = seq.firmem.read_write_port ", memory_ref, "[",
                     value_ref(address.driver), "] = ", port_write_data_ref,
                     " if ", value_ref(write.driver), ", clock ", clock_ref,
-                    " enable ", value_ref(enable.driver),
+                    " enable ", enable_ref,
                     if write_mask
                     | " mask " ++ value_ref(write_mask.driver)
                     | "",

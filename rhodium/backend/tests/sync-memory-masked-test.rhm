@@ -1,8 +1,9 @@
 #lang rhombus
-// Checks CIRCT lowering for a byte-masked shared synchronous memory port.
+// Checks CIRCT byte-mask lowering and whole-word mask gating for separate and shared ports.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../core/main.rhm" open
   "../../../rhodium/backend/circt.rhm" open
   "../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../examples/rtl/sync-memory-masked.rhdl" as fixture
@@ -21,3 +22,50 @@ check:
   circt.contains(": !seq.firmem<4 x 32, mask 4>, i4") ~is #true
   write_only_circt.contains("seq.firmem.write_port") ~is #true
   write_only_circt.contains("mask %mask") ~is #true
+
+// A single mask bit gates writes before CIRCT drops whole-word mask ports.
+// On a shared port the same zero mask must still permit an ordinary read.
+fun whole_word_mask_circt(shared :: Boolean):
+  def design = Design()
+  def builder = Builder(design)
+  def top = builder.module("WholeWordMask")
+  def clock = builder.input(top, "clock", Clock)
+  def address = builder.input(top, "address", Bits(2))
+  def enable = builder.input(top, "enable", Bits(1))
+  def mask = builder.input(top, "mask", Bits(1))
+  def data = builder.input(top, "data", Bits(32))
+  def memory = builder.sync_memory(top, "storage", 4, Bits(32), clock, !shared, !shared, shared, 32)
+  def result:
+    if shared
+    | block:
+        def port = memory.read_write_ports[0]
+        builder.drive(port.address, address)
+        builder.drive(port.enable, enable)
+        builder.drive(port.write, builder.input(top, "write", Bits(1)))
+        builder.drive(port.write_data, data)
+        builder.drive(port.write_mask, mask)
+        port.read_data
+    | block:
+        def read = memory.read_ports[0]
+        def write = memory.write_ports[0]
+        builder.drive(read.address, address)
+        builder.drive(read.enable, enable)
+        builder.drive(write.address, address)
+        builder.drive(write.enable, enable)
+        builder.drive(write.data, data)
+        builder.drive(write.mask, mask)
+        read.data
+  builder.drive(builder.output(top, "result", Bits(32)), result)
+  builder.finish(top)
+  emit_circt(design)
+
+def separate_word_mask = whole_word_mask_circt(#false)
+def shared_word_mask = whole_word_mask_circt(#true)
+check:
+  separate_word_mask.contains("comb.and %enable, %mask : i1") ~is #true
+  separate_word_mask.contains("enable %__rhodium_sync_memory_masked_enable_") ~is #true
+  separate_word_mask.contains("seq.firmem.read_port") ~is #true
+  shared_word_mask.contains("comb.and %enable, %mask : i1") ~is #true
+  shared_word_mask.contains("comb.mux %write, %__rhodium_sync_memory_masked_enable_") ~is #true
+  shared_word_mask.contains(", %enable : i1") ~is #true
+  shared_word_mask.contains("enable %__rhodium_sync_memory_enable_") ~is #true

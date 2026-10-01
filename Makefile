@@ -1,6 +1,7 @@
-# Build and test entry points for Rhodium's Rhombus and CIRCT-based toolchain.
+# Build and test entry points for Rhodium, CIRCT, and direct SystemVerilog.
 # SPDX-License-Identifier: Apache-2.0
 
+.PHONY: verilog-test backend-differential-test
 .PHONY: sram-test
 .PHONY: setup-verilator
 export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
@@ -59,6 +60,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   socs/tests/write-device-trees.rhm \
   tools/write-riscv-udb-config.rhm \
   $(shell find . -type f -path '*/tests/circt/emit-*.rhm' -print) \
+  $(wildcard rhodium/backend/tests/verilog/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm sims/tests/*.rhdl) \
   $(wildcard sims/emit-*.rhm) \
   $(wildcard sims/program-test/*.rhm) \
@@ -136,6 +138,14 @@ event-runtime-test: check-boundaries
 
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(COMPILE_TESTS) $(BACKEND_TESTS)
+
+verilog-test: check-boundaries
+	python3 rhodium/backend/tests/verilog/run.py
+	python3 rhodium/backend/tests/verilog/run-integration.py
+
+backend-differential-test: check-boundaries
+	python3 rhodium/backend/tests/verilog/run.py --differential
+	python3 rhodium/backend/tests/verilog/run-integration.py --differential
 
 formal-test: check-boundaries
 	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \

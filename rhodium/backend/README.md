@@ -1,14 +1,15 @@
-<!-- Documents the optional CIRCT backend and its lowering of verified public Rhodium IR. -->
+<!-- Documents CIRCT and direct SystemVerilog targets over verified public Rhodium IR. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# CIRCT backend
+# Hardware backends
 
 The CIRCT compile target lowers a selected hardware program to textual CIRCT
 MLIR. Use `compile_program(program, circt_target)` for both frontend programs
 and Builder-created hardware. Compilation verifies the source and prepares a
 fresh concrete graph containing the selected top and its reachable hierarchy.
-This directory owns CIRCT dialect selection, type representation, SSA names,
-and operation dispatch.
+The independent `verilog_target` emits typed RTL with hierarchy, registers,
+asynchronous- and synchronous-read memories, and clocked assertions directly as SystemVerilog.
+This directory owns target-specific representation, naming, and operation dispatch.
 Contributors changing lowering or backend coverage should read
 [`DEVELOPING.md`](DEVELOPING.md).
 
@@ -19,10 +20,12 @@ flowchart LR
     Backend --> MLIR["CIRCT MLIR<br/>hw, comb, seq, sv, verif, sim"]
     MLIR --> Passes["External CIRCT passes<br/>and ExportVerilog"]
     Passes --> SV["SystemVerilog"]
+    Verify --> Direct["Direct emitter<br/>packed logic, registers, and hierarchy"]
+    Direct --> SV
 ```
 
-Rhodium stops at CIRCT MLIR; CIRCT's lowering passes and `ExportVerilog` own
-SystemVerilog generation.
+The CIRCT route stops at MLIR; CIRCT's lowering passes and `ExportVerilog` own
+its SystemVerilog generation. Direct emission uses no CIRCT import or executable.
 
 ## Compilation API
 
@@ -49,7 +52,220 @@ one explicit request for each root. There is no whole-inventory program mode.
 An unsupported verified type or opcode is a backend error. The backend does not
 add pseudo-CIRCT operations to avoid an explicit lowering decision.
 
-## Type representation
+## Direct SystemVerilog
+
+```rhombus
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/backend/verilog-target.rhm").verilog_target
+  lib("rhodium/lowering/program.rhm").ElaboratedProgram
+
+def result = compile_program(ElaboratedProgram(design, top), verilog_target)
+def sv = result.artifacts[0].content
+```
+
+This target returns one `<top>.sv` artifact (`text/x-systemverilog`) using the
+same fresh preparation and source-preservation contract. Emission requires no
+external executable. The manifest preserves logical module and port names,
+directions, types, and order; SV escaped identifiers preserve even keyword names.
+Internal net names are deterministic and independent of global IR IDs.
+The artifact includes each reachable module definition once; repeated instances
+have separate named port connections. Instance names are preserved unless they
+collide with a port in the same module, in which case a deterministic `_instance`
+suffix (and numeric suffix when needed) disambiguates the emitted name. Manifest
+occurrence paths continue to identify the original source instances.
+
+| Supported subset | Behavior |
+|---|---|
+| Scalar, record, vector, Clock, and Reset ports and nets | Unsigned scalar types, packed structs, and packed arrays, recursively using core layout |
+| Input/output, wire, drive | Single-driver continuous assignments, including forward wire references |
+| `rtl.instance` | Nested and repeated children with data and control ports, with named input/output connections |
+| `rtl.register`, `rtl.register_reset` | Scalar or packed aggregate state, rising-edge updates, optional active-high synchronous reset |
+| `rtl.memory`, `rtl.memory_read_async`, `rtl.memory_write` | Uninitialized typed storage, combinational reads, and enabled synchronous writes sharing one clock |
+| `rtl.sync_memory` | Typed 1R/1W/1R1W/1RW storage, one-cycle reads, and optional granule masks |
+| `verif.assert` | Rising-edge checks gated by sampled activation guard and active-high reset |
+| `cdc.sync_level` | Verified stage registers receive `async_reg = "TRUE"`; the evidence adds no hardware |
+| `sim.dpi_call`, `sim.dpi_register` | Enabled clocked foreign procedures and functions with held result state |
+| `rtl.constant`, `rtl.cast` | Width-sized literals and explicit destination-type casts preserving equal-width representations |
+| `rtl.record_create`, `rtl.vector_create` | Typed construction with named record fields and ordered vector elements |
+| `rtl.record_get`, `rtl.vector_get` | Named field access and host-static array indexing |
+| `rtl.vector_index`, `rtl.vector_inject` | Dynamic element selection and single-element replacement, preserving packed array types |
+| `rtl.vector_write_set` | Unordered enabled replacements at distinct, in-range indices; disabled ports have no effect |
+| `rtl.not`, `rtl.and`, `rtl.or`, `rtl.xor` | Fixed-width bitwise operations |
+| `rtl.add`, `rtl.sub`, `rtl.mul` | Modular arithmetic at each result's declared width |
+| `rtl.eq`, `rtl.ult`, `rtl.slt` | Equality, unsigned less-than, explicitly signed less-than |
+| `rtl.shl`, `rtl.shru`, `rtl.shrs` | Fixed-width left, logical right, and arithmetic right shifts with the complete unsigned count |
+| `rtl.concat`, `rtl.extract`, `rtl.trunc` | MSB-first concatenation, inclusive static bit ranges, and low-bit truncation |
+| `rtl.zext`, `rtl.sext` | Explicit zero or sign extension to the result width |
+| `rtl.mux_lookup` | Sized key comparison with explicit default for scalar or aggregate results |
+| `rtl.onehot_mux` | Selector-bit gating and OR combination for scalar or packed aggregate choices |
+| `rtl.decode` | Non-overlapping input cubes with explicit default and per-bit output care masks |
+| `rtl.dont_care` | Unconstrained Bits values encoded as synthesis freedom |
+
+### Data layout and expression semantics
+
+Scalar results are constrained to their declared width before any later
+operation consumes them. Multiplication returns the low result-width bits for
+both signed and unsigned operands. Shifts preserve the complete unsigned count,
+including counts wider than the data. Counts at least as large as the data width
+produce zero for left/logical-right shifts and sign fill for arithmetic-right
+shifts. Sign extension repeats the source sign bit; zero extension inserts zeros.
+
+Records place the first declared field at the most-significant end. Vectors
+place element zero at the least-significant end. Both rules apply recursively,
+without padding. Records use `typedef struct packed` and vectors use packed array
+typedefs, including at ports and registers. Field accesses retain their names;
+vector accesses retain their logical indices. The packed representation remains
+compatible with equal-width bit-vector connections and explicit casts. The
+manifest retains the original logical types and order. Whole-value and separately driven
+field/element connections have the same layout, including on child ports.
+Incomplete projected drives and overlapping whole/partial drives remain errors.
+
+Dynamic vector selectors use the exact core index width, including one bit for
+singleton vectors. An in-range injection produces a new vector with only the
+selected element replaced; it does not mutate its source. Scalar and nested
+aggregate elements follow the same rule. Out-of-range reads are unconstrained;
+out-of-range injections leave the entire result vector unconstrained. There is
+no clamping, wrapping, or promised simulation value for these encodings. Runtime
+indices are not validated as compile-time errors; selector-width and element-type
+mismatches remain errors.
+
+A vector write set applies all enabled replacements together, preserving every
+unwritten element. All-disabled write sets return the base vector. Enabled
+indices must be in range and pairwise distinct; violating that precondition
+leaves the result undefined, with no write-port priority guarantee. Disabled
+indices and data have no effect, including out-of-range disabled indices.
+The number of write ports may exceed the vector length as long as enabled
+writes meet the precondition. These are combinational values; register updates
+remain explicit connections to next-state places.
+
+One-hot selection requires exactly one set selector bit and one choice per bit.
+Bit zero selects the first choice. Zero or multiple set bits have no promised
+result, priority, or fallback behavior. Choices retain their scalar or aggregate
+types.
+
+Decode matches unordered, non-overlapping input cubes and uses the explicit
+default when none matches. Input care bits constrain matching; output care bits
+constrain the result, including the default. Uncared output bits and `dont_care`
+sources are synthesis freedom, represented using SV `x` bits. They do not define
+runtime X propagation or add four-state semantics to the language. Consumers
+may constrain those bits further through ordinary operations.
+
+The artifact declares a shared type package before its modules, with nested
+types before their users. Identical physical shapes share a typedef across the
+hierarchy, independently of record preferred names. The first encountered shape
+uses its preferred record name when available; anonymous types receive generated
+names. Collisions receive deterministic suffixes. All module references are
+package-qualified, so local port names do not hide type names. The package name
+is derived from the first prepared module and disambiguated against names in the
+artifact. Typedef and package names are generated implementation details;
+logical module and port identities remain unchanged.
+
+### State and memories
+
+Clock and Reset use one-bit ports and nets while retaining their logical types
+in the manifest. Each register samples its next-state driver on its explicit
+clock's rising edge. Nonblocking assignments preserve simultaneous updates from
+pre-edge values. Reset is active-high and synchronous: it samples the explicit
+reset value on that edge and takes priority over the next-state driver. Enables
+and holds are ordinary mux feedback; emission adds no implicit initialization.
+Resetless state becomes defined only through its driven updates.
+
+Asynchronous-read memories use unpacked arrays of packed element types. Read
+outputs follow the current address and stored contents without a clock edge.
+Enabled writes sample address and data on the common write clock's rising edge;
+multiple enabled ports at distinct addresses update independently. Registers
+sampling a read on that same edge observe the pre-write contents, and live reads
+then reflect the updated storage. Every child occurrence owns separate storage.
+Memories have no implicit initialization or reset. Register reset neither clears
+memory nor suppresses its writes; write enables are explicit. No write-port
+priority or defined invalid-address behavior is promised. Read values remain
+unconstrained until the addressed location has been written.
+
+Synchronous memories support the existing 1R, 1W, 1R1W, and shared 1RW
+interfaces with scalar or packed aggregate elements. Enabled reads sample the
+address on a rising edge and publish the result after that edge; a downstream
+register on the same edge still sees the preceding read result. Writes use the
+same explicit clock. Write masks preserve disabled granules, with mask bit zero
+controlling the least-significant packed granule, including across aggregate
+field boundaries. A shared port selects either read or write per enabled cycle.
+An all-zero write mask preserves storage but remains a write-mode cycle.
+
+Storage and read results have no implicit initialization or reset. Disabled
+read results, shared-port read results after writes, initial contents, invalid
+addresses, and separate-port collisions remain unspecified, as in the
+[core memory contract](../core/README.md#synchronous-memories). Each instance
+owns its storage. Emission uses typed arrays and clocked logic; physical SRAM
+mapping remains a separate concern.
+
+### Verification and simulation effects
+
+Stable-level crossing evidence marks only its verified resetless register stages
+with `(* async_reg = "TRUE" *)`. Stage count, destination clock, and register
+connections remain unchanged. Ordinary registers remain unmarked; each child
+instance retains independent state. Clocking analysis remains a separate compile
+target. This attribute preserves synthesis intent and does not model metastability.
+
+Clocked assertions sample their condition, activation guard, and reset together
+on the explicit clock's rising edge, before nonblocking register updates. A
+check fires only when its sampled guard is true and sampled reset is false.
+Reset changes after that edge do not cancel the sampled check. Each instance
+checks independently. Authored labels appear in failure diagnostics; statement
+names are escaped and disambiguated against other names in the module. Unlabeled
+checks receive generated statement names. Verification collateral is enclosed
+in `ifndef SYNTHESIS`; define `SYNTHESIS` to omit it for synthesis, and enable
+assertion evaluation when simulating (Verilator: `--assert`).
+
+DPI operations call their imported C symbol once per enabled rising edge, using
+pre-update input values. Functions publish all ordered `out` results and the
+return value together as register state; disabled results hold. Results start
+uninitialized, and there is no implicit reset. Calls in separate instances use
+that instance's DPI context. Independent calls on the same edge have no promised
+relative execution order. Link the corresponding C/C++ definitions into the
+simulator; module-local SV aliases preserve the authored external symbol names.
+
+DPI signatures use the same width-based ABI as CIRCT, with two-state values:
+
+| Width | SV import type | C input / return type |
+|---|---|---|
+| 1 | `bit` | `svBit` |
+| 8 | `byte` | `char` |
+| 16 | `shortint` | `short` |
+| 32 | `int` | `int` |
+| 64 | `longint` | `long long` |
+| Other widths | `bit [W-1:0]` | Input: `const svBitVecVal*`; return through 32 bits: `svBitVecVal` |
+
+Native `out` arguments use pointers to the native type; packed-vector `out`
+arguments use `svBitVecVal*`, with the least-significant 32-bit word first.
+Inputs and `out` results support arbitrary positive widths. Packed returns wider
+than 32 bits are rejected, except the native 64-bit return; use a wide `out`
+result and a supported return type instead. Signed authoring types use the same
+physical-width ABI. Signatures contain flat scalar data; aggregate payloads need
+explicit packing at this boundary. Use the simulator-generated DPI header when
+implementing C/C++ functions to verify signatures.
+
+DPI is simulation-only. Any emitted module with live DPI operations produces an
+explicit compilation error when `SYNTHESIS` is defined; neither foreign effects
+nor result state is silently removed. Unused imports do not impose this policy
+on a selected program. Ordinary RTL remains synthesizable and assertion
+collateral retains its separate synthesis-exclusion policy.
+
+### Compatibility and scope
+
+This target emits SystemVerilog, not Verilog-2005. Opaque data remains outside
+the supported representation. Unsupported verified types or operations raise
+before any compilation result is returned;
+there is no fallback to CIRCT. Portable retained expansion still occurs during
+preparation, and its resulting RTL must fit this subset. This target does not
+yet directly interpret retained constructs.
+
+The opcode coverage inventory classifies the current 47 core operations: 46 are
+handled by direct emission (including CDC attributes), `construct.instance` is
+expanded during target preparation. No current core opcode is deferred.
+All emitted data types must still
+fit the supported physical representation above.
+
+## CIRCT type representation
 
 | Rhodium type | CIRCT representation |
 |---|---|
@@ -157,8 +373,9 @@ The older asynchronous-read `Memory` resource stays on `seq.hlmem`.
 Synchronous-memory elements are packed to the integer width required by
 `seq.firmem` and bitcast back at aggregate port boundaries. A declared mask
 granularity determines the FIR memory's mask width, and write and shared
-read-write ports pass that mask directly. The CIRCT generated-memory flow then
-preserves the declared port topology, enables, and packed-lane masks while
+read-write ports carry that mask. Whole-word masks also gate the effective
+write enable, preserving masked-off writes through the pinned CIRCT lowering.
+The CIRCT generated-memory flow then preserves the declared port topology, enables, and packed-lane masks while
 producing its simulation SystemVerilog module.
 
 ### Verification, CDC evidence, and simulation effects

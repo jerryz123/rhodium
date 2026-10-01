@@ -75,6 +75,12 @@ fail_matches "frontend must not import the optional standard library" \
   '^[[:space:]]+"[^"]*std/' rhodium/frontend
 fail_matches "backend must not import lowering, frontend, or formal modules" \
   '^[[:space:]]+"[^"]*(lowering|frontend|formal)/' rhodium/backend
+fail_matches "direct SystemVerilog must remain independent of CIRCT" \
+  '^[[:space:]]+(lib\()?"[^"]*circt' rhodium/backend/verilog.rhm
+fail_matches "the SystemVerilog target must remain independent of CIRCT" \
+  '^[[:space:]]+(lib\()?"[^"]*circt' rhodium/backend/verilog-target.rhm
+fail_matches "concrete emitters must not import compilation" \
+  '^[[:space:]]+"[^"]*compile/' rhodium/backend/verilog.rhm
 fail_matches "formal engine must not import lowering, frontend, backend, or standard-library modules" \
   '(compile/|lowering/|frontend/|backend/|std/)' rhodium/formal
 fail_matches "diagram tooling must not import backend, formal, or standard-library modules" \

@@ -371,6 +371,31 @@ class ProductSelectionTest(unittest.TestCase):
         self.assertEqual(other.returncode, 0, other.stderr)
         self.assertIn('/mini-rv5stage-rv32max/obj/program-target.json', other.stdout)
 
+    def test_backend_selection_isolates_models_and_attests_emitted_rtl(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for backend, suffix, artifact in (('circt', '', 'soc_harness.mlir'),
+                                               ('verilog', '-verilog', 'SoCHarness.sv')):
+                with self.subTest(backend=backend):
+                    result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={backend}',
+                                          f'BUILD_ROOT={directory}', target='simulator')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    root = f'{directory}/simple-rv5stage-rva23{suffix}'
+                    self.assertIn(f'--rtl "{root}/{artifact}"', result.stdout)
+                    self.assertIn(f'--backend {backend} --variant normal', result.stdout)
+                    self.assertIn(f'--Mdir {root}/obj', result.stdout)
+                    if backend == 'verilog':
+                        self.assertIn('--backend verilog simple rv5stage rva23', result.stdout)
+                        self.assertNotIn('circt-opt', result.stdout)
+                    else:
+                        self.assertIn('--export-verilog', result.stdout)
+            for invalid in ('', 'typo', 'circt verilog'):
+                result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={invalid}')
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('RTL_BACKEND must be circt or verilog', result.stderr)
+            traced = self.dry_run('SOC=simple-rv5stage-rva23', 'RTL_BACKEND=verilog', 'TRACE=1')
+            self.assertNotEqual(traced.returncode, 0)
+            self.assertIn('TRACE=1 currently requires RTL_BACKEND=circt', traced.stderr)
+
     def test_requires_complete_consistent_selection(self):
         for arguments in (
                 ('SOC=mini', 'CORE=rv5stage', 'ISA='),
@@ -459,17 +484,50 @@ class ProductSelectionTest(unittest.TestCase):
         self.assertIn('test "simple-rv5stage-rva23" = "simple-rv5stage-rva23"', result.stdout)
 
 
-def artifact_inputs(binary, target=None, variant='normal'):
+def artifact_inputs(binary, target=None, variant='normal', backend='circt'):
     target = target or program_target()
     target_path = binary.parent / 'program-target.json'
     target_path.write_text(json.dumps(target))
     rtl = binary.parent / 'soc_harness.mlir'
     rtl.write_text(f"// rhodium-configuration-sha256: {target['configuration_fingerprint']}\n"
-                   f"// rhodium-harness-variant: {variant}\n")
+                   f"// rhodium-harness-variant: {variant}\n"
+                   f"// rhodium-rtl-backend: {backend}\n")
     return ['--rtl', str(rtl)]
 
 
 class SimulatorArtifactTest(unittest.TestCase):
+    def test_backend_provenance_is_required_and_checked(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'VTestDriver'
+            binary.write_bytes(b'direct simulator')
+            command = [sys.executable, str(SCRIPTS / 'artifact.py')]
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
+            for backend in ('circt', 'verilog'):
+                other = 'verilog' if backend == 'circt' else 'circt'
+                rtl = artifact_inputs(binary, backend=backend)
+                subprocess.run(command + ['record'] + options + ['--backend', backend] + rtl, check=True)
+                subprocess.run(command + ['verify'] + options + ['--backend', backend], check=True)
+                for mode, extra in [('verify', []), ('record', rtl)]:
+                    rejected = subprocess.run(command + [mode] + options + ['--backend', other] + extra,
+                                              capture_output=True, text=True)
+                    self.assertNotEqual(rejected.returncode, 0)
+                    self.assertIn('backend', rejected.stderr)
+            # A direct prebuilt consumer needs no emitter, CIRCT, or native rebuild.
+            make = ['make', '-C', str(SCRIPTS.parent), 'simulator', 'SOC=simple-rv5stage-rva23',
+                    f'PREBUILT_SIMULATOR={binary}', f'PYTHON={sys.executable}',
+                    'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false']
+            self.assertEqual(subprocess.run(make + ['RTL_BACKEND=verilog'], capture_output=True).returncode, 0)
+            self.assertNotEqual(subprocess.run(make + ['RTL_BACKEND=circt'], capture_output=True).returncode, 0)
+            traced = artifact_inputs(binary, variant='trace', backend='verilog')
+            self.assertNotEqual(subprocess.run(command + ['record'] + options + traced +
+                                ['--backend', 'verilog', '--variant', 'trace'], capture_output=True).returncode, 0)
+            sidecar = binary.with_suffix('.json')
+            metadata = json.loads(sidecar.read_text())
+            del metadata['backend']
+            sidecar.write_text(json.dumps(metadata))
+            self.assertNotEqual(subprocess.run(command + ['verify'] + options + ['--backend', 'verilog'],
+                                              capture_output=True).returncode, 0)
+
     def test_configuration_and_variant_mismatches_fail_before_execution(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'VTestDriver'

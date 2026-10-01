@@ -30,6 +30,13 @@ When moving or adding implementation, move its tests with it and run
 move package fixtures into `tools/testing/` merely because one runner consumes
 them.
 
+Representative compiler integration tests may reuse existing package-owned
+circuits, benches, and DPI companions. The direct/differential backend targets
+include SyncRam and UART DPI integrations; their focused invocation and checks
+are documented in the [backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation).
+Keep those test artifacts with their original owners and route dependency
+changes to both backend CI lanes.
+
 ## Authoring principles
 
 - A new hardware module does not require a dedicated test merely because it
@@ -62,7 +69,11 @@ CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
 by [`policy.py`](../ci/policy.py). The product rows come from the single
 [`simulator inventory`](../../sims/test-products.txt); policy selects workloads
-by shape and ISA, independently of core. Its unit tests also reject tracked executable
+by shape and ISA, independently of core. Simulator matrices additionally carry
+backend and artifact identity. The direct `simple-rv5stage-rva23-verilog` entry
+uses the same product/target with three smoke tests; it does not expand the
+architectural or software qualification inventories. Its build job omits CIRCT,
+and its prebuilt consumer verifies backend provenance. Its unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects
@@ -140,7 +151,12 @@ flowchart TD
 Known dependency paths can select several branches. For example, NoC, RISC-V,
 CHI, core, and shared standard/flow library changes also select the SoC host shard
 when their behavior feeds system composition. Backend implementation or fixture
-changes select the backend host shard and every external CIRCT group. The
+changes select the backend host shard, direct SystemVerilog simulation, and every
+external CIRCT group, including the backend differential route. The direct lane
+requires Verilator without CIRCT; the differential lane installs both. Its
+Builder fixtures, oracle, and runner live under
+[`rhodium/backend/tests/verilog/`](../../rhodium/backend/tests/verilog/); see the
+[backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation). The
 simulation workflow remains independent from backend fixtures and owns the
 repository's harness and ISA-smoke flow. Each OpenSBI qualification has its own
 job budget and uses the matching exact-commit single-core simulator artifact,

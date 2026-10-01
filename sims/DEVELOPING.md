@@ -26,10 +26,14 @@ explicitly imports `chi/subordinate/memory-controller.rhdl` and
 all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-import)
 owns the public entry-point contract.
 
-Each `(SOC, CORE, ISA)` selection has an isolated build directory. CI names all fourteen
-products explicitly and publishes one exact-commit simulator and target
-descriptor per product. Software-only changes build the six Single products;
-simulation changes build all fourteen, including all four Mini RV32 bindings. The host emitter
+Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
+adds a `-verilog` suffix so backend artifacts cannot be reused accidentally.
+CI names all fourteen products explicitly and publishes an exact-commit simulator and target
+descriptor for each selected build variant. The additional
+`simple-rv5stage-rva23-verilog` variant reuses its architectural product and runs
+only `smoke`, `host-mmio-test`, and `uart-pty-test`. Software-only changes build
+the six Single products; simulation changes build all fourteen products,
+including all four Mini RV32 bindings, plus the direct variant. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
@@ -50,13 +54,31 @@ must match the selected product. Product-independent
 setup and host adapter tests remain usable without an ISA selection.
 
 Product metadata is projected by `socs/products/metadata.rhm`, not reconstructed
-in Python. The target JSON embeds that snapshot and its SHA-256; the MLIR emitter
-writes the same fingerprint. `simulator` records an attestation only after matching
-those identities, and includes the selected harness variant. Recording requires
-the emitted MLIR; verification requires only the binary, attestation, and adjacent
+in Python. The target JSON embeds that snapshot and its SHA-256; the harness emitter
+writes the same fingerprint into either MLIR or direct SV. `simulator` records an attestation only after matching
+those identities, and includes the selected backend and harness variant. The
+emitter writes `rhodium-rtl-backend` provenance, checked during recording; every
+prebuilt use verifies the requested backend against the sidecar. Missing backend
+provenance requires rebuilding the artifact. Recording requires
+the emitted target artifact; verification requires only the binary, attestation, and adjacent
 target descriptor. ACT's generated UDB and payload archive carry the same configuration;
 execution rejects a mismatch before running a shard. Keep these descriptors in
 artifact uploads and cache identities, never as checked-in generated catalogs.
+
+`RTL_BACKEND` selects `circt` or `verilog`, with CIRCT remaining the default.
+The harness emitter loads only the selected compile target and gives it the
+same `ElaboratedProgram` and explicit top. Direct builds emit `SoCHarness.sv`
+without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
+artifact to attestation. Keep compiler/backend imports in the host emitter,
+never in circuit definitions. CI uses `simulator_id` for artifact/build paths,
+`soc` for the unchanged hardware/software target, and `qualification` to gate
+the existing broader platform steps. Backend variants stay out of architectural
+product, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
+supported.
+Direct RTL can retain unsigned comparisons against zero and type bounds after
+parameter specialization. Permit the additional `UNSIGNED` and `CMPCONST`
+Verilator warnings for that route, retaining the existing simulator lint policy
+and runtime assertions.
 
 ## Implementation map
 

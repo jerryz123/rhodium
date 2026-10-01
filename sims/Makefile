@@ -11,6 +11,12 @@ PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
 include product.mk
+RTL_BACKEND ?= circt
+ifneq ($(RTL_BACKEND),circt)
+ifneq ($(RTL_BACKEND),verilog)
+$(error RTL_BACKEND must be circt or verilog)
+endif
+endif
 TRACE ?= 0
 TRACE_FILE ?=
 NLOHMANN_JSON_INCLUDE_DIR ?=
@@ -44,8 +50,12 @@ CPPFLAGS += -I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_
 CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
-SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)
+# Direct RTL must never reuse CIRCT model objects or emitted-artifact timestamps.
+SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)$(if $(filter verilog,$(RTL_BACKEND)),-verilog)
 ifeq ($(TRACE),1)
+ifneq ($(RTL_BACKEND),circt)
+$(error TRACE=1 currently requires RTL_BACKEND=circt)
+endif
 ifneq ($(filter $(word 1,$(HARNESS_SELECTOR)),simple tiled),$(word 1,$(HARNESS_SELECTOR)))
 $(error TRACE=1 supports single or tiled RV5Stage SoCs only)
 endif
@@ -73,6 +83,7 @@ SPIKE_VERILOG := $(SPIKE_LOWERING_DIR)/SpikeCore.sv
 SPIKE_VERILATOR_DIR := $(SPIKE_LOWERING_DIR)/obj
 SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
 SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
+SOC_EMITTED := $(if $(filter verilog,$(RTL_BACKEND)),$(SOC_VERILOG),$(SOC_MLIR))
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
 SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
@@ -126,7 +137,7 @@ setup:
 simulator: $(SIMULATOR_BINARY) $(PROGRAM_TARGET)
 	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
 	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)" --target "$(PROGRAM_TARGET)" \
-	  --variant $(if $(filter 1,$(TRACE)),trace,normal) $(if $(PREBUILT_SIMULATOR),,--rtl "$(SOC_MLIR)")
+	  --backend $(RTL_BACKEND) --variant $(if $(filter 1,$(TRACE)),trace,normal) $(if $(PREBUILT_SIMULATOR),,--rtl "$(SOC_EMITTED)")
 	@echo "Ready $(SOC_ID) simulator: $(SIMULATOR_BINARY)"
 
 run: simulator
@@ -294,6 +305,7 @@ $(SPIKE_LIBRARY):
 $(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR) $(SPIKE_LOWERING_DIR):
 	mkdir -p $@
 
+ifeq ($(RTL_BACKEND),circt)
 $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
 	@test -n "$(HARNESS_SELECTOR)" || \
 	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
@@ -328,6 +340,12 @@ $(SOC_VERILOG): $(SOC_MLIR)
 	  --sv-mask-non-synthesizable='mode=ifdef macro=SYNTHESIS' \
 	  --export-verilog $(SOC_MLIR) -o /dev/null > $(SOC_VERILOG)
 
+else
+$(SOC_VERILOG): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
+	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
+	  $(HARNESS_EMITTER) --backend verilog $(HARNESS_SELECTOR) > $(SOC_VERILOG)
+endif
+
 ifeq ($(PREBUILT_SIMULATOR),)
 $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
                      $(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \
@@ -340,8 +358,9 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
                      $(SOC_DPI_HEADER) \
                      $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) \
                      $(FESVR_LIBRARY) $(SOC_DPI_DEPENDENCY)
+	# Direct RTL keeps legal constant comparisons that CIRCT normally folds.
 	# The outer prerequisites include libraries omitted from Verilator's link rule.
-	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD --build-jobs $(BUILD_JOBS) $(TRACE_VFLAGS) \
+	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) $(TRACE_VFLAGS) \
 	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(CURDIR)/TestDriver.v \

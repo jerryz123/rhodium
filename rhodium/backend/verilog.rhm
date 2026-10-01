@@ -1,0 +1,591 @@
+#lang rhombus
+/* Emits typed combinational and clocked SystemVerilog with shared packed aggregate declarations. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  "../core/main.rhm" open
+
+export:
+  emit_verilog
+  verilog_opcode_policy
+
+/* Explicit backend coverage inventory. The emitter consumes only "emit" entries;
+   "prepare" is materialized by the target adapter and "defer" is intentionally
+   outside this target. Host tests compare keys with core schemas so a new core
+   operation requires a deliberate policy decision rather than a silent default. */
+def verilog_opcode_policy:
+  {"rtl.input_port": "emit",
+   "rtl.output_port": "emit",
+   "rtl.wire": "emit",
+   "rtl.drive": "emit",
+   "rtl.instance": "emit",
+   "rtl.register": "emit",
+   "rtl.register_reset": "emit",
+   "rtl.constant": "emit",
+   "rtl.dont_care": "emit",
+   "rtl.decode": "emit",
+   "rtl.onehot_mux": "emit",
+   "rtl.cast": "emit",
+   "rtl.not": "emit",
+   "rtl.and": "emit",
+   "rtl.or": "emit",
+   "rtl.xor": "emit",
+   "rtl.add": "emit",
+   "rtl.sub": "emit",
+   "rtl.mul": "emit",
+   "rtl.shl": "emit",
+   "rtl.shru": "emit",
+   "rtl.shrs": "emit",
+   "rtl.concat": "emit",
+   "rtl.extract": "emit",
+   "rtl.trunc": "emit",
+   "rtl.zext": "emit",
+   "rtl.sext": "emit",
+   "rtl.eq": "emit",
+   "rtl.ult": "emit",
+   "rtl.slt": "emit",
+   "rtl.mux_lookup": "emit",
+   "rtl.record_create": "emit",
+   "rtl.record_get": "emit",
+   "rtl.vector_create": "emit",
+   "rtl.vector_get": "emit",
+   "rtl.vector_index": "emit",
+   "rtl.vector_inject": "emit",
+   "rtl.vector_write_set": "emit",
+   "rtl.memory": "emit",
+   "rtl.memory_read_async": "emit",
+   "rtl.memory_write": "emit",
+   "verif.assert": "emit",
+   "cdc.sync_level": "emit",
+   "construct.instance": "prepare",
+   "rtl.sync_memory": "emit",
+   "sim.dpi_call": "emit",
+   "sim.dpi_register": "emit"}
+
+/* Escape every authored identifier, including SystemVerilog keywords. The
+   terminating space is part of the token spelling, not of the logical name. */
+fun sv_name(name :: String): "\\" ++ name ++ " "
+
+/* Compute the physical representation of supported data types recursively.
+   Clock and reset have one physical bit; opaque types remain unsupported. */
+fun sv_width(type :: HardwareType) :: PosInt:
+  cond
+  | scalar_data_type(type): scalar_width(type)
+  | clock_type(type) || reset_type(type): 1
+  | record_type(type):
+      def mutable width = 0
+      for (field in type.fields): width := width + sv_width(field.type)
+      width
+  | vector_type(type): type.length * sv_width(type.element_type)
+  | ~else: error(~who: #'emit_verilog, "unsupported SystemVerilog type: " ++ type.describe())
+
+/* Physical shape identity ignores preferred names and scalar authoring types.
+   All scalar storage is unsigned here; signed operations opt in explicitly. */
+fun sv_shape(type :: HardwareType) :: String:
+  cond
+  | record_type(type):
+      "record<" ++ String.join(type.fields.map(fun (field): field.name ++ ":" ++ sv_shape(field.type)), ",") ++ ">"
+  | vector_type(type): "vector<" ++ to_string(type.length) ++ "," ++ sv_shape(type.element_type) ++ ">"
+  | ~else: "bits<" ++ to_string(sv_width(type)) ++ ">"
+
+/* A compilation-local table owns package identity, shape aliases, and ordered
+   typedefs. It is passed explicitly so separate compilations share no state. */
+class SvTypes(package_name :: String, names :: Map, declarations :: List)
+
+/* Collect dependencies before users and intern each physical shape once across
+   the prepared hierarchy. Reserve field names against typedef shadowing and all
+   authored scope names against package shadowing. Preferred names are hints. */
+fun collect_sv_types(design :: Design) :: SvTypes:
+  def reserved = MutableSet{}
+  def alias_names = MutableSet{}
+  /* Reserve nested field names before allocating any aliases, including names
+     first encountered in a later module or another otherwise equal shape. */
+  fun reserve(type :: HardwareType):
+    cond
+    | record_type(type):
+        for (field in type.fields):
+          alias_names.add(field.name)
+          reserved.add(field.name)
+          reserve(field.type)
+    | vector_type(type): reserve(type.element_type)
+    | ~else: #void
+  for (module_def in design.modules):
+    reserved.add(module_def.name)
+    for (port in module_def.inputs ++ module_def.outputs): reserved.add(port.name)
+    for (operation in module_def.operations):
+      when operation.opcode == "rtl.instance"
+      | reserved.add(operation.attribute("name"))
+      when operation.opcode == "rtl.memory"
+      | reserve(operation.attribute("memory").element_type)
+      for (value in operation.results): reserve(value.type)
+      for (place in operation.places): reserve(place.type)
+  def names = MutableMap{}
+  def declarations = MutableList[]
+  /* Deterministic suffixes disambiguate different shapes requesting one name,
+     generated aliases, and record members that could hide type references. */
+  fun unique_name(base :: String, used :: MutableSet) :: String:
+    def mutable name = base
+    def mutable suffix = 0
+    while name in used:
+      suffix := suffix + 1
+      name := base ++ "_" ++ to_string(suffix)
+    used.add(name)
+    name
+  /* Return a local typedef reference, creating its nested dependencies first.
+     An alias for scalar elements lets added vector dimensions remain outermost. */
+  fun collect(type :: HardwareType) :: String:
+    def key = sv_shape(type)
+    unless names.has_key(key)
+    | block:
+        def body:
+          cond
+          | record_type(type):
+              "struct packed {\n" ++ String.join(type.fields.map(fun (field): "    " ++ collect(field.type) ++ " " ++ sv_name(field.name) ++ ";"), "\n") ++ "\n  }"
+          | vector_type(type): collect(type.element_type) ++ " [" ++ to_string(type.length - 1) ++ ":0]"
+          | ~else: "logic [" ++ to_string(sv_width(type) - 1) ++ ":0]"
+        def base:
+          cond
+          | record_type(type): type.preferred_name || ("_sv_record_" ++ to_string(declarations.length()))
+          | vector_type(type): "_sv_vector_" ++ to_string(declarations.length())
+          | ~else: "_sv_bits_" ++ to_string(sv_width(type))
+        def name = unique_name(base, alias_names)
+        names[key] := name
+        reserved.add(name)
+        declarations.add("  typedef " ++ body ++ " " ++ sv_name(name) ++ ";")
+    sv_name(names[key])
+  for (module_def in design.modules):
+    for (operation in module_def.operations):
+      when operation.opcode == "rtl.memory"
+      | collect(operation.attribute("memory").element_type)
+      for (value in operation.results): collect(value.type)
+      for (place in operation.places): collect(place.type)
+  // The first prepared module seeds a name only; preparation already owns scope.
+  def base = if design.modules.length() == 0 | "_sv_types" | design.modules[0].name ++ "_types"
+  SvTypes(unique_name(base, reserved), names.snapshot(), declarations.snapshot())
+
+/* Fully qualified references avoid importing typedef names into module scope. */
+fun sv_type(type :: HardwareType, types :: SvTypes) :: String:
+  sv_name(types.package_name) ++ "::" ++ sv_name(types.names[sv_shape(type)])
+
+/* Sized hexadecimal literals avoid host-machine limits and unsized SV arithmetic. */
+fun sv_literal(width :: PosInt, value :: Nat):
+  to_string(width) ++ "'h" ++ rkt.#{number->string}(value, 16)
+
+/* Print canonical packed cubes from MSB to LSB. Case patterns use '?' for
+   uncared input bits; output cubes use 'x' to retain synthesis freedom. */
+fun sv_pattern(width :: PosInt, value :: Nat, care :: Nat, uncared :: String):
+  def digits = for List (index in (width - 1) >=..= 0):
+    if rkt.#{bitwise-bit-set?}(care, index)
+    | (if rkt.#{bitwise-bit-set?}(value, index) | "1" | "0")
+    | uncared
+  to_string(width) ++ "'b" ++ String.join(digits, "")
+
+/* Gate each packed choice with its corresponding selector bit. Exactly one
+   bit is a caller precondition; no default, priority, or validity logic is
+   introduced. The destination cast retains the scalar/aggregate result type. */
+fun sv_onehot_mux(operation :: Operation, refs :: Map, types :: SvTypes):
+  def selector = refs[operation.operands[0]]
+  def width = sv_width(operation.results[0].type)
+  def terms = for List (choice in operation.operands.drop(1), index in 0..(operation.operands.length() - 1)):
+    "({" ++ to_string(width) ++ "{" ++ selector ++ "[" ++ to_string(index) ++ "]}} & " ++ refs[choice] ++ ")"
+  sv_type(operation.results[0].type, types) ++ "'(" ++ String.join(terms, " | ") ++ ")"
+
+/* Keep the verified non-overlapping decode relation visible as a casez. Each
+   arm assigns the whole typed result, including an explicit default, so no
+   latch or implicit hold is introduced. X bits carry synthesis freedom only. */
+fun sv_decode(operation :: Operation, refs :: Map, types :: SvTypes):
+  def input_width = sv_width(operation.operands[0].type)
+  def output_type = operation.results[0].type
+  def output_width = sv_width(output_type)
+  def result = refs[operation.results[0]]
+  /* Cast the packed output cube back to its logical target representation. */
+  fun output(value :: Nat, care :: Nat):
+    sv_type(output_type, types) ++ "'(" ++ sv_pattern(output_width, value, care, "x") ++ ")"
+  def lines = MutableList["  always_comb begin", "    casez (" ++ refs[operation.operands[0]] ++ ")"]
+  for (row in operation.attribute("cases")):
+    lines.add("      " ++ sv_pattern(input_width, row[0], row[1], "?") ++ ": " ++ result ++ " = " ++ output(row[2], row[3]) ++ ";")
+  lines.add("      default: " ++ result ++ " = " ++ output(operation.attribute("default_value"), operation.attribute("default_care")) ++ ";")
+  lines.add("    endcase")
+  lines.add("  end")
+  String.join(lines.snapshot(), "\n")
+
+/* Lower one combinational result using already allocated net references. Every
+   operation gets its own width-constrained net, preserving modular arithmetic. */
+fun sv_expression(operation :: Operation, refs :: Map, types :: SvTypes):
+  def args = operation.operands.map(fun (operand): refs[operand])
+  match operation.opcode
+  | "rtl.dont_care": "'x"
+  | "rtl.onehot_mux": sv_onehot_mux(operation, refs, types)
+  | "rtl.constant": sv_literal(scalar_width(operation.results[0].type), operation.attribute("value"))
+  | "rtl.cast": sv_type(operation.results[0].type, types) ++ "'(" ++ args[0] ++ ")"
+  | "rtl.record_create":
+      def type :: RecordType = operation.results[0].type
+      def members = for List (field in type.fields, arg in args): sv_name(field.name) ++ ": " ++ arg
+      sv_type(type, types) ++ "'{" ++ String.join(members, ", ") ++ "}"
+  | "rtl.vector_create": sv_type(operation.results[0].type, types) ++ "'{" ++ String.join(args.reverse(), ", ") ++ "}"
+  | "rtl.record_get": args[0] ++ "." ++ sv_name(operation.attribute("field"))
+  | "rtl.vector_index": args[0] ++ "[" ++ args[1] ++ "]"
+  | "rtl.vector_get": args[0] ++ "[" ++ to_string(operation.attribute("index")) ++ "]"
+  // Counts are self-determined unsigned SV operands: keep every count bit,
+  // even when the count is wider than the shifted value. Each result net fixes
+  // the data width before a later widening operation can consume that result.
+  | "rtl.shl": args[0] ++ " << " ++ args[1]
+  | "rtl.shru": args[0] ++ " >> " ++ args[1]
+  | "rtl.shrs": "$signed(" ++ args[0] ++ ") >>> " ++ args[1]
+  | "rtl.concat": "{" ++ String.join(args, ", ") ++ "}"
+  | "rtl.extract": args[0] ++ "[" ++ to_string(operation.attribute("high")) ++ ":" ++ to_string(operation.attribute("low")) ++ "]"
+  | "rtl.trunc": args[0] ++ "[" ++ to_string(scalar_width(operation.results[0].type) - 1) ++ ":0]"
+  | "rtl.zext":
+      def extra = scalar_width(operation.results[0].type) - scalar_width(operation.operands[0].type)
+      "{" ++ sv_literal(extra, 0) ++ ", " ++ args[0] ++ "}"
+  // Materialize sign bits instead of relying on typedef signedness or the
+  // assignment's destination context to choose the extension interpretation.
+  | "rtl.sext":
+      def width = scalar_width(operation.operands[0].type)
+      def extra = scalar_width(operation.results[0].type) - width
+      "{{" ++ to_string(extra) ++ "{" ++ args[0] ++ "[" ++ to_string(width - 1) ++ "]}}, " ++ args[0] ++ "}"
+  | "rtl.not": "~" ++ args[0]
+  | "rtl.slt": "$signed(" ++ args[0] ++ ") < $signed(" ++ args[1] ++ ")"
+  | "rtl.mux_lookup":
+      def mutable expression = args[1]
+      for (key in operation.attribute("keys").reverse(), value in args.drop(2).reverse()):
+        expression := "(" ++ args[0] ++ " == " ++ sv_literal(scalar_width(operation.operands[0].type), key) ++ " ? " ++ value ++ " : " ++ expression ++ ")"
+      expression
+  | ~else:
+      def operator = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+", "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}[operation.opcode]
+      args[0] ++ " " ++ operator ++ " " ++ args[1]
+
+/* Render one child occurrence using its verified signature order. Separate input
+   nets retain ordinary drive handling, including connections authored later. */
+fun sv_instance(operation :: Operation, name :: String, value_refs :: Map, places :: Map):
+  def child :: Module = operation.attribute("module")
+  def connections = MutableList[]
+  for (port in child.inputs, place in operation.places):
+    connections.add("." ++ sv_name(port.name) ++ "(" ++ places[place] ++ ")")
+  for (port in child.outputs, value in operation.results):
+    connections.add("." ++ sv_name(port.name) ++ "(" ++ value_refs[value] ++ ")")
+  "  " ++ sv_name(child.name) ++ name ++ "(" ++ String.join(connections.snapshot(), ", ") ++ ");"
+
+/* Injection is a combinational value, not a write to the source array. Assign
+   the complete result on every path before replacing one typed element. The
+   invalid selector arm leaves the entire result unconstrained; 'x represents
+   synthesis freedom here, not a public four-state or simulation guarantee. */
+fun sv_vector_inject(operation :: Operation, refs :: Map):
+  def vector :: VectorType = operation.results[0].type
+  def result = refs[operation.results[0]]
+  def source = refs[operation.operands[0]]
+  def index = refs[operation.operands[1]]
+  def element = refs[operation.operands[2]]
+  def index_width = scalar_width(operation.operands[1].type)
+  // A full index space needs no bounds predicate. Singletons still have a
+  // one-bit selector, so encoding one must take the unconstrained arm.
+  if vector.length == 2 ** index_width
+  | "  always_comb begin\n    " ++ result ++ " = " ++ source ++ ";\n    " ++ result ++ "[" ++ index ++ "] = " ++ element ++ ";\n  end"
+  | block:
+      def last = sv_literal(index_width, vector.length - 1)
+      "  always_comb begin\n    " ++ result ++ " = 'x;\n    if (" ++ index ++ " <= " ++ last ++ ") begin\n      " ++ result ++ " = " ++ source ++ ";\n      " ++ result ++ "[" ++ index ++ "] = " ++ element ++ ";\n    end\n  end"
+
+/* Enabled writes commute under the core distinct/in-range-index precondition.
+   Copying the whole typed vector first preserves all untouched elements and
+   makes the block combinational. Statement order chooses an implementation for
+   invalid collisions only; it is not a public write-priority guarantee. No
+   validity circuitry is needed, and disabled indices are never applied. */
+fun sv_vector_write_set(operation :: Operation, refs :: Map):
+  def enables_type :: VectorType = operation.operands[1].type
+  def result = refs[operation.results[0]]
+  def source = refs[operation.operands[0]]
+  def enables = refs[operation.operands[1]]
+  def indices = refs[operation.operands[2]]
+  def elements = refs[operation.operands[3]]
+  def lines = MutableList["  always_comb begin", "    " ++ result ++ " = " ++ source ++ ";"]
+  for (port in 0..enables_type.length):
+    def select = "[" ++ to_string(port) ++ "]"
+    lines.add("    if (" ++ enables ++ select ++ ") " ++ result ++ "[" ++ indices ++ select ++ "] = " ++ elements ++ select ++ ";")
+  lines.add("  end")
+  String.join(lines.snapshot(), "\n")
+
+/* One block owns all writes to a resource, whose common clock is verified by
+   core. Nonblocking updates let every read and write RHS observe pre-edge state.
+   Distinct enabled addresses update independently; statement order does not
+   promise collision priority. The memory has no implicit reset or initializer. */
+fun sv_memory_writes(memory :: Memory, name :: String, refs :: Map):
+  def writes = memory.module_def.operations.filter(~keep: fun (operation): operation.opcode == "rtl.memory_write" && operation.attribute("memory") === memory)
+  if writes.length() == 0
+  | ""
+  | block:
+      def lines = MutableList["  always_ff @(posedge " ++ refs[writes[0].operands[2]] ++ ") begin"]
+      for (write in writes):
+        lines.add("    if (" ++ refs[write.operands[3]] ++ ") " ++ name ++ "[" ++ refs[write.operands[0]] ++ "] <= " ++ refs[write.operands[1]] ++ ";")
+      lines.add("  end")
+      String.join(lines.snapshot(), "\n")
+
+/* Concurrent assertions sample every operand at the same rising edge, before
+   nonblocking state updates. Reset suppresses only that sampled check, so do
+   not use asynchronous disable iff. Keep the authored label in the diagnostic
+   even when its SV statement name needs disambiguation. */
+fun sv_assert(operation :: Operation, name :: String, refs :: Map):
+  def args = operation.operands.map(fun (operand): refs[operand])
+  def label = operation.attribute("label", #false)
+  def message = if label | "assertion failed: " ++ label | "unlabeled assertion failed"
+  "`ifndef SYNTHESIS\n  " ++ name ++ ": assert property (@(posedge " ++ args[1] ++ ") (!(" ++ args[3] ++ " && !" ++ args[2] ++ ") || " ++ args[0] ++ ")) else $error(\"" ++ message ++ "\");\n`endif"
+
+/* Match the existing CIRCT C ABI, independently of author-level signedness.
+   Native widths use DPI scalar types; other widths use two-state packed words. */
+fun sv_dpi_type(type :: ScalarDataType):
+  def width = scalar_width(type)
+  {1: "bit", 8: "byte", 16: "shortint", 32: "int", 64: "longint"}.get(width, "bit [" ++ to_string(width - 1) ++ ":0]")
+
+/* Imports are local to each using module and use private SV aliases, avoiding
+   duplicate compilation-unit declarations and collisions with authored ports.
+   The explicit C identifier keeps the external link symbol unchanged. */
+fun sv_dpi_import(declaration :: DpiImport, name :: String):
+  def result = declaration.return_result()
+  when result && scalar_width(result.type) > 32 && scalar_width(result.type) != 64
+  | error(~who: #'emit_verilog, "unsupported DPI return width for " ++ declaration.name ++ "; use a wide out result and a native return type")
+  def return_type = if result | sv_dpi_type(result.type) | "void"
+  def inputs = for List (port in declaration.input_names, type in declaration.input_types): "input " ++ sv_dpi_type(type) ++ " " ++ sv_name(port)
+  def outputs = declaration.results.filter(~keep: fun (item): item.direction == "out").map(fun (item): "output " ++ sv_dpi_type(item.type) ++ " " ++ sv_name(item.name))
+  "  import \"DPI-C\" context " ++ sv_name(declaration.name) ++ "= function " ++ return_type ++ " " ++ name ++ "(" ++ String.join(inputs ++ outputs, ", ") ++ ");"
+
+/* Private blocking temporaries receive all foreign results before nonblocking
+   publication to visible state. Thus every other edge-triggered operation sees
+   pre-edge values, and disabled calls neither run nor change their results. */
+fun sv_dpi_call(operation :: Operation, name :: String, refs :: Map, temporaries :: List):
+  def inputs = operation.operands.drop(2).map(fun (value): refs[value])
+  def outputs = if temporaries.length() == 0 | [] | temporaries.take(temporaries.length() - 1)
+  def call = name ++ "(" ++ String.join(inputs ++ outputs, ", ") ++ ")"
+  def lines = MutableList["  always @(posedge " ++ refs[operation.operands[0]] ++ ") begin", "    if (" ++ refs[operation.operands[1]] ++ ") begin"]
+  if temporaries.length() == 0
+  | lines.add("      " ++ call ++ ";")
+  | block:
+      lines.add("      " ++ temporaries[temporaries.length() - 1] ++ " = " ++ call ++ ";")
+      for (value in operation.results, temporary in temporaries):
+        lines.add("      " ++ refs[value] ++ " <= " ++ temporary ++ ";")
+  lines.add("    end")
+  lines.add("  end")
+  String.join(lines.snapshot(), "\n")
+
+/* One typed array and one clocked owner implement the primitive's fixed ports.
+   Reads sample pre-edge storage. Disabled/read-write write-cycle results are
+   unspecified; emitting x preserves that freedom without promising a hold.
+   Expand masks in packed bit order so granules may cross record/vector fields. */
+fun sv_sync_memory(operation :: Operation, name :: String, refs :: Map, places :: Map, types :: SvTypes):
+  def element_type :: DataType = operation.attribute("element_type")
+  def granularity = operation.attribute("mask_granularity", #false)
+  def lines = MutableList["  always_ff @(posedge " ++ refs[operation.operands[0]] ++ ") begin"]
+  /* Merge every enabled granule in one assignment. A whole typed word avoids
+     treating the outer dimension of a packed vector as a flat bit index. */
+  fun write(address :: String, data :: String, enable :: String, mask :: maybe(String)):
+    def target = name ++ "[" ++ address ++ "]"
+    def value:
+      if !mask
+      | data
+      | block:
+          def parts = for List (index in (sv_width(element_type) / granularity - 1) >=..= 0):
+            "{" ++ to_string(granularity) ++ "{" ++ mask ++ "[" ++ to_string(index) ++ "]}}"
+          def expanded = "{" ++ String.join(parts, ", ") ++ "}"
+          sv_type(element_type, types) ++ "'((" ++ target ++ " & ~" ++ expanded ++ ") | (" ++ data ++ " & " ++ expanded ++ "))"
+    lines.add("    if (" ++ enable ++ ") " ++ target ++ " <= " ++ value ++ ";")
+  /* Read and write statements share an NBA boundary, so neither statement
+     order nor a consuming register can expose newly written data pre-edge. */
+  fun read(address :: String, enable :: String, result :: String):
+    lines.add("    if (" ++ enable ++ ") " ++ result ++ " <= " ++ name ++ "[" ++ address ++ "]; else " ++ result ++ " <= 'x;")
+  def ports = operation.places.map(fun (place): places[place])
+  def mutable index = 0
+  when operation.attribute("has_read")
+  | block:
+      read(ports[0], ports[1], refs[operation.results[0]])
+      index := 2
+  when operation.attribute("has_write")
+  | write(ports[index], ports[index + 1], ports[index + 2], if granularity | ports[index + 3] | #false)
+  when operation.attribute("has_read_write")
+  | block:
+      read(ports[0], ports[1] ++ " && !" ++ ports[2], refs[operation.results[0]])
+      write(ports[0], ports[3], ports[1] ++ " && " ++ ports[2], if granularity | ports[4] | #false)
+  lines.add("  end")
+  String.join(lines.snapshot(), "\n")
+
+/* Each register samples its explicit next-state wire on its own rising edge.
+   Nonblocking assignments preserve pre-edge reads across simultaneous updates;
+   reset is synchronous and takes priority over any mux-based enable or hold. */
+fun sv_register(operation :: Operation, value_refs :: Map, places :: Map):
+  def current = value_refs[operation.results[0]]
+  def next = places[operation.places[0]]
+  def clock = value_refs[operation.operands[0]]
+  def update:
+    if operation.opcode == "rtl.register_reset"
+    | "    if (" ++ value_refs[operation.operands[1]] ++ ") " ++ current ++ " <= " ++ value_refs[operation.operands[2]] ++ ";\n    else " ++ current ++ " <= " ++ next ++ ";"
+    | "    " ++ current ++ " <= " ++ next ++ ";"
+  "  always_ff @(posedge " ++ clock ++ ") begin\n" ++ update ++ "\n  end"
+
+/* Render one validated module with local names and preallocated net references.
+   Scope selection and definition reuse belong to portable preparation. */
+fun emit_module_verilog(module_def :: Module, types :: SvTypes):
+  // Verification already proves resetless, exclusive direct register chains.
+  // Use prepared Value identity; neither names nor global IDs identify stages.
+  def sync_stages = MutableSet.by(===){}
+  for (operation in module_def.operations):
+    when operation.opcode == "cdc.sync_level"
+    | for (stage in operation.operands.drop(2)): sync_stages.add(stage)
+  def ports = module_def.inputs ++ module_def.outputs
+  def used = MutableSet{types.package_name}
+  for (port in ports): used.add(port.name)
+  def instance_refs = MutableMap.by(===){}
+  def instances = module_def.operations.filter(~keep: fun (operation): operation.opcode == "rtl.instance")
+  for (operation in instances): used.add(operation.attribute("name"))
+  for (operation in instances):
+    def original :: String = operation.attribute("name")
+    def mutable name = original
+    when ports.find(fun (port): port.name == original)
+    | block:
+        name := original ++ "_instance"
+        def mutable suffix = 0
+        while name in used:
+          suffix := suffix + 1
+          name := original ++ "_instance_" ++ to_string(suffix)
+        used.add(name)
+    instance_refs[operation] := sv_name(name)
+  def assertion_refs = MutableMap.by(===){}
+  def assertions = module_def.operations.filter(~keep: fun (operation): operation.opcode == "verif.assert")
+  def labels = MutableSet{}
+  for (operation in assertions):
+    def label = operation.attribute("label", #false)
+    when label
+    | labels.add(label)
+  // Reserve every authored label before allocating suffixes or unnamed checks;
+  // an earlier collision must not steal a later assertion's explicit name.
+  for (operation in assertions):
+    def label = operation.attribute("label", #false)
+    def base = label || "_sv_assert"
+    def mutable name = base
+    def mutable suffix = 0
+    while name in used || (!label && name in labels) || (suffix > 0 && name in labels):
+      suffix := suffix + 1
+      name := base ++ "_assert_" ++ to_string(suffix)
+    used.add(name)
+    assertion_refs[operation] := sv_name(name)
+  def value_refs = MutableMap.by(===){}
+  def place_refs = MutableMap.by(===){}
+  def memory_refs = MutableMap.by(===){}
+  def dpi_refs = MutableMap.by(===){}
+  def dpi_temporaries = MutableMap.by(===){}
+  def declarations = MutableList[]
+  for (port in module_def.inputs): value_refs[port.value] := sv_name(port.name)
+  for (port in module_def.outputs): place_refs[port.place] := sv_name(port.name)
+  // An imported function's name also declares its return variable inside the
+  // prototype scope. Never reuse a formal's name for that private function alias.
+  for (operation in module_def.operations):
+    when operation.opcode in ["sim.dpi_call", "sim.dpi_register"]
+    | block:
+        def declaration :: DpiImport = operation.attribute("dpi_import")
+        for (name in declaration.input_names ++ declaration.results.map(fun (result): result.name)): used.add(name)
+  def mutable index = 0
+  /* Allocate from module-local traversal order and reserve all external names.
+     Neither global IR IDs nor user-preferred internal names affect the output. */
+  fun fresh_net():
+    def mutable name = "_sv_" ++ to_string(index)
+    while name in used:
+      index := index + 1
+      name := "_sv_" ++ to_string(index)
+    used.add(name)
+    index := index + 1
+    sv_name(name)
+  for (operation in module_def.operations):
+    when operation.opcode in ["sim.dpi_call", "sim.dpi_register"]
+    | block:
+        def declaration :: DpiImport = operation.attribute("dpi_import")
+        unless dpi_refs.has_key(declaration)
+        | block:
+            def name = fresh_net()
+            dpi_refs[declaration] := name
+            declarations.add(sv_dpi_import(declaration, name))
+        def temporaries = for List (result in declaration.results):
+          def name = fresh_net()
+          declarations.add("  " ++ sv_dpi_type(result.type) ++ " " ++ name ++ ";")
+          name
+        dpi_temporaries[operation] := temporaries
+  // Unlike assertions, foreign effects/results cannot disappear for synthesis.
+  // Only modules with live DPI operations reject the synthesis compilation mode.
+  when dpi_refs.length() > 0
+  | declarations.add("`ifdef SYNTHESIS\n`error \"Rhodium DPI requires simulation; SYNTHESIS is unsupported\"\n`endif")
+  for (operation in module_def.operations):
+    when operation.opcode == "rtl.memory"
+    | block:
+        def memory :: Memory = operation.attribute("memory")
+        def name = fresh_net()
+        memory_refs[memory] := name
+        declarations.add("  " ++ sv_type(memory.element_type, types) ++ " " ++ name ++ " [0:" ++ to_string(memory.depth - 1) ++ "];")
+    when operation.opcode == "rtl.sync_memory"
+    | block:
+        def name = fresh_net()
+        memory_refs[operation] := name
+        declarations.add("  " ++ sv_type(operation.attribute("element_type"), types) ++ " " ++ name ++ " [0:" ++ to_string(operation.attribute("depth") - 1) ++ "];")
+    def state = operation.opcode in ["rtl.register", "rtl.register_reset"]
+    when operation.opcode in ["rtl.instance", "rtl.sync_memory"] || state
+    | for (place in operation.places):
+        def name = fresh_net()
+        place_refs[place] := name
+        declarations.add("  wire " ++ sv_type(place.type, types) ++ " " ++ name ++ ";")
+    unless operation.opcode == "rtl.input_port"
+    | for (value in operation.results):
+        def name = fresh_net()
+        value_refs[value] := name
+        def storage = if state || operation.opcode in ["rtl.vector_inject", "rtl.vector_write_set", "rtl.decode", "sim.dpi_register", "rtl.sync_memory"] | "" | "wire "
+        def attributes = if value in sync_stages | "(* async_reg = \"TRUE\" *) " | ""
+        declarations.add("  " ++ attributes ++ storage ++ sv_type(value.type, types) ++ " " ++ name ++ ";")
+        when operation.opcode == "rtl.wire"
+        | place_refs[operation.places[0]] := name
+  def refs = value_refs.snapshot()
+  def places = place_refs.snapshot()
+  def statements = MutableList[]
+  for (operation in module_def.operations):
+    match operation.opcode
+    | "rtl.input_port" || "rtl.output_port" || "rtl.wire" || "rtl.memory_write" || "cdc.sync_level": #void
+    | "sim.dpi_call" || "sim.dpi_register":
+        statements.add(sv_dpi_call(operation, dpi_refs[operation.attribute("dpi_import")], refs, dpi_temporaries[operation]))
+    | "verif.assert":
+        statements.add(sv_assert(operation, assertion_refs[operation], refs))
+    | "rtl.memory":
+        def memory :: Memory = operation.attribute("memory")
+        def writes = sv_memory_writes(memory, memory_refs[memory], refs)
+        unless writes == ""
+        | statements.add(writes)
+    | "rtl.sync_memory":
+        statements.add(sv_sync_memory(operation, memory_refs[operation], refs, places, types))
+    | "rtl.memory_read_async":
+        statements.add("  assign " ++ refs[operation.results[0]] ++ " = " ++ memory_refs[operation.attribute("memory")] ++ "[" ++ refs[operation.operands[0]] ++ "];")
+    | "rtl.instance":
+        statements.add(sv_instance(operation, instance_refs[operation], refs, places))
+    | "rtl.register" || "rtl.register_reset":
+        statements.add(sv_register(operation, refs, places))
+    | "rtl.vector_inject":
+        statements.add(sv_vector_inject(operation, refs))
+    | "rtl.vector_write_set":
+        statements.add(sv_vector_write_set(operation, refs))
+    | "rtl.decode":
+        statements.add(sv_decode(operation, refs, types))
+    | "rtl.drive":
+        statements.add("  assign " ++ place_refs[operation.places[0]] ++ " = " ++ refs[operation.operands[0]] ++ ";")
+    | ~else:
+        statements.add("  assign " ++ refs[operation.results[0]] ++ " = " ++ sv_expression(operation, refs, types) ++ ";")
+  "module " ++ sv_name(module_def.name) ++ "(\n" ++ String.join(ports.map(fun (port): "  " ++ port.direction ++ " wire " ++ sv_type(port.type, types) ++ " " ++ sv_name(port.name)), ",\n") ++ "\n);\n" ++ String.join(declarations.snapshot() ++ statements.snapshot(), "\n") ++ "\nendmodule\n"
+
+/* Validate every prepared module before rendering any text. Preparation already
+   collects each reachable definition once; preserve that order in the artifact. */
+fun emit_verilog(design :: Design):
+  verify_design(design)
+
+  for (module_def in design.modules):
+    for (operation in module_def.operations):
+      unless verilog_opcode_policy.get(operation.opcode, #false) == "emit"
+      | error(~who: #'emit_verilog, "unsupported SystemVerilog operation " ++ operation.opcode ++ " in module " ++ module_def.name)
+      when operation.opcode == "rtl.memory"
+      | sv_width(operation.attribute("memory").element_type)
+      for (value in operation.results): sv_width(value.type)
+      for (place in operation.places): sv_width(place.type)
+  def types = collect_sv_types(design)
+  def header:
+    if types.declarations.length() == 0
+    | ""
+    | "package " ++ sv_name(types.package_name) ++ ";\n" ++ String.join(types.declarations, "\n") ++ "\nendpackage\n\n"
+  header ++ String.join(design.modules.map(fun (module_def): emit_module_verilog(module_def, types)), "\n")
