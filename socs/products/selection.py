@@ -29,7 +29,7 @@ def select(soc, core=None, isa=None, *, required=True):
         raise ValueError('SOC must be a canonical shape or shape-core-isa key')
     core = 'rv5stage' if core is None else core
     if not isa and required:
-        raise ValueError('ISA is required; use ISA=rva23, ISA=rv32int, ISA=rv32max, or SOC=shape-core-isa')
+        raise ValueError('ISA is required; use ISA=<preset> or SOC=shape-core-isa')
     if not isa:
         if core not in {axes[1] for axes in table.values()}:
             raise ValueError('unsupported core')

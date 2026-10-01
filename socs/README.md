@@ -69,15 +69,30 @@ Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
 preserves this broad profile and implementation-specific parameters; see the
 [Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
 
-The presets are `RV32Int`, `RV32Max`, and `RVA23`. Product selection requires an
+`RV64Max` (`rv64max`) retains RVA23's scalar, vector, and supervisor features,
+including D/Zfh/Zfa, V with VLEN=128/ELEN=64, and Sv39, but disables H and the
+dependent Sha/Sh* guarantees. It is not an RVA23-compliance profile.
+It is selectable with either core on any shape. Its focused CI policy lives in the
+[simulation contributor guide](../sims/DEVELOPING.md#software-suite-and-artifact-maintenance).
+
+`RV64IMACB` (`rv64imacb`) and `RV64IMAFDCB` (`rv64imafdcb`) are lean scalar
+presets with M/S/U modes and Sv39, without V or H. The latter adds F/D; neither
+enables Zfh/Zfa, extended compressed instructions, optional hints, cache-block
+operations, pointer masking, or optional supervisor extensions. Both retain
+the core's fixed Zicsr/Zifencei, Zicntr/Zihpm, Zicond, Zimop, Zkt, Za64rs,
+Zic64b/Zicclsm, B constituents, and the qualified Sv39 supervisor guarantees.
+Their names describe the scalar baseline, not an exhaustive extension string.
+
+The presets are `RV32Int`, `RV32Max`, `RV64IMACB`, `RV64IMAFDCB`, `RV64Max`,
+and `RVA23`. Product selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
 shape/core-only architectural fallback. Concrete source specializations author
 their preset explicitly. Cache geometry,
 multiplier choice, and queue depths remain shape-specific implementation
 policy. See the [simulation inventory](../sims/test-products.txt) for the
-fourteen explicitly selected test products; selection is not a passing-suite claim.
+explicitly selected test products; selection is not a passing-suite claim.
 
-All three ISA presets enable Sscofpmf with one implemented HPM counter on both
+The `RV32Int`, `RV32Max`, `RV64Max`, and `RVA23` presets enable Sscofpmf with one implemented HPM counter on both
 cores. Counter 3 supports mode filtering and overflow interrupts; the
 [RV5Stage](../cores/rv5stage/README.md) and [Spike](../cores/spike/README.md)
 contracts define their implementation-specific cycle events. The shared ISA

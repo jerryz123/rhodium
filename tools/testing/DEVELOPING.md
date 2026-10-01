@@ -127,7 +127,7 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>fourteen exact products for simulation;<br/>six Single products for software only"]
+    Compile --> Simulators["Reusable simulator workflow<br/>twenty exact products for simulation;<br/>six full-suite Single products for software only"]
     Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
     Compile --> QualificationTargets["Generate qualification targets and DTBs<br/>group compatible builds"]
     QualificationTargets --> QualificationBuilds["Shared litmus / OpenSBI build artifacts"]
@@ -193,14 +193,17 @@ publishes separate diagnostics. A failed qualification build does not prevent
 execution jobs from attempting other published build groups.
 All four Simple RV32 products select native ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
-All six Simple products select their own ACT generation and execution: sixteen
+The six Simple RV32/RVA23 products select their own ACT generation and execution: sixteen
 shards for RV5Stage RVA23, eight for both RV5Stage RV32 profiles and Spike RVA23,
 and four for both Spike RV32 profiles. Counts live in `tools/ci/policy.py` and
 only split execution; each profile still generates one shared ELF archive and
 builds one simulator. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All six CI Mini and both Tiled
-products receive capability-filtered ISA smoke; both Tiled cores run the
+products receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
+`rv64imafdcb` presets enroll only their paired Simple products; these six products
+run only that suite, without ACT,
+benchmarks, or platform qualifications. Both Tiled cores run the
 eight-hart benchmark manifests in CI. Software selection is a
 function of SoC shape and ISA, never core identity. No timeout or prior failure
 removes a workload from one core. None receives the full

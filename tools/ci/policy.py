@@ -86,6 +86,9 @@ SOFTWARE_TESTS = {
     ("simple", "rva23"): PLATFORM_TESTS + ("zihintntl-test", "lrsc-test", "zicboz-test"),
     ("simple", "rv32int"): PLATFORM_TESTS,
     ("simple", "rv32max"): PLATFORM_TESTS,
+    ("simple", "rv64max"): ("isa-smoke",),
+    ("simple", "rv64imacb"): ("isa-smoke",),
+    ("simple", "rv64imafdcb"): ("isa-smoke",),
     ("tiled", "rva23"): PLATFORM_TESTS + ("isa-smoke", "tiled-mt-benchmark-test"),
 }
 NATIVE_SOFTWARE = {("simple", "rva23"): NATIVE_SUITES,
@@ -134,7 +137,7 @@ def simulation_entry(soc, shape, core, backend='circt'):
 
 def arch_products():
     return tuple(dict(configuration=key, core=core) for key, shape, core in SIMULATOR_PRODUCTS
-                 if shape == 'simple')
+                 if shape == 'simple' and SELECTIONS[key][2] in ('rv32int', 'rv32max', 'rva23'))
 
 
 # Resource partitioning may depend on implementation speed; test coverage does not.

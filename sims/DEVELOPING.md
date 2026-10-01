@@ -28,11 +28,11 @@ owns the public entry-point contract.
 
 Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
 adds a `-verilog` suffix so backend artifacts cannot be reused accidentally.
-CI names all fourteen products explicitly and publishes an exact-commit simulator and target
+CI names all twenty products explicitly and publishes an exact-commit simulator and target
 descriptor for each selected build variant. The additional
 `simple-rv5stage-rva23-verilog` variant reuses its architectural product and runs
 only `smoke`, `host-mmio-test`, and `uart-pty-test`. Software-only changes build
-the six Single products; simulation changes build all fourteen products,
+the six full-suite Single products; simulation changes build all twenty products,
 including all four Mini RV32 bindings, plus the direct variant. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
@@ -47,7 +47,7 @@ target writer also accepts a complete product key). `product.mk` delegates Make 
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
 architectural choices. `test-products.txt` is the sole explicit
-fourteen-product inventory, consumed by CI and the typed `test-products.rhm` view, separate from implementation support and workload
+twenty-product inventory, consumed by CI and the typed `test-products.rhm` view, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
 must match the selected product. Product-independent
@@ -531,8 +531,12 @@ addressability, indexed-memory EEW and vector geometry independently. RV32
 products use 32-bit physical addresses and disable PMP; both retain the platform's
 44-bit CHI fabric. Generate each core's own Sail
 expectations; never reuse one implementation's WARL/PMP claims for the other.
-The six CI Mini products and both Tiled products use capability-filtered ISA smoke. Both
-Tiled products additionally own the focused upstream multihart benchmark selection. The
+The six CI Mini products and both Tiled products use capability-filtered ISA smoke.
+For each of `rv64max`, `rv64imacb`, and `rv64imafdcb`, only the paired Simple
+products are enrolled. These six products run only `isa-smoke`: no platform suite, full
+native ISA suite, ACT, benchmarks, OpenSBI, or litmus. Keep this policy keyed by
+shape/ISA so RV5Stage and Spike exercise the same capability-filtered selection.
+Both Tiled products additionally own the focused upstream multihart benchmark selection. The
 Make targets and CI select only eight participating harts, retaining all three
 workloads without repeating them at smaller hart counts. The
 adapter materializes a private build-tree view of the pinned benchmark sources
@@ -561,7 +565,8 @@ fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
 The simulation CI matrix downloads and verifies one exact-commit simulator and
-target descriptor per product. Every product runs platform checks, Mini
+target descriptor per product. Products other than the three Simple smoke-only
+presets run platform checks; Mini
 and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
 benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
 each core binding consumes the identical selection. The matrix disables
@@ -571,7 +576,7 @@ Changes to the adapter or upstream ISA sources must select that job.
 Native suite CI first generates the selected program targets using the shared
 Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
-not a shape/ISA naming assumption. The current six Simple products produce
+not a shape/ISA naming assumption. The six native-suite Simple products produce
 eight build groups and sixteen execution jobs. Build jobs consume
 `PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
 archives; their caches are keyed by the group and software inputs rather than

@@ -16,7 +16,7 @@ Contributors changing a harness, binding, or build rule should read
 ## Choose a harness
 
 `SOC=mini|simple|tiled` chooses the topology; `CORE=rv5stage|spike` chooses
-the hart implementation; `ISA=rv32int|rv32max|rva23` is required. There is no implicit
+the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
 `rv5stage` only when not supplied; ISA must always be explicit. The [canonical selector table](../socs/products/selections.tsv)
@@ -36,12 +36,35 @@ configuration and are rejected before execution if it differs from the simulator
 | `tiled` | One `CHIDPIMemory` | Eight harts and four LLC slices in the default mesh |
 
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
-All RV64 products request `rva23`, including Mini and Spike. Spike remains
-simulation-only and executes that exact selected architecture. Its broad
+RV64 products select lean scalar `rv64imacb`/`rv64imafdcb`, maximal non-hypervisor
+`rv64max`, or `rva23`. Spike remains
+simulation-only and executes the exact selected architecture. Its broad
 ACT/UDB projection preserves the requested ISA; simulator execution and successful
 configuration generation do not imply full ACT qualification. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
+
+`rv64max` retains RVA23's scalar FP, V with VLEN=128/ELEN=64, and supervisor
+capabilities including Sv39, but omits H and Sha/Sh* guarantees. It is not an RVA23 profile.
+For its minimal capability-filtered ISA smoke suite:
+
+```sh
+make -C sims isa-smoke SOC=simple-rv5stage-rv64max
+make -C sims isa-smoke SOC=simple-spike-rv64max
+```
+
+The CI enrollment and workload policy are documented in
+[`DEVELOPING.md`](DEVELOPING.md#software-suite-and-artifact-maintenance).
+
+For lean scalar RV64 with Sv39 and no V/H, choose `rv64imacb` (no FP) or
+`rv64imafdcb` (F/D). The [SoC preset contract](../socs/README.md#typed-product-selection)
+lists their fixed system capabilities and deliberately disabled optional features.
+Both use the same minimal ISA-smoke command on either implementation:
+
+```sh
+make -C sims isa-smoke SOC=simple-rv5stage-rv64imacb
+make -C sims isa-smoke SOC=simple-spike-rv64imafdcb
+```
 
 Mini supports `rv32int` and `rv32max` on both Spike and RV5Stage.
 The `smoke`, `boot-test`, `host-mmio-test`, and `uart-pty-test` payloads select
@@ -168,13 +191,8 @@ make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-CI uses fourteen canonical product names: `mini-rv5stage-rv32int`, `mini-spike-rv32int`,
-`mini-rv5stage-rv32max`, `mini-spike-rv32max`,
-`mini-rv5stage-rva23`, `mini-spike-rva23`,
-`simple-rv5stage-rv32int`, `simple-spike-rv32int`,
-`simple-rv5stage-rv32max`, `simple-spike-rv32max`,
-`simple-rv5stage-rva23`, `simple-spike-rva23`, `tiled-rv5stage-rva23`, and
-`tiled-spike-rva23`. Each has its own target descriptor, simulator attestation,
+The [test inventory](test-products.txt) lists the canonical CI products;
+each has its own target descriptor, simulator attestation,
 and build directory. The `SOC`/`CORE` selectors above remain available locally;
 all artifact identities include the explicit ISA for software and ACT consumers.
 
@@ -481,7 +499,7 @@ checks its physical variant. Privileged-platform groups remain outside this ISA 
 its own independent selection and limitations. The adapter consumes upstream
 Makefrag inventories, so additions to selected groups are included automatically.
 
-Run the smaller, single-hart ISA selections on either core in Mini or Tiled:
+Run the smaller, single-hart ISA selections on either core in Mini, Simple, or Tiled:
 
 ```sh
 make -C sims program-test-setup

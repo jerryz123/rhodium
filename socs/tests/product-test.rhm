@@ -70,6 +70,9 @@ check:
   parse_core_kind("spike") ~is CoreKind.Spike
   parse_isa_preset("rv32int") ~is IsaPreset.RV32Int
   parse_isa_preset("rv32max") ~is IsaPreset.RV32Max
+  parse_isa_preset("rv64max") ~is IsaPreset.RV64Max
+  parse_isa_preset("rv64imacb") ~is IsaPreset.RV64IMACB
+  parse_isa_preset("rv64imafdcb") ~is IsaPreset.RV64IMAFDCB
   parse_isa_preset("rva23") ~is IsaPreset.RVA23
   parse_isa_preset("typo") ~throws "unsupported ISA preset"
 
@@ -145,3 +148,60 @@ for (shape in [SoCShape.Mini, SoCShape.Simple]):
       product.description.hart.vector.vlen ~is 64
       product.description.hart.mmu_type ~is RiscvMmuType.Bare
       product.udb().to_yaml().contains("{ name: \"Zcf\",") ~is #true
+
+// RV64Max preserves RVA23's vector/supervisor contract without H or its dependent guarantees.
+def rva23 = soc_architecture(IsaPreset.RVA23)
+def rv64max = soc_architecture(IsaPreset.RV64Max)
+check:
+  rv64max.isa.xlen ~is XLen.X64
+  rv64max.mmu ~is RiscvMmuType.Sv39
+  rv64max.vector ~is VectorProfile.V
+  rv64max.vector_length ~is 128
+  rv64max.vector_extensions ~is rva23.vector_extensions
+  rv64max.isa.isa_extensions ~is rva23.isa.isa_extensions.filter(~keep: fun (name): name != "h" && !name.starts_with("sh"))
+  rv64max.isa.misa_extensions ~is rva23.isa.misa_extensions.filter(~keep: fun (extension): extension != MisaExtension.H)
+  gnu_isa_target(rv64max.isa.xlen, rv64max.isa.isa_extensions).mabi ~is "lp64d"
+for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
+  for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+    def selection = SoCSelection(shape, core, IsaPreset.RV64Max)
+    def product = resolve_soc_product(selection)
+    def max_udb = product.udb()
+    def rva23_udb = resolve_soc_product(SoCSelection(shape, core, IsaPreset.RVA23)).udb()
+    check:
+      named_soc_selection(selection.key) ~is selection
+      product.description.hart.isa_profile ~is rv64max.isa
+      product.description.hart.vector.vlen ~is 128
+      product.description.hart.vector.elen ~is 64
+      product.description.hart.mmu_type ~is RiscvMmuType.Sv39
+      max_udb.extensions ~is rva23_udb.extensions.filter(~keep: fun (extension): extension.name != "H" && !extension.name.starts_with("Sh"))
+      max_udb.to_yaml().contains("  VLEN: 128") ~is #true
+      max_udb.to_yaml().contains("  VSSTATUS_VS_EXISTS: false") ~is #true
+
+// Lean scalar presets share Sv39 and fixed core guarantees, with only F/D distinguishing them.
+def scalar_integer = soc_architecture(IsaPreset.RV64IMACB)
+def scalar_fp = soc_architecture(IsaPreset.RV64IMAFDCB)
+check:
+  scalar_integer.isa.isa_extensions ~is ["i", "m", "a", "c", "b", "za64rs", "zba", "zbb", "zbs", "zic64b", "zicclsm", "zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt", "ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
+  scalar_fp.isa.isa_extensions.filter(~keep: fun (name): name != "f" && name != "d") ~is scalar_integer.isa.isa_extensions
+for ([preset, abi, prefix, misa] in [[IsaPreset.RV64IMACB, "lp64", "rv64imacb_", 0x141107], [IsaPreset.RV64IMAFDCB, "lp64d", "rv64imafdcb_", 0x14112f]]):
+  def architecture = soc_architecture(preset)
+  def compiler = gnu_isa_target(architecture.isa.xlen, architecture.isa.isa_extensions)
+  check:
+    architecture.vector ~is VectorProfile.None
+    architecture.vector_extensions ~is []
+    architecture.isa.misa_extension_bits ~is misa
+    compiler.mabi ~is abi
+    compiler.march.starts_with(prefix) ~is #true
+  for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
+    for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
+      def selection = SoCSelection(shape, core, preset)
+      def product = resolve_soc_product(selection)
+      def udb = product.udb()
+      check:
+        named_soc_selection(selection.key) ~is selection
+        product.description.hart.isa_profile ~is architecture.isa
+        product.description.hart.vector ~is #false
+        product.description.hart.mmu_type ~is RiscvMmuType.Sv39
+        udb.to_yaml().contains("  VLEN:") ~is #false
+        (for any (entry in udb.extensions): entry.name == "Sv39") ~is #true
+        (for any (entry in udb.extensions): entry.name == "D") ~is (preset == IsaPreset.RV64IMAFDCB)

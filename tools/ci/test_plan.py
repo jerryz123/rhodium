@@ -101,8 +101,9 @@ class PlanTest(unittest.TestCase):
                          + [simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog")])
         self.assertEqual({entry["soc"] for entry in expected},
                          {"mini-rv5stage-rv32int", "mini-spike-rv32int", "simple-rv5stage-rv32int", "simple-spike-rv32int",
-                          "mini-rv5stage-rv32max", "mini-spike-rv32max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
-                          "simple-spike-rva23", "simple-rv5stage-rv32max", "simple-spike-rv32max", "tiled-rv5stage-rva23", "tiled-spike-rva23"})
+                          "mini-rv5stage-rv32max", "mini-spike-rv32max", "simple-rv5stage-rv64max", "simple-spike-rv64max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
+                          "simple-spike-rva23", "simple-rv5stage-rv32max", "simple-spike-rv32max", "tiled-rv5stage-rva23", "tiled-spike-rva23",
+                          "simple-rv5stage-rv64imacb", "simple-spike-rv64imacb", "simple-rv5stage-rv64imafdcb", "simple-spike-rv64imafdcb"})
         for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
             with self.subTest(path=path):
                 self.assertIn(simulation_entry("mini-rv5stage-rv32max", "mini", "rv5stage"),
@@ -146,6 +147,21 @@ class PlanTest(unittest.TestCase):
             for isa in ("rv32int", "rv32max"):
                 self.assertEqual([entry["suite"] for entry in entries
                                   if entry["soc"] == f"simple-{core}-{isa}"], ["isa"])
+
+    def test_rv64_smoke_presets_are_paired_isa_smoke_only(self):
+        plan = self.plan("socs/products/isa-profiles.rhm")
+        presets = ("rv64max", "rv64imacb", "rv64imafdcb")
+        products = {f"simple-{core}-{isa}" for isa in presets for core in ("rv5stage", "spike")}
+        runs = [entry for entry in plan["simulation_matrix"]["include"] if entry["isa"] in presets]
+        self.assertEqual({entry["soc"] for entry in runs}, products)
+        self.assertTrue(all(entry["software_tests"] == "isa-smoke" for entry in runs))
+        for matrix, key in (("program_matrix", "soc"), ("arch_build_matrix", "configuration"),
+                            ("arch_run_matrix", "configuration")):
+            self.assertFalse(any(entry[key].endswith(tuple(f"-{isa}" for isa in presets)) for entry in plan[matrix]["include"]))
+        self.assertFalse(any(entry["soc"].endswith(tuple(f"-{isa}" for isa in presets)) for entry in qualification_products()))
+        workflow = (REPO / '.github/workflows/ci-simulation.yml').read_text()
+        self.assertIn("if: contains(matrix.software_tests, 'isa-smoke')", workflow)
+        self.assertEqual(workflow.count("if: always() && contains(matrix.software_tests, 'isa-smoke')"), 2)
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
@@ -458,7 +474,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("SOFTWARE_TESTS: ${{ matrix.software_tests }}", simulation)
         self.assertIn('for target in $SOFTWARE_TESTS', simulation)
         self.assertIn('make -C sims "$target" SOC="$SOC"', simulation)
-        self.assertIn("if: matrix.shape != 'simple'", simulation)
+        self.assertIn("if: contains(matrix.software_tests, 'isa-smoke')", simulation)
         self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
         self.assertIn("qualification-plan:", simulation)
         self.assertIn("qualification_products", simulation)

@@ -5,6 +5,7 @@
 import:
   lib("cores/spike/profile.rhm").SpikeConfig
   lib("riscv/isa/hart.rhm") open
+  lib("riscv/isa/vector-profile.rhm").vector_profile_enabled
   lib("riscv/isa/vector-profile.rhm").vector_profile_elen_bits
   "selection.rhm" open
   "isa-profiles.rhm".soc_architecture
@@ -15,7 +16,7 @@ fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
     RiscvHartDescription(architecture.isa, architecture.mmu,
                          RiscvCacheDescription(64, 64, 16384), RiscvCacheDescription(64, 64, 16384),
                          ~cbo_block_bytes: 64,
-                         ~vector: RiscvVectorDescription(architecture.vector_length, vector_profile_elen_bits(architecture.vector))),
+                         ~vector: if vector_profile_enabled(architecture.vector) | RiscvVectorDescription(architecture.vector_length, vector_profile_elen_bits(architecture.vector)) | #false),
     ~pmp_regions: 0
   )
 

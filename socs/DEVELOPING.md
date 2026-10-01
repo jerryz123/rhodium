@@ -70,8 +70,11 @@ boot-entry register, LLC, or external-memory service. Its default RAM window
 is `0x80000000..0xbfffffff`; target addresses are zero-extended at the hart's
 existing CHI boundary. Keep the product contract tests and executable FESVR
 checks for both core bindings when changing this shared composition.
-All RV64 products select the same authored `RVA23` architectural preset without
-copying one another's implementation configuration. Mini retains its compact
+The maximal RV64 presets share one scalar/vector/supervisor definition: `RVA23` enables H
+and its dependent guarantees, while `RV64Max` disables hypervisor support.
+Preserve the extension and MISA equality checks across those presets after
+excluding H and Sha/Sh* declarations. Neither copies another
+core's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture
 and exact vector geometry. Its ACT/UDB projection retains implementation-owned
 CSR and vector choices. All SoC Spike profiles explicitly disable PMP, matching
@@ -81,6 +84,10 @@ Reference-model limitations are documented by the
 paired-product test inventory belongs in `sims/test-products.txt`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.
+The lean `RV64IMACB` and `RV64IMAFDCB` presets author only fixed core capabilities,
+C, and Sv39, with F/D selected only by the latter. Keep their scalar extension
+delta and public ABI checks independent of the maximal presets. Disabled vector
+profiles must omit vector geometry from both core bindings and UDB projections.
 The helper groups its existing router endpoints in CHI's `CHINoCPorts` view and
 passes that view to the typed RN/HN/SN attachment helpers. CHI owns the shared
 injection/ejection queue policy; this view adds no circuit hierarchy.

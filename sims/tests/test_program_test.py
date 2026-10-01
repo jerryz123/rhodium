@@ -370,6 +370,22 @@ class ProductSelectionTest(unittest.TestCase):
         other = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rv32max')
         self.assertEqual(other.returncode, 0, other.stderr)
         self.assertIn('/mini-rv5stage-rv32max/obj/program-target.json', other.stdout)
+        for core in ('rv5stage', 'spike'):
+            selected = self.dry_run('SOC=simple', f'CORE={core}', 'ISA=rv64max')
+            named = self.dry_run(f'SOC=simple-{core}-rv64max')
+            self.assertEqual(selected.returncode, 0, selected.stderr)
+            self.assertEqual(named.returncode, 0, named.stderr)
+            self.assertEqual(selected.stdout, named.stdout)
+            self.assertIn(f'/simple-{core}-rv64max/obj/program-target.json', selected.stdout)
+
+    def test_simple_rv64_presets_support_isa_smoke(self):
+        for isa in ('rv64max', 'rv64imacb', 'rv64imafdcb'):
+            for core in ('rv5stage', 'spike'):
+                result = self.dry_run(f'SOC=simple-{core}-{isa}', target='isa-smoke')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('--isa-selection smoke', result.stdout)
+                self.assertIn('ISA smoke supports SOC=mini simple tiled', result.stdout)
+                self.assertIn(f'/simple-{core}-{isa}/isa-smoke/manifest.json', result.stdout)
 
     def test_backend_selection_isolates_models_and_attests_emitted_rtl(self):
         with tempfile.TemporaryDirectory() as directory:
