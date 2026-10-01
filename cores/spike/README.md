@@ -99,7 +99,10 @@ The initial model has one blocking architectural access in flight. Coherent
 normal memory may populate the software instruction and data caches;
 instruction-only noncoherent regions remain executable but are read through the
 uncached CHI port. Snoop service remains live while Spike is waiting on another
-transaction.
+transaction. Translation and privilege changes discard Spike's virtual decoded
+instructions but retain the physical instruction lines. FENCE.I discards both
+decoded instructions and physical instruction lines so subsequent fetches refill
+through the ordinary transport; coherent snoop invalidation remains independent.
 LR/SC checks the complete RTL-owned physical-memory range for atomic support
 and the operation's read or write permission before testing reservation state.
 An SC to a faulting region therefore traps even when its reservation has failed.

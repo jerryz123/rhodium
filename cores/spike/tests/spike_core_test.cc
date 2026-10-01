@@ -178,8 +178,8 @@ int main() {
   assert(low_half_fetches >= 1);
   assert(high_half_fetches >= 1);
 
-  // Spike's architectural FENCE.I flush also invalidates the external
-  // instruction cache, forcing the following instruction to refill its line.
+  // SFENCE.VMA and translation/privilege CSR writes retain the physical line;
+  // FENCE.I invalidates it, forcing exactly one refill before execution continues.
   Configuration fence_configuration;
   fence_configuration.reset_vector = 0x1000;
   fence_configuration.isa = "rv64ima_zicsr_zifencei";
@@ -207,12 +207,13 @@ int main() {
       ++instruction_fills;
       next.instruction_request_ready = true;
       next.instruction_response_valid = true;
-      next.instruction_response_line[0] = 0x0000100f12000073ULL;
-      next.instruction_response_line[1] = 0x0000006fULL;
+      next.instruction_response_line[0] = 0x1800107312000073ULL; // SFENCE.VMA; CSRRW x0, satp, x0.
+      next.instruction_response_line[1] = 0x0000100f30001073ULL; // CSRRW x0, mstatus, x0; FENCE.I.
+      next.instruction_response_line[2] = 0x0000006fULL;
     }
     fence_inputs = next;
   }
-  assert(instruction_fills >= 2);
+  assert(instruction_fills == 2);
   assert(!fence_trapped_to_zero);
 
   // CBO.ZERO must acquire one coherent line and publish a dirty zero line.

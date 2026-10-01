@@ -22,9 +22,10 @@ The queue is ordered so each change can be reviewed and removed independently:
    cache-block property missing from the pinned parser.
 3. `0003-recognize-supm-property.patch` registers the opcode-free Supm
    execution-environment property missing from the pinned parser.
-4. `0004-notify-simif-of-icache-flush.patch` exposes Spike's architectural
-   instruction-cache flush to simulators that keep an external instruction
-   cache model.
+4. `0004-notify-simif-of-icache-flush.patch` exposes architectural FENCE.I
+   synchronization to external physical instruction caches. Translation and
+   privilege changes still invalidate Spike's decoded cache without notifying
+   the external physical cache.
 5. `0005-enable-fiom-with-supervisor.patch` makes FIOM writable in machine and
    supervisor environment configuration CSRs whenever S-mode is supported,
    including Bare-only harts.

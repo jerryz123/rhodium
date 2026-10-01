@@ -1,20 +1,33 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jerry Zhao <jerryz123@berkeley.edu>
-Subject: [PATCH 4/4] Notify simulators when a hart flushes its instruction cache
-Purpose: Lets external cache models implement the architectural effect of FENCE.I.
+Subject: [PATCH] Separate instruction synchronization from decoded-cache invalidation
+Purpose: Notify external instruction caches only for architectural FENCE.I synchronization.
 SPDX-License-Identifier: Apache-2.0
 
-diff --git a/riscv/mmu.cc b/riscv/mmu.cc
---- a/riscv/mmu.cc
-+++ b/riscv/mmu.cc
-@@ -36,6 +36,7 @@ void mmu_t::flush_icache()
- {
-   for (size_t i = 0; i < ICACHE_ENTRIES; i++)
-     icache[i].tag = -1;
-+  sim->flush_icache();
- }
+Translation and privilege changes invalidate Spike's virtual decoded cache,
+not an embedding simulator's physically addressed instruction lines. Keep
+flush_icache local to the MMU and notify the external model only from FENCE.I.
+
+diff --git a/riscv/insns/fence_i.h b/riscv/insns/fence_i.h
+--- a/riscv/insns/fence_i.h
++++ b/riscv/insns/fence_i.h
+@@ -1 +1 @@
+-MMU.flush_icache();
++MMU.fence_i();
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -358,4 +358,10 @@ public:
+   void flush_tlb();
+   void flush_icache();
++  /* Synchronize architectural instruction fetch, including external physical caches. */
++  void fence_i() {
++    flush_icache();
++    sim->sync_instruction_cache();
++  }
++
  
- void mmu_t::flush_tlb()
+   void register_memtracer(memtracer_t*);
 diff --git a/riscv/simif.h b/riscv/simif.h
 --- a/riscv/simif.h
 +++ b/riscv/simif.h
@@ -22,7 +35,7 @@ diff --git a/riscv/simif.h b/riscv/simif.h
    virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;
    virtual bool mmio_store(reg_t paddr, size_t len, const uint8_t* bytes) = 0;
    virtual bool is_debug_module_access(reg_t, size_t) { return false; }
-+  // Callback for processors to invalidate simulation-owned instruction caches.
-+  virtual void flush_icache() {}
++  // Architectural instruction synchronization; translation flushes do not call this hook.
++  virtual void sync_instruction_cache() {}
    // Callback for processors to let the simulation know they were reset.
    virtual void proc_reset(unsigned id) = 0;

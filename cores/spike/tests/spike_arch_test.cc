@@ -14,16 +14,68 @@ class ArchMemory final : public simif_t {
   cfg_t cfg;
   std::map<size_t, processor_t*> harts;
   std::array<char, 0x4000> memory{};
+  unsigned instruction_synchronizations = 0;
   char* addr_to_mem(reg_t address) override {
     return address >= 0x1000 && address < 0x5000 ? memory.data() + address - 0x1000 : nullptr;
   }
   bool mmio_load(reg_t, size_t, uint8_t*) override { return false; }
   bool mmio_store(reg_t, size_t, const uint8_t*) override { return false; }
+  void sync_instruction_cache() override { ++instruction_synchronizations; }
   void proc_reset(unsigned) override {}
   const cfg_t& get_cfg() const override { return cfg; }
   const std::map<size_t, processor_t*>& get_harts() const override { return harts; }
   const char* get_symbol(uint64_t) override { return nullptr; }
 };
+
+static void check_instruction_synchronization(unsigned xlen, bool logged) {
+  ArchMemory memory;
+  memory.cfg.pmpregions = 0;
+  const std::string isa = "rv" + std::to_string(xlen) + "ima_zicsr_zifencei";
+  FILE* log = std::tmpfile();
+  assert(log);
+  processor_t cpu(isa.c_str(), "msu", &memory.cfg, &memory, 0, false, log, std::cerr);
+  memory.harts[0] = &cpu;
+  cpu.set_max_vaddr_bits(xlen == 64 ? 39 : 32);
+  cpu.reset();
+  if (logged) cpu.enable_log_commits();
+  auto* state = cpu.get_state();
+  auto run = [&](uint32_t instruction) {
+    std::memcpy(memory.memory.data(), &instruction, sizeof(instruction));
+    cpu.get_mmu()->flush_icache();
+    state->pc = 0x1000;
+    cpu.step(1);
+    assert(state->pc == 0x1004);
+  };
+
+  run(0x00100093); // ADDI x1, x0, 1 caches the decoded instruction.
+  const uint32_t replacement = 0x00200093; // ADDI x1, x0, 2.
+  std::memcpy(memory.memory.data(), &replacement, sizeof(replacement));
+  cpu.get_mmu()->flush_tlb();
+  state->pc = 0x1000;
+  cpu.step(1);
+  assert(state->XPR[1] == 2); // Translation invalidation must still discard decoded instructions.
+  run(0x12000073); // SFENCE.VMA x0, x0.
+  for (unsigned csr : {CSR_SATP, CSR_MSTATUS}) {
+    state->XPR.write(1, 0);
+    run((csr << 20) | (1 << 15) | (1 << 12) | 0x73); // CSRRW x0, csr, x1.
+  }
+  assert(memory.instruction_synchronizations == 0);
+  run(0x00300093); // Cache ADDI x1, x0, 3 before changing its backing bytes.
+  std::memcpy(memory.memory.data(), &replacement, sizeof(replacement));
+  const uint32_t fence = 0x0000100f;
+  std::memcpy(memory.memory.data() + 4, &fence, sizeof(fence));
+  state->pc = 0x1004;
+  cpu.step(1); // Execute FENCE.I without a test-side decoded-cache flush.
+  assert(state->pc == 0x1008);
+  assert(memory.instruction_synchronizations == 1);
+  state->pc = 0x1000;
+  cpu.step(1);
+  assert(state->XPR[1] == 2); // FENCE.I must also invalidate the cached decoded instruction.
+  cpu.get_mmu()->flush_icache();
+  cpu.get_mmu()->flush_tlb();
+  assert(memory.instruction_synchronizations == 1);
+  std::fclose(log);
+}
 
 static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, bool logged) {
   ArchMemory memory;
@@ -108,9 +160,12 @@ static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, boo
 
 int main() {
   for (unsigned xlen : {32u, 64u})
+    for (bool logged : {false, true})
+      check_instruction_synchronization(xlen, logged);
+  for (unsigned xlen : {32u, 64u})
     for (bool zicclsm : {false, true})
       for (bool hypervisor : {false, true})
         for (bool logged : {false, true})
           check_architecture(xlen, zicclsm, hypervisor, logged);
-  std::cout << "Spike AMO fault policy and zero-GEILEN CSR tests passed\n";
+  std::cout << "Spike instruction synchronization, AMO fault policy and zero-GEILEN CSR tests passed\n";
 }

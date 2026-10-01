@@ -64,6 +64,12 @@ with the native decoder; the generated-header ABI check covers argument types.
 The external SSIP/STIP levels overlay, rather than overwrite, Spike's
 software-writable `mip` state; keep the corresponding pinned Spike patch and
 the DPI bridge in sync when changing interrupt delivery.
+Spike's MMU `flush_icache` discards virtual decoded instructions and remains
+local to translation/privilege invalidation. The separate `fence_i` path also
+calls `simif_t::sync_instruction_cache`, which invalidates the native physical
+instruction lines. Never attach that physical-cache callback to the general
+MMU flush: TLB and CSR changes must retain physical lines. Snoop invalidation
+remains independently owned by the coherent native cache.
 
 [`udb.rhm`](udb.rhm) owns the pinned Spike implementation's ACT/UDB projection.
 Keep its ISA, CSR, counter, PMP, and trap claims aligned with the configured
@@ -105,6 +111,9 @@ It runs inside the existing `spike-core-test` target and CI lane.
 instructions in RV32/RV64, with and without H/Zicclsm, in cached and logged
 execution. The pinned model has GEILEN=0: neither `mie` nor its `hie` alias may
 set SGEIE, while the implemented VS interrupt enables remain writable.
+It also checks RV32/RV64 decoded-cache invalidation and FENCE.I callback
+separation in cached and logged execution. `tests/spike_core_test.cc` checks
+that SFENCE.VMA retains an external instruction line and FENCE.I refills it.
 
 Run the focused host contract check with:
 

@@ -300,10 +300,10 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   /*
-   * Invalidate the software instruction cache when Spike requests instruction-stream
-   * synchronization.
+   * Invalidate physical instruction lines for architectural FENCE.I synchronization, not
+   * Spike's decoded-cache invalidations on translation or privilege changes.
    */
-  void flush_icache() override { invalidate_instruction_cache(); }
+  void sync_instruction_cache() override { invalidate_instruction_cache(); }
   /*
    * Leave external reset ownership with model recreation; Spike's internal reset callback needs no
    * additional action.
