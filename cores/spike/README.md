@@ -81,6 +81,20 @@ Spike `processor_t` in a coroutine, models private instruction and data caches,
 handles coherent snoops and victim releases, and stalls Spike while accepted
 transactions await their responses.
 
+The runtime retains up to eight RTL-issued physical-attribute grants. Each
+grant certifies an inclusive contiguous physical interval and independent read,
+write, and execute permissions. A fully covered access reuses those attributes
+without an RTL classification handshake; misses retain the ordinary request and
+response path. Cached permission faults still yield control to the simulator,
+so a repeatedly faulting trap handler cannot block time or interrupt updates.
+Noncontiguous address sets grant only their containing contiguous
+fragment, and unmapped accesses are not cached. The physical map is immutable
+for the hart's lifetime, so reset/model recreation discards grants while snoops
+and translation/instruction fences leave them intact. Spike still performs
+architectural translation and PMP checks; grants neither cache data nor bypass
+CHI coherence, memory transactions, or their errors. The optimization changes
+simulated execution timing, not the per-instruction architectural checks.
+
 The initial model has one blocking architectural access in flight. Coherent
 normal memory may populate the software instruction and data caches;
 instruction-only noncoherent regions remain executable but are read through the

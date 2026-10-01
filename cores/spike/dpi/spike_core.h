@@ -39,6 +39,12 @@ struct Inputs {
   std::uint8_t interrupts = 0;
   bool address_request_ready = false;
   bool address_response_valid = false;
+  bool address_response_grant_valid = false;
+  std::uint64_t address_response_grant_base = 0;
+  std::uint64_t address_response_grant_limit = 0;
+  bool address_response_readable = false;
+  bool address_response_writable = false;
+  bool address_response_executable = false;
   bool address_response_cacheable = false;
   bool address_response_cache_block_zero = false;
   bool address_response_instruction_cacheable = false;

@@ -46,6 +46,30 @@ struct AddressResponse {
   bool fault = false;
 };
 
+/* Retain one RTL-certified immutable interval, independently of cache-line coherence or contents. */
+struct AddressGrant {
+  bool valid = false;
+  std::uint64_t base = 0;
+  std::uint64_t limit = 0;
+  bool readable = false;
+  bool writable = false;
+  bool executable = false;
+  AddressResponse attributes;
+
+  /* Test full interval coverage without overflowing at the top of the physical address space. */
+  bool covers(std::uint64_t address, std::size_t length) const {
+    return valid && length != 0 && address >= base && address <= limit &&
+           length - 1 <= limit - address;
+  }
+
+  /* Apply the requested direction to immutable permissions, preserving fetch-over-write priority. */
+  AddressResponse classify(bool write, bool execute) const {
+    AddressResponse result = attributes;
+    result.fault = !(execute ? executable : write ? writable : readable);
+    return result;
+  }
+};
+
 /* Store a physical line tag, coherence state, and 64 bytes in a private software cache. */
 struct CacheLine {
   bool valid = false;
@@ -356,6 +380,18 @@ class SpikeCoreModel::Implementation final : public simif_t {
           inputs_.address_response_device,
           inputs_.address_response_atomic,
           inputs_.address_response_fault};
+      const AddressGrant grant{
+          inputs_.address_response_grant_valid,
+          inputs_.address_response_grant_base,
+          inputs_.address_response_grant_limit,
+          inputs_.address_response_readable,
+          inputs_.address_response_writable,
+          inputs_.address_response_executable,
+          address_response_};
+      if (grant.covers(address_request_address_, std::size_t{1} << address_request_size_)) {
+        address_grants_[next_address_grant_] = grant;
+        next_address_grant_ = (next_address_grant_ + 1) % address_grants_.size();
+      }
       address_response_waiting_ = false;
     }
     if (instruction_response_waiting_ && inputs_.instruction_response_valid) {
@@ -404,8 +440,9 @@ class SpikeCoreModel::Implementation final : public simif_t {
   }
 
   /*
-   * Encode a scalar prefix of up to eight bytes or a full 64-byte line, then yield until RTL
-   * returns its PMA and permission result.
+   * Reuse an RTL-certified interval or classify the existing scalar prefix/full line through RTL.
+   * Grants survive translation fences and snoops because the physical map is immutable; model
+   * recreation on reset discards them. Architectural translation/PMP checks remain in Spike.
    */
   AddressResponse classify(std::uint64_t address, std::size_t length,
                            bool write, bool execute) {
@@ -414,6 +451,15 @@ class SpikeCoreModel::Implementation final : public simif_t {
     while (encoded_length != 1 && encoded_length != 2 &&
            encoded_length != 4 && encoded_length != 8 && encoded_length != kLineBytes) {
       --encoded_length;
+    }
+    for (const auto& grant : address_grants_) {
+      if (grant.covers(address, encoded_length)) {
+        const AddressResponse result = grant.classify(write, execute);
+        // step() budgets retired instructions, not repeated fault attempts. Keep a faulting
+        // trap-handler loop from monopolizing the coroutine without any RTL transaction.
+        if (result.fault) yield();
+        return result;
+      }
     }
     address_request_address_ = address;
     address_request_size_ = size_code(encoded_length);
@@ -769,6 +815,8 @@ class SpikeCoreModel::Implementation final : public simif_t {
   bool address_request_execute_ = false;
   bool address_response_waiting_ = false;
   AddressResponse address_response_;
+  std::array<AddressGrant, 8> address_grants_{};
+  std::size_t next_address_grant_ = 0;
   bool instruction_request_valid_ = false;
   std::uint64_t instruction_request_address_ = 0;
   bool instruction_response_waiting_ = false;

@@ -28,8 +28,18 @@ contracts from `cores/riscv/`; do not add Spike policy to either shared layer.
 The DPI ABI in [`dpi/spike-dpi.rhdl`](dpi/spike-dpi.rhdl) and
 [`dpi/spike_dpi.h`](dpi/spike_dpi.h) is one contract. Keep their argument and
 result ordering synchronized. The C++ model must not infer a SoC address map;
-all physical-memory classification goes through `SpikeAddressTransactions` and
-the RTL-owned `RiscvPhysicalMemoryMap`.
+all new physical-memory classification goes through `SpikeAddressTransactions`
+and the RTL-owned `RiscvPhysicalMemoryMap`. `spike_address_response` in
+`spike.rhdl` certifies only a request's containing contiguous region fragment,
+using trailing variable mask bits rather than assuming every AddressSet is
+contiguous. `dpi/spike_core.cc` owns the eight-entry round-robin grant cache and
+overflow-safe full-range containment. Preserve independent direction permissions
+and the current request's fallback result. Cached faults must yield to the host:
+Spike's retirement budget does not bound a zero-retirement trap loop.
+Grant lifetime follows the immutable
+physical map and ends with model recreation; do not reuse grants with a mutable
+map without first defining explicit invalidation. Keep CHI errors and coherence
+state separate from these immutable attributes.
 The patched Spike `lrsc_accessible` hook supplies the full access size and
 read/write direction before reservation matching; keep its physical-map
 classification and atomic support bit aligned with the typed DPI response.
@@ -103,9 +113,17 @@ tools/run-racket-tests.sh cores/spike/tests/profile-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/udb-test.rhm
 tools/run-racket-tests.sh cores/spike/tests/elaboration-test.rhm
 make -C sims spike-core-test
+FIXTURE=spike-attributes bash tools/testing/circt/run.sh --simulate-only
 make -C sims spike-dpi-compile-check VERILATOR_ROOT=/path/to/verilator/share
 make -C sims spike-dpi-abi-check VERILATOR_ROOT=/path/to/verilator/share
 ```
+
+`tests/spike_attribute_test.cc` executes real load/store/fetch instructions with
+and without grants, checking permissions, full-range misses, replacement, fresh
+model classification, and coherent reacquisition after a snoop. The
+`spike-attributes` fixture checks the production RTL classifier against contiguous
+and noncontiguous regions, device/normal permissions, address-width overflow,
+and full-block requests. Keep both sides of the grant/DPI contract covered.
 
 Run `make -C sims smoke SOC=mini-spike-rva23` for the complete BootROM/FESVR
 path. The shared RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,

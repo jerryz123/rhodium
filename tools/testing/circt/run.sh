@@ -264,7 +264,7 @@ fixture_in_group() {
     protocols:fesvr-mmio|protocols:aclint|protocols:bootrom|protocols:boot-address|protocols:plic|protocols:uart16550|protocols:uart-dpi|protocols:hdmi-*|protocols:noc-wormhole|protocols:noc-router-family|protocols:noc-escape-router|protocols:chi-*)
       return 0
       ;;
-    cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
+    cores-components:spike-attributes|cores-components:simd-alu*|cores-components:rv32i-*|cores-components:rv64i-*|cores-components:load-store|cores-components:load-store-rv32-word|cores-components:bit-manip*|cores-components:iterative-multiplier|cores-components:pipelined-multiplier|cores-components:iterative-divider|cores-components:riscv-atomic|cores-components:riscv-counters-*|cores-components:riscv-cmo|cores-components:riscv-pointer-masking|cores-components:riscv-floating-point|cores-components:riscv-compressed)
       return 0
       ;;
     cores-execution-frontend:rv5stage-access-fault|cores-execution-frontend:rv5stage-fetch|cores-execution-frontend:rv5stage-btb|cores-execution-frontend:rv5stage-ras|cores-execution-frontend:rv5stage-return-prediction|cores-execution-frontend:rv5stage-instruction-buffer|cores-execution-frontend:rv5stage-fetch-prediction|cores-execution-frontend:rv5stage-fetch-throughput|cores-execution-frontend:rv5stage-branch-prediction|cores-execution-frontend:rv5stage-data-fault|cores-execution-frontend:rv5stage-zcb|cores-execution-frontend:rv5stage-mop)
@@ -884,6 +884,7 @@ direct_fixture_specs=(
   'rv5stage-vector-sequencer-rv32|rv5stage_vector_sequencer_rv32_tb'
   'rv5stage-vector-sequencer-1024|rv5stage_vector_sequencer_1024_tb'
   'riscv-cmo|riscv_cmo_tb'
+  'spike-attributes|spike_attributes_tb'
   'riscv-pointer-masking|riscv_pointer_masking_tb'
   'load-store-rv32-word|load_store_rv32_word_tb'
   'bit-manip|bit_manip_tb'

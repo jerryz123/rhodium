@@ -17,10 +17,16 @@ bundle SpikeAddressRequest():
   execute: Bool
 
 /*
- * Return mapped-access legality and the physical attributes consumed by the native cache and
- * atomic paths.
+ * Return this access's classification and an optional immutable, contiguous physical-attribute
+ * grant. Grant permissions apply independently to reads, writes, and fetches throughout its range.
  */
 bundle SpikeAddressResponse():
+  grant_valid: Bool
+  grant_base: Bits(64)
+  grant_limit: Bits(64)
+  readable: Bool
+  writable: Bool
+  executable: Bool
   cacheable: Bool
   cache_block_zero: Bool
   instruction_cacheable: Bool

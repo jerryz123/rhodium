@@ -90,6 +90,12 @@ extern "C" unsigned char rhodium_spike_tick(
     short data_cache_sets, short data_cache_ways,
     unsigned char address_request_ready,
     unsigned char address_response_valid,
+    unsigned char address_response_grant_valid,
+    long long address_response_grant_base,
+    long long address_response_grant_limit,
+    unsigned char address_response_readable,
+    unsigned char address_response_writable,
+    unsigned char address_response_executable,
     unsigned char address_response_cacheable,
     unsigned char address_response_cache_block_zero,
     unsigned char address_response_instruction_cacheable,
@@ -180,6 +186,12 @@ extern "C" unsigned char rhodium_spike_tick(
     inputs.interrupts = interrupts;
     inputs.address_request_ready = address_request_ready != 0;
     inputs.address_response_valid = address_response_valid != 0;
+    inputs.address_response_grant_valid = address_response_grant_valid != 0;
+    inputs.address_response_grant_base = static_cast<std::uint64_t>(address_response_grant_base);
+    inputs.address_response_grant_limit = static_cast<std::uint64_t>(address_response_grant_limit);
+    inputs.address_response_readable = address_response_readable != 0;
+    inputs.address_response_writable = address_response_writable != 0;
+    inputs.address_response_executable = address_response_executable != 0;
     inputs.address_response_cacheable = address_response_cacheable != 0;
     inputs.address_response_cache_block_zero = address_response_cache_block_zero != 0;
     inputs.address_response_instruction_cacheable = address_response_instruction_cacheable != 0;

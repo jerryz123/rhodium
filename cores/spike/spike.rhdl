@@ -4,14 +4,51 @@
 
 import:
   "profile.rhm" open
+  "protocol.rhdl" open
   "dpi/spike-dpi.rhdl" open
   "chi/instruction.rhdl" open
   "chi/data.rhdl" open
   "chi/uncached.rhdl" open
   "../riscv/chi-hart.rhdl" open
   lib("riscv/rtl/interrupt.rhdl").RiscvInterrupts
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryMap
   lib("chi/protocol/channels.rhdl") open
   lib("chi/protocol/flits.rhdl").CHIDatFlit
+
+/*
+ * Classify the existing request and certify its containing contiguous region fragment for native
+ * reuse. Noncontiguous AddressSets grant only the run selected by their trailing variable bits;
+ * unmapped, overflowing, or fragment-crossing requests receive no reusable grant.
+ */
+fun spike_address_response(physical_map :: RiscvPhysicalMemoryMap, request :: SpikeAddressRequest()) :~ SpikeAddressResponse():
+  def last_address = request.address +& ((bits(1, 64) << request.size) - bits(1, 64))
+  def classified = physical_map.lookup(request.address, last_address)
+  def mutable grant_valid = Bool(#false)
+  def mutable grant_base = bits(0, 64)
+  def mutable grant_limit = bits(0, 64)
+  for (region in physical_map.regions):
+    def mutable run_mask = 0
+    while ((region.address_set.mask bits.and (run_mask + 1)) != 0):
+      run_mask := run_mask * 2 + 1
+    def base = request.address & !bits(run_mask, 64)
+    def limit = base ||| bits(run_mask, 64)
+    def matches = classified.mapped & region.address_set.matches(request.address) & (last_address <= limit.zext(65))
+    grant_valid := grant_valid ||| matches
+    grant_base := mux(matches, base, grant_base)
+    grant_limit := mux(matches, limit, grant_limit)
+  SpikeAddressResponse():
+    grant_valid: grant_valid
+    grant_base: grant_base
+    grant_limit: grant_limit
+    readable: classified.readable
+    writable: classified.writable
+    executable: classified.executable
+    cacheable: classified.cacheable
+    cache_block_zero: classified.cache_block_zero
+    instruction_cacheable: classified.instruction_cacheable
+    device: classified.device
+    atomic: classified.atomic
+    access_fault: !classified.mapped ||| mux(request.execute, !classified.executable, mux(request.write, !classified.writable, !classified.readable))
 
 /*
  * Compose one DPI hart and three CHI paths; classify requested physical ranges in RTL and pass
@@ -46,24 +83,9 @@ sync_circuit SpikeCore(config :: SpikeConfig,
     interrupts.machine_software.as_bits()
   ) ++ interrupts.supervisor_software.as_bits()
 
-  def address_request = spike.address.request.bits
-  def access_bytes = bits(1, 64) << address_request.size
-  def classified = chi_config.physical_map.lookup(
-    address_request.address,
-    address_request.address +& (access_bytes - bits(1, 64))
-  )
   spike.address.request.ready <== spike.address.response.ready
   spike.address.response.valid <== spike.address.request.valid
-  spike.address.response.bits.cacheable <== classified.cacheable
-  spike.address.response.bits.cache_block_zero <== classified.cache_block_zero
-  spike.address.response.bits.instruction_cacheable <== classified.instruction_cacheable
-  spike.address.response.bits.device <== classified.device
-  spike.address.response.bits.atomic <== classified.atomic
-  spike.address.response.bits.access_fault <== !classified.mapped ||| mux(
-    spike.address.request.bits.execute,
-    !classified.executable,
-    mux(spike.address.request.bits.write, !classified.writable, !classified.readable)
-  )
+  spike.address.response.bits <== spike_address_response(chi_config.physical_map, spike.address.request.bits)
 
   spike.instruction <=> instruction.transaction
   spike.data <=> data.transaction
@@ -81,4 +103,5 @@ sync_circuit SpikeCore(config :: SpikeConfig,
   uncached.chi <=> umem
 
 export:
+  spike_address_response
   SpikeCore
