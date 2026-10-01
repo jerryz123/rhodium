@@ -1,0 +1,74 @@
+Subject: [PATCH] Allow embedded hosts to supply architectural time
+
+Purpose: Preserve Zicntr without instantiating a duplicate CLINT device.
+SPDX-License-Identifier: BSD-2-Clause
+
+An opt-in host time provider backs RDTIME and satisfies the required time-source
+validation. Standalone execution continues to require and use its own CLINT.
+This hook does not by itself supply machine timer interrupt signals.
+
+diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
+index b16fc8c9..6f0cc693 100644
+--- a/c_emulator/riscv_platform_if.h
++++ b/c_emulator/riscv_platform_if.h
+@@ -33,6 +33,8 @@ public:
+   virtual void host_memory_read(lbits *result, fbits address, int64_t bytes, bool instruction);
+   virtual bool host_memory_write(fbits address, int64_t bytes, lbits value);
+   virtual fbits host_external_interrupts(unit);
++  virtual bool host_time_enabled(unit);
++  virtual fbits host_time(unit);
+ 
+   virtual unit fetch_callback(sbits opcode);
+ 
+diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
+index 8f3516c9..62258c5b 100644
+--- a/c_emulator/riscv_platform_if.cpp
++++ b/c_emulator/riscv_platform_if.cpp
+@@ -15,6 +15,8 @@ void PlatformInterface::host_memory_read(lbits *result, fbits, int64_t bytes, bo
+ }
+ bool PlatformInterface::host_memory_write(fbits, int64_t, lbits) { return false; }
+ fbits PlatformInterface::host_external_interrupts(unit) { return 0; }
++bool PlatformInterface::host_time_enabled(unit) { return false; }
++fbits PlatformInterface::host_time(unit) { return 0; }
+ 
+ // We must provide default implementations so the automatically generated
+ // model_test() function can instantiate hart::Model.
+diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_implementation.sail
+index c630ee9c..3637c017 100644
+--- a/model/sys/interrupt_implementation.sail
++++ b/model/sys/interrupt_implementation.sail
+@@ -27,10 +27,14 @@ function machine_software_interrupt_pending() -> bits(1) =
+ function supervisor_software_interrupt_pending() -> bits(1) =
+   if plat_have_sig then sig_supervisor_software_interrupt_pending() else 0b0
+ 
+-// The only source of time currently is the CLINT.
++// Embedded systems can supply time without creating a second CLINT device.
++val host_time_enabled = pure {cpp: "host_time_enabled"} : unit -> bool
++function host_time_enabled() = false
++val host_time = pure {cpp: "host_time"} : unit -> bits(64)
++function host_time() = zeros()
+ 
+ function get_mtime() -> bits(64) =
+-  if plat_have_clint then clint_get_mtime() else zeros()
++  if host_time_enabled() then host_time() else if plat_have_clint then clint_get_mtime() else zeros()
+ 
+ function get_hart_mtimecmp() -> bits(64) =
+   if plat_have_clint then clint_get_hart_mtimecmp() else zeros()
+diff --git a/model/postlude/validate_config.sail b/model/postlude/validate_config.sail
+index 1dce85b3..a71b6b1a 100644
+--- a/model/postlude/validate_config.sail
++++ b/model/postlude/validate_config.sail
+@@ -900,10 +900,10 @@ private function check_mmio_devices() -> bool = {
+     print_endline("platform.simple_interrupt_generator.base is not 4-byte aligned.");
+   };
+   if (config extensions.Zicntr.supported : bool) then {
+-    // Require a source of time for the RDTIME instruction; currently, this is the CLINT.
+-    if not(config platform.clint.supported : bool) then {
++    // Require a source of time, either the built-in CLINT or an embedding host.
++    if not(config platform.clint.supported : bool) & not(host_time_enabled()) then {
+       valid = false;
+-      print_endline("Zicntr is enabled but there is no source of time: a source of time (currently only `platform.clint.supported`) must be enabled.");
++      print_endline("Zicntr is enabled but neither the CLINT nor a host time source is enabled.");
+     };
+   };
+   if (config platform.clint.supported : bool) then {

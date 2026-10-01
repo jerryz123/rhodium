@@ -128,6 +128,7 @@ SIMULATOR_SOURCES := $(PRODUCT_SELECTION_DATA) $(sort $(shell find $(REPO_DIR) -
 all: simulator
 
 include arch-test/Makefile.inc
+include cosim/Makefile.inc
 include program-test/Makefile.inc
 include opensbi/Makefile.inc
 

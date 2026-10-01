@@ -1,3 +1,5 @@
-# Applies Rhodium's GEILEN=0 correction to the pinned Sail RISC-V model.
+# Applies architectural fixes and opt-in embedding hooks to the pinned Sail model.
 # SPDX-License-Identifier: Apache-2.0
 0001-mask-sgeie-when-geilen-is-zero.patch
+0002-add-embedded-platform-providers.patch
+0003-add-embedded-time-source.patch

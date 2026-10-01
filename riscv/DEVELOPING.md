@@ -54,7 +54,7 @@ architectural state, and retirement in concrete cores. The package-local
 | Model, catalog, and adapter tests | [`tests/`](tests/) |
 | Shared patched-submodule materialization and identity | [`patched_submodule.py`](patched_submodule.py), tested by [`tests/test_patched_submodule.py`](tests/test_patched_submodule.py) |
 | Shared Spike disassembler and FESVR upstream | [`riscv-isa-sim/`](riscv-isa-sim/), with downstream changes in [`riscv-isa-sim-patches/`](riscv-isa-sim-patches/) |
-| ACT reference-model upstream | [`sail-riscv/`](sail-riscv/), with downstream changes in [`sail-riscv-patches/`](sail-riscv-patches/) |
+| ACT and embedded reference-model upstream | [`sail-riscv/`](sail-riscv/), with downstream changes in [`sail-riscv-patches/`](sail-riscv-patches/); embedding is owned by [`sims/cosim/`](../sims/cosim/README.md) |
 
 ## Extend the model or catalogs
 

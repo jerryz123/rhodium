@@ -1,0 +1,27 @@
+# Builds the embedded Sail adapter and its scalar/FESVR boundary qualification.
+# SPDX-License-Identifier: Apache-2.0
+cmake_minimum_required(VERSION 3.20)
+project(rhodium_sail_cosim LANGUAGES CXX)
+find_package(SailModel CONFIG REQUIRED)
+find_package(Threads REQUIRED)
+add_library(sail_reference STATIC sail-reference.cc)
+target_compile_features(sail_reference PUBLIC cxx_std_20)
+target_include_directories(sail_reference PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_link_libraries(sail_reference PRIVATE Sail::Model)
+target_compile_options(sail_reference PRIVATE -Wall -Wextra -Werror)
+
+include(CTest)
+if(BUILD_TESTING)
+if(NOT EXISTS "${FESVR_PREFIX}/include/fesvr/htif.h" OR NOT EXISTS "${FESVR_PREFIX}/lib/libfesvr.a")
+  message(FATAL_ERROR "FESVR_PREFIX must name the installed repository-pinned FESVR package")
+endif()
+add_library(Fesvr::Fesvr STATIC IMPORTED)
+set_target_properties(Fesvr::Fesvr PROPERTIES
+  IMPORTED_LOCATION "${FESVR_PREFIX}/lib/libfesvr.a"
+  INTERFACE_INCLUDE_DIRECTORIES "${FESVR_PREFIX}/include")
+add_executable(sail_reference_test tests/sail-reference-test.cc ../fesvr/direct_mem_htif.cc)
+target_include_directories(sail_reference_test PRIVATE ../fesvr)
+target_link_libraries(sail_reference_test PRIVATE sail_reference Sail::Model Fesvr::Fesvr Threads::Threads)
+target_compile_options(sail_reference_test PRIVATE -Wall -Wextra -Werror)
+add_test(NAME sail_reference COMMAND sail_reference_test)
+endif()

@@ -99,9 +99,36 @@ and runtime assertions.
 | Target software sources, ports, patches, and ELF builders | [`../sw/`](../sw/DEVELOPING.md) |
 | SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
 | Bare-metal litmus ELF generation and pinned model states | [`../sw/`](../sw/DEVELOPING.md) |
+| Embedded Sail library boundary and focused host qualification | [`cosim/`](cosim/README.md) |
 | ACT platform configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
 | OpenSBI DTB projection, simulator handoff, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
+
+## Embedded Sail reference
+
+[`cosim/`](cosim/README.md) owns the C++ embedding boundary and its focused
+tests. It consumes the pinned Sail package; keep generated Sail types private
+to `sail-reference.cc`, not in the public adapter header. Its exact-configuration
+and private-memory contract is separate from ACT placement/signature policy.
+There is no RTL observation or comparison integration yet.
+
+The existing `arch-test/install-sail.sh` now packages static model, runtime,
+and SoftFloat libraries, generated/platform headers, JSON schema and jsoncons
+headers alongside `sail_riscv_sim`. `SailModelConfig.cmake` exports `Sail::Model`
+without references to the temporary build directory; GMP remains a host
+dependency. The ordered Sail patch series provides default-disabled physical
+memory providers and external interrupt inputs. Never edit the submodule to
+implement those hooks.
+
+After changing embedding hooks, rebuild with `make -C sims arch-test-sail-setup`
+(set `SAIL_COMPILER` on hosts without a downloadable compiler). Run
+`make -C sims sail-cosim-test` for the minimum qualification. It uses real
+generated Sail execution, explicit RV32/RV64 configurations, and the existing
+FESVR transport in the same binary. The build is product-independent and
+identity-scoped under `.rhodium-cache/sail-cosim/`. Tests must exercise trap
+boundaries and raw MMIO read semantics, not substitute destination values or
+compare model state against itself. This host-only prototype is not yet wired
+into the simulator software-test CI matrix.
 
 ## Add or change a harness
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds the pinned, patched Sail RISC-V reference model in a build-local directory.
+# Packages the pinned Sail executable and embeddable model from build-local source.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -14,6 +14,8 @@ install_dir="$repo_dir/.tools/sail-riscv-0.14.1-sail-$compiler_version-$identity
 
 if [[ -f "$install_dir/.complete" ]] && [[ "$(< "$install_dir/.complete")" == "$identity" ]] && \
    [[ -x "$install_dir/bin/sail_riscv_sim" ]] && \
+   [[ -f "$install_dir/lib/cmake/SailModel/SailModelConfig.cmake" ]] && \
+   [[ -f "$install_dir/lib/libsail_riscv_model.a" ]] && \
    [[ "$("$install_dir/bin/sail_riscv_sim" --version)" == 0.14.1 ]]; then
   echo "Patched Sail RISC-V $identity is already installed at $install_dir"
   exit 0
@@ -79,10 +81,25 @@ fi
 "$python" "$materializer" materialize --source "$source_dir" --series "$series" --output "$work_dir/source"
 cmake -S "$work_dir/source" -B "$work_dir/build" -DSAIL_BIN="$compiler" \
   -DCMAKE_BUILD_TYPE=Release -DDOWNLOAD_GMP=OFF -DENABLE_RISCV_TESTS=OFF \
-  -DFIRST_PARTY_TESTS=OFF -DSTATIC=OFF
+  -DFIRST_PARTY_TESTS=OFF -DSTATIC=OFF -DBUILD_SHARED_LIBS=OFF
 cmake --build "$work_dir/build" --target sail_riscv_sim --parallel "${SAIL_BUILD_JOBS:-2}"
 mkdir -p "$work_dir/install/bin" "$(dirname "$install_dir")"
 install -m 755 "$work_dir/build/c_emulator/sail_riscv_sim" "$work_dir/install/bin/sail_riscv_sim"
+model_include="$work_dir/install/include/sail-model"
+mkdir -p "$model_include" "$work_dir/install/lib/cmake/SailModel" "$work_dir/install/share/sail-model"
+install -m 644 "$work_dir/build/c_emulator/libriscv_model.a" "$work_dir/install/lib/libsail_riscv_model.a"
+install -m 644 "$work_dir/build/sail_runtime/libsail_runtime.a" "$work_dir/install/lib/libsail_runtime.a"
+install -m 644 "$work_dir/build/dependencies/softfloat/libsoftfloat.a" "$work_dir/install/lib/libsail_softfloat.a"
+install -m 644 "$work_dir/build/sail_riscv_model.h" "$work_dir/source/c_emulator/riscv_platform_if.h" \
+  "$work_dir/source/c_emulator/config_utils.h" "$model_include/"
+compiler_library="$("$compiler" --dir)"
+cp "$compiler_library"/lib/*.h "$model_include/"
+cp -R "$work_dir/build/_deps/jsoncons-src/include/jsoncons" "$model_include/"
+cp -R "$work_dir/build/_deps/jsoncons-src/include/jsoncons_ext" "$model_include/"
+install -m 644 "$work_dir/build/sail_riscv_config_schema.json" "$work_dir/install/share/sail-model/"
+install -m 644 "$repo_dir/sims/cosim/SailModelConfig.cmake" "$work_dir/install/lib/cmake/SailModel/"
+install -m 644 "$work_dir/build/_deps/jsoncons-src/LICENSE" "$work_dir/install/share/sail-model/jsoncons-LICENSE"
+cp -R "$compiler_library/lib" "$work_dir/install/share/sail-model/runtime-source"
 install -m 644 "$source_dir/LICENCE" "$work_dir/install/LICENCE"
 while IFS= read -r licence; do
   relative="${licence#"$source_dir"/}"

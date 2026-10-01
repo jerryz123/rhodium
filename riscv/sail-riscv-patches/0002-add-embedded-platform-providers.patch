@@ -1,0 +1,116 @@
+Subject: [PATCH] Add opt-in physical memory and external interrupt providers
+
+Purpose: Embed the generated model without replacing architectural access checks.
+SPDX-License-Identifier: BSD-2-Clause
+
+Keep standalone behavior unchanged; hosts opt into replacing physical RAM reads
+and writes and supplying MEI/SEI input pins. Device replay happens before load
+extension, not by substituting an architectural destination register.
+
+diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
+index 72e6d848..b16fc8c9 100644
+--- a/c_emulator/riscv_platform_if.h
++++ b/c_emulator/riscv_platform_if.h
+@@ -1,3 +1,5 @@
++// Declares the replaceable platform boundary for the generated RISC-V model.
++// SPDX-License-Identifier: BSD-2-Clause
+ #pragma once
+ 
+ #include "sail.h"
+@@ -26,6 +28,12 @@ struct zz5vecz8z5unionz0zzoptionzzIRTLB_EntryzzKz9;
+ 
+ class PlatformInterface {
+ public:
++  // Opt-in embedding hooks; ordinary command-line execution keeps its own memory.
++  virtual bool host_memory_enabled(unit);
++  virtual void host_memory_read(lbits *result, fbits address, int64_t bytes, bool instruction);
++  virtual bool host_memory_write(fbits address, int64_t bytes, lbits value);
++  virtual fbits host_external_interrupts(unit);
++
+   virtual unit fetch_callback(sbits opcode);
+ 
+   virtual unit mem_write_callback(const char *type, sbits paddr, int64_t width, lbits value);
+diff --git a/c_emulator/riscv_platform_if.cpp b/c_emulator/riscv_platform_if.cpp
+index 455eed26..8f3516c9 100644
+--- a/c_emulator/riscv_platform_if.cpp
++++ b/c_emulator/riscv_platform_if.cpp
+@@ -1,7 +1,21 @@
++// Supplies inert defaults for optional platform services and observations.
++// SPDX-License-Identifier: BSD-2-Clause
+ #include "riscv_platform_if.h"
+ 
+ #include "sail_riscv_model.h"
+ 
++// Default-disabled providers preserve the standalone emulator's behavior.
++bool PlatformInterface::host_memory_enabled(unit) { return false; }
++void PlatformInterface::host_memory_read(lbits *result, fbits, int64_t bytes, bool) {
++  sail_int size;
++  CREATE(sail_int)(&size);
++  CONVERT_OF(sail_int, mach_int)(&size, bytes * 8);
++  zeros(result, size);
++  KILL(sail_int)(&size);
++}
++bool PlatformInterface::host_memory_write(fbits, int64_t, lbits) { return false; }
++fbits PlatformInterface::host_external_interrupts(unit) { return 0; }
++
+ // We must provide default implementations so the automatically generated
+ // model_test() function can instantiate hart::Model.
+ //
+diff --git a/model/core/phys_mem_interface.sail b/model/core/phys_mem_interface.sail
+index 688350c8..c507ba30 100644
+--- a/model/core/phys_mem_interface.sail
++++ b/model/core/phys_mem_interface.sail
+@@ -70,6 +70,14 @@ struct RISCV_strong_access = {
+ // addresses regardless of the actual physical address width.
+ function physaddrbits_zero_extend(xs : physaddrbits) -> bits(64) = zero_extend(xs)
+ 
++// Optional embedded physical-memory provider, reached after architectural checks.
++val host_memory_enabled = pure {cpp: "host_memory_enabled"} : unit -> bool
++function host_memory_enabled() = false
++val host_memory_read = {cpp: "host_memory_read"} : forall 'n, 0 < 'n <= max_mem_access . (bits(64), int('n), bool) -> bits(8 * 'n)
++function host_memory_read(_, width, _) = zeros(8 * width)
++val host_memory_write = {cpp: "host_memory_write"} : forall 'n, 0 < 'n <= max_mem_access . (bits(64), int('n), bits(8 * 'n)) -> bool
++function host_memory_write(_, _, _) = false
++
+ instantiation sail_mem_write with
+   'pa = physaddrbits,
+   pa_bits = physaddrbits_zero_extend,
+@@ -84,6 +92,7 @@ instantiation sail_mem_write with
+ val write_ram : forall 'n, 0 < 'n <= max_mem_access. (write_kind, physaddr, int('n), bits(8 * 'n), mem_meta) -> bool
+ 
+ function write_ram(wk, Physaddr(addr), width, data, meta) = {
++  if host_memory_enabled() then return host_memory_write(zero_extend(addr), width, data);
+   let request : Mem_write_request('n, 64, physaddrbits, unit, RISCV_strong_access) = struct {
+     access_kind = match wk {
+       Write_plain => AK_explicit(struct { variety = AV_plain, strength = AS_normal }),
+@@ -123,6 +132,7 @@ instantiation sail_mem_read with
+ 
+ val read_ram : forall 'n, 0 < 'n <= max_mem_access.  (read_kind, physaddr, int('n), bool) -> (bits(8 * 'n), mem_meta)
+ function read_ram(rk, Physaddr(addr), width, read_meta) = {
++  if host_memory_enabled() then return (host_memory_read(zero_extend(addr), width, rk == Read_ifetch), default_meta);
+   let meta = if read_meta then __ReadRAM_Meta(addr, width) else default_meta;
+   let request : Mem_read_request('n, 64, physaddrbits, unit, RISCV_strong_access) = struct {
+     access_kind = match rk {
+diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_implementation.sail
+index 07f9191e..c630ee9c 100644
+--- a/model/sys/interrupt_implementation.sail
++++ b/model/sys/interrupt_implementation.sail
+@@ -9,9 +9,16 @@
+ // This aggregates the information from the interrupts controllers in
+ // the system, which currently are the CLINT and the SIG.
+ 
+-function external_interrupts_pending(hgeie_val : xlenbits) -> Minterrupts =
++// Embedded callers supply external interrupt pins, never CSR pending state.
++val host_external_interrupts = pure {cpp: "host_external_interrupts"} : unit -> bits(64)
++function host_external_interrupts() = zeros()
++
++function external_interrupts_pending(hgeie_val : xlenbits) -> Minterrupts = {
+   // The CLINT doesn't deal with external interrupts.
+-  if plat_have_sig then sig_external_interrupts_pending(hgeie_val) else Mk_Minterrupts(zeros())
++  let pending = if plat_have_sig then sig_external_interrupts_pending(hgeie_val) else Mk_Minterrupts(zeros());
++  let pins = host_external_interrupts();
++  [pending with MEI = pending[MEI] | pins[11], SEI = pending[SEI] | (if currentlyEnabled(Ext_S) then pins[9] else 0b0)]
++}
+ 
+ function machine_software_interrupt_pending() -> bits(1) =
+   (if plat_have_clint then clint_machine_software_interrupt_pending() else 0b0)

@@ -931,6 +931,10 @@ control in outer caches.
 Contributor binding, structural, and lowering checks are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
 
+The [embedded Sail reference](cosim/README.md) is a host-only co-simulation
+building block with private memory and explicit device-read replay. It is not
+yet connected to RTL or enabled by any simulator product.
+
 These simulators always use CIRCT-inferred memories. To validate a
 design-and-technology SRAM mapping while reusing this harness, driver, FESVR
 transport, and smoke payload, run `make -C vlsi/sim smoke`; see the

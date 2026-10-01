@@ -260,7 +260,7 @@ jobs:
           path: |
             .tools/sail-compiler-0.20.2
             .tools/sail-riscv-0.14.1-sail-0.20.2-*
-          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.2-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.2-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/cosim/SailModelConfig.cmake') }}"
       - name: Build patched Sail model
         run: make -C sims arch-test-sail-setup
       - name: Package patched Sail model
