@@ -45,6 +45,10 @@ for (product in TestProducts):
     metadata_fingerprint(product_metadata(resolve_soc_product(product))) ~is metadata_fingerprint(metadata)
     metadata_json(metadata).contains("#<procedure") ~is #false
     metadata_json(metadata).contains("#<function") ~is #false
+  when product.core == CoreKind.Spike
+  | block:
+      def profile :: SpikeConfig = resolved.hart.profile
+      check: profile.max_retired_instructions_per_cycle ~is 64
 
 // Implementation changes must invalidate artifacts even when the ISA stays identical.
 def hardware = resolve_soc_product(named_soc_selection("simple-rv5stage-rva23"))
@@ -56,9 +60,9 @@ check:
   metadata_fingerprint(product_metadata(hardware, larger)) == metadata_fingerprint(product_metadata(hardware)) ~is #false
 
 def model = resolve_soc_product(named_soc_selection("simple-spike-rva23"))
-def faster = single_core_soc_config(spike_hart(SpikeConfig(model.hart.description, ~max_retired_instructions_per_cycle: 2, ~pmp_regions: 0)))
+def slower = single_core_soc_config(spike_hart(SpikeConfig(model.hart.description, ~max_retired_instructions_per_cycle: 2, ~pmp_regions: 0)))
 check:
-  metadata_fingerprint(product_metadata(model, faster)) == metadata_fingerprint(product_metadata(model)) ~is #false
+  metadata_fingerprint(product_metadata(model, slower)) == metadata_fingerprint(product_metadata(model)) ~is #false
 
 for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
   def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.Spike]):

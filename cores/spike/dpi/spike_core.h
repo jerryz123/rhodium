@@ -22,7 +22,7 @@ struct Configuration {
   std::uint32_t vector_element_width = 0;
   std::string isa;
   std::string privilege;
-  std::uint16_t max_retired_instructions_per_cycle = 1;
+  std::uint16_t max_retired_instructions_per_cycle = 64;
   std::uint8_t pmp_regions = 16;
   std::uint16_t instruction_cache_sets = 1;
   std::uint16_t instruction_cache_ways = 1;

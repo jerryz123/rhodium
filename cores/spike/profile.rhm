@@ -75,7 +75,7 @@ class SpikeConfig(architecture :: RiscvHartDescription,
    * cache/PMP/execution bounds.
    */
   constructor (architecture :: RiscvHartDescription,
-               ~max_retired_instructions_per_cycle: max_retired_instructions_per_cycle :: PosInt = 1,
+               ~max_retired_instructions_per_cycle: max_retired_instructions_per_cycle :: PosInt = 64,
                ~pmp_regions: pmp_regions :: Nat = 16):
     unless architecture.instruction_cache.block_bytes == 64 && (
       architecture.data_cache.block_bytes == 64

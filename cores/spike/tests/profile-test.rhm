@@ -22,14 +22,14 @@ def architecture = RiscvHartDescription(
   ~cbo_block_bytes: 64
 )
 def default_config = SpikeConfig(architecture)
-def config = SpikeConfig(architecture, ~max_retired_instructions_per_cycle: 64)
+def config = SpikeConfig(architecture, ~max_retired_instructions_per_cycle: 1)
 
 check:
   config.hart_description === architecture ~is #true
   config.isa_string ~is "rv64ima_zic64b"
   config.privilege_string ~is "m"
-  default_config.max_retired_instructions_per_cycle ~is 1
-  config.max_retired_instructions_per_cycle ~is 64
+  default_config.max_retired_instructions_per_cycle ~is 64
+  config.max_retired_instructions_per_cycle ~is 1
   config.pmp_regions ~is 16
   config.xlen_is_64 ~is #true
   config.max_vaddr_bits ~is 39

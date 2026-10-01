@@ -22,9 +22,10 @@ the ISA advertises only a smaller minimum. Configuration strings are
 NUL-terminated and bounded to 512 bytes for ISA and four bytes for privilege;
 oversized strings are rejected, not truncated. It separately owns the maximum retired instructions per
 simulated cycle and PMP implementation parameters.
-`max_retired_instructions_per_cycle` defaults
-to one; increasing it accelerates cached execution while memory and coherence
-transactions can still yield the model before that maximum is reached.
+`max_retired_instructions_per_cycle` defaults to 64 in both the authored profile
+and native model, including every Mini, Simple, and Tiled Spike product.
+This is an upper bound: memory and coherence transactions can yield the model
+before that maximum is reached. Callers can explicitly override the budget.
 
 The explicit `rva23` SoC specialization selects the shared RV64D/V architecture
 with VLEN=128 and ELEN=64, without substituting a scalar profile. This preset
