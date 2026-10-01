@@ -31,7 +31,36 @@ Construct `SailReference` with complete Sail configuration JSON, a reset PC,
 and physical ranges backed by private ROM/RAM. Initialization validates the
 supplied configuration; it does not silently substitute an ISA profile. The
 caller must disable Sail's built-in CLINT and simple interrupt generator.
-Shared product-to-Sail configuration projection is a later integration step.
+The [shared projection](../sail/README.md) consumes the resolved product's UDB;
+ACT and co-simulation use identical hart settings with separate environments.
+
+Generate and initialize a real product configuration with:
+
+```sh
+make -C sims sail-cosim-config-test SOC=mini-rv5stage-rv32int
+make -C sims sail-cosim-config-test SOC=simple-rv5stage-rva23
+```
+
+`sail-cosim-config` generates artifacts without building the adapter. Both targets
+require an explicit ISA, accept Mini/Simple with RV5Stage or Spike, and use the
+same product resolver as the simulator. `COSIM_CONFIG_DIR` defaults to the
+selected simulator build directory's `cosim/`; `COSIM_PYTHON` defaults to the
+existing ACT Python environment (pyjson5 and ruamel.yaml).
+
+The export retains full product metadata, UDB, configuration fingerprint, and
+the actual PMA map, reset address, ROM/RAM backing, and clock/timebase frequencies.
+`sail.json` contains the reference configuration; `manifest.json` binds its
+fingerprint and environment to that product and records known model differences.
+The initialization test supplies a tiny ROM probe, not the real firmware image.
+It also checks the exact eight-byte UART aperture: an in-range read is replayed,
+and its immediate unmapped neighbor faults. It qualifies configuration and
+environment boundaries, not complete execution of that profile.
+
+Sail's synthetic CLINT and interrupt generator are disabled. Device regions,
+including the boot-address register, remain externally replayed; only ROM and
+RAM are privately backed. No synthetic ACT fault window or reference-generated
+DTB is substituted. Time and device values must eventually come from the DUT
+environment, not a second device model.
 
 The backing map is independent of PMA classification: ROM can be `IOMemory`
 without being a replayed device. `load()` initializes backing memory, including
@@ -65,7 +94,7 @@ and host writes into private reference memory at defined boundaries.
   traps, machine external interrupts, host time, WFI, strict MMIO replay, and coexistence
   with the existing FESVR transport.
 - The callback API carries FP/vector writes, but FP/vector, atomics/reservation
-  behavior, virtualized privilege, full product profiles, and supervisor
+  behavior, virtualized privilege, full-profile execution, and supervisor
   interrupt delivery are not qualified by this first cut.
 - No RTL observations, deferred-effect assembler, comparison engine, or CI
   software-suite co-simulation is enabled. Timer/software interrupt inputs and

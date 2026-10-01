@@ -1,0 +1,41 @@
+Subject: [PATCH] Allow exact subpage PMAs for unsplittable device accesses
+
+Purpose: Preserve small MMIO apertures without mapping neighboring addresses.
+SPDX-License-Identifier: BSD-2-Clause
+
+Keep page alignment for executable, cache-block, and splittable
+regions. A nonempty, noncacheable IO region with none of those capabilities
+can use an exact byte range: matching_pma_region already checks that the
+entire access fits. Misaligned scalar/vector operations still fault and no
+MAG allows splitting. This permits an eight-byte UART aperture in an embedded
+reference configuration without expanding it into a synthetic 4K device.
+
+diff --git a/model/postlude/validate_config.sail b/model/postlude/validate_config.sail
+--- a/model/postlude/validate_config.sail
++++ b/model/postlude/validate_config.sail
+@@ -358,11 +358,18 @@ private function check_pma_region(region : PMA_Region) -> bool = {
+-  // We currently require PMAs to be aligned to page boundaries.  This
+-  // simplifies memory protection and alignment checks: PMA properties
+-  // will not change within intra-page accesses.  Although this constraint
+-  // is not imposed by the specification, most implementations are
+-  // expected to conform with it.
+-  if region.base[pagesize_bits - 1 .. 0] != zeros() then {
++  // Subpage devices cannot fetch instructions, zero cache blocks,
++  // reserve memory, or split accesses. Full-range PMA matching is enough
++  // for their ordinary aligned reads/writes; keep page alignment otherwise.
++  let pma = region.attributes;
++  let subpage_io = region.size != zeros() &
++    pma.mem_type == IOMemory & not(pma.cacheable) & not(pma.executable) &
++    not(pma.supports_cbo_zero) & pma.atomic_support == AMONone &
++    pma.reservability == RsrvNone &
++    pma.misaligned_atomicity_granule_size_exp == 0 &
++    pma.vector_misaligned_atomicity_granule_size_exp == 0 &
++    pma.misaligned_exceptions.load_store == Some(AccessFault) &
++    pma.misaligned_exceptions.vector == Some(AccessFault);
++  if not(subpage_io) & region.base[pagesize_bits - 1 .. 0] != zeros() then {
+     print_endline("Memory region starting at " ^ bits_str(region.base) ^ " does not start on a 4K (page) boundary.");
+     return false;
+   };
+-  if region.size[pagesize_bits - 1 .. 0] != zeros() then {
++  if not(subpage_io) & region.size[pagesize_bits - 1 .. 0] != zeros() then {
+     print_endline("Memory region starting at " ^ bits_str(region.base) ^ " with size " ^ bits_str(region.size) ^ " does not end on a 4K (page) boundary.");

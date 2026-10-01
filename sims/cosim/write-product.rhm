@@ -1,0 +1,58 @@
+#lang rhombus
+/* Exports one resolved Mini/Simple product and its real physical reference environment. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  rhombus/cmdline open
+  lib("socs/products/selection.rhm") open
+  lib("socs/products/resolve.rhm").resolve_soc_product
+  lib("socs/products/metadata.rhm") open
+  lib("socs/mini-soc/main.rhdl").MiniSoCConfig
+  lib("socs/single-core-soc/main.rhdl").SingleCoreSoCConfig
+  lib("socs/platform/description.rhm") open
+  lib("riscv/rtl/pma.rhdl").RiscvPhysicalMemoryRegion
+
+/* Serializes a contiguous physical interval without assuming a fixed platform map. */
+fun address_region(region :: SoCAddressRegion) :: Map:
+  {"address": region.base, "size": region.size_bytes}
+
+/* Preserves each hart-visible PMA attribute for the Sail environment projection. */
+fun physical_region(region :: RiscvPhysicalMemoryRegion) :: Map:
+  def attrs = region.attributes
+  {
+    "range": address_region(SoCAddressRegion(region.address_set)),
+    "attributes": {
+      "readable": attrs.readable, "writable": attrs.writable, "executable": attrs.executable,
+      "cacheable": attrs.cacheable, "atomic": attrs.atomic, "device": attrs.device,
+      "read_idempotent": attrs.read_idempotent, "cache_block_zero": attrs.cache_block_zero,
+      "instruction_cacheable": attrs.instruction_cacheable
+    }
+  }
+
+def arguments = current_command_line()
+unless arguments.length() == 2
+| error(~who: #'write_cosim_product, "expected a shape-core-isa product key and output path")
+def selection = named_soc_selection(arguments[0])
+unless selection.shape == SoCShape.Mini || selection.shape == SoCShape.Simple
+| error(~who: #'write_cosim_product, "embedded Sail currently supports Mini and Simple")
+def product = resolve_soc_product(selection)
+def config = product.configuration()
+def fabric = if config is_a MiniSoCConfig | config.fabric | (config :: SingleCoreSoCConfig).params.fabric
+def description = config.description
+def configuration = product_metadata(product, config)
+def environment = {
+  "schema": 1,
+  "reset_pc": description.boot.reset_address,
+  "hart_id": description.harts[0],
+  "clock_frequency_hz": description.clocks.clock_frequency_hz,
+  "timebase_frequency_hz": description.clocks.timebase_frequency_hz,
+  "private_memory": ([description.boot.rom] ++ description.memory_regions).map(address_region),
+  "regions": fabric.hart_config.physical_map.regions.map(physical_region)
+}
+def exported = {
+  "configuration": configuration,
+  "configuration_fingerprint": metadata_fingerprint(configuration),
+  "environment": environment,
+  "environment_fingerprint": metadata_fingerprint(environment)
+}
+filesystem.write_string(arguments[1], metadata_json(exported), ~exists: #'truncate)

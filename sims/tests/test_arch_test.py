@@ -220,9 +220,10 @@ class ArchTestConfigTest(unittest.TestCase):
             self.assertEqual(config["extensions"]["Svbare"]["sfence_vma_illegal_if_svbare_only"], sfence_illegal)
 
         bounds = {"Za64rs": "1.0.0"}
-        configure["validate_reservation_bounds"]({"reservation_set_size_exp": 2}, bounds, 32)
+        validate_bounds = runpy.run_path(str(RUNNER.parents[1] / "sail/configuration.py"))["validate_reservation_bounds"]
+        validate_bounds({"reservation_set_size_exp": 2}, bounds, 32)
         with self.assertRaises(ValueError):
-            configure["validate_reservation_bounds"]({"reservation_set_size_exp": 1}, bounds, 32)
+            validate_bounds({"reservation_set_size_exp": 1}, bounds, 32)
         udb["params"]["VECTOR_LS_INDEX_MAX_EEW"] = "64"
         with self.assertRaises(ValueError):
             configure["sail_config"](sail_default(), udb, 0x80000000, 0x40000000)
@@ -591,7 +592,7 @@ class ArchTestConfigTest(unittest.TestCase):
             project(sail_default(), udb, 0x80000000, 0x40000000)
 
     def test_reservation_guarantees_validate_sail_platform(self):
-        configure = runpy.run_path(str(RUNNER.with_name("configure.py")))
+        configure = runpy.run_path(str(RUNNER.parents[1] / "sail/configuration.py"))
         validate = configure["validate_reservation_bounds"]
         for names, maximum in ((["Za64rs"], 6), (["Za128rs"], 7), (["Za64rs", "Za128rs"], 6)):
             for size_exp in (3, 6, 7, 8, 2, -1, True, "3"):

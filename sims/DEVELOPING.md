@@ -100,7 +100,8 @@ and runtime assertions.
 | SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
 | Bare-metal litmus ELF generation and pinned model states | [`../sw/`](../sw/DEVELOPING.md) |
 | Embedded Sail library boundary and focused host qualification | [`cosim/`](cosim/README.md) |
-| ACT platform configuration, reference-model projection, and execution adapter | [`arch-test/`](arch-test/) |
+| Shared UDB-to-Sail architectural projection and product identity | [`sail/`](sail/README.md) |
+| ACT platform configuration and execution adapter | [`arch-test/`](arch-test/) |
 | OpenSBI DTB projection, simulator handoff, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
@@ -112,6 +113,24 @@ to `sail-reference.cc`, not in the public adapter header. Its exact-configuratio
 and private-memory contract is separate from ACT placement/signature policy.
 There is no RTL observation or comparison integration yet.
 
+`sail/configuration.py` owns the common architecture projection and explicit
+model-difference report. Keep ACT placement/signatures and synthetic devices in
+`arch-test/configure.py`. `cosim/write-product.rhm` exports canonical metadata
+and the resolved Mini/Simple hart PMAs, reset layout, backing ranges, and clocks;
+`cosim/configure.py` composes that environment with the shared architecture.
+Never reconstruct profiles or platform addresses in Python. ROM uses Sail's
+`IOMemory` PMA category because `MainMemory` requires writable memory, but remains
+private backing rather than device replay. Instruction-only ROM caching has no
+separate Sail PMA switch; its executable permission remains explicit.
+
+Run `make -C sims arch-test-adapter-test` for projection changes (includes shared
+environment tests). After exporter or environment changes, run
+`make -C sims sail-cosim-config-test SOC=<product>` for representative Mini/Simple,
+RV32/RV64, and RV5Stage/Spike products. This validates the exact profile and
+retires a ROM probe without RTL or firmware boot. Known model differences remain
+in the generated manifest. Configuration and environment fingerprints establish
+artifact identity, not full execution qualification or trust in arbitrary input.
+
 The existing `arch-test/install-sail.sh` now packages static model, runtime,
 and SoftFloat libraries, generated/platform headers, JSON schema and jsoncons
 headers alongside `sail_riscv_sim`. `SailModelConfig.cmake` exports `Sail::Model`
@@ -119,6 +138,15 @@ without references to the temporary build directory; GMP remains a host
 dependency. The ordered Sail patch series provides default-disabled physical
 memory providers and external interrupt inputs. Never edit the submodule to
 implement those hooks.
+
+The subpage-device PMA patch permits the exact eight-byte UART aperture only
+under unsplittable, non-executable, non-atomic IO attributes. Page-table transfers
+retain ordinary physical read/write permissions and full-range checks.
+Normal memory retains Sail's page-alignment requirements. Product initialization
+tests replay a UART byte and require a load access fault immediately outside its
+aperture. Validate co-simulation configurations inside `SailReference`, not with
+the standalone executable: Zicntr without CLINT requires the enabled host-time
+provider, which only the embedding supplies.
 
 After changing embedding hooks, rebuild with `make -C sims arch-test-sail-setup`
 (set `SAIL_COMPILER` on hosts without a downloadable compiler). Run
@@ -344,7 +372,7 @@ and does not overlap a Sail memory region before publishing
 authored. ACT currently accepts the Simple shape; adding another shape requires
 qualifying its platform macros and memory capacity, not adding a product table.
 Processor extension policy stays in the owning core's UDB projection. The common
-`configure.py` writes generated UDB consumer files, using the pinned Sail
+`configure.py` writes generated UDB consumer files, using `sail/` for the pinned
 default schema and explicit UDB mappings. Reject unsupported architecture
 shapes before producing reference results. Always give ACT the full test
 inventory and delegate extension closure and test constraints to it. Do not

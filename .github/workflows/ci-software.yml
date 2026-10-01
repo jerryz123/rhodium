@@ -350,7 +350,7 @@ jobs:
       - name: Identify complete ACT payload inputs
         id: act-inputs
         env:
-          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', '!**/__pycache__/**', '!**/compiled/**') }}"
+          ACT_INPUT_KEY: "${{ runner.os }}-${{ runner.arch }}-act-elfs-v1-fast1-all-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ steps.act-config.outputs.tools }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sims/sail/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', '!**/__pycache__/**', '!**/compiled/**') }}"
         run: echo "key=$ACT_INPUT_KEY" >> "$GITHUB_OUTPUT"
       - name: Restore complete ACT payload
         id: act-payload
@@ -378,7 +378,7 @@ jobs:
           path: |
             /tmp/rhodium-arch-test/work/**/build
             /tmp/rhodium-arch-test/work/**/.act_build_cache.json
-          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-act-reference-${{ steps.sources.outputs.revision }}-${{ steps.sources.outputs.sail_revision }}-${{ steps.act-config.outputs.digest }}-${{ hashFiles('tools/install-riscv-toolchain.sh', 'sims/arch-test/**', 'sims/sail/**', 'sw/riscv-arch-test-patches/**', 'riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py') }}"
       - name: Generate and package every selected ELF
         if: steps.act-payload.outputs.cache-hit != 'true'
         run: |

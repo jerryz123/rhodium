@@ -77,6 +77,8 @@ class PlanTest(unittest.TestCase):
             "sw/build/build-embench.py": (["embench"], False),
             "sw/build/build-bringup-bench.py": (["bringup"], False),
             "sims/arch-test/configure.py": ([], True),
+            "sims/sail/configuration.py": ([], True),
+            "sims/tests/test_sail_config.py": ([], True),
             "riscv/sail-riscv": ([], True),
             "riscv/sail-riscv-patches/0001-mask-sgeie-when-geilen-is-zero.patch": ([], True),
         }
@@ -164,7 +166,7 @@ class PlanTest(unittest.TestCase):
         self.assertEqual(workflow.count("if: always() && contains(matrix.software_tests, 'isa-smoke')"), 2)
 
     def test_software_only_builds_only_existing_single_core_products(self):
-        for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py"):
+        for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py", "sims/sail/configuration.py"):
             with self.subTest(path=path):
                 plan = self.plan(path)
                 self.assertEqual([entry["soc"] for entry in plan["simulator_matrix"]["include"]],

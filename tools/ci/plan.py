@@ -52,7 +52,7 @@ class Selection:
             self.add_native("embench")
         elif matches(path, "sw/build/build-bringup-bench.py", "sw/bringup-bench-riscv-baremetal/*", "sw/bringup-bench-patches/*", "sw/bringup-bench", "sw/bringup-bench/*", "sw/tests/test_bringup_bench.py"):
             self.add_native("bringup")
-        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "tools/write-riscv-udb-config.rhm"):
+        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py", "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "tools/write-riscv-udb-config.rhm"):
             self.arch = True
         elif matches(path, "riscv/patched_submodule.py", "riscv/tests/test_patched_submodule.py", "riscv/riscv-isa-sim", "riscv/riscv-isa-sim/*", "riscv/riscv-isa-sim-patches/*"):
             self.all_programs()
@@ -86,7 +86,7 @@ class Selection:
             self.all()
         elif matches(path, "sims/arch-test/*.rhm", "sims/tests/product-test.rhm"):
             self.add_checks("host-socs")
-        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py",
+        elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py",
                      "sw/build/build-coremark.py", "sw/build/build-embench.py",
                      "sw/build/build-bringup-bench.py", "sw/coremark", "sw/coremark/*",
                      "sw/coremark-riscv-baremetal/*", "sw/embench-iot", "sw/embench-iot/*",
@@ -98,7 +98,7 @@ class Selection:
             self.simulation = True
         elif matches(path, "sw/opensbi", "sw/opensbi/*", "sw/tests/test_opensbi_build.py", "sims/opensbi/*"):
             self.simulation = True
-        elif matches(path, "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "sims/arch-test/*", "sims/tests/test_arch_test.py"):
+        elif matches(path, "sw/riscv-arch-test", "sw/riscv-arch-test/*", "sw/riscv-arch-test-patches/*", "riscv/sail-riscv", "riscv/sail-riscv/*", "riscv/sail-riscv-patches/*", "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py"):
             pass
         elif matches(path, "riscv/patched_submodule.py", "riscv/tests/test_patched_submodule.py"):
             self.add_checks("host-models", "host-backend", "host-hygiene")

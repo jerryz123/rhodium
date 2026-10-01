@@ -88,5 +88,5 @@ arch-test-run:
 	$(PYTHON) arch-test/report.py $(ACT_RUN_ELF_DIR) || status=1; \
 	exit $$status
 
-arch-test-adapter-test:
+arch-test-adapter-test: sail-config-adapter-test
 	$(PYTHON) -m unittest discover -s tests -p 'test_arch_test.py'
