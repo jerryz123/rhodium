@@ -189,6 +189,9 @@ class Selection:
         elif matches(path, "sims/fesvr/*.rhdl"):
             self.add_checks("circt-protocols")
             self.simulation = True
+        elif matches(path, "sims/cosim/*"):
+            self.add_checks("circt-core-components")
+            self.simulation = True
         elif matches(path, "sims/*"):
             self.simulation = True
         elif matches(path, "socs/*"):

@@ -1,14 +1,20 @@
-<!-- Describes the embedded Sail reference boundary and its currently qualified scope. -->
+<!-- Describes passive architectural hooks, ordered collection, and the embedded Sail reference. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
-# Embedded Sail reference
+# Architectural co-simulation
 
-This is the first building block for passive architectural co-simulation: an
-in-process reference hart with private memory. It is not yet connected to RTL
-retirement or to Mini/Simple harnesses. See the parent
+This package provides a model-independent architectural event collector and an
+in-process Sail reference hart with private memory. They are not yet connected
+to one another or to Mini/Simple production harts. See the parent
 [contributor guide](../DEVELOPING.md#embedded-sail-reference) for maintenance.
 
 ## Get started
+
+The hook collector needs only CMake and a C++20 compiler:
+
+```sh
+make -C sims cosim-hooks-test
+```
 
 Use the repository's [simulation prerequisites](../README.md), plus CMake,
 GMP development headers, and the pinned Sail 0.20.2 compiler. On supported
@@ -24,7 +30,97 @@ These targets do not require a SoC or ISA selection. They qualify the library
 boundary, not any product configuration. The tests use explicit RV32 and RV64
 Sail configurations and execute scalar programs.
 
-## Adapter contract
+## Hook and collector contract
+
+The producer API is [`CosimHart`](../../cores/riscv/cosim.rhdl), imported with
+`lib("cores/riscv/cosim.rhdl")`. Construct it with an explicit `Clock`, a 64-bit
+simulation-instance ID, and an optional host Boolean `enabled` (default true).
+False specializes away every callback. It has no ready signal, result register,
+or influence on execution. Gate each method with the actual semantic event's
+`Bool`, not stage occupancy. Each takes a `CosimInstructionId` containing
+64-bit `epoch` and `order` fields, followed by its typed payload:
+
+| Method | Meaning |
+|---|---|
+| `instruction(valid, id, value)` | Allocate an architectural position; carries PC, encoding, privilege, and producer bitmap |
+| `retire(valid, id, value)` | Successful architectural retirement, with next PC and privilege |
+| `exception(valid, id, value)` | Synchronous exception, with cause, EPC, TVAL, target, and optional guest information |
+| `interrupt(valid, id, value, producers)` | Actual interrupt entry at a separate ordered position, not an instruction |
+| `reg_write(valid, id, effect_id, value)` | Owned integer/FP/vector writeback value, not a later register snapshot |
+| `csr_update(valid, id, effect_id, value)` | This instruction's masked assignment, set-bits, or clear-bits contribution |
+| `memory(valid, id, effect_id, value)` | Architectural memory access fragment, not a refill or speculative attempt |
+| `seal(valid, id, producer, count)` | Exact final effect count from one producer |
+
+`CosimEffectId` contains a six-bit producer and 64-bit index. The instruction
+or interrupt's 64-bit bitmap declares its producers. Each emits indices
+`0..count-1` exactly once and seals exactly once, including zero-effect producers.
+The seal can arrive before effect callbacks. Producer identities are local to
+an instruction and mean nothing to the collector; they need not name stages.
+Trap `cause` carries the numeric cause code; the interrupt event variant, not
+an XLEN-dependent high bit in that code, identifies an interrupt.
+
+Orders start at zero after reset and include interrupts; no gaps or wrap are
+allowed. Assign them at nonspeculative acceptance in architectural order, and
+retain them through replay and delayed execution. Speculative/squashed attempts
+emit nothing. Each instruction gets exactly one retirement or exception outcome.
+Retirement can precede delayed effects. A vector exception can retain partial
+register and memory effects. A fetch exception may carry an incomplete encoding
+and zero instruction length; successful retirement requires the full 2- or
+4-byte encoding. Wider instruction encodings are not supported in this ABI.
+
+Register writes use at most 64 bits with a bit mask and an architectural bit
+offset. The mask and value are relative to that offset, independent of physical
+VRF layout. Integer x0 writes are omitted; FP values use architectural encoding,
+including applicable NaN boxing. RV32 writes mask only their architectural bits.
+CSR `SetBits`/`ClearBits` affect `value & mask`; `AssignMasked` replaces the
+masked bits. Preserve contributions such as fflags/vxsat instead of observing a
+whole CSR containing younger instructions' contributions. Effects within a
+producer are ordered by index. Distinct producers must have disjoint effects
+or commuting updates; producer number does not establish architectural priority.
+The collector retains contributions rather than interpreting ISA semantics.
+
+Memory effects carry access ID, fragment offset, kind, virtual address, optional
+physical address, byte mask, optional read/write data, and success/fault/SC-failure
+result. Each fragment is at most eight bytes, with mask/data relative to its
+reported address. Vector accesses have distinct access IDs; split portions of
+one access share an ID. Record a store's architectural acceptance, not a later
+cache writeback. No cross-hart memory order or coherence checker is implied.
+
+[`observation.h`](observation.h) is the independent C++ API. Its guaranteed flow is:
+
+```text
+header + outcome + effects + producer seals (arbitrary callback order)
+  -> per-hart pending records
+  -> end-of-sample validation
+  -> contiguous complete architectural records
+```
+
+The driver registers/reset harts with `Collector::reset(instance, epoch, state)`.
+Architectural hart ID is separate from simulation-instance ID. Reset explicitly
+abandons pending records, advances the epoch, and resets order to zero. Late
+old-epoch callbacks are errors, never reassigned to a reused execution slot.
+Reset state describes XLEN/VLEN, initial PC and privilege; it is not a register
+write event or a complete initialization image for the reference model.
+
+Before an evaluated edge, set per-hart `environment` (interrupt-input levels,
+time and ticks), then `begin_sample`. After evaluation has settled, call
+`DpiBinding::check()` and `Collector::end_sample()`. Never implement this barrier
+as another unordered posedge callback. Headers capture the environment at their
+architectural boundary, not at late completion. Time/input meaning is owned by
+the driver and future reference integration; interrupt input levels are distinct
+from observed interrupt entry. `end_sample` returns records in order **per
+hart**, not a global multi-hart execution order. Effects/outcomes may precede
+their header within a sample, but not across samples.
+
+`finish()` rejects an open sample, missing effects/seals/outcomes, and order gaps.
+Published IDs cannot receive more callbacks. Pending order distance and effects
+per record have configurable bounds (defaults 4096 and 65536); exceeding them
+fails instead of dropping observations. Protocol failures poison the collector.
+The DPI binding catches errors instead of unwinding C++ exceptions through SV;
+the driver must check its sticky error after every evaluated edge and before
+finishing. One binding owns all registered harts on one simulation thread.
+
+## Sail adapter contract
 
 [`sail-reference.h`](sail-reference.h) is the generated-type-free API.
 Construct `SailReference` with complete Sail configuration JSON, a reset PC,
@@ -96,8 +192,9 @@ and host writes into private reference memory at defined boundaries.
 - The callback API carries FP/vector writes, but FP/vector, atomics/reservation
   behavior, virtualized privilege, full-profile execution, and supervisor
   interrupt delivery are not qualified by this first cut.
-- No RTL observations, deferred-effect assembler, comparison engine, or CI
-  software-suite co-simulation is enabled. Timer/software interrupt inputs and
+- Typed RTL hooks and the deferred-effect collector are independently tested;
+  production hart wiring, a comparison engine, and software-suite co-simulation
+  are not enabled. Timer/software interrupt inputs into Sail and
   nondeterministic CSR replay remain future environment work.
 
 The pinned model and optional host hooks live in the existing

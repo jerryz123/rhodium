@@ -111,7 +111,25 @@ and runtime assertions.
 tests. It consumes the pinned Sail package; keep generated Sail types private
 to `sail-reference.cc`, not in the public adapter header. Its exact-configuration
 and private-memory contract is separate from ACT placement/signature policy.
-There is no RTL observation or comparison integration yet.
+`cores/riscv/cosim.rhdl` owns reusable typed hart hooks and imports no simulator.
+`cosim/observation.h` and `.cc` own model-independent record assembly;
+`hooks-dpi.h` and `.cc` own the flat 64-bit ABI. Keep these independent of Sail,
+Perfetto, pipeline stages, and completion-slot allocation. Production harts and
+the comparison engine are not integrated yet.
+
+Run `make -C sims cosim-hooks-test` after collector/ABI changes. The host-adapter
+CI step includes it without requiring Sail. The `cosim-hooks` CIRCT fixture
+belongs to `cores-components` and exercises all hook payloads and disabled
+specialization through the real collector:
+
+```sh
+FIXTURES=cosim-hooks bash tools/testing/circt/run.sh --simulate-only
+```
+
+Change typed payloads, flat declarations, native decoding, and this behavioral
+fixture together. Retain tests for callback permutations, delayed effects,
+reset generations, incomplete sessions, and malformed streams. The simulator
+driver owns begin/end-sample barriers outside unordered DPI callbacks.
 
 `sail/configuration.py` owns the common architecture projection and explicit
 model-difference report. Keep ACT placement/signatures and synthetic devices in

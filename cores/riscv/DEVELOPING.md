@@ -36,6 +36,12 @@ instruction, data, and uncached requester capabilities, placement parameters,
 and the hardware identity bundle. Named cores retain refill, writeback, snoop,
 cache-maintenance, and uncached transaction state machines.
 
+`cosim.rhdl` owns implementation-neutral observation types and passive DPI
+procedures. It uses only public Rhodium and architectural privilege types, not
+the host receiver under `sims/cosim/`. Keep the flat ABI synchronized with that
+receiver. Its owned behavioral integration test is `cosim-hooks` in
+`sims/cosim/tests/circt/`; run it through the shared CIRCT runner after hook changes.
+
 ## Focused validation
 
 Run the mapping checks after changing their shared decode relations, or the

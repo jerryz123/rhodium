@@ -320,6 +320,14 @@ class PlanTest(unittest.TestCase):
                 self.assertTrue(plan["run_simulation"])
                 self.assertFalse(plan["run_checks"])
 
+    def test_cosim_receiver_selects_real_hook_transport(self):
+        for path in ("sims/cosim/hooks-dpi.cc", "sims/cosim/observation.cc",
+                     "sims/cosim/tests/hooks-fixture.rhdl", "cores/riscv/cosim.rhdl"):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                self.assertIn("circt-core-components", check_keys(plan))
+                self.assertTrue(plan["run_simulation"])
+
     def test_optional_sources_remain_outside_functional_ci(self):
         self.assertFalse(self.plan("tools/emacs/rhodium-mode.el")["run_compile"])
         self.assert_checks("vlsi/src/rhodium-top.rhdl", "host-hygiene")

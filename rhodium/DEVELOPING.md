@@ -181,6 +181,9 @@ descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
+`cores/riscv/cosim.rhdl` uses public language DPI, bundles, and enums plus
+architectural privilege types; its host receiver lives in `sims/cosim/`, with
+no reverse simulator import or dependency on tracing metadata.
 `cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
 The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for

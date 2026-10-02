@@ -70,7 +70,7 @@ jobs:
           make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
       - name: Test host adapters
         if: matrix.qualification && matrix.soc == 'simple-rv5stage-rva23'
-        run: make -C sims transport-test arch-test-adapter-test program-test-adapter-test
+        run: make -C sims transport-test arch-test-adapter-test program-test-adapter-test cosim-hooks-test
       - name: Download exact product simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:

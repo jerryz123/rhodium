@@ -255,7 +255,7 @@ fixture_in_group() {
     language:nested-bundle|language:bundle-update|language:aggregate-memory|language:one-hot-aggregate|language:priority-encoder|language:formal-differential|language:event-runtime|language:event-pipeline|language:event-elastic|language:event-queue|language:event-arbiter|language:event-demux|language:event-atomic-fork|language:event-broadcast|language:event-join|language:event-stall|language:event-offer|language:event-retained|language:event-crossbar)
       return 0
       ;;
-    cores-components:riscv-hpm-*|cores-execution-control:rv5stage-sscofpmf-*)
+    cores-components:cosim-hooks|cores-components:riscv-hpm-*|cores-execution-control:rv5stage-sscofpmf-*)
       return 0
       ;;
     std:cache-replacement|std:shift-queue|std:round-robin-matcher|std:credited-flow|std:credited-monitor|std:credited-monitor-overgrant|std:expand-mask|std:runtime-alignment|std:transfer-range)
@@ -561,6 +561,10 @@ verify_fixture() {
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
+    if [[ "$fixture" == cosim-hooks ]]; then
+      dpi_sources+=("$repo_dir/sims/cosim/observation.cc" "$repo_dir/sims/cosim/hooks-dpi.cc")
+      verilator_args+=(-CFLAGS "-std=c++20")
+    fi
     testbench="$(owned_fixture_file "verilog/${fixture}_tb.sv")"
     if [[ -f "$test_tmp_dir/${fixture}_manifest.h" ]]; then
       verilator_args+=(-CFLAGS "-I$test_tmp_dir -I$repo_dir/rheg/runtime")
@@ -789,6 +793,7 @@ direct_fixture_specs=(
   'event-offer-register|event_offer_register_tb'
   'event-parents|event_parents_tb'
   'event-fesvr|event_fesvr_tb'
+  'cosim-hooks|cosim_hooks_tb'
   'event-partial|event_partial_tb'
   'event-elastic|event_elastic_tb'
   'event-queue|event_queue_tb'
