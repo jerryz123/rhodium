@@ -143,6 +143,68 @@ inside preparation and return that plan through the same compilation contract.
 The generic target contract and `CompileOptions` impose no RTL or instrumentation
 policy on other targets.
 
+## Ordered RTL instrumentation
+
+Import `rtl_pipeline_target`, `RTLPass`, and `RTLPassResult` from
+[`pipeline.rhm`](pipeline.rhm) to compose concrete RTL instrumentation before
+one backend emission:
+
+```rhombus
+// observation_pass and checking_pass are configured RTLPass values.
+def target = rtl_pipeline_target(verilog_target, [observation_pass, checking_pass])
+def result = compile_program(program, target)
+```
+
+The pipeline prepares the source once, applies passes in list order, and calls
+`backend.plan(final_prepared)` once. It returns the backend artifact followed by
+each pass's sidecars in order. An empty pass list returns the original backend.
+The composed target name is the backend name followed by `+<pass-name>` for each
+pass; this identifies the selected sequence, not a fingerprint of its settings.
+
+`RTLPass(name, transform)` captures owner-specific configuration in its callback.
+Names must be unique and nonempty so findings identify their owner. The supplied
+list is the complete execution order; any semantic prerequisites belong to the
+pass's own validation.
+
+Each callback receives the current `PreparedRTL` and returns
+`RTLPassResult(rtl, artifacts, report, diagnostics)`; the last three arguments
+default to `[]`, `#false`, and `[]`. The output must be a complete, concrete
+reachable `DesignElaboration`. The coordinator verifies it and requires the
+original top's ordered port names, directions, and types.
+
+Existing instance paths must survive each pass, including observers introduced
+by an earlier pass. New instances may be added, and shared module definitions
+may be specialized independently per occurrence. This supports additive
+instrumentation while keeping source paths and descriptor references stable.
+Passes also own preservation of functional behavior, prior instrumentation, and
+all other owners' metadata through the existing IR-remapping protocol. Structural
+verification alone cannot prove those semantic obligations.
+
+The coordinator rebuilds each physical manifest. Lowering decisions retain their
+original source paths, definitions, reasons, locations, and origins, while their
+implementation names identify the final modules at those same paths.
+`RTLPipelineReport.stages` contains ordered `RTLPassReport(name, findings)`
+values; each finding belongs to that stage's graph. `.backend` contains the
+backend report.
+Reports with live IR are never implicitly rebound to a later graph. Sidecar
+artifacts must be detached from live IR, and later passes must preserve the
+instrumentation they describe.
+
+Diagnostics are returned in pass order followed by backend diagnostics. The
+ordinary compilation rules still apply: duplicate artifact names and failures
+raise without returning a partial result; error diagnostics accompany completed
+artifacts. This interface currently supplies orchestration only. Flow tracing
+and co-simulation have not been migrated into passes.
+
+This is an optional concrete-RTL helper. General `CompilationTarget` plans remain
+free to consume retained high-level constructs directly. Language layers and
+libraries declare semantics through existing constructs and metadata; their
+owning passes interpret those declarations. Compilation contains no Flow,
+co-simulation, or frontend policy. Analysis targets remain independent, and
+backend choice is separate from the instrumentation list.
+
+## Other targets and future work
+
 Use the [clock-analysis target](../analysis/README.md) for temporal reports or
 CDC diagnostics; it expands retained constructs for concrete provenance. The
 [direct SystemVerilog target](../backend/README.md#direct-systemverilog) emits

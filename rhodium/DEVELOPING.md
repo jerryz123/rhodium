@@ -104,7 +104,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../support/annotations.rhm`](../support/annotations.rhm) | Dependency-neutral Rhombus refinement annotations | Rhombus only |
 | [`core/`](core/README.md) | Types, IR, Builder, verification, and printing | Other core modules, `../support/annotations.rhm`, and Rhombus libraries |
 | [`lowering/`](lowering/README.md) | Program envelope, checked state expansion, and extension certification after concrete verification | Core IR, signatures, construct contracts and instance views, Builder, schemas, verifier, dependency summaries; local graph copier |
-| [`compile/`](compile/README.md) | Explicit target orchestration, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts; portable lowering; neutral local contracts |
+| [`compile/`](compile/README.md) | Explicit target orchestration, in-memory artifacts, and occurrence reports | Core IR/signatures/construct contracts and verifier; portable lowering; neutral local contracts |
 | [`analysis/`](analysis/README.md) | Clock compile target plus internal certification, provenance, and diagnostics | Core and analysis modules; only `clocking.rhm` imports neutral compile contracts and RTL preparation |
 | [`frontend/kernel.rhm`](frontend/kernel.rhm) | Context-sensitive elaboration, signature-bearing definition references and layer-owned boundary declarations, checked concrete materialization, and deferred hardware values | Core IR, signatures, construct contracts, Builder, verifier; `lowering/program.rhm` |
 | [`frontend/support/`](frontend/support/) | Shared cross-layer protocols, macros, static-information machinery, and policy certification; not a language profile | Kernel, approved core APIs, approved analyses, other support modules |

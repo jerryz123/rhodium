@@ -1,0 +1,121 @@
+#lang rhombus
+/* Composes ordered RTL instrumentation passes with occurrence provenance and one backend emission plan. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "contracts.rhm" open
+  "rtl.rhm" open
+  "../core/ir.rhm" open
+  "../core/signature.rhm" open
+  "../core/verify.rhm".verify_design
+
+export:
+  RTLPass
+  RTLPassResult
+  RTLPassReport
+  RTLPipelineReport
+  rtl_pipeline_target
+
+/* Names a configured instrumentation callback; callers choose its position explicitly.
+   Owner-specific configuration stays in the closure, outside CompileOptions. */
+class RTLPass(name :: String, transform :: Function.of_arity(1)):
+  /* Require a usable label for this pass's findings. */
+  constructor (name :: String, transform :: Function.of_arity(1)):
+    unless name != ""
+    | error(~who: #'RTLPass, "pass name must be nonempty")
+    super(name, transform)
+
+/* Returns instrumented RTL with existing instance paths and top ports preserved.
+   Sidecars are detached values; graph-backed reports belong to this stage only. */
+class RTLPassResult(rtl :: DesignElaboration,
+                    artifacts :: List.of(Artifact) = [],
+                    report :: maybe(CompilationReport) = #false,
+                    diagnostics :: List.of(Diagnostic) = [])
+
+/* Qualifies one stage's findings so graph-backed reports retain their stage identity. */
+class RTLPassReport(name :: String, findings :: maybe(CompilationReport))
+
+/* Collects stage-qualified snapshots alongside the ordinary backend findings. */
+class RTLPipelineReport(stages :: List.of(RTLPassReport), backend :: maybe(CompilationReport)):
+  implements CompilationReport
+
+/* Enumerate verified hierarchy occurrences without collapsing shared definitions.
+   Reject disconnected module inventory so the manifest describes the emitted closure. */
+fun rtl_occurrences(rtl :: DesignElaboration):
+  unless rtl.top.design === rtl.design && rtl.design.owns_module(rtl.top)
+  | error(~who: #'rtl_pipeline_target, "pass top must belong to its output design")
+  def paths = MutableMap{}
+  def visited = MutableSet.by(===){}
+  /* Visit each occurrence while counting definitions only for the closure check. */
+  fun visit(module_def :: Module, path :: List.of(String)):
+    paths[path] := module_def
+    visited.add(module_def)
+    for (operation in module_def.operations):
+      when operation.opcode == "rtl.instance"
+      | visit(operation.attribute("module"), path ++ [operation.attribute("name")])
+  visit(rtl.top, [])
+  unless visited.length() == rtl.design.modules.length()
+  | error(~who: #'rtl_pipeline_target, "pass output must contain only reachable modules")
+  paths.snapshot()
+
+/* Refresh physical module names while keeping source occurrence attribution.
+   Instrumentation may specialize definitions, but existing instance paths stay fixed. */
+fun pipeline_prepared(rtl :: DesignElaboration, original :: CompileManifest, modules :: Map):
+  def decisions = original.lowerings.map(
+    fun (decision):
+      LoweringDecision(decision.path, decision.definition, decision.action,
+                       decision.reason, modules[decision.path].name,
+                       decision.location, decision.origin)
+  )
+  def manifest = CompileManifest(rtl.top.name, module_signature(rtl.top), rtl.design.modules.map(fun (module_def): module_def.name), decisions)
+  PreparedRTL(rtl, manifest)
+
+/* Collect sidecars and findings without invoking transformations during projection.
+   Backend emission is called once by compile_program; duplicate artifacts remain errors. */
+class RTLPipelinePlan(backend_plan :: TargetPlan, passes :: List.of(RTLPass),
+                      results :: List.of(RTLPassResult)):
+  implements TargetPlan
+  /* Describe the final backend boundary, not an intermediate pass's module inventory. */
+  override method manifest(): backend_plan.manifest()
+  /* Keep reports stage-qualified rather than merging live references across graphs. */
+  override method report():
+    def stages = for List (pass in passes, result in results): RTLPassReport(pass.name, result.report)
+    RTLPipelineReport(stages, backend_plan.report())
+  /* Preserve stage order and the ordinary backend's diagnostics. */
+  override method diagnostics():
+    (for values(messages = []) (result in results): messages ++ result.diagnostics) ++ backend_plan.diagnostics()
+  /* Emit final RTL first and detached sidecars in pass order, atomically in memory. */
+  override method emit():
+    backend_plan.emit() ++ (for values(artifacts = []) (result in results): artifacts ++ result.artifacts)
+
+/* Prepare once, apply instrumentation in caller order, and make one backend plan.
+   This concrete-RTL helper does not replace representation-independent targets.
+   Passes preserve behavior, existing observers, and other owners' metadata. */
+fun rtl_pipeline_target(backend :: RTLTarget, passes :: List.of(RTLPass)):
+  def names = passes.map(fun (pass): pass.name)
+  def seen = MutableSet{}
+  for (pass in passes):
+    when pass.name in seen
+    | error(~who: #'rtl_pipeline_target, "duplicate pass: " ++ pass.name)
+    seen.add(pass.name)
+  /* Prepare once, verify each transformation, and construct one final backend plan. */
+  fun prepare(program :: ElaboratedProgram, options :: CompileOptions):
+    def initial = prepare_rtl(program, options, backend.expansion_reason)
+    def mutable current = initial
+    def mutable modules = rtl_occurrences(initial.rtl)
+    def results = MutableList[]
+    for (pass in passes):
+      def result :: RTLPassResult = pass.transform(current)
+      verify_design(result.rtl.design)
+      def next_modules = rtl_occurrences(result.rtl)
+      unless signature_equal(module_signature(result.rtl.top), initial.manifest.signature)
+      | error(~who: #'rtl_pipeline_target, "instrumentation must preserve the functional top signature")
+      for (path in modules.keys()):
+        unless next_modules.has_key(path)
+        | error(~who: #'rtl_pipeline_target, "instrumentation must preserve existing instance paths")
+      current := pipeline_prepared(result.rtl, initial.manifest, next_modules)
+      modules := next_modules
+      results.add(result)
+    RTLPipelinePlan(backend.plan(current), passes, results.snapshot())
+  if passes.length() == 0
+  | backend
+  | CompilationTarget(backend.name ++ "+" ++ String.join(names, "+"), prepare)

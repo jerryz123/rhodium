@@ -32,6 +32,9 @@ or metadata copying.
   per occurrence while retaining materialization's per-definition reuse.
   `RTLTarget` shares one checked plan factory between ordinary preparation and
   the prepared-graph entry point; neither path changes generic target policy.
+- `pipeline.rhm`: ordered concrete instrumentation, instance-path preservation,
+  physical manifests with source attribution, and stage-qualified
+  findings. Imports core verification directly; it imports no instrumentation owner.
 - `../analysis/clocking.rhm`: clock-analysis target, structured findings, and
   CDC errors/reconvergence warnings using the same concrete preparation helper.
 - `../backend/circt-target.rhm`, `../backend/verilog-target.rhm`: concrete targets
@@ -53,8 +56,22 @@ Concrete composition uses `RTLTarget.plan(prepared)` after preparation. Do not
 wrap an existing prepared graph in another `ElaboratedProgram` and recompile it:
 that copies the graph and discards its construct-expansion report. Plan factories
 retain the supplied graph and manifest without expanding, cloning, or emitting.
-A transformation owns verification of its output and reconciliation of its
-physical manifest with occurrence provenance before constructing an emission plan.
+Use `rtl_pipeline_target` for multiple concrete instrumentation passes rather
+than nesting target wrappers. The coordinator verifies each result and reconciles
+its manifest before creating one final backend plan. Pass implementations own
+semantic transparency and occurrence-aware copying of every metadata namespace;
+stable hierarchy paths do not replace IR-object remapping. A later graph must preserve
+prior observers and the identities recorded in their detached sidecars. Keep
+live-IR reports explicitly stage-qualified rather than silently mixing graphs.
+
+The supplied pass list defines execution order. Keep generic `CompileOptions`
+unchanged: pass callbacks capture their own settings and validate their semantic
+prerequisites. Keep this helper limited to instrumentation that preserves
+existing paths and top ports. General compilation and retained-construct
+interpretation still use `CompilationTarget`; they do not need to enter this RTL
+pipeline. Prefer existing Builder, metadata-remapping, verifier, artifact, and
+report contracts to new feature-specific protocols. Add machinery only when an
+implemented consumer needs it.
 
 Collect each plan projection once, including diagnostics. Error-severity findings
 must not suppress completed artifacts; enforcement belongs in the invoking
@@ -73,8 +90,14 @@ retained-top, and shared-child Builder programs. Provider and metadata-remap
 counters distinguish ordinary preparation from graph reuse; exact artifacts,
 manifest identity, and occurrence attribution protect the composition boundary.
 
+`../backend/tests/rtl-pipeline-test.rhm` exercises two ordered transformations
+through both real backend plans, including per-occurrence specialization,
+metadata survival, source preservation, provenance, sidecars, explicit ordering,
+and failed compilation. It belongs with backend integration because it imports
+both emission targets; production compile code remains independent of them.
+
 ```sh
-tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm rhodium/backend/tests/prepared-rtl-test.rhm
+tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm rhodium/backend/tests/prepared-rtl-test.rhm rhodium/backend/tests/rtl-pipeline-test.rhm
 make backend-test check-boundaries ci-plan-test
 ```
 
