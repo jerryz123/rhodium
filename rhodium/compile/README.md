@@ -117,6 +117,32 @@ annotations. It returns a `PreparedRTL` containing `.rtl` and
 reachable retained construct through its portable implementation. A future target can supply
 its own plan without first erasing retained constructs.
 
+For concrete emission, `rtl.rhm` also supplies
+`RTLTarget(name, expansion_reason, build_plan)`, a specialization of
+`CompilationTarget`. Its ordinary `.prepare(program, options)` calls
+`prepare_rtl` once and passes the result to `build_plan`. Its `.plan(prepared)`
+entry point constructs a `TargetPlan` directly from an existing `PreparedRTL`,
+without materializing another graph or invoking providers again. Both CIRCT and
+direct SystemVerilog targets expose this entry point:
+
+```rhombus
+def prepared = prepare_rtl(program, CompileOptions(), "selected concrete implementation")
+def circt_plan = circt_target.plan(prepared)
+def verilog_plan = verilog_target.plan(prepared)
+```
+
+Import `prepare_rtl` from `rtl.rhm`, `CompileOptions` from `contracts.rhm`, and
+each backend target from its owning module. Plan construction does not emit
+text; `plan.emit()` returns in-memory artifacts. The backend plan retains the
+supplied graph and manifest, including occurrence paths, source attribution,
+and lowering reasons. Callers remain responsible for supplying verified RTL
+and a matching manifest; a graph transformation must update physical names,
+ports, and module inventory while preserving its lowering provenance. Ordinary
+drivers continue to use `compile_program`; composed targets can use `.plan`
+inside preparation and return that plan through the same compilation contract.
+The generic target contract and `CompileOptions` impose no RTL or instrumentation
+policy on other targets.
+
 Use the [clock-analysis target](../analysis/README.md) for temporal reports or
 CDC diagnostics; it expands retained constructs for concrete provenance. The
 [direct SystemVerilog target](../backend/README.md#direct-systemverilog) emits

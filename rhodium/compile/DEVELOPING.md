@@ -30,10 +30,12 @@ or metadata copying.
 - `rtl.rhm`: asks lowering for a fresh reachable graph and maps its expansion
   provenance to a deterministic depth-first report. Traverse shared definitions
   per occurrence while retaining materialization's per-definition reuse.
+  `RTLTarget` shares one checked plan factory between ordinary preparation and
+  the prepared-graph entry point; neither path changes generic target policy.
 - `../analysis/clocking.rhm`: clock-analysis target, structured findings, and
   CDC errors/reconvergence warnings using the same concrete preparation helper.
-- `../backend/circt-target.rhm`: the first target and plan, using the existing
-  internal CIRCT emitter.
+- `../backend/circt-target.rhm`, `../backend/verilog-target.rhm`: concrete targets
+  and plans using the existing internal emitters.
 
 The lowering result maps construct definitions to destination modules. Derive
 reports from this map and copied instance locations, never generated name
@@ -47,6 +49,13 @@ Add new target behavior to its owner. Keep new selection mechanisms tied to a
 real supported backend rather than introducing placeholder emitters. Keep preparation fresh and scoped to the selected top. Keep generated
 artifacts out of version control.
 
+Concrete composition uses `RTLTarget.plan(prepared)` after preparation. Do not
+wrap an existing prepared graph in another `ElaboratedProgram` and recompile it:
+that copies the graph and discards its construct-expansion report. Plan factories
+retain the supplied graph and manifest without expanding, cloning, or emitting.
+A transformation owns verification of its output and reconciliation of its
+physical manifest with occurrence provenance before constructing an emission plan.
+
 Collect each plan projection once, including diagnostics. Error-severity findings
 must not suppress completed artifacts; enforcement belongs in the invoking
 workflow. Keep `has_errors` derived from diagnostics and preserve exception
@@ -59,9 +68,13 @@ CIRCT plan's existing failure-injection coverage.
 paths, expansion reuse and limits, unused providers, and source preservation.
 `../backend/tests/compile-test.rhm` checks the real CIRCT target with Builder-owned concrete and retained
 fixtures, mixed hierarchy, deterministic output, compatibility, and failures.
+`../backend/tests/prepared-rtl-test.rhm` covers both real targets on concrete,
+retained-top, and shared-child Builder programs. Provider and metadata-remap
+counters distinguish ordinary preparation from graph reuse; exact artifacts,
+manifest identity, and occurrence attribution protect the composition boundary.
 
 ```sh
-tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm
+tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm rhodium/backend/tests/prepared-rtl-test.rhm
 make backend-test check-boundaries ci-plan-test
 ```
 

@@ -49,6 +49,12 @@ See the [compiler contract](../compile/README.md) for options and failures.
 The selected top defines compilation scope. To compile independent roots, make
 one explicit request for each root. There is no whole-inventory program mode.
 
+Both backends are `RTLTarget` instances. A composing compilation target can call
+`circt_target.plan(prepared)` or `verilog_target.plan(prepared)` with verified
+`PreparedRTL` to reuse its graph and manifest without another preparation pass.
+See the [prepared-RTL contract](../compile/README.md#targets-and-compatibility)
+for ownership and provenance requirements.
+
 An unsupported verified type or opcode is a backend error. The backend does not
 add pseudo-CIRCT operations to avoid an explicit lowering decision.
 

@@ -22,8 +22,10 @@ export:
 class CompileOptions(expansion_limit :: PosInt = 256)
 
 /* Names an explicit target and its (program, options) preparation callback.
-   The callback owns representation choices; compilation does not consult a registry. */
+   The callback owns representation choices; compilation does not consult a registry.
+   Subclasses may add specialized entry points without changing compiler dispatch. */
 class CompilationTarget(name :: String, prepare :: Function.of_arity(2)):
+  nonfinal
   /* Reject an empty target identity before storing its preparation callback. */
   constructor (name :: String, prepare :: Function.of_arity(2)):
     unless name != "" | error(~who: #'CompilationTarget, "target name must not be empty")

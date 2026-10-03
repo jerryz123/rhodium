@@ -11,9 +11,12 @@ and generated-artifact policy.
 
 ## Architecture and ownership
 
-`compile_program` selects a target. Each target calls the shared `prepare_rtl`
-helper to obtain a fresh, verified reachable graph and manifest, then emits one
-artifact. Compilation owns requests/results; lowering owns copying and portable
+`compile_program` selects a target. Each backend uses `RTLTarget`: ordinary
+preparation calls the shared `prepare_rtl` helper to obtain a fresh, verified
+reachable graph and manifest, then constructs its emission plan. The same
+target's `.plan(prepared)` accepts an existing `PreparedRTL` without preparing
+again, for composition inside another target. Both paths emit one artifact.
+Compilation owns requests/results; lowering owns copying and portable
 expansion; each backend owns its representation. Frontend and Flow libraries
 need no backend-specific branches.
 
@@ -33,10 +36,10 @@ a shared semantic responsibility actually belongs in core.
 
 | File | Responsibility |
 |---|---|
-| `circt-target.rhm`, `verilog-target.rhm` | Target adapters over shared concrete preparation |
+| `circt-target.rhm`, `verilog-target.rhm` | RTL targets with shared ordinary/prepared plan construction |
 | `circt.rhm` | CIRCT types, aliases, operation lowering, and textual MLIR |
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
-| `tests/*-test.rhm` | Host contracts, invalid uses, determinism, and source preservation |
+| `tests/*-test.rhm` | Host contracts, prepared graph reuse, invalid uses, determinism, and source preservation |
 | `tests/verilog/fixtures.rhm` | Builder-owned semantic fixtures shared by both backends |
 | `tests/verilog/emit-{direct,circt}.rhm` | Explicit-target fixture emission |
 | `tests/verilog/support.py` | Tool execution, logs, and packed stimulus tables |

@@ -17,4 +17,4 @@ class VerilogPlan(prepared :: PreparedRTL):
   override method emit():
     [Artifact(prepared.rtl.top.name ++ ".sv", "text/x-systemverilog", emit_verilog(prepared.rtl.design))]
 
-def verilog_target = CompilationTarget("verilog", fun (program, options): VerilogPlan(prepare_rtl(program, options, "SystemVerilog requires concrete RTL; use the portable implementation")))
+def verilog_target = RTLTarget("verilog", "SystemVerilog requires concrete RTL; use the portable implementation", fun (prepared): VerilogPlan(prepared))
