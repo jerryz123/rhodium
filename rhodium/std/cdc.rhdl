@@ -1,5 +1,5 @@
 #lang rhodium
-// Provides the public facade for standard clock-domain crossing circuits.
+/* Provides the public facade for standard clock-domain crossing circuits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

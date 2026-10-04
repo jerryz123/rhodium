@@ -1,18 +1,19 @@
 #lang rhodium
-// Defines one addressed read-or-write Valid flow over replicated data lanes.
+/* Defines one addressed read-or-write Valid flow over replicated data lanes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Carries an addressed operation, replicated data lanes, and per-lane write enables. */
 bundle ReadWriteRequest(address_width :: PosInt, T :: DataType, n :: PosInt):
   address: Bits(address_width)
   write: Bool
   data: Vec(n, T)
   mask: Mask(n)
 
-// One request denotes either a read or a write. Response data is meaningful
-// only for reads; the implementing component defines response timing.
+/* One request denotes either a read or a write. Response data is meaningful
+ * only for reads; the implementing component defines response timing. */
 interface ReadWritePort(address_width :: PosInt, T :: DataType, n :: PosInt):
   role requester
   role responder

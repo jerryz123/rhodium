@@ -1,5 +1,5 @@
 #lang rhodium
-// Materializes an arbitrary hardware member of a typed host-side Pattern cube.
+/* Materializes an arbitrary hardware member of a typed host-side Pattern cube. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
 export:
   pattern_value
 
+/* Materializes cared bits exactly and uncared bits as synthesis freedom, then casts to the cube's data type. */
 fun pattern_value(cube :: Pattern):
   def all_ones = (1 << cube.width) - 1
   def free_bits = all_ones bits.xor cube.care_bits

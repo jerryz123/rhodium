@@ -1,16 +1,18 @@
 #lang rhodium
-// Defines a named generic shift register over arbitrary data with optional reset and enable.
+/* Defines a named generic shift register over arbitrary data with optional reset and enable. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
 
+/* Infers the input's hardware data type and rejects non-data hardware categories. */
 fun shift_register_data_type(value :: Hardware):
   def T = hardware_value_type(value)
   unless data_type(T)
   | error(~who: #'shift_register, "input must have a DataType")
   T
 
+/* Validates an exact element or stage-vector literal, replicating an element initializer across all stages. */
 fun shift_register_initial(T :: DataType,
                            stages :: PosInt,
                            init :~ HardwareLiteral):
@@ -29,17 +31,22 @@ fun shift_register_initial(T :: DataType,
         "initial value must have the element type or the full stage-vector type"
       )
 
+/* Requires a Bool enable without introducing implicit bit-vector conversion. */
 fun shift_register_enable(enable :: Hardware):
   unless Bool.type_equal(hardware_value_type(enable))
   | error(~who: #'shift_register, "enable must have Bool hardware type")
   enable
 
+/* Forms the next stage vector with the new sample at index zero and each later stage holding its predecessor. */
 fun shift_register_next(value :: Hardware,
                         stages :: PosInt,
                         state :: Vec(stages, hardware_value_type(value)))
   :: Vec(stages, hardware_value_type(value)):
   vec([value] ++ (for List (index in 0..(stages - 1)): state[index]))
 
+/* Binds an ambient-clock stage vector with optional literal initialization and enable.
+ * Initialization applies through the ambient reset; a disabled update holds all stages.
+ */
 defn.macro
 | 'shift_register $(name :: Identifier)($value, $stages)':
     '«

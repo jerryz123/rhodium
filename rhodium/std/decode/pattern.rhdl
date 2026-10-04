@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines typed host-side patterns and recursive aggregate pattern construction.
+/* Defines typed host-side patterns and recursive aggregate pattern construction. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,11 +16,13 @@ export:
   as_pattern
   as_pattern_set
 
+/* Requires symmetric hardware-type equality between two literal shadows. */
 fun literal_types_equal(left :: HardwareLiteral, right :: HardwareLiteral):
   def left_type = left.literal_type()
   def right_type = right.literal_type()
   left_type.type_equal(right_type) && right_type.type_equal(left_type)
 
+/* Validates a positive packed literal width and a natural packed image fitting that width. */
 fun require_literal(value :: HardwareLiteral, role :: String):
   def width = value.literal_width()
   unless width is_a PosInt
@@ -30,6 +32,7 @@ fun require_literal(value :: HardwareLiteral, role :: String):
   | error(~who: #'Pattern, role ++ " packed value does not fit its literal type")
   value
 
+/* Requires exact literal hardware types and packed widths, attributing failures to the supplied role. */
 fun require_same_pattern_type(left :: HardwareLiteral,
                               right :: HardwareLiteral,
                               role :: String):
@@ -37,14 +40,15 @@ fun require_same_pattern_type(left :: HardwareLiteral,
   | error(~who: #'Pattern,
           role ++ " must have exactly the same hardware type and width")
 
-// Pattern is deliberately ordinary host data, not a HardwareLiteral. It
-// denotes a set of packed values and therefore cannot be connected to hardware.
+/* Pattern is deliberately ordinary host data, not a HardwareLiteral. It
+ * denotes a set of packed values and therefore cannot be connected to hardware. */
 class Pattern(value :: HardwareLiteral,
               care :: HardwareLiteral,
               type :: DataType,
               width :: PosInt,
               value_bits :: Nat,
               care_bits :: Nat):
+  /* Canonicalizes the host cube by clearing uncared value bits after validating value and care types. */
   constructor (~value: supplied_value :: HardwareLiteral,
                ~care: supplied_care :: HardwareLiteral):
     def value = require_literal(supplied_value, "value")
@@ -55,11 +59,13 @@ class Pattern(value :: HardwareLiteral,
     def value_bits = value.packed_value() bits.and care_bits
     super(value, care, value.literal_type(), width, value_bits, care_bits)
 
+  /* Checks an exactly typed host literal against the cube's cared-bit constraints. */
   method matches(candidate :: HardwareLiteral):
     def literal = require_literal(candidate, "candidate")
     require_same_pattern_type(value, literal, "candidate")
     (literal.packed_value() bits.and care_bits) == value_bits
 
+  /* Tests for any common packed value, delegating set operands to normalized set algebra. */
   method overlaps(other :: Pattern || PatternSet):
     if other is_a PatternSet
     | as_pattern_set(this).overlaps(other)
@@ -69,6 +75,7 @@ class Pattern(value :: HardwareLiteral,
         def jointly_cared = care_bits bits.and other.care_bits
         (differing bits.and jointly_cared) == 0
 
+  /* Checks whether every value of the other cube or set satisfies this cube's constraints. */
   method subsumes(other :: Pattern || PatternSet):
     if other is_a PatternSet
     | as_pattern_set(this).subsumes(other)
@@ -78,29 +85,36 @@ class Pattern(value :: HardwareLiteral,
         def differing = value_bits bits.xor other.value_bits
         shared_care == care_bits && (differing bits.and care_bits) == 0
 
+  /* Returns a normalized disjoint set covering this cube and the other operand. */
   method union(other :: Pattern || PatternSet):
     as_pattern_set(this).union(other)
 
+  /* Returns a normalized set of values satisfying both operands. */
   method intersection(other :: Pattern || PatternSet):
     as_pattern_set(this).intersection(other)
 
+  /* Returns the values of this cube not admitted by the other operand. */
   method subtract(other :: Pattern || PatternSet):
     as_pattern_set(this).subtract(other)
 
+  /* Returns the typed complement across the full packed-value domain. */
   method inverse():
     as_pattern_set(this).inverse()
 
+/* Constructs a typed host cube from packed integers, clearing value bits outside the care mask. */
 fun pattern_from_bits(type :: DataType, value_bits :: Nat, care_bits :: Nat):
   Pattern(
     ~value: literal(type, value_bits bits.and care_bits),
     ~care: literal(type, care_bits)
   )
 
+/* Orders cubes deterministically by care mask and then canonical value bits. */
 fun pattern_order(left :: Pattern, right :: Pattern):
   if left.care_bits == right.care_bits
   | left.value_bits < right.value_bits
   | left.care_bits < right.care_bits
 
+/* Combines compatible cube constraints, returning false when jointly cared bits conflict. */
 fun pattern_intersection(left :: Pattern, right :: Pattern):
   require_same_pattern_type(left.value, right.value, "patterns")
   def shared_care = left.care_bits bits.and right.care_bits
@@ -113,13 +127,14 @@ fun pattern_intersection(left :: Pattern, right :: Pattern):
       left.care_bits bits.or right.care_bits
     )
 
+/* Returns the lowest one-bit mask in a positive host integer. */
 fun least_set_bit(value :: PosInt):
   if (value bits.and 1) == 1
   | 1
   | 2 * least_set_bit(value >> 1)
 
-// Removes one cube from another by recursively splitting on constraints that
-// the removed cube adds. The returned residual cubes are pairwise disjoint.
+/* Removes one cube from another by recursively splitting on constraints that
+ * the removed cube adds. The returned residual cubes are pairwise disjoint. */
 fun subtract_pattern(left :: Pattern, right :: Pattern):
   require_same_pattern_type(left.value, right.value, "patterns")
   cond
@@ -146,6 +161,7 @@ fun subtract_pattern(left :: Pattern, right :: Pattern):
       )
       [outside] ++ subtract_pattern(matching, right)
 
+/* Subtracts each cover cube in order while preserving a disjoint list of residual cubes. */
 fun subtract_term_cover(term :: Pattern, cover :: List):
   def mutable residual = [term]
   for (covered in cover):
@@ -155,8 +171,8 @@ fun subtract_term_cover(term :: Pattern, cover :: List):
     residual := next
   residual
 
-// Produces a deterministic, pairwise-disjoint cover without trying to
-// minimize it; downstream RTL synthesis remains free to optimize the relation.
+/* Produces a deterministic, pairwise-disjoint cover without trying to
+ * minimize it; downstream RTL synthesis remains free to optimize the relation. */
 fun normalize_pattern_terms(type :: DataType, supplied_terms :: List):
   for (term in supplied_terms):
     unless term is_a Pattern && pattern_type_equal(term.type, type)
@@ -168,9 +184,10 @@ fun normalize_pattern_terms(type :: DataType, supplied_terms :: List):
     terms := terms ++ subtract_term_cover(term, terms)
   terms.sort(pattern_order)
 
-// PatternSet denotes a finite union of typed Pattern cubes. Its normalized
-// terms are always pairwise disjoint so they can expand into rtl.decode rows.
+/* PatternSet denotes a finite union of typed Pattern cubes. Its normalized
+ * terms are always pairwise disjoint so they can expand into rtl.decode rows. */
 class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
+  /* Validates a positive-width data type and stores its deterministically normalized disjoint cube cover. */
   constructor (type :: DataType, supplied_terms :: List):
     def width = type.packed_width()
     unless width is_a PosInt
@@ -179,9 +196,11 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
     def terms = normalize_pattern_terms(type, supplied_terms)
     super(type, width, terms)
 
+  /* Reports whether the normalized host set contains no cubes. */
   method is_empty():
     terms.length() == 0
 
+  /* Checks exact candidate type and width, then tests membership in any cover cube. */
   method matches(candidate :: HardwareLiteral):
     def literal = require_literal(candidate, "candidate")
     unless pattern_type_equal(type, literal.literal_type()) && width == literal.literal_width()
@@ -189,6 +208,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
             "candidate must have exactly the PatternSet hardware type and width")
     for any (term in terms): term.matches(literal)
 
+  /* Checks whether any cube pair admits a common value, requiring exact set types. */
   method overlaps(other :: Pattern || PatternSet):
     def right = as_pattern_set(other)
     require_same_pattern_set_type(this, right, "sets")
@@ -196,16 +216,19 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
       for any (right_term in right.terms):
         left_term.overlaps(right_term)
 
+  /* Checks containment by subtracting this set from the other and testing for an empty residual. */
   method subsumes(other :: Pattern || PatternSet):
     def right = as_pattern_set(other)
     require_same_pattern_set_type(this, right, "sets")
     right.subtract(this).is_empty()
 
+  /* Normalizes the concatenated covers into one deterministic disjoint set. */
   method union(other :: Pattern || PatternSet):
     def right = as_pattern_set(other)
     require_same_pattern_set_type(this, right, "sets")
     PatternSet(type, terms ++ right.terms)
 
+  /* Collects all compatible pairwise cube intersections and normalizes the resulting cover. */
   method intersection(other :: Pattern || PatternSet):
     def right = as_pattern_set(other)
     require_same_pattern_set_type(this, right, "sets")
@@ -218,6 +241,7 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
         | #void
     PatternSet(type, intersections)
 
+  /* Subtracts the other cover from every local cube and normalizes the residual set. */
   method subtract(other :: Pattern || PatternSet):
     def right = as_pattern_set(other)
     require_same_pattern_set_type(this, right, "sets")
@@ -226,9 +250,11 @@ class PatternSet(type :: DataType, width :: PosInt, terms :: List.of(Pattern)):
       residual := residual ++ subtract_term_cover(term, right.terms)
     PatternSet(type, residual)
 
+  /* Subtracts this cover from a zero-care cube spanning the full typed packed domain. */
   method inverse():
     PatternSet(type, [wildcard_pattern(type)]).subtract(this)
 
+/* Requires symmetric type equality and identical widths for host set operations. */
 fun require_same_pattern_set_type(left :: PatternSet,
                                   right :: PatternSet,
                                   role :: String):
@@ -245,8 +271,8 @@ annot.macro 'PatternLike':
 annot.macro 'PatternSetLike':
   'HardwareLiteral || Pattern || PatternSet'
 
-// Infers a nonempty set's type from its first Pattern-like value. Empty sets
-// use the explicit PatternSet(type, []) constructor.
+/* Infers a nonempty set's type from its first Pattern-like value. Empty sets
+ * use the explicit PatternSet(type, []) constructor. */
 fun pattern_set(first_pattern :: Pattern || HardwareLiteral || List.of(Pattern || HardwareLiteral), ...):
   def supplied = [first_pattern, ...]
   def patterns:
@@ -259,6 +285,7 @@ fun pattern_set(first_pattern :: Pattern || HardwareLiteral || List.of(Pattern |
   def terms = patterns.map(as_pattern)
   PatternSet(terms[0].type, terms)
 
+/* Preserves an existing set or wraps a cube or exact literal in a normalized singleton set. */
 fun as_pattern_set(value :: PatternSetLike):
   cond
   | value is_a PatternSet: value
@@ -270,15 +297,17 @@ fun as_pattern_set(value :: PatternSetLike):
       error(~who: #'as_pattern_set,
             "expected a HardwareLiteral, Pattern, or PatternSet")
 
-// The wildcard is private syntax data. It means that a host-side pattern does
-// not constrain a field; it is never materialized as hardware or interpreted
-// as a runtime unknown value.
+/* The wildcard is private syntax data. It means that a host-side pattern does
+ * not constrain a field; it is never materialized as hardware or interpreted
+ * as a runtime unknown value. */
 class _PatternWildcard()
 def pattern_wildcard = _PatternWildcard()
 
+/* Checks symmetric equality of host data-type descriptors. */
 fun pattern_type_equal(left :: DataType, right :: DataType):
   left.type_equal(right) && right.type_equal(left)
 
+/* Converts a valid literal shadow into a fully cared host cube. */
 fun exact_pattern(value :: HardwareLiteral):
   def value_literal = require_literal(value, "pattern field")
   def width = value_literal.literal_width()
@@ -288,8 +317,8 @@ fun exact_pattern(value :: HardwareLiteral):
                    (1 << width) - 1)
   )
 
-// Normalizes the two public forms accepted by typed decode consumers. Existing
-// cubes retain partial care; exact literal shadows receive full care.
+/* Normalizes the two public forms accepted by typed decode consumers. Existing
+ * cubes retain partial care; exact literal shadows receive full care. */
 fun as_pattern(value :~ PatternLike):
   cond
   | value is_a Pattern:
@@ -313,10 +342,12 @@ namespace PatternSetLike:
     'converting(fun (value :: PatternSetLike) :: PatternSet:
                   as_pattern_set(value))'
 
+/* Builds a zero-care cube admitting every packed image of the supplied data type. */
 fun wildcard_pattern(type :: DataType):
   def zero = literal(type, 0)
   Pattern(~value: zero, ~care: zero)
 
+/* Converts wildcard syntax, cubes, or literal shadows into a cube of the exact expected type. */
 fun normalize_pattern_component(component :: _PatternWildcard || Pattern || HardwareLiteral,
                                 expected_type :: DataType,
                                 role :: String):
@@ -335,6 +366,7 @@ fun normalize_pattern_component(component :: _PatternWildcard || Pattern || Hard
   | error(~who: #'pattern, role ++ " has the wrong hardware type")
   cube
 
+/* Validates named fields and combines their value/care cubes in record order; partial records wildcard omitted fields. */
 fun build_record_pattern(type :: RecordType,
                          fields :: List,
                          ~partial: partial :: Boolean = #false):
@@ -374,6 +406,7 @@ fun build_record_pattern(type :: RecordType,
     ~care: RecordLiteral(type, care_fields)
   )
 
+/* Requires one component per vector element and combines exactly typed element cubes in packed vector order. */
 fun build_vector_pattern(type :: VectorType, elements :: List):
   unless elements.length() == type.length
   | error(~who: #'pattern,

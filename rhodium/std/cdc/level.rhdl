@@ -1,7 +1,8 @@
 #lang rhodium
-// Defines the canonical resetless two-stage synchronizer for a stable one-bit level.
+/* Defines the canonical resetless two-stage synchronizer for a stable one-bit level. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Samples a stable one-bit level through two resetless destination-clock registers and records synchronizer evidence. */
 sync_circuit SyncLevel():
   input level: Bits(1)
   output synchronized: Bits(1)

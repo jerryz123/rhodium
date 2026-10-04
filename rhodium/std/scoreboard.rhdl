@@ -1,20 +1,23 @@
 #lang rhodium
-// Defines a reusable positive-sized single-set, single-clear occupancy scoreboard.
+/* Defines a reusable positive-sized single-set, single-clear occupancy scoreboard. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/ready-valid.rhdl").Valid
 
+/* Returns the number of binary encodings available to the entry index, including unused encodings. */
 fun scoreboard_index_capacity(entries :: PosInt):
   1 << index_width(entries)
 
+/* Checks an index against the entry count, eliding the comparison when every encoding is legal. */
 fun scoreboard_index_in_range(entries :: PosInt,
                               index :: Bits(index_width(entries))):
   if scoreboard_index_capacity(entries) == entries
   | Bool(#true)
   | index < bits(entries, index_width(entries))
 
+/* Reads a registered busy lane, returning false for unused index encodings in a non-power-of-two scoreboard. */
 fun scoreboard_busy(entries :: PosInt,
                     busy :: Mask(entries),
                     index :: Bits(index_width(entries))) :~ Bool:
@@ -23,6 +26,7 @@ fun scoreboard_busy(entries :: PosInt,
   | busy_vector[index]
   | busy_vector.lookup(index, ~default: Bool(#false))
 
+/* Decodes an index into an entry mask, truncating unused encodings to an all-zero mask. */
 fun scoreboard_index_bit(entries :: PosInt,
                          index :: Bits(index_width(entries))):
   if scoreboard_index_capacity(entries) == entries
@@ -30,8 +34,8 @@ fun scoreboard_index_bit(entries :: PosInt,
   | trunc(one_hot(index).into(Bits(scoreboard_index_capacity(entries))),
           entries).into(Mask(entries))
 
-// Set and clear are nonbackpressured operations. Updates take effect at the
-// edge, with clear winning when both operations address the same entry.
+/* Set and clear are nonbackpressured operations. Updates take effect at the
+ * edge, with clear winning when both operations address the same entry. */
 sync_circuit Scoreboard(entries :: PosInt):
   def Index = Bits(index_width(entries))
 

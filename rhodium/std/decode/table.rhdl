@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines validated, unordered host-side decode relations over typed Patterns.
+/* Defines validated, unordered host-side decode relations over typed Patterns. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,24 +15,29 @@ export:
   overlay_decode_cases
   zip_decode_cases
 
+/* Requires symmetric equality of the two hardware data-type descriptors. */
 fun exact_type_equal(left :: DataType, right :: DataType):
   left.type_equal(right) && right.type_equal(left)
 
+/* Stores one host input cube and output cube without introducing row priority or hardware. */
 class DecodeCase(input :: Pattern, output :: Pattern):
+  /* Normalizes supplied literal shadows or cubes into canonical input and output patterns. */
   constructor (supplied_input :: PatternLike.to_pattern,
                supplied_output :: PatternLike.to_pattern):
     super(supplied_input, supplied_output)
 
+/* Uses its annotation boundary to require a nonempty list of DecodeCase values and returns it unchanged. */
 fun require_decode_cases(cases :: NonemptyList.of(DecodeCase),
                          role :: String,
                          who :: Symbol):
   cases
 
+/* Compares exact type, width, canonical value bits, and care bits rather than just set overlap. */
 fun exact_pattern_equal(left :: Pattern, right :: Pattern):
   exact_type_equal(left.type, right.type) && left.width == right.width && left.value_bits == right.value_bits && left.care_bits == right.care_bits
 
-// Explicitly embeds every input cube into a new domain while preserving each
-// output cube. DecodeTable remains responsible for type and overlap checks.
+/* Explicitly embeds every input cube into a new domain while preserving each
+ * output cube. DecodeTable remains responsible for type and overlap checks. */
 fun lift_decode_inputs(cases :: NonemptyList.of(DecodeCase),
                        lift :: Function.of_arity(1)):
   def checked_cases = require_decode_cases(
@@ -43,9 +48,9 @@ fun lift_decode_inputs(cases :: NonemptyList.of(DecodeCase),
   for List (case in checked_cases):
     DecodeCase(lift(case.input), case.output)
 
-// Gives explicit extension rows ownership of their input region by subtracting
-// their union from every fallback row. The result remains an unordered,
-// pairwise-disjoint relation once passed to DecodeTable.
+/* Gives explicit extension rows ownership of their input region by subtracting
+ * their union from every fallback row. The result remains an unordered,
+ * pairwise-disjoint relation once passed to DecodeTable. */
 fun overlay_decode_cases(fallbacks :: List.of(DecodeCase),
                          overrides :: List.of(DecodeCase)):
   if overrides.length() == 0
@@ -62,8 +67,8 @@ fun overlay_decode_cases(fallbacks :: List.of(DecodeCase),
           resolved := resolved ++ [DecodeCase(term, fallback.output)]
       resolved
 
-// Forms an output product from two relations with exactly the same input
-// cubes. Row order is irrelevant; missing or duplicate counterparts are errors.
+/* Forms an output product from two relations with exactly the same input
+ * cubes. Row order is irrelevant; missing or duplicate counterparts are errors. */
 fun zip_decode_cases(left_cases :: NonemptyList.of(DecodeCase),
                      right_cases :: NonemptyList.of(DecodeCase),
                      combine :: Function.of_arity(2)):
@@ -101,8 +106,8 @@ fun zip_decode_cases(left_cases :: NonemptyList.of(DecodeCase),
       combine(left_case.output, right_case.output)
     )
 
-// The input domain is deliberately supplied by input_pattern, so this helper
-// cannot constrain it before applying that caller-owned normalization.
+/* The input domain is deliberately supplied by input_pattern, so this helper
+ * cannot constrain it before applying that caller-owned normalization. */
 fun build_decode_group(inputs :~ matching(_),
                        output :: PatternLike.to_pattern,
                        input_pattern :: Function.of_arity(1)):
@@ -115,14 +120,15 @@ fun build_decode_group(inputs :~ matching(_),
       cases := cases ++ [DecodeCase(term, output)]
   cases
 
-// Expands Pattern and PatternSet inputs into the single-cube rows consumed by
-// DecodeTable and the core rtl.decode operation.
+/* Expands Pattern and PatternSet inputs into the single-cube rows consumed by
+ * DecodeTable and the core rtl.decode operation. */
 fun decode_cases(inputs :: HardwareLiteral || Pattern || PatternSet || List.of(HardwareLiteral || Pattern || PatternSet),
                  output :: PatternLike):
   def supplied:
     if inputs is_a List | inputs | [inputs]
   build_decode_group(inputs, output, as_pattern_set)
 
+/* Concatenates grouped host rows in source order without assigning decode priority. */
 fun flatten_decode_groups(groups :: List):
   def mutable cases = []
   for (group in groups):
@@ -172,6 +178,7 @@ expr.macro
     let [group, ...] = [row.expand(output_type, input_pattern), ...]
     'flatten_decode_groups([$group, ...])'
 
+/* Stores a validated unordered typed relation and packed rows ready for hardware decode construction. */
 class DecodeTable(cases :: NonemptyList.of(DecodeCase),
                   default :: Pattern,
                   input_type :: DataType,
@@ -179,6 +186,7 @@ class DecodeTable(cases :: NonemptyList.of(DecodeCase),
                   input_width :: PosInt,
                   output_width :: PosInt,
                   packed_cases :: List):
+  /* Requires uniform input/output types and widths, rejects overlapping inputs, and records packed value/care rows. */
   constructor (supplied_cases :: NonemptyList.of(DecodeCase),
                ~default: default :: PatternLike.to_pattern):
     def first = supplied_cases[0]

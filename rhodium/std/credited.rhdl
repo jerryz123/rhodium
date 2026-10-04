@@ -1,12 +1,13 @@
 #lang rhodium
-// Defines protocol-neutral credited transport and explicit endpoint monitoring.
+/* Defines protocol-neutral credited transport and explicit endpoint monitoring. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Returns the declared payload type after argument annotations validate its data category and positive credit limit. */
 fun checked_credited_payload(T :: DataType, credit_limit :: PosInt):
   T
 
-// Checks one cycle against explicitly owned balance state. A credit granted on
-// the current edge is not available to authorize a transfer on that same edge.
+/* Checks one cycle against explicitly owned balance state. A credit granted on
+ * the current edge is not available to authorize a transfer on that same edge. */
 fun check_credited(valid :: Bool,
                    credit :: Bool,
                    credit_limit :: PosInt,
@@ -31,13 +32,14 @@ fun check_credited(valid :: Bool,
 
   credit_balance
 
+/* Requires the same credit limit on two specializations; the interface machinery separately checks physical wire shape. */
 fun credited_connection_legal(provided :: List, required :: List):
   provided.length() == 2 && required.length() == 2 && (
     provided[1] == required[1]
   )
 
-// Every asserted valid cycle transfers one payload and consumes one credit
-// that the receiver granted on an earlier edge. Credit is a one-credit pulse.
+/* Every asserted valid cycle transfers one payload and consumes one credit
+ * that the receiver granted on an earlier edge. Credit is a one-credit pulse. */
 interface Credited(T :: DataType, credit_limit :: PosInt):
   role transmitter
   role receiver
@@ -52,8 +54,8 @@ interface Credited(T :: DataType, credit_limit :: PosInt):
   receiver -> transmitter:
     credit: Bool
 
-// Finds the canonical specialization beneath a nominal refinement without
-// accepting an unrelated declaration that reuses the same member names.
+/* Finds the canonical specialization beneath a nominal refinement without
+ * accepting an unrelated declaration that reuses the same member names. */
 fun credited_base_protocol(protocol :: InterfaceType):
   def arguments = protocol.specialization_arguments
   def local_base:
@@ -69,13 +71,14 @@ fun credited_base_protocol(protocol :: InterfaceType):
   | block:
       protocol.parent ?> credited_base_protocol
 
-// Normalizes the canonical interface and its refinements.
+/* Normalizes the canonical interface and its refinements. */
 fun credited_protocol_type(protocol :: InterfaceType):
   def canonical = credited_base_protocol(protocol)
   if canonical && interface_type_supports(protocol, canonical)
   | canonical
   | #false
 
+/* Extracts the canonical credited payload type or rejects endpoints outside the nominal credited family. */
 fun credited_payload_type(endpoint :: Endpoint):
   def protocol = credited_protocol_type(endpoint.type)
   unless protocol
@@ -83,8 +86,8 @@ fun credited_payload_type(endpoint :: Endpoint):
           "credited-flow chaining requires a Credited endpoint")
   protocol.members.find(fun (member :: InterfaceMember): member.name == "bits").type
 
-// Explicitly instruments one credited endpoint without giving the monitor
-// authority to drive either direction of the interface.
+/* Explicitly instruments one credited endpoint without giving the monitor
+ * authority to drive either direction of the interface. */
 fun monitor_credited(endpoint :: Endpoint):
   def protocol = credited_protocol_type(endpoint.type)
   unless protocol

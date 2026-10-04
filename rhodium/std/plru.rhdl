@@ -1,33 +1,37 @@
 #lang rhodium
-// Defines reusable invalid-first padded tree-PLRU replacement helpers.
+/* Defines reusable invalid-first padded tree-PLRU replacement helpers. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
 
-// Pad to a power-of-two leaf count while keeping padded leaves ineligible.
+/* Pad to a power-of-two leaf count while keeping padded leaves ineligible. */
 fun plru_leaf_count(ways :: PosInt) :: Pow2Int:
+  /* Doubles the host leaf count until the complete binary tree covers every real way. */
   fun loop(leaves :: Pow2Int):
     if leaves >= ways | leaves | loop(leaves * 2)
   loop(1)
 
-// Direct-mapped users retain one unused bit because hardware widths are positive.
+/* Direct-mapped users retain one unused bit because hardware widths are positive. */
 fun plru_state_width(ways :: PosInt) :: PosInt:
   def nodes = plru_leaf_count(ways) - 1
   if nodes == 0 | 1 | nodes
 
-// Keep the tree encoding private while retaining associativity in type checks.
+/* Keep the tree encoding private while retaining associativity in type checks. */
 hardware_type PLRUState(ways :: PosInt):
   width: plru_state_width(ways)
   type_key: [ways]
   describe: "plru-state<" ++ to_string(ways) ++ ">"
 
+/* Constructs the all-zero replacement-tree image for the selected associativity. */
 fun plru_initial_state(ways :: PosInt) :~ PLRUState(ways):
   bits(0, plru_state_width(ways)).into(PLRUState(ways))
 
+/* Follows replacement bits to a real way, forcing branches that would otherwise lead only to padded leaves. */
 fun plru_victim(ways :: PosInt,
                 state :: PLRUState(ways)) :: Bits(index_width(ways)):
   def state_bits = state.as_bits()
+  /* Elaborates a subtree selection, returning its leaf index and excluding branches beyond the real way count. */
   fun select(node :: Nat, first :: Nat, count :: PosInt):
     if count == 1
     | bits(first, index_width(ways))
@@ -41,10 +45,12 @@ fun plru_victim(ways :: PosInt,
               select(node * 2 + 1, first, half))
   select(0, 0, plru_leaf_count(ways))
 
+/* Returns updated tree state with ancestors pointing away from the touched way; the caller supplies a legal way index. */
 fun plru_touch(ways :: PosInt,
                state :: PLRUState(ways),
                way :: Bits(index_width(ways))) :~ PLRUState(ways):
   def mutable updated :: Vec(plru_state_width(ways), Bool) = state.as_bits().as_vec(Bool)
+  /* Updates selected ancestors toward the opposite subtree while preserving unrelated nodes and skipping padded-only branches. */
   fun update(node :: Nat, first :: Nat, count :: PosInt, selected :: Bool):
     if count > 1
     | block:
@@ -67,7 +73,7 @@ fun plru_touch(ways :: PosInt,
   update(0, 0, plru_leaf_count(ways), Bool(#true))
   updated.as_bits().into(PLRUState(ways))
 
-// Prefer the lowest invalid way before falling back to the tree-PLRU victim.
+/* Prefer the lowest invalid way before falling back to the tree-PLRU victim. */
 fun plru_replacement_way(ways :: PosInt,
                          valid :: Vec(ways, Bool),
                          state :: PLRUState(ways)) :: Bits(index_width(ways)):

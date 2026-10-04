@@ -1,10 +1,10 @@
 #lang rhodium
-// Defines Rhodium's canonical valid-only and ready-valid protocol interfaces.
+/* Defines Rhodium's canonical valid-only and ready-valid protocol interfaces. */
 // SPDX-License-Identifier: Apache-2.0
 
-// Every cycle with valid asserted is one payloadless control event; there is
-// no backpressure signal or pending-transfer state. Consecutive asserted
-// cycles are separate events, not one edge-detected pulse.
+/* Every cycle with valid asserted is one payloadless control event; there is
+ * no backpressure signal or pending-transfer state. Consecutive asserted
+ * cycles are separate events, not one edge-detected pulse. */
 interface Pulse():
   role producer
   role consumer
@@ -13,9 +13,9 @@ interface Pulse():
   producer -> consumer:
     valid: Bool
 
-// Every cycle with valid asserted carries one payload; there is no
-// backpressure signal or pending-transfer state. Payload-bearing valid-only
-// interfaces also provide the payloadless control-event contract.
+/* Every cycle with valid asserted carries one payload; there is no
+ * backpressure signal or pending-transfer state. Payload-bearing valid-only
+ * interfaces also provide the payloadless control-event contract. */
 interface Valid(T :: DataType) refines Pulse():
   producer -> consumer:
     bits: T
@@ -31,8 +31,8 @@ interface Valid(T :: DataType) refines Pulse():
 // Horizontal refinement adds `bits`; vertical strengthening promises that an
 // offered transaction cannot be withdrawn before it is accepted.
 
-// Defines the reusable offer/accept control plane. Transfer occurs whenever
-// valid and ready are both asserted in the same cycle.
+/* Defines the reusable offer/accept control plane. Transfer occurs whenever
+ * valid and ready are both asserted in the same cycle. */
 interface DecoupledCtrl():
   role producer
   role consumer
@@ -44,27 +44,27 @@ interface DecoupledCtrl():
   consumer -> producer:
     ready: Bool
 
-// Once valid is asserted, the indicated offer cannot be withdrawn until a
-// transfer. What the offer denotes is defined by the refining protocol.
+/* Once valid is asserted, the indicated offer cannot be withdrawn until a
+ * transfer. What the offer denotes is defined by the refining protocol. */
 interface IrrevocableCtrl() refines DecoupledCtrl()
 
-// Adds an unconstrained payload to the decoupled control plane. Before a
-// transfer, the producer may withdraw valid or change bits.
+/* Adds an unconstrained payload to the decoupled control plane. Before a
+ * transfer, the producer may withdraw valid or change bits. */
 interface Decoupled(T :: DataType) refines DecoupledCtrl():
   producer -> consumer:
     bits: T
 
-// Adds an explicit payload to the persistent-offer control plane. It also
-// supports the weaker Decoupled payload contract for producer-side connection.
-// While valid is waiting for ready, both valid and bits remain asserted and
-// stable.
+/* Adds an explicit payload to the persistent-offer control plane. It also
+ * supports the weaker Decoupled payload contract for producer-side connection.
+ * While valid is waiting for ready, both valid and bits remain asserted and
+ * stable. */
 interface Irrevocable(T :: DataType) refines IrrevocableCtrl():
   supports producer: Decoupled(T)
   producer -> consumer:
     bits: T
 
-// Normalizes any nominal payload-bearing refinement to the canonical contract
-// that its provider promises. Display names deliberately play no role.
+/* Normalizes any nominal payload-bearing refinement to the canonical contract
+ * that its provider promises. Display names deliberately play no role. */
 fun decoupled_protocol_type(protocol :: InterfaceType):
   def payload_member = protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits" && data_type(member.type)
@@ -80,8 +80,8 @@ fun decoupled_protocol_type(protocol :: InterfaceType):
           Decoupled(payload_type)
       | ~else: #false
 
-// Valid-only refinements similarly normalize by nominal support instead of by
-// the declaration's diagnostic name.
+/* Valid-only refinements similarly normalize by nominal support instead of by
+ * the declaration's diagnostic name. */
 fun valid_protocol_type(protocol :: InterfaceType):
   def payload_member = protocol.members.find(
     fun (member :: InterfaceMember): member.name == "bits" && data_type(member.type)
@@ -93,16 +93,16 @@ fun valid_protocol_type(protocol :: InterfaceType):
   | Valid(payload_member.type)
   | #false
 
-// Reports the transfer event for any endpoint that nominally refines the
-// decoupled control contract.
+/* Reports the transfer event for any endpoint that nominally refines the
+ * decoupled control contract. */
 fun fire(
   endpoint :: Endpoint.supports(DecoupledCtrl())
 ) :~ Bool:
   endpoint.valid & endpoint.ready
 
-// Extracts the payload type used by flow-control helpers. Both payload-bearing
-// ready-valid contracts are accepted; the subsequent bulk connection still
-// performs the complete nominal type and direction check.
+/* Extracts the payload type used by flow-control helpers. Both payload-bearing
+ * ready-valid contracts are accepted; the subsequent bulk connection still
+ * performs the complete nominal type and direction check. */
 fun decoupled_payload_type(endpoint :: Endpoint):
   def protocol = decoupled_protocol_type(endpoint.type)
   unless protocol
@@ -112,8 +112,8 @@ fun decoupled_payload_type(endpoint :: Endpoint):
     fun (member :: InterfaceMember): member.name == "bits"
   ).type
 
-// Validates the payloadless ready-valid family for Ctrl flow helpers while
-// retaining the endpoint itself and its static interface information.
+/* Validates the payloadless ready-valid family for Ctrl flow helpers while
+ * retaining the endpoint itself and its static interface information. */
 fun ctrl_endpoint(endpoint :: Endpoint) :~ Endpoint:
   def control_contract = DecoupledCtrl()
   unless interface_type_supports(endpoint.type, control_contract) && (

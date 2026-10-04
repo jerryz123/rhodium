@@ -1,30 +1,34 @@
 #lang rhodium
-// Defines bit ordering, layout, alignment, lane-mask expansion, and masked-merge utilities for Bits.
+/* Defines bit ordering, layout, alignment, lane-mask expansion, and masked-merge utilities for Bits. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/meta open
 
+/* Recognizes strictly positive host integers with exactly one set bit. */
 fun power_of_two(value :~ matching(_)):
   value is_a PosInt && (value bits.and (value - 1)) == 0
 
 annot.macro 'Pow2Int':
   'PosInt && satisfying(power_of_two)'
 
+/* Returns the host cardinality of an unsigned bit-vector with the supplied width. */
 fun unsigned_value_count(width :: Nat):
   1 << width
 
+/* Reverses the packed bit order, retaining a one-bit operand unchanged. */
 fun reverse_bits(value :: Bits) :~ Bits(value.type.packed_width()):
   def width = value.type.packed_width()
   if width == 1
   | value
   | concat(for List (index in 0..width): value[index])
 
-// The leading sentinel makes the result total: an all-zero input selects the
-// sentinel at index width and therefore returns the operand width.
+/* The leading sentinel makes the result total: an all-zero input selects the
+ * sentinel at index width and therefore returns the operand width. */
 fun count_leading_zeros(value :: Bits) :~ Bits(index_width(value.type.packed_width() + 1)):
   priority_encoder((Bool(#true) ++ reverse_bits(value)))
 
+/* Validates a host offset/value pair and returns its packed hardware value and width. */
 fun normalized_pack_field(field :: List):
   unless field.length() == 2 && field[0] is_a Nat
   | error(~who: #'pack_fields,
@@ -33,8 +37,8 @@ fun normalized_pack_field(field :: List):
   def packed = value.as_bits()
   [field[0], packed, hardware_value_type(packed).packed_width()]
 
-// Packs host-positioned hardware values into one Bits value, filling every
-// unspecified bit with zero. Layout errors remain host elaboration errors.
+/* Packs host-positioned hardware values into one Bits value, filling every
+ * unspecified bit with zero. Layout errors remain host elaboration errors. */
 fun pack_fields(width :: PosInt, fields :: List) :~ Bits(width):
   def ordered = fields.map(normalized_pack_field).sort(
     fun (left, right): left[0] < right[0]
@@ -61,16 +65,20 @@ fun pack_fields(width :: PosInt, fields :: List) :~ Bits(width):
   | fragments[0]
   | concat(fragments)
 
+/* Computes log2 of an already-validated power-of-two alignment. */
 fun unchecked_alignment_bits(alignment :: PosInt):
+  /* Halves the alignment while accumulating its exponent until the unit alignment is reached. */
   fun loop(value :: PosInt, bits :: Nat):
     if value == 1
     | bits
     | loop(value / 2, bits + 1)
   loop(alignment, 0)
 
+/* Returns the host exponent of a power-of-two byte alignment. */
 fun alignment_bits(alignment :: Pow2Int):
   unchecked_alignment_bits(alignment)
 
+/* Returns operand and low-bit widths after requiring the alignment to fit the hardware address. */
 fun checked_alignment_width(value :: Bits,
                             alignment :: Pow2Int,
                             who :: Symbol):
@@ -80,6 +88,7 @@ fun checked_alignment_width(value :: Bits,
   | error(~who: who, "alignment must fit the Bits width")
   values(width, low_width)
 
+/* Tests that the address's alignment bits are zero; unit alignment always succeeds. */
 fun is_aligned(value :: Bits, alignment :: Pow2Int) :~ Bool:
   def (_width, low_width) = checked_alignment_width(
     value,
@@ -90,8 +99,8 @@ fun is_aligned(value :: Bits, alignment :: Pow2Int) :~ Bool:
   | Bool(#true)
   | !or_reduce(value[0..low_width])
 
-// Checks runtime power-of-two alignment within a caller-selected bound.
-// Encodings above max_log2 are unsupported, including for the zero address.
+/* Checks runtime power-of-two alignment within a caller-selected bound.
+ * Encodings above max_log2 are unsupported, including for the zero address. */
 fun is_aligned_log2(value :: Bits,
                     log2_alignment :: Bits,
                     ~max_log2: max_log2 :: Nat = value.type.packed_width()) :~ Bool:
@@ -106,6 +115,7 @@ fun is_aligned_log2(value :: Bits,
       [exponent, is_aligned(value, 1 << exponent)]
   )
 
+/* Clears the low alignment bits without changing the address width. */
 fun align_down(value :: Bits,
                alignment :: Pow2Int) :~ Bits(value.type.packed_width()):
   def (width, _low_width) = checked_alignment_width(
@@ -117,21 +127,22 @@ fun align_down(value :: Bits,
   | value
   | value & bits((1 << width) - alignment, width)
 
-// Input bit i controls the consecutive output lane starting at i * lane_width.
+/* Input bit i controls the consecutive output lane starting at i * lane_width. */
 fun expand_mask(mask :: Bits, lane_width :: PosInt) :~ Bits(mask.type.packed_width() * lane_width):
   vec(
     for List (index in 0..mask.type.packed_width()):
       mux(mask[index].into(Bool), bits((1 << lane_width) - 1, lane_width), bits(0, lane_width))
   ).as_bits()
 
+/* Selects replacement bits where mask is one and original bits where it is zero. */
 fun masked_merge(original :: Bits,
                  replacement :: Bits(original.type.packed_width()),
                  mask :: Bits(original.type.packed_width())) :~ Bits(original.type.packed_width()):
   (original & !mask) ||| (replacement & mask)
 
-// Produces one enable bit per byte of a power-of-two beat. Size is the
-// log2(bytes) transfer encoding used by byte-addressed bus protocols.
-// Transfers wider than the beat produce the all-zero mask.
+/* Produces one enable bit per byte of a power-of-two beat. Size is the
+ * log2(bytes) transfer encoding used by byte-addressed bus protocols.
+ * Transfers wider than the beat produce the all-zero mask. */
 fun transfer_byte_mask(address :: Bits,
                        size :: Bits,
                        beat_bytes :: Pow2Int) :~ Mask(beat_bytes):

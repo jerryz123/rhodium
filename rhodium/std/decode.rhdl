@@ -1,5 +1,5 @@
 #lang rhodium
-// Re-exports typed patterns, grouped cases, and decode generators.
+/* Re-exports typed patterns, grouped cases, and decode generators. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

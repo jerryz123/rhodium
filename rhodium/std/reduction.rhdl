@@ -1,11 +1,13 @@
 #lang rhodium
-// Builds an ordered balanced reduction tree with a caller-supplied binary function.
+/* Builds an ordered balanced reduction tree with a caller-supplied binary function. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Reduces a nonempty host list with a balanced binary tree while preserving operand order; combine owns result types and associativity. */
 fun tree_reduce(input_values :: List, combine :: Function.of_arity(2)):
   unless input_values.length() > 0
   | error(~who: #'tree_reduce, "expected at least one value")
 
+  /* Combines adjacent pairs, carries an odd final node unchanged, and recurses until one result remains. */
   fun reduce_level(nodes :: List):
     if nodes.length() == 1
     | nodes[0]

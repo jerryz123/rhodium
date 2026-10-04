@@ -1,24 +1,24 @@
 #lang rhodium
-// Defines protocol-neutral flit payload shapes and their family classifiers.
+/* Defines protocol-neutral flit payload shapes and their family classifiers. */
 // SPDX-License-Identifier: Apache-2.0
 
-// A variable-length packet carries explicit boundaries on every flit. The
-// payload shape is independent of the transport used to move it.
+/* A variable-length packet carries explicit boundaries on every flit. The
+ * payload shape is independent of the transport used to move it. */
 bundle VariableFlit(T :: DataType):
   head: Bool
   tail: Bool
   payload: T
 
-// A fixed-length packet may retain explicit boundaries for checking and
-// resynchronization. Its length is a transfer-sequence contract supplied to
-// conversion and monitoring operations, not a wire field.
+/* A fixed-length packet may retain explicit boundaries for checking and
+ * resynchronization. Its length is a transfer-sequence contract supplied to
+ * conversion and monitoring operations, not a wire field. */
 bundle FramedFixedFlit(T :: DataType):
   first: Bool
   last: Bool
   payload: T
 
-// Fixed-length packets can omit explicit boundaries. Packet phase is then
-// determined solely by the number of successful flit transfers.
+/* Fixed-length packets can omit explicit boundaries. Packet phase is then
+ * determined solely by the number of successful flit transfers. */
 bundle FixedFlit(T :: DataType):
   payload: T
 

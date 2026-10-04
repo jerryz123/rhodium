@@ -1,12 +1,12 @@
 #lang rhodium
-// Implements shared 1RW synchronous RAMs over one lane-masked request flow.
+/* Implements shared 1RW synchronous RAMs over one lane-masked request flow. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/read-write.rhdl") open
 
-// Every asserted request is accepted. Each read produces a response exactly
-// one cycle later; writes produce none.
+/* Every asserted request is accepted. Each read produces a response exactly
+ * one cycle later; writes produce none. */
 sync_circuit SyncRam1RW(depth :: PosInt, T :: DataType, n :: PosInt):
   def address_width = index_width(depth)
   def Data = Vec(n, T)
