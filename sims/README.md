@@ -11,7 +11,9 @@ sources, ports, patches, and ELF builders. The SoCs continue to own processor, d
 NoC, and synthesizable-memory structure.
 
 Contributors changing a harness, binding, or build rule should read
-[`DEVELOPING.md`](DEVELOPING.md).
+[`DEVELOPING.md`](DEVELOPING.md) and the
+[source documentation requirements](../AGENTS.md#source-documentation),
+including the `tests/` exemption.
 
 ## Choose a harness
 
@@ -765,7 +767,7 @@ It uses the [generated UDB catalog](../socs/README.md#risc-v-udb-configuration-c
 to select the DUT architecture and Sail to compute expected results. Install
 Python 3.10+, Ruby 3.2+ with Bundler, GCC 15+ with Binutils 2.44+, CMake,
 and GMP development headers first. On macOS, also install the
-[Sail 0.20.2 compiler](https://github.com/rems-project/sail/blob/sail2/INSTALL.md)
+[Sail 0.20.3 compiler](https://github.com/rems-project/sail/blob/0.20.3/INSTALL.md)
 and set `SAIL_COMPILER` to its executable path; Linux setup downloads
 a checksum-pinned compiler automatically:
 
@@ -816,7 +818,7 @@ Outputs and per-test logs live under
 `/tmp/rhodium-arch-test`; set `ACT_BUILD_ROOT` to change that location.
 `ACT_SAIL`, `ACT_VENV`, `ACT_TESTGEN`, `ACT_PATCH_SERIES`, and
 `ACT_BUNDLE_PATH` select installed tool locations or inputs.
-`SAIL_COMPILER` selects a locally installed Sail 0.20.2 compiler, and
+`SAIL_COMPILER` selects a locally installed Sail 0.20.3 compiler, and
 `SAIL_BUILD_JOBS` controls model build parallelism. After setup,
 `make -C sims arch-test-sail-test SOC=simple-rv5stage-rva23` checks the
 GEILEN-dependent `mideleg`/`mie`/`hie` SGEIE alias in the configured model.

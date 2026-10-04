@@ -183,7 +183,7 @@ and the resolved Mini/Simple hart PMAs, reset layout, backing ranges, and clocks
 The export includes the actual boot ROM/DTB bytes. With an observation descriptor,
 the projection also emits `runtime-config.h`; Verilator embeds these immutable
 inputs rather than depending on JSON paths at execution time. The build's Sail
-patch identity scopes native libraries, and simulator attestation distinguishes
+compiler version and patch identity scope native libraries, and simulator attestation distinguishes
 normal, trace, cosim, and trace-cosim variants.
 Never reconstruct profiles or platform addresses in Python. ROM uses Sail's
 `IOMemory` PMA category because `MainMemory` requires writable memory, but remains
@@ -205,9 +205,10 @@ without references to the temporary build directory; GMP remains a host
 dependency. The ordered Sail patch series provides default-disabled physical
 memory providers and external interrupt inputs. Never edit the submodule to
 implement those hooks.
-The fetch-kind patch preserves `InstructionFetch` as `Read_ifetch` at the physical
-boundary; tests must distinguish instruction reads from architectural data effects,
-not infer the distinction from addresses.
+The provider uses the v2 memory interface's explicit `MemoryAccessType` to
+identify instruction fetches independently of read ordering. Address announcements
+do not commit host writes. Tests must distinguish instruction reads from architectural
+data effects, not infer the distinction from addresses.
 
 The subpage-device PMA patch permits the exact eight-byte UART aperture only
 under unsplittable, non-executable, non-atomic IO attributes. Page-table transfers
@@ -236,6 +237,9 @@ software-test CI matrix; broader profiles require translation, interrupt,
 CSR/counter, FP/vector, and memory-order qualification first.
 
 ## Add or change a harness
+
+Follow the repository's [source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
 
 Each `CHIDPIMemory` registers its C++ backing store on clocked reset edges,
 using its own model ID, configured capacity, and physical identity input.
@@ -469,10 +473,13 @@ the shared RISC-V patched-submodule materializer.
 `arch-test-sail-setup` uses the same materializer for the pristine
 [`../riscv/sail-riscv/`](../riscv/sail-riscv/) gitlink and its
 [`patch series`](../riscv/sail-riscv-patches/series). The Sail 0.14.1 emulator
-is built locally with compiler 0.20.2 and installed under an identity-keyed
+is built locally with compiler 0.20.3 and installed under an identity-keyed
 `.tools/` path. Linux downloads that compiler from a checksum-pinned release;
 macOS requires an explicit local compiler. The model build never edits the
 submodule, and changing its gitlink or patch bytes changes the emulator path.
+The pinned master revision still reports release version 0.14.1; cache and
+package identity must use the gitlink, ordered patches, and compiler version,
+not the emulator's release string alone.
 `arch-test-tests` copies the handwritten inventory from that materialized tree
 and populates it with the canonical `testgen` command. Vector assembly is not
 checked into the upstream test tree, so it must be generated through this same
@@ -505,15 +512,21 @@ Sail version. Keep the setup pin synchronized with that native check whenever
 the ACT submodule advances. The Sail 0.14.1 projection also uses the
 optional LR/SC exception encoding and clears H-only delegation bits when H is
 disabled in UDB.
-The Sail patch gates writes through both `mie.SGEIE` and its `hie.SGEIE` alias
+Upstream Sail gates writes through both `mie.SGEIE` and its `hie.SGEIE` alias
 when GEILEN is zero, matching the forced-zero `mideleg.SGEIP` bit. Keep the
 positive GEILEN case writable. `arch-test-sail-test` compiles a small CSR probe
 and checks both configurations against the patched model; the RVA23 ACT shards
 then exercise generated reference signatures against the DUT.
+The shared projection now maps `MCOUNTINHIBIT_IMPLEMENTED` and the exact
+`COUNTINHIBIT_EN` mask to Sail's native configuration; these are no longer
+reference-model differences. Keep HPM event-counting differences explicit.
 
 For H profiles, also project guest translation modes, VMID width, GEILEN,
 H counter enables, VS trap-vector modes, guest-fault reporting, and the nested
 Smstateen/Ssstateen switches. VS vector status exists exactly when H does.
+Map the supported always-zero `TINST_VALUE_ON_*` claims explicitly to the
+eight transformed-instruction switches; do not inherit Sail's enabled defaults.
+New optional extension defaults are disabled unless the hart's UDB advertises them.
 The shared RVA23 preset uses this path for both RV5Stage and Spike. Enabling
 the profile does not create ACT coverage: report missing H/Sha test inventory
 separately from generation failures and runtime results. Do not replace it

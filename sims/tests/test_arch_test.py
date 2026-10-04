@@ -48,7 +48,8 @@ def sail_default():
         "extensions": {
             "F": {"supported": False}, "D": {"supported": False},
             "H": {"supported": False, "vsatp_modes": {"Sv39": True, "Sv48": True, "Sv57": True},
-                  "hgatp_modes": {"Sv39x4": True, "Sv48x4": True, "Sv57x4": True}},
+                  "hgatp_modes": {"Sv39x4": True, "Sv48x4": True, "Sv57x4": True},
+                  "transformed_instruction": {}},
             "Sv39": {"supported": False}, "Sha": {"supported": False},
             "Svpbmt": {"supported": False}, "Svnapot": {"supported": False},
             "Svade": {"supported": False}, "Zihpm": {"supported": False},
@@ -74,6 +75,7 @@ def sail_default():
             "mtvec": {"direct": {}, "vectored": {}}, "stvec": {"direct": {}, "vectored": {}},
             "vstvec": {"direct": {}, "vectored": {}},
             "mstatus": {}, "xtval_nonzero": {},
+            "mcountinhibit": {"supported": True, "writable_bits": {"len": 32, "value": "0xfffffffd"}},
             "medeleg": {"delegatable_bits": {"len": 64, "value": "0xfc_b7ff"}},
         },
         "memory": {"asidlen": 16, "pmp": {}, "misaligned": {"exceptions": {}}, "regions": [
@@ -93,6 +95,7 @@ def architecture_params(asid_width=0):
                   LRSC_MISALIGNED_BEHAVIOR="always raise misaligned exception",
                   AMO_MISALIGNED_BEHAVIOR="always raise misaligned exception",
                   HPM_COUNTER_EN=[False] * 32, MCOUNTENABLE_EN=[False] * 32,
+                  MCOUNTINHIBIT_IMPLEMENTED=False,
                   SCOUNTENABLE_EN=[False] * 32, MTVEC_MODES=[0, 1], STVEC_MODES=[0, 1],
                   MTVEC_BASE_ALIGNMENT_DIRECT=4, MSTATUS_FS_LEGAL_VALUES=[0],
                   MSTATUS_VS_LEGAL_VALUES=[0], PHYS_ADDR_WIDTH=44, ASID_WIDTH=asid_width,
@@ -127,6 +130,7 @@ class ArchTestConfigTest(unittest.TestCase):
             params["HPM_COUNTER_EN"][3] = True
             params["HPM_EVENTS"] = [0, 1, 2]
             params["COUNTINHIBIT_EN"] = params["HPM_COUNTER_EN"].copy()
+            params["MCOUNTINHIBIT_IMPLEMENTED"] = True
             params["MCOUNTENABLE_EN"][:4] = [True] * 4
             params["SCOUNTENABLE_EN"][:4] = [True] * 4
             udb = {"params": params, "implemented_extensions": [
@@ -141,9 +145,9 @@ class ArchTestConfigTest(unittest.TestCase):
             self.assertEqual(model["base"]["mcounteren_writable_bits"]["value"], "0xf")
             self.assertEqual(model["base"]["scounteren_writable_bits"]["value"], "0xf")
             differences = configure["reference_model_differences"](params)
-            self.assertEqual(set(differences), {"HPM_EVENTS", "COUNTINHIBIT_EN"})
+            self.assertEqual(set(differences), {"HPM_EVENTS"})
             self.assertEqual(differences["HPM_EVENTS"]["dut"], [0, 1, 2])
-            self.assertEqual(differences["COUNTINHIBIT_EN"]["sail"][:4], [True, False, True, True])
+            self.assertEqual(model["base"]["mcountinhibit"]["writable_bits"]["value"], "0x8")
 
     def test_optional_sv39_extensions(self):
         project = runpy.run_path(str(RUNNER.with_name("configure.py")))["sail_config"]
@@ -573,8 +577,14 @@ class ArchTestConfigTest(unittest.TestCase):
             REPORT_ENCODING_IN_VSTVAL_ON_VIRTUAL_INSTRUCTION=True,
             MSTATEEN_ENVCFG_TYPE="rw", HSTATEEN_ENVCFG_TYPE="rw",
         )
+        for cause in ("LOAD_ADDRESS_MISALIGNED", "LOAD_ACCESS_FAULT", "LOAD_PAGE_FAULT",
+                      "STORE_AMO_ADDRESS_MISALIGNED", "STORE_AMO_ACCESS_FAULT", "STORE_AMO_PAGE_FAULT",
+                      "FINAL_LOAD_GUEST_PAGE_FAULT", "FINAL_STORE_AMO_GUEST_PAGE_FAULT"):
+            udb["params"]["TINST_VALUE_ON_" + cause] = "always zero"
         result = project(sail_default(), udb, 0x80000000, 0x40000000)
         self.assertTrue(result["extensions"]["H"]["supported"])
+        self.assertEqual(len(result["extensions"]["H"]["transformed_instruction"]), 8)
+        self.assertFalse(any(result["extensions"]["H"]["transformed_instruction"].values()))
         self.assertTrue(result["extensions"]["Sha"]["supported"])
         self.assertTrue(result["extensions"]["Stateen"]["Ssstateen"]["supported"])
         self.assertTrue(result["extensions"]["Stateen"]["Smstateen"]["supported"])
@@ -587,6 +597,10 @@ class ArchTestConfigTest(unittest.TestCase):
         self.assertTrue(result["base"]["vstvec"]["direct"]["supported"])
         self.assertFalse(result["base"]["vstvec"]["vectored"]["supported"])
         self.assertEqual(result["extensions"]["V"]["support_level"], "Full")
+        udb["params"]["TINST_VALUE_ON_LOAD_ACCESS_FAULT"] = "custom"
+        with self.assertRaisesRegex(ValueError, "TINST_VALUE_ON_LOAD_ACCESS_FAULT"):
+            project(sail_default(), udb, 0x80000000, 0x40000000)
+        udb["params"]["TINST_VALUE_ON_LOAD_ACCESS_FAULT"] = "always zero"
         udb["params"]["VSSTATUS_VS_EXISTS"] = False
         with self.assertRaisesRegex(ValueError, "VSSTATUS_VS_EXISTS"):
             project(sail_default(), udb, 0x80000000, 0x40000000)

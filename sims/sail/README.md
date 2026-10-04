@@ -6,6 +6,8 @@
 This package projects resolved RISC-V hart architecture into the pinned Sail
 model. ACT and [embedded co-simulation](../cosim/README.md) share it. Contributor
 ownership and validation live in [sims/DEVELOPING.md](../DEVELOPING.md#embedded-sail-reference).
+Contributors follow the [source documentation requirements](../../AGENTS.md#source-documentation),
+including the `tests/` exemption.
 
 ## Entry point
 
@@ -14,10 +16,15 @@ configuration with the exact supported UDB architecture: extensions, XLEN,
 VLEN/ELEN, privilege versions, translation, CSR masks, trap choices, CBO geometry,
 and reservation constraints. It leaves memory regions and reference devices
 untouched for the caller to replace. Unsupported mappings fail explicitly.
+The projection preserves `mcountinhibit` presence and its exact writable mask.
+For H profiles, the current supported transformed-instruction policy is the
+UDB's always-zero choice; other policies fail instead of inheriting Sail defaults.
 
 `product.product_architecture` checks the selected product and any separate UDB
 export against canonical configuration metadata. `product.model_defaults` checks
-the pinned Sail version and obtains its XLEN-specific defaults.
+the pinned Sail release and required configuration controls, then obtains its
+XLEN-specific defaults. The release string alone cannot distinguish the current
+master pin from the older 0.14.1 tag.
 
 ## Architecture versus environment
 

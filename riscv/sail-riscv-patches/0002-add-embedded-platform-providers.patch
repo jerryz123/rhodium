@@ -6,6 +6,8 @@ SPDX-License-Identifier: BSD-2-Clause
 Keep standalone behavior unchanged; hosts opt into replacing physical RAM reads
 and writes and supplying MEI/SEI input pins. Device replay happens before load
 extension, not by substituting an architectural destination register.
+The v2 access classification distinguishes fetches independently of ordering;
+address announcements remain observations, not committed host writes.
 
 diff --git a/c_emulator/riscv_platform_if.h b/c_emulator/riscv_platform_if.h
 index 72e6d848..b16fc8c9 100644
@@ -60,9 +62,9 @@ diff --git a/model/core/phys_mem_interface.sail b/model/core/phys_mem_interface.
 index 688350c8..c507ba30 100644
 --- a/model/core/phys_mem_interface.sail
 +++ b/model/core/phys_mem_interface.sail
-@@ -70,6 +70,14 @@ struct RISCV_strong_access = {
- // addresses regardless of the actual physical address width.
- function physaddrbits_zero_extend(xs : physaddrbits) -> bits(64) = zero_extend(xs)
+@@ -131,6 +131,14 @@ enum barrier_kind = {
+   Barrier_RISCV_i,
+ }
  
 +// Optional embedded physical-memory provider, reached after architectural checks.
 +val host_memory_enabled = pure {cpp: "host_memory_enabled"} : unit -> bool
@@ -73,23 +75,24 @@ index 688350c8..c507ba30 100644
 +function host_memory_write(_, _, _) = false
 +
  instantiation sail_mem_write with
-   'pa = physaddrbits,
-   pa_bits = physaddrbits_zero_extend,
-@@ -84,6 +92,7 @@ instantiation sail_mem_write with
- val write_ram : forall 'n, 0 < 'n <= max_mem_access. (write_kind, physaddr, int('n), bits(8 * 'n), mem_meta) -> bool
+   'addr_size = physaddrbits_len,
+   'addr_space = unit,
+@@ -158,6 +166,7 @@ val write_ram : forall 'n, 0 < 'n <= max_mem_access.
+   (write_kind, MemoryAccessType(mem_payload), physaddr, int('n), bits(8 * 'n), mem_meta) -> bool
  
- function write_ram(wk, Physaddr(addr), width, data, meta) = {
+ function write_ram(wk, access, Physaddr(addr), width, data, meta) = {
 +  if host_memory_enabled() then return host_memory_write(zero_extend(addr), width, data);
-   let request : Mem_write_request('n, 64, physaddrbits, unit, RISCV_strong_access) = struct {
+   let request : Mem_request('n, 0, physaddrbits_len, unit, access_kind) = struct {
      access_kind = match wk {
-       Write_plain => AK_explicit(struct { variety = AV_plain, strength = AS_normal }),
-@@ -123,6 +132,7 @@ instantiation sail_mem_read with
+       Write_RISCV_release => internal_error(__FILE__, __LINE__, "Write_RISCV_release is unused"),
+@@ -244,6 +253,7 @@ instantiation sail_mem_read with
  
- val read_ram : forall 'n, 0 < 'n <= max_mem_access.  (read_kind, physaddr, int('n), bool) -> (bits(8 * 'n), mem_meta)
- function read_ram(rk, Physaddr(addr), width, read_meta) = {
-+  if host_memory_enabled() then return (host_memory_read(zero_extend(addr), width, rk == Read_ifetch), default_meta);
+ val read_ram : forall 'n, 0 < 'n <= max_mem_access.
+   (read_kind, MemoryAccessType(mem_payload), physaddr, int('n), bool) -> (bits(8 * 'n), mem_meta)
+ function read_ram(rk, access, Physaddr(addr), width, read_meta) = {
++  if host_memory_enabled() then return (host_memory_read(zero_extend(addr), width, access == InstructionFetch()), default_meta);
    let meta = if read_meta then __ReadRAM_Meta(addr, width) else default_meta;
-   let request : Mem_read_request('n, 64, physaddrbits, unit, RISCV_strong_access) = struct {
+   let request : Mem_request('n, 0, physaddrbits_len, unit, access_kind) = struct {
      access_kind = match rk {
 diff --git a/model/sys/interrupt_implementation.sail b/model/sys/interrupt_implementation.sail
 index 07f9191e..c630ee9c 100644

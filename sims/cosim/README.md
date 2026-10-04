@@ -7,7 +7,9 @@ This package provides a model-independent architectural event collector and an
 in-process Sail reference hart with private memory. The scalar comparison runtime
 connects them to Mini/Simple RV5Stage simulators through compile-target instrumentation.
 See the parent
-[contributor guide](../DEVELOPING.md#embedded-sail-reference) for maintenance.
+[contributor guide](../DEVELOPING.md#embedded-sail-reference) for maintenance and
+the [source documentation requirements](../../AGENTS.md#source-documentation),
+including the `tests/` exemption.
 
 ## Get started
 
@@ -18,7 +20,7 @@ make -C sims cosim-hooks-test
 ```
 
 Use the repository's [simulation prerequisites](../README.md), plus CMake,
-GMP development headers, and the pinned Sail 0.20.2 compiler. On supported
+GMP development headers, and the pinned Sail 0.20.3 compiler. On supported
 Linux hosts the installer downloads the compiler; elsewhere set
 `SAIL_COMPILER` to its executable.
 

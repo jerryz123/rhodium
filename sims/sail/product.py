@@ -21,10 +21,17 @@ def product_architecture(configuration, name, udb=None):
 
 
 def model_defaults(sail, xlen):
-    """Reject version drift before loading the matching XLEN model defaults."""
+    """Check release and required schema controls before loading XLEN defaults."""
     import pyjson5
+    from .configuration import TRANSFORMED_INSTRUCTION_PARAMETERS
     version = subprocess.check_output([str(sail), "--version"], text=True).strip()
     if version != "0.14.1":
         raise ValueError(f"expected Sail 0.14.1, got {version}")
     width = ["--rv32"] if xlen == 32 else []
-    return pyjson5.decode(subprocess.check_output([str(sail), *width, "--print-default-config"], text=True))
+    default = pyjson5.decode(subprocess.check_output([str(sail), *width, "--print-default-config"], text=True))
+    # Master retains the 0.14.1 release string; an older release lacks these controls.
+    inhibit = default.get("base", {}).get("mcountinhibit", {})
+    transformed = default.get("extensions", {}).get("H", {}).get("transformed_instruction", {})
+    if not {"supported", "writable_bits"} <= inhibit.keys() or not TRANSFORMED_INSTRUCTION_PARAMETERS.keys() <= transformed.keys():
+        raise ValueError("Sail lacks pinned mcountinhibit/transformed-instruction controls; rebuild with arch-test-sail-setup")
+    return default

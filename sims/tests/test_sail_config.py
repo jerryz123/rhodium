@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import runpy
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from test_arch_test import sail_default, vector_udb
 
@@ -13,7 +13,8 @@ SIMS = Path(__file__).resolve().parents[1]
 COSIM = runpy.run_path(str(SIMS / "cosim/configure.py"))
 ACT = runpy.run_path(str(SIMS / "arch-test/configure.py"))
 from sail.configuration import project_architecture, reference_model_differences
-from sail.product import fingerprint
+from sail.product import fingerprint, model_defaults
+from sail.configuration import TRANSFORMED_INSTRUCTION_PARAMETERS
 
 
 def environment():
@@ -34,6 +35,56 @@ def environment():
 
 
 class SailConfigurationTest(unittest.TestCase):
+    def test_model_defaults_check_schema_even_with_unchanged_release_string(self):
+        default = self.default()
+        default["extensions"]["H"]["transformed_instruction"] = dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS, True)
+        with patch.dict("sys.modules", {"pyjson5": Mock(decode=json.loads)}):
+            for xlen in (32, 64):
+                with patch("sail.product.subprocess.check_output", side_effect=["0.14.1", json.dumps(default)]) as invoke:
+                    self.assertEqual(model_defaults("sail", xlen), default)
+                    args = invoke.call_args.args[0]
+                    self.assertEqual("--rv32" in args, xlen == 32)
+            for key in ("mcountinhibit", "transformed_instruction"):
+                old = copy.deepcopy(default)
+                del (old["base"] if key == "mcountinhibit" else old["extensions"]["H"])[key]
+                with patch("sail.product.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
+                    with self.assertRaisesRegex(ValueError, "rebuild with arch-test-sail-setup"):
+                        model_defaults("old-sail", 64)
+            with patch("sail.product.subprocess.check_output", return_value="0.14.2"):
+                with self.assertRaisesRegex(ValueError, "expected Sail 0.14.1"):
+                    model_defaults("other-sail", 64)
+
+    def test_mcountinhibit_projects_presence_and_exact_writable_mask(self):
+        for supported, enabled in ((False, ()), (True, ()), (True, (0, 2)), (True, (3, 31))):
+            udb = vector_udb()
+            udb["params"].update(MCOUNTINHIBIT_IMPLEMENTED=supported,
+                                 COUNTINHIBIT_EN=[i in enabled for i in range(32)])
+            result = project_architecture(self.default(), udb)
+            self.assertEqual(result["base"]["mcountinhibit"], {
+                "supported": supported,
+                "writable_bits": {"len": 32, "value": hex(sum(1 << i for i in enabled))},
+            })
+            self.assertNotIn("COUNTINHIBIT_EN", reference_model_differences(udb["params"]))
+        for supported, mask in ((True, [False, True] + [False] * 30),
+                                (False, [True] + [False] * 31),
+                                (True, [False] * 31), (True, [0] * 32)):
+            udb = vector_udb()
+            udb["params"].update(MCOUNTINHIBIT_IMPLEMENTED=supported, COUNTINHIBIT_EN=mask)
+            with self.assertRaisesRegex(ValueError, "COUNTINHIBIT_EN"):
+                project_architecture(self.default(), udb)
+        udb = vector_udb()
+        udb["params"]["MCOUNTINHIBIT_IMPLEMENTED"] = True
+        with self.assertRaisesRegex(ValueError, "COUNTINHIBIT_EN"):
+            project_architecture(self.default(), udb)
+
+    def test_new_optional_extensions_do_not_leak_from_model_defaults(self):
+        default = self.default()
+        for name in ("Ssstrict", "Smdbltrp", "Ssdbltrp"):
+            default["extensions"][name] = {"supported": True}
+        result = project_architecture(default, vector_udb())
+        for name in ("Ssstrict", "Smdbltrp", "Ssdbltrp"):
+            self.assertFalse(result["extensions"][name]["supported"])
+
     def test_runtime_image_and_descriptor_are_embedded_exactly(self):
         env = environment()
         env.update(xlen=64, rom_image={"address": 0x1000, "bytes": [0, 255, 19, 0]})

@@ -48,6 +48,16 @@ VECTOR_PARAMETER_VALUES = {
     "VFREDUSUM_NODE_ROUNDING_BEHAVIOR": "SEW_precision",
 }
 POINTER_MASKING_VERSIONS = {"Ssnpm": "1.0.0", "Supm": "1.0.0"}
+TRANSFORMED_INSTRUCTION_PARAMETERS = {
+    "load_address_misaligned": "TINST_VALUE_ON_LOAD_ADDRESS_MISALIGNED",
+    "load_access_fault": "TINST_VALUE_ON_LOAD_ACCESS_FAULT",
+    "load_page_fault": "TINST_VALUE_ON_LOAD_PAGE_FAULT",
+    "load_guest_page_fault": "TINST_VALUE_ON_FINAL_LOAD_GUEST_PAGE_FAULT",
+    "samo_address_misaligned": "TINST_VALUE_ON_STORE_AMO_ADDRESS_MISALIGNED",
+    "samo_access_fault": "TINST_VALUE_ON_STORE_AMO_ACCESS_FAULT",
+    "samo_page_fault": "TINST_VALUE_ON_STORE_AMO_PAGE_FAULT",
+    "samo_guest_page_fault": "TINST_VALUE_ON_FINAL_STORE_AMO_GUEST_PAGE_FAULT",
+}
 
 
 def reference_model_differences(params):
@@ -66,11 +76,6 @@ def reference_model_differences(params):
             "dut": params.get("HPM_EVENTS", "implementation-defined"),
             "sail": "selector writes retained; no event increments or generated overflow",
         }
-    if "COUNTINHIBIT_EN" in params:
-        sail_mask = [i in (0, 2) or (i >= 3 and enabled)
-                     for i, enabled in enumerate(params["HPM_COUNTER_EN"])]
-        if params["COUNTINHIBIT_EN"] != sail_mask:
-            differences["COUNTINHIBIT_EN"] = {"dut": params["COUNTINHIBIT_EN"], "sail": sail_mask}
     return differences
 
 
@@ -253,6 +258,16 @@ def project_architecture(default, udb):
     base["E"] = False
     base["writable_misa"] = any(value for key, value in params.items() if key.startswith("MUTABLE_MISA_"))
     base["privileged_isa_version"] = "Privileged_ISA_" + "_".join(str(extensions["Sm"]).split(".")[:2])
+    inhibit_supported = params["MCOUNTINHIBIT_IMPLEMENTED"]
+    inhibit_bits = params.get("COUNTINHIBIT_EN", None if inhibit_supported else [False] * 32)
+    if type(inhibit_supported) is not bool:
+        raise ValueError("MCOUNTINHIBIT_IMPLEMENTED must be Boolean")
+    if not isinstance(inhibit_bits, list) or len(inhibit_bits) != 32 or any(type(bit) is not bool for bit in inhibit_bits):
+        raise ValueError("COUNTINHIBIT_EN must contain 32 Boolean entries")
+    if inhibit_bits[1] or (not inhibit_supported and any(inhibit_bits)):
+        raise ValueError("COUNTINHIBIT_EN must leave TIME and absent mcountinhibit read-only zero")
+    base["mcountinhibit"].update(supported=inhibit_supported,
+                               writable_bits=bits(sum(1 << i for i, enabled in enumerate(inhibit_bits) if enabled), 32))
     # Sail 0.14.1 defaults include H and CFI exception causes independently of
     # whether those extensions are implemented by the selected hart.
     if "H" not in extensions:
@@ -297,6 +312,10 @@ def project_architecture(default, udb):
         guest = model_extensions["H"]
         guest["geilen"] = params["NUM_EXTERNAL_GUEST_INTERRUPTS"]
         guest["guest_page_fault_writes_htval"] = params["REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT"]
+        for field, parameter in TRANSFORMED_INSTRUCTION_PARAMETERS.items():
+            if params.get(parameter) != "always zero":
+                raise ValueError(f"Sail transformed-instruction projection requires {parameter}='always zero'")
+            guest["transformed_instruction"][field] = False
         for mode in guest["vsatp_modes"]:
             guest["vsatp_modes"][mode] = params.get(mode.upper() + "_VSMODE_TRANSLATION", False)
         for mode in guest["hgatp_modes"]:

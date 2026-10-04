@@ -1,7 +1,7 @@
 # Builds embedded Sail qualification and exact-product reference configurations.
 # SPDX-License-Identifier: Apache-2.0
-COSIM_SAIL_PREFIX ?= $(REPO_DIR)/.tools/sail-riscv-0.14.1-sail-0.20.2-$(SAIL_IDENTITY)
-COSIM_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/sail-cosim/$(SAIL_IDENTITY)
+COSIM_SAIL_PREFIX ?= $(REPO_DIR)/.tools/sail-riscv-0.14.1-sail-0.20.3-$(SAIL_IDENTITY)
+COSIM_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/sail-cosim/sail-0.20.3-$(SAIL_IDENTITY)
 COSIM_CONFIG_DIR ?= $(SOC_BUILD_DIR)/cosim
 COSIM_PYTHON ?= $(ACT_PYTHON)
 COSIM_HOOK_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/cosim-hooks

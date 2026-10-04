@@ -8,7 +8,7 @@ source_dir="$repo_dir/riscv/sail-riscv"
 series="${SAIL_PATCH_SERIES:-$repo_dir/riscv/sail-riscv-patches/series}"
 materializer="$repo_dir/riscv/patched_submodule.py"
 python="${PYTHON:-python3}"
-compiler_version=0.20.2
+compiler_version=0.20.3
 identity="$("$python" "$materializer" identity --repository "$repo_dir" --submodule riscv/sail-riscv --series "$series")"
 install_dir="$repo_dir/.tools/sail-riscv-0.14.1-sail-$compiler_version-$identity"
 
@@ -43,8 +43,8 @@ trap 'rm -rf "$work_dir"' EXIT
 compiler="${SAIL_COMPILER:-}"
 if [[ -z "$compiler" ]]; then
   case "$(uname -s)-$(uname -m)" in
-    Linux-x86_64) asset=Linux-x86_64; digest=26b59bcab2d66e9f220d317dfe45f8b09170ed70e59a824553d6f525134d1ff6 ;;
-    Linux-aarch64) asset=Linux-aarch64; digest=10428d1be9a2945a71f9855c81027c22d6a2895dbbcf2ce9a4f9640203d5067f ;;
+    Linux-x86_64) asset=Linux-x86_64; digest=8d7cd75624ece407d7001ad32905a13ae111d5cc1a055404f21510e113207e3f ;;
+    Linux-aarch64) asset=Linux-aarch64; digest=bdb1d68ca6b3a9eb74c409e42e54f71e77418debe3376dabdaabf3b6cd2bcf2d ;;
     *) asset= ;;
   esac
   if [[ -n "$asset" ]]; then
@@ -73,7 +73,7 @@ if [[ -z "$compiler" || ! -x "$compiler" ]]; then
 fi
 compiler="$(cd "$(dirname "$compiler")" && pwd)/$(basename "$compiler")"
 compiler_report="$("$compiler" --version)"
-if [[ ! "$compiler_report" =~ (^|[^0-9])0\.20\.2([^0-9]|$) ]]; then
+if [[ ! "$compiler_report" =~ (^|[^0-9])0\.20\.3([^0-9]|$) ]]; then
   echo "Expected Sail compiler $compiler_version, got: $compiler_report" >&2
   exit 1
 fi

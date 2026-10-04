@@ -180,6 +180,33 @@ void check_time(unsigned xlen) {
   CHECK(written(model.step(), 4, 7));
 }
 
+void check_machine_counters(unsigned xlen) {
+  auto config = jsoncons::json::parse(configuration(xlen));
+  config["extensions"]["Zicntr"]["supported"] = false;
+  config["extensions"]["Zihpm"]["supported"] = false;
+  config["base"]["mcountinhibit"]["supported"] = true;
+  config["base"]["mcountinhibit"]["writable_bits"]["value"] = "0x8";
+  {
+    SailReference model(config.to_string(), ram, backing);
+    program(model, ram, {addi(1, 0, -1), csrw(0x320, 1), 0x32002173,
+                         csrw(0x320, 0), csrw(0xb00, 0), csrw(0xb02, 0),
+                         0xb00021f3, 0xb0202273, 0xc00022f3});
+    CHECK(model.step().retired && model.step().retired);
+    CHECK(written(model.step(), 2, 8)); // Exact mask, not implicit CY/IR enables.
+    for (unsigned i = 0; i != 3; ++i) CHECK(model.step().retired);
+    CHECK(written(model.step(), 3, 0));
+    CHECK(written(model.step(), 4, 1)); // Machine counters exist without Zicntr.
+    auto absent_user_cycle = model.step();
+    CHECK(absent_user_cycle.trap && absent_user_cycle.trap->cause == 2);
+  }
+  config["base"]["mcountinhibit"]["supported"] = false;
+  config["base"]["mcountinhibit"]["writable_bits"]["value"] = "0x0";
+  SailReference model(config.to_string(), ram, backing);
+  program(model, ram, {0x320020f3});
+  auto absent_inhibit = model.step();
+  CHECK(absent_inhibit.trap && absent_inhibit.trap->cause == 2);
+}
+
 void check_fesvr_coexistence() {
   // Construct the actual existing transport while Sail is live. No second host
   // service or loader belongs to the reference model, and no target is launched.
@@ -196,7 +223,9 @@ void check_fesvr_coexistence() {
 
 int main() {
   try {
-    for (unsigned xlen : {32, 64}) { check_scalar(xlen); check_mmio(xlen); check_time(xlen); }
+    for (unsigned xlen : {32, 64}) {
+      check_scalar(xlen); check_mmio(xlen); check_time(xlen); check_machine_counters(xlen);
+    }
     check_faults();
     check_interrupt();
     check_wait_and_reset();
