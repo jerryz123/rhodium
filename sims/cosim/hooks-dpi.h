@@ -18,6 +18,7 @@ class DpiBinding {
 }
 
 extern "C" {
+std::int64_t rhodium_cosim_epoch(std::int64_t instance) noexcept;
 void rhodium_cosim_instruction(std::int64_t instance, std::int64_t epoch, std::int64_t order, std::int64_t pc, std::int64_t encoding, std::int64_t encoding_valid_bytes, std::int64_t instruction_bytes, std::int64_t privilege, std::int64_t virtualized, std::int64_t producers) noexcept;
 void rhodium_cosim_retire(std::int64_t instance, std::int64_t epoch, std::int64_t order, std::int64_t next_pc, std::int64_t privilege, std::int64_t virtualized) noexcept;
 void rhodium_cosim_exception(std::int64_t instance, std::int64_t epoch, std::int64_t order, std::int64_t cause, std::int64_t epc, std::int64_t tval, std::int64_t target_pc, std::int64_t privilege, std::int64_t virtualized, std::int64_t guest_valid, std::int64_t htval, std::int64_t htinst) noexcept;

@@ -198,9 +198,9 @@ dpi_import procedure rhodium_cosim_seal(
   count: Bits(64)
 )
 
-/* Captures a clock and instance identity; disabled specialization emits no DPI effects.
-   The caller retains instruction IDs through delayed execution and owns valid gating. */
-class CosimHart(clock :: Clock, instance :: Bits(64), enabled :: Boolean = #true):
+/* Captures an explicit clock, or #false for the ambient synchronous domain.
+   Disabled specialization emits no DPI effects; callers own IDs and reset/valid gating. */
+class CosimHart(clock :: maybe(Clock), instance :: Bits(64), enabled :: Boolean = #true):
 
   /* Emits one instruction observation without backpressure. */
   method instruction(valid :: Bool, id :: CosimInstructionId(), value :: CosimInstruction()):

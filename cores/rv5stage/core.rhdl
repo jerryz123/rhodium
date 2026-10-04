@@ -3,6 +3,8 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../riscv/cosim-source.rhm".describe_cosim_hart
+  "cosim.rhdl" open
   lib("riscv/rtl/hypervisor.rhdl") open
   "fetch/bpd/protocol.rhdl" open
   "fetch/bpd/ras.rhdl" open
@@ -1634,6 +1636,35 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
           rd: response.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).payload.rd
           data: if xlen == XLen.X32 | response.data.zext(64) | response.data
   ) |> wb_fp.load_completion
+
+  // Semantic taps are passive metadata; compilation alone selects observer realization.
+  describe_cosim_hart(rv5stage_cosim_recipe(core_profile), {
+    "wb_maintenance_accepted": wb_maintenance_accepted,
+    "wb_reservation_wait_accept": wb_reservation_wait_accept,
+    "wb_commit_valid": wb_commit_valid,
+    "wb_maintenance_pending": wb_maintenance_pending,
+    "wb_reservation_wait_pending": wb_reservation_wait_pending,
+    "wb_pending_exception_valid": wb_pending_exception_valid,
+    "wb_current_exception_wait": wb_current_exception_wait,
+    "wb_memory_accepted": wb_memory_accepted,
+    "wb_attempt": wb_attempt,
+    "wb_data_fault": wb_data_fault,
+    "wb_commit_has_multiply": wb_commit_has_multiply,
+    "wb_commit_has_divide": wb_commit_has_divide,
+    "wb_offer_bits": wb_offer_bits,
+    "wb_commit_bits": wb_commit_bits,
+    "wb_input_bits": wb_input.bits,
+    "resume_pc": wb_architectural_commit.resume_pc,
+    "response_fire": scalar_data.response.fire(),
+    "memory_request": scalar_data.request.bits,
+    "memory_response": scalar_data.response.bits,
+    "write_valid": wb_commit_write.valid,
+    "write_rd": wb_commit_write.bits.address,
+    "write_data": wb_commit_write.bits.data,
+    "arithmetic_done": vec([wb_multiplier.completion.fire(), wb_divider.completion.fire()]),
+    "arithmetic_rd": vec([wb_multiplier.completion.bits.rd, wb_divider.completion.bits.rd]),
+    "arithmetic_value": vec([wb_multiplier.completion.bits.value, wb_divider.completion.bits.value])
+  }, {"csr": wb_csrs}, ~unsupported: if floating_point_supports_f(profile) || vector_enabled || hypervisor | "scalar cosimulation requires FP, vector, and hypervisor execution disabled" | #false)
 
 export:
   RV5StageCore

@@ -1,0 +1,110 @@
+#lang rhodium
+/* Compares observed and unobserved scalar cores while exposing controlled architectural events. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../core.rhdl" open
+  "../cosim-support.rhdl".rv5stage_cosim_lane
+  "../profile.rhm" open
+  "../fetch/packet.rhdl" open
+  "../fetch/bpd/protocol.rhdl" open
+  "../dcache/protocol.rhdl" open
+  "../mmu/protocol.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
+  "../../../riscv/isa/xlen.rhm" open
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/c.rhm" open
+  lib("flow/main.rhdl") open
+
+/* Uses real decode, pipeline, register file, CSR state and arithmetic with controllable memory. */
+sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplierKind):
+  def profile = RV5StageConfig(~xlen: xlen, ~multiplier: multiplier, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None, ~compressed: CCompressedExtensions, ~zawrs: #true, ~zicbom: #true))
+  inst observed(RV5StageCore(profile, ~reset_address: 0))
+  inst reference(RV5StageCore(profile, ~reset_address: 0))
+  input ticks: Bits(64)
+  input packet_valid: Bool
+  input pc: Bits(64)
+  input instruction: Bits(32)
+  input(data_ready, data_fault, page_fault, response_valid, response_fault, reservation, mswi, drained): Bool
+  input fault_address: Bits(64)
+  input response_tag: RV5StageMemoryWriteback(8)
+  input response_data: Bits(64)
+  input pipeline_mode: Bits(2)
+  input pipeline_data: Bits(64)
+  output(packet_ready, data_valid, response_ready): Bool
+  output data_tag: RV5StageMemoryWriteback(8)
+  output data_address: Bits(64)
+  output data_value: Bits(64)
+  output architectural_width: Bits(8)
+  architectural_width <== bits(xlen.width, 8)
+  reg lookup_valid(~init: Bool(#false))
+  reg lookup_mode(Bits(2))
+  reg lookup_data(Bits(xlen.width))
+  lookup_valid <== observed.pipeline_access.request.valid
+  when (observed.pipeline_access.request.valid):
+    lookup_mode <== pipeline_mode
+    lookup_data <== pipeline_data[0..xlen.width]
+  for (core in [observed, reference]):
+    core.interrupts <== RiscvInterrupts():
+      supervisor_software: Bool(#false)
+      machine_software: mswi
+      supervisor_timer: Bool(#false)
+      machine_timer: Bool(#false)
+      supervisor_external: Bool(#false)
+      machine_external: Bool(#false)
+    core.hart_id <== bits(0, xlen.width)
+    core.time_counter <== ticks
+    core.packets.valid <== packet_valid
+    core.packets.bits <== RV5StageFetchPacket(xlen, #false):
+      pc: pc[0..xlen.width]
+      word: instruction
+      mask: mux(instruction[0..2] =/= bits(3, 2), bits(1, 2), bits(3, 2))
+      page_fault: Bool(#false)
+      access_fault: Bool(#false)
+      prediction: literal(RV5StagePrediction(xlen), 0)
+    core.pipeline_access.response.valid <== lookup_valid & lookup_mode.or_reduce()
+    core.pipeline_access.response.bits <== RV5StagePipelineResult(xlen):
+      outcome: mux(lookup_mode === bits(1, 2), RV5StagePipelineOutcome.LoadHit, RV5StagePipelineOutcome.StoreHit)
+      reason: RV5StagePipelineReason.None
+      data: lookup_data
+    core.pipeline_access.commit_ready <== pipeline_mode === bits(2, 2)
+    core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
+    core.vector_fast.response.valid <== Bool(#false)
+    core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
+    core.vector_fast.candidate_current <== Bool(#false)
+    core.data_access.request.ready <== data_ready
+    core.data_access.request_fault <== page_fault
+    core.request_fault_address <== fault_address[0..xlen.width]
+    core.data_access.request_access_fault <== data_fault
+    core.data_access.drained <== drained
+    core.data_access.reservation_valid <== reservation
+    core.data_access.response.valid <== response_valid
+    core.data_access.response.bits <== RV5StageDataResp(xlen, 8):
+      access_fault: response_fault
+      data: response_data[0..xlen.width]
+      writeback: response_tag
+      origin: RV5StageDataOrigin.Core
+  packet_ready <== observed.packets.ready
+  data_valid <== observed.data_access.request.valid
+  response_ready <== observed.data_access.response.ready
+  data_tag <== observed.data_access.request.bits.writeback
+  data_address <== rv5stage_cosim_lane(observed.data_access.request.bits.address)
+  data_value <== rv5stage_cosim_lane(observed.data_access.request.bits.data)
+  assert(observed.packets.ready === reference.packets.ready, "cosim_passive_fetch")
+  assert(observed.frontend_control.active === reference.frontend_control.active, "cosim_passive_active")
+  assert(observed.frontend_control.flush.valid === reference.frontend_control.flush.valid, "cosim_passive_flush")
+  assert(observed.frontend_control.restart.valid === reference.frontend_control.restart.valid, "cosim_passive_restart")
+  assert(!observed.frontend_control.restart.valid ||| (observed.frontend_control.restart.bits === reference.frontend_control.restart.bits), "cosim_passive_restart_pc")
+  assert(observed.frontend_control.invalidate_all.valid === reference.frontend_control.invalidate_all.valid, "cosim_passive_invalidate")
+  assert(observed.frontend_control.predictor_flush.valid === reference.frontend_control.predictor_flush.valid, "cosim_passive_predictor")
+  assert(observed.frontend_control.branch_update.valid === reference.frontend_control.branch_update.valid, "cosim_passive_branch_valid")
+  assert(!observed.frontend_control.branch_update.valid ||| (observed.frontend_control.branch_update.bits.as_bits() === reference.frontend_control.branch_update.bits.as_bits()), "cosim_passive_branch_bits")
+  assert(observed.data_access.request.valid === reference.data_access.request.valid, "cosim_passive_request_valid")
+  assert(!observed.data_access.request.valid ||| (observed.data_access.request.bits.as_bits() === reference.data_access.request.bits.as_bits()), "cosim_passive_request_bits")
+  assert(observed.data_access.response.ready === reference.data_access.response.ready, "cosim_passive_response_ready")
+  assert(observed.pipeline_access.request.valid === reference.pipeline_access.request.valid, "cosim_passive_lookup_valid")
+  assert(!observed.pipeline_access.request.valid ||| (observed.pipeline_access.request.bits.as_bits() === reference.pipeline_access.request.bits.as_bits()), "cosim_passive_lookup_bits")
+  assert(observed.pipeline_access.commit === reference.pipeline_access.commit, "cosim_passive_store")
+  assert(observed.privilege === reference.privilege, "cosim_passive_privilege")
+  assert(observed.mstatus === reference.mstatus, "cosim_passive_status")
+
+export RV5StageCosimFixture

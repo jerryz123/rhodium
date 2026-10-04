@@ -41,6 +41,20 @@ procedures. It uses only public Rhodium and architectural privilege types, not
 the host receiver under `sims/cosim/`. Keep the flat ABI synchronized with that
 receiver. Its owned behavioral integration test is `cosim-hooks` in
 `sims/cosim/tests/circt/`; run it through the shared CIRCT runner after hook changes.
+The clock argument may be explicit outside a synchronous domain or `#false`
+inside one. The caller gates reset; hooks do not infer reset, acceptance, or
+instruction ownership. The named-core producer has separate real-pipeline
+fixtures under `cores/rv5stage/tests/`.
+
+`cosim-source.rhm` is the authoring bridge for passive observations. It imports
+the core metadata protocol and frontend read/domain APIs, stores local taps and
+explicit child-instance views, and implements `IRRemappable`. Recipes may
+capture detached host configuration only; all live hardware must appear in the
+remapped taps. Compilation invokes recipes in a separate elaboration and checks
+that observer circuits have only the declared inputs and no outputs. Component
+taps must share the hart's clock and reset domain; a separately reset component
+cannot silently reuse its hart's architectural epoch. This bridge
+does not import a compiler pass, simulator, or named core.
 
 ## Focused validation
 

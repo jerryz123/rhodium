@@ -41,6 +41,7 @@ void Collector::begin_sample(Word sample) {
   check(!sample_ && (!previous_sample_ || sample > *previous_sample_), "nonmonotonic or nested sample");
   sample_ = sample;
 }
+Word Collector::epoch(Word instance) { return hart(instance).epoch; }
 void Collector::environment(Word instance, Environment inputs) {
   auto& h = hart(instance);
   check(!sample_, "set environment before beginning the sample");

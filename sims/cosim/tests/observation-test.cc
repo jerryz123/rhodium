@@ -103,6 +103,7 @@ static void invalid() {
 }
 static void dpi() {
   Collector c; reset(c); DpiBinding binding(c); c.begin_sample(0);
+  require(rhodium_cosim_epoch(0) == 0);
   rhodium_cosim_seal(0,0,0,0,1);
   rhodium_cosim_reg_write(0,0,0,0,0,0,1,0,-1,std::int64_t(0x8000000000000042ULL));
   rhodium_cosim_retire(0,0,0,0x80000004,3,0);
@@ -111,6 +112,15 @@ static void dpi() {
   require(std::get<RegisterWrite>(r[0].effects.at({0,0})).value == 0x8000000000000042ULL);
   c.begin_sample(1); rhodium_cosim_seal(0,0,0,0,0);
   rejects([&]{binding.check();}); // Failure retained rather than escaping C ABI.
+}
+static void epoch_query() {
+  Collector c; reset(c, 0, 7); reset(c, 1, 19); DpiBinding binding(c);
+  require(rhodium_cosim_epoch(0) == 7 && rhodium_cosim_epoch(1) == 19);
+  reset(c, 0, 8);
+  require(rhodium_cosim_epoch(0) == 8 && rhodium_cosim_epoch(1) == 19);
+  binding.check();
+  rhodium_cosim_epoch(2);
+  rejects([&]{binding.check();});
 }
 static void widths_and_partial_fetch() {
   Collector c;
@@ -133,6 +143,6 @@ static void widths_and_partial_fetch() {
   rejects([&]{invalid.effect(0,{0,0},{0,0},write());});
 }
 int main() {
-  permutations(); delayed(); partial_exception_and_reset(); invalid(); dpi(); widths_and_partial_fetch();
+  permutations(); delayed(); partial_exception_and_reset(); invalid(); dpi(); epoch_query(); widths_and_partial_fetch();
   std::cout << "cosim observation tests passed\n";
 }

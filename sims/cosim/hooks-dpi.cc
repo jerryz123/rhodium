@@ -28,6 +28,12 @@ DpiBinding::~DpiBinding() { target = nullptr; failure.clear(); }
 void DpiBinding::check() const { if (!failure.empty()) throw std::runtime_error(failure); }
 }
 
+extern "C" std::int64_t rhodium_cosim_epoch(std::int64_t instance) noexcept {
+  Word epoch = 0;
+  receive([&](Collector& c) { epoch = c.epoch(static_cast<Word>(instance)); });
+  return static_cast<std::int64_t>(epoch);
+}
+
 extern "C" void rhodium_cosim_instruction(std::int64_t instance, std::int64_t epoch, std::int64_t order, std::int64_t pc, std::int64_t encoding, std::int64_t encoding_valid_bytes, std::int64_t instruction_bytes, std::int64_t privilege, std::int64_t virtualized, std::int64_t producers) noexcept {
   receive([&](Collector& c) {
     const auto u_instance = static_cast<Word>(instance);

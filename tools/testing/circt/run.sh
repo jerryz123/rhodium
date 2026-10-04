@@ -249,6 +249,9 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
+    cores-execution-datapath:rv5stage-cosim*)
+      return 0
+      ;;
     language:retained-memory|language:retained-memory-failure|language:retained-state|language:event-retained-bank|language:event-instance|language:event-window|language:event-feedback|language:event-branching|language:event-partial|language:event-offer-register|language:event-parents|cores-execution-datapath:rv5stage-retirement-trace|cores-execution-frontend:event-frontend|cores-execution-frontend:rv5stage-fetch-source|protocols:event-home|protocols:event-subordinate|protocols:event-fesvr)
       return 0
       ;;
@@ -561,9 +564,12 @@ verify_fixture() {
   fi
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
-    if [[ "$fixture" == cosim-hooks ]]; then
+    if [[ "$fixture" == cosim-hooks || "$fixture" == rv5stage-cosim* ]]; then
       dpi_sources+=("$repo_dir/sims/cosim/observation.cc" "$repo_dir/sims/cosim/hooks-dpi.cc")
       verilator_args+=(-CFLAGS "-std=c++20")
+      if [[ "$fixture" == rv5stage-cosim* ]]; then
+        verilator_args+=(--Wno-UNOPTFLAT "-I$repo_dir/cores/rv5stage/tests/circt/verilog")
+      fi
     fi
     testbench="$(owned_fixture_file "verilog/${fixture}_tb.sv")"
     if [[ -f "$test_tmp_dir/${fixture}_manifest.h" ]]; then
@@ -780,6 +786,8 @@ fixture_specs=(
 
 direct_fixture_specs=(
   'rv5stage-retirement-trace|rv5stage_retirement_trace_tb'
+  'rv5stage-cosim|rv5stage_cosim_tb'
+  'rv5stage-cosim32|rv5stage_cosim_tb'
   'event-instance|event_instance_tb'
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'

@@ -190,7 +190,7 @@ class Selection:
             self.add_checks("circt-protocols")
             self.simulation = True
         elif matches(path, "sims/cosim/*"):
-            self.add_checks("circt-core-components")
+            self.add_checks("host-socs", "circt-core-components", "circt-core-execution-datapath")
             self.simulation = True
         elif matches(path, "sims/*"):
             self.simulation = True

@@ -32,10 +32,50 @@ Sail configurations and execute scalar programs.
 
 ## Hook and collector contract
 
+### Compile-target instrumentation
+
+Select architectural observation independently of the HDL generator:
+
+```rhombus
+import:
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("sims/cosim/pass.rhm").cosim_pass
+
+def compiled = compile_program(program, rtl_pipeline_target(circt_target, [cosim_pass()]))
+```
+
+The direct `verilog_target` is also supported. Add `event_trace_pass()` to the
+same list for Flow DPI tracing; both pass orders preserve annotations and prior
+observers. `cosim_pass(~harts: [["core"]])` selects exact declared hart paths
+relative to the compilation top. The default selects all declared harts.
+Missing selections and unsupported selected profiles fail compilation, never
+silently produce incomplete checking.
+
+The pass preserves functional top ports and existing instance paths. It returns
+`cosim.json` with deterministic occurrence IDs and paths alongside the RTL.
+Only selected harts get observer state/DPI. Ordinary functional DPI is retained
+in every mode. Source programs remain reusable across compilation variants.
+
+The host binds descriptor IDs to architectural harts using `Collector::reset`
+before the first reset edge and advances the epoch before each later reset.
+The generated observer samples `rhodium_cosim_epoch` while reset is asserted;
+the collector remains the authority for epoch generation. No epoch/instance
+ports are added to the functional design. At least one reset edge is required
+before execution. Sample barriers and environment snapshots remain host-owned.
+
+This pass emits observations; it does not enable Sail comparison or change
+SoC/ISA selection. The current RV5Stage recipe supports scalar RV32/RV64;
+FP/vector and hypervisor observation are explicitly rejected when selected.
+
+### Producer and receiver
+
 The producer API is [`CosimHart`](../../cores/riscv/cosim.rhdl), imported with
-`lib("cores/riscv/cosim.rhdl")`. Construct it with an explicit `Clock`, a 64-bit
-simulation-instance ID, and an optional host Boolean `enabled` (default true).
-False specializes away every callback. It has no ready signal, result register,
+`lib("cores/riscv/cosim.rhdl")`. Construct it with an explicit `Clock` (or
+`#false` for the ambient `sync_circuit` clock), a 64-bit simulation-instance ID,
+and an optional host Boolean `enabled` (default true). Callers suppress reset events.
+`enabled = #false` specializes away every callback. It has no ready signal, result register,
 or influence on execution. Gate each method with the actual semantic event's
 `Bool`, not stage occupancy. Each takes a `CosimInstructionId` containing
 64-bit `epoch` and `order` fields, followed by its typed payload:
@@ -192,9 +232,10 @@ and host writes into private reference memory at defined boundaries.
 - The callback API carries FP/vector writes, but FP/vector, atomics/reservation
   behavior, virtualized privilege, full-profile execution, and supervisor
   interrupt delivery are not qualified by this first cut.
-- Typed RTL hooks and the deferred-effect collector are independently tested;
-  production hart wiring, a comparison engine, and software-suite co-simulation
-  are not enabled. Timer/software interrupt inputs into Sail and
+- Typed RTL hooks and the deferred-effect collector also have an optional
+  [RV5Stage scalar producer](../../cores/rv5stage/README.md#optional-scalar-architectural-observation).
+  A comparison engine and software-suite co-simulation are not enabled.
+  Timer/software interrupt inputs into Sail and
   nondeterministic CSR replay remain future environment work.
 
 The pinned model and optional host hooks live in the existing

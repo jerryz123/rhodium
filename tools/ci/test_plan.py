@@ -299,6 +299,7 @@ class PlanTest(unittest.TestCase):
             "sims/arch-test/platform.rhm": ("host-socs", "host-hygiene"),
             "sims/arch-test/write-platform.rhm": ("host-socs", "host-hygiene"),
             "sims/tests/product-test.rhm": ("host-socs", "host-hygiene"),
+            "sims/cosim/pass.rhm": ("host-socs", "circt-core-components", "circt-core-execution-datapath", "host-hygiene"),
         }
         for path, expected in cases.items():
             with self.subTest(path=path):
@@ -393,7 +394,8 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertEqual(len(combined), 44)
+        self.assertEqual(len(combined), 46)
+        self.assertTrue({"rv5stage-cosim", "rv5stage-cosim32"} <= leaves[2])
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()

@@ -1,0 +1,47 @@
+#lang rhombus
+/* Declares remappable passive hart observations without constructing observer hardware. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/core/ir.rhm") open
+  lib("rhodium/frontend/kernel.rhm") as kernel
+  lib("rhodium/frontend/support/clocking.rhm").ambient_clock
+  lib("rhodium/frontend/support/clocking.rhm").ambient_reset_active
+
+export:
+  CosimSignals
+  CosimSource
+  describe_cosim_signals
+  describe_cosim_hart
+
+/* Holds local read-only taps and detached interpretation parameters for one component. */
+class CosimSignals(taps :: Map, parameters :: List, clock :: Value, reset :: Value):
+  implements ModuleMetadataPayload
+  /* Rebind every live value while retaining only immutable host parameters. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    CosimSignals(remap(taps), parameters, remap(clock), remap(reset))
+
+/* Identifies a hart and explicit child components; the recipe captures host parameters only.
+   It receives tap types, component parameters, and an occurrence ID at compilation. */
+class CosimSource(taps :: Map, components :: Map, recipe :: Function.of_arity(3), unsupported :: maybe(String)):
+  implements ModuleMetadataPayload
+  /* Instance views preserve child selection through occurrence specialization. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    CosimSource(remap(taps), remap(components), recipe, unsupported)
+
+/* Materialize local read-only references, rejecting taps owned by another module. */
+fun local_taps(taps :: Map):
+  def owner = kernel.active_module()
+  for Map (name in taps.keys()):
+    def value = kernel.read(taps[name])
+    unless value.module_def === owner
+    | error(~who: #'describe_cosim_hart, "observation taps must be local values")
+    values(name, value)
+
+/* Attach a component's semantic taps without ports, state, or foreign calls. */
+fun describe_cosim_signals(taps :: Map, parameters :: List = []):
+  kernel.active_module().add_metadata("riscv.cosim.signals", CosimSignals(local_taps(taps), parameters, ambient_clock(), ambient_reset_active()))
+
+/* Register a deferred observer, its local domain, and explicitly selected child instances. */
+fun describe_cosim_hart(recipe :: Function.of_arity(3), taps :: Map, components :: Map, ~unsupported: unsupported :: maybe(String) = #false):
+  def signals = local_taps(taps ++ {"clock": ambient_clock(), "reset": kernel.cast(ambient_reset_active(), Reset)})
+  kernel.active_module().add_metadata("riscv.cosim.hart", CosimSource(signals, components, recipe, unsupported))

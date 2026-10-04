@@ -62,6 +62,7 @@ class Collector {
  public:
   explicit Collector(std::size_t max_pending = 4096, std::size_t max_effects = 65536);
   void reset(Word instance, Word epoch, ResetState state);
+  Word epoch(Word instance);
   void begin_sample(Word sample);
   void environment(Word instance, Environment inputs);
   void instruction(Word instance, Id id, Instruction value);

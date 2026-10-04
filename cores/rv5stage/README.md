@@ -87,6 +87,37 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
+## Optional scalar architectural observation
+
+RV5Stage declares passive architectural observation sites. Select
+[`cosim_pass`](../../sims/cosim/README.md#compile-target-instrumentation) when
+compiling the elaborated program to emit the generic architectural hooks.
+There is no co-sim generator parameter or public observer port. An ordinary
+target emits no observation queues or DPI calls. The scalar pass currently
+requires FP, vector, and hypervisor execution disabled on selected harts.
+
+The host registers each descriptor instance with the collector, advances its
+epoch before clocking reset, and brackets each rising edge with its environment snapshot and sample
+boundary. IDs are allocated at nonspeculative WB acceptance, including retained
+maintenance and WRS operations; replay and squash do not allocate IDs. GPR
+results retain their owner across delayed memory/multiply/divide completion.
+CSR/trap/return effects report actual post-update values, including WARL
+legalization. Interrupt records describe actual entry, not pending levels.
+CSR effects seal on the following edge; drain pending records before finishing
+the collector.
+
+Memory effects describe logical scalar accesses at their effective virtual
+address, not cache/coherence traffic; physical addresses are unavailable at
+this boundary. Cache-block operations use eight eight-byte fragments. Free-running
+counters, time, and asynchronous interrupt changes remain environment state,
+not instruction-owned CSR deltas. The host must preserve reset and sample
+ordering; observation cannot stall the core. A 64-entry passive owner queue
+per service fails with an assertion on overflow or unmatched completion.
+
+This is an observation producer, not an enabled SoC/Sail comparator. Its focused
+qualification covers RV32/RV64 scalar execution; guest execution and complete
+profile qualification remain later integration work.
+
 ## Experimental hypervisor integration
 
 `RV5StageExtensions(~hypervisor: #true)` selects the RV64 guest path with the

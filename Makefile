@@ -36,6 +36,7 @@ RISCV_TESTS := $(sort $(shell find riscv/tests riscv/rtl/tests -type f -name '*-
 DEVICE_TESTS := $(sort $(wildcard devices/tests/*-test.rhm))
 CHI_TESTS := $(sort $(wildcard chi/tests/*-test.rhm))
 SOC_TESTS := $(sort $(wildcard socs/tests/*-test.rhm))
+COSIM_TESTS := $(sort $(wildcard sims/cosim/tests/*-test.rhm))
 HARDFLOAT_TESTS := $(sort $(wildcard hardfloat/tests/*-test.rhm))
 PROCESSOR_TESTS := $(sort $(shell find cores/tests cores/riscv/tests cores/rv5stage/tests cores/spike/tests -type f -name '*-test.rhm'))
 RFPL_TESTS := $(sort $(wildcard rfpl/tests/*-test.rhm))
@@ -56,7 +57,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
   $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) $(COMPILE_TESTS) \
   $(RFPL_TESTS) $(DEVICETREE_TESTS) devicetree/tests/write-fixture.rhm $(NOC_TESTS) $(RISCV_TESTS) \
-  $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
+  $(DEVICE_TESTS) $(CHI_TESTS) $(SOC_TESTS) $(COSIM_TESTS) $(HARDFLOAT_TESTS) $(PROCESSOR_TESTS) $(EXAMPLES) \
   socs/tests/write-device-trees.rhm \
   tools/write-riscv-udb-config.rhm \
   $(shell find . -type f -path '*/tests/circt/emit-*.rhm' -print) \
@@ -191,7 +192,7 @@ chi-test: check-boundaries
 	bash chi/tests/run-negative.sh
 
 soc-test: check-boundaries
-	tools/run-racket-tests.sh $(SOC_TESTS) sims/tests/product-test.rhm
+	tools/run-racket-tests.sh $(SOC_TESTS) $(COSIM_TESTS) sims/tests/product-test.rhm
 	bash socs/tests/run-device-tree.sh
 
 hardfloat-host-test: check-boundaries

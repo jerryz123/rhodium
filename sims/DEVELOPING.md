@@ -115,7 +115,22 @@ and private-memory contract is separate from ACT placement/signature policy.
 `cosim/observation.h` and `.cc` own model-independent record assembly;
 `hooks-dpi.h` and `.cc` own the flat 64-bit ABI. Keep these independent of Sail,
 Perfetto, pipeline stages, and completion-slot allocation. Production harts and
-the comparison engine are not integrated yet.
+the comparison engine are not integrated into SoC execution yet.
+
+`cosim/pass.rhm` is an ordinary configured `RTLPass`. It consumes remappable
+hart/component declarations from `cores/riscv/cosim-source.rhm`, realizes
+output-free recipes only for selected occurrences, and uses the existing
+occurrence copier to preserve Flow metadata and functional DPI. It returns a
+detached hart descriptor with the RTL. Epoch queries read the collector's
+host-established reset generation; callers must reset/bind before clocking RTL.
+Recipes capture host configuration only and receive all live values through
+explicit inputs. Keep domain-specific WB and CSR logic in the RV5Stage recipe,
+not in the pass or collector.
+
+Run `tools/run-racket-tests.sh sims/cosim/tests/pass-test.rhm` for target
+selection, repeated occurrences, source reuse, both backends, and both Flow
+pass orders. It also runs in the host-SoC lane. The two `rv5stage-cosim*`
+fixtures qualify real scalar behavior through target-selected observation.
 
 Run `make -C sims cosim-hooks-test` after collector/ABI changes. The host-adapter
 CI step includes it without requiring Sail. The `cosim-hooks` CIRCT fixture

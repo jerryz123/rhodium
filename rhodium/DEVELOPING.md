@@ -186,6 +186,16 @@ pure RISC-V instruction catalogs onto root processor-component controls.
 `cores/riscv/cosim.rhdl` uses public language DPI, bundles, and enums plus
 architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.
+`cores/riscv/cosim-source.rhm` bridges source declarations to public core metadata
+and frontend `kernel`/`support/clocking` read/domain APIs. Its descriptors remap
+live taps and instance views while retaining detached recipes and parameters.
+`cores/rv5stage/cosim.rhdl` uses frontend `kernel.input` for deferred, typed tap
+ports and public authoring APIs for the observer. `cosim-support.rhdl` consumes
+generic hooks, Flow queues, and CSR/atomic helpers. The core declares these
+observers; only the optional `sims/cosim/pass.rhm` realizes them. That pass uses
+neutral compile contracts, core IR/Builder/types, the event occurrence copier,
+the source descriptors, and JSON string encoding. No observer signal drives
+functional handshakes, and no named core imports the simulator receiver.
 `cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
 The Spike-backed core's `profile.rhm` imports `frontend/foundation.rhm` only for

@@ -29,6 +29,7 @@ each other; share external transaction machinery through the CHI package.
 | [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
+| [`cosim.rhdl`](cosim.rhdl), [`cosim-support.rhdl`](cosim-support.rhdl) | Deferred passive observer recipe, WB owner retention, and architectural effect reporting |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
@@ -508,6 +509,27 @@ The JSON targets interactive renderers; the compact DOT view links child
 modules by name instead of flattening them.
 
 ## Focused validation
+
+Scalar architectural observation uses `rv5stage-cosim` (RV64, pipelined multiply)
+and `rv5stage-cosim32` (RV32, iterative multiply). Both drive real observed and
+unobserved occurrences of the same core definition in lockstep; the compilation
+pass selects only the observed occurrence. They use the production C++ collector to validate
+ordered records through delayed load/multiply/divide, x0, replay, load/store
+hits, LR/SC/AMO results, CSR WARL, precise traps and returns, interrupt entry,
+retained WRS/maintenance, and reset abandonment:
+
+```sh
+FIXTURES='rv5stage-cosim rv5stage-cosim32' bash tools/testing/circt/run.sh --simulate-only
+```
+
+Observe semantic acceptance/completion events, not trace metadata. Per-service
+owner queues rely on the ordered authorized scalar memory service and ordered
+scalar arithmetic responses; assert the original response tag at removal.
+Queues must never supply functional readiness. Sample CSR contributions after
+the owning edge and before the next edge; exclude autonomous counter and input
+changes. The generic hook/collector contract belongs to
+[`sims/cosim/`](../../sims/cosim/README.md); transport changes also require
+`cosim-hooks` and `make -C sims cosim-hooks-test`.
 
 Svinval's pure catalog is `riscv/isa/svinval.rhm`. The optional decode rows
 reuse the corresponding SFENCE/HFENCE actions, with no register sources because
