@@ -10,10 +10,24 @@ permission in a simulator with private coherent caches. Give the embedded
 model a dedicated physical-access hook and retain direct-memory behavior by
 default.
 
+diff --git a/riscv/mmu.h b/riscv/mmu.h
+index ecd73dc4..5568c26b 100644
+--- a/riscv/mmu.h
++++ b/riscv/mmu.h
+@@ -285,7 +285,7 @@ public:
+       /*virt*/ false, blocksz);
+     convert_load_traps_to_store_traps({
+       const reg_t paddr = translate(access_info, 1) - (transformed_addr & (blocksz - 1));
+-      if (sim->reservable(paddr)) {
++      if (sim->cache_block_accessible(paddr, blocksz)) {
+         if (tracer.interested_in_range(paddr, paddr + blocksz, LOAD))
+           tracer.clean_invalidate(paddr, blocksz, clean, inval);
+       } else {
 diff --git a/riscv/simif.h b/riscv/simif.h
+index ded04ce4..d9ac5312 100644
 --- a/riscv/simif.h
 +++ b/riscv/simif.h
-@@ -20,5 +20,7 @@ public:
+@@ -21,6 +21,8 @@ public:
    virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
    // Return true after zeroing a block owned by an embedded memory model.
    virtual bool cache_block_zero(reg_t, size_t) { return false; }
@@ -21,14 +35,4 @@ diff --git a/riscv/simif.h b/riscv/simif.h
 +  virtual bool cache_block_accessible(reg_t paddr, size_t) { return addr_to_mem(paddr); }
    // used for MMIO addresses
    // Embedded coherent models may hold ownership across an AMO's load and store.
-diff --git a/riscv/mmu.h b/riscv/mmu.h
---- a/riscv/mmu.h
-+++ b/riscv/mmu.h
-@@ -246,6 +246,6 @@ class mmu_t : public abstract_device_t {
-     check_triggers(triggers::OPERATION_STORE, transformed_addr, false, blocksz);
-     convert_load_traps_to_store_traps({
-       const reg_t paddr = translate(access_info, 1) - (transformed_addr & (blocksz - 1));
--      if (sim->reservable(paddr)) {
-+      if (sim->cache_block_accessible(paddr, blocksz)) {
-         if (tracer.interested_in_range(paddr, paddr + blocksz, LOAD))
-           tracer.clean_invalidate(paddr, blocksz, clean, inval);
+   virtual bool amo_begin(reg_t, size_t) { return true; }

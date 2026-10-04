@@ -9,12 +9,15 @@ zero. H still requires the three VS-level interrupt delegation bits to read
 one, but only requires SGEIP delegation when GEILEN is nonzero.
 
 diff --git a/riscv/encoding.h b/riscv/encoding.h
+index 433bfe7d..00b5671a 100644
 --- a/riscv/encoding.h
 +++ b/riscv/encoding.h
-@@ -179,5 +179,5 @@
+@@ -180,7 +180,7 @@
+ #define MIP_VS_MASK         (MIP_VSSIP | MIP_VSTIP | MIP_VSEIP)
  #define MIP_HS_MASK         (MIP_VS_MASK | MIP_SGEIP)
  
 -#define MIDELEG_FORCED_MASK MIP_HS_MASK
 +#define MIDELEG_FORCED_MASK MIP_VS_MASK
  
- #define SIP_SSIP MIP_SSIP
+ #define MCAUSE32_INT     _RISCV_UL(0x80000000)
+ #define MCAUSE32_EXCCODE _RISCV_UL(0x7FFFFFFF)

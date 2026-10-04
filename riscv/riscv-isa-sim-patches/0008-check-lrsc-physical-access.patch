@@ -9,20 +9,11 @@ already failed. Let the platform check the complete physical access before
 Spike decides whether the reservation matches. Keep the default behavior for
 simulators that use Spike's ordinary directly-backed memory regions.
 
-diff --git a/riscv/simif.h b/riscv/simif.h
---- a/riscv/simif.h
-+++ b/riscv/simif.h
-@@ -17,4 +17,6 @@ public:
-   // should return NULL for MMIO addresses
-   virtual char* addr_to_mem(reg_t paddr) = 0;
-   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
-+  // LR and SC must check the full physical access before testing reservation state.
-+  virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
-   // used for MMIO addresses
 diff --git a/riscv/mmu.cc b/riscv/mmu.cc
+index 76fdf8bf..ff064b8d 100644
 --- a/riscv/mmu.cc
 +++ b/riscv/mmu.cc
-@@ -250,7 +250,7 @@ void mmu_t::load_slow_path_intrapage(reg_t len, uint8_t* bytes, mem_access_info_t access_info)
+@@ -245,7 +245,7 @@ void mmu_t::load_slow_path_intrapage(reg_t len, uint8_t* bytes, mem_access_info_
        refill_tlb(vaddr, paddr, (char*)host_addr, LOAD);
    }
  
@@ -32,9 +23,10 @@ diff --git a/riscv/mmu.cc b/riscv/mmu.cc
    }
  
 diff --git a/riscv/mmu.h b/riscv/mmu.h
+index a169b0fb..fa50b602 100644
 --- a/riscv/mmu.h
 +++ b/riscv/mmu.h
-@@ -271,7 +271,7 @@ class mmu_t : public abstract_device_t {
+@@ -284,7 +284,7 @@ public:
      if (!tlb_hit)
        paddr = translate(generate_access_info(vaddr, STORE, {}), 1);
  
@@ -43,3 +35,16 @@ diff --git a/riscv/mmu.h b/riscv/mmu.h
        return load_reservation_address == paddr;
  
      // SC to non-reservable region: report the PMM-masked effective vaddr.
+diff --git a/riscv/simif.h b/riscv/simif.h
+index d02acf0d..cef41a82 100644
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -17,6 +17,8 @@ public:
+   // should return NULL for MMIO addresses
+   virtual char* addr_to_mem(reg_t paddr) = 0;
+   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
++  // LR and SC must check the full physical access before testing reservation state.
++  virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
+   // used for MMIO addresses
+   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
+   virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;

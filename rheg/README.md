@@ -20,6 +20,9 @@ For a custom simulator, bind the [manifest](#validated-trace-snapshots) and
 [timing](#optional-trace-timing), then choose [streaming or replay](#streaming-to-perfetto).
 The [Perfetto display contract](#perfetto-display-and-queries) explains tracks,
 slice names, timing, and queries.
+Contributors should read [DEVELOPING.md](DEVELOPING.md) and the repository's
+[source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
 
 ## DPI runtime and visualization handoff
 
@@ -289,7 +292,7 @@ indistinguishable from continuously held reset and share an epoch ID.
 The optional [`rheg_perfetto`](perfetto/rheg_perfetto.h) C++
 library writes native `.pftrace` packets as settled batches arrive. The same
 encoder powers the standalone `rheg-perfetto` snapshot converter.
-Build with Make, Python 3.9+, and a C++17 Clang/GCC compiler on macOS or Linux:
+Build with Make, Python 3.9+, and a C++20 Clang/GCC compiler on macOS or Linux:
 
 ```sh
 make -C rheg/perfetto BUILD_DIR=/tmp/rhodium-perfetto-build -j 4

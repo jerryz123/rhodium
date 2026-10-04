@@ -9,22 +9,11 @@ embedded simulator with a private coherent cache cannot expose that pointer:
 the zero must acquire ownership and become dirty in its cache. Preserve the
 direct-memory path and let such simulators handle only the fallback.
 
-diff --git a/riscv/simif.h b/riscv/simif.h
---- a/riscv/simif.h
-+++ b/riscv/simif.h
-@@ -18,6 +18,8 @@ public:
-   virtual char* addr_to_mem(reg_t paddr) = 0;
-   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
-   // LR and SC must check the full physical access before testing reservation state.
-   virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
-+  // Return true after zeroing a block owned by an embedded memory model.
-+  virtual bool cache_block_zero(reg_t, size_t) { return false; }
-   // used for MMIO addresses
-   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
 diff --git a/riscv/mmu.h b/riscv/mmu.h
+index fa50b602..01887634 100644
 --- a/riscv/mmu.h
 +++ b/riscv/mmu.h
-@@ -234,5 +234,8 @@ class mmu_t : public abstract_device_t {
+@@ -246,6 +246,9 @@ public:
        if (tracer.interested_in_range(paddr, paddr + blocksz, STORE))
          tracer.trace(paddr, blocksz, STORE);
        memset(host_addr, 0, blocksz);
@@ -33,3 +22,17 @@ diff --git a/riscv/mmu.h b/riscv/mmu.h
 +        tracer.trace(paddr, blocksz, STORE);
      } else {
        throw trap_store_access_fault((proc) ? proc->state.v : false, transformed_addr, 0, 0);
+     }
+diff --git a/riscv/simif.h b/riscv/simif.h
+index cef41a82..c4298bdd 100644
+--- a/riscv/simif.h
++++ b/riscv/simif.h
+@@ -19,6 +19,8 @@ public:
+   virtual bool reservable(reg_t paddr) { return addr_to_mem(paddr); }
+   // LR and SC must check the full physical access before testing reservation state.
+   virtual bool lrsc_accessible(reg_t paddr, size_t, bool) { return reservable(paddr); }
++  // Return true after zeroing a block owned by an embedded memory model.
++  virtual bool cache_block_zero(reg_t, size_t) { return false; }
+   // used for MMIO addresses
+   virtual bool mmio_fetch(reg_t paddr, size_t len, uint8_t* bytes) { return mmio_load(paddr, len, bytes); }
+   virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;

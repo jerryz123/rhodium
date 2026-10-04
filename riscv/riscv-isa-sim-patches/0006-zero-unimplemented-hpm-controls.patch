@@ -9,10 +9,15 @@ Enabling Zihpm exposes their unprivileged aliases, but must not make their
 counter-enable or count-inhibit bits writable when no counters are implemented.
 
 diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+index 2856688c..af168ee9 100644
 --- a/riscv/csr_init.cc
 +++ b/riscv/csr_init.cc
-@@ -197,3 +197,3 @@ void processor_t::register_csrs()
+@@ -192,7 +192,7 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
+   } else {
+     add_supervisor_csr(CSR_MIDELEG, mideleg);
    }
 -  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0) | (proc->extension_enabled_const(EXT_ZIHPM) ? 0xfffffff8ULL : 0x0);
 +  const reg_t counteren_mask = (proc->extension_enabled_const(EXT_ZICNTR) ? 0x7UL : 0x0);
    add_user_csr(CSR_MCOUNTEREN, mcounteren = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTEREN, counteren_mask, 0));
+   add_csr(CSR_MCOUNTINHIBIT, mcountinhibit = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTINHIBIT, counteren_mask & (~MCOUNTEREN_TIME), 0));
+   add_supervisor_csr(CSR_SCOUNTEREN, scounteren = std::make_shared<masked_csr_t>(proc, CSR_SCOUNTEREN, counteren_mask, 0));

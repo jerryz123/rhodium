@@ -10,9 +10,11 @@ instruction, preserve CSR write priority, and deliver overflow at the next
 instruction boundary even during multi-instruction processor steps.
 
 
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+index af168ee9..68f2f8ef 100644
 --- a/riscv/csr_init.cc
 +++ b/riscv/csr_init.cc
-@@ -96,8 +96,13 @@
+@@ -86,8 +86,13 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
      const reg_t which_mcounterh = CSR_MHPMCOUNTER3H + i;
      const reg_t which_counter = CSR_HPMCOUNTER3 + i;
      const reg_t which_counterh = CSR_HPMCOUNTER3H + i;
@@ -28,7 +30,7 @@ instruction boundary even during multi-instruction processor steps.
      add_csr(which_mcounter, mcounter);
  
      auto counter = std::make_shared<counter_proxy_csr_t>(proc, which_counter, mcounter);
-@@ -105,7 +110,7 @@
+@@ -95,7 +100,7 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
  
      if (xlen == 32) {
        add_csr(which_mevent, std::make_shared<rv32_low_csr_t>(proc, which_mevent, mevent[i]));
@@ -37,7 +39,7 @@ instruction boundary even during multi-instruction processor steps.
        add_csr(which_mcounterh, mcounterh);
        add_const_ext_csr(EXT_ZIHPM, which_counterh, std::make_shared<counter_proxy_csr_t>(proc, which_counterh, mcounterh));
        add_const_ext_csr(EXT_SSCOFPMF, which_meventh, std::make_shared<rv32_high_csr_t>(proc, which_meventh, mevent[i]));
-@@ -197,7 +202,8 @@
+@@ -192,7 +197,8 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
    } else {
      add_supervisor_csr(CSR_MIDELEG, mideleg);
    }
@@ -47,10 +49,11 @@ instruction boundary even during multi-instruction processor steps.
    add_user_csr(CSR_MCOUNTEREN, mcounteren = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTEREN, counteren_mask, 0));
    add_csr(CSR_MCOUNTINHIBIT, mcountinhibit = std::make_shared<masked_csr_t>(proc, CSR_MCOUNTINHIBIT, counteren_mask & (~MCOUNTEREN_TIME), 0));
    add_supervisor_csr(CSR_SCOUNTEREN, scounteren = std::make_shared<masked_csr_t>(proc, CSR_SCOUNTEREN, counteren_mask, 0));
-
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+index 4478e49b..84a939de 100644
 --- a/riscv/csrs.cc
 +++ b/riscv/csrs.cc
-@@ -1442,11 +1442,47 @@
+@@ -1471,11 +1471,47 @@ mevent_csr_t::mevent_csr_t(processor_t* const proc, const reg_t addr):
  }
  
  bool mevent_csr_t::unlogged_write(const reg_t val) noexcept {
@@ -100,18 +103,19 @@ instruction boundary even during multi-instruction processor steps.
  }
  
  hypervisor_csr_t::hypervisor_csr_t(processor_t* const proc, const reg_t addr):
-
+diff --git a/riscv/csrs.h b/riscv/csrs.h
+index 0c4ffc85..210ad86e 100644
 --- a/riscv/csrs.h
 +++ b/riscv/csrs.h
-@@ -645,8 +645,24 @@
+@@ -657,10 +657,26 @@ class counter_proxy_csr_t: public proxy_csr_t {
  class mevent_csr_t: public basic_csr_t {
   public:
    mevent_csr_t(processor_t* const proc, const reg_t addr);
 +  uint64_t write_version = 0;
   protected:
-   virtual bool unlogged_write(const reg_t val) noexcept override;
-+};
-+
+   bool unlogged_write(const reg_t val) noexcept override;
+ };
+ 
 +// One instruction-precise, 64-bit performance counter, with RV32 CSR aliases.
 +class hpm_counter_csr_t: public basic_csr_t {
 + public:
@@ -125,13 +129,16 @@ instruction boundary even during multi-instruction processor steps.
 +  uint64_t selector_version = 0;
 +  reg_t event = 0;
 +  bool written = false;
- };
- 
++};
++
  // For machine-level CSRs that only exist with Hypervisor
-
+ class hypervisor_csr_t: public basic_csr_t {
+  public:
+diff --git a/riscv/execute.cc b/riscv/execute.cc
+index b7f39eaa..93ad9a6d 100644
 --- a/riscv/execute.cc
 +++ b/riscv/execute.cc
-@@ -225,6 +225,11 @@
+@@ -220,6 +220,11 @@ void processor_t::step(size_t n)
  
    while (n > 0) {
      size_t instret = 0;
@@ -140,14 +147,14 @@ instruction boundary even during multi-instruction processor steps.
 +    const size_t batch = state.hpmcounter3 ? 1 : n;
 +    bool hpm_attempt = false;
 +    bool hpm_trap = false;
-     reg_t pc = state.pc;
      state.prv_changed = false;
      state.v_changed = false;
-@@ -249,10 +254,15 @@
+     reg_t mcountinhibit = state.mcountinhibit->read();
+@@ -249,10 +254,15 @@ void processor_t::step(size_t n)
  
        check_if_lpad_required();
  
-+      if (state.hpmcounter3 && !in_wfi) {
++      if (state.hpmcounter3 && !is_waiting_for_interrupt()) {
 +        state.hpmcounter3->begin_instruction();
 +        hpm_attempt = true;
 +      }
@@ -160,7 +167,7 @@ instruction boundary even during multi-instruction processor steps.
          {
            if (unlikely(!state.serialized && state.single_step == state.STEP_STEPPED)) {
              state.single_step = state.STEP_NONE;
-@@ -299,10 +309,10 @@
+@@ -295,10 +305,10 @@ void processor_t::step(size_t n)
            }
          }
        }
@@ -168,32 +175,33 @@ instruction boundary even during multi-instruction processor steps.
 +      else while (instret < batch)
        {
          // Main simulation loop, fast path.
--        for (auto ic_entry = _mmu->access_icache(pc); instret < n; instret++) {
-+        for (auto ic_entry = _mmu->access_icache(pc); instret < batch; instret++) {
+-        for (auto ic_entry = _mmu->access_icache(state.pc); instret < n; instret++) {
++        for (auto ic_entry = _mmu->access_icache(state.pc); instret < batch; instret++) {
            auto fetch = ic_entry->data;
            ic_entry = ic_entry->next;
-           auto new_pc = execute_insn_fast(this, pc, fetch);
-@@ -321,6 +331,7 @@
+           auto new_pc = execute_insn_fast(this, state.pc, fetch);
+@@ -316,6 +326,7 @@ void processor_t::step(size_t n)
      }
      catch(trap_t& t)
      {
 +      hpm_trap = true;
-       take_trap(t, pc);
+       take_trap(t, state.pc);
        n = instret;
  
-@@ -368,6 +379,8 @@
+@@ -353,6 +364,8 @@ void processor_t::step(size_t n)
      }
  
  serialize:
 +    if (hpm_attempt)
 +      state.hpmcounter3->finish_instruction(instret != 0, instret != 0 || hpm_trap);
-     state.minstret->bump((state.mcountinhibit->read() & MCOUNTINHIBIT_IR) ? 0 : instret);
+     state.minstret->bump((mcountinhibit & MCOUNTINHIBIT_IR) ? 0 : instret);
  
      // Model a hart whose CPI is 1.
-
+diff --git a/riscv/processor.h b/riscv/processor.h
+index aae2ed83..9e857252 100644
 --- a/riscv/processor.h
 +++ b/riscv/processor.h
-@@ -113,6 +113,7 @@
+@@ -115,6 +115,7 @@ struct state_t
    csr_t_p mcounteren;
    csr_t_p mcountinhibit;
    csr_t_p mevent[N_HPMCOUNTERS];

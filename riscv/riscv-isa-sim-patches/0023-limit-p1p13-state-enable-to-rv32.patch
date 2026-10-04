@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Jerry Zhao <jerryz123@berkeley.edu>
+Subject: [PATCH] Limit the P1P13 state-enable bit to RV32 hypervisors
+Purpose: Makes mstateen0.P1P13 read-only zero when the RV32-only hedelegh CSR is absent.
+SPDX-License-Identifier: Apache-2.0
+
+Upstream 5d4f1c33 added hedelegh and its state-enable bit, but made that bit
+writable on RV64 as well. P1P13 controls only hedelegh, which exists only
+on RV32 H harts. State-enable bits controlling unimplemented state must
+read as zero. Preserve the RV32 H permission check and gate the writable
+mask by XLEN, matching the privileged specification and Sail model.
+
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -393,7 +393,7 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
+                                  (proc->extension_enabled_const(EXT_SSCSRIND) ? HSTATEEN0_CSRIND : 0) |
+                                  (proc->extension_enabled_const(EXT_SSAIA) ? HSTATEEN0_IMSIC | HSTATEEN0_AIA : 0);
+     const reg_t mstateen0_mask = hstateen0_mask |
+-                                 (proc->extension_enabled('H') ? MSTATEEN0_PRIV113 : 0) |
++                                 (xlen == 32 && proc->extension_enabled('H') ? MSTATEEN0_PRIV113 : 0) |
+                                  (proc->extension_enabled(EXT_SSQOSID) ? MSTATEEN0_PRIV114 : 0);
+     for (int i = 0; i < 4; i++) {
+       const reg_t mstateen_mask = i == 0 ? mstateen0_mask : MSTATEEN_HSTATEEN;

@@ -58,6 +58,9 @@ architectural state, and retirement in concrete cores. The package-local
 
 ## Extend the model or catalogs
 
+Follow the repository's [source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
+
 1. Put reusable structure in the lowest pure-model module that owns its
    invariant. Keep architecture-specific names and versioned instruction sets
    in `isa/`.
@@ -90,7 +93,27 @@ The `riscv-isa-sim` submodule supplies the shared Spike disassembler and FESVR
 source; it is a host dependency, not a pure-model dependency or target
 software. Keep it pristine and express downstream changes through its adjacent
 ordered patch series and the shared materializer. Rebase or remove patches
-when advancing the gitlink, then validate both RHEG export and FESVR execution.
+when advancing the gitlink, then validate embedded Spike, RHEG export, and
+FESVR execution. Stage the new gitlink before running `make -C sims setup`:
+the materializer identifies the revision from the Git index and the ordered
+patch contents. Keep native consumers on C++20, including the independently
+compiled RHEG parser. Remove a patch only when upstream implements its contract,
+and retain regression coverage for that behavior.
+
+At pin `609dbe0b9994154833039209fa37151e7c05e9d4`, upstream supplies RV32
+`medelegh`, CSRIND state-enable gating, and HS overflow-interrupt priority;
+their former downstream patches are retired. The 20-patch series preserves
+the embedding hooks and advertised architectural contracts, including an XLEN
+guard for P1P13, whose controlled
+[`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor) is RV32-only.
+Keep native regression coverage for RV32/RV64 with and without H, and for
+`hedelegh` permission checks.
+Execution-loop rebases must preserve pre-instruction counter controls, trap accounting,
+WFI retirement/idle/wakeup, and both fast and logged paths. Run
+`make -C sims spike-core-test transport-test spike-dpi-compile-check spike-dpi-abi-check`
+and the [RHEG exporter checks](../rheg/DEVELOPING.md#focused-validation) before
+the platform/software matrix in the [simulator guide](../sims/DEVELOPING.md).
+
 Target software upstreams and ports are owned by
 [`../sw/`](../sw/DEVELOPING.md); simulator selection and execution remain under
 [`../sims/`](../sims/DEVELOPING.md).

@@ -9,7 +9,7 @@ CXX ?= c++
 AR ?= ar
 PKG_CONFIG ?= pkg-config
 CXXFLAGS ?= -O2
-override CXXFLAGS += -std=c++17 -MMD -MP
+override CXXFLAGS += -std=c++20 -MMD -MP
 
 RUNTIME_DIR := $(REPO_DIR)/rheg/runtime
 TEST_DIR := $(REPO_DIR)/rheg/tests

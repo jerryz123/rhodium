@@ -8,22 +8,11 @@ An embedded hart may receive SSIP and STIP as external levels while software
 also writes those mip bits. Keep the external levels as a read-only overlay so
 the simulator can clear a pin without clearing software's pending state.
 
-diff --git a/riscv/csrs.h b/riscv/csrs.h
---- a/riscv/csrs.h
-+++ b/riscv/csrs.h
-@@ -394,5 +394,8 @@ class mip_csr_t: public mip_or_mie_csr_t {
-   // Does not log. Used by external things (clint) that wiggle bits in mip.
-   void backdoor_write_with_mask(const reg_t mask, const reg_t val) noexcept;
-+  // External interrupt levels must not overwrite software-writable mip bits.
-+  void set_external_pending_with_mask(const reg_t mask, const reg_t val) noexcept;
-  private:
-   virtual reg_t write_mask() const noexcept override;
-+  reg_t external_pending = 0;
- };
 diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+index abbdf1b3..ff090063 100644
 --- a/riscv/csrs.cc
 +++ b/riscv/csrs.cc
-@@ -960,6 +960,6 @@ void mip_csr_t::write_with_mask(const reg_t mask, const reg_t val) noexcept {
+@@ -979,7 +979,7 @@ void mip_csr_t::write_with_mask(const reg_t mask, const reg_t val) noexcept {
  }
  
  reg_t mip_csr_t::read() const noexcept {
@@ -31,7 +20,8 @@ diff --git a/riscv/csrs.cc b/riscv/csrs.cc
 +  return val | external_pending | state->hvip->basic_csr_t::read() | ((state->mvien->read() & MIP_SEIP) ? 0 : (state->mvip->basic_csr_t::read() & MIP_SEIP));
  }
  
-@@ -967,4 +967,8 @@ void mip_csr_t::backdoor_write_with_mask(const reg_t mask, const reg_t val) noexcept {
+ reg_t mip_csr_t::read_for_write() const noexcept {
+@@ -990,6 +990,10 @@ void mip_csr_t::backdoor_write_with_mask(const reg_t mask, const reg_t val) noex
    this->val = (this->val & ~mask) | (val & mask);
  }
  
@@ -40,3 +30,21 @@ diff --git a/riscv/csrs.cc b/riscv/csrs.cc
 +}
 +
  reg_t mip_csr_t::write_mask() const noexcept {
+   // MIP_STIP is writable unless SSTC exists and STCE is set in MENVCFG
+   const reg_t supervisor_ints = proc->extension_enabled('S') ? MIP_SSIP | ((state->menvcfg->read() &  MENVCFG_STCE) ? 0 : MIP_STIP) | MIP_SEIP : 0;
+diff --git a/riscv/csrs.h b/riscv/csrs.h
+index 83e48739..0c4ffc85 100644
+--- a/riscv/csrs.h
++++ b/riscv/csrs.h
+@@ -405,8 +405,11 @@ class mip_csr_t: public mip_or_mie_csr_t {
+ 
+   // Does not log. Used by external things (clint) that wiggle bits in mip.
+   void backdoor_write_with_mask(const reg_t mask, const reg_t val) noexcept;
++  // External interrupt levels must not overwrite software-writable mip bits.
++  void set_external_pending_with_mask(const reg_t mask, const reg_t val) noexcept;
+  private:
+   reg_t write_mask() const noexcept override;
++  reg_t external_pending = 0;
+ };
+ 
+ typedef std::shared_ptr<mip_csr_t> mip_csr_t_p;

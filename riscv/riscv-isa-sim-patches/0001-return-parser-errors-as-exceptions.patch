@@ -5,6 +5,7 @@ Purpose: Makes the Spike ISA parser safe to embed in the RHEG exporter.
 SPDX-License-Identifier: Apache-2.0
 
 diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+index ff9e6145..a5e92719 100644
 --- a/disasm/isa_parser.cc
 +++ b/disasm/isa_parser.cc
 @@ -38,7 +38,7 @@ static void bad_option_string(const char *option, const char *value,

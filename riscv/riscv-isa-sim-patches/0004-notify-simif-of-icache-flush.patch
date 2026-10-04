@@ -9,15 +9,18 @@ not an embedding simulator's physically addressed instruction lines. Keep
 flush_icache local to the MMU and notify the external model only from FENCE.I.
 
 diff --git a/riscv/insns/fence_i.h b/riscv/insns/fence_i.h
+index 38dcaf3f..3ed7344e 100644
 --- a/riscv/insns/fence_i.h
 +++ b/riscv/insns/fence_i.h
 @@ -1 +1 @@
 -MMU.flush_icache();
 +MMU.fence_i();
 diff --git a/riscv/mmu.h b/riscv/mmu.h
+index 1fbc0a40..a169b0fb 100644
 --- a/riscv/mmu.h
 +++ b/riscv/mmu.h
-@@ -358,4 +358,10 @@ public:
+@@ -370,6 +370,12 @@ public:
+ 
    void flush_tlb();
    void flush_icache();
 +  /* Synchronize architectural instruction fetch, including external physical caches. */
@@ -28,10 +31,12 @@ diff --git a/riscv/mmu.h b/riscv/mmu.h
 +
  
    void register_memtracer(memtracer_t*);
+ 
 diff --git a/riscv/simif.h b/riscv/simif.h
+index ca545e21..d02acf0d 100644
 --- a/riscv/simif.h
 +++ b/riscv/simif.h
-@@ -21,5 +21,7 @@ public:
+@@ -22,5 +22,7 @@ public:
    virtual bool mmio_load(reg_t paddr, size_t len, uint8_t* bytes) = 0;
    virtual bool mmio_store(reg_t paddr, size_t len, const uint8_t* bytes) = 0;
    virtual bool is_debug_module_access(reg_t, size_t) { return false; }

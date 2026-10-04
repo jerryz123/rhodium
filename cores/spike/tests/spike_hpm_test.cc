@@ -242,6 +242,16 @@ static void check_hpm(unsigned xlen, bool hypervisor, bool logged) {
   assert(counter() == 1);
   cpu.step(5);
   assert(counter() == 1);
+  assert(cpu.is_waiting_for_interrupt() && state->pc == 0x1004);
+  const uint32_t nop = 0x00000013;
+  std::memcpy(memory.memory.data() + 4, &nop, sizeof(nop));
+  cpu.get_mmu()->flush_icache();
+  write(CSR_MSTATUS, 0); // A locally enabled interrupt wakes WFI without trapping.
+  write(CSR_MIE, MIP_MSIP);
+  state->mip->backdoor_write_with_mask(MIP_MSIP, MIP_MSIP);
+  cpu.step(1);
+  assert(!cpu.is_waiting_for_interrupt() && state->pc == 0x1008 && counter() == 2);
+  state->mip->backdoor_write_with_mask(MIP_MSIP, 0);
   cpu.reset();
   assert(counter() == 0 && read(CSR_MHPMEVENT3) == 0 && read(CSR_SCOUNTOVF) == 0);
   std::fclose(log);

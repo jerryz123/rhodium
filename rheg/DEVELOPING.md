@@ -217,9 +217,12 @@ Validate `riscv` capture widths and PC references in the standard-library-only
 collector. Validate full ISA configurations when constructing the exporter,
 before writing any bytes. Disassembly is presentation, not legality validation.
 
-Keep Spike headers private. The repository gitlink pins its source, and the
-Perfetto Makefile builds the three disassembler sources into the archive, not the
-simulator or FESVR.
+Follow the repository's [source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`, when changing this decoder.
+Keep Spike headers private. The exporter build requires C++20 for the pinned
+parser; the independent collector remains C++17. The repository gitlink pins its
+source, and the Perfetto Makefile builds the three disassembler sources into the
+archive, not the simulator or FESVR.
 The ordered patch series under
 [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/)
 replaces the parser's two abort sites with exceptions and registers opcode-free

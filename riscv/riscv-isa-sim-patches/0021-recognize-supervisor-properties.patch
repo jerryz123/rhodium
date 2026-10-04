@@ -8,9 +8,12 @@ These properties describe existing supervisor behavior, not new instructions
 or CSR switches. Register their names without changing execution semantics.
 
 diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+index 8696571a..1ee5b673 100644
 --- a/disasm/isa_parser.cc
 +++ b/disasm/isa_parser.cc
-@@ -94,2 +94,7 @@ static const extension_info_t extension_infos[] = {
+@@ -92,6 +92,11 @@ static const extension_info_t extension_infos[] = {
+   {"p", {'P'}},
+   {"v", {'V'}, {"zve64d", "zvl128b"}},
    {"h", {'H'}},
 +  {"ssccptr"},
 +  {"sstvecd"},
@@ -18,3 +21,5 @@ diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
 +  {"sscounterenw"},
 +  {"ssu64xl"},
    {"sha", {}, {"h", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"}},
+   {"ssstateen", {}, {"smstateen"}},
+   {"shcounterenw"},

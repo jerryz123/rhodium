@@ -5,6 +5,7 @@ Purpose: Lets the embedded disassembler retain the opcode-free Zic64b ISA claim.
 SPDX-License-Identifier: Apache-2.0
 
 diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+index a5e92719..aa8eeffa 100644
 --- a/disasm/isa_parser.cc
 +++ b/disasm/isa_parser.cc
 @@ -148,6 +148,7 @@ static const extension_info_t extension_infos[] = {

@@ -10,9 +10,11 @@ when satp.MODE is read-only Bare. Preserve that distinction in Spike's status
 write mask so the embedded Bare-mode hart reports its actual CSR state.
 
 diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+index ff090063..b60485b7 100644
 --- a/riscv/csrs.cc
 +++ b/riscv/csrs.cc
-@@ -589,6 +589,6 @@ reg_t base_status_csr_t::compute_sstatus_write_mask() const noexcept {
+@@ -591,8 +591,8 @@ reg_t base_status_csr_t::compute_sstatus_write_mask() const noexcept {
+   // Implementations w/o V may still have mstatus.vs,
    const bool has_vs = proc->any_vector_extensions();
    return 0
 -    | (proc->extension_enabled('S') ? (SSTATUS_SIE | SSTATUS_SPIE | SSTATUS_SPP) : 0)
@@ -21,3 +23,4 @@ diff --git a/riscv/csrs.cc b/riscv/csrs.cc
 +    | (has_page || proc->extension_enabled_const(EXT_SSPMP) ? SSTATUS_SUM : 0)
      | (has_fs ? SSTATUS_FS : 0)
      | (proc->any_custom_extensions() ? SSTATUS_XS : 0)
+     | (has_vs ? SSTATUS_VS : 0)

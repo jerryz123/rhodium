@@ -8,22 +8,11 @@ The pinned model hardwires hgeip and hgeie to zero. SGEIP can never become
 pending, so its enable bit must also be zero. Keep the implemented virtual
 supervisor interrupt enables writable, including through their hie aliases.
 
-diff --git a/riscv/csrs.cc b/riscv/csrs.cc
---- a/riscv/csrs.cc
-+++ b/riscv/csrs.cc
-@@ -989,7 +989,7 @@ reg_t mie_csr_t::write_mask() const noexcept {
-   const reg_t supervisor_ints = proc->extension_enabled('S') ? MIP_SSIP | MIP_STIP | MIP_SEIP : 0;
-   const reg_t lscof_int = proc->extension_enabled(EXT_SSCOFPMF) ? MIP_LCOFIP : 0;
--  const reg_t hypervisor_ints = proc->extension_enabled('H') ? MIP_HS_MASK : 0;
-+  const reg_t hypervisor_ints = proc->extension_enabled('H') ? MIP_VS_MASK : 0;
-   const reg_t coprocessor_ints = (reg_t)proc->any_custom_extensions() << IRQ_COP;
-   const reg_t delegable_ints = supervisor_ints | coprocessor_ints | lscof_int;
-   const reg_t all_ints = delegable_ints | hypervisor_ints | MIP_MSIP | MIP_MTIP | MIP_MEIP;
-   return all_ints;
 diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+index 68f2f8ef..e80dee4b 100644
 --- a/riscv/csr_init.cc
 +++ b/riscv/csr_init.cc
-@@ -137,7 +137,7 @@ void state_t::reset(processor_t* const proc, reg_t max_isa) {
+@@ -133,7 +133,7 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
      this,
      MIP_HS_MASK,   // read_mask
      MIP_VSSIP,     // ip_write_mask
@@ -32,3 +21,16 @@ diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
      generic_int_accessor_t::mask_mode_t::MIDELEG,
      0              // shiftamt
    );
+diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+index 84a939de..e59f414c 100644
+--- a/riscv/csrs.cc
++++ b/riscv/csrs.cc
+@@ -1016,7 +1016,7 @@ mie_csr_t::mie_csr_t(processor_t* const proc, const reg_t addr):
+ reg_t mie_csr_t::write_mask() const noexcept {
+   const reg_t supervisor_ints = proc->extension_enabled('S') ? MIP_SSIP | MIP_STIP | MIP_SEIP : 0;
+   const reg_t lscof_int = proc->extension_enabled(EXT_SSCOFPMF) ? MIP_LCOFIP : 0;
+-  const reg_t hypervisor_ints = proc->extension_enabled('H') ? MIP_HS_MASK : 0;
++  const reg_t hypervisor_ints = proc->extension_enabled('H') ? MIP_VS_MASK : 0;
+   const reg_t coprocessor_ints = (reg_t)proc->any_custom_extensions() << IRQ_COP;
+   const reg_t delegable_ints = supervisor_ints | coprocessor_ints | lscof_int;
+   const reg_t all_ints = delegable_ints | hypervisor_ints | MIP_MSIP | MIP_MTIP | MIP_MEIP;

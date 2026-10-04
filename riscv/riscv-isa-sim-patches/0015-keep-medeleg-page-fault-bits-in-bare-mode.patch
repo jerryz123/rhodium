@@ -10,9 +10,10 @@ S-mode support, not the presence of page-table translation, so its CSR
 readback matches the configured architectural model.
 
 diff --git a/riscv/csrs.cc b/riscv/csrs.cc
+index 960d6fda..4478e49b 100644
 --- a/riscv/csrs.cc
 +++ b/riscv/csrs.cc
-@@ -1152,7 +1152,7 @@ bool medeleg_csr_t::unlogged_write(const reg_t val) noexcept {
+@@ -1172,7 +1172,7 @@ bool medeleg_csr_t::unlogged_write(const reg_t val) noexcept {
      | (1 << CAUSE_STORE_ACCESS)
      | (1 << CAUSE_USER_ECALL)
      | (1 << CAUSE_SUPERVISOR_ECALL)

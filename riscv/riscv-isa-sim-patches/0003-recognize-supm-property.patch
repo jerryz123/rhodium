@@ -5,9 +5,10 @@ Purpose: Lets the embedded disassembler retain the opcode-free Supm ISA claim.
 SPDX-License-Identifier: Apache-2.0
 
 diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+index aa8eeffa..4b49ee57 100644
 --- a/disasm/isa_parser.cc
 +++ b/disasm/isa_parser.cc
-@@ -220,6 +220,7 @@ static const extension_info_t extension_infos[] = {
+@@ -238,6 +238,7 @@ static const extension_info_t extension_infos[] = {
    {"smmpm", {EXT_SMMPM}},
    {"smnpm", {EXT_SMNPM}},
    {"ssnpm", {EXT_SSNPM}},

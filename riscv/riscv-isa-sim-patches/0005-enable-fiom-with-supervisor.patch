@@ -9,15 +9,18 @@ Expose it in both machine and supervisor environment configuration CSR masks
 whenever supervisor mode is implemented, including Bare-only harts.
 
 diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+index 58658ad5..2856688c 100644
 --- a/riscv/csr_init.cc
 +++ b/riscv/csr_init.cc
-@@ -237,2 +237,3 @@ void processor_t::register_csrs()
--  const reg_t menvcfg_mask = (proc->extension_enabled(EXT_ZICBOM) ? MENVCFG_CBCFE | MENVCFG_CBIE : 0) |
-+  const reg_t menvcfg_mask = (proc->extension_enabled('S') ? MENVCFG_FIOM : 0) |
-+                            (proc->extension_enabled(EXT_ZICBOM) ? MENVCFG_CBCFE | MENVCFG_CBIE : 0) |
+@@ -236,9 +236,8 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
+     add_hypervisor_csr(CSR_HIDELEG, hideleg);
+   }
+ 
+-  // The spec allows FIOM to read as zero only where there is no S-mode or no
+-  // paging, so it is writable exactly when neither holds.
+-  const bool fiom_writable = proc->extension_enabled('S') && proc->get_max_vaddr_bits() > 0;
++  // This embedded hart keeps FIOM writable with S-mode, including Bare-only harts.
++  const bool fiom_writable = proc->extension_enabled('S');
+   const reg_t menvcfg_mask = (fiom_writable ? MENVCFG_FIOM : 0) |
+                             (proc->extension_enabled(EXT_ZICBOM) ? MENVCFG_CBCFE | MENVCFG_CBIE : 0) |
                              (proc->extension_enabled(EXT_ZICBOZ) ? MENVCFG_CBZE : 0) |
-@@ -347,2 +348,3 @@ void processor_t::register_csrs()
--  const reg_t senvcfg_mask = (proc->extension_enabled(EXT_ZICBOM) ? SENVCFG_CBCFE | SENVCFG_CBIE : 0) |
-+  const reg_t senvcfg_mask = (proc->extension_enabled('S') ? SENVCFG_FIOM : 0) |
-+                            (proc->extension_enabled(EXT_ZICBOM) ? SENVCFG_CBCFE | SENVCFG_CBIE : 0) |
-                             (proc->extension_enabled(EXT_ZICBOZ) ? SENVCFG_CBZE : 0) |

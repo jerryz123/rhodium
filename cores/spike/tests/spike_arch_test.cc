@@ -108,6 +108,16 @@ static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, boo
     return state->XPR[3];
   };
 
+  for (unsigned csr : {CSR_MENVCFG, CSR_SENVCFG}) {
+    write_csr(csr, MENVCFG_FIOM);
+    assert(read_csr(csr) & MENVCFG_FIOM); // FIOM remains writable on a Bare-only S hart.
+    write_csr(csr, 0);
+    assert(!(read_csr(csr) & MENVCFG_FIOM));
+  }
+  if (xlen == 32) {
+    write_csr(CSR_MEDELEGH, ~reg_t(0));
+    assert(read_csr(CSR_MEDELEGH) == 0); // Upstream implements the RV32 high-half CSR.
+  }
   if (hypervisor) {
     assert(read_csr(CSR_HGEIP) == 0 && read_csr(CSR_HGEIE) == 0);
     write_csr(CSR_MIDELEG, ~reg_t(0));
@@ -158,7 +168,49 @@ static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, boo
   std::fclose(log);
 }
 
+static void check_stateen_p1p13(unsigned xlen, bool hypervisor, bool logged) {
+  ArchMemory memory;
+  memory.cfg.pmpregions = 0;
+  const std::string isa = "rv" + std::to_string(xlen) + "ima" + (hypervisor ? "h" : "") + "_zicsr_smstateen";
+  FILE* log = std::tmpfile();
+  assert(log);
+  processor_t cpu(isa.c_str(), "msu", &memory.cfg, &memory, 0, false, log, std::cerr);
+  memory.harts[0] = &cpu;
+  cpu.set_max_vaddr_bits(0);
+  cpu.reset();
+  if (logged) cpu.enable_log_commits();
+  auto* state = cpu.get_state();
+  const unsigned csr = xlen == 32 ? CSR_MSTATEEN0H : CSR_MSTATEEN0;
+  const reg_t bit = MSTATEEN0_PRIV113 >> (xlen == 32 ? 32 : 0);
+  cpu.put_csr(csr, bit);
+  assert(cpu.get_csr(csr) == (xlen == 32 && hypervisor ? bit : 0));
+  cpu.put_csr(csr, 0);
+  assert(cpu.get_csr(csr) == 0);
+
+  if (xlen == 32 && hypervisor) {
+    const uint32_t read_hedelegh = (CSR_HEDELEGH << 20) | (2 << 12) | (3 << 7) | 0x73;
+    std::memcpy(memory.memory.data(), &read_hedelegh, sizeof(read_hedelegh));
+    cpu.put_csr(CSR_MTVEC, 0x3000);
+    for (bool enabled : {false, true}) {
+      cpu.put_csr(csr, enabled ? bit : 0);
+      cpu.set_privilege(PRV_S, false);
+      state->pc = 0x1000;
+      cpu.step(1);
+      assert(state->pc == (enabled ? 0x1004 : 0x3000));
+      assert(state->prv == (enabled ? PRV_S : PRV_M));
+      if (!enabled) assert(cpu.get_csr(CSR_MCAUSE) == CAUSE_ILLEGAL_INSTRUCTION);
+      else assert(state->XPR[3] == 0);
+      cpu.set_privilege(PRV_M, false);
+    }
+  }
+  std::fclose(log);
+}
+
 int main() {
+  for (unsigned xlen : {32u, 64u})
+    for (bool hypervisor : {false, true})
+      for (bool logged : {false, true})
+        check_stateen_p1p13(xlen, hypervisor, logged);
   for (unsigned xlen : {32u, 64u})
     for (bool logged : {false, true})
       check_instruction_synchronization(xlen, logged);

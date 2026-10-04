@@ -12,7 +12,9 @@ Pinned upstream RISC-V repositories live beside these packages but are not
 dependencies of the pure model.
 
 Contributors extending the model or catalogs should read
-[`DEVELOPING.md`](DEVELOPING.md).
+[`DEVELOPING.md`](DEVELOPING.md) and the repository's
+[source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
 
 `RiscvHartDescription` in [`isa/hart.rhm`](isa/hart.rhm) carries the ISA,
 MMU, cache/CBO descriptions, and optional exact vector geometry.
@@ -457,8 +459,9 @@ exact profile matrix and output rules.
 ## Spike and FESVR
 
 [`riscv-isa-sim/`](riscv-isa-sim/) pins the upstream Spike repository used by
-two native consumers: RHEG builds its ISA parser and instruction disassembler,
-while simulator setup builds the repository's `libfesvr.a`. Initialize it with:
+three native consumers: the embedded Spike core, simulator FESVR transport,
+and RHEG's ISA parser and instruction disassembler. Native Spike and RHEG
+exporter builds require C++20. Initialize it with:
 
 ```sh
 git submodule update --init riscv/riscv-isa-sim

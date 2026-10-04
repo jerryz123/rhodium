@@ -9,9 +9,12 @@ Ssstateen selects the existing complete Smstateen implementation. No instruction
 or CSR behavior is replaced by this parser extension.
 
 diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
+index 4b49ee57..8696571a 100644
 --- a/disasm/isa_parser.cc
 +++ b/disasm/isa_parser.cc
-@@ -94,2 +94,10 @@ static const extension_info_t extension_infos[] = {
+@@ -92,6 +92,14 @@ static const extension_info_t extension_infos[] = {
+   {"p", {'P'}},
+   {"v", {'V'}, {"zve64d", "zvl128b"}},
    {"h", {'H'}},
 +  {"sha", {}, {"h", "ssstateen", "shcounterenw", "shvstvala", "shtvala", "shvstvecd", "shvsatpa", "shgatpa"}},
 +  {"ssstateen", {}, {"smstateen"}},
@@ -22,3 +25,5 @@ diff --git a/disasm/isa_parser.cc b/disasm/isa_parser.cc
 +  {"shvsatpa"},
 +  {"shgatpa"},
    {"zfh", {EXT_ZFH}, {"zfhmin"}},
+   {"zfhmin", {'F', EXT_ZFHMIN}},
+   {"zvfh", {EXT_ZVFH}, {"zvfhmin", "zfhmin"}},
