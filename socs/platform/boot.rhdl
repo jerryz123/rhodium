@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines polling SoC BootROM configuration, image layout, and executable PMA metadata.
+/* Defines polling SoC BootROM configuration, image layout, and executable PMA metadata. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -21,6 +21,7 @@ def SoCBootAddressBase = 0x1000
 def SoCBootROMWindowBytes = CHIBootROMDefaultWindowBytes
 def SoCBootROMDeviceTreeOffset = 0x100
 
+/* Owns the reset program, ROM window, embedded DTB offset, payload address, and shared boot-entry register location. */
 class SoCBootConfig(reset_address :: Nat,
                     payload_address :: Nat,
                     window_bytes :: Pow2Int,
@@ -32,6 +33,7 @@ class SoCBootConfig(reset_address :: Nat,
   property device_tree_address :: Nat:
     reset_address + device_tree_offset
 
+  /* Validates the boot layout against the hart and platform description, then pads the reset program and appends a native DTB within the ROM window. */
   method image_for(description :: RiscvSoCDescription):
     def address_limit = 1 << description.hart.xlen.width
     unless payload_address < address_limit && reset_address + window_bytes <= address_limit && boot_address_register + BootAddressWindowBytes <= address_limit
@@ -58,6 +60,7 @@ class SoCBootConfig(reset_address :: Nat,
     | error(~who: #'image_for, "generated device tree must fit in the BootROM window")
     image
 
+  /* Validates ROM and register alignment, eight-byte DTB alignment, and separation of the reset program from the embedded tree. */
   constructor (~reset_address: reset_address :: Nat,
                ~payload_address: payload_address :: Nat,
                ~window_bytes: window_bytes :: Pow2Int,
@@ -79,6 +82,7 @@ class SoCBootConfig(reset_address :: Nat,
     super(reset_address, payload_address, window_bytes, device_tree_offset, program,
           boot_address_register)
 
+/* Builds the shared XLEN-independent reset program that waits for per-hart MSIP and a published boot entry, then supplies hart ID and DTB address. */
 fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMResetAddress,
                           ~payload_address: payload_address :: Nat = RiscvBootROMPayloadAddress,
                           ~window_bytes: window_bytes :: Pow2Int = SoCBootROMWindowBytes,
@@ -101,6 +105,7 @@ fun riscv_soc_boot_config(~reset_address: reset_address :: Nat = RiscvBootROMRes
 def DefaultSoCBootConfig = riscv_soc_boot_config()
 def soc_bootrom_attributes = RiscvPhysicalMemoryAttributes(#true, #false, #true, #false, #false, #false, #true, ~instruction_cacheable: #true)
 
+/* Derives the ROM's CHI layout, finalized image, service occurrence, and executable instruction-cacheable PMA from one boot configuration. */
 class SoCBootROMParams(flit :: CHIFlitParams,
                        home :: CHIHomeParams,
                        node_id :: Nat,
@@ -109,6 +114,7 @@ class SoCBootROMParams(flit :: CHIFlitParams,
 
   property rom_layout:
     CHIBootROMLayout(flit, ~window_bytes: boot.window_bytes)
+  /* Finalizes the boot program and embedded device tree into the device's ROM layout. */
   method rom_config(description :: RiscvSoCDescription):
     CHIBootROMConfig(rom_layout, ~image: boot.image_for(description))
   property rom_params:

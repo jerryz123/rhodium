@@ -1,5 +1,5 @@
 #lang rhombus
-// Resolves typed products once for hardware composition, architectural descriptions, and UDB projection.
+/* Resolves typed products once for hardware composition, architectural descriptions, and UDB projection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,7 +20,9 @@ import:
   lib("cores/spike/udb.rhm").spike_udb_configuration
   lib("riscv/udb.rhm").UdbConfiguration
 
+/* Resolves one typed selection into a hart binding shared by hardware configuration, architecture, and UDB projection. */
 class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementation):
+  /* Applies the selected core's profile factory to the explicit architecture and, for RV5Stage, shape-specific implementation policy. */
   constructor (selection :: SoCSelection):
     def hart = match selection.core
     | CoreKind.RV5Stage: rv5stage_hart(rv5stage_product_profile(selection.shape, selection.isa))
@@ -29,6 +31,7 @@ class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementat
 
   property key :: String: selection.key
 
+  /* Constructs the selected Mini, Single, or Tiled shape with this resolved hart binding. */
   method configuration() :: mini.MiniSoCConfig || simple.SingleCoreSoCConfig || tiled.TiledSoCConfig:
     match selection.shape
     | SoCShape.Mini: mini.mini_soc_config(hart)
@@ -37,6 +40,7 @@ class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementat
 
   property description :: RiscvSoCDescription: configuration().description
 
+  /* Projects the selected implementation into UDB, retaining its physical-address and pointer-masking policy. */
   method udb(~name: name :: String = "rhodium-" ++ key) :: UdbConfiguration:
     match selection.core
     | CoreKind.RV5Stage:
@@ -48,6 +52,7 @@ class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementat
         def profile :: SpikeConfig = hart.profile
         spike_udb_configuration(profile, name, "Rhodium " ++ key)
 
+/* Creates the common resolved product used by hardware and architecture-facing consumers. */
 fun resolve_soc_product(selection :: SoCSelection) :: ResolvedSoCProduct:
   ResolvedSoCProduct(selection)
 

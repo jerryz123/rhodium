@@ -1,5 +1,5 @@
 #lang rhodium
-// Selects the default RV5Stage hart for the otherwise core-neutral tiled SoC.
+/* Selects the default RV5Stage hart for the otherwise core-neutral tiled SoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

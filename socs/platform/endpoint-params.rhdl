@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines SoC host capabilities and Home-specific host/hart service projections.
+/* Defines SoC host capabilities and Home-specific host/hart service projections. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,7 @@ import:
   lib("chi/protocol/link.rhdl") open
   lib("chi/protocol/fabric.rhdl") open
 
+/* Describes the one-outstanding host RN-F endpoint, including coherent RAM, nonsnooping MMIO, snoop responses, and completion capabilities. */
 fun soc_host_node(node_id :: Nat) :: CHINodeParams:
   CHINodeParams(
     "host",
@@ -27,7 +28,7 @@ fun soc_host_node(node_id :: Nat) :: CHINodeParams:
     ~max_outstanding: 1
   )
 
-// Project complete host identity into the traffic accepted by each Home.
+/* Derives Home-facing ICN peer capabilities for coherent RAM or nonsnooping devices without changing the host identity. */
 fun soc_host_home_port(node :: CHINodeParams, ~coherent: coherent :: Boolean):
   CHIRequesterHomeParams(
     node.icn_peer(),
@@ -40,6 +41,7 @@ fun soc_host_home_port(node :: CHINodeParams, ~coherent: coherent :: Boolean):
       ~rsp: (if coherent | [CHIRspOpcode.SnpResp] | []),
       ~dat: [CHIDatOpcode.NonCopyBackWriteData]))
 
+/* Projects subordinate nonsnooping read/write sizes into the host's coherent ReadClean and WriteUniquePtl service contract. */
 fun soc_host_memory_service(home :: CHIHomeParams,
                             address_sets :: NonemptyList.of(AddressSet),
                             requests :: NonemptyList.of(CHIRequestSupport)):
@@ -48,8 +50,7 @@ fun soc_host_memory_service(home :: CHIHomeParams,
     for List (request in requests.filter(~keep: fun (request): [CHIReqOpcode.ReadNoSnp, CHIReqOpcode.WriteNoSnpPtl].contains(request.opcode))):
       CHIRequestSupport((if request.opcode == CHIReqOpcode.ReadNoSnp | CHIReqOpcode.ReadClean | CHIReqOpcode.WriteUniquePtl), request.sizes))
 
-// A hart's uncached port may also reach coherent normal memory. Only its
-// nonsnooping opcode subset reaches the device Home.
+/* Restricts the hart's device-Home peer to nonsnooping reads and writes; its complete uncached endpoint can also reach coherent memory. */
 fun soc_device_home_port(node :: CHINodeParams) :: CHIRequesterHomeParams:
   def peer = node.icn_peer()
   CHIRequesterHomeParams(

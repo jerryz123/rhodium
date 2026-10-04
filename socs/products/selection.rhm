@@ -1,24 +1,30 @@
 #lang rhombus
-// Defines explicit typed product axes and canonical shape-core-ISA identities.
+/* Defines explicit typed product axes and canonical shape-core-ISA identities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import: "selection-data.rkt".selection_rows
 
+/* Selects compact internal RAM, single-core external memory, or tiled system topology. */
 enum SoCShape | Mini | Simple | Tiled
+/* Selects the hardware RV5Stage hart or the simulation-only Spike hart binding. */
 enum CoreKind | RV5Stage | Spike
+/* Names the explicitly authored architectural presets independently of shape and core implementation. */
 enum IsaPreset | RV32Int | RV32Max | RV64IMACB | RV64IMAFDCB | RV64Max | RVA23
 
+/* Returns the canonical CLI spelling for a typed SoC shape. */
 fun soc_shape_name(shape :: SoCShape) :: String:
   match shape
   | SoCShape.Mini: "mini"
   | SoCShape.Simple: "simple"
   | SoCShape.Tiled: "tiled"
 
+/* Returns the canonical CLI spelling for a typed hart implementation. */
 fun core_kind_name(core :: CoreKind) :: String:
   match core
   | CoreKind.RV5Stage: "rv5stage"
   | CoreKind.Spike: "spike"
 
+/* Returns the canonical CLI spelling for a typed architectural preset. */
 fun isa_preset_name(isa :: IsaPreset) :: String:
   match isa
   | IsaPreset.RV32Int: "rv32int"
@@ -28,6 +34,7 @@ fun isa_preset_name(isa :: IsaPreset) :: String:
   | IsaPreset.RV64Max: "rv64max"
   | IsaPreset.RVA23: "rva23"
 
+/* Parses a canonical shape name and rejects unsupported spellings. */
 fun parse_soc_shape(name :: String) :: SoCShape:
   match name
   | "mini": SoCShape.Mini
@@ -35,12 +42,14 @@ fun parse_soc_shape(name :: String) :: SoCShape:
   | "tiled": SoCShape.Tiled
   | ~else: error(~who: #'parse_soc_shape, "unsupported SoC shape: " ++ name)
 
+/* Parses a canonical core name and rejects unsupported implementations. */
 fun parse_core_kind(name :: String) :: CoreKind:
   match name
   | "rv5stage": CoreKind.RV5Stage
   | "spike": CoreKind.Spike
   | ~else: error(~who: #'parse_core_kind, "unsupported core: " ++ name)
 
+/* Parses an explicit architectural preset name and rejects unsupported spellings. */
 fun parse_isa_preset(name :: String) :: IsaPreset:
   match name
   | "rv32int": IsaPreset.RV32Int
@@ -51,10 +60,12 @@ fun parse_isa_preset(name :: String) :: IsaPreset:
   | "rva23": IsaPreset.RVA23
   | ~else: error(~who: #'parse_isa_preset, "unsupported ISA preset: " ++ name)
 
+/* Keeps the three product axes together and derives their canonical shape-core-ISA key. */
 class SoCSelection(shape :: SoCShape, core :: CoreKind, isa :: IsaPreset):
   property key :: String:
     soc_shape_name(shape) ++ "-" ++ core_kind_name(core) ++ "-" ++ isa_preset_name(isa)
 
+/* Resolves a complete product key through the shared selector table, rejecting absent or ambiguous entries. */
 fun named_soc_selection(name :: String) :: SoCSelection:
   def rows = selection_rows.filter(~keep: fun (row): row[0] == name)
   unless rows.length() == 1

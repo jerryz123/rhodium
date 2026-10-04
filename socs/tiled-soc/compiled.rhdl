@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the private compiled placement and tile-parameter model for TiledSoC.
+/* Defines the private compiled placement and tile-parameter model for TiledSoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -34,6 +34,7 @@ import:
   "layout.rhm" open
   "distribution.rhdl" open
 
+/* Records one hart's ordinal, mesh site, three NodeIDs, and instruction/data/uncached requester terminals. */
 class TiledHartPlacement(index :: Nat,
                          coordinate :: MeshCoordinate,
                          router :: NodeRef,
@@ -44,11 +45,13 @@ class TiledHartPlacement(index :: Nat,
                          data_site :: CHIRNSite,
                          uncached_site :: CHIRNSite)
 
+/* Records the unique host's mesh site, NodeID, and RN terminal. */
 class TiledHostPlacement(coordinate :: MeshCoordinate,
                          router :: NodeRef,
                          node_id :: Nat,
                          site :: CHIRNSite)
 
+/* Records a slice's ownership index, Home NodeID, and requester/subordinate terminals on one router. */
 class TiledLLCPlacement(index :: Nat,
                         coordinate :: MeshCoordinate,
                         router :: NodeRef,
@@ -57,88 +60,107 @@ class TiledLLCPlacement(index :: Nat,
                         home_site :: CHIRNICNSite,
                         subordinate_site :: CHISNICNSite)
 
+/* Records the unique external-memory channel's coordinate, router, and SN terminal. */
 class TiledMemoryPlacement(coordinate :: MeshCoordinate,
                            router :: NodeRef,
                            site :: CHISNSite)
 
+/* Records the device Home's NodeID and both fabric-side terminals at its mesh site. */
 class TiledDeviceHomePlacement(coordinate :: MeshCoordinate,
                                router :: NodeRef,
                                node_id :: Nat,
                                requester_site :: CHIRNICNSite,
                                subordinate_site :: CHISNICNSite)
 
+/* Records the ROM subordinate's identity and terminal colocated with the device Home. */
 class TiledBootROMPlacement(coordinate :: MeshCoordinate,
                             router :: NodeRef,
                             node_id :: Nat,
                             site :: CHISNSite)
 
+/* Records the shared ACLINT device's NodeID and mesh attachment. */
 class TiledAclintPlacement(coordinate :: MeshCoordinate,
                            router :: NodeRef,
                            node_id :: Nat,
                            site :: CHISNSite)
 
+/* Records the shared PLIC device's NodeID and mesh attachment. */
 class TiledPlicPlacement(coordinate :: MeshCoordinate,
                          router :: NodeRef,
                          node_id :: Nat,
                          site :: CHISNSite)
 
+/* Records the shared UART device's NodeID and mesh attachment. */
 class TiledUartPlacement(coordinate :: MeshCoordinate,
                          router :: NodeRef,
                          node_id :: Nat,
                          site :: CHISNSite)
 
+/* Records the ordinal and mesh site of a router-only tile. */
 class TiledTransitPlacement(index :: Nat,
                             coordinate :: MeshCoordinate,
                             router :: NodeRef)
 
+/* Groups the independently compiled REQ, RSP, SNP, and DAT router families. */
 class TiledChannelFamilyPlans(req :: RouterFamilyPlan,
                               rsp :: RouterFamilyPlan,
                               snp :: RouterFamilyPlan,
                               dat :: RouterFamilyPlan)
 
+/* Pairs a placed hart with its resolved CHI attachment and reusable tile parameters. */
 class HartTileInstance(placement :: TiledHartPlacement,
                        chi :: RiscvHartCHIAttachment,
                        tile_params :: HartTileParams)
 
+/* Pairs a placed LLC with its Home contract, geometry, sparse ownership address set, and tile parameters. */
 class LLCTileInstance(placement :: TiledLLCPlacement,
                       home_params :: CHIHNFParams,
                       llc_config :: CHIInclusiveHNFConfig,
                       address_set :: AddressSet,
                       tile_params :: LLCTileParams)
 
+/* Pairs the external-memory site with its SN capabilities, contiguous service, and router parameters. */
 class MemoryTileInstance(placement :: TiledMemoryPlacement,
                          node :: CHINodeParams,
                          service :: CHISubordinateServiceParams,
                          router_params :: CHIRouterParams)
 
+/* Pairs the host site with its RN-F endpoint, ICN peer, and router tile parameters. */
 class HostTileInstance(placement :: TiledHostPlacement,
                        node :: CHINodeParams,
                        port :: CHIICNPortParams,
                        tile_params :: HostTileParams)
 
+/* Pairs the device Home placement with its endpoint, subordinate map, and tile parameters. */
 class DeviceHomeTileInstance(placement :: TiledDeviceHomePlacement,
                              home :: CHIHomeParams,
                              home_params :: CHIHNIParams,
                              tile_params :: DeviceHomeTileParams)
 
+/* Pairs the colocated ROM placement with its CHI subordinate parameters. */
 class BootROMInstance(placement :: TiledBootROMPlacement,
                       device :: CHIBootROMParams)
 
+/* Pairs the ACLINT placement with its device occurrence and router/distribution tile parameters. */
 class AclintTileInstance(placement :: TiledAclintPlacement,
                          device :: AclintParams,
                          tile_params :: AclintTileParams)
 
+/* Pairs the PLIC placement with its device occurrence and router/distribution tile parameters. */
 class PlicTileInstance(placement :: TiledPlicPlacement,
                        device :: PlicParams,
                        tile_params :: PlicTileParams)
 
+/* Pairs the UART placement with its device occurrence and router tile parameters. */
 class UartTileInstance(placement :: TiledUartPlacement,
                        device :: Uart16550Params,
                        tile_params :: UartTileParams)
 
+/* Pairs a transit placement with its endpoint-free router tile parameters. */
 class TransitTileInstance(placement :: TiledTransitPlacement,
                           tile_params :: TransitTileParams)
 
+/* Carries the private elaboration-time placement, address ownership, channel plans, physical links, distribution overlay, and resolved tile occurrences. */
 class TiledSoCImplementation(config :: TiledSoCConfig,
                              mesh :: RectangularMesh,
                              connections :: NonemptyList.of(CHIConnection),
@@ -174,6 +196,7 @@ class TiledSoCImplementation(config :: TiledSoCConfig,
   property height :: PosInt: config.layout.height
   property snp_compilation :: CHIChannelCompilation: compilations.snp
 
+  /* Maps a compiled router reference to the shared physical family's site index. */
   method site_key(router :: NodeRef) :: Nat:
     physical_plan.site_key(compilations.req.network.router_id(router))
 

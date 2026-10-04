@@ -1,11 +1,12 @@
 #lang rhodium
-// Exposes one external CHI SN-F memory channel from its dedicated fabric router.
+/* Exposes one external CHI SN-F memory channel from its dedicated fabric router. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl").CHISNChannels
   lib("chi/noc/noc-router.rhdl") open
 
+/* Exposes the compiled SN-F attachment as the system's single external memory channel. */
 sync_circuit MemoryTile(router_params :: CHIRouterParams):
   def p = router_params.flit
   def site_width = router_params.routers.req.route_decoder.site_width

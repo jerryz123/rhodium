@@ -1,5 +1,5 @@
 #lang racket/base
-;; Loads the dependency-light public selector table for typed Rhombus consumers.
+#| Loads the dependency-light public selector table for typed Rhombus consumers. |#
 ;; SPDX-License-Identifier: Apache-2.0
 (require racket/file racket/runtime-path racket/string racket/treelist)
 (provide selection_rows)

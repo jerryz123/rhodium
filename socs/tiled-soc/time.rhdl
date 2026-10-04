@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the narrow rotating stream that distributes ACLINT time snapshots to tiled harts.
+/* Defines the narrow rotating stream that distributes ACLINT time snapshots to tiled harts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,12 +12,12 @@ import:
 
 def TiledTimeChunkWidth = 16
 
+/* Tags one framed 16-bit time chunk with its destination hart index. */
 bundle TiledTimeBeat(hart_count :: PosInt):
   hart: Bits(index_width(hart_count))
   flit: FramedFixedFlit(Bits(TiledTimeChunkWidth))
 
-// Captures each snapshot once, sends it to every hart in order, and retains
-// only the newest snapshot that arrives while a sweep is active.
+/* Sends a captured timestamp to every hart in order, holding packet and destination stable under backpressure and retaining only the newest pending snapshot. */
 sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   def hart_width = index_width(hart_count)
 
@@ -66,8 +66,7 @@ sync_circuit TiledTimeSweeper(hart_count :: PosInt):
   elsewhen (packetizer.ingress.fire()):
     packet_pending <== Bool(#false)
 
-// Accepts one fixed-length packet at a time and exposes a timestamp only after
-// the final chunk transfers, so partial updates are never architecturally visible.
+/* Reassembles four 16-bit chunks and exposes only complete 64-bit timestamps, retaining the last value between packets. */
 sync_circuit TiledTimeReceiver():
   interface ingress(Decoupled(FramedFixedFlit(Bits(TiledTimeChunkWidth))), ~role: consumer)
   output value: Bits(64)

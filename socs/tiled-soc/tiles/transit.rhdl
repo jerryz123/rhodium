@@ -1,13 +1,15 @@
 #lang rhodium
-// Implements a service-row CHI router tile with no locally attached endpoint.
+/* Implements a service-row CHI router tile with no locally attached endpoint. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/noc/noc-router.rhdl") open
 
+/* Holds the compiled router family for a site with no local endpoint. */
 class TransitTileParams(router :: CHIRouterParams):
   implements StableCircuitParam
 
+/* Forwards the four CHI planes through the mesh without attaching a requester, Home, or subordinate. */
 sync_circuit TransitTile(params :: TransitTileParams):
   def router_params = params.router
   def Link = chi_noc_link_type(router_params)

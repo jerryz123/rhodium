@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration.
+/* Defines the author-facing TiledSoC layout, NodeIDs, boot policy, and immutable configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -45,16 +45,26 @@ export:
   repeat_tiled_tile
   tile_grid
 
+/* Marks a mesh site that instantiates the selected hart and its CHI attachments. */
 class HartTileSpec()
+/* Marks a mesh site containing one inclusive LLC Home slice. */
 class LLCTileSpec()
+/* Marks the unique external-memory channel's router site. */
 class MemoryTileSpec()
+/* Marks the unique host RN-F attachment site. */
 class HostTileSpec()
+/* Marks the unique device HN-I site and its colocated boot-device attachments. */
 class DeviceHomeTileSpec()
+/* Marks the shared ACLINT device and time/interrupt distribution source site. */
 class AclintTileSpec()
+/* Marks the shared PLIC device and external-interrupt distribution source site. */
 class PlicTileSpec()
+/* Marks the shared UART device and serial pin attachment site. */
 class UartTileSpec()
+/* Marks a router-only mesh site with no local CHI endpoint. */
 class TransitTileSpec()
 
+/* Restricts layout cells to the supported compute, memory, device, and transit roles. */
 annot.macro 'TiledTileSpec':
   'HartTileSpec || LLCTileSpec || MemoryTileSpec || HostTileSpec || DeviceHomeTileSpec || AclintTileSpec || PlicTileSpec || UartTileSpec || TransitTileSpec'
 
@@ -68,13 +78,16 @@ def plic_tile = PlicTileSpec()
 def uart_tile = UartTileSpec()
 def transit_tile = TransitTileSpec()
 
+/* Expands a positive tile run count into repeated specifications for layout authoring. */
 fun repeat_tiled_tile(tile :: TiledTileSpec,
                       count :: PosInt) :: NonemptyList.of(TiledTileSpec):
   for List (_index in 0..count): tile
 
+/* Associates a tile role with its bottom-origin mesh coordinate. */
 class TiledTileCell(tile :: TiledTileSpec,
                     coordinate :: MeshCoordinate)
 
+/* Enumerates cells in bottom-to-top, left-to-right order while translating the top-first authored rows. */
 fun tiled_tile_cells(rows :: NonemptyList.of(NonemptyList),
                      width :: PosInt,
                      height :: PosInt) :: NonemptyList.of(TiledTileCell):
@@ -85,6 +98,7 @@ fun tiled_tile_cells(rows :: NonemptyList.of(NonemptyList),
       cells := cells ++ [TiledTileCell(rows[source_row][x], MeshCoordinate(x, y))]
   cells
 
+/* Validates a rectangular tile grid and exposes stable coordinate-ordered role inventories. */
 class TileGrid(rows :: NonemptyList.of(NonemptyList)):
   property width :: PosInt: rows[0].length()
   property height :: PosInt: rows.length()
@@ -109,6 +123,7 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
   property transits:
     cells.filter(~keep: fun (cell): cell.tile is_a TransitTileSpec)
 
+  /* Requires rectangular rows, valid tile roles, at least one hart and LLC, and exactly one of each shared service tile. */
   constructor (rows :: NonemptyList.of(NonemptyList)):
     def width = rows[0].length()
     for (row in rows):
@@ -143,11 +158,13 @@ class TileGrid(rows :: NonemptyList.of(NonemptyList)):
     | error(~who: #'TileGrid, "tile grid requires exactly one memory-channel tile")
     super(rows)
 
+  /* Looks up a bottom-origin mesh coordinate and rejects coordinates outside the grid. */
   method tile_at(x :: Nat, y :: Nat) :: TiledTileSpec:
     unless x < width && y < height
     | error(~who: #'TileGrid, "tile coordinate is outside the grid")
     rows[height - y - 1][x]
 
+/* Collects NodeID bases for replicated harts and LLCs plus explicit IDs for the host and shared devices. */
 class TiledNodeIds(hart_coherent_base :: Nat,
                    hart_uncached_base :: Nat,
                    host :: Nat,
@@ -159,6 +176,7 @@ class TiledNodeIds(hart_coherent_base :: Nat,
                    plic_subordinate :: Nat,
                    uart_subordinate :: Nat,
                    boot_address_subordinate :: Nat):
+  /* Captures the authored NodeID allocations; the topology compiler later checks uniqueness and flit-width fit. */
   constructor (~hart_coherent_base: hart_coherent_base :: Nat,
                ~hart_uncached_base: hart_uncached_base :: Nat,
                ~host: host :: Nat,
@@ -182,22 +200,27 @@ class TiledNodeIds(hart_coherent_base :: Nat,
           uart_subordinate,
           boot_address_subordinate)
 
+/* Describes one contiguous RAM window and the stripe size used to assign LLC ownership. */
 class StripedMemory(base :: Nat,
                     size_bytes :: Pow2Int,
                     stripe_bytes :: Pow2Int):
+  /* Captures RAM base, total capacity, and stripe size for later layout and capacity validation. */
   constructor (~base: base :: Nat,
                ~size_bytes: size_bytes :: Pow2Int,
                ~stripe_bytes: stripe_bytes :: Pow2Int):
     super(base, size_bytes, stripe_bytes)
 
+/* Tests whether a positive host integer is a power of two. */
 fun tiled_power_of_two(value :: PosInt) :: Boolean:
   value == 1 || (value mod 2 == 0 && tiled_power_of_two(value / 2))
 
+/* Describes per-slice set, way, and transaction-slot counts with a fixed 64-byte line size. */
 class LLCGeometry(sets :: PosInt,
                   ways :: PosInt,
                   transaction_slots :: Int.in(1 ..= 64)):
   property capacity_bytes :: PosInt: sets * ways * 64
 
+  /* Requires a power-of-two LLC set count of at least two. */
   constructor (~sets: sets :: PosInt,
                ~ways: ways :: PosInt,
                ~transaction_slots: transaction_slots :: Int.in(1 ..= 64) = 2):
@@ -206,6 +229,7 @@ class LLCGeometry(sets :: PosInt,
             "LLC set count must be a power of two of at least two")
     super(sets, ways, transaction_slots)
 
+/* Owns the authored layout, IDs, striped RAM, LLC geometry, hart, clocks, and boot policy used by both hardware and software projections. */
 class TiledSoCConfig(layout :: TileGrid,
                      node_ids :: TiledNodeIds,
                      memory :: StripedMemory,
@@ -223,6 +247,7 @@ class TiledSoCConfig(layout :: TileGrid,
                   node_ids.device_home,
                   CHINodeKind.HNI,
                   ~max_outstanding: 1)
+  /* Derives the shared devices for a supplied Home using the configuration's hart count, NodeIDs, and boot layout. */
   method platform_for(home :: CHIHomeParams):
     SoCPlatformParams(flit,
                       hart_count,
@@ -248,6 +273,7 @@ class TiledSoCConfig(layout :: TileGrid,
       ~uart: platform.uart_description
     )
 
+  /* Checks full-line stripes, power-of-two slice count, per-slice capacity, aligned RAM, and the current RV64-only tiled hart contract. */
   constructor (~layout: layout :: TileGrid,
                ~node_ids: node_ids :: TiledNodeIds,
                ~memory: memory :: StripedMemory,
@@ -271,6 +297,7 @@ class TiledSoCConfig(layout :: TileGrid,
     AddressSet(memory.base, memory.size_bytes - 1)
     super(layout, node_ids, memory, llc, hart, clocks, flit, boot)
 
+  /* Revalidates configuration variants through the public tiled constructor. */
   reconstructor (layout, node_ids, memory, llc, hart, clocks, flit, boot):
     TiledSoCConfig(
       ~layout: layout,
@@ -284,6 +311,7 @@ class TiledSoCConfig(layout :: TileGrid,
     )
 
 meta:
+  /* Lowers one tile-grid syntax entry into a singleton or repeated tile run and reports unsupported tile syntax. */
   fun tile_run(entry :: Syntax):
     match entry
     | 'hart': '[hart_tile]'
@@ -309,6 +337,7 @@ meta:
           entry
         )
 
+  /* Joins lowered tile runs into one row expression while preserving authored order. */
   fun append_runs(runs :: NonemptyList.of(Syntax)):
     if runs.length() == 1
     | runs[0]
@@ -317,6 +346,7 @@ meta:
         def rest = append_runs(runs.drop(1))
         '$first ++ $rest'
 
+  /* Lowers one nonempty row declaration into the combined tile specification list. */
   fun tile_row(clause :: Syntax):
     match clause
     | 'row [$entry, ...]':
@@ -327,6 +357,7 @@ meta:
     | ~else:
         syntax_meta.error("expected tile-grid row declaration", clause)
 
+/* Expands top-first row declarations and repeated tile runs into a validated TileGrid. */
 expr.macro 'tile_grid:
               $clause
               ...':

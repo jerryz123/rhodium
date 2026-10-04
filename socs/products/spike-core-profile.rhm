@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects explicit product architectures into the Spike execution configuration.
+/* Projects explicit product architectures into the Spike execution configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   "selection.rhm" open
   "isa-profiles.rhm".soc_architecture
 
+/* Builds a PMP-disabled Spike profile with the preset's exact ISA, MMU, and optional vector geometry plus shared cache descriptions. */
 fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
   def architecture = soc_architecture(preset)
   SpikeConfig(

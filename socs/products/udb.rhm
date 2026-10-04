@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects explicit shape-core-ISA product keys through the shared configuration resolver.
+/* Projects explicit shape-core-ISA product keys through the shared configuration resolver. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   "selection.rhm" open
   "resolve.rhm".resolve_soc_product
 
+/* Resolves a complete shape-core-ISA catalog key and returns its implementation-owned UDB configuration. */
 fun riscv_udb_configuration(configuration_name :: NonemptyString) :: UdbConfiguration:
   def product = resolve_soc_product(named_soc_selection(configuration_name))
   product.udb()

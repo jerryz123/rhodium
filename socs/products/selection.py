@@ -5,6 +5,7 @@ import argparse
 from pathlib import Path
 
 
+# Loads the shared key-to-axis table, rejecting malformed or duplicate identities.
 def selections():
     rows = [line.split() for line in Path(__file__).with_name('selections.tsv').read_text().splitlines()
             if line and not line.startswith('#')]
@@ -16,6 +17,7 @@ def selections():
     return result
 
 
+# Resolves an explicit key or separate axes, enforcing conflicts and required ISA selection.
 def select(soc, core=None, isa=None, *, required=True):
     table = selections()
     if soc in table:
@@ -40,6 +42,7 @@ def select(soc, core=None, isa=None, *, required=True):
     return table[key]
 
 
+# Emits the resolved axes for Make consumers, or a diagnostic with exit status two.
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--soc', required=True)

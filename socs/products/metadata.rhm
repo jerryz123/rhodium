@@ -1,5 +1,5 @@
 #lang rhombus
-// Serializes the resolved architectural, implementation, and platform configuration shared by product artifacts.
+/* Serializes the resolved architectural, implementation, and platform configuration shared by product artifacts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,10 +10,11 @@ import:
   "../single-core-soc/main.rhdl".SingleCoreSoCConfig
   "../tiled-soc/main.rhdl".TiledSoCConfig
 
-// Public immutable parameters use expression notation; architectural projections
-// also expose private host values such as XLEN through their public properties.
-// Factory closures are deliberately replaced by their resolved attachment data;
-// executable implementation changes remain bound by the source revision attestation.
+/*
+ * Snapshots public fabric parameters in expression notation and replaces factory closures with
+ * resolved CHI attachments. Architectural projections expose private values such as XLEN;
+ * source-revision attestation binds executable changes.
+ */
 fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
   {
     "flit": repr(fabric.flit),
@@ -30,6 +31,7 @@ fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
     "hart_attachment": repr(fabric.hart_params)
   }
 
+/* Builds the versioned metadata envelope from the selected implementation, shape configuration, architectural description, DTS, and UDB. */
 fun product_metadata(product :: ResolvedSoCProduct,
                      config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = product.configuration()) :: Map:
   def platform = cond

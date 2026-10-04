@@ -1,5 +1,5 @@
 #lang rhodium
-// Attaches both sides of one inclusive LLC slice to the shared CHI fabric.
+/* Attaches both sides of one inclusive LLC slice to the shared CHI fabric. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,14 +8,17 @@ import:
   lib("chi/home/home-common.rhdl").CHIHNFIdentity
   lib("chi/home/inclusive-home.rhdl") open
 
+/* Pairs an inclusive Home's slice configuration with its compiled CHI router attachments. */
 class LLCTileParams(home :: CHIInclusiveHNFConfig,
                     router :: CHIRouterParams):
   implements StableCircuitParam
 
+/* Supplies the runtime router site, Home NodeID, memory subordinate NodeID, and service base. */
 bundle LLCTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   home: CHIHNFIdentity(p)
 
+/* Attaches an inclusive LLC's requester and subordinate sides to the same CHI router for coherent traffic and downstream memory access. */
 sync_circuit LLCTile(params :: LLCTileParams):
   def router_params = params.router
   def p = params.home.flit

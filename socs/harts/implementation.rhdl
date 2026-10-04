@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines the core-neutral hart contract consumed by SoC shapes.
+/* Defines the core-neutral hart contract consumed by SoC shapes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   lib("riscv/isa/hart.rhm").RiscvHartDescription
   lib("cores/riscv/chi-hart.rhdl") open
 
+/* Binds an immutable processor profile and architectural description to CHI-attachment and circuit factories without importing a named core. */
 class RiscvHartImplementation(name :: NonemptyString,
                               key :: NonemptyString,
                               profile :: StableCircuitParam,
@@ -19,6 +20,7 @@ class RiscvHartImplementation(name :: NonemptyString,
                               circuit_factory :: Function.of_arity(3)):
   implements StableCircuitParam
 
+  /* Rejects bindings whose published hart description differs from the implementation profile. */
   constructor (name :: NonemptyString,
                key :: NonemptyString,
                profile :: StableCircuitParam,
@@ -30,9 +32,11 @@ class RiscvHartImplementation(name :: NonemptyString,
     | error(~who: #'RiscvHartImplementation, "hart description must match the implementation profile")
     super(name, key, profile, description, cache_line_bytes, chi_factory, circuit_factory)
 
+  /* Resolves the selected hart's CHI attachment using the fabric configuration and instruction, data, and uncached NodeIDs. */
   method chi_params(config :: RiscvHartCHIConfig, instruction :: Nat, data :: Nat, uncached :: Nat) :: RiscvHartCHIAttachment:
     chi_factory(config, instruction, data, uncached)
 
+  /* Specializes the selected processor circuit for its profile, reset vector, and CHI configuration. */
   method circuit(reset_address :: Nat, chi :: RiscvHartCHIConfig) :: CircuitDefinition:
     circuit_factory(profile, reset_address, chi)
 

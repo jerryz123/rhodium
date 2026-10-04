@@ -1,5 +1,5 @@
 #lang rhodium
-// Adapts an RV5Stage profile to the core-neutral SoC hart contract.
+/* Adapts an RV5Stage profile to the core-neutral SoC hart contract. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   lib("cores/rv5stage/rv5stage.rhdl").RV5Stage
   "implementation.rhdl".RiscvHartImplementation
 
+/* Packages RV5Stage's profile, 64-byte cache-line contract, and factories as a core-neutral hart binding. */
 fun rv5stage_hart(profile :: RV5StageConfig) :: RiscvHartImplementation:
   RiscvHartImplementation("RV5Stage", "rv5stage", profile, profile.hart_description, RV5StageCacheLineBytes,
                           rv5stage_chi_params,

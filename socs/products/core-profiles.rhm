@@ -1,5 +1,5 @@
 #lang rhombus
-// Applies shape-owned RV5Stage implementation policy to explicit architectural presets.
+/* Applies shape-owned RV5Stage implementation policy to explicit architectural presets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,8 +10,10 @@ import:
   "selection.rhm" open
   "isa-profiles.rhm" open
 
+/* Projects the requested ISA into RV5Stage controls, applies shape-specific caches, multiplier, and queue depths, and rejects an inexact ISA projection. */
 fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConfig:
   def architecture = soc_architecture(preset)
+  /* Tests extension membership in the requested architecture while constructing implementation controls. */
   def has = fun (name :: String): architecture.has(name)
   def compressed = cond
   | has("zcb"): compressed_extensions(CompressedExtension.C, CompressedExtension.Zcb, CompressedExtension.Zcmop)

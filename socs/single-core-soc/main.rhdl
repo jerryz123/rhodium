@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes the external-memory single-core platform with a selected RISC-V hart implementation.
+/* Composes the external-memory single-core platform with a selected RISC-V hart implementation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
   "../platform/host-interface.rhdl".SoCHostInterface
   "../platform/peripherals.rhdl".SoCUartInterface
 
+/* Derives the external-memory platform and inclusive LLC geometry from the selected hart binding. */
 fun single_core_soc_params(hart :: RiscvHartImplementation,
                            ~llc_sets: llc_sets :: Pow2Int = 512,
                            ~llc_ways: llc_ways :: PosInt = 8) :: SingleCoreSoCParams:
@@ -20,9 +21,11 @@ fun single_core_soc_params(hart :: RiscvHartImplementation,
                               ["rhodium,single-core-" ++ hart.key ++ "-soc"],
                               ~llc_sets: llc_sets, ~llc_ways: llc_ways)
 
+/* Pairs a hart implementation with the shared single-core fabric and architectural parameters. */
 class SingleCoreSoCConfig(hart :: RiscvHartImplementation, params :: SingleCoreSoCParams):
   implements StableCircuitParam
 
+  /* Rejects platform parameters whose core profile or hart description disagrees with the selected implementation. */
   constructor (hart :: RiscvHartImplementation, params :: SingleCoreSoCParams):
     unless (params.core_profile == hart.profile) && (params.hart_description == hart.description)
     | error(~who: #'SingleCoreSoCConfig, "SoC parameters must match the selected hart implementation")
@@ -30,11 +33,13 @@ class SingleCoreSoCConfig(hart :: RiscvHartImplementation, params :: SingleCoreS
 
   property description: params.description
 
+/* Builds the shared single-core configuration with the requested LLC set and way counts. */
 fun single_core_soc_config(hart :: RiscvHartImplementation,
                            ~llc_sets: llc_sets :: Pow2Int = 512,
                            ~llc_ways: llc_ways :: PosInt = 8) :: SingleCoreSoCConfig:
   SingleCoreSoCConfig(hart, single_core_soc_params(hart, ~llc_sets: llc_sets, ~llc_ways: llc_ways))
 
+/* Composes one selected hart, an inclusive Home, and platform devices with external host, memory, and UART interfaces. */
 sync_circuit SingleCoreSoC(config :: SingleCoreSoCConfig):
   def params = config.params
   def fabric = params.fabric

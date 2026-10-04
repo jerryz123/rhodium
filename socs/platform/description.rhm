@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines immutable RISC-V SoC descriptions and their native device-tree projection.
+/* Defines immutable RISC-V SoC descriptions and their native device-tree projection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,10 +11,12 @@ import:
   lib("riscv/isa/hart.rhm") open
   lib("riscv/isa/interrupt.rhm") open
 
+/* Describes positive SoC-clock and architectural timebase frequencies with an integral hardware divider ratio. */
 class SoCClockConfig(clock_frequency_hz :: PosInt,
                      timebase_frequency_hz :: PosInt):
   implements StableCircuitParam
 
+  /* Rejects timebases above the input clock or requiring a nonintegral number of clock cycles. */
   constructor (~clock_frequency_hz: clock_frequency_hz :: PosInt,
                ~timebase_frequency_hz: timebase_frequency_hz :: PosInt):
     unless timebase_frequency_hz <= clock_frequency_hz
@@ -28,9 +30,11 @@ class SoCClockConfig(clock_frequency_hz :: PosInt,
   property timebase_period_cycles :: PosInt:
     clock_frequency_hz / timebase_frequency_hz
 
+/* Retains the originating AddressSet while restricting architectural memory and device windows to contiguous regions. */
 class SoCAddressRegion(address_set :: AddressSet):
   implements StableCircuitParam
 
+  /* Rejects sparse address masks that cannot be described as one base-and-size architectural region. */
   constructor (address_set :: AddressSet):
     unless (address_set.mask bits.and (address_set.mask + 1)) == 0
     | error(~who: #'SoCAddressRegion,
@@ -40,24 +44,29 @@ class SoCAddressRegion(address_set :: AddressSet):
   property base :: Nat: address_set.base
   property size_bytes :: PosInt: address_set.mask + 1
 
+  /* Tests membership in the original address set. */
   method contains(address :: Nat) :: Boolean:
     address_set.contains(address)
 
+  /* Tests intersection with another architectural region using their underlying address sets. */
   method overlaps(other :: SoCAddressRegion) :: Boolean:
     address_set.overlaps(other.address_set)
 
+  /* Encodes the region's base and byte size as two big-endian 64-bit device-tree values. */
   method to_device_tree_cells():
     DeviceTreeCells([
       DeviceTreeU64(base),
       DeviceTreeU64(size_bytes)
     ])
 
+/* Describes the BootROM region, reset vector, payload address, and optional host-published entry-register window. */
 class RiscvBootLayout(rom :: SoCAddressRegion,
                       reset_address :: Nat,
                       payload_address :: Nat,
                       address_register :: maybe(SoCAddressRegion)):
   implements StableCircuitParam
 
+  /* Requires the reset vector to lie inside the supplied ROM region. */
   constructor (~rom: rom :: SoCAddressRegion,
                ~reset_address: reset_address :: Nat,
                ~payload_address: payload_address :: Nat,
@@ -67,25 +76,31 @@ class RiscvBootLayout(rom :: SoCAddressRegion,
             "reset address must lie in the BootROM region")
     super(rom, reset_address, payload_address, address_register)
 
+/* Associates the CLINT-compatible local interrupt and timer device with its architectural MMIO region. */
 class RiscvAclintDescription(region :: SoCAddressRegion):
   implements StableCircuitParam
 
+/* Identifies a PLIC interrupt by its controller's address region and nonzero source ID. */
 class RiscvPlicInterrupt(controller :: SoCAddressRegion,
                          source_id :: PosInt):
   implements StableCircuitParam
 
+/* Associates the UART register region with its PLIC source binding. */
 class RiscvUartDescription(region :: SoCAddressRegion,
                            interrupt :: RiscvPlicInterrupt):
   implements StableCircuitParam
 
+/* Names one implemented nonzero interrupt source; IDs may be sparse. */
 class RiscvPlicSource(source_id :: PosInt,
                       name :: NonemptyString):
   implements StableCircuitParam
 
+/* Identifies one hart's machine- or supervisor-external interrupt context. */
 class RiscvPlicContext(hart :: Nat,
                        interrupt :: InterruptCause):
   implements StableCircuitParam
 
+  /* Rejects causes other than machine-external or supervisor-external interrupts. */
   constructor (hart :: Nat,
                interrupt :: InterruptCause):
     unless interrupt == InterruptCause.MachineExternal || interrupt == InterruptCause.SupervisorExternal
@@ -93,12 +108,14 @@ class RiscvPlicContext(hart :: Nat,
             "PLIC contexts must target machine or supervisor external interrupts")
     super(hart, interrupt)
 
+/* Describes the controller window, priority width, implemented sources, and ordered MMIO contexts. */
 class RiscvPlicDescription(region :: SoCAddressRegion,
                            priority_width :: PosInt,
                            sources :: NonemptyList.of(RiscvPlicSource),
                            contexts :: NonemptyList.of(RiscvPlicContext)):
   implements StableCircuitParam
 
+  /* Rejects duplicate source IDs and duplicate hart/cause pairs without changing context order. */
   constructor (region :: SoCAddressRegion,
                priority_width :: PosInt,
                sources :: NonemptyList.of(RiscvPlicSource),
@@ -128,20 +145,25 @@ class RiscvPlicDescription(region :: SoCAddressRegion,
 def RiscvMachineSoftwareInterrupt = 3
 def RiscvMachineTimerInterrupt = 7
 
+/* Formats an address as the lowercase hexadecimal suffix used in device-tree unit names. */
 fun unit_address(address :: Nat) :: String:
   String.from_int(address, ~radix: 16)
 
+/* Creates a deterministic label for a hart's local interrupt controller. */
 fun cpu_interrupt_label(hart :: Nat):
   DeviceTreeLabel("cpu_intc_" ++ String.from_int(hart))
 
+/* Creates a deterministic PLIC label from the controller's architectural base address. */
 fun plic_interrupt_label(region :: SoCAddressRegion):
   DeviceTreeLabel("plic_" ++ unit_address(region.base))
 
+/* Maps the supported translation mode to its device-tree binding string. */
 fun mmu_type(mode :: RiscvMmuType):
   match mode
   | RiscvMmuType.Bare: "riscv,none"
   | RiscvMmuType.Sv39: "riscv,sv39"
 
+/* Projects one hart's ISA, translation, cache geometry, clock, optional CBO size, and local interrupt controller into a CPU node. */
 fun cpu_node(hart :: Nat,
              description :: RiscvHartDescription,
              clocks :: SoCClockConfig):
@@ -179,6 +201,7 @@ fun cpu_node(hart :: Nat,
        ~label: cpu_interrupt_label(hart))]
   )
 
+/* Builds the CPU container with the shared timebase frequency and one child per described hart. */
 fun cpus_node(harts :: NonemptyList.of(Nat),
               description :: RiscvHartDescription,
               clocks :: SoCClockConfig):
@@ -190,6 +213,7 @@ fun cpus_node(harts :: NonemptyList.of(Nat),
     for List (hart in harts): cpu_node(hart, description, clocks)
   )
 
+/* Describes a contiguous architectural RAM region, independently of internal LLC ownership stripes. */
 fun memory_node(region :: SoCAddressRegion):
   DeviceTreeNode(
     "memory@" ++ unit_address(region.base),
@@ -197,6 +221,7 @@ fun memory_node(region :: SoCAddressRegion):
      DeviceTreeProperty("reg", region.to_device_tree_cells())]
   )
 
+/* Builds the CLINT-compatible device node and ordered software/timer interrupt references for each hart. */
 fun aclint_node(aclint :: RiscvAclintDescription,
                 harts :: NonemptyList.of(Nat)):
   def mutable interrupts = []
@@ -215,6 +240,7 @@ fun aclint_node(aclint :: RiscvAclintDescription,
      DeviceTreeProperty("interrupts-extended", DeviceTreeCells(interrupts))]
   )
 
+/* Builds the PLIC binding with its highest source ID and context-ordered hart interrupt references. */
 fun plic_node(plic :: RiscvPlicDescription):
   def mutable interrupts = []
   // List position is the MMIO context index; never sort by hart or privilege.
@@ -236,6 +262,7 @@ fun plic_node(plic :: RiscvPlicDescription):
     ~label: plic_interrupt_label(plic.region)
   )
 
+/* Builds the enabled byte-register ns16550a-compatible UART node with clock and PLIC interrupt binding. */
 fun uart_node(uart :: RiscvUartDescription,
               clocks :: SoCClockConfig):
   DeviceTreeNode(
@@ -250,6 +277,7 @@ fun uart_node(uart :: RiscvUartDescription,
      DeviceTreeProperty("status", DeviceTreeString("okay"))]
   )
 
+/* Builds the identity-mapped peripheral bus with ACLINT and any described PLIC and UART devices. */
 fun soc_node(harts :: NonemptyList.of(Nat),
              clocks :: SoCClockConfig,
              aclint :: RiscvAclintDescription,
@@ -269,11 +297,13 @@ fun soc_node(harts :: NonemptyList.of(Nat),
     children
   )
 
+/* Rejects duplicate compatibility strings using the caller's diagnostic identity. */
 fun require_unique_strings(strings :: NonemptyList.of(NonemptyString), who :: Symbol):
   for (value in strings):
     unless strings.filter(~keep: fun (candidate): candidate == value).length() == 1
     | error(~who: who, "compatible strings must be unique")
 
+/* Rejects duplicate hart IDs and IDs outside the selected hart's XLEN range. */
 fun require_unique_harts(harts :: NonemptyList.of(Nat), description :: RiscvHartDescription):
   for (hart in harts):
     unless hart < (1 << description.xlen.width)
@@ -281,6 +311,7 @@ fun require_unique_harts(harts :: NonemptyList.of(Nat), description :: RiscvHart
     unless harts.filter(~keep: fun (candidate): candidate == hart).length() == 1
     | error(~who: #'RiscvSoCDescription, "hart IDs must be unique")
 
+/* Rejects any overlap between the architectural RAM, ROM, and device windows. */
 fun require_disjoint_regions(regions :: NonemptyList.of(SoCAddressRegion)):
   for (left_index in 0..regions.length()):
     for (right_index in (left_index + 1)..regions.length()):
@@ -288,6 +319,7 @@ fun require_disjoint_regions(regions :: NonemptyList.of(SoCAddressRegion)):
       | error(~who: #'RiscvSoCDescription,
               "architectural address regions must not overlap")
 
+/* Collects one immutable software-visible system description shared by device-tree and boot-image generation. */
 class RiscvSoCDescription(model :: NonemptyString,
                           compatible :: NonemptyList.of(NonemptyString),
                           harts :: NonemptyList.of(Nat),
@@ -300,6 +332,7 @@ class RiscvSoCDescription(model :: NonemptyString,
                           uart :: maybe(RiscvUartDescription)):
   implements StableCircuitParam
 
+  /* Validates hart and compatibility identities, payload placement, device-map disjointness, and PLIC context/UART references. */
   constructor (~model: model :: NonemptyString,
                ~compatible: compatible :: NonemptyList.of(NonemptyString),
                ~harts: harts :: NonemptyList.of(Nat),
@@ -344,6 +377,7 @@ class RiscvSoCDescription(model :: NonemptyString,
           plic,
           uart)
 
+  /* Rebuilds description variants through the same whole-system constructor checks. */
   reconstructor (model, compatible, harts, hart, clocks,
                  memory_regions, boot, aclint, plic, uart):
     RiscvSoCDescription(
@@ -359,6 +393,7 @@ class RiscvSoCDescription(model :: NonemptyString,
       ~uart: uart
     )
 
+  /* Builds the root, CPUs, architectural RAM, and peripheral nodes with deterministic labels and the first hart as the boot CPU. */
   method to_device_tree():
     DeviceTree(
       DeviceTreeNode(

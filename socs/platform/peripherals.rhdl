@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines shared boot devices, ACLINT, PLIC, UART, PMA, and HN-I platform contracts for SoCs.
+/* Defines shared boot devices, ACLINT, PLIC, UART, PMA, and HN-I platform contracts for SoCs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,6 +26,7 @@ def SoCUartFifoDepth = 16
 def soc_boot_address_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #true)
 def soc_device_attributes = RiscvPhysicalMemoryAttributes(#true, #true, #false, #false, #false, #true, #false)
 
+/* Orders machine-external then supervisor-external PLIC contexts for every contiguous hart ID. */
 fun soc_plic_contexts(hart_count :: PosInt):
   def mutable contexts = []
   for (hart in 0..hart_count):
@@ -35,6 +36,7 @@ fun soc_plic_contexts(hart_count :: PosInt):
     ]
   contexts
 
+/* Describes the fixed ACLINT, PLIC, and UART PMA windows routed through the supplied device Home. */
 fun soc_peripheral_regions(home :: CHIHomeParams):
   [RiscvHartCHIRegion(
      RiscvPhysicalMemoryRegion(
@@ -58,6 +60,7 @@ fun soc_peripheral_regions(home :: CHIHomeParams):
      home
    )]
 
+/* Carries UART receive input, transmit output, and the device interrupt level between the SoC and external pins. */
 interface SoCUartInterface():
   role pins
   role soc
@@ -70,8 +73,7 @@ interface SoCUartInterface():
     tx: Bits(1)
     interrupt: Bool
 
-// Keeps every SoC's uncached PMA entries and HN-I subordinate map derived from
-// the same boot-register, BootROM, ACLINT, PLIC, and UART descriptions.
+/* Derives platform PMA, HN-I subordinate routing, host services, and architectural descriptions from the same boot-register, ROM, ACLINT, PLIC, and UART occurrences. */
 class SoCPlatformParams(flit :: CHIFlitParams,
                         hart_count :: PosInt,
                         home :: CHIHomeParams,
@@ -84,6 +86,7 @@ class SoCPlatformParams(flit :: CHIFlitParams,
                         uart_fifo_depth :: Int.in(1 ..= Uart16550MaximumFifoDepth) = SoCUartFifoDepth):
   implements StableCircuitParam
 
+  /* Captures the platform's flit contract, hart count, Home, device NodeIDs, boot configuration, and UART FIFO depth. */
   constructor (flit :: CHIFlitParams,
                hart_count :: PosInt,
                home :: CHIHomeParams,
@@ -141,6 +144,7 @@ class SoCPlatformParams(flit :: CHIFlitParams,
   property host_services:
     subordinate_map.services.map(fun (service): CHIHomeServiceParams(home, service.address_sets, service.requests))
 
+  /* Builds the device Home's requester contract against the same subordinate map used by the platform PMA and host services. */
   method home_params(requester_endpoints :: NonemptyList.of(CHIHomeRequesterParams)):
     CHIHNIParams(home, requester_endpoints, subordinate_map)
 

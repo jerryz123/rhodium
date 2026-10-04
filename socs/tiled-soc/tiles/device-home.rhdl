@@ -1,5 +1,5 @@
 #lang rhodium
-// Attaches both HN-I sides and exposes colocated subordinate endpoints on one CHI router.
+/* Attaches both HN-I sides and exposes colocated subordinate endpoints on one CHI router. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,10 +7,12 @@ import:
   lib("chi/noc/noc-router.rhdl") open
   lib("chi/home/home.rhdl") open
 
+/* Pairs the device Home's requester/subordinate contracts with its compiled router attachments. */
 class DeviceHomeTileParams(home :: CHIHNIParams,
                            router :: CHIRouterParams):
   implements StableCircuitParam
 
+/* Connects both HN-I sides to one CHI router and exposes its colocated SN terminals for the top-level boot devices. */
 sync_circuit DeviceHomeTile(params :: DeviceHomeTileParams):
   def router_params = params.router
   def p = params.home.flit

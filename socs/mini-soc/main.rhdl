@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes the compact internal-RAM platform with a selected RISC-V hart implementation.
+/* Composes the compact internal-RAM platform with a selected RISC-V hart implementation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -25,9 +25,11 @@ def mini_soc_ram_config = CHIRamConfig(rhodium_soc_flit, mini_soc_memory_bytes, 
 def mini_soc_ram_params = CHIRamParams("mini-memory", 9, mini_soc_ram_config, ~base_address: mini_soc_memory_base, ~kind: CHINodeKind.SNF)
 def mini_soc_clocks = SoCClockConfig(~clock_frequency_hz: 100000000, ~timebase_frequency_hz: 100000000)
 
+/* Owns the selected hart, internal RAM, clocks, and boot layout; derives fabric policy and architecture from those same values. */
 class MiniSoCConfig(hart :: RiscvHartImplementation, ram :: CHIRamParams, clocks :: SoCClockConfig, boot :: SoCBootConfig):
   implements StableCircuitParam
 
+  /* Builds the compact platform configuration and rejects RAM windows beyond the selected hart's XLEN address range. */
   constructor (hart :: RiscvHartImplementation,
                ram :: CHIRamParams = mini_soc_ram_params,
                ~clocks: clocks :: SoCClockConfig = mini_soc_clocks,
@@ -50,9 +52,11 @@ class MiniSoCConfig(hart :: RiscvHartImplementation, ram :: CHIRamParams, clocks
   property description :: RiscvSoCDescription:
     fabric.description("Rhodium Mini " ++ hart.name ++ " SoC", ["rhodium,mini-" ++ hart.key ++ "-soc"], hart.description, clocks)
 
+/* Selects the compact platform's default RAM, clocks, and boot layout for a supplied hart binding. */
 fun mini_soc_config(hart :: RiscvHartImplementation) :: MiniSoCConfig:
   MiniSoCConfig(hart)
 
+/* Connects one selected hart and shared platform devices to internal CHI RAM, exposing coherent host access and UART pins. */
 sync_circuit MiniSoC(config :: MiniSoCConfig):
   def fabric = config.fabric
   interface host(SoCHostInterface(fabric.flit), ~role: soc)

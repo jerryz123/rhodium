@@ -1,5 +1,5 @@
 #lang rhodium
-// Compiles the tiled time and interrupt distribution overlay without instantiating RTL.
+/* Compiles the tiled time and interrupt distribution overlay without instantiating RTL. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
   lib("flow/main.rhdl") open
   "time.rhdl" open
 
+/* Carries one hart's machine software and timer interrupt levels. */
 bundle TiledHartInterrupts():
   machine_software: Bool
   machine_timer: Bool
@@ -20,6 +21,7 @@ def NoTiledHartInterrupts = TiledHartInterrupts():
   machine_software: Bool(#false)
   machine_timer: Bool(#false)
 
+/* Carries one hart's machine and supervisor external interrupt levels. */
 bundle TiledExternalInterrupts():
   machine_external: Bool
   supervisor_external: Bool
@@ -28,17 +30,20 @@ def NoTiledExternalInterrupts = TiledExternalInterrupts():
   machine_external: Bool(#false)
   supervisor_external: Bool(#false)
 
+/* Distinguishes framed time chunks from local and external interrupt snapshots on the shared overlay. */
 tagged_union TiledDistributionMessage:
   Time(FramedFixedFlit(Bits(TiledTimeChunkWidth)))
   Interrupt(TiledHartInterrupts())
   ExternalInterrupt(TiledExternalInterrupts())
 
+/* Records a hart's router site and the ejection indices for time, local interrupts, and external interrupts. */
 class TiledDistributionHartPlan(index :: Nat,
                                 site_key :: Nat,
                                 time_target_index :: Nat,
                                 interrupt_target_index :: Nat,
                                 external_interrupt_target_index :: Nat)
 
+/* Collects the overlay's compiled routing family, physical links, source sites, per-hart route keys, and local terminal indices. */
 class TiledDistributionPlan(network :: NetworkCompilation,
                             family :: RouterFamilyPlan,
                             physical :: RouterFamilyPhysicalPlan,
@@ -54,19 +59,23 @@ class TiledDistributionPlan(network :: NetworkCompilation,
                             harts :: NonemptyList.of(TiledDistributionHartPlan)):
   implements StableCircuitParam
 
+/* Builds a stable source-terminal identity from the owning device and update kind. */
 fun tiled_distribution_injection_ref(owner :: String,
                                      kind :: String) :: InjectionRef:
   InjectionRef([owner, kind])
 
+/* Builds a stable destination-terminal identity from hart ordinal and update kind. */
 fun tiled_distribution_ejection_ref(kind :: String,
                                     index :: Nat) :: EjectionRef:
   EjectionRef(["hart", to_string(index), kind])
 
+/* Builds a stable route-class identity for one device update stream to one hart. */
 fun tiled_distribution_route_ref(owner :: String,
                                  kind :: String,
                                  index :: Nat) :: RouteClassRef:
   RouteClassRef([owner, kind, "hart", to_string(index)])
 
+/* Compiles XY routes from ACLINT and PLIC to each hart over the shared mesh topology without instantiating hardware. */
 fun compile_tiled_distribution(
       mesh :: RectangularMesh,
       aclint_router :: NodeRef,
@@ -123,6 +132,7 @@ fun compile_tiled_distribution(
   def source_plan = network.router_plan(aclint_router)
   def external_source_node = network.router_id(plic_router)
   def external_source_plan = network.router_plan(plic_router)
+  /* Looks up the source router's local key for a device-to-hart update route. */
   fun route_key(plan :: RouterPlan, owner :: String, kind :: String, index :: Nat) :: Nat:
     plan.route_key(
       network.lowered_routes.route_class(tiled_distribution_route_ref(owner, kind, index))

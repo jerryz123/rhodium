@@ -1,5 +1,5 @@
 #lang rhodium
-// Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters.
+/* Privately compiles one TiledSoC configuration into boot, placement, fabric, and tile parameters. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -35,12 +35,14 @@ import:
   "distribution.rhdl" open
   "compiled.rhdl" open
 
+/* Rejects allocated NodeIDs that cannot be represented in the selected CHI flit. */
 fun require_tiled_node_id_width(node_ids :: NonemptyList.of(Nat),
                                 flit :: CHIFlitParams):
   for (node_id in node_ids):
     unless bits.length(node_id) <= flit.node_id_width
     | error(~who: #'compile_tiled_soc, "TiledSoC NodeID does not fit the CHI flit")
 
+/* Rejects duplicate NodeIDs across all harts, Homes, host, memory, and platform devices. */
 fun require_unique_tiled_node_ids(node_ids :: NonemptyList.of(Nat)):
   for (node_id in node_ids):
     if node_ids.filter(
@@ -49,6 +51,10 @@ fun require_unique_tiled_node_ids(node_ids :: NonemptyList.of(Nat)):
     | error(~who: #'compile_tiled_soc, "TiledSoC NodeIDs must be unique")
     | #void
 
+/*
+ * Compiles the authored grid into immutable XY routes, per-plane router attachments, LLC
+ * ownership stripes, one memory channel, and the time/interrupt overlay; no RTL is instantiated.
+ */
 fun compile_tiled_soc(config :: TiledSoCConfig) :: TiledSoCImplementation:
   def flit = config.flit
   def layout = config.layout

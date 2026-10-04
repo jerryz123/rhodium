@@ -1,5 +1,5 @@
 #lang rhombus
-// Adapts the existing shape/core call boundary to the typed product resolver.
+/* Adapts the existing shape/core call boundary to the typed product resolver. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
   "selection.rhm" open
   "resolve.rhm".resolve_soc_product
 
+/* Parses shape and core names and returns their resolved hart binding for an explicitly supplied typed ISA preset. */
 fun soc_hart(shape :: String, core :: String, ~isa: isa :: IsaPreset) :: RiscvHartImplementation:
   def selection = SoCSelection(parse_soc_shape(shape), parse_core_kind(core), isa)
   resolve_soc_product(selection).hart

@@ -1,5 +1,5 @@
 #lang rhodium
-// Composes the explicit Spike RVA23 product with the shared single-core platform.
+/* Composes the explicit Spike RVA23 product with the shared single-core platform. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
   "../harts/spike.rhdl".spike_hart
   "spike-core-profile.rhm" open
 
+/* Builds the named Spike product's shared external-memory parameters with its selected execution profile and LLC geometry. */
 fun make_single_core_spike_soc_params(
   core_profile :: SpikeConfig = single_core_spike_soc_core_profile,
   ~llc_sets: llc_sets :: Pow2Int = 512,
@@ -30,6 +31,7 @@ fun make_single_core_spike_soc_params(
 
 def single_core_spike_soc_params = make_single_core_spike_soc_params()
 
+/* Binds the supplied Spike execution profile to the shared single-core composition, retaining its simulation-only processor. */
 fun SingleCoreSpikeSoC(params :: SingleCoreSoCParams = single_core_spike_soc_params):
   def core_profile :: SpikeConfig = params.core_profile
   generic.SingleCoreSoC(generic.SingleCoreSoCConfig(spike_hart(core_profile), params))

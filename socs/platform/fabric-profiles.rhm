@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the common CHI flit parameters used by Rhodium SoC fabrics.
+/* Defines the common CHI flit parameters used by Rhodium SoC fabrics. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

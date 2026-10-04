@@ -1,11 +1,12 @@
 #lang rhodium
-// Defines the shared coherent RAM and non-snooping MMIO host boundary.
+/* Defines the shared coherent RAM and non-snooping MMIO host boundary. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/params.rhdl").CHIFlitParams
   lib("chi/protocol/channels.rhdl").CHIRNChannels
 
+/* Exposes the host RN channel boundary used for coherent RAM traffic and non-snooping platform MMIO. */
 interface SoCHostInterface(p :: CHIFlitParams):
   role host
   role soc

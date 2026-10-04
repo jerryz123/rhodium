@@ -1,14 +1,16 @@
 #lang rhodium
-// Exposes one tiled-mesh router attachment to an external coherent host RN-F.
+/* Exposes one tiled-mesh router attachment to an external coherent host RN-F. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/protocol/channels.rhdl").CHIRNChannels
   lib("chi/noc/noc-router.rhdl") open
 
+/* Holds the compiled CHI router attachment for the external host RN-F. */
 class HostTileParams(router :: CHIRouterParams):
   implements StableCircuitParam
 
+/* Exposes the host RN-F channels through one mesh router without introducing loader or simulation policy. */
 sync_circuit HostTile(params :: HostTileParams):
   def router_params = params.router
   def p = router_params.flit

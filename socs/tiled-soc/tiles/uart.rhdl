@@ -1,5 +1,5 @@
 #lang rhodium
-// Attaches the SoC UART SN-I and its serial pins to a dedicated CHI router tile.
+/* Attaches the SoC UART SN-I and its serial pins to a dedicated CHI router tile. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,14 +8,17 @@ import:
   lib("devices/uart/uart16550.rhdl") open
   lib("socs/platform/peripherals.rhdl").SoCUartInterface
 
+/* Pairs the UART device configuration with its compiled CHI router attachment. */
 class UartTileParams(uart :: Uart16550Config,
                      router :: CHIRouterParams):
   implements StableCircuitParam
 
+/* Supplies the runtime router site, UART NodeID, and MMIO base. */
 bundle UartTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   uart: Uart16550Identity(p)
 
+/* Attaches the UART subordinate to CHI and exposes RX, TX, and interrupt signals at the serial boundary. */
 sync_circuit UartTile(params :: UartTileParams):
   def router_params = params.router
   def p = params.uart.flit

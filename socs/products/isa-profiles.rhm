@@ -1,5 +1,5 @@
 #lang rhombus
-// Authors implementation-independent scalar, vector, and hypervisor ISA presets.
+/* Authors implementation-independent scalar, vector, and hypervisor ISA presets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,11 +9,13 @@ import:
   lib("riscv/isa/xlen.rhm").XLen
   lib("riscv/isa/vector-profile.rhm") open
 
+/* Collects implementation-independent ISA, translation, and vector geometry for one authored architectural preset. */
 class SoCArchitecture(isa :: RiscvIsaProfile,
                       mmu :: RiscvMmuType,
                       vector :: VectorProfile,
                       vector_extensions :: List.of(VectorExtension),
                       vector_length :: PosInt):
+  /* Tests whether the preset advertises the supplied ISA extension name. */
   method has(extension :: String) :: Boolean: isa.isa_extensions.contains(extension)
 
 def IntegerSystemExtensions = ["zicntr", "zicond", "zicsr", "zifencei", "zihpm", "zimop", "zkt"]
@@ -21,6 +23,7 @@ def IntegerHintExtensions = ["zawrs", "zihintpause", "zihintntl"]
 def IntegerMisa = [MisaExtension.A, MisaExtension.B, MisaExtension.I, MisaExtension.M, MisaExtension.S, MisaExtension.U]
 def SupervisorExtensions = ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"]
 
+/* Authors the RV32, lean scalar RV64, maximal RV64, or RVA23 architecture independently of a named processor's implementation policy. */
 fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
   match preset
   | IsaPreset.RV32Int || IsaPreset.RV32Max:

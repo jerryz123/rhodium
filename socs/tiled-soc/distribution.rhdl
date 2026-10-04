@@ -1,5 +1,5 @@
 #lang rhodium
-// Routes packetized time and convergent interrupt state across the tiled platform mesh.
+/* Routes packetized time and convergent interrupt state across the tiled platform mesh. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,7 @@ import:
   "distribution-plan.rhdl" open
 
 
+/* Selects a compiled per-hart route key in hardware, returning zero for an out-of-range index. */
 fun distribution_route_key(keys :: NonemptyList.of(Nat),
                            index :: Bits(index_width(keys.length())),
                            route_width :: PosInt) :~ Bits(route_width):
@@ -22,7 +23,7 @@ fun distribution_route_key(keys :: NonemptyList.of(Nat),
     ~default: bits(0, route_width)
   )
 
-// Adapts one uniform simple-router occurrence to typed one-VC physical links.
+/* Adapts a uniform router to typed one-VC links, preserving ready/availability handshakes and asserting that arriving beats use VC zero. */
 sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
   def family = config.router_family_plan
   def Beat = RoutedBeat(TiledDistributionMessage, config.route_decoder.route_width)
@@ -58,6 +59,7 @@ sync_circuit TiledDistributionRouter(config :: SimpleRouterFamilyConfig):
     target.egress <=> ejection[index]
     target.available <== target.egress.ready
 
+/* Finds a physical link's local port index by identity and rejects missing site connections. */
 fun distribution_link_index(connections :: List.of(RouterFamilyLinkConnection),
                             connection :: RouterFamilyLinkConnection) :: Nat:
   def found = connections.find_index(
@@ -68,7 +70,7 @@ fun distribution_link_index(connections :: List.of(RouterFamilyLinkConnection),
           "distribution link is absent from its router site")
   found
 
-// Owns the complete platform overlay; generic NoC code remains hierarchy-neutral.
+/* Owns the platform overlay's router instances and links, injecting updates by compiled per-hart keys and exposing independently backpressured typed ejections. */
 sync_circuit TiledDistributionNetwork(plan :: TiledDistributionPlan):
   def family = plan.family
   def config = plan.router

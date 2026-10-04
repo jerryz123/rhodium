@@ -1,5 +1,5 @@
 #lang rhodium
-// Attaches the SoC PLIC SN-I and external-interrupt update source to a dedicated CHI router tile.
+/* Attaches the SoC PLIC SN-I and external-interrupt update source to a dedicated CHI router tile. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,11 +10,13 @@ import:
   lib("devices/interrupt/plic.rhdl") open
   "../distribution.rhdl" open
 
+/* Pairs the PLIC configuration and router attachment with the number of destination harts. */
 class PlicTileParams(plic :: PlicConfig,
                      router :: CHIRouterParams,
                      hart_count :: PosInt):
   implements StableCircuitParam
 
+  /* Requires exactly two PLIC contexts per hart, matching the platform's machine/supervisor ordering. */
   constructor (plic :: PlicConfig,
                router :: CHIRouterParams,
                hart_count :: PosInt):
@@ -23,10 +25,12 @@ class PlicTileParams(plic :: PlicConfig,
             "PLIC tile requires machine and supervisor contexts for every hart")
     super(plic, router, hart_count)
 
+/* Supplies the runtime router site, PLIC NodeID, and MMIO base. */
 bundle PlicTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   plic: PlicIdentity(p)
 
+/* Attaches PLIC to CHI and publishes convergent per-hart machine/supervisor external interrupt state. */
 sync_circuit PlicTile(params :: PlicTileParams):
   def router_params = params.router
   def p = params.plic.flit

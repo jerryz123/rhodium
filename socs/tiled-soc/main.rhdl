@@ -1,5 +1,5 @@
 #lang rhodium
-// Exposes the author-facing bootable TiledSoC configuration and structural circuit.
+/* Exposes the author-facing bootable TiledSoC configuration and structural circuit. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -35,6 +35,7 @@ def tiled_soc_clocks = SoCClockConfig(
   ~timebase_frequency_hz: 1000000
 )
 
+/* Builds the default eight-hart, four-slice mesh with one 1-GiB external RAM channel and the shared platform devices. */
 fun tiled_soc_config(hart :: RiscvHartImplementation) :: TiledSoCConfig:
   TiledSoCConfig(
     ~layout: default_tiled_soc_layout,
@@ -65,6 +66,10 @@ fun tiled_soc_config(hart :: RiscvHartImplementation) :: TiledSoCConfig:
     ~flit: rhodium_soc_flit
   )
 
+/*
+ * Instantiates the selected tiles and boot devices, applies their runtime identities, connects
+ * the CHI physical links, and routes time and interrupts through the separate overlay.
+ */
 sync_circuit TiledSoC(config :: TiledSoCConfig,
                       implementation :: TiledSoCImplementation = compile_tiled_soc(config)):
   unless implementation.config == config

@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements one selected RISC-V hart tile around a bundled four-plane CHI router.
+/* Implements one selected RISC-V hart tile around a bundled four-plane CHI router. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,17 +14,20 @@ import:
   "../time.rhdl" open
   "../distribution.rhdl" open
 
+/* Pairs the selected hart and CHI configuration with its router family and system hart count. */
 class HartTileParams(chi_config :: RiscvHartCHIConfig,
                      router :: CHIRouterParams,
                      hart_count :: PosInt,
                      hart :: RiscvHartImplementation):
   implements StableCircuitParam
 
+/* Supplies the runtime hart ID, router site key, and three CHI requester NodeIDs. */
 bundle HartTileIdentity(p :: CHIFlitParams, site_width :: PosInt):
   site_key: Bits(site_width)
   hart_id: Bits(64)
   chi: RiscvHartCHIIdentity(p)
 
+/* Attaches instruction, data, and uncached hart ports to CHI and reconstructs complete time and interrupt state from overlay updates. */
 sync_circuit HartTile(params :: HartTileParams, ~reset_address: reset_address :: Nat):
   def router_params = params.router
   def p = params.chi_config.flit
