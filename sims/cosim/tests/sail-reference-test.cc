@@ -67,6 +67,10 @@ void check_scalar(unsigned xlen) {
     auto step = model.step();
     CHECK(step.pc == ram + offset && step.retired && !step.trap && !step.waiting);
     CHECK(step.instruction_bytes == 4 && step.instruction.has_value());
+    if (offset == 0) {
+      CHECK(!step.memory.empty());
+      CHECK(std::all_of(step.memory.begin(), step.memory.end(), [](const auto& access) { return access.instruction && !access.write; }));
+    }
     if (offset == 16) CHECK(written(step, 2, 12));
     if (offset == 20) {
       CHECK(std::any_of(step.memory.begin(), step.memory.end(), [](const auto& access) {

@@ -26,11 +26,11 @@ def main():
     parser.add_argument('--soc', required=True)
     parser.add_argument('--target', type=Path)
     parser.add_argument('--backend', choices=('circt', 'verilog'), default='circt')
-    parser.add_argument('--variant', choices=('normal', 'trace'), default='normal')
+    parser.add_argument('--variant', choices=('normal', 'trace', 'cosim', 'trace-cosim'), default='normal')
     parser.add_argument('--rtl', type=Path, help='emitted RTL (MLIR or SystemVerilog) used to build this binary (required for recording)')
     parser.add_argument('--configuration', type=Path, help='resolved configuration accompanying ACT payloads')
     args = parser.parse_args()
-    if args.variant == 'trace' and args.backend != 'circt':
+    if 'trace' in args.variant and args.backend != 'circt':
         parser.error('tracing requires the CIRCT backend')
     root = Path(__file__).resolve().parents[2]
     metadata = dict(commit=subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip(),

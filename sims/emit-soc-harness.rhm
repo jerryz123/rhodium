@@ -1,5 +1,5 @@
 #lang rhombus
-/* Compiles an explicitly selected SoC harness through CIRCT or direct SV, with optional CIRCT tracing. */
+/* Compiles an explicit SoC product with independently selected passive RTL instrumentation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -22,16 +22,20 @@ when backend_option && arguments.length() < 2
 def backend = if backend_option | arguments[1] | "circt"
 unless backend in ["circt", "verilog"] | error(~who: #'emit_soc_harness, "backend must be circt or verilog")
 def remaining = if backend_option | arguments.drop(2) | arguments
-def tracing = remaining.length() == 5 && remaining[0] == "--trace"
-unless remaining.length() == 1 || remaining.length() == 3 || tracing
-| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace output-directory shape core ISA")
+def instrumented = remaining.length() == 5 && remaining[0] in ["--trace", "--cosim", "--trace-cosim"]
+def tracing = instrumented && remaining[0] in ["--trace", "--trace-cosim"]
+def cosim = instrumented && remaining[0] in ["--cosim", "--trace-cosim"]
+unless remaining.length() == 1 || remaining.length() == 3 || instrumented
+| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace/--cosim/--trace-cosim output-directory shape core ISA")
 when tracing && backend != "circt" | error(~who: #'emit_soc_harness, "tracing currently requires the CIRCT backend")
-def selectors = if tracing | remaining.drop(2) | remaining
+def selectors = if instrumented | remaining.drop(2) | remaining
 def product = if selectors.length() == 1
 | #false
 | resolve_soc_product(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
 when tracing && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Simple, SoCShape.Tiled].contains(product.selection.shape))
 | error(~who: #'emit_soc_harness, "tracing supports simple or tiled RV5Stage only")
+when cosim && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Mini, SoCShape.Simple].contains(product.selection.shape))
+| error(~who: #'emit_soc_harness, "cosimulation supports Mini/Simple RV5Stage only")
 
 def resolved_config = if product | product.configuration() | #false
 
@@ -60,28 +64,32 @@ unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness
 def rtl_target = if backend == "verilog"
 | dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
 | dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
-def target = if tracing
-| block:
-    def trace_pass = dynamic_require("rhodium/event/trace-pass.rhm", #'event_trace_pass)
+def passes = (if cosim | [dynamic_require("sims/cosim/pass.rhm", #'cosim_pass)()] | []) ++ (
+  if tracing
+  | def trace_pass = dynamic_require("rhodium/event/trace-pass.rhm", #'event_trace_pass)
     def config = dynamic_require("rhodium/event/instrument.rhm", #'EventInstrumentationConfig)
-    rtl_pipeline_target(rtl_target, [trace_pass(config(~partial: #true))])
-| rtl_target
+    [trace_pass(config(~partial: #true))]
+  | []
+)
+def target = if passes.length() > 0 | rtl_pipeline_target(rtl_target, passes) | rtl_target
 def compiled = compile_program(ElaboratedProgram(design, top), target)
 // Publish sidecars only after the complete compilation succeeds. Frequency is
 // simulator configuration, not an event compiler policy or architectural profile.
-when tracing
+when instrumented
 | block:
     def frequency = product.description.clocks.clock_frequency_hz
     unless frequency is_a PosInt && frequency < 2 ** 64
     | error(~who: #'emit_soc_harness, "clock frequency must fit a positive uint64")
-    for (artifact in compiled.artifacts.drop(1)):
-      def content = if artifact.name == "events.h"
-      | artifact.content ++ "\nnamespace rheg_generated {\ninline constexpr std::uint64_t clock_frequency_hz = " ++ to_string(frequency) ++ "ULL;\n}\n"
-      | artifact.content
-      write_file(content, build_path(remaining[1], "soc_" ++ artifact.name), ~exists: #'#{truncate/replace})
+    for (artifact in compiled.artifacts):
+      when artifact.media_type != "text/x-mlir" && artifact.media_type != "text/x-systemverilog"
+      | block:
+          def content = if artifact.name == "events.h"
+          | artifact.content ++ "\nnamespace rheg_generated {\ninline constexpr std::uint64_t clock_frequency_hz = " ++ to_string(frequency) ++ "ULL;\n}\n"
+          | artifact.content
+          write_file(content, build_path(remaining[1], "soc_" ++ artifact.name), ~exists: #'#{truncate/replace})
 when product
 | block:
     println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
     println("// rhodium-rtl-backend: " ++ backend)
-    println("// rhodium-harness-variant: " ++ (if tracing | "trace" | "normal"))
-print(compiled.artifacts[0].content)
+    println("// rhodium-harness-variant: " ++ (if cosim | (if tracing | "trace-cosim" | "cosim") | (if tracing | "trace" | "normal")))
+print(compiled.artifacts.find(fun (artifact): artifact.media_type == (if backend == "circt" | "text/x-mlir" | "text/x-systemverilog")).content)

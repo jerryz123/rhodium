@@ -93,6 +93,7 @@ and runtime assertions.
 | Pinned upstream FESVR and shared downstream patches | [`../riscv/riscv-isa-sim/`](../riscv/riscv-isa-sim/), [`../riscv/riscv-isa-sim-patches/`](../riscv/riscv-isa-sim-patches/) |
 | Verilator VPI/DPI binding | [`verilator/`](verilator/) |
 | Clock, reset, and exit | [`TestDriver.v`](TestDriver.v) |
+| Generic native lifecycle, instrumentation options, and cycle barriers | [`verilator/simulation_runtime.cc`](verilator/simulation_runtime.cc) |
 | PTY transport and serial conversion reused by every harness | [`../devices/uart/uart-dpi.rhdl`](../devices/uart/uart-dpi.rhdl), [`../devices/uart/dpi/uart_dpi.cc`](../devices/uart/dpi/uart_dpi.cc) |
 | Harness checks and smoke payload | [`tests/`](tests/) |
 | Simulator `SOC` name to canonical architectural description | [`program-test/targets.rhm`](program-test/targets.rhm) |
@@ -114,8 +115,36 @@ and private-memory contract is separate from ACT placement/signature policy.
 `cores/riscv/cosim.rhdl` owns reusable typed hart hooks and imports no simulator.
 `cosim/observation.h` and `.cc` own model-independent record assembly;
 `hooks-dpi.h` and `.cc` own the flat 64-bit ABI. Keep these independent of Sail,
-Perfetto, pipeline stages, and completion-slot allocation. Production harts and
-the comparison engine are not integrated into SoC execution yet.
+Perfetto, pipeline stages, and completion-slot allocation.
+
+`cosim/scalar-checker.*` consumes complete ordered records and compares independent
+Sail execution. `cosim/simulation.*` owns the single-hart runtime, embedded product
+configuration, ROM loading, successful FESVR-write mirroring, and sticky failures.
+`COSIM=1` selects the pass/runtime in the simulator build, independently from the
+HDL generator. Keep its narrow supported-product guard until new event families
+have end-to-end qualification; never run an unsupported profile unchecked.
+`TestDriver.v` begins samples before rising edges and ends them before falling
+edges, outside the generated DPI callback ordering. Finalization checks both
+binding errors and incomplete collector state. A later warm-reset feature must
+advance the collector epoch and reset Sail together.
+
+The driver calls only `rhodium_sim_open/begin/end/finish`. The always-linked
+`verilator/simulation_runtime.*` owns feature-specific argument parsing, initial
+binding, sample counters, and shutdown. Native build flags select cosimulation,
+event export, both, or neither; no instrumentation-specific SV imports or state
+belong in the clock driver. Keep the argument classification shared with the
+FESVR binding so instrumentation options never become target arguments.
+The runtime ends cosim samples before exporting the same settled trace cycle,
+starts trace cycle zero after initial reset, and attempts every initialized
+consumer's shutdown even if another consumer failed. Finish is idempotent and
+preserves errors. Mapped VLSI simulation links the same runtime without optional
+consumers. Unused observation outputs on `SoCHarness` are intentionally left open.
+
+`make -C sims simulation-runtime-test` executes the real SV driver with native
+consumer probes in all four feature combinations. It checks callbacks inside
+sample barriers, reset timing, trace numbering, option forwarding, normal/failed
+target exit, timeout, and cleanup after consumer errors. This focused check runs
+in the existing host-adapter CI step and needs Verilator, not Sail or a full SoC.
 
 `cosim/pass.rhm` is an ordinary configured `RTLPass`. It consumes remappable
 hart/component declarations from `cores/riscv/cosim-source.rhm`, realizes
@@ -151,6 +180,11 @@ model-difference report. Keep ACT placement/signatures and synthetic devices in
 `arch-test/configure.py`. `cosim/write-product.rhm` exports canonical metadata
 and the resolved Mini/Simple hart PMAs, reset layout, backing ranges, and clocks;
 `cosim/configure.py` composes that environment with the shared architecture.
+The export includes the actual boot ROM/DTB bytes. With an observation descriptor,
+the projection also emits `runtime-config.h`; Verilator embeds these immutable
+inputs rather than depending on JSON paths at execution time. The build's Sail
+patch identity scopes native libraries, and simulator attestation distinguishes
+normal, trace, cosim, and trace-cosim variants.
 Never reconstruct profiles or platform addresses in Python. ROM uses Sail's
 `IOMemory` PMA category because `MainMemory` requires writable memory, but remains
 private backing rather than device replay. Instruction-only ROM caching has no
@@ -171,6 +205,9 @@ without references to the temporary build directory; GMP remains a host
 dependency. The ordered Sail patch series provides default-disabled physical
 memory providers and external interrupt inputs. Never edit the submodule to
 implement those hooks.
+The fetch-kind patch preserves `InstructionFetch` as `Read_ifetch` at the physical
+boundary; tests must distinguish instruction reads from architectural data effects,
+not infer the distinction from addresses.
 
 The subpage-device PMA patch permits the exact eight-byte UART aperture only
 under unsplittable, non-executable, non-atomic IO attributes. Page-table transfers
@@ -188,8 +225,15 @@ generated Sail execution, explicit RV32/RV64 configurations, and the existing
 FESVR transport in the same binary. The build is product-independent and
 identity-scoped under `.rhodium-cache/sail-cosim/`. Tests must exercise trap
 boundaries and raw MMIO read semantics, not substitute destination values or
-compare model state against itself. This host-only prototype is not yet wired
-into the simulator software-test CI matrix.
+compare model state against itself. After runtime, loader mirroring, or driver
+changes, run `make -C sims cosim-smoke SOC=mini-rv5stage-rv64imacb`, then the same
+target for `simple-rv5stage-rv64imacb` to cover native CHI image loading. Each runs
+the real FESVR ELF flow and a deliberate observation-corruption failure. Run
+`transport-test` after changing the generic FESVR callback and the focused
+`test_sail_config.py`/`SimulatorArtifactTest` Python tests after changing embedding
+or artifact identity. This opt-in milestone is not yet part of the simulator
+software-test CI matrix; broader profiles require translation, interrupt,
+CSR/counter, FP/vector, and memory-order qualification first.
 
 ## Add or change a harness
 
@@ -249,7 +293,7 @@ composes `event_trace_pass` with the RTL backend. `--trace OUTPUT_DIRECTORY`
 saves the compilation's `events.json` and `events.h` as `soc_events.json` and
 `soc_events.h` alongside MLIR, adding the simulator's configured frequency to
 the header. Both descriptors come from the same compilation as the RTL; no
-separate descriptor export or second elaboration is used. The opt-in build links `rheg_dpi.cc`
+separate descriptor export or second elaboration is used. The opt-in build links `verilator/event_trace.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
 logic in this adapter. The adapter selects gzip only for a `.gz` output suffix and calls
 the exporter's checked `finish()` before closing the file on exit or timeout.

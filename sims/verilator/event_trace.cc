@@ -1,6 +1,7 @@
-// Streams settled SingleCoreRV5StageSoC event cycles using the descriptor generated alongside RTL.
+// Streams settled simulation event cycles using the descriptor generated alongside RTL.
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
+#include "event_trace.h"
 #include "soc_events.h"
 #include <cstdio>
 #include <cstdlib>
@@ -21,7 +22,8 @@ template <typename F> int checked(F action) {
 }
 }
 
-extern "C" int rheg_sim_open(const char* path) {
+namespace rhodium::simulation {
+int open_event_trace(const char* path) noexcept {
   return checked([&] {
     if (writer) throw std::runtime_error("trace already open");
     output.open(path, std::ios::binary | std::ios::trunc);
@@ -43,14 +45,14 @@ extern "C" int rheg_sim_open(const char* path) {
   });
 }
 
-extern "C" int rheg_sim_cycle(unsigned long long cycle) {
+int export_event_cycle(std::uint64_t cycle) noexcept {
   return checked([&] {
     if (!writer) throw std::runtime_error("trace is not open");
     writer->write(rheg::graph().finish_cycle(cycle));
   });
 }
 
-extern "C" int rheg_sim_close() {
+int close_event_trace() noexcept {
   return checked([&] {
     if (!writer) throw std::runtime_error("trace is not open");
     rheg::graph().end_stream();
@@ -59,4 +61,5 @@ extern "C" int rheg_sim_close() {
     output.close();
     if (!output) throw std::runtime_error("trace close failed");
   });
+}
 }

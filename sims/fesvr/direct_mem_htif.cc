@@ -90,10 +90,11 @@ std::vector<std::uint32_t> parse_boot_harts(std::string_view specification) {
 DirectMemoryHtif::DirectMemoryHtif(int argc, char** argv, int expected_xlen,
                                  std::uint64_t boot_address_register,
                                  std::vector<std::uint32_t> boot_harts,
-                                 ImageMemoryMap image_memories)
+                                 ImageMemoryMap image_memories, WriteObserver write_observer)
     : htif_t(argc, argv), target_xlen_(expected_xlen),
       boot_address_register_(boot_address_register),
-      boot_harts_(std::move(boot_harts)), image_memories_(std::move(image_memories)) {
+      boot_harts_(std::move(boot_harts)), image_memories_(std::move(image_memories)),
+      write_observer_(std::move(write_observer)) {
   if (expected_xlen != 32 && expected_xlen != 64) {
     throw std::invalid_argument("direct-memory HTIF target XLEN must be 32 or 64");
   }
@@ -212,7 +213,10 @@ void DirectMemoryHtif::write_chunk(addr_t address,
   while (!bytes.empty()) {
     auto segment = loading_ ? image_memories_.segment(address, bytes.size())
                             : ImageMemoryMap::Segment{nullptr, 0, bytes.size()};
-    if (segment.region) segment.region->write(segment.offset, bytes.first(segment.length));
+    if (segment.region) {
+      segment.region->write(segment.offset, bytes.first(segment.length));
+      if (write_observer_) write_observer_(address, bytes.first(segment.length));
+    }
     else {
       segment.length = std::min(segment.length, kMaxBytes);
       transact(true, address, load_little_endian(bytes.data(), segment.length), segment.length);
@@ -227,7 +231,10 @@ void DirectMemoryHtif::clear_chunk(addr_t address, std::size_t length) {
   while (length != 0) {
     auto segment = loading_ ? image_memories_.segment(address, length)
                             : ImageMemoryMap::Segment{nullptr, 0, length};
-    if (segment.region) segment.region->zero(segment.offset, segment.length);
+    if (segment.region) {
+      segment.region->zero(segment.offset, segment.length);
+      if (write_observer_) write_observer_(address, std::vector<std::uint8_t>(segment.length));
+    }
     else {
       segment.length = std::min(segment.length, kMaxBytes);
       transact(true, address, 0, segment.length);
@@ -290,6 +297,11 @@ std::uint64_t DirectMemoryHtif::transact(bool write,
             << std::dec << " (" << length << " bytes), target status "
             << static_cast<unsigned>(response_status_);
     throw std::runtime_error(message.str());
+  }
+  if (write && write_observer_) {
+    std::uint8_t bytes[kMaxBytes];
+    store_little_endian(data, bytes, length);
+    write_observer_(address, std::span(bytes, length));
   }
   return response_data_;
 }

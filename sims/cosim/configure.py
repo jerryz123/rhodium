@@ -90,12 +90,39 @@ def project_environment(config, environment):
     return config
 
 
+def runtime_manifest(manifest, environment, observations):
+    """Bind the one-hart descriptor and actual boot image into the executable."""
+    if (observations["schema"] != 1 or observations.get("epoch") != "host-reset" or
+            len(observations["harts"]) != 1 or observations["harts"][0]["instance"] != 0):
+        raise ValueError("scalar runtime requires exactly one observed hart with instance zero")
+    image = environment["rom_image"]
+    if image["address"] != environment["reset_pc"] or not image["bytes"]:
+        raise ValueError("runtime boot image must start at reset PC")
+    if any(type(byte) is not int or not 0 <= byte <= 255 for byte in image["bytes"]):
+        raise ValueError("runtime boot image contains invalid bytes")
+    if not any(r["address"] <= image["address"] and image["address"] + len(image["bytes"]) <= r["address"] + r["size"]
+               for r in environment["private_memory"]):
+        raise ValueError("runtime boot image must fit private backing")
+    return dict(manifest, hart_id=environment["hart_id"], xlen=environment["xlen"],
+                clock_frequency_hz=environment["clock_frequency_hz"],
+                rom_image=image, observations=observations)
+
+
+def runtime_header(config, manifest):
+    """Encode immutable JSON as C++ literals, keeping paths out of runtime setup."""
+    header = "// Embeds the exact reference configuration and environment in this simulator.\n// SPDX-License-Identifier: Apache-2.0\n#pragma once\nnamespace rhodium::cosim::generated {\n"
+    for key, value in (("configuration", config), ("manifest", manifest)):
+        header += f"inline constexpr char {key}[] = {json.dumps(json.dumps(value, separators=(',', ':')))};\n"
+    return header + "}\n"
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--product", type=Path, required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--sail", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--observations", type=Path)
     args = parser.parse_args()
     exported = json.loads(args.product.read_text())
     udb, environment = checked_product(exported, args.name)
@@ -115,6 +142,10 @@ def main():
         "timebase_frequency_hz": environment["timebase_frequency_hz"],
         "reference_model_differences": differences,
     }
+    if args.observations:
+        observations = json.loads(args.observations.read_text())
+        manifest = runtime_manifest(manifest, environment, observations)
+        (args.output / "runtime-config.h").write_text(runtime_header(config, manifest))
     (args.output / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
     (args.output / "reference-model-differences.json").write_text(json.dumps(differences, indent=2) + "\n")
     if differences:

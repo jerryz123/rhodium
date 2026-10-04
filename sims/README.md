@@ -160,6 +160,9 @@ flowchart LR
 ```
 
 `TestDriver.v` generates clock and reset and observes the harness exit status.
+Its generic native lifecycle interface initializes selected instrumentation,
+brackets settled cycles, and finalizes before exit or timeout. Cosimulation and
+tracing are compile-target/runtime choices, not feature-specific driver logic.
 The emitter specializes one shared single-core harness for RV5Stage or Spike.
 It instantiates the FESVR requester and connects it to the selected SoC's
 common `SoCHostInterface`. Mini and Tiled retain shape-specific harness circuits.
@@ -414,7 +417,9 @@ argument vector through VPI to `DirectMemoryHtif`. FESVR owns ELF parsing,
 segment loading, entry-point discovery, `tohost`/`fromhost` polling, and exit
 status; the Makefile and RTL do not implement a separate binary loader.
 The Verilator binding removes the simulator-owned `+rheg-trace=`,
-`+max-cycles=`, and `+load-through-chi` options before passing arguments to FESVR.
+`+cosim-corrupt-order=`, `+max-cycles=`, and `+load-through-chi` options before
+passing arguments to FESVR. The native runtime validates instrumentation options;
+requesting tracing or corruption testing in a build without that feature fails.
 
 SingleCoreRV5StageSoC and TiledSoC DPI RAMs register their native backing stores during
 clocked reset, before FESVR starts. Each instance's existing hardware identity
@@ -937,9 +942,11 @@ control in outer caches.
 Contributor binding, structural, and lowering checks are documented in
 [`DEVELOPING.md`](DEVELOPING.md#focused-validation).
 
-The [embedded Sail reference](cosim/README.md) is a host-only co-simulation
-building block with private memory and explicit device-read replay. It is not
-yet connected to RTL or enabled by any simulator product.
+The [embedded Sail reference](cosim/README.md) supports opt-in scalar co-simulation
+for Mini/Simple RV5Stage `rv64imacb` builds through `COSIM=1`. It checks ordered RTL
+observations against private reference memory and explicit device-read replay,
+using the normal FESVR loader. Its bounded smoke is not full-profile qualification;
+see the component's supported-event limits before running other software.
 
 These simulators always use CIRCT-inferred memories. To validate a
 design-and-technology SRAM mapping while reusing this harness, driver, FESVR

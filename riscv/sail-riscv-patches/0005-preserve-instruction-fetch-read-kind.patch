@@ -1,0 +1,22 @@
+Preserve explicit instruction-fetch provenance at the physical-memory boundary.
+SPDX-License-Identifier: BSD-2-Clause
+
+The access type already distinguishes fetch from data; aq/rl/res flags alone
+cannot recover that distinction. This also keeps the embedded provider from
+reporting instruction fetches as architectural data loads.
+
+diff --git a/model/sys/mem.sail b/model/sys/mem.sail
+--- a/model/sys/mem.sail
++++ b/model/sys/mem.sail
+@@ -282,7 +282,10 @@ private function checked_mem_read forall 'n, 0 < 'n <= max_mem_access . (
+   var i : range(0, 'N - 1) = first;
+   var finished : bool = false;
+ 
+-  let rk = read_kind_of_flags(aq, rl, res);
++  let rk : read_kind = match access {
++    InstructionFetch() => Read_ifetch,
++    _ => read_kind_of_flags(aq, rl, res),
++  };
+ 
+   repeat {
+     let offset = i;

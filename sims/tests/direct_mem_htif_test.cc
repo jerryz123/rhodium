@@ -19,8 +19,8 @@ using rhodium::fesvr::parse_boot_harts;
 
 class ImageHtif final : public DirectMemoryHtif {
  public:
-  ImageHtif(int argc, char** argv, rhodium::fesvr::ImageMemoryMap map)
-      : DirectMemoryHtif(argc, argv, 64, 0x3000, {0}, std::move(map)) {}
+  ImageHtif(int argc, char** argv, rhodium::fesvr::ImageMemoryMap map, WriteObserver observer)
+      : DirectMemoryHtif(argc, argv, 64, 0x3000, {0}, std::move(map), std::move(observer)) {}
  protected:
   std::map<std::string, std::uint64_t> load_payload(const std::string&, reg_t* entry, reg_t) override {
     *entry = 0x80000000;
@@ -81,7 +81,12 @@ void check_image_loading(bool fail = false) {
   assert(rejected);
   char executable[] = "image-test", program[] = "scripted";
   char* argv[] = {executable, program};
-  ImageHtif transport(2, argv, map);
+  std::map<std::uint64_t, std::uint8_t> mirrored;
+  std::size_t mirrored_bytes = 0;
+  ImageHtif transport(2, argv, map, [&](auto address, auto bytes) {
+    mirrored_bytes += bytes.size();
+    for (std::size_t i = 0; i != bytes.size(); ++i) mirrored[address + i] = bytes[i];
+  });
   const std::vector<DirectMemoryRequest> expected = {
     {true, 0x7ffffffc, 0x04030201, 4},
     {true, 0x80000000 + 70000, 0x08070605, 4},
@@ -104,6 +109,13 @@ void check_image_loading(bool fail = false) {
   assert(transport.exit_word() == (fail ? 3U : 1U));
   assert(index == (fail ? 0 : expected.size()));
   if (!fail) assert(largest == 65536 && storage[8] == 5 && storage[7] == 0 && storage.back() == 0);
+  if (fail) assert(mirrored.empty());
+  else {
+    assert(mirrored_bytes == 70000 + 69990 + 16 + 4 + 8 + 1);
+    assert(mirrored.at(0x80000000) == 0x77 && mirrored.at(0x80000003) == 8);
+    assert(mirrored.at(0x80000004) == 0 && mirrored.at(kAclintBase) == 1);
+    assert(mirrored.at(0x3003) == 0x80);
+  }
 }
 
 class ScriptedHtif final : public DirectMemoryHtif {
@@ -146,9 +158,9 @@ class BootHtif final : public DirectMemoryHtif {
   BootHtif(int argc, char** argv, int xlen, std::uint64_t boot_register,
            std::uint64_t entry, int overlap = 99, bool clear = false,
            rhodium::fesvr::ImageMemoryMap map = {},
-           std::vector<std::uint32_t> boot_harts = {0})
+           std::vector<std::uint32_t> boot_harts = {0}, WriteObserver observer = {})
       : DirectMemoryHtif(argc, argv, xlen, boot_register,
-                         std::move(boot_harts), std::move(map)),
+                         std::move(boot_harts), std::move(map), std::move(observer)),
         boot_register_(boot_register),
         entry_(entry), overlap_(overlap), clear_(clear) {}
   bool boot_returned = false;
@@ -194,8 +206,11 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
       [](auto, auto) { assert(false); },
       [](auto, auto) { assert(false); }});
   }
+  std::vector<std::pair<std::uint64_t, std::vector<std::uint8_t>>> mirrored;
   BootHtif transport(2, argv, xlen, boot_register, entry, overlap, clear,
-                     std::move(map), boot_harts);
+                     std::move(map), boot_harts, [&](auto address, auto bytes) {
+                       mirrored.emplace_back(address, std::vector<std::uint8_t>(bytes.begin(), bytes.end()));
+                     });
   const bool invalid_entry = entry == 0 || (xlen == 32 && entry > UINT32_MAX);
   std::vector<DirectMemoryRequest> expected;
   if (overlap == 99) {
@@ -244,6 +259,16 @@ void check_boot(int xlen, std::uint64_t boot_register, std::uint64_t entry,
   assert(transport.exit_word() == (failed ? 3U : 1U));
   assert(index == expected.size());
   assert(transport.boot_returned == !failed);
+  std::size_t observed = 0;
+  for (std::size_t i = 0; i != expected.size(); ++i) {
+    if (!expected[i].write || static_cast<int>(i) == fail_index) continue;
+    assert(observed < mirrored.size());
+    const auto& [address, bytes] = mirrored[observed++];
+    assert(address == expected[i].address && bytes.size() == expected[i].length);
+    for (std::size_t byte = 0; byte != bytes.size(); ++byte)
+      assert(bytes[byte] == static_cast<std::uint8_t>(expected[i].data >> (8 * byte)));
+  }
+  assert(observed == mirrored.size());
 }
 
 void check_transfers() {

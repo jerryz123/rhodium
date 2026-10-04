@@ -1,6 +1,7 @@
 # Checks shared architectural projection and exact-product co-simulation environments.
 # SPDX-License-Identifier: Apache-2.0
 import copy
+import json
 from pathlib import Path
 import runpy
 import unittest
@@ -33,6 +34,29 @@ def environment():
 
 
 class SailConfigurationTest(unittest.TestCase):
+    def test_runtime_image_and_descriptor_are_embedded_exactly(self):
+        env = environment()
+        env.update(xlen=64, rom_image={"address": 0x1000, "bytes": [0, 255, 19, 0]})
+        observations = {"schema": 1, "epoch": "host-reset", "harts": [{"instance": 0, "path": ["soc", "hart", "core"]}]}
+        manifest = COSIM["runtime_manifest"]({"environment_fingerprint": fingerprint(env)}, env, observations)
+        self.assertEqual(manifest["rom_image"], env["rom_image"])
+        self.assertEqual(manifest["observations"], observations)
+        header = COSIM["runtime_header"]({"quoted": 'a"b\\c'}, manifest)
+        for line in header.splitlines():
+            if line.startswith("inline constexpr char "):
+                name, literal = line[len("inline constexpr char "):].split("[] = ", 1)
+                value = json.loads(json.loads(literal[:-1]))
+                self.assertEqual(value, manifest if name == "manifest" else {"quoted": 'a"b\\c'})
+        for mutate in (lambda e, o: o["harts"].append(o["harts"][0]),
+                       lambda e, o: o["harts"][0].update(instance=1),
+                       lambda e, o: e["rom_image"].update(address=0x2000),
+                       lambda e, o: e["rom_image"].update(bytes=[256]),
+                       lambda e, o: e["rom_image"].update(bytes=[0] * 4097)):
+            changed_env, changed_observations = copy.deepcopy(env), copy.deepcopy(observations)
+            mutate(changed_env, changed_observations)
+            with self.assertRaises(ValueError):
+                COSIM["runtime_manifest"]({}, changed_env, changed_observations)
+
     def default(self):
         value = sail_default()
         value["platform"].update(clint={"supported": True}, simple_interrupt_generator={"supported": True})

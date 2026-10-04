@@ -2,6 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "direct_mem_htif.h"
 #include "direct_mem_htif_dpi.h"
+#include "simulation_runtime.h"
+#ifdef RHODIUM_COSIM
+#include "simulation.h"
+#endif
 
 #include <cstdint>
 #include <cstdlib>
@@ -89,7 +93,7 @@ int rhodium_htif_tick(unsigned char reset,
         boot_hart_specification = argument.substr(std::string_view("+boot-harts=").size());
         continue;
       }
-      if (index != 0 && (argument.starts_with("+rheg-trace=") || argument.starts_with("+max-cycles="))) continue;
+      if (index != 0 && rhodium::simulation::runtime_argument(argument)) continue;
       htif_arguments.push_back(info.argv[index]);
     }
     try {
@@ -100,7 +104,11 @@ int rhodium_htif_tick(unsigned char reset,
       transport = new rhodium::fesvr::DirectMemoryHtif(
         static_cast<int>(htif_arguments.size()), htif_arguments.data(), target_xlen,
         static_cast<std::uint64_t>(boot_address_register),
-        rhodium::fesvr::parse_boot_harts(boot_hart_specification), std::move(memories));
+        rhodium::fesvr::parse_boot_harts(boot_hart_specification), std::move(memories)
+#ifdef RHODIUM_COSIM
+        , rhodium::cosim::simulation_host_write
+#endif
+        );
     } catch (const std::exception& error) {
       std::fprintf(stderr, "FESVR setup failed: %s\n", error.what());
       startup_failed = true;

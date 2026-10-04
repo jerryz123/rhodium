@@ -18,6 +18,7 @@ $(error RTL_BACKEND must be circt or verilog)
 endif
 endif
 TRACE ?= 0
+COSIM ?= 0
 TRACE_FILE ?=
 NLOHMANN_JSON_INCLUDE_DIR ?=
 BUILD_JOBS ?= 4
@@ -63,18 +64,37 @@ ifneq ($(word 2,$(HARNESS_SELECTOR)),rv5stage)
 $(error TRACE=1 supports single or tiled RV5Stage SoCs only)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-trace
-TRACE_HEADER := $(SOC_BUILD_DIR)/soc_events.h
-TRACE_BUILD_DIR := $(SOC_BUILD_DIR)/rheg
-TRACE_LIBRARY := $(TRACE_BUILD_DIR)/librheg_perfetto.a
-TRACE_SOURCES := $(VERILATOR_DIR)/rheg_dpi.cc
-TRACE_DEPENDENCIES := $(TRACE_HEADER) $(TRACE_LIBRARY)
-TRACE_VFLAGS := +define+RHEG_TRACE
-TRACE_CFLAGS := -I$(SOC_BUILD_DIR) -I$(REPO_DIR)/rheg/runtime -I$(REPO_DIR)/rheg/perfetto
-TRACE_LDFLAGS := $(TRACE_LIBRARY) $(TRACE_BUILD_DIR)/librheg_runtime.a -lz
+TRACE_HEADER = $(SOC_BUILD_DIR)/soc_events.h
+TRACE_BUILD_DIR = $(SOC_BUILD_DIR)/rheg
+TRACE_LIBRARY = $(TRACE_BUILD_DIR)/librheg_perfetto.a
+TRACE_SOURCES := $(VERILATOR_DIR)/event_trace.cc
+TRACE_DEPENDENCIES = $(TRACE_HEADER) $(TRACE_LIBRARY) $(VERILATOR_DIR)/event_trace.h
+TRACE_CFLAGS = -DRHEG_TRACE -I$(SOC_BUILD_DIR) -I$(REPO_DIR)/rheg/runtime -I$(REPO_DIR)/rheg/perfetto
+TRACE_LDFLAGS = $(TRACE_LIBRARY) $(TRACE_BUILD_DIR)/librheg_runtime.a -lz
 TRACE_RUN_ARGS = +rheg-trace=$(abspath $(TRACE_FILE))
 else ifneq ($(TRACE),0)
 $(error TRACE must be 0 or 1)
 endif
+ifeq ($(COSIM),1)
+ifneq ($(SOC_CORE),rv5stage)
+$(error COSIM=1 currently requires RV5Stage)
+endif
+ifeq ($(filter $(SOC_SHAPE),mini simple),)
+$(error COSIM=1 currently requires Mini or Simple)
+endif
+ifneq ($(SOC_ISA),rv64imacb)
+$(error COSIM=1 currently qualifies only rv64imacb; other profiles require complete observation coverage)
+endif
+SOC_BUILD_DIR := $(SOC_BUILD_DIR)-cosim
+COSIM_SOURCES := $(CURDIR)/cosim/simulation.cc
+COSIM_CFLAGS = -DRHODIUM_COSIM -I$(CURDIR)/cosim -I$(COSIM_CONFIG_DIR) -I$(COSIM_SAIL_PREFIX)/include/sail-model
+COSIM_LDFLAGS = $(shell cat $(COSIM_BUILD_DIR)/link-flags.txt 2>/dev/null)
+COSIM_DEPENDENCIES = $(COSIM_CONFIG_DIR)/runtime-config.h $(COSIM_BUILD_DIR)/runtime.stamp
+else ifneq ($(COSIM),0)
+$(error COSIM must be 0 or 1)
+endif
+HARNESS_VARIANT := $(if $(filter 1,$(TRACE)),trace$(if $(filter 1,$(COSIM)),-cosim),$(if $(filter 1,$(COSIM)),cosim,normal))
+HARNESS_FLAGS = $(if $(filter-out normal,$(HARNESS_VARIANT)),--$(HARNESS_VARIANT) "$(SOC_BUILD_DIR)")
 DPI_BUILD_DIR := $(BUILD_ROOT)/tools
 TILED_LOWERING_DIR := $(BUILD_ROOT)/tiled-lowering
 SPIKE_LOWERING_DIR := $(BUILD_ROOT)/spike-lowering
@@ -138,7 +158,7 @@ setup:
 simulator: $(SIMULATOR_BINARY) $(PROGRAM_TARGET)
 	$(PYTHON) program-test/artifact.py $(if $(PREBUILT_SIMULATOR),verify,record) \
 	  --binary "$(SIMULATOR_BINARY)" --soc "$(SOC_ID)" --target "$(PROGRAM_TARGET)" \
-	  --backend $(RTL_BACKEND) --variant $(if $(filter 1,$(TRACE)),trace,normal) $(if $(PREBUILT_SIMULATOR),,--rtl "$(SOC_EMITTED)")
+	  --backend $(RTL_BACKEND) --variant $(HARNESS_VARIANT) $(if $(PREBUILT_SIMULATOR),,--rtl "$(SOC_EMITTED)")
 	@echo "Ready $(SOC_ID) simulator: $(SIMULATOR_BINARY)"
 
 run: simulator
@@ -221,6 +241,10 @@ dpi-compile-check: $(FESVR_LIBRARY) | $(DPI_BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -I$(VERILATOR_ROOT)/include/vltstd \
 	  -c $(CHI_DPI_DIR)/chi_dpi_memory_dpi.cc -o $(DPI_BUILD_DIR)/chi_dpi_memory_dpi.o
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) -c $(UART_DPI_DIR)/uart_dpi.cc -o $(DPI_BUILD_DIR)/uart_dpi.o
+
+.PHONY: simulation-runtime-test
+simulation-runtime-test:
+	$(PYTHON) tests/check-simulation-runtime.py --verilator "$(VERILATOR)" --build "$(REPO_DIR)/.rhodium-cache/simulation-runtime-tests"
 
 spike-core-compile-check: $(SPIKE_LIBRARY) | $(DPI_BUILD_DIR)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(SPIKE_DPI_CPPFLAGS) \
@@ -315,18 +339,13 @@ ifeq ($(RTL_BACKEND),circt)
 $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
 	@test -n "$(HARNESS_SELECTOR)" || \
 	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
-ifeq ($(TRACE),1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) --trace "$(SOC_BUILD_DIR)" $(HARNESS_SELECTOR) > $(SOC_MLIR)
-else
-	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) $(HARNESS_SELECTOR) > $(SOC_MLIR)
-endif
+	  $(HARNESS_EMITTER) $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR)
 
 ifeq ($(TRACE),1)
 $(TRACE_HEADER): $(SOC_MLIR)
 	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) --trace "$(SOC_BUILD_DIR)" $(HARNESS_SELECTOR) > $(SOC_MLIR))
+	  $(HARNESS_EMITTER) $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_MLIR))
 
 $(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/* $(REPO_DIR)/riscv/riscv-isa-sim-patches/*.patch) $(REPO_DIR)/riscv/riscv-isa-sim-patches/series $(PATCHED_SUBMODULE_TOOL)
 	$(MAKE) -C $(REPO_DIR)/rheg/perfetto BUILD_DIR=$(TRACE_BUILD_DIR) PYTHON=$(PYTHON) CXX=$(CXX) \
@@ -348,11 +367,12 @@ $(SOC_VERILOG): $(SOC_MLIR)
 else
 $(SOC_VERILOG): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) --backend verilog $(HARNESS_SELECTOR) > $(SOC_VERILOG)
+	  $(HARNESS_EMITTER) --backend verilog $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_VERILOG)
 endif
 
 ifeq ($(PREBUILT_SIMULATOR),)
 $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+                     $(VERILATOR_DIR)/simulation_runtime.cc $(VERILATOR_DIR)/simulation_runtime.h \
                      $(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \
                      $(VERILATOR_DIR)/relink.mk \
                      $(FESVR_DIR)/direct_mem_htif.cc \
@@ -361,18 +381,18 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
                      $(VERILATOR_DIR)/direct_mem_htif_dpi.h \
                      $(SOC_DPI_SOURCE) \
                      $(SOC_DPI_HEADER) \
-                     $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) \
+                     $(TRACE_SOURCES) $(TRACE_DEPENDENCIES) $(COSIM_SOURCES) $(COSIM_DEPENDENCIES) \
                      $(FESVR_LIBRARY) $(SOC_DPI_DEPENDENCY)
 	# Direct RTL keeps legal constant comparisons that CIRCT normally folds.
 	# The outer prerequisites include libraries omitted from Verilator's link rule.
-	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) $(TRACE_VFLAGS) \
+	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) \
 	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
-	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc \
-	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS)" \
-	  -LDFLAGS "$(SOC_DPI_LDFLAGS) $(FESVR_LIBRARY) -pthread $(TRACE_LDFLAGS)"
+	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(COSIM_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc $(VERILATOR_DIR)/simulation_runtime.cc \
+	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS) $(COSIM_CFLAGS)" \
+	  -LDFLAGS "$(SOC_DPI_LDFLAGS) $(FESVR_LIBRARY) -pthread $(TRACE_LDFLAGS) $(COSIM_LDFLAGS)"
 else
 $(SIMULATOR_BINARY):
 	@echo "Prebuilt simulator is missing: $@" >&2; exit 2

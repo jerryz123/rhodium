@@ -46,6 +46,8 @@ def environment = {
   "hart_id": description.harts[0],
   "clock_frequency_hz": description.clocks.clock_frequency_hz,
   "timebase_frequency_hz": description.clocks.timebase_frequency_hz,
+  "xlen": description.hart.xlen.width,
+  "rom_image": {"address": fabric.boot.reset_address, "bytes": fabric.boot.image_for(description).bytes},
   "private_memory": ([description.boot.rom] ++ description.memory_regions).map(address_region),
   "regions": fabric.hart_config.physical_map.regions.map(physical_region)
 }

@@ -44,6 +44,9 @@ flowchart LR
 
 The Makefile must keep the generated inventory, wrappers, manifest, RTL,
 simulator object tree, and smoke binary beneath the selected `BUILD_ROOT`.
+Link `sims/verilator/simulation_runtime.cc` with the shared `TestDriver.v`, even
+without optional instrumentation. It supplies the generic driver lifecycle; do
+not fork the driver or duplicate cosim/tracing feature decisions here.
 
 ## Change the mapped simulator
 

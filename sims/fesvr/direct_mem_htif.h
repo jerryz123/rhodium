@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string_view>
 #include <vector>
+#include <functional>
 #include "image_memory.h"
 
 #include <fesvr/context.h>
@@ -27,10 +28,11 @@ struct DirectMemoryRequest {
 
 class DirectMemoryHtif : public htif_t {
  public:
+  using WriteObserver = std::function<void(std::uint64_t, std::span<const std::uint8_t>)>;
   DirectMemoryHtif(int argc, char** argv, int expected_xlen,
                    std::uint64_t boot_address_register,
                    std::vector<std::uint32_t> boot_harts = {0},
-                   ImageMemoryMap image_memories = {});
+                   ImageMemoryMap image_memories = {}, WriteObserver write_observer = {});
   ~DirectMemoryHtif() override = default;
 
   void tick(bool request_ready,
@@ -76,6 +78,7 @@ class DirectMemoryHtif : public htif_t {
   const std::vector<std::uint32_t> boot_harts_;
   bool loading_ = true;
   ImageMemoryMap image_memories_;
+  WriteObserver write_observer_;
 };
 
 }  // namespace rhodium::fesvr

@@ -521,6 +521,19 @@ def artifact_inputs(binary, target=None, variant='normal', backend='circt'):
 
 
 class SimulatorArtifactTest(unittest.TestCase):
+    def test_cosim_variants_are_distinct(self):
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / 'VTestDriver'
+            binary.write_bytes(b'cosim binary')
+            command = [sys.executable, str(SCRIPTS / 'artifact.py')]
+            options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
+            for variant in ('cosim', 'trace-cosim'):
+                subprocess.run(command + ['record'] + options + ['--variant', variant] + artifact_inputs(binary, variant=variant), check=True)
+                subprocess.run(command + ['verify'] + options + ['--variant', variant], check=True)
+                for other in ('normal', 'trace', 'cosim', 'trace-cosim'):
+                    if other != variant:
+                        self.assertNotEqual(subprocess.run(command + ['verify'] + options + ['--variant', other], capture_output=True).returncode, 0)
+
     def test_backend_provenance_is_required_and_checked(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'VTestDriver'

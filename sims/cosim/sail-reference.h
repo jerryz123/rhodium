@@ -49,6 +49,7 @@ struct StepInputs {
 struct Trap {
   bool interrupt;
   std::uint64_t cause;
+  std::uint64_t epc = 0, tval = 0;
 };
 
 struct StepResult {
@@ -79,6 +80,7 @@ class SailReference {
   std::vector<std::uint8_t> read_memory(std::uint64_t address, std::size_t bytes) const;
   StepResult step(const StepInputs& inputs = {});
   std::uint64_t integer_register(unsigned index) const;
+  std::uint64_t csr(unsigned address) const;
   std::uint64_t pc() const;
 
  private:

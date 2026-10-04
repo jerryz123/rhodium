@@ -134,6 +134,10 @@ class SailReference::Implementation final : private RuntimeLease, public hart::M
       if (next_read_ != inputs.device_reads.size()) throw std::runtime_error("unconsumed MMIO read replay");
       result_.next_pc = zPC.bits;
       result_.privilege_after = privilege();
+      if (result_.trap) {
+        result_.trap->epc = privilege() == 3 ? zmepc.bits : zsepc.bits;
+        result_.trap->tval = privilege() == 3 ? zmtval.bits : zstval.bits;
+      }
       ++attempts_;
       inputs_ = nullptr;
       KILL(sail_int)(&step_number);
@@ -253,6 +257,10 @@ void SailReference::load(std::uint64_t address, std::span<const std::uint8_t> by
 std::vector<std::uint8_t> SailReference::read_memory(std::uint64_t address, std::size_t size) const { return implementation_->read(address, size); }
 StepResult SailReference::step(const StepInputs& inputs) { return implementation_->step(inputs); }
 std::uint64_t SailReference::pc() const { return implementation_->zPC.bits; }
+std::uint64_t SailReference::csr(unsigned address) const {
+  if (address >= 4096) throw std::out_of_range("CSR address");
+  return implementation_->zread_CSR(address).bits;
+}
 std::uint64_t SailReference::integer_register(unsigned index) const {
   if (index >= 32) throw std::out_of_range("integer register index");
   return implementation_->zrX(index).bits;
