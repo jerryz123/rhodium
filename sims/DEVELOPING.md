@@ -229,9 +229,12 @@ pending reset. Its service configuration lives in `tests/fesvr-mmio-fixture.rhdl
 
 The shared single-core harness owns transparent external-memory checkpoints. Keep them
 outside synthesizable SoC code. `emit-soc-harness.rhm` selects the same SoC
-elaboration for ordinary and event-instrumented builds;
-`materialize-event-harness.rkt` saves the traced build's matching descriptor
-and configured frequency alongside MLIR. The opt-in build links `rheg_dpi.cc`
+elaboration for ordinary and event-instrumented builds. Its selected target
+composes `event_trace_pass` with the RTL backend. `--trace OUTPUT_DIRECTORY`
+saves the compilation's `events.json` and `events.h` as `soc_events.json` and
+`soc_events.h` alongside MLIR, adding the simulator's configured frequency to
+the header. Both descriptors come from the same compilation as the RTL; no
+separate descriptor export or second elaboration is used. The opt-in build links `rheg_dpi.cc`
 with the independent RHEG libraries. Do not duplicate collector or encoder
 logic in this adapter. The adapter selects gzip only for a `.gz` output suffix and calls
 the exporter's checked `finish()` before closing the file on exit or timeout.

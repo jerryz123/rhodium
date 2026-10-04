@@ -320,9 +320,15 @@ make -C sims run SOC=tiled CORE=rv5stage ISA=rva23 TRACE=1 TRACE_FILE=/tmp/tiled
 Choose a fresh trace path: the exporter overwrites the selected output file.
 Open the resulting `.pftrace` in Perfetto. Traced builds live in
 `/tmp/rhodium-sims/<soc>-rv5stage-<isa>-trace/`, separate from ordinary builds. The
-trace flag instruments the same selected SoC elaboration used by `TRACE=0`;
+trace flag selects an event compilation pass on the same SoC elaboration used by `TRACE=0`;
 it does not select a different hardware configuration. `TRACE=0`
 (the default) neither instruments RTL nor links the optional exporter.
+
+For host emission, `emit-soc-harness.rhm --trace OUTPUT_DIRECTORY shape core ISA`
+prints MLIR and writes `soc_events.json` and `soc_events.h` into an existing
+output directory. RTL and descriptors come from one compilation result; the
+header additionally includes the selected SoC clock frequency.
+
 Direct invocation of a traced binary requires `+rheg-trace=/absolute/path`.
 The same binary can run different target programs and trace destinations.
 Optionally set `RHEG_PERFETTO_TRACKS=/absolute/path/to/vector-tracks.json`

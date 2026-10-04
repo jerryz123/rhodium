@@ -1,0 +1,94 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../main.rhm" open
+  "../../core/main.rhm" open
+  "../../compile/contracts.rhm" open
+  "../../compile/pipeline.rhm" open
+  "../../compile/rtl.rhm" open
+  "../../compile/program.rhm".compile_program
+  "../../lowering/program.rhm" open
+  "../../backend/circt-target.rhm".circt_target
+  "../../backend/verilog-target.rhm".verilog_target
+  "copy-metadata-fixture.rhdl".make_fixture
+  "copy-metadata-support.rhm".Observer
+  "event-instrument-fixture.rhdl" as fixture
+  "event-instance-fixture.rhdl" as instance_fixture
+
+class CopyReport(rtl :: DesignElaboration):
+  implements CompilationReport
+
+// A separate graph-rewriting stage must preserve existing observers and their sidecars.
+fun copy_stage(prepared :: PreparedRTL):
+  def result = materialize_reachable_rtl(ElaboratedProgram(prepared.rtl.design, prepared.rtl.top))
+  RTLPassResult(result.rtl, [Artifact("copy.txt", "text/plain", "copied")], CopyReport(result.rtl))
+def copier = RTLPass("copy", copy_stage)
+def logical = make_fixture()
+def program = ElaboratedProgram(logical.design, logical.top)
+def before = dump_ir(logical.design)
+def source_owner = logical.top.metadata_for("other-observer")[0] :: Observer
+
+for (backend in [circt_target, verilog_target]):
+  def ordinary = compile_program(program, backend)
+  def target = rtl_pipeline_target(backend, [event_trace_pass()])
+  def first = compile_program(program, target)
+  def second = compile_program(program, target)
+  def pipeline :: RTLPipelineReport = first.report
+  def report :: EventTraceReport = pipeline.stages[0].findings
+  def again :: RTLPipelineReport = second.report
+  def again_trace :: EventTraceReport = again.stages[0].findings
+  check:
+    ordinary.artifacts.length() ~is 1
+    first.artifacts.map(fun (artifact): artifact.name).drop(1) ~is ["events.json", "events.h"]
+    first.artifacts ~is second.artifacts
+    first.artifacts[1].content ~is event_manifest_to_json(report.manifest)
+    first.artifacts[2].content ~is event_manifest_to_cpp(report.manifest)
+    report.manifest.logical.design === logical.design ~is #false
+    again_trace.manifest.logical.design === report.manifest.logical.design ~is #false
+    report.manifest.sites.length() ~is 2
+    report.manifest.sites.map(fun (site): site.instance_path) ~is [["MetadataObservedTop", "left"], ["MetadataObservedTop", "right"]]
+    dump_ir(logical.design) ~is before
+    compile_program(program, backend).artifacts ~is ordinary.artifacts
+    first.artifacts[0].content.contains("rheg_node") ~is #true
+    ordinary.artifacts[0].content.contains("rheg_node") ~is #false
+  for (passes in [[copier, event_trace_pass()], [event_trace_pass(), copier]]):
+    def combined = compile_program(program, rtl_pipeline_target(backend, passes))
+    def combined_report :: RTLPipelineReport = combined.report
+    def copied :: CopyReport = combined_report.stages.find(fun (stage): stage.name == "copy").findings
+    def owner :: Observer = copied.rtl.top.metadata_for("other-observer")[0]
+    check:
+      combined.artifacts.filter(~keep: fun (artifact): artifact.name in ["events.json", "events.h"]) ~is first.artifacts.drop(1)
+      combined.manifest.signature ~is first.manifest.signature
+      combined.artifacts[0].content.contains("rheg_node") ~is #true
+      owner.owner === copied.rtl.top ~is #true
+      owner.cache === source_owner.cache ~is #false
+      owner.instances[0].operation.attribute("module") === owner.instances[0].module_def ~is #true
+  check:
+    compile_program(program, rtl_pipeline_target(backend, [event_trace_pass(EventInstrumentationConfig("missing"))])) ~throws "top-level Clock"
+
+// Partial configuration remains owner policy and retains its public gap descriptor.
+def opaque = fixture.opaque_boundary()
+def opaque_program = ElaboratedProgram(opaque.design, opaque.top)
+check:
+  compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass()])) ~throws "opaque or disconnected boundary"
+def partial = compile_program(opaque_program, rtl_pipeline_target(verilog_target, [event_trace_pass(EventInstrumentationConfig(~partial: #true))]))
+def partial_report :: RTLPipelineReport = partial.report
+def trace_report :: EventTraceReport = partial_report.stages[0].findings
+check:
+  trace_report.manifest.gaps.length() > 0 ~is #true
+  partial.artifacts[1].content.contains("\"gaps\"") ~is #true
+  dump_ir(logical.design) ~is before
+
+// Root identity scopes consume activity internally without changing physical top ports.
+def instances = instance_fixture.instances
+def instance_program = ElaboratedProgram(instances.design, instances.top)
+for (backend in [circt_target, verilog_target]):
+  def ordinary = compile_program(instance_program, backend)
+  def traced = compile_program(instance_program, rtl_pipeline_target(backend, [event_trace_pass()]))
+  def stages :: RTLPipelineReport = traced.report
+  def report :: EventTraceReport = stages.stages[0].findings
+  check:
+    traced.manifest.signature ~is ordinary.manifest.signature
+    report.manifest.instances.map(fun (scope): scope.label) ~is ["chip", "hart", "hart", "bank"]
+    traced.artifacts[1].content.contains("site_instances") ~is #true
+    traced.artifacts[2].content ~is event_manifest_to_cpp(report.manifest)

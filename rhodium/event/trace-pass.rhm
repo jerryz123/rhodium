@@ -1,0 +1,30 @@
+#lang rhombus
+/* Adapts event instrumentation to an ordered RTL pass with matching detached descriptors. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../compile/contracts.rhm" open
+  "../compile/pipeline.rhm" open
+  "../compile/rtl.rhm".PreparedRTL
+  "instrument.rhm" open
+  "model.rhm".EventManifest
+  "json.rhm" open
+
+export:
+  event_trace_pass
+  EventTraceReport
+
+/* Retains inference findings against this stage's input graph, including partial-coverage gaps. */
+class EventTraceReport(manifest :: EventManifest):
+  implements CompilationReport
+
+/* Configure one trace stage; each invocation copies its input and serializes that same manifest.
+   File publication and simulator-specific timing remain the calling driver's responsibility. */
+fun event_trace_pass(config :: EventInstrumentationConfig = EventInstrumentationConfig()):
+  /* Return ordinary instrumented RTL and detached descriptors without preparing the graph again. */
+  fun transform(prepared :: PreparedRTL):
+    def traced = instrument_events(prepared.rtl, config)
+    RTLPassResult(traced.instrumented,
+                  [Artifact("events.json", "application/json", event_manifest_to_json(traced.manifest)),
+                   Artifact("events.h", "text/x-c++hdr", event_manifest_to_cpp(traced.manifest))],
+                  EventTraceReport(traced.manifest))
+  RTLPass("event-trace", transform)

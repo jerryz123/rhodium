@@ -371,12 +371,33 @@ visible in the datapath; reserve explicit edges for opaque FSM/register gaps.
 ## Instrument storage and selection paths
 
 ```rhombus
-def traced = instrument_events(logical_design)
-// Emit traced.instrumented.design through the existing CIRCT backend.
-def manifest_json = event_manifest_to_json(traced.manifest)
+import lib("rhodium/event/trace-pass.rhm").event_trace_pass
+import lib("rhodium/event/instrument.rhm").EventInstrumentationConfig
+import lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+import lib("rhodium/compile/program.rhm").compile_program
+import lib("rhodium/backend/verilog-target.rhm").verilog_target
+
+def target = rtl_pipeline_target(verilog_target, [
+  event_trace_pass(EventInstrumentationConfig(~partial: #true))
+])
+def compiled = compile_program(program, target)
 ```
 
-`EventInstrumentedElaboration` retains `original`, `instrumented`, and `manifest`.
+`program` is the same `ElaboratedProgram` used for ordinary compilation. Use
+`circt_target` in place of `verilog_target` for CIRCT. Compilation returns the
+backend artifact plus `events.json` (`application/json`) and `events.h`
+(`text/x-c++hdr`), generated from one instrumentation result. Compilation does
+not write files. Settings belong to the configured pass; omitting it adds no
+trace state or descriptors. Repeated compilation leaves the source unchanged.
+
+The `event-trace` stage's `EventTraceReport.manifest` retains inference findings,
+including partial-coverage gaps, against that stage's input graph. Other passes
+can precede or follow tracing in the explicit list; they must preserve earlier
+observers and the identities recorded in their descriptors. The pipeline rejects
+duplicate pass names and duplicate artifact names.
+
+For tools that need the transformation itself, `instrument_events(logical_design)`
+returns `EventInstrumentedElaboration`, which retains `original`, `instrumented`, and `manifest`.
 The original IR and metadata are unchanged. The instrumented graph preserves
 extension metadata through the existing `remap_ir` protocol, with live references
 rebound to their copied owners. Mutable payloads are independent between

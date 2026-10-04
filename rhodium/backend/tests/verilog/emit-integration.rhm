@@ -8,23 +8,30 @@ import:
   "../../../core/signature.rhm".module_signature
   "../../../lowering/program.rhm".ElaboratedProgram
   "../../../compile/program.rhm".compile_program
+  "../../../compile/pipeline.rhm".rtl_pipeline_target
+  "../../../event/trace-pass.rhm".event_trace_pass
   "../../verilog-target.rhm".verilog_target
 
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[0] in ["direct", "circt"]
-| error("expected direct|circt sync-ram|uart-dpi")
+| error("expected direct|circt sync-ram|uart-dpi|event-runtime|event-elastic")
 def fixture = match arguments[1]
 | "sync-ram": ["examples/std/sync-ram.rhdl", "SyncRamExample"]
 | "uart-dpi": ["devices/tests/uart-dpi-fixture.rhdl", "UartDPI"]
+| "event-runtime": ["rhodium/event/tests/event-instrument-fixture.rhdl", "runtime"]
+| "event-elastic": ["rhodium/event/tests/event-elastic-fixture.rhdl", "elastic"]
 | ~else: error("unknown integration fixture")
-def design :: Design = dynamic_require(fixture[0], #'design)
-def top = design.find_module_named(fixture[1])
+def tracing = arguments[1].starts_with("event-")
+def logical :: maybe(DesignElaboration) = if tracing | dynamic_require(fixture[0], (if arguments[1] == "event-runtime" | #'runtime | #'elastic)) | #false
+def design :: Design = if logical | logical.design | dynamic_require(fixture[0], #'design)
+def top = if logical | logical.top | design.find_module_named(fixture[1])
 unless top | error("integration fixture is missing its explicit top")
 def before = dump_ir(design)
 def was_sealed = design.sealed
 def program = ElaboratedProgram(design, top)
-def direct = compile_program(program, verilog_target)
-unless direct.manifest.top == fixture[1] && direct.manifest.signature == module_signature(top)
+def passes = if tracing | [event_trace_pass()] | []
+def direct = compile_program(program, rtl_pipeline_target(verilog_target, passes))
+unless direct.manifest.top == top.name && direct.manifest.signature == module_signature(top)
 | error("direct target changed the authored fixture boundary")
 def result:
   if arguments[0] == "direct"
@@ -33,7 +40,7 @@ def result:
       // Loading CIRCT is confined to the comparison route; direct runs need
       // neither that backend module nor the external CIRCT toolchain.
       def target = dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
-      def reference = compile_program(program, target)
+      def reference = compile_program(program, rtl_pipeline_target(target, passes))
       unless direct.manifest.top == reference.manifest.top && direct.manifest.signature == reference.manifest.signature && direct.manifest.modules == reference.manifest.modules
       | error("integration target manifests disagree")
       // Compare occurrence decisions by their public identity/action fields;
@@ -42,6 +49,8 @@ def result:
       def reference_decisions = reference.manifest.lowerings.map(fun (decision): [decision.path, decision.definition, decision.action, decision.implementation])
       unless direct_decisions == reference_decisions
       | error("integration target lowering decisions disagree")
+      when tracing && direct.artifacts.drop(1) != reference.artifacts.drop(1)
+      | error("trace descriptors disagree between backends")
       reference
 unless dump_ir(design) == before && design.sealed == was_sealed
 | error("compilation mutated the authored fixture")

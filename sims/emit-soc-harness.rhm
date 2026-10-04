@@ -5,10 +5,11 @@
 import:
   rhombus/cmdline open
   rhombus/private/dynamic_require open
-  "../rhodium/core/ir.rhm".DesignElaboration
+  lib("racket/file.rkt").#{display-to-file} as write_file
+  lib("racket/base.rkt").#{build-path} as build_path
   "../rhodium/lowering/program.rhm".ElaboratedProgram
   "../rhodium/compile/program.rhm".compile_program
-  "../rhodium/event/instrument.rhm".EventInstrumentedElaboration
+  "../rhodium/compile/pipeline.rhm".rtl_pipeline_target
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
   "../socs/products/selection.rhm" open
   "../socs/products/resolve.rhm" open
@@ -21,11 +22,11 @@ when backend_option && arguments.length() < 2
 def backend = if backend_option | arguments[1] | "circt"
 unless backend in ["circt", "verilog"] | error(~who: #'emit_soc_harness, "backend must be circt or verilog")
 def remaining = if backend_option | arguments.drop(2) | arguments
-def tracing = remaining.length() == 4 && remaining[0] == "--trace"
+def tracing = remaining.length() == 5 && remaining[0] == "--trace"
 unless remaining.length() == 1 || remaining.length() == 3 || tracing
-| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace shape core ISA")
+| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace output-directory shape core ISA")
 when tracing && backend != "circt" | error(~who: #'emit_soc_harness, "tracing currently requires the CIRCT backend")
-def selectors = if tracing | remaining.drop(1) | remaining
+def selectors = if tracing | remaining.drop(2) | remaining
 def product = if selectors.length() == 1
 | #false
 | resolve_soc_product(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
@@ -50,41 +51,37 @@ fun selected_elaboration(product :: ResolvedSoCProduct):
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
       elaborate_with_top(harness(config))
 
-/* Instrument the selected hierarchy with partial event coverage while retaining gaps. */
-fun traced_elaboration(elaboration :: DesignElaboration):
-  def instrument = dynamic_require("rhodium/event/main.rhm", #'instrument_events)
-  def config = dynamic_require("rhodium/event/main.rhm", #'EventInstrumentationConfig)
-  instrument(elaboration, config(~partial: #true))
-
-/* Serialize the descriptor paired with this exact instrumented elaboration. */
-fun trace_manifest(traced :: EventInstrumentedElaboration):
-  def convert = dynamic_require("rhodium/event/main.rhm", #'event_manifest_to_cpp)
-  convert(traced.manifest)
-
 def elaboration = if product | selected_elaboration(product) | #false
-def traced = if tracing | traced_elaboration(elaboration) | #false
-def event_manifest_cpp = if tracing | trace_manifest(traced) | ""
-def trace_clock_frequency_hz = if tracing | product.description.clocks.clock_frequency_hz | 0
-def ordinary_design = if product | elaboration.design | dynamic_require(selectors[0], #'design)
-def design = if tracing | traced.instrumented.design | ordinary_design
-def top = cond
-| tracing: traced.instrumented.top
-| product: elaboration.top
-| ~else: design.find_module_named("SoCHarness")
+def design = if product | elaboration.design | dynamic_require(selectors[0], #'design)
+def top = if product | elaboration.top | design.find_module_named("SoCHarness")
 unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
 // Load only the selected backend. Both receive the same explicit top and
 // preserve the product's configuration and harness identity comments.
-def target = if backend == "verilog"
+def rtl_target = if backend == "verilog"
 | dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
 | dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
+def target = if tracing
+| block:
+    def trace_pass = dynamic_require("rhodium/event/trace-pass.rhm", #'event_trace_pass)
+    def config = dynamic_require("rhodium/event/instrument.rhm", #'EventInstrumentationConfig)
+    rtl_pipeline_target(rtl_target, [trace_pass(config(~partial: #true))])
+| rtl_target
 def compiled = compile_program(ElaboratedProgram(design, top), target)
+// Publish sidecars only after the complete compilation succeeds. Frequency is
+// simulator configuration, not an event compiler policy or architectural profile.
+when tracing
+| block:
+    def frequency = product.description.clocks.clock_frequency_hz
+    unless frequency is_a PosInt && frequency < 2 ** 64
+    | error(~who: #'emit_soc_harness, "clock frequency must fit a positive uint64")
+    for (artifact in compiled.artifacts.drop(1)):
+      def content = if artifact.name == "events.h"
+      | artifact.content ++ "\nnamespace rheg_generated {\ninline constexpr std::uint64_t clock_frequency_hz = " ++ to_string(frequency) ++ "ULL;\n}\n"
+      | artifact.content
+      write_file(content, build_path(remaining[1], "soc_" ++ artifact.name), ~exists: #'#{truncate/replace})
 when product
 | block:
     println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
     println("// rhodium-rtl-backend: " ++ backend)
     println("// rhodium-harness-variant: " ++ (if tracing | "trace" | "normal"))
 print(compiled.artifacts[0].content)
-
-export:
-  event_manifest_cpp
-  trace_clock_frequency_hz

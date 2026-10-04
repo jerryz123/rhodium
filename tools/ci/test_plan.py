@@ -52,6 +52,9 @@ class PlanTest(unittest.TestCase):
     def test_authored_backend_integration_dependencies(self):
         for path in ("rhodium/backend/tests/verilog/emit-integration.rhm",
                      "rhodium/backend/tests/verilog/run-integration.py",
+                     "rhodium/event/trace-pass.rhm", "flow/event.rhdl", "rheg/runtime/rheg.cc",
+                     "rhodium/event/tests/circt/verilog/event-runtime_tb.sv",
+                     "rhodium/event/tests/circt/verilog/event-elastic_dpi.cpp",
                      "rhodium/std/sync-ram.rhdl", "rhodium/std/ready-valid.rhdl",
                      "rhodium/std/tests/circt/verilog/sync-ram_tb.sv",
                      "examples/std/sync-ram.rhdl", "devices/uart/uart-dpi.rhdl",
@@ -304,13 +307,8 @@ class PlanTest(unittest.TestCase):
     def test_flow_and_standard_library_share_the_base_plan(self):
         flow = self.plan("flow/queue.rhdl")
         standard = self.plan("rhodium/std/ready-valid.rhdl")
-        # The authored backend fixtures import std directly and do not import Flow.
-        integration_checks = {"verilog-direct", "circt-verilog-differential"}
-        self.assertEqual(check_keys(standard) - check_keys(flow), integration_checks)
-        standard["checks_matrix"]["include"] = [
-            entry for entry in standard["checks_matrix"]["include"]
-            if entry["key"] not in integration_checks
-        ]
+        # Event integrations now consume Flow as well as std through both targets.
+        self.assertTrue({"verilog-direct", "circt-verilog-differential"} <= check_keys(flow))
         self.assertEqual(flow, standard)
 
     def test_simulation_only_paths_do_not_expand_host_checks(self):

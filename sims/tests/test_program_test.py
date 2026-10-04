@@ -412,6 +412,15 @@ class ProductSelectionTest(unittest.TestCase):
             self.assertNotEqual(traced.returncode, 0)
             self.assertIn('TRACE=1 currently requires RTL_BACKEND=circt', traced.stderr)
 
+    def test_trace_emission_writes_compilation_sidecars(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = f'{directory}/simple-rv5stage-rva23-trace'
+            result = self.dry_run('SOC=simple-rv5stage-rva23', 'TRACE=1',
+                                  f'BUILD_ROOT={directory}', target=f'{root}/soc_harness.mlir')
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn(f'emit-soc-harness.rhm --trace "{root}" simple rv5stage rva23', result.stdout)
+            self.assertIn(f'> {root}/soc_harness.mlir', result.stdout)
+
     def test_requires_complete_consistent_selection(self):
         for arguments in (
                 ('SOC=mini', 'CORE=rv5stage', 'ISA='),

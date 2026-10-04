@@ -9,8 +9,7 @@ module event_instance_tb #(parameter bit BAD = 0);
   EventInstances dut(.clock(clock), .reset(reset), .chip_id(chip_id),
     .hart0(hart0), .hart1(hart1), .bank_id(bank_id),
     .sources_0_in(source[0]), .sources_1_in(source[1]), .sources_2_in(source[2]),
-    .sinks_0_out(sink[0]), .sinks_1_out(sink[1]), .sinks_2_out(sink[2]),
-    .__event_activity());
+    .sinks_0_out(sink[0]), .sinks_1_out(sink[1]), .sinks_2_out(sink[2]));
   always #5 clock = ~clock;
   import "DPI-C" function void event_instance_bind();
   import "DPI-C" function void event_instance_sample(input int unsigned rst,

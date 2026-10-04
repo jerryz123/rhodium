@@ -317,17 +317,16 @@ $(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR
 	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
 ifeq ($(TRACE),1)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  sims/materialize-event-harness.rkt $(TRACE_HEADER) $(HARNESS_SELECTOR) > $(SOC_MLIR)
+	  $(HARNESS_EMITTER) --trace "$(SOC_BUILD_DIR)" $(HARNESS_SELECTOR) > $(SOC_MLIR)
 else
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  $(HARNESS_EMITTER) $(HARNESS_SELECTOR) > $(SOC_MLIR)
 endif
 
 ifeq ($(TRACE),1)
-$(SOC_MLIR): $(CURDIR)/materialize-event-harness.rkt
 $(TRACE_HEADER): $(SOC_MLIR)
 	@test -f $@ || (cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  sims/materialize-event-harness.rkt $@ $(HARNESS_SELECTOR) > $(SOC_MLIR))
+	  $(HARNESS_EMITTER) --trace "$(SOC_BUILD_DIR)" $(HARNESS_SELECTOR) > $(SOC_MLIR))
 
 $(TRACE_LIBRARY): $(wildcard $(REPO_DIR)/rheg/runtime/* $(REPO_DIR)/rheg/perfetto/* $(REPO_DIR)/riscv/riscv-isa-sim-patches/*.patch) $(REPO_DIR)/riscv/riscv-isa-sim-patches/series $(PATCHED_SUBMODULE_TOOL)
 	$(MAKE) -C $(REPO_DIR)/rheg/perfetto BUILD_DIR=$(TRACE_BUILD_DIR) PYTHON=$(PYTHON) CXX=$(CXX) \

@@ -1,11 +1,14 @@
 #lang rhombus
-// Emits passive instance-context registration on nested repeated modules.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../backend/circt.rhm".emit_circt
-  "../../main.rhm" open
+  "../../../backend/circt-target.rhm".circt_target
+  "../../../compile/pipeline.rhm".rtl_pipeline_target
+  "../../../compile/program.rhm".compile_program
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "../../trace-pass.rhm".event_trace_pass
   "../event-instance-fixture.rhdl" as fixture
 export event_manifest_cpp
-def traced = instrument_events(fixture.instances)
-def event_manifest_cpp = event_manifest_to_cpp(traced.manifest)
-print(emit_circt(traced.instrumented.design))
+def source = fixture.instances
+def compiled = compile_program(ElaboratedProgram(source.design, source.top), rtl_pipeline_target(circt_target, [event_trace_pass()]))
+def event_manifest_cpp = compiled.artifacts.find(fun (artifact): artifact.name == "events.h").content
+print(compiled.artifacts[0].content)

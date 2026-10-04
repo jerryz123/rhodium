@@ -65,12 +65,12 @@ class Selection:
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/std/*", "rhodium/backend/*", "rhodium/compile/*", "rhodium/language.rhm", "rhodium/main.rkt", "flow/*", "cores/*", "riscv/*", "hardfloat/*", "chi/*", "noc/*", "devices/*", "socs/*", "sims/*", "support/annotations.rhm", "devicetree/*", "tools/install-circt.sh", "tools/install-riscv-toolchain.sh", ".github/actions/setup-riscv-toolchain/*"):
             self.all_programs()
 
-        # Authored backend integrations reuse SyncRam/Valid and the UART PTY
-        # model/benches. Their dependencies must select both emission routes.
+        # Authored backend integrations reuse SyncRam, UART, and Flow event
+        # scoreboards. Their dependencies must select both emission routes.
         if not documentation and matches(path, "rhodium/std/*", "devices/uart/uart.rhdl",
                                          "devices/uart/uart-dpi.rhdl", "devices/uart/dpi/*",
                                          "devices/tests/uart-dpi*", "devices/tests/circt/verilog/uart-dpi*",
-                                         "examples/std/sync-ram.rhdl"):
+                                         "examples/std/sync-ram.rhdl", "flow/*", "rhodium/event/*", "rheg/*"):
             self.add_checks("verilog-direct", "circt-verilog-differential")
 
         if path.endswith((".rhm", ".rhdl")) and not matches(path, "tools/emacs/*"):

@@ -134,7 +134,7 @@ Failed runs retain their temporary logs/artifacts; successful runs remove them.
 | Synchronous memory | Depths 1/3/4; 1R/1W/1R1W/1RW; scalar/aggregate data; bit, granule, and whole-word masks; per-bit definedness; old read results; independent instances |
 | Assertions | Guard/reset suppression; pre-update sampling; occurrence/label diagnostics; two passing and six expected failures; all eight scenarios with synthesis defined |
 | DPI | Native and packed widths through 129 bits; wide inputs/out results; held results; independent clocks/enables; call multisets and instance scopes; generated C-header ABI; explicit synthesis rejection |
-| Authored integrations | Existing SyncRam timing/masks and UART bidirectional serial/PTY behavior, unchanged package-owned benches and production native model |
+| Authored integrations | Existing SyncRam timing/masks, UART bidirectional serial/PTY behavior, and event runtime/elastic lineage and functional equivalence, reusing package-owned benches and native models |
 
 Only defined output bits enter comparisons or differential transcripts. Oracles
 track startup and partial initialization explicitly; undefined addresses,
@@ -149,6 +149,10 @@ memory benches run with `SYNTHESIS` defined. DPI runs separately because it
 rejects that mode. The reference type fixture renames a `Packet` output to
 `restored` to avoid the pinned CIRCT exporter's typedef-shadowing issue; the
 direct fixture retains the collision and both share the same bit-level oracle.
+
+Event integrations select `event_trace_pass` through the RTL pipeline and compare
+JSON/C++ descriptors across targets. Their event and Flow dependencies select
+both backend CI lanes.
 
 Authored integrations compare logical signatures, module inventories, portable
 lowering decisions, and source preservation. Their shared behavioral benches

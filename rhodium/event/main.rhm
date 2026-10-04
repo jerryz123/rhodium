@@ -1,5 +1,5 @@
 #lang rhombus
-// Exposes event dependency inference, instrumentation, and manifest serialization.
+/* Exposes event inference, instrumentation, compilation passes, and manifest serialization. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,9 +7,11 @@ import:
   "analyze.rhm" open
   "json.rhm" open
   "instrument.rhm" open
+  "trace-pass.rhm" open
 
 export:
   all_from("model.rhm")
   all_from("analyze.rhm")
   all_from("json.rhm")
   all_from("instrument.rhm")
+  all_from("trace-pass.rhm")

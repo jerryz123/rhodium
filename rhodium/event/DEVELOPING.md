@@ -17,7 +17,7 @@ flowchart LR
   Analyze --> Manifest["event manifest and dynamic plans"]
   Manifest --> Descriptor["JSON and C++ descriptor"]
   Manifest --> Instrument["ordinary verified IR with DPI"]
-  Instrument --> Backend["existing CIRCT backend"]
+  Instrument --> Backend["selected CIRCT or direct SV backend"]
 ```
 
 | Owner | Responsibility |
@@ -30,6 +30,7 @@ flowchart LR
 | `json.rhm` | JSON and matching C++ descriptor from one manifest |
 | `copy.rhm` | Copy occurrence bodies and remap extension metadata through the portable IR resolver |
 | `instrument.rhm` | Validate plans, selectively rebuild hierarchy, and emit state/DPI operations |
+| `trace-pass.rhm` | Adapt instrumentation to `RTLPass`, retaining its stage report and detached JSON/C++ artifacts |
 | `main.rhm` | Public re-exports |
 | [RHEG](../../rheg/DEVELOPING.md) | Independent C++ collector and exporter |
 
@@ -38,6 +39,12 @@ this optional consumer. Instrumentation produces ordinary verified IR; do not
 add event cases to CIRCT lowering. RHEG consumes the generated descriptor and
 DPI ABI, not compiler sources. The authoritative package inventory is
 [rhodium/DEVELOPING.md](../DEVELOPING.md).
+
+`trace-pass.rhm` is the only event module importing compile contracts and the
+RTL pipeline. It instruments `PreparedRTL.rtl` directly, without preparing or
+expanding again. Configuration lives in its callback closure. Descriptor
+serialization uses that invocation's manifest; simulator timing and file writes
+stay with the invoking driver. No backend import or registry is needed.
 
 ## Instance context
 
@@ -51,6 +58,8 @@ Instrumentation aggregates hidden subtree activity through rebuilt occurrences.
 Each scope's declaring module samples its local identity on the first subtree
 activity, emits `rheg_instance(scope, value, cycle)`, and asserts stability until
 reset. Scope owners must share the certified trace clock/reset.
+Only child modules export subtree activity to their parent; the root consumes
+activity internally so instrumentation preserves the exact top signature.
 The logical design and its functional ports/storage are unchanged.
 
 Run `event-instance-test.rhm` and the `event-instance` CIRCT fixture for nested
@@ -391,6 +400,15 @@ wrappers:
 ```sh
 make event-test
 make event-runtime-test
+```
+
+`trace-pass-test.rhm` checks both targets, matching descriptors, repeated
+compilation and ordinary/traced reuse of one source, partial-mode gaps, and a
+graph-rewriting stage on either side of tracing. The backend integration runner
+reuses the runtime and elastic public-transfer scoreboards on both emission routes:
+
+```sh
+python3 rhodium/backend/tests/verilog/run-integration.py --fixture event-runtime --fixture event-elastic --differential
 ```
 
 `copy-metadata-test.rhm` covers unrelated observer metadata on repeated traced

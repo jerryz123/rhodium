@@ -433,7 +433,10 @@ fun instrument_events(logical :: DesignElaboration,
       for (child in occurrence.children):
         when child.ordinal in modified
         | activity := builder.bit_or(module_def, activity, copied.instances[child.instance.id].output("__event_activity"))
-      builder.drive(builder.output(module_def, "__event_activity", Bits(1)), activity)
+      // Only a parent consumes exported activity. The root keeps its functional
+      // boundary while still using local activity for identity registration.
+      unless occurrence === root
+      | builder.drive(builder.output(module_def, "__event_activity", Bits(1)), activity)
       for (scope in local_instances):
         def index = (for List (i in 0..manifest.instances.length()): i).find(fun (i): manifest.instances[i] === scope)
         def name = "__event_instance_" ++ to_string(index)

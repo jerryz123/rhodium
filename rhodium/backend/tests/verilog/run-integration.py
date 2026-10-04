@@ -14,6 +14,12 @@ from support import ROOT, FIXTURES, run
 CASES = {
     "sync-ram": ("sync_ram_tb", "rhodium/std/tests/circt/verilog/sync-ram_tb.sv",
                  (), "fixed-latency masked SyncRam passed"),
+    "event-runtime": ("event_runtime_tb", "rhodium/event/tests/circt/verilog/event-runtime_tb.sv",
+                      ("rhodium/event/tests/circt/verilog/event-runtime_dpi.cpp", "rheg/runtime/rheg.cc"),
+                      "event runtime simulation passed"),
+    "event-elastic": ("event_elastic_tb", "rhodium/event/tests/circt/verilog/event-elastic_tb.sv",
+                      ("rhodium/event/tests/circt/verilog/event-elastic_dpi.cpp", "rheg/runtime/rheg.cc"),
+                      "event elastic simulation passed"),
     "uart-dpi": ("uart_dpi_tb", "devices/tests/circt/verilog/uart-dpi_tb.sv",
                  ("devices/tests/circt/verilog/uart-dpi_dpi.cpp", "devices/uart/dpi/uart_dpi.cc"),
                  "UART DPI PTY and serial behavior passed"),
