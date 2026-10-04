@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines bundle declarations, type-named record construction, and field access.
+/* Defines bundle declarations, type-named record construction, and field access. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,29 +23,34 @@ export:
   bundle
   record
 
+/* Identifies one bundle declaration independently of its structurally equal record specializations. */
 class BundleIdentity()
 
-// Retains declaration provenance and concrete generator arguments without
-// changing RecordType's structural hardware equality.
+/*
+ * Retains declaration provenance and concrete generator arguments without
+ * changing RecordType's structural hardware equality.
+ */
 class BundleType(family_identity :: BundleIdentity = BundleIdentity(),
                  specialization_arguments :: List = []):
   extends RecordType
 
+/* Provides host construction and declaration-owned introspection for bundle specializations. */
 class BundleFamily(name :: String,
                    identity :: BundleIdentity,
                    construct :: Function):
   implements Callable
 
+  /* Forwards positional and keyword generator arguments to the bundle descriptor constructor. */
   override method call(& arguments :: List, ~& keywords :: Map):
     construct(& arguments, ~& keywords)
 
-  // Returns concrete arguments only for a specialization of this declaration.
+  /* Returns concrete arguments only for a specialization of this declaration. */
   method specialization_arguments(type :: DataType):
     if type is_a BundleType && type.family_identity === identity
     | type.specialization_arguments
     | #false
 
-  // Requires a specialization of this declaration and returns its arguments.
+  /* Requires a specialization of this declaration and returns its arguments. */
   method require_specialization(type :: DataType):
     def arguments = specialization_arguments(type)
     unless arguments
@@ -53,10 +58,13 @@ class BundleFamily(name :: String,
             "expected a " ++ name ++ " specialization")
     arguments
 
-// A record literal recursively packs its first declared field into the most
-// significant part of the canonical representation, matching core casts.
+/*
+ * A record literal recursively packs its first declared field into the most
+ * significant part of the canonical representation, matching core casts.
+ */
 class RecordLiteral(type :: RecordType, fields :: List.of(List)):
   implements HardwareLiteral
+  /* Requires exactly one correctly typed literal for every declared field. */
   constructor (type :: RecordType, fields :: List.of(List)):
     unless fields.length() == type.fields.length()
     | error(~who: #'record, "literal must supply every record field exactly once")
@@ -72,8 +80,10 @@ class RecordLiteral(type :: RecordType, fields :: List.of(List)):
               "literal field " ++ declared.name ++ " has the wrong hardware type")
     super(type, fields)
 
+  /* Returns the literal's concrete record descriptor. */
   override method literal_type(): type
 
+  /* Packs fields in declaration order with the first field most significant. */
   override method packed_value():
     def mutable packed = 0
     for (declared in type.fields):
@@ -84,16 +94,19 @@ class RecordLiteral(type :: RecordType, fields :: List.of(List)):
       packed := shifted + field_literal.packed_value()
     packed
 
+/* Constructs an immutable literal when all fields are literals, otherwise emits an ordinary record value. */
 fun build_record(type :: RecordType, fields :: List.of(List)) :~ HardwareFields:
   if for all (field in fields):
        field.length() == 2 && field[1] is_a HardwareLiteral
   | RecordLiteral(type, fields)
   | kernel.record_create(type, fields)
 
+/* Evaluates a host-enabled field group or omits it without evaluating its thunk. */
 fun conditional_bundle_fields(condition :: Boolean,
                               fields_thunk :: Function.of_arity(0)):
   if condition | fields_thunk() | []
 
+/* Flattens realized field groups and requires a nonempty structural record while retaining declaration provenance. */
 fun build_bundle_type(name :: String,
                       field_groups :: List,
                       family_identity :: BundleIdentity,
@@ -208,8 +221,10 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
   def mutable method_names = []
   def mutable method_entries = []
   def mutable method_definitions = []
+  /* Substitutes call-site generator arguments into a field's type syntax. */
   fun substitute_bundle_parameters(field_type :: Syntax):
     substitute_generator_parameters(field_type, [parameter.binding, ...])
+  /* Records runtime, descriptor, and annotation-safe field surfaces for later bundle projection. */
   fun retain_static_field(field_name :: Syntax, field_type :: Syntax):
     static_fields := static_fields ++ [
       '$field_name: HardwareFields.from_type($field_type)'
@@ -273,6 +288,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
             (typed ($result_constructor($result_argument, ...))))'
         ]
         method_definitions := method_definitions ++ [
+          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
           'fun $method_function($receiver :: $name(), $argument, ...) :: $result_constructor($result_argument, ...):
              $method_body
              ...'
@@ -291,6 +307,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
           '($method_name, $method_function, ($argument_binding, ...), (typed ($result_type)))'
         ]
         method_definitions := method_definitions ++ [
+          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
           'fun $method_function($receiver :: $name(), $argument, ...) :: $result_type:
              $method_body
              ...'
@@ -309,6 +326,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
           '($method_name, $method_function, ($argument_binding, ...), untyped)'
         ]
         method_definitions := method_definitions ++ [
+          /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
           'fun $method_function($receiver :: $name(), $argument, ...) :~ HardwareFields:
              $method_body
              ...'
@@ -337,6 +355,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
       def type_descriptor = Syntax.make_id(bundle_name ++ "_bundle_descriptor", name)
       '«
          def $identity_name = BundleIdentity()
+         /* Realizes this declaration's field groups and retains its generator specialization arguments. */
          fun $type_constructor($parameter, ...):
            build_bundle_type($bundle_name,
                              [$field_group, ...],
@@ -365,6 +384,7 @@ defn.macro 'bundle $(name :: Identifier)($(parameter :: GeneratorParameter), ...
        »'
   | '«
        def $identity_name = BundleIdentity()
+       /* Realizes this declaration's field groups and retains its generator specialization arguments. */
        fun $type_constructor($parameter, ...):
          build_bundle_type($bundle_name,
                            [$field_group, ...],

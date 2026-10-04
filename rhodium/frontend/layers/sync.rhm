@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines sync circuits with hidden ambient controls and scoped synchronous resets.
+/* Defines sync circuits with hidden ambient controls and scoped synchronous resets. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,6 +19,7 @@ export:
   reset_active
   reset_when
 
+/* Returns the effective ambient reset predicate, including nested reset_when scopes. */
 fun reset_active() :~ HardwareFields:
   ambient_reset_active()
 
@@ -58,6 +59,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
     | 'fun $(local_name :: Identifier) $tail ...':
         body_local_names := body_local_names ++ [local_name.to_source_string()]
     | ~else: #void
+  /* Recognizes type syntax available outside the circuit body, excluding body-local definitions. */
   fun static_type_available(port_type :: Syntax):
     match port_type
     | '$(type_name :: Identifier)':
@@ -72,6 +74,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
   def mutable member_entries = []
   def mutable fallback_member_entries = []
   def mutable positional_member_entries = []
+  /* Detects dependence on a selected parameter-name set, separating keyword-independent member surfaces. */
   fun type_depends_on_parameter(member_type :: Syntax, names :: List.of(String) = parameter_names):
     match member_type
     | '$(type_name :: Identifier)':
@@ -83,6 +86,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
           | depends := #true
         depends
     | ~else: #true
+  /* Records available data-port surfaces and their keyword-independent and parameter-independent fallbacks. */
   fun retain_data_member(member_name :: Syntax, member_type :: Syntax):
     when static_type_available(member_type)
     | def entry = '$member_name: HardwareFields.from_type($member_type)'
@@ -91,6 +95,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
       | positional_member_entries := positional_member_entries ++ [entry]
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ [entry]
+  /* Records scalar/array interface surfaces and the subsets safe for positional and fallback dispatch. */
   fun retain_interface_member(member_name :: Syntax,
                               member_type :: Syntax,
                               array :: Boolean):
@@ -125,6 +130,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
   let [member_entry, ...] = member_entries
   let [fallback_member_entry, ...] = fallback_member_entries
   let [parameter_binding, ...] = [argument.binding, ...]
+  /* Substitutes call-site generator syntax into selected member annotations without discarding their surface wrapper. */
   fun substitute_parameters(form :: Syntax):
     match form
     | 'HardwareFields.from_type($type)':
@@ -167,7 +173,9 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
     | ~else: required_positional := #false
   def definition = '«
      def circuit_identity = kernel_new_circuit_identity($circuit_name)
+     /* Delegates synchronous module specialization with normalized arguments and the authored body. */
      fun $implementation_name($argument, ...):
+       /* Runs the authored synchronous body inside the clock/reset domain established by build_sync_circuit. */
        fun implementation():
          $body
          ...
@@ -179,6 +187,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
   if [argument, ...].length() == 0
   | '«
        $definition
+       /* Calls the circuit implementation while advertising the available declared-member surface. */
        fun $name() :~ CircuitMemberFields($member_entry, ...):
          $implementation_name()
      »'
@@ -206,6 +215,7 @@ defn.macro 'sync_circuit $(name :: Identifier)($(argument :: GeneratorParameter)
         »'
       | '«
          $definition
+         /* Calls the circuit implementation while advertising the available declared-member surface. */
          fun $name($argument, ...) :~ CircuitMemberFields($fallback_member_entry, ...):
            $implementation_name($implementation_argument, ...)
         »'

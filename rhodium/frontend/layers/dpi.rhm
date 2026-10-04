@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines explicit procedure calls and binding-derived DPI register syntax.
+/* Defines explicit procedure calls and binding-derived DPI register syntax. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,22 +17,27 @@ export:
   dpi_import
   dpi_reg
 
+/* Stores a detached DPI procedure/function signature until a call or register binding needs its core import. */
 class DpiDefinition(name :: AsciiIdentifier,
                     input_names :: List.of(AsciiIdentifier),
                     input_types :: List.of(DataType),
                     results :: List.of(DpiResult) = []):
+  /* Reports whether the signature has any return or output results. */
   method has_result():
     results.length() != 0
 
+/* Declares the detached DPI signature in the active design. */
 fun materialize_import(definition :: DpiDefinition):
   kernel.dpi_import_results(definition.name,
                             definition.input_names,
                             definition.input_types,
                             definition.results)
 
+/* Uses the caller's enable or constructs an unconditional one-bit enable. */
 fun resolved_enable(enable :: maybe(HardwareEntity)):
   if enable | enable | kernel.literal(Bits(1), 1)
 
+/* Rejects result-bearing imports and emits a procedure call with explicit or ambient clock. */
 fun call_dpi_procedure(procedure :: DpiDefinition,
                        inputs :: List.of(HardwareEntity),
                        clock :: maybe(HardwareEntity) = #false,
@@ -47,6 +52,7 @@ fun call_dpi_procedure(procedure :: DpiDefinition,
   | kernel.dpi_call(imported, inputs, clock, enabled)
   | ambient_dpi_call(imported, inputs, enabled)
 
+/* Requires exactly one function result and creates its named register with explicit or ambient clock. */
 fun make_dpi_register(name :: AsciiIdentifier,
                       function :: DpiDefinition,
                       inputs :: List.of(HardwareEntity),
@@ -65,6 +71,7 @@ fun make_dpi_register(name :: AsciiIdentifier,
   | kernel.dpi_register(name, imported, inputs, clock, enabled)
   | ambient_dpi_register(name, imported, inputs, enabled)
 
+/* Matches multiple result names to the function signature and creates their registered outputs. */
 fun make_dpi_registers(result_names :: NonemptyList.of(AsciiIdentifier),
                        function :: DpiDefinition,
                        inputs :: List.of(HardwareEntity),
@@ -84,10 +91,12 @@ fun make_dpi_registers(result_names :: NonemptyList.of(AsciiIdentifier),
   | kernel.dpi_register_results(result_names, imported, inputs, clock, enabled)
   | ambient_dpi_register_results(result_names, imported, inputs, enabled)
 
+/* Finds one generated DPI result value by its declared binding name. */
 fun find_dpi_register_result(result_values :: List.of(Value),
                              name :: AsciiIdentifier) :~ HardwareFields:
   result_values.find(fun (result_value): result_value.name == name)
 
+/* Forwards a single binding's positional inputs and keyword controls to registered DPI construction. */
 fun declare_dpi_register(name :: AsciiIdentifier,
                          function :: DpiDefinition,
                          ~clock: clock :: maybe(HardwareEntity) = #false,
@@ -95,6 +104,7 @@ fun declare_dpi_register(name :: AsciiIdentifier,
                          & inputs :: List.of(HardwareEntity)) :~ HardwareFields:
   make_dpi_register(name, function, inputs, clock, enable)
 
+/* Forwards multiple bindings' positional inputs and keyword controls to registered DPI construction. */
 fun declare_dpi_registers(result_names :: NonemptyList.of(AsciiIdentifier),
                           function :: DpiDefinition,
                           ~clock: clock :: maybe(HardwareEntity) = #false,

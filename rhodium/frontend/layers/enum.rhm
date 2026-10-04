@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines hardware-enum declarations over shared nominal variant schemas.
+/* Defines hardware-enum declarations over shared nominal variant schemas. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,6 +23,7 @@ export:
   enum_values
   enum_encoding
 
+/* Constructs a fresh nominal enum with declaration-order integer encodings and optional fixed width. */
 fun make_automatic_enum(name :: AsciiIdentifier,
                         member_names :: NonemptyList.of(AsciiIdentifier),
                         requested_width :: maybe(PosInt) = #false):
@@ -35,6 +36,7 @@ fun make_automatic_enum(name :: AsciiIdentifier,
     )
   )
 
+/* Constructs a fresh nominal enum with validated author-supplied integer encodings. */
 fun make_explicit_enum(name :: AsciiIdentifier,
                        members :: NonemptyList.of(List),
                        requested_width :: maybe(PosInt) = #false):
@@ -47,6 +49,7 @@ fun make_explicit_enum(name :: AsciiIdentifier,
     )
   )
 
+/* Constructs a fresh nominal enum with one selector bit per member. */
 fun make_one_hot_enum(name :: AsciiIdentifier,
                       member_names :: NonemptyList.of(AsciiIdentifier)):
   enum_type_from_schema(
@@ -57,10 +60,12 @@ fun make_one_hot_enum(name :: AsciiIdentifier,
     )
   )
 
+/* Checks whether a hardware value carries a nominal one-hot enum descriptor. */
 fun hardware_has_one_hot_enum_type(value :: HardwareEntity):
   hardware_value_type(value) is_a OneHotEnumType
 
 meta:
+  /* Retains the first map choice's static surface, recovering type-named enum member annotations when necessary. */
   fun one_hot_enum_mux_result(result :: Syntax, cases :: Syntax):
     match cases.group
     | '{$(_key :: expr_meta.Parsed): $(first :: Block), $rest, ...}':
@@ -114,8 +119,10 @@ dot.macro 'enum_member_dot $left $dot $right':
   'enum_value($left, $(right.to_source_string())) :: HardwareFields'
 
 meta:
-  // Builds all enum encodings through one declaration path so methods have
-  // identical behavior on automatic, explicit, fixed-width, and one-hot forms.
+  /*
+   * Builds all enum encodings through one declaration path so methods have
+   * identical behavior on automatic, explicit, fixed-width, and one-hot forms.
+   */
   fun expand_hardware_enum(name :: Syntax, options :: List, clauses :: List):
     def enum_name = name.to_source_string()
     def mutable requested_width = #false
@@ -170,6 +177,7 @@ meta:
               (typed ($result_constructor($result_argument, ...))))'
           ]
           method_definitions := method_definitions ++ [
+            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
             'fun $method_function($receiver :: $name, $argument, ...) :: $result_constructor($result_argument, ...):
                $method_body
                ...'
@@ -190,6 +198,7 @@ meta:
             '($method_name, $method_function, ($argument_binding, ...), (typed ($result_type)))'
           ]
           method_definitions := method_definitions ++ [
+            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
             'fun $method_function($receiver :: $name, $argument, ...) :: $result_type:
                $method_body
                ...'
@@ -210,6 +219,7 @@ meta:
             '($method_name, $method_function, ($argument_binding, ...), untyped)'
           ]
           method_definitions := method_definitions ++ [
+            /* Implements the authored receiver-owned method body with its declared receiver and result surface. */
             'fun $method_function($receiver :: $name, $argument, ...) :~ HardwareFields:
                $method_body
                ...'

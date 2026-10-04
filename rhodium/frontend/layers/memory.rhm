@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines binding-derived memories with async indexing and synchronous writes.
+/* Defines binding-derived memories with async indexing and synchronous writes. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ export:
   index_width
   MemoryFields
 
+/* Returns the positive Bits address width required by the memory depth. */
 fun index_width(depth :: PosInt):
   memory_address_width(depth)
 
@@ -42,10 +43,12 @@ namespace MemoryFields:
     )
     annot_meta.pack_predicate(predicate, result_infos)
 
+/* Constructs an asynchronous memory read at the supplied hardware address. */
 fun memory_index(memory :: Memory,
                  address :: HardwareEntity) :~ HardwareFields:
   kernel.memory_read_async(memory, address)
 
+/* Emits a clocked memory write with a default true enable and explicit or ambient clock. */
 fun frontend_memory_write(memory :: Memory,
                           address :: HardwareEntity,
                           data :: HardwareEntity,

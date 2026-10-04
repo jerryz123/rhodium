@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines shared typed-key protocols for frontend mux lookup extensions.
+/* Defines shared typed-key protocols for frontend mux lookup extensions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,29 +12,44 @@ export:
   OneHotSelectorType
   mux_lookup_literal
 
-// A typed lookup key can also materialize as ordinary hardware data. Selector
-// types decide whether a particular key belongs to their own key space.
+/*
+ * A typed lookup key can also materialize as ordinary hardware data. Selector
+ * types decide whether a particular key belongs to their own key space.
+ */
 interface MuxLookupKey:
   extends HardwareLiteral
+  /* Returns the literal's nominal type for selector-owned key validation. */
   method mux_lookup_key_type(): this.literal_type()
+  /* Returns the literal's packed integer as a lookup key. */
   method mux_lookup_key_encoding(): this.packed_value()
 
-// A single semantic literal adapter serves every typed mux-key space. Types
-// retain responsibility for validating which packed encodings are legal keys.
+/*
+ * A single semantic literal adapter serves every typed mux-key space. Types
+ * retain responsibility for validating which packed encodings are legal keys.
+ */
 class MuxLookupLiteral(literal :: HardwareLiteral):
   implements MuxLookupKey
+  /* Forwards the wrapped literal's hardware type. */
   override method literal_type(): literal.literal_type()
+  /* Forwards the wrapped literal's packed integer. */
   override method packed_value(): literal.packed_value()
+  /* Preserves the wrapped literal's optional constant name. */
   override method literal_name(): literal.literal_name()
 
+/* Wraps a validated typed packed literal as a selector-normalizable lookup key. */
 fun mux_lookup_literal(type :: DataType, encoding :: Nat):
   MuxLookupLiteral(packed_literal(type, encoding))
 
+/* Defines selector-owned normalization of host natural or typed literal lookup keys. */
 interface MuxLookupSelectorType:
+  /* Validates a key against this selector's key space and returns its packed encoding. */
   method normalize_mux_lookup_key(key :: MuxLookupKey || Nat)
 
-// Types implement this protocol when their packed representation directly
-// selects one result lane per bit.
+/*
+ * Types implement this protocol when their packed representation directly
+ * selects one result lane per bit.
+ */
 interface OneHotSelectorType:
   extends MuxLookupSelectorType
+  /* Returns the number of independently selectable lanes in the packed selector. */
   method one_hot_selector_width()

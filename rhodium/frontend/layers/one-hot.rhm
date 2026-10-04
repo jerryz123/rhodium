@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines structurally sized one-hot values, index conversion, and typed selection.
+/* Defines structurally sized one-hot values, index conversion, and typed selection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,53 +19,66 @@ export:
   one_hot_type
   one_hot_width
 
+/* Encodes a host lane index as a single set bit. */
 fun one_hot_encoding(index :: Nat):
   1 << index
 
+/* Defines an exact-one-hot scalar selector with structural width and typed literal lookup keys. */
 class _OneHotType(width :: PosInt):
   implements ScalarDataType
   implements Callable
   implements mux_support.OneHotSelectorType
 
+  /* Returns the exact-one-hot selector width in diagnostic form. */
   override method describe():
     "onehot<" ++ to_string(width) ++ ">"
 
+  /* Requires another exact-one-hot descriptor with the same lane count. */
   override method type_equal(other :: HardwareType):
     one_hot_type(other) && width == other.width
 
+  /* Returns the selector's lane count as its packed width. */
   override method packed_width():
     width
 
+  /* Constructs one typed lane literal, rejecting indices outside the selector width. */
   override method call(index :: Nat):
     unless index < width
     | error(~who: #'OneHot,
             "literal index must satisfy 0 <= index < width")
     mux_support.mux_lookup_literal(this, one_hot_encoding(index))
 
+  /* Rejects foreign or untyped keys and returns a matching OneHot literal's encoding. */
   override method normalize_mux_lookup_key(key :: mux_support.MuxLookupKey || Nat):
     unless key is_a mux_support.MuxLookupKey && this.type_equal(key.mux_lookup_key_type())
     | error(~who: #'mux_lookup,
             "one-hot mux lookup keys must belong to the selector's OneHot type")
     key.mux_lookup_key_encoding()
 
+  /* Returns the exact selector's lane count. */
   override method one_hot_selector_width():
     width
 
+/* Constructs an exact-one-hot descriptor with a positive lane count. */
 fun build_one_hot_type(width :: PosInt):
   _OneHotType(width)
 
+/* Recognizes the structural exact-one-hot descriptor family. */
 fun one_hot_type(type :: HardwareType):
   type is_a _OneHotType
 
+/* Returns the lane count, rejecting non-OneHot descriptors. */
 fun one_hot_width(type :: HardwareType):
   unless one_hot_type(type)
   | error(~who: #'one_hot_width, "expected a OneHot type")
   type.width
 
+/* Checks that a hardware value carries an exact-one-hot descriptor. */
 fun hardware_has_one_hot_type(value :: HardwareEntity):
   one_hot_type(hardware_value_type(value))
 
 meta:
+  /* Preserves the first literal-list choice's static surface on the generated mux result when available. */
   fun one_hot_mux_result(result :: Syntax, choices :: Syntax):
     match choices.group
     | '[$(first :: expr_meta.Parsed), $rest, ...]':
@@ -131,8 +144,10 @@ expr.macro 'OneHot($(width :: expr_meta.Parsed))':
      OneHotValue
    )'
 
-// Converts every encoding of Bits(n) into one of the 2^n lanes, so the result
-// preserves the exactly-one invariant without an out-of-range case.
+/*
+ * Converts every encoding of Bits(n) into one of the 2^n lanes, so the result
+ * preserves the exactly-one invariant without an out-of-range case.
+ */
 fun build_one_hot(index :: HardwareEntity,
                   name :: maybe(AsciiIdentifier) = #false,
                   location :: Location = Location()) :~ HardwareFields:

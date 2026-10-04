@@ -29,6 +29,7 @@ export:
   instantiate
   instantiate_reset_when
 
+/* Pairs the current module's explicit clock and effective reset during ambient synchronous elaboration. */
 class SyncDomain(clock :: Value, reset :: Value)
 
 /* Stores detached sync control-port names and certifies their concrete realization. */
@@ -44,14 +45,17 @@ class SyncCircuitMetadata(clock_port :: AsciiIdentifier,
 
 def sync_circuit_metadata_namespace = "rhodium.sync-circuit"
 
+/* Finds the first single-clock declaration attached to a concrete module, or returns false. */
 fun module_sync_circuit_metadata(module_def :: Module):
   module_def.metadata_for(sync_circuit_metadata_namespace).find(
     fun (candidate):
       candidate is_a SyncCircuitMetadata
   )
 
-// This wrapper is frontend-only. Its core module still contains ordinary
-// clock/reset ports, register operands, instance inputs, and drives.
+/*
+ * This wrapper is frontend-only. Its core module still contains ordinary
+ * clock/reset ports, register operands, instance inputs, and drives.
+ */
 class SyncCircuitDefinition(module_def :: Module,
                             clock_port :: AsciiIdentifier = "clock",
                             reset_port :: AsciiIdentifier = "reset"):
@@ -63,25 +67,30 @@ class SyncCircuitDefinition(module_def :: Module,
     clock_port,
     reset_port
   )
+  /* Returns the stable signature-bearing reference for this synchronous wrapper. */
   override method definition_reference(): reference
 
 Parameter.def current_sync_domain = #false
 
+/* Reports a synchronous authoring error with its source location. */
 fun sync_fail(message :: String, location :: Location = Location()):
   error(~who: #'sync_circuit, location.describe() ++ ": " ++ message)
 
+/* Returns the ambient domain only when its clock belongs to the active module. */
 fun active_sync_domain(location :: Location = Location()):
   def domain = current_sync_domain()
   if domain is_a SyncDomain && domain.clock.module_def === kernel.active_module(location)
   | domain
   | #false
 
+/* Requires a module-local synchronous domain before supplying implicit controls. */
 fun require_sync_domain(location :: Location = Location()):
   def domain = active_sync_domain(location)
   unless domain
   | sync_fail("implicit clock/reset use requires an active sync_circuit", location)
   domain
 
+/* Rejects explicit clock/reset overrides inside an ambient sync_circuit. */
 fun reject_explicit_sync_control(location :: Location = Location()):
   when active_sync_domain(location)
   | sync_fail(
@@ -89,6 +98,7 @@ fun reject_explicit_sync_control(location :: Location = Location()):
       location
     )
 
+/* Runs a body with the same clock and a reset ORed with a readable one-bit condition. */
 fun ambient_reset_when(condition :: HardwareEntity,
                        body :: Function.of_arity(0),
                        location :: Location = Location()):
@@ -107,13 +117,16 @@ fun ambient_reset_when(condition :: HardwareEntity,
   parameterize { current_sync_domain: SyncDomain(domain.clock, combined_reset) }:
     body()
 
+/* Exposes the effective scoped reset as a one-bit Bits value. */
 fun ambient_reset_active(location :: Location = Location()):
   def domain = require_sync_domain(location)
   kernel.cast(domain.reset, Bits(1), #false, location)
 
+/* Returns the active synchronous domain's clock input. */
 fun ambient_clock(location :: Location = Location()):
   require_sync_domain(location).clock
 
+/* Constructs clock/reset ports, runs the body and finalizers in their ambient domain, then certifies the finished module. */
 fun build_sync_circuit(identity :: kernel.CircuitIdentity,
                        name :: String,
                        arguments :: List,
@@ -142,12 +155,14 @@ fun build_sync_circuit(identity :: kernel.CircuitIdentity,
                       module_def.find_input("reset").value)
   SyncCircuitDefinition(module_def)
 
+/* Creates a resetless register driven by the ambient clock. */
 fun ambient_register(name :: AsciiIdentifier,
                      type :: DataType,
                      location :: Location = Location()):
   def domain = require_sync_domain(location)
   kernel.reg(name, type, domain.clock, #false, #false, location)
 
+/* Creates a register with the ambient clock, effective reset, and supplied reset value. */
 fun ambient_reset_register(name :: AsciiIdentifier,
                            type :: DataType,
                            reset_value :: HardwareEntity,
@@ -155,6 +170,7 @@ fun ambient_reset_register(name :: AsciiIdentifier,
   def domain = require_sync_domain(location)
   kernel.reg(name, type, domain.clock, domain.reset, reset_value, location)
 
+/* Emits a memory write with the ambient clock and the caller's functional enable. */
 fun ambient_memory_write(memory :: Memory,
                          address :: HardwareEntity,
                          data :: HardwareEntity,
@@ -163,6 +179,7 @@ fun ambient_memory_write(memory :: Memory,
   def domain = require_sync_domain(location)
   kernel.memory_write(memory, address, data, domain.clock, enable, location)
 
+/* Constructs synchronous memory with the ambient clock and requested ports/mask granularity. */
 fun ambient_sync_memory(name :: AsciiIdentifier,
                         depth :: PosInt,
                         element_type :: DataType,
@@ -182,6 +199,7 @@ fun ambient_sync_memory(name :: AsciiIdentifier,
                      mask_granularity,
                      location)
 
+/* Emits an assertion checked on the ambient clock and disabled by the effective reset. */
 fun ambient_assert(condition :~ HardwareEntity,
                    label :: maybe(AsciiIdentifier) = #false,
                    location :: Location = Location()):
@@ -192,6 +210,7 @@ fun ambient_assert(condition :~ HardwareEntity,
                 label,
                 location)
 
+/* Calls a DPI procedure on the ambient clock under the supplied enable. */
 fun ambient_dpi_call(dpi_import :: DpiImport,
                      inputs :: List.of(HardwareEntity),
                      enable :: HardwareEntity,
@@ -199,6 +218,7 @@ fun ambient_dpi_call(dpi_import :: DpiImport,
   def domain = require_sync_domain(location)
   kernel.dpi_call(dpi_import, inputs, domain.clock, enable, location)
 
+/* Creates one registered DPI result on the ambient clock under the supplied enable. */
 fun ambient_dpi_register(name :: AsciiIdentifier,
                          dpi_import :: DpiImport,
                          inputs :: List.of(HardwareEntity),
@@ -207,6 +227,7 @@ fun ambient_dpi_register(name :: AsciiIdentifier,
   def domain = require_sync_domain(location)
   kernel.dpi_register(name, dpi_import, inputs, domain.clock, enable, location)
 
+/* Creates all named registered DPI results using the ambient clock and supplied enable. */
 fun ambient_dpi_register_results(
       result_names :: List.of(AsciiIdentifier),
       dpi_import :: DpiImport,
@@ -221,8 +242,10 @@ fun ambient_dpi_register_results(
                               enable,
                               location)
 
-// Only marked sync children participate in propagation. Ordinary circuits are
-// never inferred to be synchronous from their port names or control types.
+/*
+ * Only marked sync children participate in propagation. Ordinary circuits are
+ * never inferred to be synchronous from their port names or control types.
+ */
 fun instantiate(name :: AsciiIdentifier,
                 child :: Module || CircuitDefinition,
                 clock :: maybe(HardwareEntity) = #false,
@@ -250,6 +273,7 @@ fun instantiate(name :: AsciiIdentifier,
       | sync_fail("clock/reset overrides require a sync_circuit child", location)
       kernel.inst(name, reference, location)
 
+/* Instantiates a declared sync child under a locally strengthened reset, preserving ordinary eager recipe order. */
 fun instantiate_reset_when(name :: AsciiIdentifier,
                            child :: Module || CircuitDefinition,
                            condition :: HardwareEntity,

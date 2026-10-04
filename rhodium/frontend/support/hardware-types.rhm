@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Generates a complete scalar hardware descriptor and its exact value annotation.
+/* Generates a complete scalar hardware descriptor and its exact value annotation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -60,18 +60,24 @@ defn.macro 'hardware_type $(name :: Identifier)($(parameter :: GeneratorParamete
   unless description
   | syntax_meta.error("hardware_type requires a describe clause", name)
   '«
+     /* Implements the declared scalar family with its parameter-dependent packed width and equality key. */
      class $hidden_type($parameter, ...):
        implements $implemented_type
        property hardware_type_equality_key:
          $equality_key
+       /* Returns the author-supplied diagnostic description of this specialization. */
        override method describe():
          $description
+       /* Requires the same generated nominal family and equal host specialization keys. */
        override method type_equal(other :: HardwareType):
          other is_a $hidden_type && hardware_type_equality_key == other.hardware_type_equality_key
+       /* Returns the author-supplied packed width for this specialization. */
        override method packed_width():
          $width
+     /* Constructs the hidden descriptor with the normalized generator arguments. */
      fun $constructor_name($parameter, ...) :: HardwareType:
        $hidden_type($parameter_binding, ...)
+     /* Recognizes descriptors belonging to this declaration's nominal hardware family. */
      fun $family_predicate_name(type :: HardwareType):
        type is_a $hidden_type
      expr.macro '$name($('$')$parameter_binding, ...)':

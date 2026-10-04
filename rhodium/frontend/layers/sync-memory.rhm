@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines circuit-shaped synchronous memories with fixed read, write, and shared ports.
+/* Defines circuit-shaped synchronous memories with fixed read, write, and shared ports. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,7 @@ import:
 export:
   sync_mem
 
+/* Validates port/mask options and constructs synchronous memory with an explicit or ambient clock. */
 fun declare_sync_memory(name :: AsciiIdentifier,
                         depth :: PosInt,
                         element_type :: DataType,
@@ -44,42 +45,58 @@ fun declare_sync_memory(name :: AsciiIdentifier,
                         has_read_write,
                         mask_granularity)
 
+/* Returns the memory's declared read port, rejecting memories without one. */
 fun sync_memory_read_port(memory :: SyncMemory):
   unless memory.read_port
   | error(~who: #'read, "synchronous memory has no read port")
   memory.read_port
 
+/* Returns the memory's declared write port, rejecting memories without one. */
 fun sync_memory_write_port(memory :: SyncMemory):
   unless memory.write_port
   | error(~who: #'write, "synchronous memory has no write port")
   memory.write_port
 
+/* Returns the memory's declared shared read/write port, rejecting memories without one. */
 fun sync_memory_read_write_port(memory :: SyncMemory):
   unless memory.read_write_port
   | error(~who: #'read_write,
           "synchronous memory has no read-write port")
   memory.read_write_port
 
+/* Exposes the read address input with the common hardware surface. */
 fun sync_memory_read_address(port :: SyncMemoryReadPort) :~ HardwareFields: port.address
+/* Exposes the read-enable input with the common hardware surface. */
 fun sync_memory_read_enable(port :: SyncMemoryReadPort) :~ HardwareFields: port.enable
+/* Exposes the registered read-data output with the common hardware surface. */
 fun sync_memory_read_data(port :: SyncMemoryReadPort) :~ HardwareFields: port.data
+/* Exposes the write address input with the common hardware surface. */
 fun sync_memory_write_address(port :: SyncMemoryWritePort) :~ HardwareFields: port.address
+/* Exposes the write-data input with the common hardware surface. */
 fun sync_memory_write_data(port :: SyncMemoryWritePort) :~ HardwareFields: port.data
+/* Exposes the write-enable input with the common hardware surface. */
 fun sync_memory_write_enable(port :: SyncMemoryWritePort) :~ HardwareFields: port.enable
+/* Returns a write port's driveable lane mask, rejecting unmasked ports. */
 fun sync_memory_write_mask(port :: SyncMemoryWritePort) :~ HardwareFields:
   unless port.mask
   | error(~who: #'mask,
           "synchronous memory write port has no mask")
   port.mask
+/* Exposes the shared address input with the common hardware surface. */
 fun sync_memory_read_write_address(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.address
+/* Exposes the shared-port enable input with the common hardware surface. */
 fun sync_memory_read_write_enable(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.enable
+/* Exposes the shared-port write-mode input with the common hardware surface. */
 fun sync_memory_read_write_write(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.write
+/* Exposes the shared-port write-data input with the common hardware surface. */
 fun sync_memory_read_write_write_data(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.write_data
+/* Returns the shared port's driveable write mask, rejecting unmasked ports. */
 fun sync_memory_read_write_write_mask(port :: SyncMemoryReadWritePort) :~ HardwareFields:
   unless port.write_mask
   | error(~who: #'write_mask,
           "synchronous memory read-write port has no write mask")
   port.write_mask
+/* Exposes the shared-port registered read-data output with the common hardware surface. */
 fun sync_memory_read_write_read_data(port :: SyncMemoryReadWritePort) :~ HardwareFields: port.read_data
 
 annot.macro 'SyncMemoryFields':

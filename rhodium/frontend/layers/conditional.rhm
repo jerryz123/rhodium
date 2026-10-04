@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines hardware-only predicate and exact-key conditional assignment syntax.
+/* Defines hardware-only predicate and exact-key conditional assignment syntax. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,6 +14,7 @@ export:
   when
   switch
 
+/* Materializes the selector, normalizes host or typed keys, and delegates exact-key branch lowering to the kernel. */
 fun build_switch(selector :~ HardwareEntity,
                  cases :: NonemptyList.of(List),
                  otherwise_body :: maybe(Function.of_arity(0)) = #false):
@@ -43,6 +44,7 @@ fun build_switch(selector :~ HardwareEntity,
 defn.sequence_macro 'when $condition: $body; ...
                      $tail
                      ...':
+  /* Consumes adjacent elsewhen/otherwise clauses and emits one ordered conditional chain plus the unconsumed syntax. */
   fun expand_chain(branches :: List.of(Syntax), remaining :: Syntax):
     match remaining
     | 'elsewhen $next_condition: $next_body; ...

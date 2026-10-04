@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Provides shared field, immutable update, cast, lookup, indexing, membership, and width syntax for hardware entities.
+/* Provides shared field, immutable update, cast, lookup, indexing, membership, and width syntax for hardware entities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -92,13 +92,17 @@ annot.macro 'CircuitMemberFields($(member_name :: Identifier): $(member_annotati
     '((hardware_port_static_info_key, (($member_name, $member_infos), ...)))'
   )
 
-// Retains the internal compatibility selector for a register's driveable
-// next-state place; author-level RTL drives registers directly.
+/*
+ * Retains the internal compatibility selector for a register's driveable
+ * next-state place; author-level RTL drives registers directly.
+ */
 fun hardware_next(value :: Register):
   value.next
 
-// Extracts the Rhodium type from readable or driveable data objects without
-// changing their identity. Deferred extension values materialize on demand.
+/*
+ * Extracts the Rhodium type from readable or driveable data objects without
+ * changing their identity. Deferred extension values materialize on demand.
+ */
 fun hardware_entity_type(value :~ HardwareEntity):
   cond
   | value is_a Value: value.type
@@ -108,40 +112,52 @@ fun hardware_entity_type(value :~ HardwareEntity):
   | value is_a kernel.DeferredHardwareValue: kernel.read(value).type
   | ~else: #false
 
-// Exposes type discovery to frontend libraries that derive a result protocol
-// from caller-elaborated hardware without depending on core IR classes.
+/*
+ * Exposes type discovery to frontend libraries that derive a result protocol
+ * from caller-elaborated hardware without depending on core IR classes.
+ */
 fun hardware_value_type(value :~ HardwareEntity):
   def type = hardware_entity_type(value)
   unless type is_a HardwareType
   | error(~who: #'hardware_value_type, "expected hardware data")
   type
 
+/* Compares a hardware entity's discovered descriptor with the expected exact type. */
 fun hardware_has_type(value :: HardwareEntity,
                       expected_type :: HardwareType):
   def actual_type = hardware_entity_type(value)
   actual_type is_a HardwareType && type_equal(actual_type, expected_type)
 
+/* Recognizes entities with an arbitrary-width Bits descriptor. */
 fun hardware_has_bits_type(value :: HardwareEntity):
   def type = hardware_entity_type(value)
   type is_a HardwareType && bits_type(type)
 
+/* Recognizes hardware entities whose DataType has a packed representation. */
 fun hardware_has_packable_data_type(value :: HardwareEntity):
   def type = hardware_entity_type(value)
   type is_a DataType && packable_type(type)
 
-// Lets independently selectable frontend layers attach variant inspection to
-// hardware values without teaching the shared field syntax their encoding.
+/*
+ * Lets independently selectable frontend layers attach variant inspection to
+ * hardware values without teaching the shared field syntax their encoding.
+ */
 interface HardwareVariant
 
+/* Defines type-owned tag, membership, and payload-view construction independently of variant encoding. */
 interface HardwareVariantType:
+  /* Constructs the tag value of an entity belonging to this variant type. */
   method hardware_variant_tag(entity :: HardwareEntity, location :: Location)
+  /* Constructs a predicate testing the entity against one nominal variant. */
   method hardware_variant_is(entity :: HardwareEntity,
                              variant :: HardwareVariant,
                              location :: Location)
+  /* Returns the validity predicate and optional typed payload for one variant. */
   method hardware_variant_view(entity :: HardwareEntity,
                                variant :: HardwareVariant,
                                location :: Location)
 
+/* Pairs a variant-valid predicate with an optional payload that is meaningful only when valid. */
 class HardwareVariantView(valid :: Value, payload :: maybe(Value))
 
 annot.macro 'HardwareFields':
@@ -235,14 +251,20 @@ namespace HardwareFields:
       base_infos
     )
 
-// Bool is shared support because common hardware dot methods must be able to
-// construct their nominal predicate result without importing a frontend layer.
+/*
+ * Bool is shared support because common hardware dot methods must be able to
+ * construct their nominal predicate result without importing a frontend layer.
+ */
 class _BoolType():
   implements BitwiseType
   implements Callable
+  /* Returns the nominal Boolean hardware type's diagnostic spelling. */
   override method describe(): "bool"
+  /* Recognizes the shared Boolean descriptor family. */
   override method type_equal(other :: HardwareType): bool_type(other)
+  /* Fixes Boolean hardware representation to one bit. */
   override method packed_width(): 1
+  /* Encodes a host Boolean as an immutable typed one-bit literal. */
   override method call(value :: Boolean) :~ HardwareFields:
     packed_literal(this, if value | 1 | 0)
 
@@ -251,22 +273,27 @@ def Bool = _BoolType()
 annot.macro 'Bool':
   'HardwareFields.of(Bool)'
 
+/* Recognizes the shared nominal Boolean hardware descriptor. */
 fun bool_type(type :: HardwareType):
   type is_a _BoolType
 
+/* Discovers the receiver's variant-capable descriptor, rejecting unsupported types. */
 fun require_hardware_variant_type(value :: HardwareEntity, who :: Symbol):
   def type = hardware_entity_type(value)
   unless type is_a HardwareVariantType
   | error(~who: who, "expected hardware data with variants")
   type
 
+/* Delegates tag construction to the receiver's variant descriptor. */
 fun hardware_variant_tag(value :: HardwareEntity,
                          location :: Location = Location()) :~ HardwareFields:
   require_hardware_variant_type(value, #'tag).hardware_variant_tag(value, location)
 
-// Preserves variant tag inspection after an intermediate operation has erased
-// exact static type information, while treating tag as an ordinary projection
-// on non-variant records.
+/*
+ * Preserves variant tag inspection after an intermediate operation has erased
+ * exact static type information, while treating tag as an ordinary projection
+ * on non-variant records.
+ */
 fun hardware_variant_tag_or_project(
       value :: HardwareEntity,
       location :: Location = Location()) :~ HardwareFields:
@@ -275,14 +302,17 @@ fun hardware_variant_tag_or_project(
   | type.hardware_variant_tag(value, location)
   | kernel.project(value, "tag", #false, location)
 
+/* Delegates nominal variant membership testing to the receiver's descriptor. */
 fun hardware_variant_is(value :: HardwareEntity,
                         variant :: HardwareVariant,
                         location :: Location = Location()) :~ HardwareFields:
   require_hardware_variant_type(value, #'is).hardware_variant_is(value, variant, location)
 
+/* Returns a variant view's validity predicate. */
 fun hardware_variant_view_valid(view :: HardwareVariantView) :~ HardwareFields:
   view.valid
 
+/* Returns a variant view's payload, rejecting nullary variants. */
 fun hardware_variant_view_payload(view :: HardwareVariantView) :~ HardwareFields:
   unless view.payload
   | error(~who: #'view, "nullary hardware variants do not have payloads")
@@ -294,6 +324,7 @@ annot.macro 'HardwareVariantViewFields':
     '(($(statinfo_meta.dot_provider_key), hardware_variant_view_dot))'
   )
 
+/* Delegates variant payload-view construction while retaining the view's static surface. */
 fun hardware_variant_view(
       value :: HardwareEntity,
       variant :: HardwareVariant,
@@ -327,6 +358,7 @@ dot.macro 'hardware_variant_view_dot $left $dot $right':
   | 'payload': 'hardware_variant_view_payload($left) :: HardwareFields'
   | ~else: #false
 
+/* Selects a host-indexed element/bit, bounded bit slice, or hardware-selected vector element. */
 fun hardware_index(value :: HardwareEntity,
                    index :: Nat || Range || HardwareEntity) :: HardwareFields:
   def value_type = hardware_entity_type(value)
@@ -351,8 +383,10 @@ fun hardware_index(value :: HardwareEntity,
       error(~who: #'extract,
             "hardware index must be a host natural number or bounded host natural-number range")
 
-// Supplies the concise frontend spelling for an explicit, equal-width
-// representation cast while leaving the operation itself in the kernel.
+/*
+ * Supplies the concise frontend spelling for an explicit, equal-width
+ * representation cast while leaving the operation itself in the kernel.
+ */
 fun hardware_into(value :: HardwareEntity,
                   target_type :: HardwareType) :~ HardwareFields:
   kernel.cast(value, target_type)
@@ -384,8 +418,10 @@ annot.macro 'HardwareIntoFunction':
     '(($(statinfo_meta.call_result_key), $call_result))'
   )
 
-// Produces the canonical packed Bits image of frontend data while preserving
-// an existing Bits value without introducing a redundant cast operation.
+/*
+ * Produces the canonical packed Bits image of frontend data while preserving
+ * an existing Bits value without introducing a redundant cast operation.
+ */
 fun hardware_as_bits(value :: HardwareEntity,
                      who :: Symbol,
                      role :: String,
@@ -399,8 +435,10 @@ fun hardware_as_bits(value :: HardwareEntity,
   | source
   | kernel.cast(source, Bits(width), name, location)
 
-// Implements Rhombus append for hardware values as binary packed
-// concatenation while preserving ordinary host append dispatch.
+/*
+ * Implements Rhombus append for hardware values as binary packed
+ * concatenation while preserving ordinary host append dispatch.
+ */
 fun hardware_append(left :: HardwareEntity,
                     right :: HardwareEntity) :~ HardwareFields:
   kernel.concat(
@@ -408,8 +446,10 @@ fun hardware_append(left :: HardwareEntity,
      hardware_as_bits(right, Symbol.from_string("++"), "right operand")]
   )
 
-// Reinterprets one evenly divisible packed value as a uniform vector while
-// inferring the vector length from the requested element representation.
+/*
+ * Reinterprets one evenly divisible packed value as a uniform vector while
+ * inferring the vector length from the requested element representation.
+ */
 fun hardware_as_vec(value :: HardwareEntity,
                     element_type :: DataType,
                     name :: maybe(AsciiIdentifier) = #false,
@@ -429,15 +469,19 @@ fun hardware_as_vec(value :: HardwareEntity,
   | source
   | kernel.cast(source, target_type, name, location)
 
-// Implements deterministic hardware-selected vector reads through the
-// existing mux-lookup semantics and an explicit out-of-range default.
+/*
+ * Implements deterministic hardware-selected vector reads through the
+ * existing mux-lookup semantics and an explicit out-of-range default.
+ */
 fun hardware_lookup(value :: HardwareEntity,
                     selector :: HardwareEntity,
                     ~default: default_value :: HardwareEntity) :~ HardwareFields:
   kernel.vector_lookup(value, selector, default_value)
 
-// Reconstructs a record with named replacements, or a vector with one selected
-// replacement. Preserve the concrete descriptor rather than rebuilding its type.
+/*
+ * Reconstructs a record with named replacements, or a vector with one selected
+ * replacement. Preserve the concrete descriptor rather than rebuilding its type.
+ */
 fun hardware_updated(value :: HardwareEntity,
                      & arguments :: List.of(HardwareEntity),
                      ~& replacements :: Map) :~ HardwareFields:
@@ -464,8 +508,10 @@ fun hardware_updated(value :: HardwareEntity,
   | ~else:
       error(~who: #'updated, "updated receiver must have a RecordType or VectorType")
 
-// Statically unrolls a host transformation over every element of a hardware
-// vector and reconstructs one homogeneous hardware vector from the results.
+/*
+ * Statically unrolls a host transformation over every element of a hardware
+ * vector and reconstructs one homogeneous hardware vector from the results.
+ */
 fun hardware_vector_map(value :: HardwareEntity,
                         transform :: Function.of_arity(1)) :~ HardwareFields:
   def source = kernel.read(value)
@@ -478,8 +524,10 @@ fun hardware_vector_map(value :: HardwareEntity,
   | error(~who: #'map, "map results must have a DataType")
   kernel.vector_create(VectorType(source.type.length, first.type), transformed)
 
-// Extends a Bits receiver with zeroes while keeping its static method surface
-// available to subsequent receiver-owned operations.
+/*
+ * Extends a Bits receiver with zeroes while keeping its static method surface
+ * available to subsequent receiver-owned operations.
+ */
 fun hardware_zero_extend(value :: HardwareEntity,
                          target_width :: PosInt,
                          name :: maybe(AsciiIdentifier) = #false,
@@ -490,8 +538,10 @@ fun hardware_zero_extend(value :: HardwareEntity,
           location.describe() ++ ": .zext receiver must have a Bits type")
   kernel.zext(source, target_width, name, location)
 
-// Extends a signed receiver through its width-preserving nominal type family
-// while keeping the receiver's static method surface.
+/*
+ * Extends a signed receiver through its width-preserving nominal type family
+ * while keeping the receiver's static method surface.
+ */
 fun hardware_sign_extend(value :: HardwareEntity,
                          target_width :: PosInt,
                          name :: maybe(AsciiIdentifier) = #false,
@@ -502,8 +552,10 @@ fun hardware_sign_extend(value :: HardwareEntity,
           location.describe() ++ ": .sext receiver must have a SignedArithmeticType")
   kernel.sext(source, target_width, name, location)
 
-// Implements receiver-owned membership without exposing a parallel free
-// function. Each alternative must retain the receiver's exact flat type.
+/*
+ * Implements receiver-owned membership without exposing a parallel free
+ * function. Each alternative must retain the receiver's exact flat type.
+ */
 fun build_membership_predicate(value :: HardwareEntity,
                                supplied :: List.of(HardwareEntity || List.of(HardwareEntity)),
                                location :: Location = Location()) :~ HardwareFields:
@@ -556,6 +608,7 @@ fun build_membership_predicate(value :: HardwareEntity,
           kernel.bit_not(equal_zero, #false, location)
 
 meta:
+  /* Attaches the receiver's static information to the generated function's result. */
   fun preserve_receiver_surface(function :: Syntax, receiver :: Syntax):
     def call_result = statinfo_meta.pack_call_result(
       [[-1, statinfo_meta.gather(receiver)]]
@@ -565,6 +618,7 @@ meta:
       '(($(statinfo_meta.call_result_key), $call_result))'
     )
 
+  /* Builds zero/sign-extension method closures while preserving the receiver's method surface. */
   fun hardware_width_method(left :: Syntax, right :: Syntax):
     match right
     | 'zext':
@@ -583,6 +637,7 @@ meta:
         )
     | ~else: #false
 
+  /* Builds shared hardware method closures, declining names outside the universal method set. */
   fun universal_hardware_method(left :: Syntax, method :: Syntax):
     match method
     | 'zext': hardware_width_method(left, method)
@@ -600,6 +655,7 @@ meta:
         )
     | ~else: #false
 
+  /* Resolves special method syntax and universal operations before compatible receiver-first lexical extensions. */
   fun common_hardware_method(left :: Syntax,
                              right :: Syntax,
                              form :: Syntax,

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines host-side typed literal shadows and their generic packed materialization.
+/* Defines host-side typed literal shadows and their generic packed materialization. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,23 +12,32 @@ export:
   packed_literal
   require_hardware_literal
 
-// A HardwareLiteral is immutable host data describing one exact packed image
-// of a DataType. Extensions may define any number of literal classes for the
-// same hardware type by implementing this protocol.
+/*
+ * A HardwareLiteral is immutable host data describing one exact packed image
+ * of a DataType. Extensions may define any number of literal classes for the
+ * same hardware type by implementing this protocol.
+ */
 interface HardwareLiteral:
   extends kernel.StaticHardwareValue
   extends kernel.StableCircuitParam
+  /* Returns the declared packed hardware type of this immutable literal. */
   method literal_type()
+  /* Returns the nonnegative integer encoding of the complete packed image. */
   method packed_value()
+  /* Supplies an optional constant name; unnamed literal implementations default to false. */
   method literal_name(): #false
+  /* Returns the packed width of the declared literal type. */
   method literal_width(): this.literal_type().packed_width()
 
+  /* Compares literal type, packed value, and optional name for safe generator-specialization reuse. */
   override method same_stable_circuit_param(other :: kernel.StableCircuitParam):
     other is_a HardwareLiteral && type_equal(this.literal_type(), other.literal_type()) && this.packed_value() == other.packed_value() && this.literal_name() == other.literal_name()
 
-  // Core constants intentionally remain Bits-only. Materializing any literal
-  // therefore creates its canonical packed Bits image and then explicitly
-  // casts that image to the literal's declared type.
+  /*
+   * Core constants intentionally remain Bits-only. Materializing any literal
+   * therefore creates its canonical packed Bits image and then explicitly
+   * casts that image to the literal's declared type.
+   */
   override method materialize_hardware(location :: Location):
     def type = this.literal_type()
     def value = this.packed_value()
@@ -42,6 +51,7 @@ interface HardwareLiteral:
                   name,
                   location)
 
+/* Rejects ill-formed or unpackable types and integer encodings that exceed their packed width. */
 fun validate_literal_parts(type :: DataType,
                            value :: Nat,
                            name :: maybe(String),
@@ -57,28 +67,36 @@ fun validate_literal_parts(type :: DataType,
   | def message = "hardware literal packed value " ++ to_string(value) ++ " does not fit " ++ type.describe()
     kernel.frontend_fail(message, location)
 
-// The generic shadow represents every packed image of every packable
-// DataType. More semantic shadows such as Bool and enum members implement the
-// same protocol while restricting their convenient constructors.
+/*
+ * The generic shadow represents every packed image of every packable
+ * DataType. More semantic shadows such as Bool and enum members implement the
+ * same protocol while restricting their convenient constructors.
+ */
 class PackedLiteral(type :: DataType,
                     value :: Nat,
                     name :: maybe(String) = #false):
   implements HardwareLiteral
+  /* Validates the packed encoding before storing its type, value, and optional name. */
   constructor (type :: DataType,
                value :: Nat,
                name :: maybe(String) = #false):
     validate_literal_parts(type, value, name)
     super(type, value, name)
 
+  /* Returns the stored hardware type without materializing a constant. */
   override method literal_type(): type
+  /* Returns the stored packed integer without elaboration. */
   override method packed_value(): value
+  /* Returns the optional name used when materializing the literal. */
   override method literal_name(): name
 
+/* Constructs a validated immutable literal for any packable data type. */
 fun packed_literal(type :: DataType,
                    value :: Nat,
                    name :: maybe(String) = #false):
   PackedLiteral(type, value, name)
 
+/* Checks the host literal protocol through the parameter annotation and returns the same object. */
 fun require_hardware_literal(value :: HardwareLiteral,
                              who :: Symbol = #'HardwareLiteral):
   value

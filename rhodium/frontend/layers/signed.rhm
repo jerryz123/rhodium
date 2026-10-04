@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines explicit-width signed integers, two's-complement literals, and signed resizing.
+/* Defines explicit-width signed integers, two's-complement literals, and signed resizing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,36 +20,46 @@ export:
   sint
   strunc
 
+/* Defines a fixed-width two's-complement scalar with signed arithmetic and literal construction. */
 class _SIntType(width :: PosInt):
   implements SignedArithmeticType
   implements Callable
 
+  /* Returns the signed width in diagnostic form. */
   override method describe():
     "sint<" ++ to_string(width) ++ ">"
 
+  /* Requires another signed descriptor with the same bit width. */
   override method type_equal(other :: HardwareType):
     sint_type(other) && width == other.width
 
+  /* Returns the two's-complement packed width. */
   override method packed_width():
     width
 
+  /* Constructs the same signed family at a new positive width. */
   override method with_bit_width(new_width :: PosInt):
     SInt(new_width)
 
+  /* Constructs a range-checked immutable signed literal. */
   override method call(value :: Int) :~ HardwareFields:
     SIntLiteral(this, value)
 
+/* Constructs a positive-width signed hardware descriptor. */
 fun SInt(width :: PosInt):
   _SIntType(width)
 
 annot.macro 'SInt($width)':
   'HardwareFields.of(SInt($width))'
 
+/* Recognizes the signed integer descriptor family. */
 fun sint_type(type :: HardwareType):
   type is_a _SIntType
 
-// Validates the signed source value, then stores only its canonical packed
-// two's-complement image in the shared literal representation.
+/*
+ * Validates the signed source value, then stores only its canonical packed
+ * two's-complement image in the shared literal representation.
+ */
 fun SIntLiteral(type :: _SIntType,
                 value :: Int,
                 name :: maybe(AsciiIdentifier) = #false):
@@ -64,11 +74,13 @@ fun SIntLiteral(type :: _SIntType,
     name
   )
 
+/* Constructs a range-checked signed literal with an optional constant name. */
 fun sint(value :: Int,
          width :: PosInt,
          name :: maybe(AsciiIdentifier) = #false):
   SIntLiteral(SInt(width), value, name)
 
+/* Materializes an operand and rejects types without signed arithmetic semantics. */
 fun require_signed_value(entity :: HardwareEntity,
                          who :: Symbol,
                          location :: Location):
@@ -78,8 +90,10 @@ fun require_signed_value(entity :: HardwareEntity,
           location.describe() ++ ": expected a signed arithmetic hardware value")
   value
 
-// Signed truncation retains the low bits and restores the same nominal signed
-// type at the smaller width; rtl.trunc itself remains a Bits representation op.
+/*
+ * Signed truncation retains the low bits and restores the same nominal signed
+ * type at the smaller width; rtl.trunc itself remains a Bits representation op.
+ */
 fun strunc(entity :: HardwareEntity,
            target_width :: PosInt,
            name :: maybe(AsciiIdentifier) = #false,

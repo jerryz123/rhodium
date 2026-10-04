@@ -18,11 +18,14 @@ export:
 
 def mutable member_resolvers = []
 
-// Lets a layer contribute virtual members, such as reconstructed interface
-// endpoints, without making the generic hierarchy layer import that layer.
+/*
+ * Lets a layer contribute virtual members, such as reconstructed interface
+ * endpoints, without making the generic hierarchy layer import that layer.
+ */
 fun register_member_resolver(resolver :: Function.of_arity(2)):
   member_resolvers := member_resolvers ++ [resolver]
 
+/* Tries registered virtual-member resolvers in order, retaining the first successful result. */
 fun resolved_member(value :: HardwareEntity || Array, name :: String):
   def mutable resolved = #false
   for (resolver in member_resolvers):
@@ -30,6 +33,7 @@ fun resolved_member(value :: HardwareEntity || Array, name :: String):
     | resolved := resolver(value, name)
   resolved
 
+/* Resolves physical ports first, then detached declarations and concrete-module virtual members, rejecting unknown names. */
 fun instance_member(instance :: Instance || ConstructInstance, name :: String):
   def input_binding = instance.input_bindings.find(
     fun (candidate): candidate.name == name
@@ -52,6 +56,7 @@ fun instance_member(instance :: Instance || ConstructInstance, name :: String):
                                 name))
           resolved
 
+/* Selects an instance member or virtual member before falling back to ordinary hardware field projection. */
 fun hardware_member(value :: HardwareEntity || Array, name :: String):
   if value is_a Instance || value is_a ConstructInstance
   | instance_member(value, name)
@@ -72,8 +77,10 @@ annot.macro 'InstanceMembers':
     result_infos
   )
 
-// Keeps host-array indexing available after a virtual instance member has been
-// reconstructed, while retaining ordinary hardware indexing for data values.
+/*
+ * Keeps host-array indexing available after a virtual instance member has been
+ * reconstructed, while retaining ordinary hardware indexing for data values.
+ */
 fun instance_member_index(value :: HardwareEntity || Array,
                           index :: Nat || Range || HardwareEntity) :~ InstanceMembers:
   if value is_a Array

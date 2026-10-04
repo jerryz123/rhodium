@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the concise fixed-length vector type and construction frontend layer.
+/* Defines the concise fixed-length vector type and construction frontend layer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +16,7 @@ export:
   VectorLiteral
   vec
 
+/* Constructs a fixed-length vector descriptor with a homogeneous element type. */
 fun build_vector_type(length :: PosInt, element_type :: DataType):
   VectorType(length, element_type)
 
@@ -54,10 +55,13 @@ expr.macro 'Vec($(length :: expr_meta.Parsed), $(element_type :: expr_meta.Parse
      VectorFields(build_vector_type($length, $element_type), $element_type)
    )'
 
-// Vector element zero occupies the least-significant element-width bits, so
-// recursive literal packing follows the same ordering as core VectorType casts.
+/*
+ * Vector element zero occupies the least-significant element-width bits, so
+ * recursive literal packing follows the same ordering as core VectorType casts.
+ */
 class VectorLiteral(type :: VectorType, elements :: List):
   implements HardwareLiteral
+  /* Checks the literal element count and exact uniform element type before storing the ordered elements. */
   constructor (type :: VectorType, elements :: List):
     unless elements.length() == type.length
     | error(~who: #'vec, "literal element count must equal vector length")
@@ -67,8 +71,10 @@ class VectorLiteral(type :: VectorType, elements :: List):
       | error(~who: #'vec, "literal elements must have exactly the same hardware type")
     super(type, elements)
 
+  /* Returns the vector descriptor without elaboration. */
   override method literal_type(): type
 
+  /* Packs literal elements from low to high, with element zero in the least-significant lane. */
   override method packed_value():
     def element_width = type.element_type.packed_width()
     def mutable packed = 0
@@ -76,8 +82,10 @@ class VectorLiteral(type :: VectorType, elements :: List):
       packed := packed + (element.packed_value() << (index * element_width))
     packed
 
-// Accepts direct elements or one host List, infers the uniform element type,
-// and delegates construction to the typed elaboration kernel.
+/*
+ * Accepts direct elements or one host List, infers the uniform element type,
+ * and delegates construction to the typed elaboration kernel.
+ */
 fun build_vec(entity :: HardwareFields || NonemptyList.of(HardwareFields), ...) :~ HardwareFields:
   def supplied = [entity, ...]
   def entities:

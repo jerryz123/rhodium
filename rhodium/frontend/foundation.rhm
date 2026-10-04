@@ -137,6 +137,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | 'fun $(local_name :: Identifier) $tail ...':
         body_local_names := body_local_names ++ [local_name.to_source_string()]
     | ~else: #void
+  /* Recognizes type syntax available outside the circuit body, excluding body-local definitions. */
   fun static_type_available(port_type :: Syntax):
     match port_type
     | '$(type_name :: Identifier)':
@@ -152,6 +153,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | ~else: #false
   def mutable member_entries = []
   def mutable fallback_member_entries = []
+  /* Detects generator-dependent type syntax to separate precise call-site surfaces from safe fallback members. */
   fun type_depends_on_parameter(member_type :: Syntax):
     match member_type
     | '$(type_name :: Identifier)':
@@ -166,12 +168,14 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
           | depends := #true
         depends
     | ~else: #true
+  /* Records a data port's static surface when its type can be referenced outside the circuit body. */
   fun retain_data_member(member_name :: Syntax, member_type :: Syntax):
     when static_type_available(member_type)
     | def entry = '$member_name: HardwareFields.from_type($member_type)'
       member_entries := member_entries ++ [entry]
       unless type_depends_on_parameter(member_type)
       | fallback_member_entries := fallback_member_entries ++ [entry]
+  /* Records a scalar or array interface surface, retaining parameter-independent fallback members. */
   fun retain_interface_member(member_name :: Syntax,
                               member_type :: Syntax,
                               array :: Boolean):
@@ -204,6 +208,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
   let [member_entry, ...] = member_entries
   let [fallback_member_entry, ...] = fallback_member_entries
   let [parameter_binding, ...] = [argument.binding, ...]
+  /* Substitutes call-site generator syntax into selected member annotations without discarding their surface wrapper. */
   fun substitute_parameters(form :: Syntax):
     match form
     | 'HardwareFields.from_type($type)':
@@ -238,7 +243,9 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
     | ~else: required_positional := #false
   def definition = '«
      def circuit_identity = kernel_new_circuit_identity($circuit_name)
+     /* Normalizes generator arguments and delegates module specialization to the shared elaboration kernel. */
      fun $implementation_name($argument, ...):
+       /* Runs the authored circuit body and drains deferred construction finalizers. */
        fun implementation():
          $body
          ...
@@ -251,6 +258,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
   if [argument, ...].length() == 0
   | '«
        $definition
+       /* Calls the circuit implementation while advertising the available declared-member surface. */
        fun $name() :~ CircuitMemberFields($member_entry, ...):
          $implementation_name()
      »'
@@ -267,6 +275,7 @@ defn.macro 'circuit $(name :: Identifier)($(argument :: GeneratorParameter), ...
       »'
     | '«
        $definition
+       /* Calls the circuit implementation while advertising the available declared-member surface. */
        fun $name($argument, ...) :~ CircuitMemberFields($fallback_member_entry, ...):
          $implementation_name($implementation_argument, ...)
       »'

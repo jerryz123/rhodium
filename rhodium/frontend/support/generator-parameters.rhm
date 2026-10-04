@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Extracts runtime bindings from the supported host generator-parameter forms.
+/* Extracts runtime bindings from the supported host generator-parameter forms. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,9 +14,11 @@ meta:
   | '$(keyword :: Keyword): $(binding :: Identifier) $_ ...'
   | '$(binding :: Identifier) $_ ...'
 
-  // Rewrites references in a generated result surface to the use site's
-  // argument syntax. Type expressions commonly nest parameters in calls,
-  // arithmetic, and host-object member access.
+  /*
+   * Rewrites references in a generated result surface to the use site's
+   * argument syntax. Type expressions commonly nest parameters in calls,
+   * arithmetic, and host-object member access.
+   */
   fun substitute_generator_parameters(form :: Syntax,
                                       bindings :: List.of(Identifier)):
     match form

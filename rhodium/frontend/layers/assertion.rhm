@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines reset-suppressed clocked hardware assertions with ambient or explicit domains.
+/* Defines reset-suppressed clocked hardware assertions with ambient or explicit domains. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
 export:
   assert
 
+/* Emits a reset-suppressed clocked assertion using paired explicit controls or the ambient synchronous domain. */
 fun assert(condition :~ HardwareFields,
            label :: maybe(String) = #false,
            ~clock: clock :: maybe(HardwareFields.of(Clock)) = #false,

@@ -106,16 +106,21 @@ export:
   read
   frontend_fail
 
-// Opts an immutable host value into circuit specialization reuse. Ordinary
-// equality is the default; implementations may supply semantic equality.
+/*
+ * Opts an immutable host value into circuit specialization reuse. Ordinary
+ * equality is the default; implementations may supply semantic equality.
+ */
 interface StableCircuitParam:
+  /* Supplies semantic host equality for specialization reuse; the default uses ordinary equality. */
   method same_stable_circuit_param(other :: StableCircuitParam) :: Boolean:
     this == other
 
-// Exposes signature-bearing references independently of concrete implementations.
+/* Exposes signature-bearing references independently of concrete implementations. */
 interface CircuitDefinition:
+  /* Returns a signature-bearing circuit reference without executing its implementation. */
   method definition_reference()
 
+/* Normalizes a concrete module or frontend definition into an ordinary or retained circuit reference. */
 fun circuit_reference(definition :: Module || CircuitDefinition,
                       location :: Location = Location()):
   cond
@@ -129,6 +134,7 @@ fun circuit_reference(definition :: Module || CircuitDefinition,
       | frontend_fail("circuit definition must provide a circuit reference", location)
       reference
 
+/* Inspects the normalized reference's physical signature without materializing its recipe. */
 fun circuit_signature(definition :: Module || CircuitDefinition):
   circuit_reference(definition).signature
 
@@ -166,44 +172,60 @@ fun materialize_circuit(definition :: Module || CircuitDefinition,
         ~finally:
           context.materializing_circuits.remove(reference)
 
+/* Reports a frontend construction error with its source location. */
 fun frontend_fail(message :: String, location :: Location = Location()):
   error(~who: #'rhodium, location.describe() ++ ": " ++ message)
 
-// Lets frontend layers retain authoring metadata until a value is actually
-// consumed by hardware construction.
+/*
+ * Lets frontend layers retain authoring metadata until a value is actually
+ * consumed by hardware construction.
+ */
 interface DeferredHardwareValue:
   extends HardwareEntity
+  /* Realizes the deferred description as readable hardware in the active elaboration. */
   method materialize_hardware(location :: Location)
 
-// Marks deferred hardware descriptions that contain no circuit-bound values.
-// Unlike Values, Places, and other live hardware entities, these host values
-// may safely cross a circuit-generator parameter boundary.
+/*
+ * Marks deferred hardware descriptions that contain no circuit-bound values.
+ * Unlike Values, Places, and other live hardware entities, these host values
+ * may safely cross a circuit-generator parameter boundary.
+ */
 interface StaticHardwareValue:
   extends DeferredHardwareValue
 
-// Carries one register-relative path with its current-state value and its
-// next-state place until a read or drive context selects the appropriate side.
+/*
+ * Carries one register-relative path with its current-state value and its
+ * next-state place until a read or drive context selects the appropriate side.
+ */
 interface RegisterPathValue:
   extends DeferredHardwareValue
+  /* Returns the register-relative next-state place for assignment. */
   method drive_hardware(location :: Location)
 
-// Lets a frontend-only lvalue lower an assignment without pretending that a
-// runtime-selected destination is a structural core Place.
+/*
+ * Lets a frontend-only lvalue lower an assignment without pretending that a
+ * runtime-selected destination is a structural core Place.
+ */
 interface DynamicAssignmentTarget:
   extends DeferredHardwareValue
+  /* Lowers a source assignment to this runtime-selected frontend lvalue. */
   method assign_hardware(entity :: HardwareEntity, location :: Location)
 
+/* Retains a lazily cached current-state projection and its corresponding next-state place. */
 class RegisterPath(materialize_current :: Function.of_arity(0),
                    next :: Place,
                    mutable current :: maybe(Value) = #false):
   implements RegisterPathValue
 
+  /* Materializes and caches the current-state projection on its first read. */
   override method materialize_hardware(location :: Location):
     unless current
     | current := materialize_current()
     current
+  /* Returns the stored next-state place without reading the register. */
   override method drive_hardware(location :: Location): next
 
+/* Identifies one circuit declaration independently of its display name or specializations. */
 class CircuitIdentity(name :: String)
 
 /* A layer-owned immutable description of grouped circuit members.
@@ -316,20 +338,25 @@ fun retained_circuit(definition :: ConstructDefinition, implementation :: Functi
   RetainedCircuitReference(definition, provider, ~declarations: declarations)
 
 class.together:
+  /* Tracks one active declaration's pending finalizers and dynamic vector-register writes. */
   class ActiveCircuit(identity :: CircuitIdentity,
                       name :: String,
                       mutable finalizers :: List.of(Function.of_arity(0)) = [],
                       mutable vector_writes :: List.of(ConditionalVectorWrite) = [])
+  /* Records one vector-register write's selector, data, enable, and diagnostic location. */
   class ConditionalVectorWrite(register :: Register,
                                index :: Value,
                                data :: Value,
                                enable :: Value,
                                location :: Location)
+/* Pairs normalized stable generator arguments with their finished reusable module. */
 class CircuitSpecialization(arguments :: List, module_def :: Module)
 
+/* Allocates a fresh nominal identity for a circuit declaration. */
 fun new_circuit_identity(name :: String):
   CircuitIdentity(name)
 
+/* Owns one elaboration's Builder, active circuits, specialization/reference caches, providers, and symbol allocation. */
 class FrontendContext(design :: Design,
                       builder :: Builder,
                       mutable active :: Boolean = #true,
@@ -339,6 +366,7 @@ class FrontendContext(design :: Design,
                       materializing_circuits :: MutableSet = MutableSet.by(===){},
                       providers :: MutableMap = MutableMap.by(===){},
                       mutable allocated_symbols :: List.of(String) = []):
+  /* Allocates a deterministic elaboration-local name, suffixing repeated base names. */
   method allocate_symbol(circuit_name :: String):
     def base = circuit_name
     def count = allocated_symbols.filter(
@@ -354,13 +382,16 @@ Parameter.def current_module = #false
 Parameter.def current_conditional_branch = #false
 Parameter.def current_conditional_form = "when"
 
+/* Records a branch-local destination and its selected source value. */
 class ConditionalAssignment(place :: Place, value :: Value)
+/* Records a memory write's resource, address, data, clock, enable, and source location. */
 class ConditionalMemoryWrite(resource :: Memory,
                              address :: Value,
                              data :: Value,
                              clock :: Value,
                              enable :: Value,
                              location :: Location)
+/* Records a clocked assertion with reset suppression and an optional accumulated lexical guard. */
 class ConditionalAssertion(condition :: Value,
                            clock :: Value,
                            reset :: Value,
@@ -368,45 +399,56 @@ class ConditionalAssertion(condition :: Value,
                            label :: maybe(AsciiIdentifier),
                            location :: Location)
 
-// Collects assignments and supported effects along one mutually exclusive
-// hardware branch for guarded resolution after elaboration.
+/*
+ * Collects assignments and supported effects along one mutually exclusive
+ * hardware branch for guarded resolution after elaboration.
+ */
 class ConditionalBranch(
       mutable assignments :: List.of(ConditionalAssignment) = [],
       mutable memory_writes :: List.of(ConditionalMemoryWrite) = [],
       mutable vector_writes :: List.of(ConditionalVectorWrite) = [],
       mutable assertions :: List.of(ConditionalAssertion) = []):
+  /* Finds this branch's assignment to an exact place, or returns false. */
   method assignment_for(place :: Place):
     assignments.find(
       fun (assignment): assignment.place === place
     )
 
+  /* Returns this branch's writes to one memory resource in source order. */
   method memory_writes_for(resource :: Memory):
     memory_writes.filter(
       ~keep: fun (write): write.resource === resource
     )
 
+  /* Returns this branch's writes to one vector register in source order. */
   method vector_writes_for(register :: Register):
     vector_writes.filter(
       ~keep: fun (write): write.register === register
     )
 
+  /* Rejects repeated writes to the same place within a branch before recording the assignment. */
   method add(place :: Place, value :: Value, location :: Location):
     when this.assignment_for(place)
     | frontend_fail("conditional branch assigns " ++ place.name ++ " more than once",
                     location)
     assignments := assignments ++ [ConditionalAssignment(place, value)]
 
+  /* Appends a memory write to this branch's ordered effect list. */
   method add_memory_write(write :: ConditionalMemoryWrite):
     memory_writes := memory_writes ++ [write]
 
+  /* Appends a dynamic vector-register write to this branch's ordered effect list. */
   method add_vector_write(write :: ConditionalVectorWrite):
     vector_writes := vector_writes ++ [write]
 
+  /* Appends a guarded clocked assertion to this branch. */
   method add_assertion(assertion :: ConditionalAssertion):
     assertions := assertions ++ [assertion]
 
-// Prevents effects with no conditional-lowering protocol from escaping a
-// hardware branch without an explicit guard in their own semantics.
+/*
+ * Prevents effects with no conditional-lowering protocol from escaping a
+ * hardware branch without an explicit guard in their own semantics.
+ */
 fun reject_unsupported_conditional_effect(
       effect :: String,
       location :: Location = Location(),
@@ -416,27 +458,33 @@ fun reject_unsupported_conditional_effect(
                                 current_conditional_form(), "; ", guidance),
                   location)
 
+/* Requires an active, unclosed frontend elaboration context. */
 fun require_context(location :: Location = Location()):
   def context = current_context()
   unless context is_a FrontendContext && context.active
   | frontend_fail("circuit generators may only be called during elaborate", location)
   context
 
+/* Requires a current module for hardware construction. */
 fun require_module(location :: Location = Location()):
   def module_def = current_module()
   unless module_def is_a Module
   | frontend_fail("hardware construction requires an active circuit", location)
   module_def
 
+/* Returns the current module after checking the elaboration context is still active. */
 fun active_module(location :: Location = Location()):
   require_context(location)
   require_module(location)
 
-// Allocates a deterministic elaboration-local hardware name for frontend
-// facilities that introduce anonymous connection structure.
+/*
+ * Allocates a deterministic elaboration-local hardware name for frontend
+ * facilities that introduce anonymous connection structure.
+ */
 fun fresh_name(base :: String, location :: Location = Location()):
   require_context(location).allocate_symbol(base)
 
+/* Materializes deferred descriptions, reads places, and selects registers' current values; rejects unreadable entities. */
 fun read(entity :~ HardwareEntity, location :: Location = Location()):
   def context = require_context(location)
   cond
@@ -449,8 +497,10 @@ fun read(entity :~ HardwareEntity, location :: Location = Location()):
   | ~else:
       frontend_fail("expected readable hardware data", location)
 
-// Defers source-order-independent elaboration collateral until the active
-// circuit body has created and driven all of its declared hardware places.
+/*
+ * Defers source-order-independent elaboration collateral until the active
+ * circuit body has created and driven all of its declared hardware places.
+ */
 fun defer_circuit_finalizer(finalizer :: Function.of_arity(0),
                             location :: Location = Location()):
   def context = require_context(location)
@@ -460,6 +510,7 @@ fun defer_circuit_finalizer(finalizer :: Function.of_arity(0),
   active.finalizers := active.finalizers ++ [finalizer]
   #void
 
+/* Drains the current circuit's pending callbacks, then lowers its accumulated vector-register writes. */
 fun run_circuit_finalizers(location :: Location = Location()):
   def context = require_context(location)
   unless context.active_circuits.length() > 0
@@ -471,6 +522,7 @@ fun run_circuit_finalizers(location :: Location = Location()):
   flush_vector_register_writes(active, location)
   #void
 
+/* Recognizes immutable scalar/list parameters, hardware descriptors, and explicit stable-parameter implementations. */
 fun stable_circuit_param_value(value :~ matching(_)):
   cond
   | value is_a Boolean || value is_a Int || value is_a String || value is_a Symbol: #true
@@ -479,8 +531,10 @@ fun stable_circuit_param_value(value :~ matching(_)):
   | value is_a HardwareType || value is_a StableCircuitParam: #true
   | ~else: #false
 
-// Compares arbitrary host arguments for semantic uses such as interface
-// compatibility. Cache reuse separately requires every argument to be stable.
+/*
+ * Compares arbitrary host arguments for semantic uses such as interface
+ * compatibility. Cache reuse separately requires every argument to be stable.
+ */
 fun circuit_arguments_same(left :~ matching(_), right :~ matching(_)):
   cond
   | left is_a List && right is_a List:
@@ -490,12 +544,14 @@ fun circuit_arguments_same(left :~ matching(_), right :~ matching(_)):
       left.same_stable_circuit_param(right) && right.same_stable_circuit_param(left)
   | ~else: left == right
 
+/* Compares equal-length normalized argument lists element by element. */
 fun circuit_argument_lists_same(left :: List, right :: List):
   left.length() == right.length() && (
     for all (left_value in left, right_value in right):
       circuit_arguments_same(left_value, right_value)
   )
 
+/* Rejects live hardware parameters and recursion, reuses stable specializations, or builds and finalizes a new module. */
 fun build_circuit(identity :: CircuitIdentity,
                   name :: String,
                   arguments :: List,
@@ -538,6 +594,7 @@ fun build_circuit(identity :: CircuitIdentity,
           | context.specializations_by_circuit[identity] := MutableList[specialization]
       module_def
 
+/* Creates a named typed input in the active module with frontend provenance. */
 fun input(name :: AsciiIdentifier,
           type :: HardwareType,
           location :: Location = Location()):
@@ -548,6 +605,7 @@ fun input(name :: AsciiIdentifier,
                         location,
                         Origin("embedded input", name))
 
+/* Creates a named typed driveable output in the active module with frontend provenance. */
 fun output(name :: AsciiIdentifier,
            type :: HardwareType,
            location :: Location = Location()):
@@ -558,6 +616,7 @@ fun output(name :: AsciiIdentifier,
                          location,
                          Origin("embedded output", name))
 
+/* Creates a named typed driveable wire in the active module. */
 fun wire(name :: AsciiIdentifier,
          type :: HardwareType,
          location :: Location = Location()):
@@ -568,6 +627,7 @@ fun wire(name :: AsciiIdentifier,
                        location,
                        Origin("embedded wire", name))
 
+/* Allocates asynchronous-read memory with the requested depth and element type. */
 fun memory(name :: AsciiIdentifier,
            depth :: PosInt,
            element_type :: DataType,
@@ -580,6 +640,7 @@ fun memory(name :: AsciiIdentifier,
                          location,
                          Origin("embedded memory", name))
 
+/* Materializes an address and constructs an asynchronous read of the supplied memory resource. */
 fun memory_read_async(memory_resource :: Memory,
                       address :: HardwareEntity,
                       name :: maybe(AsciiIdentifier) = #false,
@@ -593,6 +654,7 @@ fun memory_read_async(memory_resource :: Memory,
                                     Origin("embedded async memory read",
                                            name || memory_resource.name))
 
+/* Materializes a clocked memory write, collecting it inside hardware conditionals or emitting it directly. */
 fun memory_write(memory_resource :: Memory,
                  address :: HardwareEntity,
                  data :: HardwareEntity,
@@ -619,6 +681,7 @@ fun memory_write(memory_resource :: Memory,
                                  Origin("embedded memory write",
                                         memory_resource.name))
 
+/* Constructs synchronous memory with explicit clock, requested port kinds, and optional mask granularity. */
 fun sync_memory(name :: AsciiIdentifier,
                 depth :: PosInt,
                 element_type :: DataType,
@@ -641,6 +704,7 @@ fun sync_memory(name :: AsciiIdentifier,
                               location,
                               Origin("embedded synchronous memory", name))
 
+/* Declares a design-owned typed DPI import with zero or one result. */
 fun dpi_import(name :: AsciiIdentifier,
                input_names :: NonemptyList.of(AsciiIdentifier),
                input_types :: NonemptyList.of(ScalarDataType),
@@ -655,6 +719,7 @@ fun dpi_import(name :: AsciiIdentifier,
                              result_type,
                              location)
 
+/* Declares a design-owned typed DPI import with an ordered list of results. */
 fun dpi_import_results(name :: AsciiIdentifier,
                        input_names :: NonemptyList.of(AsciiIdentifier),
                        input_types :: NonemptyList.of(ScalarDataType),
@@ -667,6 +732,7 @@ fun dpi_import_results(name :: AsciiIdentifier,
                                      results,
                                      location)
 
+/* Materializes a clocked, reset-suppressed assertion and passes it through conditional-effect collection. */
 fun assert(condition :~ HardwareEntity,
            clock :: HardwareEntity,
            reset :: HardwareEntity,
@@ -681,6 +747,7 @@ fun assert(condition :~ HardwareEntity,
                                        location)
   emit_conditional_assertion(assertion)
 
+/* Materializes inputs and controls for a DPI procedure, rejecting unguarded use inside hardware conditionals. */
 fun dpi_call(dpi_import :: DpiImport,
              inputs :: List.of(HardwareEntity),
              clock :: HardwareEntity,
@@ -698,6 +765,7 @@ fun dpi_call(dpi_import :: DpiImport,
                            location,
                            Origin("embedded DPI call", dpi_import.name))
 
+/* Creates one named registered DPI result, requiring explicit enable instead of hardware-conditional placement. */
 fun dpi_register(name :: AsciiIdentifier,
                  dpi_import :: DpiImport,
                  inputs :: List.of(HardwareEntity),
@@ -717,6 +785,7 @@ fun dpi_register(name :: AsciiIdentifier,
                                location,
                                Origin("embedded DPI register", dpi_import.name))
 
+/* Creates an ordered set of registered DPI results, rejecting unsupported conditional placement. */
 fun dpi_register_results(result_names :: List.of(AsciiIdentifier),
                          dpi_import :: DpiImport,
                          inputs :: List.of(HardwareEntity),
@@ -737,6 +806,7 @@ fun dpi_register_results(result_names :: List.of(AsciiIdentifier),
                                        location,
                                        Origin("embedded DPI result registers", dpi_import.name))
 
+/* Constructs a typed core constant in the active module from a host integer. */
 fun literal(type :: HardwareType,
             integer :: Nat,
             name :: maybe(AsciiIdentifier) = #false,
@@ -749,6 +819,7 @@ fun literal(type :: HardwareType,
                            location,
                            Origin("embedded literal", name || ""))
 
+/* Constructs an unconstrained value with the requested hardware type. */
 fun dont_care(type :: HardwareType,
               name :: maybe(AsciiIdentifier) = #false,
               location :: Location = Location()):
@@ -759,6 +830,7 @@ fun dont_care(type :: HardwareType,
                             location,
                             Origin("embedded don't care", name || ""))
 
+/* Materializes a unary operand and dispatches supported operation names to the core Builder. */
 fun unary(opcode :: String,
           entity :: HardwareEntity,
           name :: maybe(AsciiIdentifier) = #false,
@@ -775,6 +847,7 @@ fun unary(opcode :: String,
                               Origin("embedded not", name || ""))
   | ~else: frontend_fail("unknown unary operation " ++ opcode, location)
 
+/* Materializes both operands and dispatches bitwise, arithmetic, shift, or comparison operations to the core Builder. */
 fun binary(opcode :: String,
            left_entity :: HardwareEntity,
            right_entity :: HardwareEntity,
@@ -823,83 +896,97 @@ fun binary(opcode :: String,
                           Origin("embedded signed less-than", name || ""))
   | ~else: frontend_fail("unknown binary operation " ++ opcode, location)
 
+/* Constructs bitwise complement from materialized hardware operands. */
 fun bit_not(entity :: HardwareEntity,
             name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location()):
   unary("not", entity, name, location)
 
+/* Constructs bitwise conjunction from materialized hardware operands. */
 fun bit_and(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location()):
   binary("and", left, right, name, location)
 
+/* Constructs bitwise disjunction from materialized hardware operands. */
 fun bit_or(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("or", left, right, name, location)
 
+/* Constructs bitwise exclusive-or from materialized hardware operands. */
 fun bit_xor(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location()):
   binary("xor", left, right, name, location)
 
+/* Constructs fixed-width addition from materialized hardware operands. */
 fun hw_add(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("add", left, right, name, location)
 
+/* Constructs fixed-width multiplication from materialized hardware operands. */
 fun hw_mul(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("mul", left, right, name, location)
 
+/* Constructs fixed-width subtraction from materialized hardware operands. */
 fun hw_sub(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("sub", left, right, name, location)
 
+/* Constructs left shift from materialized hardware operands. */
 fun hw_shl(value :: HardwareEntity,
            amount :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("shl", value, amount, name, location)
 
+/* Constructs logical right shift from materialized hardware operands. */
 fun hw_shru(value :: HardwareEntity,
             amount :: HardwareEntity,
             name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location()):
   binary("shru", value, amount, name, location)
 
+/* Constructs arithmetic right shift from materialized hardware operands. */
 fun hw_shrs(value :: HardwareEntity,
             amount :: HardwareEntity,
             name :: maybe(AsciiIdentifier) = #false,
             location :: Location = Location()):
   binary("shrs", value, amount, name, location)
 
+/* Constructs packed equality from materialized hardware operands. */
 fun hw_eq(left :: HardwareEntity,
           right :: HardwareEntity,
           name :: maybe(AsciiIdentifier) = #false,
           location :: Location = Location()):
   binary("eq", left, right, name, location)
 
+/* Constructs unsigned less-than comparison from materialized hardware operands. */
 fun hw_ult(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("ult", left, right, name, location)
 
+/* Constructs signed less-than comparison from materialized hardware operands. */
 fun hw_slt(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
   binary("slt", left, right, name, location)
 
+/* Builds a keyed mux with an explicit fallback after materializing the selector and arm values. */
 fun hw_mux_lookup(selector :: HardwareEntity,
                   default_value :: HardwareEntity,
                   cases :: List.of(List),
@@ -919,6 +1006,7 @@ fun hw_mux_lookup(selector :: HardwareEntity,
     origin || Origin("embedded mux lookup", name || "")
   )
 
+/* Builds a partial exact-one-hot mux after materializing all choices. */
 fun hw_onehot_mux(selector :: HardwareEntity,
                   choices :: List.of(HardwareEntity),
                   name :: maybe(AsciiIdentifier) = #false,
@@ -936,6 +1024,7 @@ fun hw_onehot_mux(selector :: HardwareEntity,
     origin || Origin("embedded one-hot mux", name || "")
   )
 
+/* Builds an ordered packed decode table with explicit input/result types and default value/care masks. */
 fun hw_decode(selector :: HardwareEntity,
               input_type :: DataType,
               result_type :: DataType,
@@ -959,6 +1048,7 @@ fun hw_decode(selector :: HardwareEntity,
     origin || Origin("embedded decode", name || "")
   )
 
+/* Preserves identical types without an operation; otherwise constructs an explicit representation cast. */
 fun cast(entity :: HardwareEntity,
          target_type :: HardwareType,
          name :: maybe(AsciiIdentifier) = #false,
@@ -971,6 +1061,7 @@ fun cast(entity :: HardwareEntity,
   | context.builder.cast(module_def, value, target_type, name, location,
                          Origin("embedded cast", name || ""))
 
+/* Materializes an ordered operand list and concatenates its packed Bits values. */
 fun concat(entities :: List.of(HardwareEntity),
            name :: maybe(AsciiIdentifier) = #false,
            location :: Location = Location()):
@@ -983,6 +1074,7 @@ fun concat(entities :: List.of(HardwareEntity),
                          location,
                          Origin("embedded concat", name || ""))
 
+/* Extracts an inclusive high-to-low bit range from a materialized operand. */
 fun extract(entity :: HardwareEntity,
             high :: Nat,
             low :: Nat,
@@ -997,6 +1089,7 @@ fun extract(entity :: HardwareEntity,
                           location,
                           Origin("embedded extract", name || ""))
 
+/* Zero-extends a materialized operand to the requested packed width. */
 fun zext(entity :: HardwareEntity,
          target_width :: PosInt,
          name :: maybe(AsciiIdentifier) = #false,
@@ -1009,6 +1102,7 @@ fun zext(entity :: HardwareEntity,
                        location,
                        Origin("embedded zext", name || ""))
 
+/* Sign-extends a materialized operand to the requested packed width. */
 fun sext(entity :: HardwareEntity,
          target_width :: PosInt,
          name :: maybe(AsciiIdentifier) = #false,
@@ -1021,6 +1115,7 @@ fun sext(entity :: HardwareEntity,
                        location,
                        Origin("embedded sext", name || ""))
 
+/* Keeps the low bits of a materialized operand at the requested narrower width. */
 fun trunc(entity :: HardwareEntity,
           target_width :: PosInt,
           name :: maybe(AsciiIdentifier) = #false,
@@ -1033,6 +1128,7 @@ fun trunc(entity :: HardwareEntity,
                         location,
                         Origin("embedded trunc", name || ""))
 
+/* Constructs a value of the supplied record descriptor from named materialized fields. */
 fun record_create(type :: RecordType,
                   fields :: List.of(List),
                   name :: maybe(AsciiIdentifier) = #false,
@@ -1049,6 +1145,7 @@ fun record_create(type :: RecordType,
     Origin("embedded record create", name || "")
   )
 
+/* Projects places structurally and values through record reads, preserving register-relative read/write identity. */
 fun project(entity :: HardwareEntity,
             field_name :: AsciiIdentifier,
             name :: maybe(AsciiIdentifier) = #false,
@@ -1081,6 +1178,7 @@ fun project(entity :: HardwareEntity,
                                  location,
                                  Origin("embedded record get", field_name))
 
+/* Constructs a value of the supplied vector descriptor from ordered materialized elements. */
 fun vector_create(type :: VectorType,
                   elements :: List.of(HardwareEntity),
                   name :: maybe(AsciiIdentifier) = #false,
@@ -1097,6 +1195,7 @@ fun vector_create(type :: VectorType,
     Origin("embedded vector create", name || "")
   )
 
+/* Reads one statically indexed element of a hardware vector. */
 fun vector_get(entity :: HardwareEntity,
                element_index :: Nat,
                name :: maybe(AsciiIdentifier) = #false,
@@ -1109,6 +1208,7 @@ fun vector_get(entity :: HardwareEntity,
                              location,
                              Origin("embedded vector get", to_string(element_index)))
 
+/* Projects a vector element while preserving driveability and register-relative current/next behavior. */
 fun vector_project(entity :: HardwareEntity,
                    element_index :: Nat,
                    location :: Location = Location()):
@@ -1127,6 +1227,7 @@ fun vector_project(entity :: HardwareEntity,
   | ~else:
       vector_get(entity, element_index, #false, location)
 
+/* Selects a statically indexed Bits bit or vector element while retaining applicable driveability. */
 fun index(entity :: HardwareEntity,
           element_index :: Nat,
           location :: Location = Location()):
@@ -1142,6 +1243,7 @@ fun index(entity :: HardwareEntity,
   // Preserve the established Bits diagnostic for unsupported data types.
   | ~else: extract(entity, element_index, element_index, #false, location)
 
+/* Lowers hardware vector lookup to exact indexed arms with an explicit out-of-range fallback. */
 fun vector_lookup(entity :: HardwareEntity,
                   selector :: HardwareEntity,
                   default_value :: HardwareEntity,
@@ -1160,6 +1262,7 @@ fun vector_lookup(entity :: HardwareEntity,
                 location,
                 Origin("embedded vector lookup", name || ""))
 
+/* Requires a vector and a Bits selector with exactly the vector's index width. */
 fun validate_dynamic_vector_selector(vector_value :: Value,
                                      selector_value :: Value,
                                      location :: Location):
@@ -1173,8 +1276,10 @@ fun validate_dynamic_vector_selector(vector_value :: Value,
       location
     )
 
-// Selects dynamically from a vector. A selector encoding outside the vector
-// length makes the result unconstrained.
+/*
+ * Selects dynamically from a vector. A selector encoding outside the vector
+ * length makes the result unconstrained.
+ */
 fun vector_select(entity :: HardwareEntity,
                   selector :: HardwareEntity,
                   name :: maybe(AsciiIdentifier) = #false,
@@ -1191,8 +1296,10 @@ fun vector_select(entity :: HardwareEntity,
     Origin("embedded vector index", name || "")
   )
 
-// Injects one dynamically selected element. An out-of-range selector makes the
-// complete result vector unconstrained.
+/*
+ * Injects one dynamically selected element. An out-of-range selector makes the
+ * complete result vector unconstrained.
+ */
 fun vector_inject(entity :: HardwareEntity,
                   selector :: HardwareEntity,
                   replacement :: HardwareEntity,
@@ -1212,9 +1319,11 @@ fun vector_inject(entity :: HardwareEntity,
     Origin("embedded vector inject", name || "")
   )
 
-// Constructs a new vector whose hardware-selected element is replaced. Each
-// element falls back to the original value, so an out-of-range selector leaves
-// the entire vector unchanged.
+/*
+ * Constructs a new vector whose hardware-selected element is replaced. Each
+ * element falls back to the original value, so an out-of-range selector leaves
+ * the entire vector unchanged.
+ */
 fun vector_updated(entity :: HardwareEntity,
                    selector :: HardwareEntity,
                    replacement :: HardwareEntity,
@@ -1249,14 +1358,17 @@ fun vector_updated(entity :: HardwareEntity,
                     Origin("embedded vector update", to_string(element_index)))
   vector_create(vector_value.type, elements, name, location)
 
-// Carries a dynamically selected element of a direct vector register. Reads
-// remain ordinary mux selection; writes become one whole next-state update.
+/*
+ * Carries a dynamically selected element of a direct vector register. Reads
+ * remain ordinary mux selection; writes become one whole next-state update.
+ */
 class DynamicVectorRegisterPath(register :: Register,
                                 vector_value :: Value,
                                 selector_value :: Value,
                                 mutable current :: maybe(Value) = #false):
   implements DynamicAssignmentTarget
 
+  /* Materializes and caches the runtime-selected current vector element. */
   override method materialize_hardware(location :: Location):
     unless current
     | current := vector_select(vector_value,
@@ -1265,6 +1377,7 @@ class DynamicVectorRegisterPath(register :: Register,
                                location)
     current
 
+  /* Checks the replacement element type and records an enabled dynamic register write. */
   override method assign_hardware(entity :: HardwareEntity,
                                   location :: Location):
     def replacement = read(entity, location)
@@ -1279,8 +1392,10 @@ class DynamicVectorRegisterPath(register :: Register,
                              location)
     )
 
-// Preserves the read behavior of hardware vector indexing while retaining an
-// assignable path only for a direct Reg<Vec>. Other vector entities stay values.
+/*
+ * Preserves the read behavior of hardware vector indexing while retaining an
+ * assignable path only for a direct Reg<Vec>. Other vector entities stay values.
+ */
 fun vector_index(entity :: HardwareEntity,
                  selector :: HardwareEntity,
                  name :: maybe(AsciiIdentifier) = #false,
@@ -1292,6 +1407,7 @@ fun vector_index(entity :: HardwareEntity,
   | DynamicVectorRegisterPath(entity, vector_value, selector_value)
   | vector_select(vector_value, selector_value, name, location)
 
+/* Constructs a register with explicit clock and optional paired reset/reset value. */
 fun reg(name :: AsciiIdentifier,
         type :: DataType,
         clock :: HardwareEntity,
@@ -1308,6 +1424,7 @@ fun reg(name :: AsciiIdentifier,
                            location,
                            Origin("embedded register", name))
 
+/* Attaches a stable-level crossing contract to the supplied source, destination clock, and register stages. */
 fun sync_level_crossing(source :: HardwareEntity,
                         destination_clock :: HardwareEntity,
                         stages :: List.of(Register),
@@ -1322,6 +1439,7 @@ fun sync_level_crossing(source :: HardwareEntity,
     Origin("embedded stable level crossing")
   )
 
+/* Creates an ordinary or retained child instance and attaches any detached logical member declarations. */
 fun inst(name :: AsciiIdentifier,
          child :: Module || CircuitDefinition,
          location :: Location = Location()):
@@ -1342,6 +1460,7 @@ fun inst(name :: AsciiIdentifier,
   | instance.operation.module_def.add_metadata("rhodium.circuit.declarations", CircuitInstanceDeclarations(instance.operation, reference.declarations))
   instance
 
+/* Resolves frontend lvalues, enforces exact type matching, and either records a conditional assignment or drives its place. */
 fun connect(place :: HardwareEntity,
             entity :: HardwareEntity,
             location :: Location = Location()):
@@ -1370,6 +1489,7 @@ fun connect(place :: HardwareEntity,
                               location,
                               Origin("embedded connect", target.name))
 
+/* Recovers the current-state value corresponding to a register next-place or one of its nested projections. */
 fun register_hold_value(place :: Place,
                         location :: Location = Location()):
   if place.parent
@@ -1386,6 +1506,7 @@ fun register_hold_value(place :: Place,
       | operation.results[0]
       | #false
 
+/* Propagates an assignment into an enclosing branch or emits its final core drive. */
 fun emit_conditional_assignment(place :: Place,
                                 value :: Value,
                                 location :: Location = Location()):
@@ -1399,6 +1520,7 @@ fun emit_conditional_assignment(place :: Place,
       Origin("embedded conditional connect", place.name)
     )
 
+/* Propagates a resolved memory write into an enclosing branch or emits its core effect. */
 fun emit_conditional_memory_write(write :: ConditionalMemoryWrite):
   def branch = current_conditional_branch()
   if branch is_a ConditionalBranch
@@ -1414,8 +1536,10 @@ fun emit_conditional_memory_write(write :: ConditionalMemoryWrite):
       Origin("embedded conditional memory write", write.resource.name)
     )
 
-// Carries a dynamic vector-register write outward through conditional scopes.
-// Top-level writes are collected until all ports for the register are known.
+/*
+ * Carries a dynamic vector-register write outward through conditional scopes.
+ * Top-level writes are collected until all ports for the register are known.
+ */
 fun emit_vector_register_write(write :: ConditionalVectorWrite):
   def branch = current_conditional_branch()
   if branch is_a ConditionalBranch
@@ -1429,8 +1553,10 @@ fun emit_vector_register_write(write :: ConditionalVectorWrite):
       active.vector_writes := active.vector_writes ++ [write]
   #void
 
-// Emits one unordered core write set per vector register, preserving the
-// frontend's ordinary one-driver rule for the register's whole next value.
+/*
+ * Emits one unordered core write set per vector register, preserving the
+ * frontend's ordinary one-driver rule for the register's whole next value.
+ */
 fun flush_vector_register_writes(active :: ActiveCircuit,
                                  location :: Location = Location()):
   def writes = active.vector_writes
@@ -1489,8 +1615,10 @@ fun flush_vector_register_writes(active :: ActiveCircuit,
     )
   #void
 
-// Combines lexical activation as assertions cross nested conditional chains.
-// A missing guard means the assertion is active throughout its current scope.
+/*
+ * Combines lexical activation as assertions cross nested conditional chains.
+ * A missing guard means the assertion is active throughout its current scope.
+ */
 fun combine_assertion_guards(left :: maybe(Value),
                              right :: maybe(Value),
                              location :: Location = Location()):
@@ -1500,6 +1628,7 @@ fun combine_assertion_guards(left :: maybe(Value),
   | right: right
   | ~else: #false
 
+/* Combines lexical guards and collects the assertion or emits a guarded core assertion. */
 fun emit_conditional_assertion(assertion :: ConditionalAssertion,
                                branch_guard :: maybe(Value) = #false):
   def guard = combine_assertion_guards(assertion.guard,
@@ -1525,6 +1654,7 @@ fun emit_conditional_assertion(assertion :: ConditionalAssertion,
       Origin("embedded clocked assertion", assertion.label || "")
     )
 
+/* Materializes a hardware condition and requires a one-bit scalar data type. */
 fun validate_conditional_value(condition :~ HardwareEntity,
                                location :: Location = Location()):
   unless condition is_a HardwareEntity
@@ -1534,6 +1664,7 @@ fun validate_conditional_value(condition :~ HardwareEntity,
   | frontend_fail("hardware condition must have a one-bit ScalarDataType", location)
   value
 
+/* Elaborates a body while collecting its assignments and supported effects without final drives. */
 fun collect_conditional_branch(body :: Function.of_arity(0),
                                form :: String,
                                location :: Location = Location()):
@@ -1543,8 +1674,10 @@ fun collect_conditional_branch(body :: Function.of_arity(0),
     body()
   branch
 
-// Resolves collected mutually exclusive branches through a caller-supplied
-// selection strategy, preserving the one-final-driver and shared-port rules.
+/*
+ * Resolves collected mutually exclusive branches through a caller-supplied
+ * selection strategy, preserving the one-final-driver and shared-port rules.
+ */
 fun resolve_conditional_branches(
       branch_results :: List.of(ConditionalBranch),
       otherwise_result :: maybe(ConditionalBranch),
@@ -1617,6 +1750,7 @@ fun resolve_conditional_branches(
     emit_conditional_assignment(place, selected, location)
 
   def mutable memories = []
+  /* Adds each memory touched by a branch once to the conditional resource inventory. */
   fun include_branch_memories(
         branch_result :: maybe(ConditionalBranch)):
     when branch_result
@@ -1629,6 +1763,7 @@ fun resolve_conditional_branches(
     include_branch_memories(branch_result)
   include_branch_memories(otherwise_result)
 
+  /* Returns a branch's source-ordered write port for a resource, or false when absent. */
   fun memory_write_at(branch_result :: maybe(ConditionalBranch),
                       resource :: Memory,
                       port_index :: Nat):
@@ -1707,6 +1842,7 @@ fun resolve_conditional_branches(
       )
 
   def mutable vector_registers = []
+  /* Adds each dynamically written vector register once to the conditional resource inventory. */
   fun include_branch_vector_registers(
         branch_result :: maybe(ConditionalBranch)):
     when branch_result
@@ -1719,6 +1855,7 @@ fun resolve_conditional_branches(
     include_branch_vector_registers(branch_result)
   include_branch_vector_registers(otherwise_result)
 
+  /* Returns a branch's source-ordered vector-register write, or false when absent. */
   fun vector_write_at(branch_result :: maybe(ConditionalBranch),
                       register :: Register,
                       port_index :: Nat):
@@ -1754,6 +1891,7 @@ fun resolve_conditional_branches(
       def branch_writes:
         for List (branch_result in branch_results):
           vector_write_at(branch_result, register, port_index)
+      /* Avoids a mux when every present branch value is the identical fallback object. */
       fun select_write_value(branch_values :: List.of(maybe(Value)),
                              fallback :: Value,
                              origin :: Origin):
@@ -1796,7 +1934,7 @@ fun resolve_conditional_branches(
       )
   #void
 
-// Elaborates an ordered hardware-conditional chain into priority mux trees.
+/* Elaborates an ordered hardware-conditional chain into priority mux trees. */
 fun conditional_chain(branches :: NonemptyList.of(List),
                       otherwise_body :: maybe(Function.of_arity(0)) = #false,
                       location :: Location = Location()):
@@ -1808,6 +1946,7 @@ fun conditional_chain(branches :: NonemptyList.of(List),
       collect_conditional_branch(branch[1], "when", location)
   def otherwise_result:
     otherwise_body ?> collect_conditional_branch(_, "when", location)
+  /* Builds first-match priority muxes for the branch values that are present. */
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
                     origin :: Origin):
@@ -1824,6 +1963,7 @@ fun conditional_chain(branches :: NonemptyList.of(List),
           origin
         )
     selected
+  /* Builds mutually exclusive first-match activation guards and any unmatched otherwise guard. */
   fun build_assertion_guards(needs_otherwise :: Boolean):
     def mutable unmatched_guard = #false
     def branch_guards:
@@ -1846,8 +1986,10 @@ fun conditional_chain(branches :: NonemptyList.of(List),
                                "embedded conditional",
                                location)
 
-// Elaborates unordered exact-key cases into direct keyed mux lookups. Keys are
-// normalized host integers, so no switch control-flow operation enters core.
+/*
+ * Elaborates unordered exact-key cases into direct keyed mux lookups. Keys are
+ * normalized host integers, so no switch control-flow operation enters core.
+ */
 fun switch_chain(selector :: HardwareEntity,
                  cases :: NonemptyList.of(List),
                  otherwise_body :: maybe(Function.of_arity(0)) = #false,
@@ -1872,6 +2014,7 @@ fun switch_chain(selector :: HardwareEntity,
       collect_conditional_branch(case[1], "switch", location)
   def otherwise_result:
     otherwise_body ?> collect_conditional_branch(_, "switch", location)
+  /* Builds a direct keyed mux for present case values, retaining the explicit fallback. */
   fun select_values(branch_values :: List.of(maybe(Value)),
                     fallback :: Value,
                     origin :: Origin):
@@ -1887,6 +2030,7 @@ fun switch_chain(selector :: HardwareEntity,
                     #false,
                     location,
                     origin)
+  /* Builds exact-key assertion guards and an optional guard for values matching no case. */
   fun build_assertion_guards(needs_otherwise :: Boolean):
     def branch_guards:
       for List (key in keys):

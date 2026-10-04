@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines lossless expanding arithmetic as explicit resizing plus modular core operations.
+/* Defines lossless expanding arithmetic as explicit resizing plus modular core operations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,18 +16,21 @@ export:
   +&
   *&
 
+/* Zero-extends both unsigned operands to the shared result width. */
 fun widen_unsigned_operands(left_value :: Value,
                             right_value :: Value,
                             result_width :: PosInt):
   values(zext(left_value, result_width),
          zext(right_value, result_width))
 
+/* Sign-extends both signed operands to the shared result width. */
 fun widen_signed_operands(left_value :: Value,
                           right_value :: Value,
                           result_width :: PosInt):
   values(sext(left_value, result_width),
          sext(right_value, result_width))
 
+/* Adds unsigned Bits at max operand width plus one, retaining the carry. */
 fun add_expanding(left :: HardwareEntity,
                   right :: HardwareEntity,
                   name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:
@@ -44,6 +47,7 @@ fun add_expanding(left :: HardwareEntity,
                                                         result_width)
   hw_add(wide_left, wide_right, name)
 
+/* Multiplies compatible unsigned or signed operands at the sum of their widths, retaining the full product. */
 fun mul_expanding(left :: HardwareEntity,
                   right :: HardwareEntity,
                   name :: maybe(AsciiIdentifier) = #false) :~ HardwareFields:

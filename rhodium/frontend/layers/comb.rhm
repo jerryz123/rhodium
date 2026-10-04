@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the combinational value, function, and operator layer over the elaboration kernel.
+/* Defines the combinational value, function, and operator layer over the elaboration kernel. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -73,31 +73,39 @@ export:
   !
 
 meta:
+  /* Attaches the operand's static method/field surface to a generated result expression. */
   fun preserve_operand_surface(result :: Syntax, operand :: Syntax):
     statinfo_meta.wrap(result, statinfo_meta.gather(operand))
 
-// Frontend literals are static host shadows. They allocate core operations
-// only when a hardware consumer reads them during elaboration.
+/*
+ * Frontend literals are static host shadows. They allocate core operations
+ * only when a hardware consumer reads them during elaboration.
+ */
 fun literal(type :: DataType,
             value :: Nat,
             name :: maybe(String) = #false):
   packed_literal(type, value, name)
 
+/* Constructs an immutable Bits literal with an explicit positive width. */
 fun bits(value :: Nat,
          width :: PosInt,
          name :: maybe(String) = #false) :~ HardwareFields:
   literal(Bits(width), value, name)
 
-// Host shift amounts are elaboration-time constants. Convert them to the
-// narrowest positive-width Bits literal while leaving dynamic hardware
-// amounts untouched for the kernel's ordinary type checking.
+/*
+ * Host shift amounts are elaboration-time constants. Convert them to the
+ * narrowest positive-width Bits literal while leaving dynamic hardware
+ * amounts untouched for the kernel's ordinary type checking.
+ */
 fun required_shift_amount_width(amount :: Nat):
+  /* Doubles the representable capacity until the host shift amount fits. */
   fun loop(width :: PosInt, capacity :: PosInt):
     if amount < capacity
     | width
     | loop(width + 1, capacity * 2)
   loop(1, 2)
 
+/* Encodes host natural shift amounts minimally, rejects negative integers, and preserves hardware amounts. */
 fun normalize_shift_amount(amount :: Int || HardwareEntity, who :: Symbol):
   cond
   | amount is_a Nat:
@@ -106,6 +114,7 @@ fun normalize_shift_amount(amount :: Int || HardwareEntity, who :: Symbol):
       error(~who: who, "shift amount must be a host natural number or hardware Bits")
   | ~else: amount
 
+/* Builds a hardware left shift after normalizing a host or hardware amount. */
 fun hw_shl(value :: HardwareEntity,
            amount :: Int || HardwareEntity,
            name :: maybe(String) = #false,
@@ -115,6 +124,7 @@ fun hw_shl(value :: HardwareEntity,
                 name,
                 location)
 
+/* Builds a logical hardware right shift after normalizing its amount. */
 fun hw_shru(value :: HardwareEntity,
             amount :: Int || HardwareEntity,
             name :: maybe(String) = #false,
@@ -124,6 +134,7 @@ fun hw_shru(value :: HardwareEntity,
                  name,
                  location)
 
+/* Builds an arithmetic hardware right shift after normalizing its amount. */
 fun hw_shrs(value :: HardwareEntity,
             amount :: Int || HardwareEntity,
             name :: maybe(String) = #false,
@@ -133,52 +144,62 @@ fun hw_shrs(value :: HardwareEntity,
                  name,
                  location)
 
+/* Builds bitwise complement through the kernel with the common hardware result surface. */
 fun bit_not(entity :: HardwareEntity,
             name :: maybe(String) = #false,
             location :: Location = Location()) :~ HardwareFields:
   kernel_bit_not(entity, name, location)
 
+/* Builds bitwise conjunction through the kernel with the common hardware result surface. */
 fun bit_and(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(String) = #false,
             location :: Location = Location()) :~ HardwareFields:
   kernel_bit_and(left, right, name, location)
 
+/* Builds bitwise disjunction through the kernel with the common hardware result surface. */
 fun bit_or(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(String) = #false,
            location :: Location = Location()) :~ HardwareFields:
   kernel_bit_or(left, right, name, location)
 
+/* Builds bitwise exclusive-or through the kernel with the common hardware result surface. */
 fun bit_xor(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(String) = #false,
             location :: Location = Location()) :~ HardwareFields:
   kernel_bit_xor(left, right, name, location)
 
+/* Builds fixed-width addition through the kernel with the common hardware result surface. */
 fun hw_add(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(String) = #false,
            location :: Location = Location()) :~ HardwareFields:
   kernel_hw_add(left, right, name, location)
 
+/* Builds fixed-width multiplication through the kernel with the common hardware result surface. */
 fun hw_mul(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(String) = #false,
            location :: Location = Location()) :~ HardwareFields:
   kernel_hw_mul(left, right, name, location)
 
+/* Builds fixed-width subtraction through the kernel with the common hardware result surface. */
 fun hw_sub(left :: HardwareEntity,
            right :: HardwareEntity,
            name :: maybe(String) = #false,
            location :: Location = Location()) :~ HardwareFields:
   kernel_hw_sub(left, right, name, location)
 
-// Like a literal shadow, a typed don't-care is materialized only when a
-// hardware consumer reads it. Core IR carries only its packed Bits image.
+/*
+ * Like a literal shadow, a typed don't-care is materialized only when a
+ * hardware consumer reads it. Core IR carries only its packed Bits image.
+ */
 class DontCareValue(type :: DataType,
                     name :: maybe(String) = #false):
   implements StaticHardwareValue
+  /* Requires a well-formed packable data type before storing the deferred don't-care description. */
   constructor (type :: DataType,
                name :: maybe(String) = #false):
     unless type_well_formed(type)
@@ -190,6 +211,7 @@ class DontCareValue(type :: DataType,
             "don't-care type must have a packed representation")
     super(type, name)
 
+  /* Creates an unconstrained Bits image and explicitly restores a non-Bits declared type when consumed. */
   override method materialize_hardware(location :: Location):
     def width = type.packed_width()
     if bits_type(type)
@@ -199,13 +221,16 @@ class DontCareValue(type :: DataType,
            name,
            location)
 
+/* Creates an immutable deferred unconstrained description for the supplied data type. */
 fun dont_care(type :: DataType,
               name :: maybe(String) = #false):
   DontCareValue(type, name)
 
+/* Obtains one operand's canonical packed Bits image for concatenation. */
 fun concat_operand(entity :: HardwareEntity):
   hardware_as_bits(entity, #'concat, "concat operand")
 
+/* Accepts operands or one host list and concatenates at least two packed images. */
 fun concat(entity :: HardwareEntity || List.of(HardwareEntity), ...) :~ HardwareFields:
   def supplied = [entity, ...]
   def entities:
@@ -216,11 +241,13 @@ fun concat(entity :: HardwareEntity || List.of(HardwareEntity), ...) :~ Hardware
   | error(~who: #'concat, "concat requires at least two operands")
   kernel_concat(entities.map(concat_operand))
 
+/* Delegates low-bit truncation to the kernel while retaining the common hardware result surface. */
 fun trunc(entity :: HardwareEntity,
           target_width :: PosInt,
           name :: maybe(String) = #false) :~ HardwareFields:
   kernel_trunc(entity, target_width, name)
 
+/* Normalizes selector-owned typed keys to packed integers before building a mux with an explicit default. */
 fun build_mux_lookup(selector :: HardwareEntity,
                      default_value :: HardwareEntity,
                      cases :: List.of(List)):
@@ -259,24 +286,28 @@ expr.macro
       default_value
     )
 
+/* Dispatches addition to hardware construction when either operand is hardware, otherwise to host arithmetic. */
 fun add_operator(left :: HardwareEntity || Number,
                  right :: HardwareEntity || Number):
   if left is_a HardwareEntity || right is_a HardwareEntity
   | hw_add(left, right)
   | left rhombus.(+) right
 
+/* Dispatches multiplication to hardware construction when either operand is hardware, otherwise to host arithmetic. */
 fun multiply_operator(left :: HardwareEntity || Number,
                       right :: HardwareEntity || Number):
   if left is_a HardwareEntity || right is_a HardwareEntity
   | hw_mul(left, right)
   | left rhombus.(*) right
 
+/* Dispatches subtraction to hardware construction when either operand is hardware, otherwise to host arithmetic. */
 fun subtract_operator(left :: HardwareEntity || Number,
                       right :: HardwareEntity || Number):
   if left is_a HardwareEntity || right is_a HardwareEntity
   | hw_sub(left, right)
   | left rhombus.(-) right
 
+/* Constructs fixed-width hardware negation with a typed zero, or delegates host numeric negation. */
 fun negate_operator(entity :: HardwareEntity || Number):
   if entity is_a HardwareEntity
   | block:
@@ -300,12 +331,14 @@ expr.macro
     ~order: multiplication
     preserve_operand_surface('negate_operator($entity)', entity)
 
+/* Dispatches hardware left shift or ordinary host integer shift according to the operands. */
 fun shift_left_operator(left :: HardwareEntity || Int,
                         right :: HardwareEntity || Int):
   if left is_a HardwareEntity || right is_a HardwareEntity
   | hw_shl(left, right)
   | left rhombus.bits.(<<) right
 
+/* Selects signed or logical hardware right shift from the left operand's type, or uses host integer shift. */
 fun shift_right_operator(left :: HardwareEntity || Int,
                          right :: HardwareEntity || Int):
   if left is_a HardwareEntity || right is_a HardwareEntity

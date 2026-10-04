@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines shared exact and optional one-hot selector protocols and lowering builders.
+/* Defines shared exact and optional one-hot selector protocols and lowering builders. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,13 +17,18 @@ export:
   build_maybe_one_hot_mux
   build_keyed_one_hot_mux
 
-// Optional selectors deliberately do not implement OneHotSelectorType: zero is
-// a valid absence encoding and therefore cannot satisfy a partial mux contract.
+/*
+ * Optional selectors deliberately do not implement OneHotSelectorType: zero is
+ * a valid absence encoding and therefore cannot satisfy a partial mux contract.
+ */
 interface MaybeOneHotSelectorType:
+  /* Returns the lane count for an optional selector whose zero encoding means absence. */
   method maybe_one_hot_selector_width()
 
-// Preserves exact one-hot selection as a partial core operation. Exactly one
-// bit set is a caller precondition; invalid encodings have no result contract.
+/*
+ * Preserves exact one-hot selection as a partial core operation. Exactly one
+ * bit set is a caller precondition; invalid encodings have no result contract.
+ */
 fun build_one_hot_mux(selector :: HardwareEntity,
                       choices :: List.of(HardwareEntity),
                       name :: maybe(AsciiIdentifier) = #false,
@@ -47,8 +52,10 @@ fun build_one_hot_mux(selector :: HardwareEntity,
                        location,
                        Origin("embedded one-hot mux", name || ""))
 
-// Adds one default lane selected only by the absent encoding. Every legal
-// optional selector is exactly one-hot after this transformation.
+/*
+ * Adds one default lane selected only by the absent encoding. Every legal
+ * optional selector is exactly one-hot after this transformation.
+ */
 fun build_maybe_one_hot_mux(selector :: HardwareEntity,
                             choices :: List.of(HardwareEntity),
                             default_value :: HardwareEntity,
@@ -78,8 +85,10 @@ fun build_maybe_one_hot_mux(selector :: HardwareEntity,
                        location,
                        Origin("embedded maybe-one-hot mux", name || ""))
 
-// Converts typed-key map entries to physical selector-bit order before reusing
-// the exact one-hot lowering path.
+/*
+ * Converts typed-key map entries to physical selector-bit order before reusing
+ * the exact one-hot lowering path.
+ */
 fun build_keyed_one_hot_mux(selector :: HardwareEntity,
                             cases :: Map,
                             mux_name :: maybe(AsciiIdentifier) = #false,

@@ -1,11 +1,14 @@
 #lang rhombus
-// Defines the shared structural protocol implemented by fixed-width lane-set masks.
+/* Defines the shared structural protocol implemented by fixed-width lane-set masks. */
 // SPDX-License-Identifier: Apache-2.0
 
 export:
   MaskType
 
-// Layers can require mask semantics without importing the frontend layer that
-// owns the public Mask type and its Bool-valued indexing surface.
+/*
+ * Layers can require mask semantics without importing the frontend layer that
+ * owns the public Mask type and its Bool-valued indexing surface.
+ */
 interface MaskType:
+  /* Returns the fixed number of independently settable lane bits. */
   method mask_width()

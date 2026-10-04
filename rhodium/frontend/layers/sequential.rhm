@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines explicit and sync-domain ambient binding-derived register syntax.
+/* Defines explicit and sync-domain ambient binding-derived register syntax. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ import:
 export:
   reg
 
+/* Reports incompatible or incomplete register declaration options. */
 fun register_form_error():
   error(
     ~who: #'reg,
@@ -24,6 +25,7 @@ fun register_form_error():
     )
   )
 
+/* Infers or checks the state type, resolves explicit/ambient clock and reset, and optionally connects a supplied next value. */
 fun declare_register(name :: String,
                      type :: maybe(DataType) = #false,
                      ~next: next :: maybe(HardwareFields) = #false,

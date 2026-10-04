@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines lane masks, optional-one-hot values, reductions, encoders, comparisons, and selection.
+/* Defines lane masks, optional-one-hot values, reductions, encoders, comparisons, and selection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -50,43 +50,54 @@ export:
   <=
   >=
 
-// Represents an arbitrary set of fixed lanes. Every packed encoding is legal,
-// so bitwise set operations preserve the type while arithmetic and shifting do not.
+/*
+ * Represents an arbitrary set of fixed lanes. Every packed encoding is legal,
+ * so bitwise set operations preserve the type while arithmetic and shifting do not.
+ */
 class _MaskType(width :: PosInt):
   implements BitwiseType
   implements Callable
   implements mask_support.MaskType
 
+  /* Returns the lane-set mask width in diagnostic form. */
   override method describe():
     "mask<" ++ to_string(width) ++ ">"
 
+  /* Requires another mask descriptor with the same lane count. */
   override method type_equal(other :: HardwareType):
     mask_type(other) && width == other.width
 
+  /* Returns the packed number of independently settable lane bits. */
   override method packed_width():
     width
 
+  /* Returns the mask lane count, rejecting other hardware descriptors. */
   override method mask_width():
     width
 
-  // Host literals name a packed lane set, not a lane index.
+  /* Host literals name a packed lane set, not a lane index. */
   override method call(value :: Nat):
     packed_literal(this, value)
 
+/* Constructs a fixed-width mask descriptor whose every packed lane-set encoding is legal. */
 fun build_mask_type(width :: PosInt):
   _MaskType(width)
 
+/* Recognizes the lane-set mask descriptor family. */
 fun mask_type(type :: HardwareType):
   type is_a _MaskType
 
+/* Returns the mask lane count, rejecting other hardware descriptors. */
 fun mask_width(type :: HardwareType):
   unless mask_type(type)
   | error(~who: #'mask_width, "expected a Mask type")
   type.width
 
+/* Checks whether a hardware value carries a mask descriptor. */
 fun hardware_has_mask_type(value :: HardwareEntity):
   mask_type(hardware_value_type(value))
 
+/* Extracts one mask lane as a nominal Boolean value. */
 fun mask_index(value :: HardwareEntity, index :: Nat) :~ HardwareFields:
   def lanes = kernel.read(value)
   unless mask_type(lanes.type)
@@ -141,27 +152,33 @@ expr.macro 'Mask($(width :: expr_meta.Parsed))':
      MaskValue
    )'
 
-// Represents an absent selection as zero and a present selection as exactly
-// one asserted bit. The refinement is intentionally distinct from OneHot:
-// MaybeOneHot cannot directly satisfy a partial one-hot mux precondition.
+/*
+ * Represents an absent selection as zero and a present selection as exactly
+ * one asserted bit. The refinement is intentionally distinct from OneHot:
+ * MaybeOneHot cannot directly satisfy a partial one-hot mux precondition.
+ */
 class _MaybeOneHotType(width :: PosInt):
   implements ScalarDataType
   implements Callable
   implements one_hot_selection.MaybeOneHotSelectorType
 
+  /* Returns the optional-one-hot selector width in diagnostic form. */
   override method describe():
     "maybe-onehot<" ++ to_string(width) ++ ">"
 
+  /* Requires another optional selector with the same lane count. */
   override method type_equal(other :: HardwareType):
     maybe_one_hot_type(other) && width == other.width
 
+  /* Returns the packed number of selector lanes. */
   override method packed_width():
     width
 
+  /* Returns the optional selector's lane count. */
   override method maybe_one_hot_selector_width():
     width
 
-  // No argument constructs absence; a host index constructs a present lane.
+  /* No argument constructs absence; a host index constructs a present lane. */
   override method call(index :: maybe(Nat) = #false):
     if !index
     | packed_literal(this, 0)
@@ -171,21 +188,26 @@ class _MaybeOneHotType(width :: PosInt):
                 "literal index must satisfy 0 <= index < width")
         packed_literal(this, 1 << index)
 
+/* Constructs an optional-one-hot descriptor with a positive lane count. */
 fun build_maybe_one_hot_type(width :: PosInt):
   _MaybeOneHotType(width)
 
+/* Recognizes the optional-one-hot descriptor family. */
 fun maybe_one_hot_type(type :: HardwareType):
   type is_a _MaybeOneHotType
 
+/* Returns the optional selector lane count, rejecting other types. */
 fun maybe_one_hot_width(type :: HardwareType):
   unless maybe_one_hot_type(type)
   | error(~who: #'maybe_one_hot_width, "expected a MaybeOneHot type")
   type.width
 
+/* Checks whether a hardware value carries an optional-one-hot descriptor. */
 fun hardware_has_maybe_one_hot_type(value :: HardwareEntity):
   maybe_one_hot_type(hardware_value_type(value))
 
 meta:
+  /* Preserves a first literal-list choice's static surface on the mux result when available. */
   fun maybe_one_hot_mux_result(result :: Syntax, choices :: Syntax):
     match choices.group
     | '[$(first :: expr_meta.Parsed), $rest, ...]':
@@ -228,6 +250,7 @@ dot.macro 'maybe_one_hot_value_dot $left $dot $right':
       | values(expansion, '$tail ...')
       | #false
 
+/* Extracts one optional selector lane as a nominal Boolean. */
 fun maybe_one_hot_index(value :: HardwareEntity,
                         index :: Nat) :~ HardwareFields:
   def selector = kernel.read(value)
@@ -285,8 +308,10 @@ expr.macro 'MaybeOneHot($(width :: expr_meta.Parsed))':
      MaybeOneHotValue
    )'
 
-// Equality remains a Bits core operation. Frontend nominal flat types compare
-// by explicitly exposing equal-width representations first.
+/*
+ * Equality remains a Bits core operation. Frontend nominal flat types compare
+ * by explicitly exposing equal-width representations first.
+ */
 fun equality_bits(left :: HardwareEntity,
                   right :: HardwareEntity,
                   who :: Symbol,
@@ -301,6 +326,7 @@ fun equality_bits(left :: HardwareEntity,
   def right_bits = hardware_as_bits(right_value, who, spelling ++ " operand", #false, location)
   kernel.hw_eq(left_bits, right_bits, #false, location)
 
+/* Compares exactly matching scalar data types through their packed images and returns nominal Bool. */
 fun bool_eq(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(String) = #false,
@@ -313,8 +339,10 @@ fun bool_eq(left :: HardwareEntity,
 operator (left === right) :~ HardwareFields.of(Bool):
   bool_eq(left, right)
 
-// Inequality is the Boolean complement of typed equality. Keeping one core
-// equality operation preserves exactly the same nominal type contract.
+/*
+ * Inequality is the Boolean complement of typed equality. Keeping one core
+ * equality operation preserves exactly the same nominal type contract.
+ */
 fun bool_ne(left :: HardwareEntity,
             right :: HardwareEntity,
             name :: maybe(String) = #false,
@@ -327,7 +355,7 @@ fun bool_ne(left :: HardwareEntity,
   )
   kernel.bit_not(equal, name, location)
 
-// Packs a nonempty host list without introducing a zero-length hardware type.
+/* Packs a nonempty host list without introducing a zero-length hardware type. */
 fun packed_reduction_list(entities :: List.of(HardwareEntity),
                           who :: Symbol,
                           spelling :: String,
@@ -348,7 +376,7 @@ fun packed_reduction_list(entities :: List.of(HardwareEntity),
     total_width := total_width + element.type.width
   values(packed, total_width)
 
-// Validates and packs the common operand accepted by Boolean bit reductions.
+/* Validates and packs the common operand accepted by Boolean bit reductions. */
 fun packed_reduction_operand(entity :: HardwareEntity || List.of(HardwareEntity),
                              who :: Symbol,
                              spelling :: String,
@@ -363,6 +391,7 @@ fun packed_reduction_operand(entity :: HardwareEntity || List.of(HardwareEntity)
               location.describe() ++ ": " ++ spelling ++ " operand must have a packable DataType")
       values(hardware_as_bits(value, who, spelling ++ " operand", #false, location), width)
 
+/* Constructs a named Boolean identity for an empty bit reduction. */
 fun reduction_identity(value :: Nat,
                        name :: maybe(String),
                        location :: Location):
@@ -371,9 +400,11 @@ fun reduction_identity(value :: Nat,
               name,
               location)
 
-// Reduces the canonical packed representation of hardware data to whether any
-// bit is asserted. Existing equality and inversion IR fully express the
-// operation, so the frontend does not introduce a reduction-specific opcode.
+/*
+ * Reduces the canonical packed representation of hardware data to whether any
+ * bit is asserted. Existing equality and inversion IR fully express the
+ * operation, so the frontend does not introduce a reduction-specific opcode.
+ */
 fun or_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
               name :: maybe(String) = #false,
               location :: Location = Location()) :~ HardwareFields:
@@ -392,9 +423,11 @@ fun or_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
       )
       kernel.bit_not(equal_zero, name, location)
 
-// Reduces the canonical packed representation of hardware data to whether
-// every bit is asserted. Equality with the packed all-ones value avoids a new
-// core reduction operation.
+/*
+ * Reduces the canonical packed representation of hardware data to whether
+ * every bit is asserted. Equality with the packed all-ones value avoids a new
+ * core reduction operation.
+ */
 fun and_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
                name :: maybe(String) = #false,
                location :: Location = Location()) :~ HardwareFields:
@@ -413,8 +446,10 @@ fun and_reduce(entity :: HardwareEntity || List.of(HardwareEntity),
         location
       )
 
+/* Pairs a partial population-count value with the number of input bits contributing to it. */
 class PopcountNode(value :: Value, capacity :: PosInt)
 
+/* Zero-extends a partial population count only when its next subtree sum requires more width. */
 fun widen_popcount_node(node :: PopcountNode,
                         target_width :: PosInt,
                         location :: Location):
@@ -422,8 +457,10 @@ fun widen_popcount_node(node :: PopcountNode,
   | node.value
   | kernel.zext(node.value, target_width, #false, location)
 
-// Each node carries the number of source bits beneath it, allowing every
-// internal adder to use the minimum width that can represent its subtree sum.
+/*
+ * Each node carries the number of source bits beneath it, allowing every
+ * internal adder to use the minimum width that can represent its subtree sum.
+ */
 fun merge_popcount_nodes(left :: PopcountNode,
                          right :: PopcountNode,
                          name :: maybe(String),
@@ -438,6 +475,7 @@ fun merge_popcount_nodes(left :: PopcountNode,
     capacity
   )
 
+/* Pairs adjacent count nodes into a logarithmic-depth tree, carrying an unmatched node to the next level. */
 fun reduce_popcount_nodes(nodes :: List,
                           name :: maybe(String),
                           location :: Location):
@@ -458,9 +496,11 @@ fun reduce_popcount_nodes(nodes :: List,
       | next_nodes := [remaining[0]] ++ next_nodes
       reduce_popcount_nodes(next_nodes.reverse(), name, location)
 
-// Counts asserted bits in the canonical packed representation. Pairwise
-// reduction gives logarithmic depth while capacity-aware widths avoid carrying
-// impossible high bits through smaller subtrees.
+/*
+ * Counts asserted bits in the canonical packed representation. Pairwise
+ * reduction gives logarithmic depth while capacity-aware widths avoid carrying
+ * impossible high bits through smaller subtrees.
+ */
 fun popcount(entity :: HardwareEntity || List.of(HardwareEntity),
              name :: maybe(String) = #false,
              location :: Location = Location()) :~ HardwareFields:
@@ -479,8 +519,10 @@ fun popcount(entity :: HardwareEntity || List.of(HardwareEntity),
         )
       reduce_popcount_nodes(nodes, name, location)
 
-// Statically shifts a packed value toward higher-numbered bits without
-// introducing a dynamic shifter into the core IR.
+/*
+ * Statically shifts a packed value toward higher-numbered bits without
+ * introducing a dynamic shifter into the core IR.
+ */
 fun static_shift_left(value :: Value,
                       width :: PosInt,
                       amount :: PosInt,
@@ -494,8 +536,10 @@ fun static_shift_left(value :: Value,
       location
     )
 
-// Isolates the least-significant asserted bit using a logarithmic-depth
-// parallel prefix OR network. An all-zero operand produces all zeroes.
+/*
+ * Isolates the least-significant asserted bit using a logarithmic-depth
+ * parallel prefix OR network. An all-zero operand produces all zeroes.
+ */
 fun packed_priority_encoder_oh(packed :: Value,
                                width :: PosInt,
                                name :: maybe(String),
@@ -521,8 +565,10 @@ fun packed_priority_encoder_oh(packed :: Value,
     location
   )
 
-// Returns a native optional-one-hot value selecting the lowest asserted packed
-// bit. The all-zero input maps to the distinguished absent representation.
+/*
+ * Returns a native optional-one-hot value selecting the lowest asserted packed
+ * bit. The all-zero input maps to the distinguished absent representation.
+ */
 fun build_priority_encoder_oh(entity :: HardwareEntity,
                               name :: maybe(String) = #false,
                               location :: Location = Location()) :~ HardwareFields:
@@ -557,6 +603,7 @@ expr.macro
                        $(location :: expr_meta.Parsed))':
     'build_priority_encoder_oh($entity, $name, $location) :: MaybeOneHotValue'
 
+/* Materializes the selector and requires the optional-one-hot descriptor family. */
 fun require_maybe_one_hot(selector :: HardwareEntity,
                           who :: Symbol,
                           location :: Location):
@@ -566,8 +613,10 @@ fun require_maybe_one_hot(selector :: HardwareEntity,
           location.describe() ++ ": selector must have a MaybeOneHot type")
   value
 
-// Presence is encoded without a separate hardware bit and is therefore just
-// the nonzero predicate over the compact selector representation.
+/*
+ * Presence is encoded without a separate hardware bit and is therefore just
+ * the nonzero predicate over the compact selector representation.
+ */
 fun maybe_one_hot_valid(selector :: HardwareEntity,
                         name :: maybe(String) = #false,
                         location :: Location = Location()) :~ HardwareFields:
@@ -588,8 +637,10 @@ fun maybe_one_hot_valid(selector :: HardwareEntity,
               name,
               location)
 
-// Masking can remove the selected lane but cannot create a second asserted
-// lane, so the result remains a MaybeOneHot value of the same width.
+/*
+ * Masking can remove the selected lane but cannot create a second asserted
+ * lane, so the result remains a MaybeOneHot value of the same width.
+ */
 fun maybe_one_hot_mask(selector :: HardwareEntity,
                        mask :: HardwareEntity,
                        name :: maybe(String) = #false,
@@ -616,6 +667,7 @@ fun maybe_one_hot_mask(selector :: HardwareEntity,
   )
   kernel.cast(masked, value.type, name, location)
 
+/* Builds a host lane mask for indices whose selected binary result bit is one. */
 fun priority_index_mask(width :: PosInt, result_bit :: Nat):
   def mutable mask = 0
   for (index in 0..width):
@@ -623,8 +675,10 @@ fun priority_index_mask(width :: PosInt, result_bit :: Nat):
     | mask := mask + (1 << index)
   mask
 
-// Encodes an already-isolated zero-or-one mask without rebuilding the priority
-// network used for arbitrary packed operands.
+/*
+ * Encodes an already-isolated zero-or-one mask without rebuilding the priority
+ * network used for arbitrary packed operands.
+ */
 fun packed_one_hot_index(selected :: Value,
                          width :: PosInt,
                          name :: maybe(String),
@@ -656,6 +710,7 @@ fun packed_one_hot_index(selected :: Value,
   | result_bits[0]
   | kernel.concat(result_bits.reverse(), name, location)
 
+/* Encodes the optional selected lane as a binary index, with index zero for absence. */
 fun maybe_one_hot_index_value(selector :: HardwareEntity,
                               name :: maybe(String) = #false,
                               location :: Location = Location()) :~ HardwareFields:
@@ -672,8 +727,10 @@ fun maybe_one_hot_index_value(selector :: HardwareEntity,
     location
   )
 
-// Encodes the lowest asserted packed bit. Zero input returns index zero; use
-// or_reduce when the caller must distinguish that case from bit zero winning.
+/*
+ * Encodes the lowest asserted packed bit. Zero input returns index zero; use
+ * or_reduce when the caller must distinguish that case from bit zero winning.
+ */
 fun priority_encoder(entity :: HardwareEntity,
                      name :: maybe(String) = #false,
                      location :: Location = Location()) :~ HardwareFields:
@@ -699,7 +756,7 @@ operator (left =/= right) :~ HardwareFields.of(Bool):
   ~same_as: ===
   bool_ne(left, right)
 
-// Avoids an extra reduction comparison for a single Boolean predicate.
+/* Avoids an extra reduction comparison for a single Boolean predicate. */
 fun reduce_boolean_comparisons(comparisons :: NonemptyList.of(HardwareEntity),
                                name :: maybe(String),
                                location :: Location):
@@ -707,8 +764,10 @@ fun reduce_boolean_comparisons(comparisons :: NonemptyList.of(HardwareEntity),
   | kernel.cast(comparisons[0], Bool, name, location)
   | or_reduce(comparisons, name, location)
 
-// Generates a runtime membership predicate from the enum type's declared
-// encodings, keeping sparse wire encodings distinct from host type safety.
+/*
+ * Generates a runtime membership predicate from the enum type's declared
+ * encodings, keeping sparse wire encodings distinct from host type safety.
+ */
 fun enum_valid(value :: HardwareEntity,
                name :: maybe(String) = #false,
                location :: Location = Location()) :~ HardwareFields:
@@ -732,6 +791,7 @@ fun enum_valid(value :: HardwareEntity,
   )
   reduce_boolean_comparisons(comparisons, name, location)
 
+/* Materializes and requires two unsigned Bits operands of exactly matching width. */
 fun require_unsigned_bits(left :: HardwareEntity,
                           right :: HardwareEntity,
                           who :: Symbol,
@@ -743,11 +803,13 @@ fun require_unsigned_bits(left :: HardwareEntity,
           location.describe() ++ ": unsigned comparison operands must have exactly the same Bits width")
   values(left_value, right_value)
 
+/* Restores the nominal Boolean type on a one-bit comparison result. */
 fun comparison_bool(value :: HardwareEntity,
                     name :: maybe(String),
                     location :: Location) :~ HardwareFields.of(Bool):
   kernel.cast(value, Bool, name, location)
 
+/* Constructs unsigned less-than after checking matching Bits operands. */
 fun unsigned_lt_bits(left :: HardwareEntity,
                      right :: HardwareEntity,
                      who :: Symbol,
@@ -755,6 +817,7 @@ fun unsigned_lt_bits(left :: HardwareEntity,
   def (left_value, right_value) = require_unsigned_bits(left, right, who, location)
   kernel.hw_ult(left_value, right_value, #false, location)
 
+/* Returns nominal Bool for unsigned less-than on exactly matching Bits operands. */
 fun unsigned_lt(left :: HardwareEntity,
                 right :: HardwareEntity,
                 name :: maybe(String) = #false,
@@ -762,6 +825,7 @@ fun unsigned_lt(left :: HardwareEntity,
   comparison_bool(unsigned_lt_bits(left, right, #'unsigned_lt, location),
                   name, location)
 
+/* Materializes and requires two identical signed arithmetic types and widths. */
 fun require_signed_arithmetic(left :: HardwareEntity,
                               right :: HardwareEntity,
                               who :: Symbol,
@@ -773,6 +837,7 @@ fun require_signed_arithmetic(left :: HardwareEntity,
           location.describe() ++ ": signed comparison operands must have exactly the same signed arithmetic type and width")
   values(left_value, right_value)
 
+/* Constructs signed less-than after validating matching signed operands. */
 fun signed_lt_bits(left :: HardwareEntity,
                    right :: HardwareEntity,
                    who :: Symbol,
@@ -783,6 +848,7 @@ fun signed_lt_bits(left :: HardwareEntity,
                                                             location)
   kernel.hw_slt(left_value, right_value, #false, location)
 
+/* Returns nominal Bool for signed less-than on exactly matching signed arithmetic operands. */
 fun signed_lt(left :: HardwareEntity,
               right :: HardwareEntity,
               name :: maybe(String) = #false,
@@ -790,6 +856,7 @@ fun signed_lt(left :: HardwareEntity,
   comparison_bool(signed_lt_bits(left, right, #'signed_lt, location),
                   name, location)
 
+/* Chooses signed ordering when either operand is signed, otherwise unsigned ordering, with exact type checks. */
 fun ordered_lt_bits(left :: HardwareEntity,
                     right :: HardwareEntity,
                     who :: Symbol,
@@ -800,6 +867,7 @@ fun ordered_lt_bits(left :: HardwareEntity,
   | signed_lt_bits(left_value, right_value, who, location)
   | unsigned_lt_bits(left_value, right_value, who, location)
 
+/* Returns nominal Bool from the receiver-type-selected signed or unsigned ordering. */
 fun ordered_lt(left :: HardwareEntity,
                right :: HardwareEntity,
                name :: maybe(String) = #false,
@@ -807,12 +875,14 @@ fun ordered_lt(left :: HardwareEntity,
   comparison_bool(ordered_lt_bits(left, right, #'ordered_lt, location),
                   name, location)
 
+/* Tests unsigned greater-than by reversing the operands of unsigned less-than. */
 fun unsigned_gt(left :: HardwareEntity,
                 right :: HardwareEntity,
                 name :: maybe(String) = #false,
                 location :: Location = Location()):
   unsigned_lt(right, left, name, location)
 
+/* Tests unsigned less-than-or-equal as the complement of reversed unsigned less-than. */
 fun unsigned_le(left :: HardwareEntity,
                 right :: HardwareEntity,
                 name :: maybe(String) = #false,
@@ -826,6 +896,7 @@ fun unsigned_le(left :: HardwareEntity,
     location
   )
 
+/* Tests unsigned greater-than-or-equal as the complement of unsigned less-than. */
 fun unsigned_ge(left :: HardwareEntity,
                 right :: HardwareEntity,
                 name :: maybe(String) = #false,
@@ -875,6 +946,7 @@ operator (left >= right) :~ HardwareFields.of(Bool):
                       Location())
   | (left compare_to right) .>= 0
 
+/* Requires a nominal Bool condition and selects the true or false value through an exact keyed mux. */
 fun build_mux(condition :: HardwareEntity,
               true_value :: HardwareEntity,
               false_value :: HardwareEntity,
@@ -890,8 +962,10 @@ fun build_mux(condition :: HardwareEntity,
                        location,
                        Origin("embedded mux", name || ""))
 
-// Builds an expression-level priority chain. Cases remain ordered host data;
-// the first true hardware Bool selects its value and no condition is implicit.
+/*
+ * Builds an expression-level priority chain. Cases remain ordered host data;
+ * the first true hardware Bool selects its value and no condition is implicit.
+ */
 fun build_priority_mux(cases :: List.of(List),
                        default_value :: HardwareEntity,
                        name :: maybe(String) = #false,
@@ -913,6 +987,7 @@ fun build_priority_mux(cases :: List.of(List),
               location.describe() ++ ": priority_mux condition must be Bool")
       [condition, case[1]]
   )
+  /* Builds the priority chain from this case onward, giving the current true condition precedence over later cases. */
   fun build_case(index :: Nat):
     if index == normalized_cases.length()
     | default_value
@@ -933,6 +1008,7 @@ fun build_priority_mux(cases :: List.of(List),
   build_case(0)
 
 meta:
+  /* Retains the selected arm's static surface, recovering a type-named member's descriptor surface when needed. */
   fun mux_result(result :: Syntax, true_value :: Syntax):
     match true_value.group
     | '$(type_name :: Identifier) $dot $(member :: Identifier)' when dot.to_source_string() == ".":

@@ -1,9 +1,11 @@
 #lang rhombus
-// Defines the shared introspection contract for finite hardware enum encodings.
+/* Defines the shared introspection contract for finite hardware enum encodings. */
 // SPDX-License-Identifier: Apache-2.0
 
 export:
   FiniteEnumType
 
+/* Exposes the finite legal packed encodings of a hardware enum independently of its authoring layer. */
 interface FiniteEnumType:
+  /* Returns the complete sequence of legal integer encodings for this enum type. */
   method enum_encodings()

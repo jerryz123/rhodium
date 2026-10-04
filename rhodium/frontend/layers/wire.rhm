@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines the binding-derived single-driver wire frontend layer.
+/* Defines the binding-derived single-driver wire frontend layer. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
