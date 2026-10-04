@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the tool-neutral logical block and compound-channel diagram model.
+/* Defines the tool-neutral logical block and compound-channel diagram model. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -16,6 +16,7 @@ export:
   DiagramModule
   DiagramDesign
 
+/* Describes a rendered terminal's direction and protocol, retaining compound-interface and backpressure flags. */
 class DiagramPort(id :: String,
                   name :: String,
                   direction :: String,
@@ -23,6 +24,7 @@ class DiagramPort(id :: String,
                   backpressured :: Boolean = #false,
                   compound :: Boolean = #false)
 
+/* Represents a logical block with display properties and optional IR-backed hierarchy, trace, or delegation metadata. */
 class DiagramBlock(id :: String,
                    label :: String,
                    kind :: String,
@@ -35,6 +37,7 @@ class DiagramBlock(id :: String,
                    implementation_name :: maybe(String) = #false,
                    delegate_ports :: maybe(Map) = #false)
 
+/* Connects two logical terminals, distinguishing protocol topology from ordinary data dependence. */
 class DiagramChannel(id :: String,
                      source_block :: String,
                      source_port :: String,
@@ -45,8 +48,10 @@ class DiagramChannel(id :: String,
                      kind :: String = "data",
                      protocol_family :: String = "data")
 
-// A metadata-only causal edge between two event checkpoints in one module.
-// The retained controls are carried through extraction for event analysis.
+/*
+ * A metadata-only causal edge between two event checkpoints in one module.
+ * The retained controls are carried through extraction for event analysis.
+ */
 class DiagramTraceEdge(parent_site :: Nat,
                        child_site :: Nat,
                        capture :: Value,
@@ -54,13 +59,16 @@ class DiagramTraceEdge(parent_site :: Nat,
                        active :: Value,
                        scope :: String)
 
+/* Groups one module definition's ordered blocks, channels, and optional retained-owner causal edges. */
 class DiagramModule(id :: Nat || String,
                     name :: String,
                     blocks :: List.of(DiagramBlock),
                     channels :: List.of(DiagramChannel),
                     trace_edges :: List.of(DiagramTraceEdge) = [])
 
+/* Pairs the source elaboration with its read-only logical views of reachable module definitions. */
 class DiagramDesign(logical :: DesignElaboration,
                     modules :: List.of(DiagramModule)):
+  /* Returns the first module view with the requested name, or false when no such view exists. */
   method module(name :: String):
     modules.find(fun (module_diagram): module_diagram.name == name)

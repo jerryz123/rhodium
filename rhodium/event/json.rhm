@@ -1,5 +1,5 @@
 #lang rhombus
-// Serializes event manifests as JSON and matching compiler-owned C++ descriptors.
+/* Serializes event manifests as JSON and matching compiler-owned C++ descriptors. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,9 +10,11 @@ export:
   event_manifest_to_json
   event_manifest_to_cpp
 
+/* Encodes one string with the JSON library so quotes, control characters, and UTF-8 labels survive serialization. */
 fun json_string(value :: String):
   encode_json_string(value)
 
+/* Serializes supported manifest values recursively with sorted map keys and preserved sequence order. */
 fun json_value(value :: String || Boolean || Number || Array || List || Map):
   cond
   | value is_a String: json_string(value)
@@ -32,6 +34,7 @@ fun json_value(value :: String || Boolean || Number || Array || List || Map):
       error(~who: #'event_manifest_to_json,
             "event manifest value is not JSON-serializable: " ++ to_string(value))
 
+/* Projects an occurrence-qualified site's capture schema and kind into JSON, including applicable display/observation metadata. */
 fun json_site(site :: EventSite):
   {
     "id": site.id,
@@ -50,6 +53,7 @@ fun json_site(site :: EventSite):
     "source_location": site.source_location
   } ++ (if site.observation_of | {"observation_of": site.observation_of} | {})
 
+/* Serializes possible site pairs, transform witnesses, and fixed-or-unknown latency, omitting executable lineage plans. */
 fun json_dependency(dependency :: EventDependency):
   {
     "parent": dependency.parent,
@@ -58,6 +62,7 @@ fun json_dependency(dependency :: EventDependency):
     "latency_cycles": dependency.latency_cycles
   }
 
+/* Emits deterministic version-1 event-graph JSON, including optional partial-coverage gaps and hierarchy identity bindings. */
 fun event_manifest_to_json(manifest :: EventManifest):
   def instances:
     if manifest.instances.length() > 0
@@ -72,19 +77,24 @@ fun event_manifest_to_json(manifest :: EventManifest):
     "dependencies": manifest.dependencies.map(json_dependency)
   } ++ instances ++ (if manifest.gaps.length() > 0 | {"gaps": manifest.gaps.map(fun (gap): {"site": gap.site, "boundary": gap.boundary, "reason": gap.reason})} | {})) ++ "\n"
 
+/* Returns manifest scope indices whose hierarchy paths contain this site, preserving manifest order. */
 fun instance_indices(manifest :: EventManifest, site :: EventSite):
   def indices = for List (index in 0..manifest.instances.length()): index
+  /* Tests whether the selected scope's occurrence path is an ancestor of the event site. */
   fun contains_site(index :: Nat):
     def path = manifest.instances[index].path
     site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path
   indices.filter(~keep: contains_site)
 
-// Raw literals preserve JSON escaping and UTF-8 labels without interpreting
-// JSON escapes as C++ escapes. Pick a delimiter absent from the actual JSON.
+/*
+ * Raw literals preserve JSON escaping and UTF-8 labels without interpreting
+ * JSON escapes as C++ escapes. Pick a delimiter absent from the actual JSON.
+ */
 fun event_manifest_to_cpp(manifest :: EventManifest):
   unless manifest.sites.length() > 0 && manifest.sites.length() < 2 ** 32
   | error(~who: #'event_manifest_to_cpp, "runtime manifest requires a nonempty 32-bit site table")
   def json = event_manifest_to_json(manifest)
+  /* Finds a C++ raw-string delimiter whose terminator does not occur in the serialized manifest. */
   fun delimiter(index :: Nat):
     def candidate = "rhdl" ++ to_string(index)
     if json.contains(")" ++ candidate ++ "\"")
@@ -100,6 +110,7 @@ fun event_manifest_to_cpp(manifest :: EventManifest):
     | error(~who: #'event_manifest_to_cpp, "runtime payload width must fit 32 bits")
   def widths = manifest.sites.map(fun (site): to_string(site.payload_width || 0))
   def residencies = (for List (index in 0..manifest.sites.length()): index).filter(~keep: fun (index): manifest.sites[index].kind == "residency").map(to_string)
+  /* Encodes one runtime capture descriptor, preserving raw field names, enum symbols, packing offsets, and display metadata. */
   fun cpp_field(field :: EventField):
     // Names are raw literals too: quotes, backslashes and Unicode are not C++ escapes.
     def name_tag = tag ++ "f"

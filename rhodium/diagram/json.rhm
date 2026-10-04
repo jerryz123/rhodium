@@ -1,5 +1,5 @@
 #lang rhombus
-// Serializes logical Rhodium diagrams to deterministic, tool-neutral JSON.
+/* Serializes logical Rhodium diagrams to deterministic, tool-neutral JSON. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,9 +9,11 @@ export:
   diagram_module_to_json
   diagram_to_json
 
+/* Quotes a string using host expression escaping for the diagram JSON representation. */
 fun json_string(value :: String):
   to_string(value, ~mode: #'expr)
 
+/* Serializes supported property values recursively, preserving sequence order and sorting map keys. */
 fun json_value(value :: String || Boolean || Number || Array || List || Map):
   cond
   | value is_a String: json_string(value)
@@ -31,6 +33,7 @@ fun json_value(value :: String || Boolean || Number || Array || List || Map):
       error(~who: #'diagram_to_json,
             "diagram property is not JSON-serializable: " ++ to_string(value))
 
+/* Projects a rendered terminal into the public JSON port fields. */
 fun json_port(port :: DiagramPort):
   {
     "id": port.id,
@@ -41,6 +44,7 @@ fun json_port(port :: DiagramPort):
     "compound": port.compound
   }
 
+/* Serializes display fields and an optional child link, omitting compiler-only trace and delegation metadata. */
 fun json_block(block :: DiagramBlock):
   def fields = {
     "id": block.id,
@@ -56,6 +60,7 @@ fun json_block(block :: DiagramBlock):
     | fields
   complete
 
+/* Projects a logical channel into JSON with explicit source and destination block/port references. */
 fun json_channel(channel :: DiagramChannel):
   {
     "id": channel.id,
@@ -73,6 +78,7 @@ fun json_channel(channel :: DiagramChannel):
     "kind": channel.kind
   }
 
+/* Projects ordered blocks and channels into the public module object, omitting event-only causal edges. */
 fun json_module(module_diagram :: DiagramModule):
   {
     "id": module_diagram.id,
@@ -81,9 +87,11 @@ fun json_module(module_diagram :: DiagramModule):
     "channels": module_diagram.channels.map(json_channel)
   }
 
+/* Serializes one logical module as deterministic JSON terminated by a newline. */
 fun diagram_module_to_json(module_diagram :: DiagramModule):
   json_value(json_module(module_diagram)) ++ "\n"
 
+/* Serializes the selected top name and all extracted module views as deterministic newline-terminated JSON. */
 fun diagram_to_json(view :: DiagramDesign):
   json_value({
     "top": view.logical.top.name,

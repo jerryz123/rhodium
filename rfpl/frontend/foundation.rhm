@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines physical RFPL views over already elaborated Rhodium circuit hierarchy.
+/* Defines physical RFPL views over already elaborated Rhodium circuit hierarchy. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -25,9 +25,12 @@ export:
   place
   annotate
 
+/* Stores an exact nonnegative physical distance in integer picometers. */
 class Length(picometers :: Nat)
 
+/* Describes a rectangular outline with strictly positive exact dimensions. */
 class RectOutline(width :: Length, height :: Length):
+  /* Rejects zero width or height before storing the outline. */
   constructor (width :: Length, height :: Length):
     unless width.picometers > 0
     | error(~who: #'RectOutline, "width must be positive")
@@ -35,58 +38,78 @@ class RectOutline(width :: Length, height :: Length):
     | error(~who: #'RectOutline, "height must be positive")
     super(width, height)
 
+/* Locates a child rectangle's origin within its parent using nonnegative exact lengths. */
 class Coordinate(x :: Length, y :: Length)
 
+/* Defines the validation contract shared by opaque and transparent physical views. */
 interface PhysicalView:
+  /* Requires this view's local physical and logical-identity checks to succeed. */
   method validate()
 
+/* Gives a finished logical module an opaque physical outline; traversal stops at this leaf,
+   without hiding or changing the module's logical contents. */
 class HardMacro(module_def :: Module,
                 outline :: RectOutline,
                 location :: Location = Location()):
   implements PhysicalView
 
+  /* Rechecks the finished module and rectangular outline through shared view validation. */
   override method validate():
     validate_physical_view(this)
 
+/* Records one existing parent-local instance, its matching child view, and exact coordinate;
+   it never creates or reconnects a logical instance. */
 class FloorplanPlacement(parent_module :: Module,
                          child :: PhysicalView,
                          instance :: Operation,
                          coordinate :: Coordinate,
                          location :: Location = Location())
 
+/* Describes a transparent wiring-only module with exactly one placement per direct instance.
+   Reusing this view stamps the same internal arrangement at each occurrence. */
 class CompositeFloorplan(module_def :: Module,
                          outline :: RectOutline,
                          placements :: List.of(FloorplanPlacement),
                          location :: Location = Location()):
   implements PhysicalView
 
+  /* Rechecks direct-instance coverage, child identity, coordinates, and rectangle containment. */
   override method validate():
     validate_physical_view(this)
 
+/* Retains the original logical elaboration alongside the validated root and flattened view tree. */
 class FloorplanDesign(logical :: DesignElaboration,
                       top :: PhysicalView,
                       views :: List.of(PhysicalView),
                       placements :: List.of(FloorplanPlacement)):
+  /* Exposes the original logical Design unchanged for existing analyses and backends. */
   property design: logical.design
+  /* Exposes the exact logical module associated with the physical root. */
   property top_module: top.module_def
 
+/* Reports an RFPL authoring error with the supplied source location. */
 fun rfpl_fail(message :: String, location :: Location = Location()):
   error(~who: #'rfpl, location.describe() ++ ": " ++ message)
 
+/* Converts integer nanometers to exact picometers without floating-point arithmetic. */
 fun nm(magnitude :: Nat):
   Length(magnitude * 1000)
 
+/* Converts integer micrometers to exact picometers without floating-point arithmetic. */
 fun um(magnitude :: Nat):
   Length(magnitude * 1000000)
 
+/* Tests the common view interface before accessing physical-view fields. */
 fun physical_view(value :~ PhysicalView):
   value is_a PhysicalView
 
+/* Rejects unfinished logical modules and returns the same existing module object. */
 fun require_module(module_def :: Module, location :: Location = Location()):
   unless module_def.finished
   | rfpl_fail("physical views require a finished Rhodium module", location)
   module_def
 
+/* Checks positive dimensions with an RFPL source diagnostic before building the exact outline. */
 fun require_outline(width :: Length,
                     height :: Length,
                     location :: Location = Location()):
@@ -96,6 +119,7 @@ fun require_outline(width :: Length,
   | rfpl_fail("physical height must be positive", location)
   RectOutline(width, height)
 
+/* Resolves a named direct instance in a finished module without reconstructing its hierarchy. */
 fun child_instance(module_def :: Module,
                    name :: String,
                    location :: Location = Location()):
@@ -109,6 +133,7 @@ fun child_instance(module_def :: Module,
     )
   operation
 
+/* Reads an existing rtl.instance's exact target Module, rejecting other or malformed operations. */
 fun instance_target(instance :: Operation,
                     location :: Location = Location()):
   unless instance.opcode == "rtl.instance"
@@ -118,6 +143,7 @@ fun instance_target(instance :: Operation,
   | rfpl_fail("instance operation has no Rhodium target module", location)
   target
 
+/* Constructs an opaque view after checking the existing module and positive outline dimensions. */
 fun build_hard_macro(module_def :: Module,
                      width :: Length,
                      height :: Length,
@@ -125,6 +151,8 @@ fun build_hard_macro(module_def :: Module,
   require_module(module_def, location)
   HardMacro(module_def, require_outline(width, height, location), location)
 
+/* Requires an existing instance and an exact target-module match, then records its parent and
+   coordinate without changing logical connectivity. */
 fun build_placement(instance :: Operation,
                     child :~ PhysicalView,
                     coordinate :: Coordinate,
@@ -145,6 +173,7 @@ fun build_placement(instance :: Operation,
     )
   FloorplanPlacement(instance.module_def, child, instance, coordinate, location)
 
+/* Checks that the child's right and top edges fit inside its parent; sibling overlap is not checked. */
 fun verify_containment(parent :: CompositeFloorplan,
                        placement :: FloorplanPlacement):
   def coordinate = placement.coordinate
@@ -162,6 +191,8 @@ fun verify_containment(parent :: CompositeFloorplan,
       placement.location
     )
 
+/* Checks parent ownership and complete wiring-only instance coverage, then constructs the outline
+   and checks every child rectangle's containment. */
 fun build_composite_floorplan(module_def :: Module,
                               width :: Length,
                               height :: Length,
@@ -186,6 +217,8 @@ fun build_composite_floorplan(module_def :: Module,
     verify_containment(view, placement)
   view
 
+/* Revalidates a view's finished module and outline. Transparent views additionally require direct,
+   uniquely placed instances, matching child modules, exact coordinates, and containment. */
 fun validate_physical_view(view :: PhysicalView):
   unless physical_view(view)
   | rfpl_fail("expected a hard-macro or composite-floorplan view")
@@ -220,6 +253,8 @@ fun validate_physical_view(view :: PhysicalView):
     )
   view
 
+/* Validates the exact logical top and reachable physical tree, requiring common Design ownership
+   and one view object per module while leaving the logical IR unchanged. */
 fun annotate(logical :: DesignElaboration,
              top :~ PhysicalView,
              location :: Location = Location()):
@@ -235,6 +270,8 @@ fun annotate(logical :: DesignElaboration,
     )
   def mutable views = []
   def mutable placements = []
+  /* Visits each distinct view once, rejects conflicting module views or foreign designs, and
+     traverses only composite placements; hard macros remain physical leaves. */
   fun visit(view :: PhysicalView):
     view.validate()
     unless view.module_def.design === logical.design
@@ -269,12 +306,15 @@ fun annotate(logical :: DesignElaboration,
   visit(top)
   FloorplanDesign(logical, top, views, placements)
 
+/* Expands the opaque-view authoring form into the checked builder for an existing module. */
 expr.macro 'hard_macro($module, width: $width, height: $height)':
   'build_hard_macro($module, $width, $height)'
 
+/* Expands placement syntax into an exact coordinate and checked existing-instance binding. */
 expr.macro 'place($instance, $child, at: ($x, $y))':
   'build_placement($instance, $child, Coordinate($x, $y))'
 
+/* Expands transparent-view syntax into the wiring-only, complete-placement construction path. */
 expr.macro 'floorplan($module,
                       width: $width,
                       height: $height,

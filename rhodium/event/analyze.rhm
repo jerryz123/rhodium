@@ -1,5 +1,5 @@
 #lang rhombus
-// Infers nearest checkpoints and finite occurrence-qualified lineage graphs, including registered feedback.
+/* Infers nearest checkpoints and finite occurrence-qualified lineage graphs, including registered feedback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,35 +13,45 @@ import:
 export:
   infer_event_manifest
 
+/* Records an occurrence-qualified topology edge with optional transform identity, fixed latency, and linear storage stages. */
 class FlowArc(source :: String,
               destination :: String,
               transform :: maybe(String) = #false,
               latency_cycles :: maybe(Nat) = 0,
               trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = [])
 
+/* Carries a discovered upstream checkpoint and one transform/latency witness for static dependency reporting. */
 class EventCandidate(site :: EventSite,
                      transform_path :: List.of(String),
                      latency_cycles :: maybe(Nat),
                      trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)))
+/* Retains a selector's owner path, functional grants, input vertices, and pending-offer certification during expansion. */
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String), pending :: Boolean)
+/* Retains one routed output's predicates and input vertex under a shared occurrence-qualified routing identity. */
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
+/* Identifies one certified fanout output and its common input vertex during topology expansion. */
 class FlowReplication(replication_id :: String, input :: String, output_index :: Nat)
+/* Associates one broadcast recipient with original acceptance/pending controls and its shared input vertex. */
 class FlowBroadcast(instance_path :: List.of(String), broadcast_id :: String, accept :: Value, pending :: Value,
                     input :: String, output_index :: Nat)
+/* Carries an explicitly scoped parent/child relation across declared retained-owner state without adding functional wiring. */
 class ExplicitTraceEdge(parent :: String,
                         child :: String,
                         transform_path :: String,
                         stage :: EventTraceRetained)
 
+/* Formats a concrete instance path for occurrence-qualified topology and event identities. */
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
 
+/* Builds an occurrence-qualified terminal key from its hierarchy path, block ID, and port ID. */
 fun terminal_id(instance_path :: List.of(String),
                 block_id :: String,
                 port_id :: String):
   occurrence_prefix(instance_path) ++ "::" ++ block_id ++ "::" ++ port_id
 
+/* Finds one flat compound input/output by its normalized singleton or array-indexed port ID. */
 fun transform_port(block :: DiagramBlock,
                    side :: String,
                    index :: Nat,
@@ -54,6 +64,7 @@ fun transform_port(block :: DiagramBlock,
     fun (port): port.compound && port.id == port_id
   )
 
+/* Maps a boundary terminal to its authored external name, preserving nested/array suffixes. */
 fun boundary_external_name(block :: DiagramBlock, port :: DiagramPort):
   cond
   | block.kind == "boundary" || block.kind == "boundary-array":
@@ -66,11 +77,12 @@ fun boundary_external_name(block :: DiagramBlock, port :: DiagramPort):
   | block.kind == "input" || block.kind == "output": block.label
   | ~else: #false
 
+/* Compares static site pairs, transform witnesses, and latency for duplicate suppression. */
 fun same_dependency(left :: EventDependency,
                     right :: EventDependency):
   left.parent == right.parent && left.child == right.child && left.transform_path == right.transform_path && left.latency_cycles == right.latency_cycles
 
-// A banked checkpoint denotes its selected entry, not a join of all entries.
+/* A banked checkpoint denotes its selected entry, not a join of all entries. */
 fun matches_event(event :: EventSite, wanted :: maybe(String)):
   cond
   | !wanted: #true
@@ -80,6 +92,7 @@ fun matches_event(event :: EventSite, wanted :: maybe(String)):
       event.id == indexed
   | ~else: #false
 
+/* Verifies and expands hierarchy, infers checkpoint ancestry, and optionally builds finite dynamic plans with strict or partial coverage. */
 fun infer_event_manifest(logical :: DesignElaboration,
                          ~dynamic: dynamic :: Boolean = #false,
                          ~partial: partial :: Boolean = #false):
@@ -102,16 +115,19 @@ fun infer_event_manifest(logical :: DesignElaboration,
   def mutable gaps = []
   def mutable current_site = ""
 
+  /* Classifies missing ancestry at a vertex in partial mode, leaving strict mode to report unsupported traversal. */
   fun gap_reason(vertex :: String):
     cond
     | !partial: #false
     | unsupported_by_output.has_key(vertex): "unmodeled-transform"
     | incoming.get(vertex, []).length() == 0: (if vertex in roots | "unannotated-input" | "opaque-boundary")
     | ~else: #false
+  /* Records one boundary diagnostic per consuming site without duplicating repeated traversal findings. */
   fun record_gap(vertex :: String):
     unless gaps.find(fun (gap): gap.site == current_site && gap.boundary == vertex)
     | gaps := gaps ++ [EventTraceGap(current_site, vertex, gap_reason(vertex))]
 
+  /* Appends an ordered incoming edge with transform, latency, and linear-stage information. */
   fun add_arc(source :: String,
               destination :: String,
               transform :: maybe(String) = #false,
@@ -121,6 +137,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
       FlowArc(source, destination, transform, latency_cycles, trace_stages)
     ]
 
+  /* Expands one module occurrence into topology vertices, typed transform behaviors, checkpoint sites, and child-boundary forwarding. */
   fun expand(module_diagram :: DiagramModule,
              instance_path :: List.of(String)):
     when instance_path == [logical.top.name]
@@ -376,6 +393,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
     | error(~who: #'infer_event_manifest, "expanded event label must be unique within a module: " ++ site.label)
     labels.add(key)
 
+  /* Walks backward to matching checkpoints on acyclic paths, accumulating transform witnesses, latency, and storage projections. */
   fun nearest_events(vertex :: String,
                      visiting :: List.of(String) = [],
                      reverse_transform_path :: List.of(String) = [],
@@ -417,13 +435,16 @@ fun infer_event_manifest(logical :: DesignElaboration,
               )
             candidates
 
-  // Discover each reachable vertex once. Cyclic regions have finitely many
-  // nearest sites but infinitely many walks: retain a witness, not every lap.
+  /*
+   * Discover each reachable vertex once. Cyclic regions have finitely many
+   * nearest sites but infinitely many walks: retain a witness, not every lap.
+   */
   fun discover_nearest(vertex :: String, wanted :: maybe(String) = #false):
     def colors = MutableMap{}
     def mutable cyclic = #false
     def mutable candidates = []
     def found = MutableSet{}
+    /* Discovers each reachable vertex once, stopping at matching checkpoints and gaps while detecting feedback and rejecting unsupported traversal. */
     fun visit(vertex :: String, reverse_path :: List = []):
       def event = event_by_output.get(vertex, #false)
       cond
@@ -488,6 +509,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   gaps := gaps.filter(~keep: fun (gap): !(gap.site in inferred_roots))
   for (edge in explicit_edges):
     explicit_plans[edge.child] := EventTracePipeline(EventTraceSource(edge.parent), [edge.stage])
+  /* Memoizes vertex/selected-parent lineage plans, resolving feedback links and preserving storage, selection, routing, and ancestry gaps. */
   fun trace_plan(vertex :: String, visiting :: List.of(String) = [], wanted :: maybe(String) = #false):
     def key = [vertex, wanted]
     cond
@@ -590,6 +612,7 @@ fun infer_event_manifest(logical :: DesignElaboration,
   // Expand scope declarations independently of Flow: hierarchy, not causal
   // edges, determines ownership of each module-local declaration.
   def mutable instances = []
+  /* Expands hierarchy-owned identity scopes only where visible descendant sites exist, independently of causal edges. */
   fun collect_instances(module_def :: Module, path :: List.of(String)):
     for (scope in module_trace_instances(module_def)):
       when sites.find(fun (site): site.instance_path.length() >= path.length() && site.instance_path.take(path.length()) == path)

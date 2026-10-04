@@ -1,5 +1,5 @@
 #lang rhombus
-// Extracts hierarchical logical blocks and compound interface channels from verified Rhodium.
+/* Extracts hierarchical logical blocks and compound interface channels from verified Rhodium. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,7 @@ export:
   diagram
   diagram_module
 
+/* Associates a rendered block port with its backing IR entities and logical binding paths for connectivity matching. */
 class DiagramTerminal(block_id :: String,
                       port_id :: String,
                       direction :: String,
@@ -22,17 +23,20 @@ class DiagramTerminal(block_id :: String,
                       entities :: List.of(Value || Place),
                       binding_names :: List.of(String) = [])
 
+/* Normalizes a single interface endpoint or endpoint array into an ordered list. */
 fun endpoint_elements(shape :: InterfaceEndpoint || Array):
   cond
   | shape is_a InterfaceEndpoint: [shape]
   | shape is_a Array: for List (element in shape): element
   | ~else: error(~who: #'diagram, "diagram endpoint shape is invalid")
 
+/* Classifies an endpoint as producing or consuming according to its represented provider role. */
 fun endpoint_direction(endpoint :: InterfaceEndpoint):
   if endpoint.represented_role == endpoint.type.provider_role
   | "output"
   | "input"
 
+/* Formats the nominal interface name with a data payload type when a bits member is present. */
 fun endpoint_protocol(endpoint :: InterfaceEndpoint):
   def payload = endpoint.type.members.find(
     fun (member): member.name == "bits" && data_type(member.type)
@@ -41,13 +45,16 @@ fun endpoint_protocol(endpoint :: InterfaceEndpoint):
   | endpoint.type.name ++ "<" ++ payload.type.describe() ++ ">"
   | endpoint.type.name
 
+/* Detects any member traveling against the interface provider's direction. */
 fun endpoint_backpressured(endpoint :: InterfaceEndpoint):
   for any (member in endpoint.type.members):
     member.from_role != endpoint.type.provider_role
 
+/* Returns an endpoint's backing IR entities in binding order. */
 fun endpoint_entities(endpoint :: InterfaceEndpoint):
   endpoint.bindings.map(fun (binding): binding.entity)
 
+/* Finds an already-materialized record field projection, falling back to the enclosing entity without mutating IR. */
 fun diagram_projection(entity :: Value || Place, field_name :: String):
   cond
   | entity is_a Place:
@@ -62,6 +69,7 @@ fun diagram_projection(entity :: Value || Place, field_name :: String):
       if operation | operation.results[0] | entity
   | ~else: entity
 
+/* Projects a nested interface member's roles and bindings into a read-only endpoint view. */
 fun diagram_nested_endpoint(endpoint :: InterfaceEndpoint,
                             member :: InterfaceMember):
   def nested_type = member.type
@@ -100,6 +108,7 @@ fun diagram_nested_endpoint(endpoint :: InterfaceEndpoint,
                     bindings,
                     "diagram-nested")
 
+/* Expands endpoint arrays and nested interfaces into rendered ports and backing terminals, keeping scalar sidebands separate. */
 fun endpoint_ports(block_id :: String,
                    base_name :: String,
                    shape :: InterfaceEndpoint || Array):
@@ -169,6 +178,7 @@ fun endpoint_ports(block_id :: String,
         ]
   [ports, terminals]
 
+/* Returns the last matching named port's position, or false when the port is absent. */
 fun port_index(ports :: List.of(Port), name :: String):
   def mutable result = #false
   for (port in ports, index in 0..ports.length()):
@@ -176,6 +186,7 @@ fun port_index(ports :: List.of(Port), name :: String):
     | result := index
   result
 
+/* Rebinds a child's interface group to its parent-side instance places and values in child port order. */
 fun instance_endpoint(operation :: Operation, group :: InterfaceGroup):
   def child = operation.attribute("module")
   def bindings:
@@ -201,11 +212,13 @@ fun instance_endpoint(operation :: Operation, group :: InterfaceGroup):
                     bindings,
                     "diagram-instance")
 
+/* Tests whether an interface group is already represented by an interface-array group. */
 fun group_in_arrays(group :: InterfaceGroup,
                     arrays :: List.of(InterfaceArrayGroup)):
   for any (array_group in arrays):
     array_group.groups.find(fun (element): element === group)
 
+/* Collects distinct flattened port names covered by authored interface groups. */
 fun grouped_port_names(groups :: List.of(InterfaceGroup)):
   def mutable names = []
   for (group in groups):
@@ -214,17 +227,20 @@ fun grouped_port_names(groups :: List.of(InterfaceGroup)):
       | names := names ++ [binding.port_name]
   names
 
+/* Recognizes omitted implicit clock/reset ports using sync-circuit metadata, not their names or types alone. */
 fun implicit_sync_port(metadata :: maybe(SyncCircuitMetadata),
                        port_name :: String):
   metadata && (
     port_name == metadata.clock_port || port_name == metadata.reset_port
   )
 
+/* Finds an exact SSA value among a terminal's backing entities. */
 fun terminal_produces(terminal :: DiagramTerminal, value :: Value):
   terminal.entities.find(
     fun (entity): entity is_a Value && entity === value
   )
 
+/* Appends terminals not already present by block/port identity, preserving first-seen order. */
 fun append_unique_terminals(left :: List.of(DiagramTerminal),
                             right :: List.of(DiagramTerminal)):
   def mutable result = left
@@ -235,8 +251,10 @@ fun append_unique_terminals(left :: List.of(DiagramTerminal),
     | result := result ++ [terminal]
   result
 
-// Walks backward through unrepresented combinational logic, but stops as soon
-// as it reaches a block output so abstraction boundaries never gain shortcuts.
+/*
+ * Walks backward through unrepresented combinational logic, but stops as soon
+ * as it reaches a block output so abstraction boundaries never gain shortcuts.
+ */
 fun value_source_terminals(value :: Value,
                            outputs :: List.of(DiagramTerminal),
                            source_cache :: MutableMap,
@@ -282,6 +300,7 @@ fun value_source_terminals(value :: Value,
       source_cache[value.id] := sources
       sources
 
+/* Collects rendered upstream sources of the drivers attached to a destination terminal. */
 fun destination_sources(destination :: DiagramTerminal,
                         outputs :: List.of(DiagramTerminal),
                         source_cache :: MutableMap):
@@ -294,8 +313,10 @@ fun destination_sources(destination :: DiagramTerminal,
       )
   sources
 
-// Repeated nested field access can materialize different record_get values
-// for the same path. Match that path, not merely one chosen projection's ID.
+/*
+ * Repeated nested field access can materialize different record_get values
+ * for the same path. Match that path, not merely one chosen projection's ID.
+ */
 fun same_record_projection(left :: Value || Place, right :: Value || Place):
   if left === right
   | #true
@@ -305,6 +326,7 @@ fun same_record_projection(left :: Value || Place, right :: Value || Place):
       a && b && a.opcode == "rtl.record_get" && b.opcode == "rtl.record_get" && a.attribute("field") == b.attribute("field") && same_record_projection(a.operands[0], b.operands[0])
     | #false
 
+/* Matches an entity to an enclosing source through staged places and record/vector projections, with cycle protection. */
 fun entity_originates_from(entity :: Value || Place,
                            candidate :: Value || Place,
                            seen :: List.of(Nat) = []):
@@ -322,6 +344,7 @@ fun entity_originates_from(entity :: Value || Place,
         )
     | ~else: #false
 
+/* Matches compound terminal bindings and projection ancestry without aliasing sibling logical endpoint paths. */
 fun terminal_contains_endpoint(terminal :: DiagramTerminal,
                                endpoint :: InterfaceEndpoint):
   def entities = endpoint_entities(endpoint)
@@ -335,16 +358,20 @@ fun terminal_contains_endpoint(terminal :: DiagramTerminal,
       ) != #false
   )
 
+/* Tests interface-endpoint object identity for transparent-link traversal. */
 fun same_endpoint(left :: InterfaceEndpoint, right :: InterfaceEndpoint):
   left === right
 
+/* Checks whether an endpoint identity has already been visited during link traversal. */
 fun endpoint_seen(endpoint :: InterfaceEndpoint,
                   seen :: List.of(InterfaceEndpoint)):
   seen.find(fun (candidate): same_endpoint(candidate, endpoint)) != #false
 
-// Follows whole-interface connections across local interface_link bridges.
-// Links remain transparent wiring, but their protocol identity survives until
-// the walk reaches a rendered input terminal.
+/*
+ * Follows whole-interface connections across local interface_link bridges.
+ * Links remain transparent wiring, but their protocol identity survives until
+ * the walk reaches a rendered input terminal.
+ */
 fun transparent_interface_destinations(endpoint :: InterfaceEndpoint,
                                        inputs :: List.of(DiagramTerminal),
                                        connections :: List.of(InterfaceConnectionGroup),
@@ -379,8 +406,10 @@ fun transparent_interface_destinations(endpoint :: InterfaceEndpoint,
                 )
             destinations
 
+/* Collects top-first reachable concrete module definitions, visiting each shared definition once. */
 fun reachable_modules(top :: Module):
   def mutable modules = []
+  /* Traverses child instance definitions while retaining first-seen module order. */
   fun visit(module_def :: Module):
     unless modules.find(fun (candidate): candidate === module_def)
     | modules := modules ++ [module_def]
@@ -390,8 +419,10 @@ fun reachable_modules(top :: Module):
   visit(top)
   modules
 
-// A block is sequential when its implementation contains a sequential IR
-// operation directly or reaches one through an ordinary child instance.
+/*
+ * A block is sequential when its implementation contains a sequential IR
+ * operation directly or reaches one through an ordinary child instance.
+ */
 fun module_has_synchronous_state(module_def :: Module,
                                  seen :: List.of(Nat) = []):
   if module_def.id in seen
@@ -405,27 +436,33 @@ fun module_has_synchronous_state(module_def :: Module,
         )
       )
 
+/* Returns the sequential/combinational behavior label derived from implementation IR. */
 fun module_behavior(module_def :: Module):
   if module_has_synchronous_state(module_def)
   | "sequential"
   | "combinational"
 
-// Inline transforms whose configured function is ordinary combinational
-// hardware expose one abstract sideband port without expanding its wiring.
+/*
+ * Inline transforms whose configured function is ordinary combinational
+ * hardware expose one abstract sideband port without expanding its wiring.
+ */
 fun transform_has_combo_input(kind :: String):
   kind in ["map", "map-valid", "filter", "filter-valid", "gate", "demux"]
 
+/* Expands composite connections and local links into matching protocol-channel pairs, preserving provider direction. */
 fun interface_channel_wiring(module_def :: Module):
   // Whole composite interfaces connect their nested protocol channels too.
   // Project both ends together and preserve reverse-channel provider direction;
   // do not reinterpret scalar data dependencies as transaction connections.
   def projected = MutableMap.by(===){}
+  /* Caches one projected nested endpoint per original endpoint/member within this wiring expansion. */
   fun nested(endpoint :: InterfaceEndpoint, member :: InterfaceMember):
     unless projected.get(endpoint, #false) | projected[endpoint] := MutableMap{}
     def members = projected[endpoint]
     unless members.get(member.name, #false)
     | members[member.name] := diagram_nested_endpoint(endpoint, member)
     members[member.name]
+  /* Recursively pairs matching nested protocol endpoints, leaving each flat interface as one channel pair. */
   fun channel_pairs(left :: InterfaceEndpoint, right :: InterfaceEndpoint):
     def members = left.type.members.filter(~keep: fun (member): member.type is_a InterfaceType)
     if members.length() == 0
@@ -448,10 +485,12 @@ fun interface_channel_wiring(module_def :: Module):
       links := links ++ [InterfaceLinkGroup(module_def, link.name, if forward | pair[0] | pair[1], if forward | pair[1] | pair[0])]
   [connections, links]
 
-// A named relation fills an unmodeled region; it cannot claim a consumer or
-// producer already owned through wiring by another transform/checkpoint. Walk
-// only interface connections, transparent links, and hierarchy forwarding:
-// never treat arbitrary payload dependencies as transaction semantics.
+/*
+ * A named relation fills an unmodeled region; it cannot claim a consumer or
+ * producer already owned through wiring by another transform/checkpoint. Walk
+ * only interface connections, transparent links, and hierarchy forwarding:
+ * never treat arbitrary payload dependencies as transaction semantics.
+ */
 fun contract_frontiers(module_def :: Module, cache :: MutableMap):
   def cached = cache.get(module_def, #false)
   if cached
@@ -461,6 +500,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
       def mutable vertices = []
       def mutable wires = []
       def mutable claims = []
+      /* Interns a frontier terminal by exact bindings and entities, returning its local graph index. */
       fun vertex(terminal :: DiagramTerminal):
         def existing = vertices.find_index(fun (candidate): candidate.binding_names == terminal.binding_names && candidate.entities.length() == terminal.entities.length() && for all (a in candidate.entities, b in terminal.entities): a === b)
         if existing is_a Nat
@@ -469,6 +509,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
             def index = vertices.length()
             vertices := vertices ++ [terminal]
             index
+      /* Extracts compound protocol terminals from an endpoint shape for contract ownership checks. */
       fun endpoints(shape :: InterfaceEndpoint || Array): endpoint_ports("", "", shape)[1].filter(~keep: fun (terminal): terminal.compound)
       let [connections, links] = interface_channel_wiring(module_def)
       for (pair in connections.map(fun (connection): [connection.source, connection.destination]) ++ links.map(fun (link): [link.left, link.right])):
@@ -490,6 +531,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
               for (claim in exposed):
                 when terminal.port_id == claim[0]
                 | claims := claims ++ [[vertex(terminal), claim[1], #false]]
+      /* Finds frontier vertices reachable along interface wiring in the selected forward or reverse direction. */
       fun reachable(start :: Nat, reverse :: Boolean):
         def visited = MutableSet{}
         def mutable pending = [start]
@@ -519,6 +561,7 @@ fun contract_frontiers(module_def :: Module, cache :: MutableMap):
       cache[module_def] := exposed
       exposed
 
+/* Extracts one already-verified module into logical blocks and channels, validating contracts and retaining typed trace metadata. */
 fun diagram_module(module_def :: Module,
                    ~contract_cache: contract_cache :: MutableMap = MutableMap.by(===){}):
   def sync_metadata = module_sync_circuit_metadata(module_def)
@@ -854,6 +897,7 @@ fun diagram_module(module_def :: Module,
                      edge.storage.name)
   DiagramModule(module_def.id, module_def.name, blocks, channels, trace_edges)
 
+/* Verifies an elaboration and extracts top-first views of reachable definitions with one shared per-extraction contract cache. */
 fun diagram(logical :: DesignElaboration):
   verify_design(logical.design)
   def contract_cache = MutableMap.by(===){}

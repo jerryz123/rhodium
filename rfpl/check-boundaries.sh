@@ -6,6 +6,7 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 
+# Searches Rhombus and Rhodium source text with equivalent rg and find/grep paths.
 search_sources() {
   local pattern="$1"
   shift

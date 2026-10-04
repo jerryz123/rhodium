@@ -1,5 +1,5 @@
 #lang rhombus
-// Exposes Rhodium logical diagram extraction and stable text renderers.
+/* Exposes Rhodium logical diagram extraction and JSON/DOT rendering. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines finite lineage graphs and bounded parent capacities through storage and feedback.
+/* Defines finite lineage graphs and bounded parent capacities through storage and feedback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -33,10 +33,12 @@ export:
   EventInstance
   EventTraceGap
 
+/* Describes a captured scalar's packed width/LSB offset and display encoding, including optional instruction or enum metadata. */
 class EventField(name :: String, type :: String, width :: PosInt,
                  offset :: Nat, encoding :: String, isa :: String = "", pc :: String = "",
                  symbols :: List.of(Map) = [], label :: Boolean = #false)
 
+/* Identifies one occurrence-qualified checkpoint and its capture schema, observation kind, and optional retained-bank entry. */
 class EventSite(id :: String,
                 label :: String,
                 module_name :: String,
@@ -51,59 +53,84 @@ class EventSite(id :: String,
                 observation_of :: maybe(String) = #false,
                 residency_index :: maybe(Nat) = #false)
 
-// Empty controls mean an unconditional one-cycle delay. Optional flush cancels
-// pending lineage at the edge; controls retain their original occurrence identity.
+/*
+ * Empty controls mean an unconditional one-cycle delay. Optional flush cancels
+ * pending lineage at the edge; controls retain their original occurrence identity.
+ */
 class EventTraceStage(instance_path :: List.of(String) = [],
                       advance :: maybe(Value) = #false,
                       valid :: maybe(Value) = #false,
                       flush :: maybe(Value) = #false):
+  /* Lists elastic advance/valid controls and any flush signal that instrumentation must observe. */
   method controls(): (if advance | [advance, valid] | []) ++ (if flush | [flush] | [])
 
+/* Describes FIFO lineage storage using functional enqueue/dequeue, addresses, resident validity, and bypass controls. */
 class EventTraceQueue(instance_path :: List.of(String), depth :: PosInt,
                       enqueue :: Value, dequeue :: Value,
                       read_address :: Value, write_address :: Value,
                       stored_valid :: Value, bypass :: Value):
+  /* Returns the queue controls in the fixed order used for observation discovery. */
   method controls(): [enqueue, dequeue, read_address, write_address, stored_valid, bypass]
 
+/* Marks finite lineage graph nodes consumed by capacity analysis and passive instrumentation. */
 interface EventTracePlan
+/* Describes retained prefix-release storage with per-slot selection and an optional independently selected live contribution. */
 class EventTraceWindow(instance_path :: List.of(String), depth :: PosInt,
                        enqueue :: Value, release_count :: Value, count :: Value, flush :: Value,
                        selected :: NonemptyList.of(Value), live :: maybe(Value) = #false):
+  /* Collects occupancy/update controls and resident/live selection predicates for passive observation. */
   method controls(): [enqueue, release_count, count, flush] ++ selected ++ (if live | [live] | [])
 
+/* Describes one transaction owner captured, repeatedly observed while active, and released by functional controls. */
 class EventTraceRetained(instance_path :: List.of(String), capture :: Value, release :: Value, active :: Value):
+  /* Returns capture, release, and active signals belonging to the retained owner's occurrence. */
   method controls(): [capture, release, active]
 
+/* Represents a checkpoint reference, supported parentless root, unknown boundary, or absent selected-parent contribution. */
 class EventTraceSource(site :: maybe(String), unknown :: maybe(String) = #false, absent :: Boolean = #false):
   implements EventTracePlan
-// Require a selected contribution only at its consuming checkpoint, not while
-// unrelated transactions traverse shared storage on a filtered-out branch.
+/*
+ * Require a selected contribution only at its consuming checkpoint, not while
+ * unrelated transactions traverse shared storage on a filtered-out branch.
+ */
 class EventTraceRequire(input :: EventTracePlan):
   implements EventTracePlan
-// Occurrence-qualified back references are resolved once after graph discovery.
-// Acyclic paths keep their existing expression shape.
+/*
+ * Occurrence-qualified back references are resolved once after graph discovery.
+ * Acyclic paths keep their existing expression shape.
+ */
 class EventTraceLink(vertex :: String, mutable target :: maybe(EventTracePlan) = #false):
   implements EventTracePlan
   reconstructor ~none
+/* Composes ordered fixed, elastic, queue, retained-owner, or window stages after an upstream lineage plan. */
 class EventTracePipeline(input :: EventTracePlan, stages :: NonemptyList.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)):
   implements EventTracePlan
+/* Selects one input lineage with occurrence-owned grants, optionally certified valid even for pending offers. */
 class EventTraceSelection(instance_path :: List.of(String), grants :: NonemptyList.of(Value), inputs :: NonemptyList.of(EventTracePlan), pending :: Boolean = #false):
   implements EventTracePlan
+  /* Returns functional grant signals needed to observe which input lineage is selected. */
   method controls(): grants
+/* Gates an upstream lineage onto one output using original routing predicates and a shared divergence certificate. */
 class EventTraceRouting(input :: EventTracePlan, instance_path :: List.of(String),
                         routing_id :: String, predicates :: NonemptyList.of(Value), output_index :: Nat):
   implements EventTracePlan
+  /* Returns the original route predicates used for branch gating and exclusivity checks. */
   method controls(): predicates
+/* Marks one output of a certified synchronous or retained-owner fanout without introducing trace storage. */
 class EventTraceReplication(input :: EventTracePlan, replication_id :: String, output_index :: Nat):
   implements EventTracePlan
+/* Retains accepted lineage for one recipient using original acceptance and per-recipient pending controls. */
 class EventTraceBroadcast(input :: EventTracePlan, instance_path :: List.of(String),
                           broadcast_id :: String, accept :: Value, pending :: Value, output_index :: Nat):
   implements EventTracePlan
+  /* Returns acceptance and this output's pending control for passive lineage retention. */
   method controls(): [accept, pending]
 
+/* Combines every contributing input lineage, preserving distinct parent-reference slots. */
 class EventTraceJoin(inputs :: NonemptyList.of(EventTracePlan)):
   implements EventTracePlan
 
+/* Returns a node's direct predecessor plans, rejecting unresolved feedback references. */
 fun event_trace_inputs(plan :: EventTracePlan):
   cond
   | plan is_a EventTraceSource: []
@@ -113,9 +140,11 @@ fun event_trace_inputs(plan :: EventTracePlan):
   | plan is_a EventTraceSelection || plan is_a EventTraceJoin: plan.inputs
   | ~else: [plan.input]
 
+/* Collects each graph node once by identity in input-first discovery order, terminating across feedback links. */
 fun event_trace_nodes(plan :: EventTracePlan):
   def seen = MutableMap.by(===){}
   def mutable nodes = []
+  /* Marks a node before descending to its inputs, then appends it without revisiting shared or cyclic references. */
   fun visit(node :: EventTracePlan):
     unless seen.has_key(node)
     | seen[node] := #true
@@ -124,8 +153,9 @@ fun event_trace_nodes(plan :: EventTracePlan):
   visit(plan)
   nodes
 
-// A bypass remains a same-cycle dependency unless it is provably disabled.
+/* A bypass remains a same-cycle dependency unless it is provably disabled. */
 fun event_trace_registered(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow):
+  /* Proves a control disabled only through a zero constant and transparent casts. */
   fun zero(value :: Value):
     def op = value.module_def.find_operation(value.defining_op_id)
     cond
@@ -137,9 +167,11 @@ fun event_trace_registered(stage :: EventTraceStage || EventTraceQueue || EventT
   | stage is_a EventTraceWindow: !stage.live || zero(stage.live)
   | ~else: #true
 
+/* Rejects same-cycle cycles and unbounded slot growth, returning whether the graph contains feedback links. */
 fun validate_event_trace_feedback(plan :: EventTracePlan):
   def nodes = event_trace_nodes(plan)
   def colors = MutableMap.by(===){}
+  /* Colors same-cycle predecessor paths for cycle detection, cutting registered storage edges while checking all nodes separately. */
   fun visit(node :: EventTracePlan):
     when colors.get(node, 0) == 1
     | error(~who: #'infer_event_manifest, "same-cycle event lineage cycle; add registered storage or disable queue bypass")
@@ -157,12 +189,15 @@ fun validate_event_trace_feedback(plan :: EventTracePlan):
   event_trace_capacity(plan)
   cyclic
 
-// Solve slot-count equations to a least fixed point. Positive feedback through
-// concatenation cannot converge; reject it rather than truncate parent history.
+/*
+ * Solve slot-count equations to a least fixed point. Positive feedback through
+ * concatenation cannot converge; reject it rather than truncate parent history.
+ */
 fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
   def nodes = event_trace_nodes(plan)
   def capacities = MutableMap.by(===){}
   for (node in nodes): capacities[node] := 1
+  /* Propagates join sums, selection maxima, and window multiplication until stable, rejecting growth beyond the graph-size bound. */
   fun solve(pass :: Nat):
     def mutable changed = #false
     for (node in nodes):
@@ -194,16 +229,20 @@ fun event_trace_capacity(plan :: EventTracePlan) :: PosInt:
   solve(0)
   capacities[plan]
 
+/* Records a possible parent/child site relation, transform witness path, and optional fixed latency/linear storage projection. */
 class EventDependency(parent :: String,
                       child :: String,
                       transform_path :: List.of(String),
                       latency_cycles :: maybe(Nat) = #false,
                       trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)) = #false)
 
+/* Records a consuming site and the precise boundary/reason where partial inference lacks ancestry semantics. */
 class EventTraceGap(site :: String, boundary :: String, reason :: String)
 
+/* Associates an occurrence-qualified hierarchy scope and label with its original local runtime identity value. */
 class EventInstance(id :: String, label :: String, path :: List.of(String), value :: Value)
 
+/* Retains sites, static dependencies, dynamic plans, gaps, scope identities, and ordinary topology separately from selected ancestry. */
 class EventManifest(logical :: DesignElaboration,
                     sites :: List.of(EventSite),
                     dependencies :: List.of(EventDependency),
@@ -212,5 +251,6 @@ class EventManifest(logical :: DesignElaboration,
                     topology_dependencies :: maybe(List.of(EventDependency)) = #false,
                     topology_trace_plans :: maybe(Map) = #false,
                     instances :: List.of(EventInstance) = []):
+  /* Finds an occurrence-qualified site by ID, returning false when absent. */
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

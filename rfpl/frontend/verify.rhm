@@ -1,5 +1,5 @@
 #lang rhombus
-// Verifies that an annotated composite circuit contains only hierarchy and wiring.
+/* Verifies that an annotated composite circuit contains only hierarchy and wiring. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
 export:
   verify_composite_module
 
+/* Physical transparency permits ports, instances, drives, and wires, but no local hardware logic. */
 def allowed_composite_opcodes = [
   "rtl.input_port",
   "rtl.output_port",
@@ -16,6 +17,8 @@ def allowed_composite_opcodes = [
   "rtl.wire"
 ]
 
+/* Requires wiring-only operations and exactly one placement for every direct instance; placement
+   entries must belong to the exact module and identify existing rtl.instance operations. */
 fun verify_composite_module(module_def :~ Module,
                             placed_instances :~ List.of(Operation)):
   unless module_def is_a Module

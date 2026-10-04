@@ -1,5 +1,5 @@
 #lang rhombus
-// Renders logical Rhodium modules as port-anchored Graphviz DOT schematics.
+/* Renders logical Rhodium modules as port-anchored Graphviz DOT schematics. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,9 +9,11 @@ export:
   diagram_module_to_dot
   diagram_to_dot
 
+/* Quotes a DOT identifier or string label with host string escaping. */
 fun dot_quote(value :: String):
   to_string(to_string(value), ~mode: #'expr)
 
+/* Escapes text for Graphviz HTML table labels, including ampersands, angle brackets, and quotes. */
 fun html_escape(value :: String):
   to_string(value)
     .replace("&", "&amp;", ~all: #true)
@@ -19,11 +21,13 @@ fun html_escape(value :: String):
     .replace(">", "&gt;", ~all: #true)
     .replace("\"", "&quot;", ~all: #true)
 
+/* Recognizes grouped interfaces and ordinary ports rendered as module-boundary anchors. */
 fun boundary_block(block :: DiagramBlock):
   block.kind == "boundary" || block.kind == "boundary-array" || (
     block.kind == "input"
   ) || block.kind == "output"
 
+/* Maps a block port ID to its table-cell anchor, rejecting unknown terminal references. */
 fun block_port_anchor(block :: DiagramBlock, port_id :: String):
   def mutable anchor = #false
   for (port in block.ports, index in 0..block.ports.length()):
@@ -34,11 +38,13 @@ fun block_port_anchor(block :: DiagramBlock, port_id :: String):
           "diagram channel references an unknown block port")
   anchor
 
+/* Renders one aligned table cell with a named port anchor and escaped display name. */
 fun port_cell(block :: DiagramBlock, port :: DiagramPort, side :: String):
   String.append("<TD PORT=\"", block_port_anchor(block, port.id),
                 "\" ALIGN=\"", side, "\">",
                 html_escape(port.name), "</TD>")
 
+/* Pairs ordered input/output cells around a shared block label, padding the shorter side with empty cells. */
 fun block_rows(block :: DiagramBlock):
   def inputs = block.ports.filter(
     ~keep: fun (port): port.direction == "input"
@@ -64,6 +70,7 @@ fun block_rows(block :: DiagramBlock):
       | ""
     "<TR>" ++ input_cell ++ name_cell ++ output_cell ++ "</TR>"
 
+/* Renders the block's port table, adding a gray outer enclosure for sequential behavior. */
 fun block_table(block :: DiagramBlock):
   def inner = String.append(
     "<TABLE BORDER=\"1\" CELLBORDER=\"1\" CELLSPACING=\"0\">",
@@ -78,20 +85,25 @@ fun block_table(block :: DiagramBlock):
     )
   | inner
 
+/* Emits an internal DOT node with a port-addressable HTML label. */
 fun block_node(block :: DiagramBlock):
   String.append("    ", dot_quote(block.id),
                 " [shape=plain, label=<", block_table(block), ">];")
 
+/* Detects blocks with compound protocol ports that need ordinary-sideband stub rendering. */
 fun block_has_flow_port(block :: DiagramBlock):
   for any (port in block.ports): port.compound
 
+/* Builds a block/port-qualified identifier for an abstract combinational sideband stub. */
 fun combo_ether_id(block :: DiagramBlock, port :: DiagramPort):
   block.id ++ "::ether::" ++ port.id
 
+/* Emits the empty DOT anchor terminating an abstract combinational sideband stub. */
 fun combo_ether_node(block :: DiagramBlock, port :: DiagramPort):
   String.append("    ", dot_quote(combo_ether_id(block, port)),
                 " [shape=plain, width=0, height=0, label=\"\"];")
 
+/* Draws a dotted sideband stub in the port's direction without inventing a functional dependency. */
 fun combo_ether_edge(block :: DiagramBlock, port :: DiagramPort):
   def block_endpoint = dot_quote(block.id) ++ ":" ++ dot_quote(
     block_port_anchor(block, port.id)
@@ -105,11 +117,13 @@ fun combo_ether_edge(block :: DiagramBlock, port :: DiagramPort):
     " [style=dotted, color=gray50, arrowsize=0.6];"
   )
 
+/* Removes the generic interface prefix from a boundary terminal's display name. */
 fun boundary_port_suffix(port :: DiagramPort):
   port.name
     .replace("interface.", "")
     .replace("interface", "")
 
+/* Combines the boundary label with nested or indexed suffixes when more than one terminal is exposed. */
 fun boundary_port_label(block :: DiagramBlock, port :: DiagramPort):
   def suffix = boundary_port_suffix(port)
   if block.ports.length() == 1
@@ -118,9 +132,11 @@ fun boundary_port_label(block :: DiagramBlock, port :: DiagramPort):
     | block.label ++ suffix
     | block.label ++ "." ++ suffix
 
+/* Builds a block/port-qualified identifier for a module-boundary anchor. */
 fun boundary_anchor_id(block :: DiagramBlock, port :: DiagramPort):
   block.id ++ "::" ++ port.id
 
+/* Emits a small labeled point anchor for one module-boundary terminal. */
 fun boundary_anchor_node(block :: DiagramBlock, port :: DiagramPort):
   String.append(
     "    ", dot_quote(boundary_anchor_id(block, port)),
@@ -128,6 +144,7 @@ fun boundary_anchor_node(block :: DiagramBlock, port :: DiagramPort):
     dot_quote(boundary_port_label(block, port)), "];"
   )
 
+/* Chooses thick Irrevocable or dashed Valid edges from nominal protocol family, leaving other families plain. */
 fun channel_protocol_attributes(channel :: DiagramChannel):
   cond
   | channel.protocol_family == "Irrevocable" || channel.protocol_family == "IrrevocableCtrl":
@@ -135,6 +152,7 @@ fun channel_protocol_attributes(channel :: DiagramChannel):
   | channel.protocol_family == "Valid": ["style=dashed"]
   | ~else: []
 
+/* Resolves a boundary terminal to its point anchor, rejecting unknown port references. */
 fun boundary_channel_endpoint(block :: DiagramBlock, port_id :: String):
   def port = block.ports.find(fun (candidate): candidate.id == port_id)
   unless port
@@ -142,6 +160,7 @@ fun boundary_channel_endpoint(block :: DiagramBlock, port_id :: String):
           "diagram channel references an unknown boundary port")
   dot_quote(boundary_anchor_id(block, port))
 
+/* Resolves a channel end to a boundary anchor or internal table port, falling back to the block ID if absent. */
 fun channel_endpoint(module_diagram :: DiagramModule,
                      block_id :: String,
                      port_id :: String):
@@ -154,6 +173,7 @@ fun channel_endpoint(module_diagram :: DiagramModule,
     | boundary_channel_endpoint(block, port_id)
     | dot_quote(block.id) ++ ":" ++ dot_quote(block_port_anchor(block, port_id))
 
+/* Emits a protocol-styled DOT edge, adding an open reverse tail when the channel is backpressured. */
 fun channel_edge(module_diagram :: DiagramModule, channel :: DiagramChannel):
   def attributes = (
     if channel.backpressured
@@ -174,6 +194,7 @@ fun channel_edge(module_diagram :: DiagramModule, channel :: DiagramChannel):
     attribute_text, ";"
   )
 
+/* Renders one left-to-right module graph with boundary ranks, interface edges, and abstract ordinary-sideband stubs. */
 fun diagram_module_to_dot(module_diagram :: DiagramModule):
   def internal_blocks = module_diagram.blocks.filter(
     ~keep: fun (block): !boundary_block(block)
@@ -229,5 +250,6 @@ fun diagram_module_to_dot(module_diagram :: DiagramModule):
     "\n"
   )
 
+/* Concatenates diagnostic DOT graphs for the extracted modules in view order. */
 fun diagram_to_dot(view :: DiagramDesign):
   String.join(view.modules.map(diagram_module_to_dot), "\n")
