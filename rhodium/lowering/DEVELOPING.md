@@ -42,8 +42,11 @@ protocol; `ModuleMetadataPayload` extends it and its default is a diagnostic.
 Memoization preserves shared instance/port views, arrays, and storage payloads.
 Extensions retain their own immutable descriptors and remap their live fields;
 the copier never imports frontend classes. Cyclic extension graphs are rejected.
-The existing event-specific copier has a different metadata policy and is not
-a dependency of this package.
+The event-specific copier reuses the resolver with occurrence-specific maps and
+reruns the same certification helper after instrumentation. Instance views select
+the destination child through their copied operation, allowing shared definitions
+to specialize without guessing which child module a bare reference denotes.
+Dependency direction stays event-to-lowering; this package imports no event code.
 
 `materialize_reachable_rtl` is the sole internal materialization primitive.
 It uses the copier and checks with a fresh graph,

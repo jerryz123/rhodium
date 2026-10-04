@@ -1,11 +1,12 @@
 #lang rhombus
-// Lowers bounded lineage graphs with preallocated feedback storage and DPI emission.
+/* Lowers bounded lineage graphs with preallocated feedback storage, preserved metadata, and DPI emission. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../core/ir.rhm" open
   "../core/builder.rhm".Builder
   "../core/verify.rhm".verify_design
+  "../lowering/program.rhm".check_materialized_design
   "../diagram/main.rhm" open
   "model.rhm" open
   "analyze.rhm".infer_event_manifest
@@ -16,30 +17,38 @@ export:
   EventInstrumentedElaboration
   instrument_events
 
+/* Selects the existing top clock/reset ports and whether incomplete ancestry is admitted. */
 class EventInstrumentationConfig(clock_port :: String = "clock",
                                  reset_port :: String = "reset",
                                  ~partial: partial :: Boolean = #false)
+/* Keeps the source graph and its manifest alongside the independent instrumented result. */
 class EventInstrumentedElaboration(original :: DesignElaboration,
                                    instrumented :: DesignElaboration,
                                    manifest :: EventManifest)
+/* Identifies one hierarchy occurrence even when its module definition is shared. */
 class Occurrence(original :: Module, path :: List.of(String), ordinal :: Nat,
                  parent :: maybe(Nat), instance :: maybe(Operation),
                  mutable children :: List = []):
   reconstructor ~none
+/* Tracks a sampled control in its owner occurrence and the consumer paths needing it. */
 class TraceControl(path :: List.of(String), value :: Value, index :: Nat,
                    mutable consumers :: List = []):
   reconstructor ~none
+/* Marks a visible consuming site while checking feedback fanout. */
 class TraceExit(site :: String)
 
 def reference_type = RecordType([RecordField("valid", Bits(1)),
                                  RecordField("site", Bits(32)),
                                  RecordField("sequence", Bits(64))])
 
+/* Tests whether a hierarchy path lies within an ancestor occurrence. */
 fun path_within(descendant :: List.of(String), ancestor :: List.of(String)):
   descendant.length() >= ancestor.length() && descendant.take(ancestor.length()) == ancestor
+/* Tests whether an event site belongs to the selected occurrence subtree. */
 fun within(site :: EventSite, path :: List.of(String)):
   path_within(site.instance_path, path)
 
+/* Infer event semantics, copy the reachable hierarchy with metadata, and add passive tracing RTL. */
 fun instrument_events(logical :: DesignElaboration,
                       config :: EventInstrumentationConfig = EventInstrumentationConfig()):
   def manifest = infer_event_manifest(logical, ~dynamic: #true, ~partial: config.partial)
@@ -53,10 +62,13 @@ fun instrument_events(logical :: DesignElaboration,
   def site_ids = MutableMap{}
   for (site in manifest.sites, index in 0..manifest.sites.length()): site_ids[site.id] := index
   def parent_plans = MutableMap{}
+  /* Collects known upstream event sites from a finite lineage graph. */
   fun sources(plan :: EventTracePlan):
     event_trace_nodes(plan).filter(~keep: fun (node): node is_a EventTraceSource && !node.unknown && !node.absent).map(fun (node): node.site)
+  /* Detects an unknown boundary in a lineage plan. */
   fun incomplete(plan :: EventTracePlan):
     event_trace_nodes(plan).find(fun (node): node is_a EventTraceSource && node.unknown != #false) != #false
+  /* Collects storage and selection controls that must be observed in their owning occurrences. */
   fun plan_controls(plan :: EventTracePlan):
     def mutable found = []
     for (node in event_trace_nodes(plan)):
@@ -65,12 +77,15 @@ fun instrument_events(logical :: DesignElaboration,
       | node is_a EventTraceRouting || node is_a EventTraceBroadcast || node is_a EventTraceSelection: found := found ++ [node]
       | ~else: #void
     found
+  /* Detects a back reference requiring feedback-aware storage and fanout handling. */
   fun feedback(plan :: EventTracePlan):
     event_trace_nodes(plan).find(fun (node): node is_a EventTraceLink) != #false
   // Check actual graph forks, not pairs of walks: one router can be revisited
   // on different laps, so its decisions cannot be compared across those laps.
+  /* Checks actual consumer forks in a cyclic graph against explicit divergence certificates. */
   fun feedback_branching(source :: String, children :: List.of(String)):
     def source_nodes = MutableMap{}
+    /* Resolves back references and shares one source node per event site for fanout checking. */
     fun canonical(node :: EventTracePlan):
       cond
       | node is_a EventTraceLink: canonical(node.target)
@@ -80,6 +95,7 @@ fun instrument_events(logical :: DesignElaboration,
       | ~else: node
     def consumers = MutableMap.by(===){}
     def discovered = MutableMap.by(===){}
+    /* Records one ordered consumer edge for a canonical lineage node. */
     fun add(input :: EventTracePlan, consumer :: EventTracePlan || TraceExit, index :: Nat):
       def node = canonical(input)
       consumers[node] := consumers.get(node, []) ++ [[consumer, index]]
@@ -92,6 +108,7 @@ fun instrument_events(logical :: DesignElaboration,
         | discovered[node] := #true
           for (input in event_trace_inputs(node), index in 0..event_trace_inputs(node).length()):
             add(input, node, index)
+    /* Extracts the certified router or replicator identity and its selected output. */
     fun branch(node :: EventTracePlan || TraceExit):
       cond
       | node is_a EventTraceRouting: ["routing", node.routing_id, node.output_index]
@@ -99,6 +116,7 @@ fun instrument_events(logical :: DesignElaboration,
       | node is_a EventTraceBroadcast: ["broadcast", node.broadcast_id, node.output_index]
       | ~else: #false
     def visited = MutableMap.by(===){}
+    /* Walks consumer edges once and rejects fanout without distinct certified outputs. */
     fun visit(node :: EventTracePlan || TraceExit):
       unless visited.has_key(node)
       | visited[node] := #true
@@ -116,6 +134,7 @@ fun instrument_events(logical :: DesignElaboration,
   // Alternatives record certified divergence from one source occurrence.
   // Different children must use distinct outputs of a shared exclusive router
   // or certified replicator. A common output or unrelated transforms do not suffice.
+  /* Collects certified branch choices from the named source to a consuming plan. */
   fun alternatives(plan :: EventTracePlan, source :: String, choices :: List = []):
     cond
     | plan is_a EventTraceSource: (if plan.site == source | [choices] | [])
@@ -157,6 +176,7 @@ fun instrument_events(logical :: DesignElaboration,
                     | error(~who: #'instrument_events, "tracing does not support uncertified fanout at " ++ site.id)
 
   def mutable occurrences = []
+  /* Enumerates instance occurrences without collapsing reused definitions. */
   fun expand(original :: Module, path :: List.of(String), parent :: maybe(Occurrence), instance :: maybe(Operation)):
     def occurrence = Occurrence(original, path, occurrences.length(), parent?.ordinal, instance)
     occurrences := occurrences ++ [occurrence]
@@ -183,16 +203,21 @@ fun instrument_events(logical :: DesignElaboration,
             controls := controls ++ [TraceControl(stage.instance_path, value, controls.length())]
           def control = controls[control_ids[key]]
           control.consumers := control.consumers ++ [site.instance_path]
+  /* Selects controls owned within an occurrence subtree. */
   fun subtree_controls(occurrence :: Occurrence):
     controls.filter(~keep: fun (control): path_within(control.path, occurrence.path))
+  /* Selects external controls required by consumers inside an occurrence subtree. */
   fun imported_controls(occurrence :: Occurrence):
     controls.filter(~keep: fun (control): !path_within(control.path, occurrence.path) && control.consumers.find(fun (path): path_within(path, occurrence.path)) != #false)
+  /* Assigns a stable hidden observation-port name to a control index. */
   fun control_name(control :: TraceControl): "__event_control_" ++ to_string(control.index)
+  /* Preserves the sampled control width in an unsigned observation port. */
   fun control_type(control :: TraceControl): Bits(scalar_width(control.value.type))
 
-  // Trace clocks are supplied from the selected root, never guessed from a
-  // port name in a descendant. Check functional domains before introducing them.
-  fun control_root(value :: Value, occurrence :: Occurrence, consumer :: String):
+  // Trace controls must resolve to the selected root, independent of descendant port names.
+  /* Resolves a control through instance bindings; probing an unused opaque input returns false. */
+  fun control_root(value :: Value, occurrence :: Occurrence, consumer :: String,
+                   ~probe: probe :: Boolean = #false):
     def op = occurrence.original.find_operation(value.defining_op_id)
     cond
     | op.opcode == "rtl.input_port":
@@ -203,10 +228,13 @@ fun instrument_events(logical :: DesignElaboration,
             for (port in occurrence.original.inputs, place in occurrence.instance.places):
               when port.value === value | binding := place.driver
             unless binding | error(~who: #'instrument_events, "unbound clock/reset in traced hierarchy")
-            control_root(binding, occurrences[occurrence.parent], consumer)
-    | op.opcode == "rtl.wire": control_root(op.places[0].driver, occurrence, consumer)
-    | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence, consumer)
-    | ~else: error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/") ++ " (" ++ op.opcode ++ ", consumed by " ++ consumer ++ ")")
+            control_root(binding, occurrences[occurrence.parent], consumer, ~probe: probe)
+    | op.opcode == "rtl.wire": control_root(op.places[0].driver, occurrence, consumer, ~probe: probe)
+    | op.opcode == "rtl.cast": control_root(op.operands[0], occurrence, consumer, ~probe: probe)
+    | ~else:
+        if probe
+        | #false
+        | error(~who: #'instrument_events, "generated or opaque clock/reset in " ++ String.join(occurrence.path, "/") ++ " (" ++ op.opcode ++ ", consumed by " ++ consumer ++ ")")
   // Fixed delays have no sampled controls, but their functional storage must
   // share the epoch too. Include their implementation subtrees conservatively.
   def mutable fixed_domains = []
@@ -245,11 +273,11 @@ fun instrument_events(logical :: DesignElaboration,
     | error(~who: #'instrument_events, "event annotations are hidden behind a transform implementation: " ++ String.join(occurrence.path, "/"))
   def design = Design([], logical.design.next_id)
   def builder = Builder(design)
-  def imports = MutableMap{}
+  def imports = MutableMap.by(===){}
   for (original in logical.design.dpi_imports):
     when original.name.starts_with("rheg_")
     | error(~who: #'instrument_events, "reserved event DPI import: " ++ original.name)
-    imports[original.id] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
+    imports[original] := builder.dpi_import_results(original.name, original.input_names, original.input_types, original.results, original.location)
   def node_dpi = builder.dpi_import("rheg_node", ["site", "sequence", "cycle", "width"], [Bits(32), Bits(64), Bits(64), Bits(32)])
   def end_dpi = if manifest.sites.find(fun (site): site.kind == "residency") | builder.dpi_import("rheg_end", ["site", "sequence", "cycle"], [Bits(32), Bits(64), Bits(64)]) | #false
   def word_dpi = builder.dpi_import("rheg_payload", ["site", "sequence", "index", "word"], [Bits(32), Bits(64), Bits(32), Bits(32)])
@@ -258,12 +286,15 @@ fun instrument_events(logical :: DesignElaboration,
   def instance_dpi = if manifest.instances.length() > 0 | builder.dpi_import("rheg_instance", ["scope", "value", "cycle"], [Bits(32), Bits(64), Bits(64)]) | #false
   def unknown_dpi = if manifest.gaps.length() > 0 | builder.dpi_import("rheg_unknown", ["site", "sequence"], [Bits(32), Bits(64)]) | #false
 
+  /* Selects visible event sites in an occurrence subtree. */
   fun subtree_sites(occurrence :: Occurrence):
     manifest.sites.filter(~keep: fun (site): within(site, occurrence.path))
+  /* Selects outside event references needed by consumers within this subtree. */
   fun imported_sites(occurrence :: Occurrence):
     manifest.sites.filter(
       ~keep: fun (site): !within(site, occurrence.path) && manifest.dependencies.find(fun (edge): edge.parent == site.id && within(manifest.site(edge.child), occurrence.path)) != #false
     )
+  /* Builds an instrumentation name from a prefix and the manifest site index. */
   fun ref_name(prefix :: String, site :: EventSite): prefix ++ to_string(site_ids[site.id])
 
   // Shadow state lives at consumers. Storage control owners and their ancestors
@@ -274,6 +305,7 @@ fun instrument_events(logical :: DesignElaboration,
   // Ownership forbids cross-design module references. Import each untouched
   // definition once, recursively preserving its original sharing instead.
   def unchanged = MutableMap.by(===){}
+  /* Copies an untouched definition once, retaining its metadata and shared child copies. */
   fun import_unchanged(original :: Module):
     unless unchanged.has_key(original)
     | def children = MutableMap{}
@@ -281,30 +313,46 @@ fun instrument_events(logical :: DesignElaboration,
         when op.opcode == "rtl.instance"
         | children[op.id] := import_unchanged(op.attribute("module"))
       def copied = copy_module(builder, original, original.name, children, imports)
-      unchanged[original] := builder.finish(copied.module_def)
+      builder.finish(copied.module_def)
+      unchanged[original] := copied
     unchanged[original]
+  /* Finds a generated name that collides with neither source nor copied modules. */
   fun specialization_name(base :: String, suffix :: Nat = 0):
     def candidate = if suffix == 0 | base | base ++ "_" ++ to_string(suffix)
     if logical.design.find_module_named(candidate) || design.find_module_named(candidate)
     | specialization_name(base, suffix + 1)
     | candidate
+  /* Returns the specialized occurrence copy or the shared untouched definition copy. */
   fun rebuild(occurrence :: Occurrence):
     if occurrence.ordinal in modified
     | specialize(occurrence)
     | import_unchanged(occurrence.original)
+  /* Copies one marked occurrence, preserving metadata, then wires its passive tracing state. */
   fun specialize(occurrence :: Occurrence):
     def children = MutableMap{}
     for (child in occurrence.children): children[child.instance.id] := rebuild(child)
     def module_name = if occurrence === root | logical.top.name | specialization_name(logical.top.name ++ "__event_occ_" ++ to_string(occurrence.ordinal))
     def copied = copy_module(builder, occurrence.original, module_name, children, imports)
     def module_def = copied.module_def
-    def clock = if occurrence === root | copied.values[top_clock.value.id] | builder.input(module_def, "__event_clock", Clock)
-    def reset = if occurrence === root | copied.values[top_reset.value.id] | builder.input(module_def, "__event_reset", Reset)
+    /* Reuse a unique input proven to carry the trace domain, preserving local clock certification.
+       Ancestors without such an input still forward a hidden control from the parent. */
+    fun trace_control(expected :: Value, hidden_name :: String):
+      if occurrence === root
+      | copied.values[expected.id]
+      | def candidates = occurrence.original.inputs.filter(
+          ~keep: fun (port): type_equal(port.type, expected.type) && control_root(port.value, occurrence, hidden_name, ~probe: #true) === expected
+        )
+        if candidates.length() == 1
+        | copied.values[candidates[0].value.id]
+        | builder.input(module_def, hidden_name, expected.type)
+    def clock = trace_control(top_clock.value, "__event_clock")
+    def reset = trace_control(top_reset.value, "__event_reset")
     def zero = builder.constant(module_def, Bits(64), 0)
     def one = builder.constant(module_def, Bits(64), 1)
     def yes = builder.constant(module_def, Bits(1), 1)
     def active = builder.bit_not(module_def, builder.cast(module_def, reset, Bits(1)))
     def local_sites = manifest.sites.filter(~keep: fun (site): site.instance_path == occurrence.path)
+    /* Builds a resettable cycle count and asserts that it never wraps. */
     fun cycle_counter():
       def cycle = builder.register(module_def, "__event_cycle", Bits(64), clock, reset, zero)
       builder.drive(cycle.next, builder.add(module_def, cycle.current, one))
@@ -326,8 +374,10 @@ fun instrument_events(logical :: DesignElaboration,
     for (child in occurrence.children):
       when child.ordinal in modified
       | def instance = copied.instances[child.instance.id]
-        builder.drive(instance.input("__event_clock"), clock)
-        builder.drive(instance.input("__event_reset"), reset)
+        when instance.module_def.find_input("__event_clock")
+        | builder.drive(instance.input("__event_clock"), clock)
+        when instance.module_def.find_input("__event_reset")
+        | builder.drive(instance.input("__event_reset"), reset)
         for (site in subtree_sites(child)):
           references[site.id] := instance.output(ref_name("__event_out_", site))
         for (control in subtree_controls(child)):
@@ -419,6 +469,7 @@ fun instrument_events(logical :: DesignElaboration,
       builder.dpi_call(module_def, node_dpi, [id, sequence, cycle, builder.constant(module_def, Bits(32), width)], clock, fire)
       when site.kind == "residency"
       | def storage = annotation.residency_storage(site.residency_index)
+        /* Reads a copied local Boolean control as one-bit data. */
         fun control(value :: Value): builder.cast(module_def, copied.values[value.id], Bits(1))
         def capture = control(storage.capture)
         def release = control(storage.release)
@@ -448,28 +499,35 @@ fun instrument_events(logical :: DesignElaboration,
         // Transaction completeness is distinct from padded parent-slot validity.
         // Selection can choose differently sized lineages; joins require every
         // contributing input, but unused selection padding must emit no edge.
+        /* Packs transaction validity, parent references, and optional unknown-ancestry state. */
         fun lineage(valid :: Value, parents :: NonemptyList.of(Value), unknown :: Value = builder.constant(module_def, Bits(1), 0)):
           def vector = builder.vector_create(module_def, VectorType(parents.length(), reference_type), parents)
           def type = RecordType([RecordField("valid", Bits(1)), RecordField("parents", vector.type), RecordField("unknown", Bits(1))])
           builder.record_create(module_def, type, [["valid", valid], ["parents", vector], ["unknown", unknown]])
+        /* Extracts the packed parent-reference slots from a lineage value. */
         fun parent_slots(reference :: Value):
           def vector = builder.record_get(module_def, reference, "parents")
           for List (index in 0..vector.type.length): builder.vector_get(module_def, vector, index)
+        /* Builds an invalid lineage value with the requested parent capacity. */
         fun empty_lineage(count :: PosInt):
           lineage(builder.constant(module_def, Bits(1), 0), for List (_ in 0..count): empty_reference)
+        /* Pads unused parent slots while preserving validity and unknown ancestry. */
         fun pad_lineage(reference :: Value, count :: PosInt):
           def parents = parent_slots(reference)
           if parents.length() == count
           | reference
           | lineage(builder.record_get(module_def, reference, "valid"), parents ++ (for List (_ in parents.length()..count): empty_reference), builder.record_get(module_def, reference, "unknown"))
         def mutable next_stage = 0
+        /* Allocates a local unique name for shadow storage or lineage logic. */
         fun stage_name():
           def name = ref_name("__event_parent_", site) ++ "_" ++ to_string(next_stage)
           next_stage := next_stage + 1
           name
+        /* Lowers one certified storage stage using observed functional controls. */
         fun emit_stage(stage :: EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow, reference :: Value):
             def name = stage_name()
             def empty = empty_lineage(reference.type.field("parents").type.length)
+            /* Reads a routed observation value for the current storage or broadcast owner. */
             fun observe(value :: Value): observed[control_ids[[stage.instance_path, value.id]]]
             cond
             | stage is_a EventTraceWindow:
@@ -553,6 +611,7 @@ fun instrument_events(logical :: DesignElaboration,
                   builder.drive(delayed.next, builder.mux_lookup(module_def, observe(stage.advance), delayed.current, [[1, incoming]]))
                 | builder.drive(delayed.next, if stage.flush | builder.mux_lookup(module_def, observe(stage.flush), reference, [[1, empty]]) | reference)
                 delayed.current
+        /* Lowers a lineage graph while reusing already allocated state and shared subplans. */
         fun emit_plan(plan :: EventTracePlan):
           unless built_plans.has_key(plan)
           | def result:
@@ -584,6 +643,7 @@ fun instrument_events(logical :: DesignElaboration,
                   lineage(valid, parents, unknown)
               | plan is_a EventTraceReplication: emit_plan(plan.input)
               | plan is_a EventTraceBroadcast:
+                  /* Reads a routed observation value for the current storage or broadcast owner. */
                   fun observe(value :: Value): observed[control_ids[[plan.instance_path, value.id]]]
                   unless built_broadcasts.has_key(plan.broadcast_id)
                   | def name = stage_name()
@@ -672,7 +732,9 @@ fun instrument_events(logical :: DesignElaboration,
       for (control in subtree_controls(occurrence)):
         builder.drive(builder.output(module_def, control_name(control), control_type(control)), observed[control.index])
     builder.finish(module_def)
-  def top = rebuild(root)
+    copied
+  def top = rebuild(root).module_def
   def instrumented = DesignElaboration(design, top)
   verify_design(design)
+  check_materialized_design(design)
   EventInstrumentedElaboration(logical, instrumented, manifest)

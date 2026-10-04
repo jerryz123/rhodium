@@ -28,7 +28,7 @@ flowchart LR
 | `model.rhm` | Sites, dependencies, manifests, and IR-backed plans |
 | `analyze.rhm` | Occurrence expansion and nearest-predecessor inference |
 | `json.rhm` | JSON and matching C++ descriptor from one manifest |
-| `copy.rhm` | Remap values, places, memories, DPI declarations, and instance bindings |
+| `copy.rhm` | Copy occurrence bodies and remap extension metadata through the portable IR resolver |
 | `instrument.rhm` | Validate plans, selectively rebuild hierarchy, and emit state/DPI operations |
 | `main.rhm` | Public re-exports |
 | [RHEG](../../rheg/DEVELOPING.md) | Independent C++ collector and exporter |
@@ -145,13 +145,31 @@ sites get counters and occurrence calls, while the top owns reset emission.
 Import each unmarked definition once, memoized by original identity, preserving
 its child-definition sharing. Parent instance operations must still be recreated:
 core ownership forbids references to modules in another design. Reserve original
-names before allocating specialization names. Original extension metadata stays
-on the original elaboration and manifest, including for unchanged imports.
+names before allocating specialization names. Preserve extension metadata in both
+specialized and unchanged copies through `lowering/copy.rhm`'s `make_ir_remapper`.
+The original elaboration and its manifest keep their original objects.
+
+Each `ModuleCopy` records its own object bindings and the unambiguous bindings of
+its copied descendants. Reused unchanged children contribute identical bindings;
+differently specialized occurrences make their bare definition-local references
+ambiguous. Propagate that ambiguity upward and reject attempts to remap those
+references rather than selecting an arbitrary occurrence. An `Instance` view
+selects its destination module through its copied instance operation, preserving
+occurrence identity even when the source child definition was shared. References
+outside the copied subtree, opaque payloads, and cyclic metadata fail explicitly.
+Copy projected places and metadata before finishing the destination module;
+shared payloads remain shared within a copy and mutable caches are independent
+across distinct occurrence copies and separate instrumentation runs.
 
 Copying scales with distinct unchanged definitions plus specialized occurrences;
 analysis remains occurrence-aware. Validate clock/reset ancestry for event and
-observed-control owners through their ancestor bindings. Untouched opaque
-subtrees may retain private domains.
+observed-control owners through their ancestor bindings. Reuse a unique existing
+input proven to carry the selected trace clock/reset, retaining synchronous
+modules' original single-clock certification. Add hidden forwarding ports only
+when there is no unique matching input. Domain validation remains strict for
+traced owners; probing an unused ancestor input does not relax it. Untouched
+opaque subtrees may retain private domains. After core verification, rerun the
+preserved `MaterializationCheck` payloads through the existing lowering helper.
 
 Fixed-delay stages retain their implementation occurrence even without sampled
 controls. Validate those storage subtrees against the root epoch too. Validate
@@ -374,6 +392,13 @@ wrappers:
 make event-test
 make event-runtime-test
 ```
+
+`copy-metadata-test.rhm` covers unrelated observer metadata on repeated traced
+instances and shared untouched children, instance views, ports, operations,
+memories, DPI references, projected places, mutable payload isolation, subsequent
+materialization with clock certification, and
+unremappable or ambiguous references. `retained-metadata-test.rhm` exercises
+existing Flow storage and interface metadata after portable materialization.
 
 Host tests cover static inference, malformed contracts, capture packing and
 rejection, capacity bounds, JSON/C++ agreement, hierarchy identity, unchanged

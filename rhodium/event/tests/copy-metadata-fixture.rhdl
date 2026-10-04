@@ -1,0 +1,33 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  "copy-metadata-support.rhm".observe
+
+circuit MetadataShared():
+  input data: Bits(8)
+  output result: Bits(8)
+  result <== data
+  observe()
+
+sync_circuit MetadataObservedLane():
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  inst shared(MetadataShared())
+  shared.data <== source.bits
+  source |> map_flow(payload => shared.result) |> trace_event("accepted", ~payload: #true) |> sink
+  observe([shared])
+
+sync_circuit MetadataObservedTop():
+  interface source[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink[2](Decoupled(Bits(8)), ~role: producer)
+  inst left(MetadataObservedLane())
+  inst right(MetadataObservedLane())
+  source[0] |> left.source
+  left.sink |> sink[0]
+  source[1] |> right.source
+  right.sink |> sink[1]
+  observe([left, right])
+
+export make_fixture
+fun make_fixture(): elaborate_with_top(MetadataObservedTop())

@@ -1,0 +1,140 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../main.rhm" open
+  "../copy.rhm" open
+  "../../core/main.rhm" open
+  "../../lowering/program.rhm" open
+  "../../backend/circt.rhm".emit_circt
+  "../../frontend/layers/interface.rhm" open
+  "copy-metadata-fixture.rhdl".make_fixture
+  "copy-metadata-support.rhm".Observer
+
+fun observer(module_def :: Module): module_def.metadata_for("other-observer")[0]
+fun child(module_def :: Module, name :: String): module_def.find_instance(name).attribute("module")
+
+def source = make_fixture()
+def before = emit_circt(source.design)
+def first = instrument_events(source)
+def second = instrument_events(source)
+def left = child(first.instrumented.top, "left")
+def right = child(first.instrumented.top, "right")
+check:
+  child(source.top, "left") === child(source.top, "right") ~is #true
+  left === right ~is #false
+  child(left, "shared") === child(right, "shared") ~is #true
+  emit_circt(source.design) ~is before
+  emit_circt(first.instrumented.design) ~is emit_circt(second.instrumented.design)
+  event_manifest_to_json(first.manifest) ~is event_manifest_to_json(second.manifest)
+  first.manifest.sites.map(fun (site): site.instance_path) ~is [["MetadataObservedTop", "left"], ["MetadataObservedTop", "right"]]
+  observer(first.instrumented.top).instances[0].module_def === left ~is #true
+  observer(first.instrumented.top).instances[1].module_def === right ~is #true
+  observer(left).instances[0].module_def === child(left, "shared") ~is #true
+for (module_def in first.instrumented.design.modules):
+  def payload :: Observer = observer(module_def)
+  check:
+    payload.owner === module_def ~is #true
+    payload.value === module_def.inputs.find(fun (port): port.name == payload.port.name).value ~is #true
+    payload.port === module_def.inputs.find(fun (port): port.name == payload.port.name) ~is #true
+    payload.operation === module_def.find_operation(payload.value.defining_op_id) ~is #true
+    payload.cache[0] === payload.value ~is #true
+    payload.cache[0] === payload.cache[1] ~is #true
+  for (instance in payload.instances):
+    check:
+      instance.operation.module_def === module_def ~is #true
+      instance.operation.attribute("module") === instance.module_def ~is #true
+      (for all (port in instance.input_bindings): port.place.module_def === module_def) ~is #true
+
+// A later compiler copy must accept the preserved metadata and rebind it again.
+def recopied = materialize_reachable_rtl(ElaboratedProgram(first.instrumented.design, first.instrumented.top)).rtl
+check:
+  observer(recopied.top).instances[0].module_def === child(recopied.top, "left") ~is #true
+  observer(child(recopied.top, "left")).owner === child(recopied.top, "left") ~is #true
+
+// Existing interface metadata also survives and observes the specialized owner.
+for (module_def in [left, right]):
+  def event = module_interface_events(module_def)[0]
+  check:
+    event.module_def === module_def ~is #true
+    event.valid.module_def === module_def ~is #true
+    event.fields[0].value.module_def === module_def ~is #true
+observer(left).cache[0] := observer(left).instances[0].operation
+check:
+  observer(right).cache[0] === observer(right).value ~is #true
+  observer(child(source.top, "left")).cache[0] === observer(child(source.top, "left")).value ~is #true
+  observer(child(second.instrumented.top, "left")).cache[0] === observer(child(second.instrumented.top, "left")).value ~is #true
+
+// Exercise resource/projection references and explicit failures directly at the copier.
+class References(items :: Array):
+  implements ModuleMetadataPayload
+  override method remap_ir(remap :: Function.of_arity(1)): References(remap(items))
+class Opaque():
+  implements ModuleMetadataPayload
+
+def design = Design()
+def builder = Builder(design)
+def leaf = builder.module("Leaf")
+def input = builder.input(leaf, "input", Bits(8))
+def output = builder.output(leaf, "output", Bits(8))
+builder.drive(output, input)
+def memory = builder.memory(leaf, "storage", 2, Bits(8))
+def imported = builder.dpi_import("ordinary_dpi", ["data"], [Bits(8)])
+def aggregate = builder.wire(leaf, "aggregate", RecordType([RecordField("field", Bits(8))]))
+builder.drive(aggregate, builder.record_create(leaf, aggregate.type, [["field", input]]))
+def projected = builder.project(aggregate, "field")
+leaf.add_metadata("resources", References(Array(memory, imported, projected, projected, {input: output})))
+builder.finish(leaf)
+def destination = Design()
+def target_builder = Builder(destination)
+def target_import = target_builder.dpi_import("ordinary_dpi", ["data"], [Bits(8)])
+def imports = MutableMap.by(===){imported: target_import}
+def copied = copy_module(target_builder, leaf, "Copied", MutableMap{}, imports)
+target_builder.finish(copied.module_def)
+def refs = copied.module_def.metadata_for("resources")[0].items
+check:
+  refs[0] === copied.module_def.memories[0] ~is #true
+  refs[1] === target_import ~is #true
+  refs[2] === refs[3] ~is #true
+  refs[2].parent.module_def === copied.module_def ~is #true
+  refs[2].parent.projected_places[0] === refs[2] ~is #true
+  refs[4][copied.module_def.inputs[0].value] === copied.module_def.outputs[0].place ~is #true
+
+// Each invalid payload uses a fresh owner so no finished source is mutated.
+fun reject_payload(payload :: ModuleMetadataPayload):
+  def original = builder.module("Bad" ++ to_string(design.modules.length()))
+  original.add_metadata("invalid", payload)
+  builder.finish(original)
+  copy_module(Builder(Design()), original, original.name, MutableMap{}, MutableMap{})
+def cycle = Array(#false)
+def cyclic = References(cycle)
+cycle[0] := cyclic
+check:
+  reject_payload(Opaque()) ~throws "does not support IR remapping"
+  reject_payload(cyclic) ~throws "cyclic metadata remapping"
+  reject_payload(References(Array(input))) ~throws "unmapped IR reference"
+
+// A bare child-local value cannot choose between two specialized occurrences.
+def parent = builder.module("Ambiguous")
+def parent_input = builder.input(parent, "input", Bits(8))
+def source_left = builder.instance(parent, leaf, "left")
+def source_right = builder.instance(parent, leaf, "right")
+builder.drive(source_left.input("input"), parent_input)
+builder.drive(source_right.input("input"), parent_input)
+parent.add_metadata("ambiguous", References(Array(input)))
+builder.finish(parent)
+def left_copy = copy_module(target_builder, leaf, "LeftCopy", MutableMap{}, imports)
+target_builder.finish(left_copy.module_def)
+def right_copy = copy_module(target_builder, leaf, "RightCopy", MutableMap{}, imports)
+target_builder.finish(right_copy.module_def)
+check:
+  copy_module(target_builder, parent, "AmbiguousCopy", MutableMap{source_left.operation.id: left_copy, source_right.operation.id: right_copy}, imports) ~throws "unmapped IR reference"
+
+// Numeric IDs are design-local; a foreign DPI declaration must not alias an import.
+def foreign_design = Design([], imported.id)
+def foreign_import = Builder(foreign_design).dpi_import("foreign", ["data"], [Bits(8)])
+def foreign_owner = builder.module("ForeignDpi")
+foreign_owner.add_metadata("foreign", References(Array(foreign_import)))
+builder.finish(foreign_owner)
+check:
+  foreign_import.id ~is imported.id
+  copy_module(target_builder, foreign_owner, "ForeignDpiCopy", MutableMap{}, imports) ~throws "unmapped DPI import"

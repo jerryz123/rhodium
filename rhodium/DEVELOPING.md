@@ -51,6 +51,7 @@ flowchart LR
   Diagram --> InterfaceMeta["interface metadata"]
   EventGraph["event/*"] --> Diagram
   EventGraph --> Core
+  EventGraph --> Lowering
 
   RFPL["rfpl/*"] --> Core
   Std["std/*"] --> Rhodium
@@ -114,7 +115,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`language.rhm`](language.rhm), [`base/language.rhm`](base/language.rhm) | Compose ordinary Rhombus host control with one public Rhodium profile | Standard or foundation |
 | [`../rfpl/`](../rfpl/README.md) | Physical views over existing modules: opaque hard macros and wiring-only composite floorplans with contained child coordinates | Public core IR only |
 | [`diagram/`](diagram/README.md) | Read-only logical block, hierarchy, compound-interface, and flow visualization with JSON and DOT output | Core IR and interface-owned nonsemantic metadata |
-| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, and manifest/descriptor generation | Core IR, Builder, verifier, logical diagrams, interface-owned instance-context metadata, other event modules, and Racket JSON string encoding |
+| [`event/`](event/README.md) | Static dependency inference, immutable metadata/DPI instrumentation, and manifest/descriptor generation | Core IR, Builder, verifier, portable IR remapper and metadata certification, logical diagrams, interface-owned instance-context metadata, other event modules, and Racket JSON string encoding |
 | [`../rheg/`](../rheg/README.md) | Independent C++ event collector, manifest-bound snapshots, and streaming/standalone Perfetto export | Runtime: C++ standard library only; exporter: runtime and private nlohmann JSON dependency |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |

@@ -377,8 +377,15 @@ def manifest_json = event_manifest_to_json(traced.manifest)
 ```
 
 `EventInstrumentedElaboration` retains `original`, `instrumented`, and `manifest`.
-The original IR and metadata are unchanged. The derived top keeps its functional
-ports; hidden reference state and passive observation ports track lineage without
+The original IR and metadata are unchanged. The instrumented graph preserves
+extension metadata through the existing `remap_ir` protocol, with live references
+rebound to their copied owners. Mutable payloads are independent between
+specialized occurrences and instrumentation runs; unchanged shared definitions
+remain shared. Instance views retain the selected child occurrence. A bare
+reference into a multiply specialized child, a reference outside the copied
+subtree, an opaque payload, or a metadata cycle is rejected rather than dropped.
+
+The derived top keeps its functional ports; hidden reference state and passive observation ports track lineage without
 driving functional ready, valid, or payload signals. Only affected occurrences
 and their ancestors are specialized. Unchanged definitions remain shared within
 the derived design, not by object identity with the original. See
@@ -387,7 +394,9 @@ the derived design, not by object identity with the original. See
 `EventInstrumentationConfig(clock_port, reset_port, ~partial: #false)` selects top-level `Clock`
 and synchronous `Reset` inputs, defaulting to `"clock"` and `"reset"`. Clock/reset
 signals for event sites and observed trace controls must resolve to those inputs
-through direct wiring or casts. Untouched opaque subtrees may keep private domains.
+through direct wiring or casts. Instrumentation reuses a unique matching control
+input when available and adds hidden forwarding inputs otherwise. Preserved
+extension certifications are checked again on the instrumented graph. Untouched opaque subtrees may keep private domains.
 Assert reset for at least one sampled rising edge before tracing. Reset clears
 trace state and the live graph; site/sequence identities are epoch-local.
 

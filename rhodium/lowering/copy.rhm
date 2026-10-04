@@ -58,7 +58,7 @@ fun copy_module_body(builder :: Builder, original :: Module, target :: Module,
     target.add_output(replacement)
   target.finish_collections()
 
-/* Create one identity-preserving resolver for the entire materialization.
+/* Create one identity-preserving resolver for a caller-supplied copy context.
    Live IR must already be mapped, except lazily copied DPI declarations and projected
    places. Extension objects own their remapping; unsupported references fail explicitly. */
 fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)):
@@ -92,7 +92,10 @@ fun make_ir_remapper(objects :: MutableMap, remap_import :: Function.of_arity(1)
         def replacement:
           cond
           | value is_a Port: Port(value.name, value.direction, value.type, remap(value.value), remap(value.place))
-          | value is_a Instance: Instance(remap(value.operation), remap(value.module_def), remap(value.input_bindings), remap(value.output_bindings))
+          | value is_a Instance:
+              // The copied operation selects the child occurrence, even after specialization.
+              def operation = remap(value.operation)
+              Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
           | value is_a ConstructInstance:
               def operation = remap(value.operation)
               Instance(operation, operation.attribute("module"), remap(value.input_bindings), remap(value.output_bindings))
