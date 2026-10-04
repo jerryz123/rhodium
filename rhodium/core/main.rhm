@@ -1,5 +1,5 @@
 #lang rhombus
-// Re-exports the frontend-independent public Rhodium core API.
+/* Re-exports the frontend-independent public Rhodium core API. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

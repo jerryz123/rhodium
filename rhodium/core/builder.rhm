@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds well-owned Rhodium IR while enforcing local type, naming, and driver rules.
+/* Builds well-owned Rhodium IR while enforcing local type, naming, and driver rules. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,28 +11,34 @@ import:
 export:
   Builder
 
+/* Raises a local construction error using the public operation's diagnostic name. */
 fun fail(who :: Symbol, message :: String):
   error(~who: who, message)
 
+/* Rejects malformed hardware types before creating IR objects. */
 fun ensure_hardware_type(type :~ HardwareType, who :: Symbol):
   unless type_well_formed(type)
   | fail(who, "expected a well-formed HardwareType")
 
+/* Requires a well-formed built-in Bits type for unsigned packed operations. */
 fun ensure_bits(type :~ HardwareType, who :: Symbol):
   ensure_hardware_type(type, who)
   unless bits_type(type)
   | fail(who, "expected a Bits type")
 
+/* Requires well-formed ordinary data, excluding clock and reset controls. */
 fun ensure_data_type(type :~ HardwareType, who :: Symbol):
   ensure_hardware_type(type, who)
   unless data_type(type)
   | fail(who, "expected a DataType")
 
+/* Requires ordinary data with a positive canonical packed width for decode patterns. */
 fun ensure_packable_data_type(type :~ HardwareType, who :: Symbol):
   ensure_data_type(type, who)
   unless type.packed_width() is_a PosInt
   | fail(who, "expected a packable DataType")
 
+/* Checks packed value/care bounds and clears value bits outside the care mask. */
 fun normalize_decode_pattern(value :: Nat,
                              care :: Nat,
                              width :: PosInt,
@@ -42,15 +48,18 @@ fun normalize_decode_pattern(value :: Nat,
   | fail(who, role ++ " value or care does not fit its packed width")
   [value bits.and care, care]
 
+/* Tests whether two cared input patterns can match the same packed value. */
 fun decode_patterns_overlap(left :: List, right :: List):
   def differing = left[0] bits.xor right[0]
   def jointly_cared = left[1] bits.and right[1]
   (differing bits.and jointly_cared) == 0
 
+/* Rejects names in the compiler-reserved hardware namespace. */
 fun ensure_hardware_name(name :: AsciiIdentifier, who :: Symbol):
   when name.starts_with("__rhodium_")
   | fail(who, "hardware names beginning with __rhodium_ are reserved")
 
+/* Requires exact module membership in the Builder's design, not merely a matching owner reference. */
 fun ensure_module_in_design(design :: Design,
                             module_def :: Module,
                             who :: Symbol):
@@ -58,20 +67,24 @@ fun ensure_module_in_design(design :: Design,
   unless owned
   | fail(who, "module belongs to a different design")
 
+/* Rejects additional construction in a finished module. */
 fun ensure_open(module_def :: Module, who :: Symbol):
   when module_def.finished
   | fail(who, "module " ++ module_def.name ++ " is already finished")
 
+/* Requires an SSA value to be an exact member of the target module. */
 fun ensure_value_in(module_def :: Module, value :: Value, who :: Symbol):
   def owned = value.module_def === module_def && module_def.owns_value(value)
   unless owned
   | fail(who, "hardware value belongs to a different module")
 
+/* Requires a memory resource to be an exact member of the target module. */
 fun ensure_memory_in(module_def :: Module, memory :: Memory, who :: Symbol):
   def owned = memory.module_def === module_def && module_def.owns_memory(memory)
   unless owned
   | fail(who, "memory belongs to a different module")
 
+/* Requires exact ownership of a DPI declaration by the Builder's design. */
 fun ensure_dpi_import_in(design :: Design,
                          dpi_import :: DpiImport,
                          who :: Symbol):
@@ -79,6 +92,7 @@ fun ensure_dpi_import_in(design :: Design,
   unless owned
   | fail(who, "DPI import belongs to a different design")
 
+/* Validates module/import ownership, typed inputs, clock, and one-bit enable, returning canonical call operand order. */
 fun check_dpi_operands(design :: Design,
                        module_def :: Module,
                        dpi_import :: DpiImport,
@@ -103,25 +117,30 @@ fun check_dpi_operands(design :: Design,
   | fail(who, "DPI enable must be a one-bit ScalarDataType")
   [clock, enable] ++ inputs
 
+/* Follows aggregate projections to their owning root IR place. */
 fun root_place(place :: Place):
   if place.parent is_a Place
   | root_place(place.parent)
   | place
 
+/* Checks projected-place ownership through its root's membership in the target module. */
 fun ensure_place_in(module_def :: Module, place :: Place, who :: Symbol):
   def root = root_place(place)
   def owned = root && place.module_def === module_def && module_def.owns_place(root)
   unless owned
   | fail(who, "hardware place belongs to a different module")
 
+/* Detects a whole-place driver or any recursively staged child driver. */
 fun place_has_staged_driver(place :: Place):
   place.driver || (for any (projected in place.projected_places): place_has_staged_driver(projected))
 
+/* Checks for a driven ancestor that would conflict with an element-wise connection. */
 fun ancestor_has_driver(place :: Place):
   if place.parent is_a Place
   | place.parent.driver || ancestor_has_driver(place.parent)
   | #false
 
+/* Requires either a whole driver or complete recursive coverage of every record field/vector element. */
 fun aggregate_place_complete(place :: Place):
   if place.driver
   | #true
@@ -135,21 +154,25 @@ fun aggregate_place_complete(place :: Place):
           projected && aggregate_place_complete(projected)
       | #false
 
+/* Rejects collisions in the module's shared value, place, and memory name namespace. */
 fun ensure_unique_hardware_name(module_def :: Module,
                                 name :: String,
                                 who :: Symbol):
   when module_def.hardware_name_used(name)
   | fail(who, "duplicate hardware name " ++ name)
 
+/* Rejects duplicate concrete or retained instance names within a parent module. */
 fun ensure_unique_instance_name(module_def :: Module,
                                 name :: String,
                                 who :: Symbol):
   when module_def.find_instance(name)
   | fail(who, "duplicate instance name " ++ name)
 
+/* Checks whether a concrete or retained instance already occupies a suggested name. */
 fun instance_name_used(module_def :: Module, name :: String):
   module_def.find_instance(name)
 
+/* Allocates a single SSA result and its operation, checks the result name, and records operand uses and module membership. */
 fun build_value_operation(design :: Design,
                           module_def :: Module,
                           opcode :: String,
@@ -180,6 +203,7 @@ fun build_value_operation(design :: Design,
   module_def.add_operation(operation)
   value
 
+/* Builds a modular binary operation only for same-type arithmetic operands owned by an open module. */
 fun build_arithmetic_same_type_binary(design :: Design,
                                       module_def :: Module,
                                       opcode :: String,
@@ -206,6 +230,7 @@ fun build_arithmetic_same_type_binary(design :: Design,
                         origin,
                         who)
 
+/* Builds a binary bitwise operation only for exactly matching bitwise operand types. */
 fun build_bitwise_same_type_binary(design :: Design,
                                    module_def :: Module,
                                    opcode :: String,
@@ -232,6 +257,7 @@ fun build_bitwise_same_type_binary(design :: Design,
                         origin,
                         who)
 
+/* Builds an unsigned Bits shift using a Bits-valued amount while preserving the source width. */
 fun build_bits_shift(design :: Design,
                      module_def :: Module,
                      opcode :: String,
@@ -259,6 +285,7 @@ fun build_bits_shift(design :: Design,
                         origin,
                         who)
 
+/* Builds a left shift for an arithmetic scalar with a Bits amount, preserving the source type and width. */
 fun build_arithmetic_shift(design :: Design,
                            module_def :: Module,
                            opcode :: String,
@@ -286,6 +313,7 @@ fun build_arithmetic_shift(design :: Design,
                         origin,
                         who)
 
+/* Builds an arithmetic right shift for a signed scalar with a Bits amount, preserving its signed type. */
 fun build_signed_arithmetic_shift(design :: Design,
                                   module_def :: Module,
                                   opcode :: String,
@@ -313,6 +341,7 @@ fun build_signed_arithmetic_shift(design :: Design,
                         origin,
                         who)
 
+/* Validates typed lookup cases, sorts unique fitting host keys, and builds a selector/default/case operation. */
 fun build_mux_lookup(design :: Design,
                      module_def :: Module,
                      selector :: Value,
@@ -364,9 +393,11 @@ fun build_mux_lookup(design :: Design,
                         who,
                         {"keys": normalized_cases.map(fun (case): case[0])})
 
-// Builds a partial one-hot selection operation. Exactly one selector bit is a
-// caller precondition; zero-hot and multi-hot results are intentionally
-// unspecified so backends can use direct gating and reduction.
+/*
+ * Builds a partial one-hot selection operation. Exactly one selector bit is a
+ * caller precondition; zero-hot and multi-hot results are intentionally
+ * unspecified so backends can use direct gating and reduction.
+ */
 fun build_onehot_mux(design :: Design,
                      module_def :: Module,
                      selector :: Value,
@@ -400,9 +431,12 @@ fun build_onehot_mux(design :: Design,
                         origin,
                         who)
 
+/* Constructs design-owned hardware IR, enforcing local ownership, naming, types, and drive rules before whole-graph verification. */
 class Builder(design :: Design):
-  // Materializes a design-level declaration lazily so reusable frontend
-  // descriptors can be called from any circuit in one elaborated design.
+  /*
+   * Materializes a design-level declaration lazily so reusable frontend
+   * descriptors can be called from any circuit in one elaborated design.
+   */
   method dpi_import(name :: AsciiIdentifier,
                     input_names :: NonemptyList.of(AsciiIdentifier),
                     input_types :: NonemptyList.of(ScalarDataType),
@@ -421,6 +455,7 @@ class Builder(design :: Design):
                             results,
                             location)
 
+  /* Validates ordered DPI arguments/results and reuses a named declaration only when its full ABI signature matches. */
   method dpi_import_results(name :: AsciiIdentifier,
                             input_names :: NonemptyList.of(AsciiIdentifier),
                             input_types :: NonemptyList.of(ScalarDataType),
@@ -482,8 +517,10 @@ class Builder(design :: Design):
         design.add_dpi_import(dpi_import)
         dpi_import
 
-  // A clocked assertion is verification collateral, not a readable value or
-  // hidden state element. Its guard records derived lexical activation.
+  /*
+   * A clocked assertion is verification collateral, not a readable value or
+   * hidden state element. Its guard records derived lexical activation.
+   */
   method assert(module_def :: Module,
                 condition :: Value,
                 clock :: Value,
@@ -522,8 +559,10 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     operation
 
-  // A procedure call is a clocked side effect and therefore produces no
-  // hardware value or hidden result state.
+  /*
+   * A procedure call is a clocked side effect and therefore produces no
+   * hardware value or hidden result state.
+   */
   method dpi_call(module_def :: Module,
                   dpi_import :: DpiImport,
                   inputs :: List.of(Value),
@@ -556,8 +595,10 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     operation
 
-  // A DPI register makes the state implied by a result-bearing clocked call
-  // explicit in both its operation name and its required hardware binding.
+  /*
+   * A DPI register makes the state implied by a result-bearing clocked call
+   * explicit in both its operation name and its required hardware binding.
+   */
   method dpi_register(module_def :: Module,
                       name :: AsciiIdentifier,
                       dpi_import :: DpiImport,
@@ -577,6 +618,7 @@ class Builder(design :: Design):
                               location,
                               origin)[0]
 
+  /* Creates one named SSA result per DPI output/return, retaining declaration order and clocked-call state semantics. */
   method dpi_register_results(module_def :: Module,
                               result_names :: List.of(AsciiIdentifier),
                               dpi_import :: DpiImport,
@@ -630,6 +672,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     result_values
 
+  /* Allocates and registers a uniquely named module in the Builder's design. */
   method module(name :: AsciiIdentifier):
     ensure_hardware_name(name, #'module)
     when design.find_module_named(name)
@@ -638,13 +681,16 @@ class Builder(design :: Design):
     design.add_module(module_def)
     module_def
 
-  // Allocates a stable name from a suggested base without weakening the IR's
-  // invariant that every final instance name is unique within its parent.
+  /*
+   * Allocates a stable name from a suggested base without weakening the IR's
+   * invariant that every final instance name is unique within its parent.
+   */
   method fresh_instance_name(module_def :: Module,
                              base_name :: AsciiIdentifier):
     ensure_module_in_design(design, module_def, #'fresh_instance_name)
     ensure_open(module_def, #'fresh_instance_name)
     ensure_hardware_name(base_name, #'fresh_instance_name)
+    /* Searches the base name and successive numbered suffixes without allocating an instance. */
     fun find_available(suffix :: Nat):
       def candidate:
         if suffix == 0
@@ -655,6 +701,7 @@ class Builder(design :: Design):
       | candidate
     find_available(0)
 
+  /* Creates an input port and its module-owned SSA value with a well-formed hardware type. */
   method input(module_def :: Module,
                name :: AsciiIdentifier,
                type :~ HardwareType,
@@ -681,6 +728,7 @@ class Builder(design :: Design):
     module_def.add_input(Port(name, "input", type, value, #false))
     value
 
+  /* Creates an output port and its required single-driver place with a well-formed hardware type. */
   method output(module_def :: Module,
                 name :: AsciiIdentifier,
                 type :~ HardwareType,
@@ -707,9 +755,11 @@ class Builder(design :: Design):
     module_def.add_output(Port(name, "output", type, #false, place))
     place
 
-  // Creates a declaration-order-independent single-driver connection. The
-  // place accepts its driver while the paired value can be consumed earlier;
-  // verification still requires one complete effective driver.
+  /*
+   * Creates a declaration-order-independent single-driver connection. The
+   * place accepts its driver while the paired value can be consumed earlier;
+   * verification still requires one complete effective driver.
+   */
   method wire(module_def :: Module,
               name :: AsciiIdentifier,
               type :~ HardwareType,
@@ -737,6 +787,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     place
 
+  /* Creates a Bits constant, rejecting unsigned integers that do not fit the explicit width. */
   method constant(module_def :: Module,
                   type :: HardwareType,
                   integer :: Nat,
@@ -767,7 +818,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     value
 
-  // A don't-care is synthesis freedom, not a runtime four-state value.
+  /* A don't-care is synthesis freedom, not a runtime four-state value. */
   method dont_care(module_def :: Module,
                    type :: HardwareType,
                    name :: maybe(AsciiIdentifier) = #false,
@@ -786,8 +837,10 @@ class Builder(design :: Design):
                           origin,
                           #'dont_care)
 
-  // A decode preserves an incompletely specified relation for backend
-  // synthesis instead of choosing concrete values for uncared output bits.
+  /*
+   * A decode preserves an incompletely specified relation for backend
+   * synthesis instead of choosing concrete values for uncared output bits.
+   */
   method decode(module_def :: Module,
                 selector :: Value,
                 input_type :: DataType,
@@ -849,6 +902,7 @@ class Builder(design :: Design):
                            "default_value": normalized_default[0],
                            "default_care": normalized_default[1]})
 
+  /* Builds same-type modular addition with no implicit widening. */
   method add(module_def :: Module,
              left :: Value,
              right :: Value,
@@ -865,6 +919,7 @@ class Builder(design :: Design):
                                       origin,
                                       #'add)
 
+  /* Builds same-type modular multiplication with no implicit widening. */
   method mul(module_def :: Module,
              left :: Value,
              right :: Value,
@@ -881,6 +936,7 @@ class Builder(design :: Design):
                                       origin,
                                       #'mul)
 
+  /* Builds bitwise inversion while retaining the operand's exact bitwise type. */
   method bit_not(module_def :: Module,
                  operand :: Value,
                  name :: maybe(AsciiIdentifier) = #false,
@@ -901,6 +957,7 @@ class Builder(design :: Design):
                           origin,
                           #'bit_not)
 
+  /* Builds a bitwise conjunction of exactly matching bitwise operand types. */
   method bit_and(module_def :: Module,
                  left :: Value,
                  right :: Value,
@@ -910,6 +967,7 @@ class Builder(design :: Design):
     build_bitwise_same_type_binary(design, module_def, "rtl.and", left, right,
                                    name, location, origin, #'bit_and)
 
+  /* Builds a bitwise disjunction of exactly matching bitwise operand types. */
   method bit_or(module_def :: Module,
                 left :: Value,
                 right :: Value,
@@ -919,6 +977,7 @@ class Builder(design :: Design):
     build_bitwise_same_type_binary(design, module_def, "rtl.or", left, right,
                                    name, location, origin, #'bit_or)
 
+  /* Builds a bitwise exclusive-or of exactly matching bitwise operand types. */
   method bit_xor(module_def :: Module,
                  left :: Value,
                  right :: Value,
@@ -928,6 +987,7 @@ class Builder(design :: Design):
     build_bitwise_same_type_binary(design, module_def, "rtl.xor", left, right,
                                    name, location, origin, #'bit_xor)
 
+  /* Builds same-type modular subtraction with no implicit widening. */
   method sub(module_def :: Module,
              left :: Value,
              right :: Value,
@@ -937,6 +997,7 @@ class Builder(design :: Design):
     build_arithmetic_same_type_binary(design, module_def, "rtl.sub", left, right,
                                       name, location, origin, #'sub)
 
+  /* Builds an arithmetic-scalar left shift by a Bits amount, retaining source type and width. */
   method shl(module_def :: Module,
              value :: Value,
              amount :: Value,
@@ -946,6 +1007,7 @@ class Builder(design :: Design):
     build_arithmetic_shift(design, module_def, "rtl.shl", value, amount,
                            name, location, origin, #'shl)
 
+  /* Builds a logical right shift of Bits by a Bits amount, retaining source width. */
   method shru(module_def :: Module,
               value :: Value,
               amount :: Value,
@@ -955,6 +1017,7 @@ class Builder(design :: Design):
     build_bits_shift(design, module_def, "rtl.shru", value, amount,
                      name, location, origin, #'shru)
 
+  /* Builds a sign-filling right shift of a signed arithmetic scalar by a Bits amount. */
   method shrs(module_def :: Module,
               value :: Value,
               amount :: Value,
@@ -964,6 +1027,7 @@ class Builder(design :: Design):
     build_signed_arithmetic_shift(design, module_def, "rtl.shrs", value, amount,
                                   name, location, origin, #'shrs)
 
+  /* Builds equal-width Bits equality with a one-bit Bits result. */
   method eq(module_def :: Module,
             left :: Value,
             right :: Value,
@@ -986,6 +1050,7 @@ class Builder(design :: Design):
                           origin,
                           #'eq)
 
+  /* Builds unsigned ordering for equal-width Bits operands with a one-bit Bits result. */
   method ult(module_def :: Module,
              left :: Value,
              right :: Value,
@@ -1008,6 +1073,7 @@ class Builder(design :: Design):
                           origin,
                           #'ult)
 
+  /* Builds signed ordering for exactly matching signed arithmetic types with a one-bit Bits result. */
   method slt(module_def :: Module,
              left :: Value,
              right :: Value,
@@ -1030,6 +1096,7 @@ class Builder(design :: Design):
                           origin,
                           #'slt)
 
+  /* Builds a total Bits-keyed lookup with a same-type default and normalized unique cases. */
   method mux_lookup(module_def :: Module,
                     selector :: Value,
                     default_value :: Value,
@@ -1047,6 +1114,7 @@ class Builder(design :: Design):
                      origin,
                      #'mux_lookup)
 
+  /* Builds packed same-type selection whose result is specified only when exactly one selector bit is set. */
   method onehot_mux(module_def :: Module,
                     selector :: Value,
                     choices :: List.of(Value),
@@ -1062,6 +1130,7 @@ class Builder(design :: Design):
                      origin,
                      #'onehot_mux)
 
+  /* Reinterprets a value as another hardware type only when their canonical packed widths match. */
   method cast(module_def :: Module,
               value :: Value,
               target_type :: HardwareType,
@@ -1085,6 +1154,7 @@ class Builder(design :: Design):
                           origin,
                           #'cast)
 
+  /* Concatenates at least two Bits operands into a result whose width is their sum, with earlier operands more significant. */
   method concat(module_def :: Module,
                 operands :: List.of(Value),
                 name :: maybe(AsciiIdentifier) = #false,
@@ -1110,6 +1180,7 @@ class Builder(design :: Design):
                           origin,
                           #'concat)
 
+  /* Selects an inclusive high-to-low slice of Bits after checking both bounds. */
   method extract(module_def :: Module,
                  value :: Value,
                  high :: Nat,
@@ -1136,6 +1207,7 @@ class Builder(design :: Design):
                           #'extract,
                           {"high": high, "low": low})
 
+  /* Widens Bits with leading zeros, requiring a strictly larger positive target width. */
   method zext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
@@ -1160,6 +1232,7 @@ class Builder(design :: Design):
                           #'zext,
                           {"target_width": target_width})
 
+  /* Widens a signed arithmetic scalar by sign replication, preserving its type family at a strictly larger width. */
   method sext(module_def :: Module,
               value :: Value,
               target_width :: PosInt,
@@ -1187,6 +1260,7 @@ class Builder(design :: Design):
                           #'sext,
                           {"target_width": target_width})
 
+  /* Keeps the low bits of a Bits value, requiring a strictly smaller positive target width. */
   method trunc(module_def :: Module,
                value :: Value,
                target_width :: PosInt,
@@ -1211,6 +1285,7 @@ class Builder(design :: Design):
                           #'trunc,
                           {"target_width": target_width})
 
+  /* Requires exactly one correctly typed value per record field and normalizes bindings into declared field order. */
   method record_create(module_def :: Module,
                        type :: RecordType,
                        field_values :: List.of(List),
@@ -1259,6 +1334,7 @@ class Builder(design :: Design):
                             fun (field): field.name
                           )})
 
+  /* Extracts a declared record field as a value of that field's exact hardware type. */
   method record_get(module_def :: Module,
                     record :: Value,
                     field_name :: AsciiIdentifier,
@@ -1284,6 +1360,7 @@ class Builder(design :: Design):
                           #'record_get,
                           {"field": field_name})
 
+  /* Creates a fixed-length vector from exactly one correctly typed value per element in logical index order. */
   method vector_create(module_def :: Module,
                        type :: VectorType,
                        elements :: List.of(Value),
@@ -1310,6 +1387,7 @@ class Builder(design :: Design):
                           origin,
                           #'vector_create)
 
+  /* Extracts a vector element at a checked host index. */
   method vector_get(module_def :: Module,
                     vector :: Value,
                     index :: Nat,
@@ -1334,8 +1412,10 @@ class Builder(design :: Design):
                           #'vector_get,
                           {"index": index})
 
-  // Dynamic vector access is intentionally partial: an index encoding outside
-  // the vector length leaves the operation result unconstrained.
+  /*
+   * Dynamic vector access is intentionally partial: an index encoding outside
+   * the vector length leaves the operation result unconstrained.
+   */
   method vector_index(module_def :: Module,
                       vector :: Value,
                       index :: Value,
@@ -1360,8 +1440,10 @@ class Builder(design :: Design):
                           origin,
                           #'vector_index)
 
-  // Dynamic injection preserves the vector type. An out-of-range selector
-  // makes the complete result vector unconstrained.
+  /*
+   * Dynamic injection preserves the vector type. An out-of-range selector
+   * makes the complete result vector unconstrained.
+   */
   method vector_inject(module_def :: Module,
                        vector :: Value,
                        index :: Value,
@@ -1390,8 +1472,10 @@ class Builder(design :: Design):
                           origin,
                           #'vector_inject)
 
-  // Applies an unordered set of enabled dynamic writes to one vector. Enabled
-  // writes must use in-range, pairwise-distinct indices; other cases are UB.
+  /*
+   * Applies an unordered set of enabled dynamic writes to one vector. Enabled
+   * writes must use in-range, pairwise-distinct indices; other cases are UB.
+   */
   method vector_write_set(module_def :: Module,
                           vector :: Value,
                           enables :: Value,
@@ -1425,6 +1509,7 @@ class Builder(design :: Design):
                           origin,
                           #'vector_write_set)
 
+  /* Creates or reuses a staged record-field target owned through its root place, without allocating an independent IR ID. */
   method project(place :: Place, field_name :: AsciiIdentifier):
     def module_def = design.find_module(place.module_id)
     ensure_module_in_design(design, module_def, #'project)
@@ -1450,6 +1535,7 @@ class Builder(design :: Design):
         place.add_projected_place(projected)
         projected
 
+  /* Creates or reuses a staged target at a checked vector index, without allocating an independent IR ID. */
   method project_vector(place :: Place, index :: Nat):
     def module_def = design.find_module(place.module_id)
     ensure_module_in_design(design, module_def, #'project_vector)
@@ -1474,6 +1560,7 @@ class Builder(design :: Design):
         place.add_projected_place(projected)
         projected
 
+  /* Builds a whole record/vector value from complete staged child drivers, returning false for incomplete coverage. */
   method assemble_aggregate_place(place :: Place,
                                   location :: Location = Location()):
     if !aggregate_place_complete(place)
@@ -1509,6 +1596,7 @@ class Builder(design :: Design):
                              Origin("aggregate place assembly", place.name))
       | ~else: #false
 
+  /* Replaces complete staged aggregate drives with one root drive, optionally restoring projection handles afterward. */
   method canonicalize_aggregate_place(
       place :: Place,
       location :: Location = Location(),
@@ -1527,8 +1615,10 @@ class Builder(design :: Design):
         assembled
     | #false
 
-  // Allocates state without pretending that the memory handle is ordinary
-  // hardware data. Access operations retain an explicit resource reference.
+  /*
+   * Allocates state without pretending that the memory handle is ordinary
+   * hardware data. Access operations retain an explicit resource reference.
+   */
   method memory(module_def :: Module,
                 name :: AsciiIdentifier,
                 depth :: PosInt,
@@ -1563,6 +1653,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     memory
 
+  /* Builds an asynchronous read using the memory's minimum-width Bits address and exact element result type. */
   method memory_read_async(module_def :: Module,
                            memory :: Memory,
                            address :: Value,
@@ -1588,6 +1679,7 @@ class Builder(design :: Design):
                           #'memory_read_async,
                           {"memory": memory})
 
+  /* Records an enabled clocked write, validating address/data types and requiring one identical clock for all writes to the resource. */
   method memory_write(module_def :: Module,
                       memory :: Memory,
                       address :: Value,
@@ -1635,8 +1727,10 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     operation
 
-  // Creates a fixed, circuit-shaped synchronous memory interface. Read and
-  // write ports are declared here and subsequently wired through Places.
+  /*
+   * Creates a fixed, circuit-shaped synchronous memory interface. Read and
+   * write ports are declared here and subsequently wired through Places.
+   */
   method sync_memory(module_def :: Module,
                      name :: AsciiIdentifier,
                      depth :: PosInt,
@@ -1809,6 +1903,7 @@ class Builder(design :: Design):
                if read_write_port | [read_write_port] | [],
                mask_granularity)
 
+  /* Creates current-state data and a next-state target, optionally with a synchronous reset and same-type reset value supplied together. */
   method register(module_def :: Module,
                   name :: AsciiIdentifier,
                   type :~ DataType,
@@ -1856,8 +1951,10 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     Register(operation, current, next)
 
-  // Records a stable one-bit level crossing while leaving its implementation
-  // as ordinary, inspectable destination-clock registers.
+  /*
+   * Records a stable one-bit level crossing while leaving its implementation
+   * as ordinary, inspectable destination-clock registers.
+   */
   method sync_level_crossing(module_def :: Module,
                              source :: Value,
                              destination_clock :: Value,
@@ -1894,6 +1991,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     operation
 
+  /* Instantiates a finished same-design child, allocating parent-side input places and output values in child port order. */
   method instance(module_def :: Module,
                   child :: Module,
                   name :: AsciiIdentifier,
@@ -1947,6 +2045,7 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     Instance(operation, child, input_bindings, output_bindings)
 
+  /* Instantiates a retained construct from its detached signature without selecting a concrete implementation provider. */
   method construct_instance(module_def :: Module,
                             child :: ConstructDefinition,
                             name :: AsciiIdentifier,
@@ -1995,8 +2094,10 @@ class Builder(design :: Design):
     module_def.add_operation(operation)
     ConstructInstance(operation, child, input_bindings, output_bindings)
 
-  // Treats the supplied name as a suggestion while `instance` itself retains
-  // exact-name behavior for low-level callers that want collision errors.
+  /*
+   * Treats the supplied name as a suggestion while `instance` itself retains
+   * exact-name behavior for low-level callers that want collision errors.
+   */
   method suggested_instance(module_def :: Module,
                             child :: Module,
                             base_name :: AsciiIdentifier,
@@ -2008,6 +2109,7 @@ class Builder(design :: Design):
                   location,
                   origin)
 
+  /* Connects a same-type local value once, forbidding mixed whole/element drivers; root targets emit IR while projections stage drivers. */
   method drive(place :: Place,
                value :: Value,
                location :: Location = Location(),
@@ -2042,6 +2144,7 @@ class Builder(design :: Design):
       module_def.add_operation(operation)
     #void
 
+  /* Reads wire aliases before connection or resolves other driven places, assembling complete aggregate targets when necessary. */
   method read(place :: Place):
     def module_def = design.find_module(place.module_id)
     def root = root_place(place)
@@ -2080,6 +2183,7 @@ class Builder(design :: Design):
           | ~else:
               fail(#'read, "place " ++ place.name ++ " must be driven before it is read")
 
+  /* Canonicalizes complete aggregate drives, rejects partial staged coverage, restores collection order, and closes further construction. */
   method finish(module_def :: Module):
     ensure_module_in_design(design, module_def, #'finish)
     ensure_open(module_def, #'finish)

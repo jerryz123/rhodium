@@ -1,5 +1,5 @@
 #lang rhombus
-// Registers namespaced Rhodium operations and their structural and behavioral schemas.
+/* Registers namespaced Rhodium operations and their structural and behavioral schemas. */
 // SPDX-License-Identifier: Apache-2.0
 
 export:
@@ -8,6 +8,7 @@ export:
   schema_for
   combinational_opcode
 
+/* Describes an opcode's arity, required attributes, verification rule, and inspection format; false counts permit variable arity. */
 class OperationSchema(opcode :: String,
                       kind :: String,
                       operand_count :: maybe(Nat),
@@ -117,9 +118,11 @@ def schemas:
 
 def schemas_by_opcode = for Map (schema in schemas): values(schema.opcode, schema)
 
+/* Returns the registered schema for an opcode, or false for an unknown operation. */
 fun schema_for(opcode :: String):
   schemas_by_opcode.get(opcode, #false)
 
+/* Recognizes schemas whose results have combinational dependencies on their operands. */
 fun combinational_opcode(opcode :: String):
   def schema = schema_for(opcode)
   schema && schema.kind == "combinational"

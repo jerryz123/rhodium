@@ -20,30 +20,38 @@ export:
 
 def verified_designs = WeakMutableSet.by(===){}
 
+/* Raises a structural or combinational verification error under the shared verifier diagnostic name. */
 fun fail(message :: String):
   error(~who: #'verify, message)
 
+/* Prefixes a verifier error with the offending operation's source coordinates. */
 fun fail_operation(operation :: Operation, message :: String):
   fail(operation.location.describe() ++ ": " ++ message)
 
+/* Tests membership by exact value/place identity rather than equality of IDs or fields. */
 fun contains_identity(items :: List.of(Value || Place),
                       item :: Value || Place):
   items.find(fun (candidate): candidate === item)
 
+/* Requires value and care masks to fit the width and forbids set value bits outside the care mask. */
 fun packed_pattern_well_formed(value :: Nat,
                                care :: Nat,
                                width :: PosInt):
   bits.length(value) <= width && bits.length(care) <= width && value == (value bits.and care)
 
+/* Tests whether two cared input patterns admit at least one common packed value. */
 fun packed_patterns_overlap(left :: List.of(Nat),
                             right :: List.of(Nat)):
   def differing = left[0] bits.xor right[0]
   def jointly_cared = left[1] bits.and right[1]
   (differing bits.and jointly_cared) == 0
 
-// Core recognizes only transparent wires when comparing physical clock
-// operands. Relationships between distinct clocks remain analysis policy.
+/*
+ * Core recognizes only transparent wires when comparing physical clock
+ * operands. Relationships between distinct clocks remain analysis policy.
+ */
 fun canonical_wire_value(value :: Value):
+  /* Follows wire drivers until a non-wire, undriven wire, or previously visited value is reached. */
   fun loop(current :: Value, visited :: List.of(Value)):
     if contains_identity(visited, current)
     | current
@@ -54,11 +62,13 @@ fun canonical_wire_value(value :: Value):
         | current
   loop(value, [])
 
+/* Compares physical clock sources by identity after resolving transparent wire aliases. */
 fun same_wire_value(left :: Value, right :: Value):
   canonical_wire_value(left) === canonical_wire_value(right)
 
 def assertion_label_identifier = rx'bof ["A"-"Z" "a"-"z" "_"] ["A"-"Z" "a"-"z" "0"-"9" "_"]* eof'
 
+/* Requires a known opcode, fixed schema arities, and required attributes before returning its schema. */
 fun check_schema(operation :: Operation):
   def schema = schema_for(operation.opcode)
   unless schema
@@ -78,6 +88,7 @@ fun check_schema(operation :: Operation):
                      operation.opcode ++ " requires attribute " ++ attribute_name)
   schema
 
+/* Checks the schema's opcode-specific type, attribute, resource, hierarchy, and CDC-chain invariants. */
 fun check_operation_types(module_def :: Module,
                           operation :: Operation,
                           schema :: OperationSchema):
@@ -641,6 +652,7 @@ fun check_operation_types(module_def :: Module,
         | def next_stage_operation = module_def.find_operation(
             stages[index + 1].defining_op_id
           )
+          /* Flags synchronizer-stage consumers other than crossing metadata and the drive into the next register stage. */
           fun unexpected_user(user_id :: Nat):
             def user = module_def.find_operation(user_id)
             !(user === operation || (user && user.opcode == "rtl.drive" && user.places[0] === next_stage_operation.places[0]))
@@ -693,10 +705,12 @@ fun check_operation_types(module_def :: Module,
   | ~else:
       #void
 
+/* Accumulates occurrences by name or ID for uniqueness and single-driver checks. */
 fun increment_count(counts :: MutableMap,
                     key :: maybe(String || Nat)):
   counts[key] := counts.get(key, 0) + 1
 
+/* Validates a finished module's ownership, use-def links, resources, drivers, boundary bindings, and operation contracts. */
 fun verify_module_structure(module_def :: Module):
   def module_owned = module_def.design is_a Design && module_def.design.owns_module(module_def)
   unless module_owned
@@ -795,10 +809,12 @@ fun verify_module_structure(module_def :: Module):
     | fail("value " ++ value.name ++ " does not have a well-formed HardwareType")
   #void
 
+/* Checks a concrete module and all reachable child definitions, then rejects hierarchical combinational cycles. */
 fun verify_module(module_def :: Module):
   require_concrete_module(module_def)
   def reachable_modules = MutableList[]
   def visited_modules = MutableSet.by(===){}
+  /* Visits each reachable module once, validating its structure before descending through concrete instances. */
   fun visit(candidate :: Module):
     unless candidate in visited_modules
     | verify_module_structure(candidate)
@@ -810,6 +826,7 @@ fun verify_module(module_def :: Module):
   visit(module_def)
   verify_combinational_cycles(reachable_modules.snapshot())
 
+/* Validates all design declarations and module structures, including global ID uniqueness, without certifying or sealing the design. */
 fun verify_design_structure(design :: Design):
   design.finish_collections()
   def dpi_name_counts = MutableMap{}
@@ -858,6 +875,7 @@ fun verify_design_structure(design :: Design):
     | fail("duplicate module name " ++ module_def.name)
     verify_module_structure(module_def)
   def entity_ids = MutableSet{}
+  /* Rejects repeated IDs across the design's declarations, operations, values, root places, and memories. */
   fun verify_unique_id(id :: Nat):
     when id in entity_ids
     | fail("duplicate IR id " ++ to_string(id))
@@ -872,12 +890,15 @@ fun verify_design_structure(design :: Design):
     for (memory in module_def.memories): verify_unique_id(memory.id)
   #void
 
-// Checks whole-design combinational cycles after structural verification has
-// established that ownership, operations, ports, and drivers are well formed.
+/*
+ * Checks whole-design combinational cycles after structural verification has
+ * established that ownership, operations, ports, and drivers are well formed.
+ */
 fun verify_design_combinational(design :: Design):
   verify_combinational_cycles(design.modules)
   #void
 
+/* Certifies a concrete design only after structural and cycle checks succeed, seals it, and memoizes verified identity. */
 fun verify_design(design :: Design):
   unless design in verified_designs
   | verify_design_structure(design)
@@ -887,14 +908,16 @@ fun verify_design(design :: Design):
     verified_designs.add(design)
   #void
 
-// Legacy consumers must never interpret an opaque construct as a state boundary.
+/* Legacy consumers must never interpret an opaque construct as a state boundary. */
 fun require_concrete_module(module_def :: Module):
   unless module_def.design in verified_designs
   | require_concrete_modules([module_def])
   #void
 
+/* Walks concrete instance definitions and rejects retained constructs before legacy RTL consumption. */
 fun require_concrete_modules(module_defs :: List.of(Module)):
   def seen = MutableSet.by(===){}
+  /* Checks each reachable definition once, reporting a retained construct at its source operation. */
   fun visit(candidate :: Module):
     unless candidate in seen
     | seen.add(candidate)
@@ -908,8 +931,10 @@ fun require_concrete_modules(module_defs :: List.of(Module)):
   for (module_def in module_defs): visit(module_def)
   #void
 
-// Mixed verification uses declared dependency edges and does not certify or
-// seal a design as concrete. Providers are deliberately outside this boundary.
+/*
+ * Mixed verification uses declared dependency edges and does not certify or
+ * seal a design as concrete. Providers are deliberately outside this boundary.
+ */
 fun verify_program(design :: Design):
   verify_design_structure(design)
   verify_design_combinational(design)

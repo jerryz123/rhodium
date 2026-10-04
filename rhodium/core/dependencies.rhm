@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines shared leaf-sensitive value dependency semantics and cycle analysis.
+/* Defines shared leaf-sensitive value dependency semantics and cycle analysis. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,16 +26,22 @@ export:
   verify_combinational_cycles
   summarize_module_dependencies
 
+/* Identifies one scalar leaf of an SSA value by its ordered aggregate path. */
 class ValueLeaf(value :: Value, path :: List.of(String || Nat))
+/* Associates a value leaf with its upstream module-input leaves; also labels active paths for cycle diagnostics. */
 class ValueDependencySummary(value :: Value,
                              path :: List.of(String || Nat),
                              input_leaves :: List.of(InputLeaf))
+/* Identifies a value leaf by its compact position in the type's cached layout. */
 class IndexedValueLeaf(value :: Value, leaf_index :: Nat)
+/* Pairs deterministic leaf paths with a path-to-index lookup for dependency traversal. */
 class LeafLayout(paths :: List.of(List.of(String || Nat)),
                  indices_by_path :: MutableMap)
+/* Keeps per-leaf input bitsets and active-stack positions for memoized cycle detection. */
 class ValueDependencyState(layout :: LeafLayout,
                            summaries :: MutableList,
                            active_indices :: MutableList)
+/* Stores each output leaf's combinational input dependencies with indexed lookup by output port and path. */
 class ModuleDependencySummary(
       module_def :: Module,
       output_leaf_dependencies :: List.of(List.of(OutputLeafDependency))):
@@ -47,16 +53,20 @@ class ModuleDependencySummary(
           leaves_by_path[dependency.path] := dependency
         leaves_by_path
 
+  /* Finds a dependency entry within an output port, returning false when the leaf path is absent. */
   method find_output_leaf(output_index :: Nat,
                           path :: List.of(String || Nat)):
     output_leaf_maps[output_index].get(path, #false)
 
+/* Raises a dependency-verification error without an operation-specific source location. */
 fun fail(message :: String):
   error(~who: #'verify, message)
 
+/* Adds the operation's source coordinates to a dependency-verification error. */
 fun fail_operation(operation :: Operation, message :: String):
   fail(operation.location.describe() ++ ": " ++ message)
 
+/* Finds a value's first index by object identity, returning false when it is absent. */
 fun identity_index(items :: List.of(Value), item :: Value):
   def mutable result = #false
   for (candidate in items,
@@ -65,6 +75,7 @@ fun identity_index(items :: List.of(Value), item :: Value):
     | result := index
   result
 
+/* Finds a string's first index by equality, returning false when it is absent. */
 fun equal_index(items :: List.of(String), item :: String):
   def mutable result = #false
   for (candidate in items,
@@ -74,6 +85,7 @@ fun equal_index(items :: List.of(String), item :: String):
   result
 
 
+/* Formats a value name and its record-field or vector-element path for cycle diagnostics. */
 fun describe_value_path(value :: Value,
                         path :: List.of(String || Nat)):
   def mutable result = value.name
@@ -81,6 +93,7 @@ fun describe_value_path(value :: Value,
     result := if step is_a String | result ++ "." ++ step | result ++ "[" ++ to_string(step) ++ "]"
   result
 
+/* Follows already-created place projections, returning false if any path step is missing. */
 fun place_at_path(place :: Place,
                   path :: List.of(String || Nat)) :: maybe(Place):
   if path.length() == 0
@@ -89,9 +102,11 @@ fun place_at_path(place :: Place,
       def projected = place.projected_place(path[0])
       projected && place_at_path(projected, path.drop(1))
 
-// Resolves one aggregate leaf of a Place to the Value leaf that drives it.
-// A projected leaf has its own whole-value driver; otherwise the root driver
-// is followed with the requested path.
+/*
+ * Resolves one aggregate leaf of a Place to the Value leaf that drives it.
+ * A projected leaf has its own whole-value driver; otherwise the root driver
+ * is followed with the requested path.
+ */
 fun place_leaf_driver(place :: Place,
                       path :: List.of(String || Nat)) :: ValueLeaf:
   def projected_place = place_at_path(place, path)
@@ -99,8 +114,10 @@ fun place_leaf_driver(place :: Place,
   | ValueLeaf(projected_place!!.driver, [])
   | ValueLeaf(place.driver, path)
 
-// Visits direct dependency leaves through one shared opcode dispatch. Public
-// path-valued queries and the verifier's indexed walk supply their own sinks.
+/*
+ * Visits direct dependency leaves through one shared opcode dispatch. Public
+ * path-valued queries and the verifier's indexed walk supply their own sinks.
+ */
 fun visit_present_operation_dependencies(
       value :: Value,
       path :: List.of(String || Nat),
@@ -157,6 +174,7 @@ fun visit_present_operation_dependencies(
   | ~else:
       #false
 
+/* Visits dependencies when a defining operation exists; missing operations report no direct combinational rule. */
 fun visit_direct_operation_dependencies(
       value :: Value,
       path :: List.of(String || Nat),
@@ -171,17 +189,21 @@ fun visit_direct_operation_dependencies(
                                          add_whole)
   | #false
 
-// Computes direct upstream leaves when the defining operation is already
-// available, allowing analyses to reuse their own operation indexes.
+/*
+ * Computes direct upstream leaves when the defining operation is already
+ * available, allowing analyses to reuse their own operation indexes.
+ */
 fun direct_operation_dependencies(value :: Value,
                                   path :: List.of(String || Nat),
                                   operation :: maybe(Operation)):
   def dependencies = MutableList[]
 
+  /* Appends a path-qualified operand leaf to the direct-dependency result. */
   fun add_operand(operand :: Value,
                   operand_path :: List.of(String || Nat)):
     dependencies.add(ValueLeaf(operand, operand_path))
 
+  /* Expands every scalar leaf of an operand into the direct-dependency result. */
   fun add_whole(operand :: Value):
     for (operand_path in leaf_paths(operand.type)):
       add_operand(operand, operand_path)
@@ -194,15 +216,19 @@ fun direct_operation_dependencies(value :: Value,
   | dependencies.snapshot()
   | #false
 
-// Returns direct upstream Value leaves for a wire or combinational result.
-// A false result means the Value is a temporal or structural source. An empty
-// List is a static combinational source such as a constant or don't-care.
+/*
+ * Returns direct upstream Value leaves for a wire or combinational result.
+ * A false result means the Value is a temporal or structural source. An empty
+ * List is a static combinational source such as a constant or don't-care.
+ */
 fun direct_value_dependencies(value :: Value,
                               path :: List.of(String || Nat)):
   direct_operation_dependencies(value, path, value.module_def.find_operation(value.defining_op_id))
 
-// Summarizes output-to-input combinational dependencies and rejects cycles.
-// Temporal analysis consumes the same direct leaf dependency rules above.
+/*
+ * Summarizes output-to-input combinational dependencies and rejects cycles.
+ * Temporal analysis consumes the same direct leaf dependency rules above.
+ */
 fun summarize_module_dependencies(module_defs :: List.of(Module)):
   def module_summaries = MutableMap.by(===){}
   def active_modules = MutableSet.by(===){}
@@ -211,6 +237,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
   scalar_indices_by_path[[]] := 0
   def scalar_leaf_layout = LeafLayout([[]], scalar_indices_by_path)
 
+  /* Caches aggregate leaf paths by type identity and shares one layout for all scalar leaves. */
   fun leaf_layout(type :: HardwareType) :: LeafLayout:
     use_static
     if !record_type(type) && !vector_type(type)
@@ -229,6 +256,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
             leaf_layouts[type] := layout
             layout
 
+  /* Resolves a validated leaf path to its compact index, rejecting paths absent from the layout. */
   fun leaf_index_for(layout :: LeafLayout,
                      path :: List.of(String || Nat)) :: Nat:
     def leaf_index = layout.indices_by_path.get(path, #false)
@@ -236,11 +264,13 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     | leaf_index
     | fail("invalid aggregate leaf path")
 
+  /* Creates mutable per-leaf slots initialized to the not-yet-computed sentinel. */
   fun false_slots(count :: Nat) :: MutableList:
     def result = MutableList[]
     for (_ in 0..count): result.add(#false)
     result
 
+  /* Resolves a place leaf to a staged scalar driver or the corresponding index in a whole-value driver. */
   fun indexed_place_leaf_driver(place :: Place,
                                 leaf_index :: Nat) :: IndexedValueLeaf:
     use_static
@@ -251,6 +281,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     | IndexedValueLeaf(projected_place!!.driver, 0)
     | IndexedValueLeaf(place.driver, leaf_index)
 
+  /* Uses the shared opcode dependency rules to collect compact indexed operand leaves. */
   fun indexed_direct_operation_dependencies(
         value :: Value,
         leaf_index :: Nat,
@@ -258,6 +289,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     def dependencies = MutableList[]
     def path = leaf_layout(value.type).paths[leaf_index]
 
+    /* Converts a path-qualified operand leaf to its cached layout index before appending it. */
     fun add_operand(operand :: Value,
                     operand_path :: List.of(String || Nat)):
       dependencies.add(
@@ -266,6 +298,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
                                         operand_path))
       )
 
+    /* Appends all indexed scalar leaves of an operand in deterministic layout order. */
     fun add_whole(operand :: Value):
       def operand_layout = leaf_layout(operand.type)
       for (operand_leaf_index in 0..operand_layout.paths.length()):
@@ -279,6 +312,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     | dependencies.snapshot()
     | #false
 
+  /* Memoizes a module's dependency summary while rejecting recursion and checking even unobservable value leaves for cycles. */
   fun summarize_module(module_def :: Module) :: ModuleDependencySummary:
     def cached = module_summaries.get(module_def, #false)
     if cached
@@ -299,6 +333,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
             def leaf_index = input_leaves.length()
             input_leaves.add(InputLeaf(input_index, path))
 
+        /* Decodes a dependency bitset into ordered module-input leaf descriptors. */
         fun input_leaves_for_bits(input_bits :: Nat) :: List.of(InputLeaf):
           def result = MutableList[]
           for (input_leaf in input_leaves,
@@ -307,6 +342,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
             | result.add(input_leaf)
           result.snapshot()
 
+        /* Lazily creates memo and active-stack slots for each scalar leaf of a value. */
         fun state_for(value :: Value) :: ValueDependencyState:
           use_static
           def existing = value_states.get(value, #false)
@@ -322,6 +358,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
               value_states[value] := state
               state
 
+        /* Walks one leaf's combinational predecessors, including instance dependency summaries, and memoizes its input bitset or reports a cycle. */
         fun summarize_value(value :: Value,
                             leaf_index :: Nat,
                             via_operation :: maybe(Operation) = #false) :: Nat:
@@ -434,6 +471,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     summarize_module(module_def)
   module_summaries
 
+/* Runs hierarchical leaf dependency analysis for its cycle checks and discards the resulting summaries. */
 fun verify_combinational_cycles(module_defs :: List.of(Module)):
   summarize_module_dependencies(module_defs)
   #void

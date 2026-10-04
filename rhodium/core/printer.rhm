@@ -1,5 +1,5 @@
 #lang rhombus
-// Prints deterministic, human-readable text for the public Rhodium hardware IR.
+/* Prints deterministic, human-readable text for the public Rhodium hardware IR. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,12 +11,15 @@ export:
   dump_ir
   dump_module_ir
 
+/* Joins SSA value references in operand order for inspection text. */
 fun value_refs(value_list :: List.of(Value)):
   String.join(value_list.map(fun (value): value.ref()), ", ")
 
+/* Joins drive-target references in their stored order for inspection text. */
 fun place_refs(place_list :: List.of(Place)):
   String.join(place_list.map(fun (place): place.ref()), ", ")
 
+/* Renders a DPI signature while preserving input order and output-argument versus return directions. */
 fun print_dpi_import(dpi_import :: DpiImport):
   def inputs:
     for List (name in dpi_import.input_names, type in dpi_import.input_types):
@@ -34,6 +37,7 @@ fun print_dpi_import(dpi_import :: DpiImport):
   String.append("sim.dpi_import ", dpi_import.ref(), "(",
                 String.join(inputs, ", "), ")", result_text, "\n")
 
+/* Renders schema-specific inspection text for an operation, falling back to its quoted opcode when no print form matches. */
 fun print_operation(operation :: Operation):
   def schema = schema_for(operation.opcode)
   match schema && schema.print_form
@@ -266,6 +270,7 @@ fun print_operation(operation :: Operation):
   | ~else:
       "    \"" ++ operation.opcode ++ "\""
 
+/* Renders a module's ordered boundary and operation body without elaborating or lowering hardware. */
 fun dump_module_ir(module_def :: Module):
   def ports:
     module_def.inputs.map(
@@ -278,6 +283,7 @@ fun dump_module_ir(module_def :: Module):
                 String.join(ports, ", "), ") {\n",
                 body, "\n}\n")
 
+/* Renders design-level DPI declarations followed by modules in their stored order. */
 fun dump_ir(design :: Design):
   def imports = String.join(design.dpi_imports.map(print_dpi_import), "")
   imports ++ (if imports == "" | "" | "\n") ++ String.join(design.modules.map(dump_module_ir), "\n")

@@ -31,28 +31,35 @@ export:
   Design
   DesignElaboration
 
+/* Carries a source path and optional line/column for hardware construction and verification diagnostics. */
 class Location(path :: String = "<unknown>",
                line :: maybe(PosInt) = #false,
                column :: maybe(Nat) = #false):
+  /* Formats available source coordinates, falling back to the path alone. */
   method describe():
     if line
     | path ++ ":" ++ to_string(line) ++ (if column | ":" ++ to_string(column) | "")
     | path
 
+/* Records a semantic construction reason and optional parent provenance independently of source coordinates. */
 class Origin(kind :: String = "unknown",
              description :: String = "",
              parents :: List.of(Origin) = []):
+  /* Formats the origin kind with its description when one is present. */
   method describe():
     if description == ""
     | kind
     | kind ++ ": " ++ description
 
-// Identifies core objects that participate directly in authored hardware.
-// Frontend-only deferred values extend the same marker without coupling core
-// to elaboration machinery.
+/*
+ * Identifies core objects that participate directly in authored hardware.
+ * Frontend-only deferred values extend the same marker without coupling core
+ * to elaboration machinery.
+ */
 interface HardwareEntity
 
 class.together:
+  /* Represents a module-owned SSA result with a defining operation and seal-aware operand-use bookkeeping. */
   class Value(id :: Nat,
               name :: String,
               type :: HardwareType,
@@ -70,14 +77,17 @@ class.together:
     property module_id: module_def.id
     property design: module_def.design
 
+    /* Records an operand use after checking that the owning design remains mutable. */
     method add_user(operation_id :: Nat):
       design.assert_mutable()
       _user_ids := [operation_id] ++ _user_ids
       user_id_set.add(operation_id)
 
+    /* Returns recorded user operation IDs in the stored use order. */
     method users():
       _user_ids
 
+    /* Tests recorded use membership, falling back to seeded uses when the incremental index is incomplete. */
     method has_user(operation_id :: Nat):
       if user_index_complete
       | operation_id in user_id_set
@@ -85,9 +95,11 @@ class.together:
           fun (candidate): candidate == operation_id
         )
 
+    /* Formats the SSA value's percent-prefixed inspection reference. */
     method ref():
       "%" ++ name
 
+  /* Represents a driveable target; aggregate projections are staged children without independent IR IDs. */
   class Place(id :: maybe(Nat),
               name :: String,
               type :: HardwareType,
@@ -107,33 +119,41 @@ class.together:
     property module_id: module_def.id
     property design: module_def.design
 
+    /* Distinguishes an aggregate child projection from a root IR place. */
     method projected():
       parent is_a Place
 
+    /* Finds a cached field or element projection, returning false when it has not been created. */
     method projected_place(key :: String || Nat):
       _projected_places.find(
         fun (candidate): candidate.projection_key == key
       )
 
+    /* Appends a staged projection while respecting the design's mutation seal. */
     method add_projected_place(projected :: Place):
       design.assert_mutable()
       _projected_places := _projected_places ++ [projected]
 
+    /* Clears staged child projections during whole-value canonicalization. */
     method clear_projected_places():
       design.assert_mutable()
       _projected_places := []
 
+    /* Restores a supplied ordered projection list after canonicalization when handles must remain usable. */
     method replace_projected_places(projected :: List.of(Place)):
       design.assert_mutable()
       _projected_places := projected
 
+    /* Stores a driver on a mutable design; Builder owns type, ownership, and single-driver checks. */
     method set_driver(driver :: Value):
       design.assert_mutable()
       _driver := driver
 
+    /* Formats the drive target's ampersand-prefixed inspection reference. */
     method ref():
       "&" ++ name
 
+  /* Groups a module's operands, SSA results, driveable targets, attributes, and diagnostic provenance under one opcode. */
   class Operation(id :: Nat,
                   opcode :: String,
                   module_def :: Module,
@@ -147,17 +167,22 @@ class.together:
     property module_id: module_def.id
     property design: module_def.design
 
+    /* Reads an operation attribute, returning the supplied default when absent. */
     method attribute(name :: String,
                      default :: maybe(String || List) = #false):
       attributes.get(name, default)
 
-  // Keeps ABI-relevant result direction distinct from ordinary hardware type:
-  // output arguments and the C return are separate DPI declaration forms even
-  // though both become clocked SSA results at a call site.
+  /*
+   * Keeps ABI-relevant result direction distinct from ordinary hardware type:
+   * output arguments and the C return are separate DPI declaration forms even
+   * though both become clocked SSA results at a call site.
+   */
   class DpiResult(name :: String, type :: ScalarDataType, direction :: String)
 
-  // DPI imports are design-owned simulation declarations. Calls reference them
-  // from modules, but the declarations themselves are not module operations.
+  /*
+   * DPI imports are design-owned simulation declarations. Calls reference them
+   * from modules, but the declarations themselves are not module operations.
+   */
   class DpiImport(id :: Nat,
                   name :: String,
                   input_names :: List.of(String),
@@ -165,17 +190,22 @@ class.together:
                   results :: List.of(DpiResult),
                   design :: Design,
                   location :: Location = Location()):
+    /* Distinguishes result-bearing functions from result-less DPI procedures. */
     method has_result():
       results.length() != 0
 
+    /* Finds the ABI return result, or returns false for a procedure without one. */
     method return_result():
       results.find(fun (result): result.direction == "return")
 
+    /* Formats the design-level import's at-prefixed inspection reference. */
     method ref():
       "@" ++ name
 
-  // Memories are stateful module-owned resources rather than hardware Values:
-  // they cannot cross ports, participate in muxes, or occupy registers.
+  /*
+   * Memories are stateful module-owned resources rather than hardware Values:
+   * they cannot cross ports, participate in muxes, or occupy registers.
+   */
   class Memory(id :: Nat,
                name :: String,
                depth :: PosInt,
@@ -186,22 +216,29 @@ class.together:
     property module_id: module_def.id
     property design: module_def.design
 
+    /* Formats the memory resource's at-prefixed inspection reference. */
     method ref():
       "@" ++ name
 
-  // A synchronous memory is circuit-shaped: its fixed input places and output
-  // values are created together instead of being inferred from later accesses.
+  /*
+   * Groups read address and enable targets with the clocked data result.
+   * Synchronous memory ports are created together as fixed places and values,
+   * rather than inferred from later accesses.
+   */
   class SyncMemoryReadPort(address :: Place, enable :: Place, data :: Value)
+  /* Groups synchronous write address, data, enable, and optional lane-mask targets. */
   class SyncMemoryWritePort(address :: Place,
                             data :: Place,
                             enable :: Place,
                             mask :: maybe(Place) = #false)
+  /* Groups a shared synchronous read/write port's controls, payloads, read result, and optional write mask. */
   class SyncMemoryReadWritePort(address :: Place,
                                 enable :: Place,
                                 write :: Place,
                                 write_data :: Place,
                                 read_data :: Value,
                                 write_mask :: maybe(Place) = #false)
+  /* Retains a fixed synchronous-memory interface and its clock, geometry, and optional write-mask granularity. */
   class SyncMemory(operation :: Operation,
                    name :: String,
                    depth :: PosInt,
@@ -218,6 +255,7 @@ class.together:
     property read_write_port:
       if read_write_ports.length() == 0 | #false | read_write_ports[0]
 
+  /* Describes a directional boundary binding: inputs expose values and outputs expose places on a module definition. */
   class Port(name :: String,
              direction :: String,
              type :: HardwareType,
@@ -225,14 +263,17 @@ class.together:
              place :: maybe(Place) = #false):
     implements HardwareEntity
 
+  /* Pairs a state operation's current SSA value with its required next-state drive target. */
   class Register(operation :: Operation, current :: Value, next :: Place):
     implements HardwareEntity
 
+  /* Retains a concrete child module and its parent-owned input targets and output values. */
   class Instance(operation :: Operation,
                  module_def :: Module,
                  input_bindings :: List.of(Port),
                  output_bindings :: List.of(Port)):
     implements HardwareEntity
+    /* Returns a named child input's parent-side place, rejecting unknown input names. */
     method input(name :: String):
       def binding = input_bindings.find(
         fun (candidate): candidate.name == name
@@ -242,6 +283,7 @@ class.together:
               "instance has no input named " ++ name)
       binding.place
 
+    /* Returns a named child output's parent-side value, rejecting unknown output names. */
     method output(name :: String):
       def binding = output_bindings.find(
         fun (candidate): candidate.name == name
@@ -264,6 +306,7 @@ class.together:
   /* Associates one extension payload with its owner-defined lookup namespace. */
   class ModuleMetadata(namespace :: String, payload :: ModuleMetadataPayload)
 
+  /* Owns module IR and lookup indexes; seeded collections keep fallback lookup, while empty-seeded construction uses complete indexes. */
   class Module(design :: Design,
                id :: Nat,
                name :: String,
@@ -312,6 +355,7 @@ class.together:
     property metadata: _metadata
     property finished: _finished
 
+    /* Adds a same-module operation and updates indexes for instances, drives, memory clocks, and CDC stage usage. */
     method add_operation(operation :: Operation):
       design.assert_mutable()
       unless operation.module_def === this
@@ -343,6 +387,7 @@ class.together:
       | for (stage in operation.operands.drop(2)):
           sync_crossing_use_counts[stage] := sync_crossing_use_counts.get(stage, 0) + 1
 
+    /* Adds a same-module SSA value and indexes its identity, ID, and hardware name. */
     method add_value(value :: Value):
       design.assert_mutable()
       unless value.module_def === this
@@ -353,6 +398,7 @@ class.together:
       value_set.add(value)
       hardware_names.add(value.name)
 
+    /* Adds a same-module root drive target and indexes its identity, ID, and hardware name. */
     method add_place(place :: Place):
       design.assert_mutable()
       unless place.module_def === this
@@ -363,6 +409,7 @@ class.together:
       place_set.add(place)
       hardware_names.add(place.name)
 
+    /* Adds a same-module memory resource and indexes its identity, ID, and hardware name. */
     method add_memory(memory :: Memory):
       design.assert_mutable()
       unless memory.module_def === this
@@ -373,6 +420,7 @@ class.together:
       memory_set.add(memory)
       hardware_names.add(memory.name)
 
+    /* Appends a namespaced extension payload, rejecting finished modules and sealed designs. */
     method add_metadata(namespace :: String, payload :: ModuleMetadataPayload):
       design.assert_mutable()
       when _finished
@@ -382,23 +430,27 @@ class.together:
       _metadata := _metadata ++ [entry]
       entry
 
+    /* Returns payloads for a namespace in metadata attachment order. */
     method metadata_for(namespace :: String):
       _metadata.filter(
         ~keep: fun (entry): entry.namespace == namespace
       ).map(fun (entry): entry.payload)
 
+    /* Records an input boundary port and its first binding by name. */
     method add_input(port :: Port):
       design.assert_mutable()
       _inputs := if collections_finished | _inputs ++ [port] | [port] ++ _inputs
       unless inputs_by_name.has_key(port.name)
       | inputs_by_name[port.name] := port
 
+    /* Records an output boundary port and its first binding by name. */
     method add_output(port :: Port):
       design.assert_mutable()
       _outputs := if collections_finished | _outputs ++ [port] | [port] ++ _outputs
       unless outputs_by_name.has_key(port.name)
       | outputs_by_name[port.name] := port
 
+    /* Restores declaration order once after prepend-based construction; repeated calls leave collections unchanged. */
     method finish_collections():
       unless collections_finished
       | _operations := _operations.reverse()
@@ -409,28 +461,36 @@ class.together:
         _memories := _memories.reverse()
         collections_finished := #true
 
+    /* Marks construction complete while respecting the owning design's mutation seal. */
     method mark_finished():
       design.assert_mutable()
       _finished := #true
 
+    /* Looks up an operation by ID, using a seeded-list fallback when the index is incomplete. */
     method find_operation(id :: Nat):
       if indexes_complete | operations_by_id.get(id, #false) | operations_by_id.get(id, #false) || _operations.find(fun (operation): operation.id == id)
 
+    /* Looks up a value by ID, using a seeded-list fallback when the index is incomplete. */
     method find_value(id :: Nat):
       if indexes_complete | values_by_id.get(id, #false) | values_by_id.get(id, #false) || _values.find(fun (value): value.id == id)
 
+    /* Looks up a root place by ID, using a seeded-list fallback when the index is incomplete. */
     method find_place(id :: Nat):
       if indexes_complete | places_by_id.get(id, #false) | places_by_id.get(id, #false) || _places.find(fun (place): place.id == id)
 
+    /* Looks up a memory by ID, using a seeded-list fallback when the index is incomplete. */
     method find_memory(id :: Nat):
       if indexes_complete | memories_by_id.get(id, #false) | memories_by_id.get(id, #false) || _memories.find(fun (memory): memory.id == id)
 
+    /* Finds an input port by name, returning false when absent. */
     method find_input(name :: String):
       if indexes_complete | inputs_by_name.get(name, #false) | inputs_by_name.get(name, #false) || _inputs.find(fun (port): port.name == name)
 
+    /* Finds an output port by name, returning false when absent. */
     method find_output(name :: String):
       if indexes_complete | outputs_by_name.get(name, #false) | outputs_by_name.get(name, #false) || _outputs.find(fun (port): port.name == name)
 
+    /* Finds a concrete or retained instance operation by its parent-local name. */
     method find_instance(name :: String):
       if indexes_complete
       | instances_by_name.get(name, #false)
@@ -438,6 +498,7 @@ class.together:
           fun (operation): operation.opcode in ["rtl.instance", "construct.instance"] && operation.attribute("name", #false) == name
         )
 
+    /* Finds the drive operation targeting a root place ID. */
     method find_drive_to(place_id :: Nat):
       if indexes_complete
       | drives_by_place_id.get(place_id, #false)
@@ -445,6 +506,7 @@ class.together:
           fun (operation): operation.opcode == "rtl.drive" && operation.places.length() == 1 && operation.places[0].id == place_id
         )
 
+    /* Checks the shared value/place/memory name namespace, including synchronous-memory declarations. */
     method hardware_name_used(name :: String):
       if indexes_complete
       | name in hardware_names
@@ -452,6 +514,7 @@ class.together:
           fun (operation): operation.opcode == "rtl.sync_memory" && operation.attribute("name", #false) == name
         )
 
+    /* Checks whether all recorded writes to one asynchronous-read memory use the identical clock value. */
     method memory_write_clock_consistent(memory :: Memory):
       if indexes_complete || memory_write_clocks.has_key(memory)
       | memory_write_clock_consistency.get(memory, #true)
@@ -461,6 +524,7 @@ class.together:
           )
           writes.length() < 2 || (for all (write in writes): write.operands[2] === writes[0].operands[2])
 
+    /* Counts crossing declarations that list a value as a synchronizer stage. */
     method sync_crossing_use_count(stage :: Value):
       if indexes_complete || sync_crossing_use_counts.has_key(stage)
       | sync_crossing_use_counts.get(stage, 0)
@@ -468,21 +532,27 @@ class.together:
           ~keep: fun (operation): operation.opcode == "cdc.sync_level" && operation.operands.drop(2).find(fun (candidate): candidate === stage)
         ).length()
 
+    /* Tests exact operation-object membership rather than accepting a matching ID alone. */
     method owns_operation(operation :: Operation):
       if indexes_complete | operation in operation_set | operation in operation_set || _operations.find(fun (candidate): candidate === operation)
 
+    /* Tests exact SSA-value membership rather than accepting a matching ID alone. */
     method owns_value(value :: Value):
       if indexes_complete | value in value_set | value in value_set || _values.find(fun (candidate): candidate === value)
 
+    /* Tests exact root-place membership; staged projections are owned through their root. */
     method owns_place(place :: Place):
       if indexes_complete | place in place_set | place in place_set || _places.find(fun (candidate): candidate === place)
 
+    /* Tests exact memory-resource membership rather than accepting a matching ID alone. */
     method owns_memory(memory :: Memory):
       if indexes_complete | memory in memory_set | memory in memory_set || _memories.find(fun (candidate): candidate === memory)
 
+    /* Returns the module's stored operation sequence without descending into instances. */
     method walk():
       _operations
 
+  /* Owns module and DPI declarations, a shared ID allocator, lookup indexes, and a semantic mutation seal. */
   class Design(modules_seed :: List.of(Module) = [],
                mutable next_id :: Nat = 0,
                dpi_imports_seed :: List.of(DpiImport) = []):
@@ -502,18 +572,22 @@ class.together:
     property dpi_imports: _dpi_imports
     property sealed: _sealed
 
+    /* Rejects semantic changes after the design has been sealed. */
     method assert_mutable():
       when _sealed
       | error(~who: #'Design, "cannot mutate a sealed design")
 
+    /* Prevents subsequent seal-aware semantic mutation; sealing alone does not certify verification. */
     method seal():
       _sealed := #true
 
+    /* Allocates the next design-wide IR ID; callers performing semantic construction enforce mutability. */
     method fresh_id():
       def id = next_id
       next_id := next_id + 1
       id
 
+    /* Adds a same-design module and indexes its identity, ID, and first name binding. */
     method add_module(module_def :: Module):
       assert_mutable()
       unless module_def.design === this
@@ -525,6 +599,7 @@ class.together:
       unless modules_by_name.has_key(module_def.name)
       | modules_by_name[module_def.name] := module_def
 
+    /* Adds a same-design DPI declaration and indexes its identity and first name binding. */
     method add_dpi_import(dpi_import :: DpiImport):
       assert_mutable()
       unless dpi_import.design === this
@@ -534,38 +609,49 @@ class.together:
       | dpi_imports_by_name[dpi_import.name] := dpi_import
       dpi_import_set.add(dpi_import)
 
+    /* Restores module and DPI declaration order once after prepend-based construction. */
     method finish_collections():
       unless collections_finished
       | _modules := _modules.reverse()
         _dpi_imports := _dpi_imports.reverse()
         collections_finished := #true
 
+    /* Finds a DPI import by name, including declarations supplied in seed lists. */
     method find_dpi_import(name :: String):
       if indexes_complete | dpi_imports_by_name.get(name, #false) | dpi_imports_by_name.get(name, #false) || _dpi_imports.find(fun (dpi_import): dpi_import.name == name)
 
+    /* Finds a module by ID, including modules supplied in seed lists. */
     method find_module(id :: Nat):
       if indexes_complete | modules_by_id.get(id, #false) | modules_by_id.get(id, #false) || _modules.find(fun (module_def): module_def.id == id)
 
+    /* Finds a module by name, returning false when absent. */
     method find_module_named(name :: String):
       if indexes_complete | modules_by_name.get(name, #false) | modules_by_name.get(name, #false) || _modules.find(fun (module_def): module_def.name == name)
 
+    /* Checks exact module membership independently of its claimed design and ID. */
     method owns_module(module_def :: Module):
       if indexes_complete | module_def in module_set | module_def in module_set || _modules.find(fun (candidate): candidate === module_def)
 
+    /* Checks exact DPI declaration membership independently of its claimed design. */
     method owns_dpi_import(dpi_import :: DpiImport):
       if indexes_complete | dpi_import in dpi_import_set | dpi_import in dpi_import_set || _dpi_imports.find(fun (candidate): candidate === dpi_import)
 
+    /* Flattens stored module operations in module order without expanding instance occurrences. */
     method walk():
       def all_operations = MutableList[]
       for (module_def in _modules):
         all_operations.append(module_def.operations)
       all_operations.snapshot()
-// Keeps address typing deterministic for arbitrary positive depths. Dynamic
-// encodings greater than or equal to depth have unspecified hardware behavior.
+/*
+ * Keeps address typing deterministic for arbitrary positive depths. Dynamic
+ * encodings greater than or equal to depth have unspecified hardware behavior.
+ */
 fun memory_address_width(depth :: PosInt) :: PosInt:
   count_index_width(depth)
 
+/* Pairs an elaborated design with a finished top module that belongs to that design. */
 class DesignElaboration(design :: Design, top :: Module):
+  /* Finalizes design collection order and rejects a top that is unfinished, foreign, or absent from the design. */
   constructor (design :: Design, top :: Module):
     design.finish_collections()
     def valid_top = top.design === design && top.finished && design.modules.find(fun (candidate): candidate === top)
