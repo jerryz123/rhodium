@@ -15,18 +15,18 @@ command -v bundle >/dev/null || { echo 'ACT needs Ruby 3.2+ and Bundler on PATH'
 git -C "$repo_dir" submodule update --init sw/riscv-arch-test
 temp_dir="$(mktemp -d /tmp/rhodium-act-setup.XXXXXX)"
 trap 'rm -rf "$temp_dir"' EXIT
-# UDB 0.1.16's dependency installer selects CPU but not OS and downloads ELF
+# UDB 0.1.17's dependency installer selects CPU but not OS and downloads ELF
 # libz3.so on macOS. Preinstall the matching official native release locally.
 if [[ "$(uname -s)-$(uname -m)" == Darwin-arm64 ]]; then
-  z3_dir="$XDG_CACHE_HOME/udb/z3/z3-5.0.0/arm64"
-  if [[ ! -f "$z3_dir/.native-5.0.0" || ! -f "$z3_dir/libz3.so" ]]; then
-    curl --fail --location https://github.com/Z3Prover/z3/releases/download/z3-5.0.0/z3-5.0.0-arm64-osx-13.3.zip -o "$temp_dir/z3.zip"
+  z3_dir="$XDG_CACHE_HOME/udb/z3/z3-5.1.0/arm64"
+  if [[ ! -f "$z3_dir/.native-5.1.0" || ! -f "$z3_dir/libz3.so" ]]; then
+    curl --fail --location https://github.com/Z3Prover/z3/releases/download/z3-5.1.0/z3-5.1.0-arm64-osx-13.3.zip -o "$temp_dir/z3.zip"
     actual="$(shasum -a 256 "$temp_dir/z3.zip" | cut -d ' ' -f 1)"
-    [[ "$actual" == 28b21e9e64b50c1f45535ae9c0e35e5a5f0d0770afd9a7df939edd88051c2bdc ]] || { echo 'Z3 archive checksum mismatch' >&2; exit 1; }
+    [[ "$actual" == 81d29e934fd863079a74af35eecaeaef8047e0e12414d33ca322b358d68383db ]] || { echo 'Z3 archive checksum mismatch' >&2; exit 1; }
     unzip -q "$temp_dir/z3.zip" -d "$temp_dir"
     mkdir -p "$z3_dir"
-    install -m 644 "$temp_dir/z3-5.0.0-arm64-osx-13.3/bin/libz3.dylib" "$z3_dir/libz3.so"
-    touch "$z3_dir/.native-5.0.0"
+    install -m 644 "$temp_dir/z3-5.1.0-arm64-osx-13.3/bin/libz3.dylib" "$z3_dir/libz3.so"
+    touch "$z3_dir/.native-5.1.0"
   fi
 fi
 "$python" -m venv "$venv_dir"

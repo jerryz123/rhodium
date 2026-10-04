@@ -163,6 +163,10 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      natural_parameter("PHYS_ADDR_WIDTH", if width == 32 | (if profile.pmp_regions == 0 | 32 | 34) | 56),
      natural_parameter("PMA_GRANULARITY", 3),
      boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
+     boolean_parameter("NON_STANDARD_EXTENSION_IMPLEMENTED", #false),
+     boolean_parameter("WFI_FINITE", #false), boolean_parameter("WFI_U_MODE", #false),
+     boolean_parameter("MEI_INTR_IMPL", #true), boolean_parameter("MSI_INTR_IMPL", #true), boolean_parameter("MTI_INTR_IMPL", #true),
+     boolean_parameter("SEI_INTR_IMPL", #true), boolean_parameter("SSI_INTR_IMPL", #true), boolean_parameter("STI_INTR_IMPL", #true),
      boolean_parameter("TRAP_ON_ECALL_FROM_M", #true), boolean_parameter("TRAP_ON_EBREAK", #true),
      boolean_parameter("TRAP_ON_ILLEGAL_WLRL", #false),
      boolean_parameter("TRAP_ON_UNIMPLEMENTED_INSTRUCTION", #true),
@@ -231,7 +235,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
      natural_list_parameter("MSTATUS_FS_LEGAL_VALUES", [0, 1, 2, 3]),
      boolean_parameter("MUTABLE_MISA_C", #true)]
   when has("sscofpmf")
-  | parameters := parameters ++ [natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
+  | parameters := parameters ++ [natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
   when has("zicclsm")
   | parameters := parameters ++ [natural_parameter("MISALIGNED_MAX_ATOMICITY_GRANULE_SIZE", 0), string_parameter("MISALIGNED_SPLIT_STRATEGY", "custom")]
   when profile.pmp_regions > 0
@@ -257,7 +261,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
   when has("zicbom")
   | parameters := parameters ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
   when has("ssnpm")
-  | parameters := parameters ++ [natural_parameter("PMLEN", 16)]
+  | parameters := parameters ++ [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])]
   when has("zawrs")
   | parameters := parameters ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
   when has("smstateen")
@@ -268,6 +272,7 @@ fun spike_udb_configuration(profile :: SpikeConfig,
         boolean_parameter("MUTABLE_MISA_H", #true), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
         string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 14),
         natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0, 1]),
+        boolean_parameter("VSEI_INTR_IMPL", #true), boolean_parameter("VSSI_INTR_IMPL", #true), boolean_parameter("VSTI_INTR_IMPL", #true),
         boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
         boolean_list_parameter("HCOUNTENABLE_EN", counter_enables),
         boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),

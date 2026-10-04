@@ -18,7 +18,9 @@ For component internals, follow the owning guides for
 instead of treating this page as a component catalog.
 
 Contributors changing a composition should read
-[`DEVELOPING.md`](DEVELOPING.md).
+[`DEVELOPING.md`](DEVELOPING.md) and the
+[source documentation requirements](../AGENTS.md#source-documentation),
+including the `tests/` exemption.
 
 All three RV5Stage profiles enable
 [Zawrs reservation waiting](../cores/rv5stage/README.md#reservation-waiting),
@@ -213,8 +215,9 @@ make riscv-udb-config RISCV_UDB_CONFIGURATION=simple-rv5stage-rva23
 Keys are explicit `<shape>-<core>-<isa>` selections, with the same support
 checks as hardware selection. `RISCV_UDB_CONFIGURATION` has no default. Output defaults
 to `/tmp/rhodium-udb/<key>.yaml`; set `RISCV_UDB_OUTPUT` to choose another path.
-The RVA23 configurations select PMLEN 7 for their Ssnpm/Supm
-test environments; configurations without Ssnpm omit PMLEN.
+Configurations with Ssnpm publish `SUPPORTED_PMLEN_SSNPM: [0, 7, 16]`, so
+architectural tests cover every implemented mask length rather than one
+preselected software mode.
 Generated configurations are build artifacts and must not be committed.
 
 ## Common host and platform contract

@@ -1,17 +1,9 @@
-# Applies Rhodium's canonical vector test-generation support in order.
+# Applies canonical vector extensions and platform fixes not yet supplied by ACT.
 # SPDX-License-Identifier: Apache-2.0
 0001-generalize-canonical-vector-test-generation.patch
-0002-add-canonical-vector-floating-point-generation.patch
 0003-add-canonical-vector-crypto-generation.patch
 0004-enable-canonical-vector-suite-expansion.patch
 0005-avoid-reserved-vsetvl-when-forcing-vill.patch
 0006-align-ordered-index-overlap-data.patch
-0007-align-vector-fp-wide-source-data.patch
-0008-reserve-vfmv-broadcast-destination-group.patch
-0009-gate-fault-first-access-fault-generation.patch
-0010-size-exceptions-sm-trap-signatures.patch
-0011-guard-mcountinhibit-initialization.patch
-0012-ignore-unconstrained-sc-results.patch
 0013-limit-medeleg-walk-to-base-causes.patch
 0014-program-su-wrs-timer-directly.patch
-0015-honor-countinhibit-bits.patch

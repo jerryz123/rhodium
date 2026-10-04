@@ -184,7 +184,7 @@ def project_vector(model_extensions, extensions, params):
 
 
 def project_pointer_masking(model_extensions, extensions, params):
-    """Project the Supm environment claim onto Sail's concrete Ssnpm model."""
+    """Project supported Ssnpm mask lengths and the Supm environment claim."""
     selected = extensions.keys() & POINTER_MASKING_VERSIONS.keys()
     for name in selected:
         if extensions[name] != POINTER_MASKING_VERSIONS[name]:
@@ -192,13 +192,17 @@ def project_pointer_masking(model_extensions, extensions, params):
     if "Supm" in selected and "Ssnpm" not in selected:
         raise ValueError("Supm with supervisor mode requires Ssnpm")
     if "Ssnpm" in selected:
-        pmlen = params.get("PMLEN")
-        if type(pmlen) is not int or pmlen not in (0, 7, 16):
-            raise ValueError("Ssnpm requires PMLEN to be 0, 7, or 16")
+        pmlens = params.get("SUPPORTED_PMLEN_SSNPM")
+        if (not isinstance(pmlens, list) or not 1 <= len(pmlens) <= 3
+                or any(type(value) is not int or value not in (0, 7, 16) for value in pmlens)
+                or len(set(pmlens)) != len(pmlens) or 0 not in pmlens):
+            raise ValueError("Ssnpm requires SUPPORTED_PMLEN_SSNPM with unique lengths 0, 7, or 16 including 0")
+        if "Supm" in selected and 7 not in pmlens:
+            raise ValueError("Supm requires supported PMLEN 7")
         snpm = model_extensions["Ssnpm"]
-        snpm.update(supported=True, supported_pmlen_7=True, supported_pmlen_16=True)
-    elif "PMLEN" in params:
-        raise ValueError("PMLEN requires Ssnpm")
+        snpm.update(supported=True, supported_pmlen_7=7 in pmlens, supported_pmlen_16=16 in pmlens)
+    elif "SUPPORTED_PMLEN_SSNPM" in params:
+        raise ValueError("SUPPORTED_PMLEN_SSNPM requires Ssnpm")
     return selected
 
 

@@ -1,4 +1,4 @@
-# Corrects UDB 0.1.16's Shvstvala requirement: EBREAK/C.EBREAK are exempt from address reporting.
+# Corrects UDB 0.1.17's Shvstvala requirement: EBREAK/C.EBREAK are exempt from address reporting.
 # SPDX-License-Identifier: Apache-2.0
 # RVA23S64 defines Shvstvala by reference to Sstvala, which explicitly excludes software breakpoints.
 # https://github.com/riscv/riscv-profiles/blob/main/src/rva23-profile.adoc

@@ -156,8 +156,7 @@ fun rv5stage_udb_extensions(profile :: RV5StageConfig) :: NonemptyList.of(UdbExt
 /* Validates integration address bounds and emits fixed and profile-dependent behavioral claims. */
 fun rv5stage_udb_parameters(profile :: RV5StageConfig,
                             physical_address_width :: PosInt,
-                            pma_granularity_log2 :: PosInt,
-                            ~pmlen: pmlen :: Nat = 0) :: NonemptyList.of(UdbParameter):
+                            pma_granularity_log2 :: PosInt) :: NonemptyList.of(UdbParameter):
   when physical_address_width > 64
   | error(~who: #'rv5stage_udb_parameters, "physical address width must not exceed 64")
   when profile.xlen == XLen.X32 && physical_address_width > 32
@@ -165,10 +164,6 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   unless pma_granularity_log2 >= 2 && pma_granularity_log2 <= 66
   | error(~who: #'rv5stage_udb_parameters, "PMA granularity log2 must be between 2 and 66")
   def selected = profile.extensions
-  when selected.ssnpm && ![0, 7, 16].contains(pmlen)
-  | error(~who: #'rv5stage_udb_parameters, "Ssnpm PMLEN must be 0, 7, or 16")
-  when !selected.ssnpm && pmlen != 0
-  | error(~who: #'rv5stage_udb_parameters, "nonzero PMLEN requires Ssnpm")
   def xlen = profile.xlen.width
   def hpm_counters = for List (index in 0..32): selected.sscofpmf && index == 3
   def delegatable_counters = for List (index in 0..32): index < 3 || (selected.sscofpmf && index == 3)
@@ -178,6 +173,15 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
     natural_parameter("PMA_GRANULARITY", pma_granularity_log2),
     natural_parameter("CACHE_BLOCK_SIZE", RV5StageCacheLineBytes),
     boolean_parameter("PRECISE_SYNCHRONOUS_EXCEPTIONS", #true),
+    boolean_parameter("NON_STANDARD_EXTENSION_IMPLEMENTED", #false),
+    boolean_parameter("WFI_FINITE", #false),
+    boolean_parameter("WFI_U_MODE", #false),
+    boolean_parameter("MEI_INTR_IMPL", #true),
+    boolean_parameter("MSI_INTR_IMPL", #true),
+    boolean_parameter("MTI_INTR_IMPL", #true),
+    boolean_parameter("SEI_INTR_IMPL", #true),
+    boolean_parameter("SSI_INTR_IMPL", #true),
+    boolean_parameter("STI_INTR_IMPL", #true),
     boolean_parameter("TRAP_ON_ECALL_FROM_M", #true),
     boolean_parameter("TRAP_ON_EBREAK", #true),
     boolean_parameter("TRAP_ON_ILLEGAL_WLRL", #false),
@@ -257,9 +261,9 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
   when selected.zicbom
   | result := result ++ [boolean_parameter("FORCE_UPGRADE_CBO_INVAL_TO_FLUSH", #false)]
   when selected.ssnpm
-  | result := result ++ [natural_parameter("PMLEN", pmlen)]
+  | result := result ++ [natural_list_parameter("SUPPORTED_PMLEN_SSNPM", [0, 7, 16])]
   when selected.sscofpmf
-  | result := result ++ [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
+  | result := result ++ [boolean_list_parameter("COUNTINHIBIT_EN", hpm_counters), natural_parameter("HPM_COUNTER3_WIDTH", 64), natural_list_parameter("HPM_EVENTS", [0, 1, 2])]
   when selected.zawrs
   | result := result ++ [boolean_parameter("ZAWRS_NTO_IS_NOP", #false)]
   when selected.smstateen
@@ -270,6 +274,7 @@ fun rv5stage_udb_parameters(profile :: RV5StageConfig,
         boolean_parameter("MUTABLE_MISA_H", #false), natural_list_parameter("VSXLEN", [64]), natural_list_parameter("VUXLEN", [64]),
         string_parameter("VS_MODE_ENDIANNESS", "little"), string_parameter("VU_MODE_ENDIANNESS", "little"), natural_parameter("VMID_WIDTH", 0),
         natural_parameter("NUM_EXTERNAL_GUEST_INTERRUPTS", 0), natural_list_parameter("VSTVEC_MODES", [0]),
+        boolean_parameter("VSEI_INTR_IMPL", #true), boolean_parameter("VSSI_INTR_IMPL", #true), boolean_parameter("VSTI_INTR_IMPL", #true),
         boolean_parameter("VSSTAGE_MODE_BARE", #true), boolean_parameter("GSTAGE_MODE_BARE", #true),
         boolean_list_parameter("HCOUNTENABLE_EN", delegatable_counters),
         boolean_parameter("REPORT_GPA_IN_HTVAL_ON_GUEST_PAGE_FAULT", #true),
@@ -336,13 +341,12 @@ fun rv5stage_udb_configuration(profile :: RV5StageConfig,
                                name :: NonemptyString,
                                description :: NonemptyString,
                                physical_address_width :: PosInt,
-                               pma_granularity_log2 :: PosInt = 3,
-                               ~pmlen: pmlen :: Nat = 0):
+                               pma_granularity_log2 :: PosInt = 3):
   UdbConfiguration(
     name,
     description,
     rv5stage_udb_extensions(profile),
-    rv5stage_udb_parameters(profile, physical_address_width, pma_granularity_log2, ~pmlen)
+    rv5stage_udb_parameters(profile, physical_address_width, pma_granularity_log2)
   )
 
 export:

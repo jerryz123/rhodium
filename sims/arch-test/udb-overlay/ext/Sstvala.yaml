@@ -1,4 +1,4 @@
-# Corrects UDB 0.1.16's Sstvala requirement: EBREAK/C.EBREAK are exempt from address reporting.
+# Corrects UDB 0.1.17's Sstvala requirement: EBREAK/C.EBREAK are exempt from address reporting.
 # SPDX-License-Identifier: Apache-2.0
 # UDB's single breakpoint flag cannot represent the profile's EBREAK exception.
 # https://github.com/riscv/riscv-profiles/blob/main/src/profiles.adoc

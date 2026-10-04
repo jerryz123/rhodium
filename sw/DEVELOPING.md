@@ -129,6 +129,24 @@ their relocated RAM ranges, and retains build provenance. Do not replace that
 DTB comparison with equality of ISA or product names. Image symbol ownership is
 checked during compilation; execution checks the unchanged published images.
 
+## Change an architectural-test pin
+
+Follow the repository's [source documentation requirements](../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
+
+Advance `riscv-arch-test` on upstream's `act4` development branch and stage
+the new gitlink before `make -C sims arch-test-setup`, which initializes the
+index-recorded revision. Keep its checkout pristine. Rebase only the remaining
+downstream contracts in `riscv-arch-test-patches/`; prefer landed upstream
+generators and fixes over retaining a second implementation.
+At pin `fa1debda686aa035dfb7bcd5c333c86dafcd1004`, ACT requires Sail model
+0.14.1 and bundles UDB 0.1.17. Refresh its isolated Python and Ruby dependencies
+with the ordinary setup target, then generate all canonical suites in a fresh
+ACT build root. Preserve each core's own UDB configuration and reference
+signatures; never weaken profiles or exclude failed tests during qualification.
+The [simulator guide](../sims/DEVELOPING.md#other-simulation-contracts) owns
+platform hooks, schema overlays, and full generation/execution checks.
+
 ## Validation
 
 Run the focused builder tests and simulator adapters first:

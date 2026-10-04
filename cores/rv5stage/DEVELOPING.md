@@ -51,6 +51,9 @@ each other; share external transaction machinery through the CHI package.
 
 ## Change the core
 
+Follow the [source documentation requirements](../../AGENTS.md#source-documentation),
+including the exemption for files under `tests/`.
+
 1. Identify the owning boundary before editing: decode, scalar pipeline,
    deferred completion, architectural state, translation, cache, CHI engine,
    or top-level composition.
@@ -797,7 +800,7 @@ For Zic64b/Za64rs, run `cores/rv5stage/tests/profile-test.rhm`,
 batch, then `bash socs/tests/run-device-tree.sh`. Validate generated RV32 and
 RV64 UDB configurations as described above; `Za64rs` requires the implied
 `Za128rs` entry, and `Zic64b` requires `CACHE_BLOCK_SIZE` even with CMO disabled.
-Account for the [UDB 0.1.16 applicability limitation](README.md#cache-block-and-reservation-bounds)
+Account for the [UDB 0.1.17 applicability limitation](README.md#cache-block-and-reservation-bounds)
 when validating CMO-free configurations. Do not omit the hardware fact or
 silently enable CMO decode to satisfy that database version.
 Select `rv5stage-icache`, `rv5stage-dcache`, and `rv5stage-dcache-rv32` for

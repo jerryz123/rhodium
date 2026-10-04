@@ -53,7 +53,7 @@ for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
     udb.name ~is "rhodium-" ++ product.key
     udb.to_yaml().contains("  VLEN: 128") ~is #true
     udb.to_yaml().contains("  MXLEN: 64") ~is #true
-    udb.to_yaml().contains("  PMLEN: 7") ~is #true
+    udb.to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
     gnu_isa_target(description.hart.xlen, description.hart.isa_profile.isa_extensions).mabi ~is "lp64d"
     profile.multiplier ~is (if shape == SoCShape.Mini | RV5StageMultiplierKind.Iterative | RV5StageMultiplierKind.Pipelined)
     profile.data_cache_service_queue_depth ~is (if shape == SoCShape.Mini | 1 | 4)

@@ -15,7 +15,9 @@ caches live here. Reusable execution components remain directly under
 [`cores/`](../).
 
 Contributors changing the core should read
-[`DEVELOPING.md`](DEVELOPING.md).
+[`DEVELOPING.md`](DEVELOPING.md) and the
+[source documentation requirements](../../AGENTS.md#source-documentation),
+including the `tests/` exemption.
 
 The opt-in [vector path](vector/README.md) provides configurable VLEN,
 a flat XLEN-bit register bank with three general reads and a dedicated `v0` mask
@@ -269,7 +271,7 @@ exact versions, the implied weaker `Za128rs` bound, a 64-byte `CACHE_BLOCK_SIZE`
 even without CMO decode, and the access-sized `LRSC_RESERVATION_STRATEGY`.
 Definitions follow the [ratified profiles](https://docs.riscv.org/reference/rvb23/v1.0/rvb23.html).
 
-UDB 0.1.16 has an applicability inconsistency for CMO-free profiles: Zic64b
+UDB 0.1.17 has an applicability inconsistency for CMO-free profiles: Zic64b
 requires `CACHE_BLOCK_SIZE`, but that database defines the parameter only for
 Zicbom/Zicbop/Zicboz. The projection retains the truthful hardware value;
 validation of those CMO-free configurations requires a corrected UDB definition.
@@ -1091,8 +1093,8 @@ no PMP, optional Sscofpmf HPM state, Zicclsm main-memory support, exact-address-
 LR/SC reservations, and the implemented base counters. Physical address width
 and PMA granularity remain explicit inputs because they are properties of the
 core's integration rather than `RV5StageConfig`. When Ssnpm is selected, the
-UDB environment's active PMLEN is likewise an explicit input; it must be 0, 7,
-or 16 and is omitted when Ssnpm is absent.
+projection publishes `SUPPORTED_PMLEN_SSNPM: [0, 7, 16]`, reflecting all WARL
+PMM modes implemented by the core; software selects the active mode at runtime.
 
 RV32 and RV64 project `S` and `Sm` 1.13 together, expressing the `Ss1p13`
 supervisor base-version requirement without adding an instruction-set switch.

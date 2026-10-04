@@ -486,12 +486,13 @@ checked into the upstream test tree, so it must be generated through this same
 path instead of a separate generator or manual prerequisite. Keep the pinned
 submodule pristine; the patch series, not a dirty submodule checkout, is the
 reviewable source of downstream changes.
-For implementation-specific `mcountinhibit` bits, generic ACT CSR walks do
-not assert a fixed readback value; the dedicated inhibit tests are emitted
-only for writable bits advertised by `COUNTINHIBIT_EN`. The Sail adapter
+ACT guards optional `mcountinhibit` accesses and emits dedicated inhibit tests
+only for writable bits advertised by `COUNTINHIBIT_EN`. The shared Sail
+projection supplies the exact writable mask for generic CSR comparisons.
+The Sail adapter
 projects the independent UDB AMO and LR/SC misalignment choices to their
 corresponding exceptions without changing the DUT claims. The ACT-local UDB
-overlay declares `AMO_MISALIGNED_BEHAVIOR`, which is absent from UDB 0.1.16;
+overlay declares `AMO_MISALIGNED_BEHAVIOR`, which is absent from UDB 0.1.17;
 both core projections state it explicitly. Do not infer AMO fault selection
 from scalar misalignment support or the LR/SC policy.
 
@@ -531,13 +532,11 @@ The shared RVA23 preset uses this path for both RV5Stage and Spike. Enabling
 the profile does not create ACT coverage: report missing H/Sha test inventory
 separately from generation failures and runtime results. Do not replace it
 with a scalar or non-H reference profile to make a lane pass.
-`arch-test/udb-overlay/` corrects the pinned UDB 0.1.16 schema's GEILEN lower
-bound from one to zero. The ACT-local UDB copy references this supported
-overlay mechanism; its extension list and parameter values are unchanged.
-Remove the correction when the pinned UDB accepts legal zero-GEILEN harts.
-The active [GEILEN=0 validation plan](arch-test/PLAN.md) tracks the remaining
-full-shard result separately from this reference-model correction.
-The overlay also removes UDB's erroneous Sstvala and Shvstvala requirements
+Pinned UDB 0.1.17 natively accepts legal zero-GEILEN harts; no lower-bound
+overlay is required. The ACT-local UDB copy references the supported
+`arch-test/udb-overlay/` mechanism for remaining schema corrections; its
+extension list and parameter values are unchanged.
+The overlay removes UDB's erroneous Sstvala and Shvstvala requirements
 that EBREAK report its PC: the profiles explicitly exempt EBREAK/C.EBREAK.
 UDB has only one breakpoint-reporting flag, so this narrower exception cannot
 be expressed by that flag. All other trap-value requirements remain enforced,
@@ -559,6 +558,15 @@ series, and check the required Sail version, bundled UDB gems, generator output,
 and header/runner contracts together. The shared linker layout keeps test data
 addresses equal between Sail signature payloads and self-checking DUT payloads;
 model-specific text and HTIF mailboxes follow test data and stack.
+
+At ACT pin `fa1debda686aa035dfb7bcd5c333c86dafcd1004`, native vector-FP
+generation supplies operand widths and separate scalar/broadcast register
+groups. Native privileged generators use record-counted trap signature storage,
+UDB counter guards, and bounded LR/SC retries. Do not restore the retired
+replacement FP generators, word-count sizing, or zeroed LR/SC result patches.
+The seven remaining patches add canonical crypto/bitmanip expansion, legal
+whole-register vill setup, ordered-index alignment, base delegation coverage,
+and direct S/U timer programming.
 
 Run `make -C sims arch-test-adapter-test program-test-adapter-test` for generation,
 completion, deadlines, artifact identity, and complete-result checks using system
@@ -858,7 +866,11 @@ Ubuntu runtime libraries; Spike additionally needs its pinned shared libraries
 at the producer's runtime path. All producer/consumer jobs use the same runner image.
 
 Keep tool downloads checksum-pinned and update compiler/ACT/Sail compatibility
-together. Cache complete ACT payloads using generated configuration content,
+together. UDB 0.1.17 uses `SUPPORTED_PMLEN_SSNPM` instead of an active `PMLEN`;
+core projections declare the complete supported set, and the shared Sail adapter
+maps those capabilities without selecting a runtime PMM mode. On macOS arm64,
+ACT setup preinstalls checksum-pinned native Z3 5.1.0 in UDB's versioned cache.
+Cache complete ACT payloads using generated configuration content,
 ACT/Sail revisions and patches, compiler/binutils archive and version identity,
 Python/Ruby dependency identities, generation options, and adapter inputs, not
 the repository commit. `arch-test/payload.py` dereferences each ELF and records

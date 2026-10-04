@@ -75,10 +75,13 @@ for (core in ["rv5stage", "spike"]):
       check: gnu_isa_target(hart.xlen, hart.isa_profile.isa_extensions).march.contains(name) ~is #false
     for (parameter in ["MXLEN: 64", "UXLEN: [64]", "SXLEN: [64]", "CACHE_BLOCK_SIZE: 64",
                        "VLEN: 128", "ELEN: 64", "MISALIGNED_LDST: true", "VECTOR_LS_MISALIGNED_LEGAL: true",
-                       "SATP_MODE_BARE: true", "STVAL_WIDTH: 64", "U_MODE_ENDIANNESS: \"little\"", "S_MODE_ENDIANNESS: \"little\""]):
+                       "SATP_MODE_BARE: true", "STVAL_WIDTH: 64", "U_MODE_ENDIANNESS: \"little\"", "S_MODE_ENDIANNESS: \"little\"",
+                       "NON_STANDARD_EXTENSION_IMPLEMENTED: false", "WFI_FINITE: false", "WFI_U_MODE: false", "HPM_COUNTER3_WIDTH: 64"]):
       check: configuration.to_yaml().contains("  " ++ parameter) ~is #true
+    for (interrupt in ["MEI", "MSI", "MTI", "SEI", "SSI", "STI", "VSEI", "VSSI", "VSTI"]):
+      check: configuration.to_yaml().contains("  " ++ interrupt ++ "_INTR_IMPL: true") ~is #true
     check: configuration.to_yaml().contains("  STVEC_MODES: [0") ~is #true
-    check: (configuration.to_yaml().contains("  PMLEN: 7") || configuration.to_yaml().contains("  PMLEN: 16")) ~is #true
+    check: configuration.to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
     for (name in ["H", "Sha", "Smstateen", "Ssstateen", "Shcounterenw", "Shvstvala", "Shtvala", "Shvstvecd", "Shvsatpa", "Shgatpa", "Sstc", "Svinval", "Svpbmt", "Svnapot"]):
       check: (for any (entry in configuration.extensions): entry.name == name) ~is #true
     check: configuration.to_yaml().contains("  VSSTATUS_VS_EXISTS: true") ~is #true
@@ -146,9 +149,9 @@ check:
   single_core_gnu_target.march.contains("zicbom") ~is #true
   single_core_gnu_target.march.contains("svpbmt") ~is #false
   single_core_gnu_target.march.contains("svnapot") ~is #false
-  riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true
-  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true
-  riscv_udb_configuration("mini-rv5stage-rva23").to_yaml().contains("  PMLEN: 7") ~is #true
+  riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
+  riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
+  riscv_udb_configuration("mini-rv5stage-rva23").to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("tiled-rv5stage-rva23").to_yaml().contains("{ name: \"Zvfh\", version: \"= 1.0.0\" }") ~is #true
   riscv_udb_configuration("simple-rv5stage-rva23").to_yaml().contains("{ name: \"Zvbb\", version: \"= 1.0.0\" }") ~is #true

@@ -2,6 +2,8 @@ From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: Jerry Zhao <jerryz123@berkeley.edu>
 Date: Sat, 19 Sep 2026 11:04:02 -0700
 Subject: [PATCH 4/5] Enable canonical vector suite expansion
+Purpose: Includes every supported canonical vector extension in testplan expansion.
+SPDX-License-Identifier: Apache-2.0
 
 ---
  generators/testgen/src/testgen/io/testplans.py | 4 ----
@@ -15,8 +17,8 @@ index 8b65b4251c8a3dfd046627883fc7522f3d29d949..b9b6023f434ae53f7b942131021d002d
  def expand_vector_extension(extension: str) -> list[str]:
      """Expands a vector extension by adding SEW suffixes."""
  
--    if not extension.startswith(("Vx", "Vls")):
--        # Only Vx and Vls are supported for now
+-    if not extension.startswith(("Vx", "Vls", "Vf", "Zvf")):
+-        # Only Vx, Vls, and Vf are supported for now
 -        return []
 -
      if extension in ["Vx", "Vls", "Zvbb", "Zvkb"]:
