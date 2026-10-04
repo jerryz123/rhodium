@@ -19,26 +19,32 @@ export:
   summarize_module_temporal
   dump_temporal_report
 
+/* Locates the clock and optional reset operands of an inventoried effect. */
 class ClockedOperationSpec(clock_operand :: Nat,
                            reset_operand :: maybe(Nat) = #false)
+/* Marks a sequential resource declaration with no clocked effect of its own. */
 class UnclockedSequentialOperationSpec()
+/* Accumulates operations sharing a reset kind and canonical reset value. */
 class PendingResetUse(kind :: String,
                       reset :: maybe(Value),
                       mutable operations :: List.of(Operation) = [])
+/* Caches ordered origins for one value and aggregate leaf path within a reusable module. */
 class ValueProvenanceSummary(value :: Value,
                              path :: List.of(String || Nat),
                              origins :: List.of(TemporalProvenance))
+/* Associates a synchronizer register with its verified crossing and stage position. */
 class IndexedSyncLevelStage(crossing :: Operation,
                             stage_index :: Nat)
+/* Indexes defining operations and verified synchronizer roles for leaf-sensitive traversal. */
 class ModuleTemporalIndex(operations :: ReadableMap,
                           sync_level_stages :: ReadableMap,
                           sync_level_final_stages :: ReadableMap)
 
 def unclocked_sequential_operation = UnclockedSequentialOperationSpec()
 
-// This dispatcher is deliberately exhaustive over every sequential or
-// verification schema. Adding such an operation requires an explicit clock
-// operand mapping or an explicit declaration that it owns no clocked effect.
+/* This dispatcher is deliberately exhaustive over every sequential or
+   verification schema. Adding such an operation requires an explicit clock
+   operand mapping or an explicit declaration that it owns no clocked effect. */
 fun clock_operation_spec(opcode :: String):
   match opcode
   | "rtl.memory": unclocked_sequential_operation
@@ -51,6 +57,7 @@ fun clock_operation_spec(opcode :: String):
   | "rtl.register_reset": ClockedOperationSpec(0, 1)
   | ~else: #false
 
+/* Rejects a sequential or verification schema lacking an explicit clock-use classification. */
 fun check_clock_operation_coverage():
   for (schema in schemas):
     when schema.kind == "sequential" || schema.kind == "verification"
@@ -59,9 +66,10 @@ fun check_clock_operation_coverage():
               "clock classification is missing for " ++ schema.opcode)
   #void
 
-// Only a structural rtl.wire is transparent for clock identity. In
-// particular, an equal-width rtl.cast to Clock starts a distinct identity.
+/* Only a structural rtl.wire is transparent for clock identity. In
+   particular, an equal-width rtl.cast to Clock starts a distinct identity. */
 fun canonical_wire_value(value :: Value):
+  /* Stops wire-alias traversal on a non-wire or repeated Value identity. */
   fun loop(current :: Value, visited :: List.of(Value)):
     if visited.find(fun (candidate): candidate === current)
     | current
@@ -72,9 +80,11 @@ fun canonical_wire_value(value :: Value):
         | current
   loop(value, [])
 
+/* Compares clock identities after transparent driven-wire aliases are resolved. */
 fun same_clock_value(left :: Value, right :: Value):
   canonical_wire_value(left) === canonical_wire_value(right)
 
+/* Appends an effect to its existing identity-based clock group, preserving first-use order. */
 fun add_clock_use(groups :: List.of(ClockGroup), use :: ClockUse):
   def existing = groups.find(
     fun (group): group.clock === use.clock
@@ -86,6 +96,7 @@ fun add_clock_use(groups :: List.of(ClockGroup), use :: ClockUse):
       | group
   | groups ++ [ClockGroup(use.clock, [use])]
 
+/* Classifies a canonical reset as absent, ambient, or local. */
 fun reset_use_kind(reset :: maybe(Value),
                    ambient_reset :: maybe(Value)):
   cond
@@ -93,11 +104,13 @@ fun reset_use_kind(reset :: maybe(Value),
   | ambient_reset && reset === ambient_reset: "ambient"
   | ~else: "local"
 
+/* Matches reset groups by kind and Value identity rather than authored names. */
 fun same_pending_reset_use(pending :: PendingResetUse,
                            kind :: String,
                            reset :: maybe(Value)):
   pending.kind == kind && (kind == "none" || pending.reset === reset)
 
+/* Canonicalizes reset aliases and builds ordered absent/ambient/local effect groups. */
 fun summarize_reset_uses(clock_uses :: List.of(ClockUse),
                          ambient_reset :: maybe(Value)):
   def canonical_ambient_reset:
@@ -143,6 +156,7 @@ fun operation_clock_use(operation :: Operation):
       | #false
   | ~else: #false
 
+/* Requires a finished module and inventories explicit effect clocks and reset groups. */
 fun summarize_module_clocking(module_def :: Module,
                               ambient_reset :: maybe(Value) = #false):
   unless module_def.finished
@@ -165,6 +179,7 @@ fun summarize_module_clocking(module_def :: Module,
                    clock_uses.map(fun (use): use.operation))
   | ~else: MultiClock(module_def, clock_groups, reset_uses)
 
+/* Projects any module inventory shape into a uniform ordered list of ClockGroups. */
 fun summary_clock_groups(summary :: ModuleClockingSummary):
   cond
   | summary is_a Combinational: []
@@ -172,6 +187,7 @@ fun summary_clock_groups(summary :: ModuleClockingSummary):
       [ClockGroup(summary.clock, summary.clocked_operations.map(operation_clock_use))]
   | summary is_a MultiClock: summary.clock_groups
 
+/* Certifies all inventoried effects use the expected module-owned Clock, allowing combinational modules. */
 fun verify_single_clock(module_def :: Module,
                         expected_clock :: Value,
                         ambient_reset :: maybe(Value) = #false):
@@ -194,6 +210,7 @@ fun verify_single_clock(module_def :: Module,
                         canonical_expected_clock.ref()))
   summary
 
+/* Compares occurrence paths by operation identity rather than instance names. */
 fun same_instance_path(left :: List.of(Operation),
                        right :: List.of(Operation)):
   def mutable same = left.length() == right.length()
@@ -204,18 +221,23 @@ fun same_instance_path(left :: List.of(Operation),
       | same := #false
   same
 
+/* Compares the Value identity and complete occurrence path of two controls. */
 fun same_control_reference(left :: ControlReference,
                            right :: ControlReference):
   left.value === right.value && same_instance_path(left.instance_path, right.instance_path)
 
+/* Matches absent controls or delegates present references to occurrence-qualified identity. */
 fun same_optional_control_reference(left :: maybe(ControlReference),
                                     right :: maybe(ControlReference)):
   (!left && !right) || same_control_reference(left, right)
 
+/* Compares crossing operation identity together with its occurrence path. */
 fun same_crossing_reference(left :: CrossingReference,
                             right :: CrossingReference):
   left.operation === right.operation && same_instance_path(left.instance_path, right.instance_path)
 
+/* Compares origin identities and leaf paths; crossed origins key on crossing and destination,
+   not on textual names or the upstream-origin list. */
 fun same_origin(left :: TemporalProvenance,
                 right :: TemporalProvenance):
   cond
@@ -230,6 +252,7 @@ fun same_origin(left :: TemporalProvenance,
   | ~else:
       #false
 
+/* Drops static origins when dynamic ones exist, retaining a static marker for empty dependencies. */
 fun normalize_origins(origins :: List.of(TemporalProvenance)):
   def non_static = origins.filter(
     ~keep: fun (origin): !(origin is_a StaticProvenance)
@@ -239,6 +262,7 @@ fun normalize_origins(origins :: List.of(TemporalProvenance)):
   | origins.length() > 0: [origins[0]]
   | ~else: [StaticProvenance()]
 
+/* Merges equivalent origins in first-seen order and normalizes static-only results. */
 fun merge_origins(left :: List.of(TemporalProvenance),
                   right :: List.of(TemporalProvenance)):
   def mutable result = left
@@ -247,8 +271,8 @@ fun merge_origins(left :: List.of(TemporalProvenance),
     | result := result ++ [origin]
   normalize_origins(result)
 
-// A reconvergence is structural and policy-neutral: two distinct crossing
-// identities reach one clocked sink, even when both are individually legal.
+/* A reconvergence is structural and policy-neutral: two distinct crossing
+   identities reach one clocked sink, even when both are individually legal. */
 fun summarize_sink_reconvergence(sink :: TemporalSink):
   def mutable arrivals = []
   for (input in sink.inputs):
@@ -269,6 +293,7 @@ fun summarize_sink_reconvergence(sink :: TemporalSink):
                           arrivals)
   | #false
 
+/* Collects structural crossing reconvergences in sink traversal order. */
 fun summarize_reconvergences(sinks :: List.of(TemporalSink)):
   def mutable findings = []
   for (sink in sinks):
@@ -277,19 +302,22 @@ fun summarize_reconvergences(sinks :: List.of(TemporalSink)):
     | findings := findings ++ [finding]
   findings
 
+/* Creates a local occurrence reference after following transparent control wires. */
 fun local_control_reference(value :: Value):
   ControlReference([], canonical_wire_value(value))
 
+/* Recognizes register, synchronous-memory, and registered-DPI results as temporal state boundaries. */
 fun state_value_operation(operation :: Operation):
   operation.opcode == "rtl.register" || operation.opcode == "rtl.register_reset" || operation.opcode == "rtl.sync_memory" || operation.opcode == "sim.dpi_register"
 
+/* Records a local synchronous-reset reference only for resettable register state. */
 fun state_operation_reset(operation :: Operation):
   if operation.opcode == "rtl.register_reset"
   | local_control_reference(operation.operands[1])
   | #false
 
-// Indexing defining operations and crossing roles once per reusable module
-// avoids rescanning every operation for every sink and provenance origin.
+/* Indexing defining operations and crossing roles once per reusable module
+   avoids rescanning every operation for every sink and provenance origin. */
 fun index_module_temporal(module_def :: Module):
   def operations = MutableMap()
   def sync_level_stages = MutableMap()
@@ -310,6 +338,7 @@ fun index_module_temporal(module_def :: Module):
                       sync_level_stages,
                       sync_level_final_stages)
 
+/* Looks up crossing evidence only when the register has the requested indexed stage role. */
 fun sync_level_crossing_for_stage(index :: ModuleTemporalIndex,
                                   operation :: Operation,
                                   stage_index :: Nat):
@@ -318,10 +347,12 @@ fun sync_level_crossing_for_stage(index :: ModuleTemporalIndex,
   | stage.crossing
   | #false
 
+/* Looks up the verified crossing whose final register supplies crossed provenance. */
 fun sync_level_crossing_for_final_stage(index :: ModuleTemporalIndex,
                                         operation :: Operation):
   index.sync_level_final_stages.get(operation.id, #false)
 
+/* Collects distinct state clocks or crossing destination clocks in origin order. */
 fun source_clock_references(states :: List.of(TemporalProvenance)):
   def mutable result = []
   for (state in states):
@@ -338,6 +369,7 @@ fun source_clock_references(states :: List.of(TemporalProvenance)):
       | result := result ++ [clock]
   result
 
+/* Classifies symbolic module origins by source clocks and unresolved inputs without top assumptions. */
 fun classify_sink_input(destination_clock :: ControlReference,
                         origins :: List.of(TemporalProvenance)):
   def states = origins.filter(
@@ -363,12 +395,14 @@ fun classify_sink_input(destination_clock :: ControlReference,
   | ~else:
       ForeignClock(source_clocks[0], destination_clock)
 
+/* Formats record fields and vector indices on a readable diagnostic path. */
 fun append_path(name :: String, path :: List.of(String || Nat)):
   def mutable result = name
   for (step in path):
     result := if step is_a String | result ++ "." ++ step | result ++ "[" ++ to_string(step) ++ "]"
   result
 
+/* Formats authored occurrence names in hierarchy order with an instance fallback. */
 fun instance_path_name(instance_path :: List.of(Operation)):
   String.join(
     instance_path.map(
@@ -377,16 +411,20 @@ fun instance_path_name(instance_path :: List.of(Operation)):
     "."
   )
 
+/* Uses an authored operation name when present, otherwise its opcode. */
 fun operation_name(operation :: Operation):
   operation.attribute("name", operation.opcode)
 
+/* Prefixes a local name with the complete readable occurrence path. */
 fun hierarchical_name(instance_path :: List.of(Operation), name :: String):
   def prefix = instance_path_name(instance_path)
   if prefix == "" | name | prefix ++ "." ++ name
 
+/* Formats a control's occurrence-qualified Value reference. */
 fun describe_control(reference :: ControlReference):
   hierarchical_name(reference.instance_path, reference.value.ref())
 
+/* Projects reusable-module timing classes to stable report labels. */
 fun describe_classification(classification :: SinkInputClassification):
   cond
   | classification is_a StaticInput: "static"
@@ -397,9 +435,9 @@ fun describe_classification(classification :: SinkInputClassification):
   | classification is_a MixedTimingFanIn: "mixed_timing_fan_in"
   | classification is_a UnknownClock: "unknown_clock"
 
-// Builds symbolic output provenance and a preorder inventory of every clocked
-// sink reachable through the module's instance hierarchy. The summary itself
-// is policy-neutral; closed-design callers may report it or enforce CDC rules.
+/* Builds symbolic output provenance and a preorder inventory of every clocked
+   sink reachable through the module's instance hierarchy. The summary itself
+   is policy-neutral; closed-design callers may report it or enforce CDC rules. */
 fun summarize_module_temporal(module_def :: Module):
   require_concrete_module(module_def)
   unless module_def.finished
@@ -409,6 +447,7 @@ fun summarize_module_temporal(module_def :: Module):
   def mutable module_summaries = []
   def mutable active_modules = []
 
+  /* Memoizes a module definition's symbolic summary and rejects recursive instantiation. */
   fun summarize_module(current_module :: Module):
     def cached = module_summaries.find(
       fun (summary): summary.module_def === current_module
@@ -424,6 +463,7 @@ fun summarize_module_temporal(module_def :: Module):
         def active_values = MutableMap()
         def temporal_index = index_module_temporal(current_module)
 
+        /* Rebinds a child's boundary control to the parent driver, or qualifies internal controls by occurrence. */
         fun bind_child_control(reference :: maybe(ControlReference),
                                instance_operation :: Operation):
           if !(reference is_a ControlReference)
@@ -447,6 +487,7 @@ fun summarize_module_temporal(module_def :: Module):
                     ControlReference([], canonical_wire_value(driver.value))
                 | ControlReference([instance_operation], control_value)
 
+        /* Substitutes child input leaves with parent drivers and qualifies state/crossing origins by occurrence. */
         fun transform_child_origins(origins :: List.of(TemporalProvenance),
                                     instance_operation :: Operation):
           def mutable result = []
@@ -480,6 +521,8 @@ fun summarize_module_temporal(module_def :: Module):
             result := merge_origins(result, transformed)
           normalize_origins(result)
 
+        /* Combines asynchronous-read address origins with storage origins for each write clock;
+           unwritten memory retains an unknown-clock state origin. */
         fun summarize_memory_read(operation :: Operation,
                                   path :: List.of(String || Nat)):
           def memory = operation.attribute("memory")
@@ -501,6 +544,7 @@ fun summarize_module_temporal(module_def :: Module):
                 )
               origins
 
+        /* Memoizes each value leaf's symbolic origins, stopping at state/crossing boundaries and detecting cycles. */
         fun summarize_value(value :: Value,
                             path :: List.of(String || Nat)):
           def key = [value.id, path]
@@ -570,6 +614,7 @@ fun summarize_module_temporal(module_def :: Module):
               value_summaries[key] := summary
               origins
 
+        /* Expands a sampled Value into leaf-sensitive origins, timing classes, and optional crossing evidence. */
         fun make_value_sink_inputs(name :: String,
                                    value :: Value,
                                    destination_clock :: ControlReference,
@@ -582,6 +627,7 @@ fun summarize_module_temporal(module_def :: Module):
                               classify_sink_input(destination_clock, origins),
                               crossing)
 
+        /* Resolves each driven Place leaf before classifying its sampled origins. */
         fun make_place_sink_inputs(name :: String,
                                    place :: Place,
                                    destination_clock :: ControlReference,
@@ -595,6 +641,7 @@ fun summarize_module_temporal(module_def :: Module):
                               classify_sink_input(destination_clock, origins),
                               crossing)
 
+        /* Enumerates sampled data, enable, guard, and reset leaves for each supported clocked effect. */
         fun local_sink_inputs(operation :: Operation,
                               destination_clock :: ControlReference):
           match operation.opcode
@@ -664,6 +711,7 @@ fun summarize_module_temporal(module_def :: Module):
               error(~who: #'summarize_module_temporal,
                     "sink classification is missing for " ++ operation.opcode)
 
+        /* Rebinds a child's sink controls and input origins into one parent occurrence, then reclassifies them. */
         fun transform_child_sink(child_sink :: TemporalSink,
                                  instance_operation :: Operation):
           def destination_clock = bind_child_control(child_sink.clock,
@@ -732,6 +780,7 @@ fun summarize_module_temporal(module_def :: Module):
 
   summarize_module(module_def)
 
+/* Formats reusable-module origins with leaf paths and occurrence-qualified state or crossing controls. */
 fun describe_origin(summary :: ModuleTemporalSummary,
                     origin :: TemporalProvenance):
   cond
@@ -753,6 +802,7 @@ fun describe_origin(summary :: ModuleTemporalSummary,
         | "@unknown"
       "crossed " ++ append_path(name, origin.path) ++ clock
 
+/* Appends ordered crossing-arrival details to a reusable module's text report. */
 fun append_reconvergences(lines :: List.of(String),
                           summary :: ModuleTemporalSummary):
   def mutable result = lines
@@ -777,6 +827,7 @@ fun append_reconvergences(lines :: List.of(String),
       ]
   result
 
+/* Formats stored module findings without rerunning provenance or parsing report text. */
 fun dump_temporal_report(summary :: ModuleTemporalSummary):
   def mutable lines = ["temporal.module @" ++ summary.module_def.name]
   for (output in summary.output_leaves):

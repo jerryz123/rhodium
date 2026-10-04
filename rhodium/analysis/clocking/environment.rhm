@@ -15,12 +15,15 @@ export:
   reconvergence_message
   dump_design_temporal_report
 
+/* Raises an environment-resolution error attributed to the design temporal analysis. */
 fun fail(message :: String):
   error(~who: #'summarize_design_temporal, message)
 
+/* Finds a Value by object identity, not by name or structural equality. */
 fun contains_identity(items :: List.of(Value), item :: Value):
   items.find(fun (candidate): candidate === item)
 
+/* Compares hierarchy occurrences by the identity of every instance operation. */
 fun same_instance_path(left :: List.of(Operation),
                        right :: List.of(Operation)):
   def mutable same = left.length() == right.length()
@@ -31,10 +34,12 @@ fun same_instance_path(left :: List.of(Operation),
       | same := #false
   same
 
+/* Compares both the control Value and its hierarchy occurrence. */
 fun same_control_reference(left :: ControlReference,
                            right :: ControlReference):
   left.value === right.value && same_instance_path(left.instance_path, right.instance_path)
 
+/* Tests whether an aggregate subtree path contains a particular leaf or descendant path. */
 fun path_prefix(prefix :: List.of(String || Nat),
                 path :: List.of(String || Nat)):
   def mutable matches = prefix.length() <= path.length()
@@ -45,6 +50,7 @@ fun path_prefix(prefix :: List.of(String || Nat),
       | matches := #false
   matches
 
+/* Resolves record/vector path steps, returning false for a missing field or out-of-range index. */
 fun type_at_path(type :: DataType, path :: List.of(String || Nat)):
   if path.length() == 0
   | type
@@ -59,15 +65,19 @@ fun type_at_path(type :: DataType, path :: List.of(String || Nat)):
       | ~else:
           #false
 
+/* Finds a selected top's input port by exact Value identity. */
 fun top_input_port(top :: Module, value :: Value):
   top.inputs.find(fun (port): port.value === value)
 
+/* Requires a Clock-typed input owned by the selected top boundary. */
 fun valid_top_clock(top :: Module, value :: Value):
   top_input_port(top, value) && clock_type(value.type)
 
+/* Recognizes the supported unknown, synchronous, and asynchronous top input timing classes. */
 fun valid_input_timing(timing :~ TopInputTiming):
   timing is_a UnknownInputTiming || timing is_a SynchronousInputTiming || timing is_a AsynchronousInputTiming
 
+/* Projects a relationship's first endpoint, using source for a derived relationship. */
 fun relationship_left(relationship :: EnvironmentClockRelationship):
   cond
   | relationship is_a IdenticalClockRelationship: relationship.left
@@ -76,6 +86,7 @@ fun relationship_left(relationship :: EnvironmentClockRelationship):
   | relationship is_a ExclusiveClockRelationship: relationship.left
   | ~else: #false
 
+/* Projects a relationship's second endpoint, using destination for a derived relationship. */
 fun relationship_right(relationship :: EnvironmentClockRelationship):
   cond
   | relationship is_a IdenticalClockRelationship: relationship.right
@@ -84,6 +95,7 @@ fun relationship_right(relationship :: EnvironmentClockRelationship):
   | relationship is_a ExclusiveClockRelationship: relationship.right
   | ~else: #false
 
+/* Returns the supported relationship discriminator or false for an unknown class. */
 fun relationship_kind(relationship :: EnvironmentClockRelationship):
   cond
   | relationship is_a IdenticalClockRelationship: "identical"
@@ -92,6 +104,7 @@ fun relationship_kind(relationship :: EnvironmentClockRelationship):
   | relationship is_a ExclusiveClockRelationship: "exclusive"
   | ~else: #false
 
+/* Traverses one declared identical-clock edge symmetrically. */
 fun direct_identical_neighbor(relationship :: EnvironmentClockRelationship,
                               clock :: Value):
   cond
@@ -100,9 +113,11 @@ fun direct_identical_neighbor(relationship :: EnvironmentClockRelationship,
   | relationship.right === clock: relationship.left
   | ~else: #false
 
+/* Resolves declared identical-clock equivalence transitively, including exact Value identity. */
 fun identical_clock_values(environment :: TemporalEnvironment,
                            left :: Value,
                            right :: Value):
+  /* Searches identical-clock edges with visited identities to terminate cycles. */
   fun visit(current :: Value, visited :: List.of(Value)):
     cond
     | current === right: #true
@@ -117,6 +132,7 @@ fun identical_clock_values(environment :: TemporalEnvironment,
         found
   visit(left, [])
 
+/* Matches unordered endpoint pairs modulo declared identical-clock equivalence. */
 fun same_clock_pair(environment :: TemporalEnvironment,
                     left_a :: Value,
                     right_a :: Value,
@@ -124,6 +140,8 @@ fun same_clock_pair(environment :: TemporalEnvironment,
                     right_b :: Value):
   (identical_clock_values(environment, left_a, left_b) && identical_clock_values(environment, right_a, right_b)) || (identical_clock_values(environment, left_a, right_b) && identical_clock_values(environment, right_a, left_b))
 
+/* Checks top ownership, valid/non-overlapping input paths, supported timing, and noncontradictory
+   clock assumptions before any closed-design classifications are returned. */
 fun validate_environment(elaboration :: DesignElaboration,
                          environment :: TemporalEnvironment):
   def top = elaboration.top
@@ -189,6 +207,7 @@ fun validate_environment(elaboration :: DesignElaboration,
       | fail("a non-identical relationship contradicts the identical clock equivalence")
   #void
 
+/* Finds the unique validated timing contract whose subtree contains an input leaf. */
 fun contract_for(environment :: TemporalEnvironment,
                  input :: Value,
                  path :: List.of(String || Nat)):
@@ -196,21 +215,25 @@ fun contract_for(environment :: TemporalEnvironment,
     fun (contract): contract.input === input && path_prefix(contract.path, path)
   )
 
+/* Returns a leaf's declared timing or explicit unknown timing when no contract applies. */
 fun input_timing(environment :: TemporalEnvironment,
                  input :: Value,
                  path :: List.of(String || Nat)):
   def contract = contract_for(environment, input, path)
   contract?.timing || UnknownInputTiming()
 
+/* Recognizes a direct top Clock input, excluding internal occurrence-qualified clocks. */
 fun root_top_control(top :: Module, reference :: ControlReference):
   reference.instance_path.length() == 0 && valid_top_clock(top, reference.value)
 
+/* Accepts exact control identity or declared equivalence between root top clocks. */
 fun equivalent_control(environment :: TemporalEnvironment,
                        top :: Module,
                        left :: ControlReference,
                        right :: ControlReference):
   same_control_reference(left, right) || (root_top_control(top, left) && root_top_control(top, right) && identical_clock_values(environment, left.value, right.value))
 
+/* Collects first-seen source clocks while deduplicating occurrence or environment equivalence. */
 fun add_source_clock(clocks :: List.of(ControlReference),
                      clock :: ControlReference,
                      environment :: TemporalEnvironment,
@@ -219,6 +242,7 @@ fun add_source_clock(clocks :: List.of(ControlReference),
   | clocks
   | clocks ++ [clock]
 
+/* Finds a declared non-identical relation only for root top clocks, modulo identical aliases. */
 fun relationship_for(environment :: TemporalEnvironment,
                      top :: Module,
                      left :: ControlReference,
@@ -234,6 +258,7 @@ fun relationship_for(environment :: TemporalEnvironment,
                                                                            right.value)
     )
 
+/* Distinguishes exact identity, declared equivalence/relationships, and unknown clock relations. */
 fun classify_clock_relationship(environment :: TemporalEnvironment,
                                 top :: Module,
                                 source_clock :: ControlReference,
@@ -256,6 +281,7 @@ fun classify_clock_relationship(environment :: TemporalEnvironment,
   | ~else:
       UnknownClockRelationship(source_clock, destination_clock)
 
+/* Resolves symbolic input timing and crossed/state clocks, preserving fan-in and unknown-source classes. */
 fun classify_design_input(environment :: TemporalEnvironment,
                           top :: Module,
                           destination_clock :: ControlReference,
@@ -312,8 +338,8 @@ fun classify_design_input(environment :: TemporalEnvironment,
                                   source_clock,
                                   destination_clock)
 
-// Resolves only the explicit top boundary. The reusable module summary and its
-// origins remain unchanged; closed-design sinks receive new classifications.
+/* Resolves only the explicit top boundary. The reusable module summary and its
+   origins remain unchanged; closed-design sinks receive new classifications. */
 fun summarize_design_temporal(elaboration :: DesignElaboration,
                               environment :: TemporalEnvironment = TemporalEnvironment()):
   validate_environment(elaboration, environment)
@@ -342,12 +368,15 @@ fun summarize_design_temporal(elaboration :: DesignElaboration,
                         module_summary.reconvergences,
                         summarize_cdc_violations(sinks))
 
+/* Recognizes only static, same-clock, or declared-identical timing as safe without crossing evidence. */
 fun safe_cdc_classification(classification :: SinkInputClassification):
   classification is_a StaticInput || classification is_a SameClock || classification is_a IdenticalClock
 
+/* Accepts a single declared timing source for verified level synchronization, excluding unresolved fan-in. */
 fun supported_sync_level_source(classification :: SinkInputClassification):
   safe_cdc_classification(classification) || classification is_a DerivedClock || classification is_a AsynchronousClock || classification is_a ExclusiveClock || classification is_a UnknownClockRelationship || classification is_a AsynchronousEnvironmentInput
 
+/* Applies CDC policy to sampled leaves; reset inputs are excluded and foreign data needs evidence. */
 fun cdc_violation_reason(input :: TemporalSinkInput):
   cond
   | input.name == "reset" || input.name == "reset_value": #false
@@ -362,6 +391,7 @@ fun cdc_violation_reason(input :: TemporalSinkInput):
       "requires explicit crossing evidence"
   | ~else: #false
 
+/* Collects unsafe sampled leaves in sink/input order with their precise origins and policy reason. */
 fun summarize_cdc_violations(sinks :: List.of(TemporalSink)):
   def mutable violations = []
   for (sink in sinks):
@@ -380,6 +410,7 @@ fun summarize_cdc_violations(sinks :: List.of(TemporalSink)):
         ]
   violations
 
+/* Formats the occurrence-qualified sink input and aggregate leaf named by a violation. */
 fun cdc_violation_name(violation :: CdcViolation):
   def sink_name = hierarchical_name(violation.instance_path,
                                     operation_name(violation.operation))
@@ -394,15 +425,18 @@ fun cdc_violation_message(violation :: CdcViolation):
                 "; ",
                 violation.reason)
 
+/* Appends readable record fields and vector indices to a diagnostic name. */
 fun append_path(name :: String, path :: List.of(String || Nat)):
   def mutable result = name
   for (step in path):
     result := if step is_a String | result ++ "." ++ step | result ++ "[" ++ to_string(step) ++ "]"
   result
 
+/* Uses an authored name if available, otherwise the effect opcode. */
 fun operation_name(operation :: Operation):
   operation.attribute("name", operation.opcode)
 
+/* Prefixes a local name with authored instance names in occurrence order. */
 fun hierarchical_name(instance_path :: List.of(Operation), name :: String):
   def prefix = String.join(
     instance_path.map(fun (operation): operation.attribute("name", "instance")),
@@ -410,9 +444,11 @@ fun hierarchical_name(instance_path :: List.of(Operation), name :: String):
   )
   if prefix == "" | name | prefix ++ "." ++ name
 
+/* Formats an occurrence-qualified clock or reset Value reference. */
 fun describe_control(reference :: ControlReference):
   hierarchical_name(reference.instance_path, reference.value.ref())
 
+/* Projects top timing intent to text without inventing an undeclared clock. */
 fun describe_timing(timing :: TopInputTiming):
   cond
   | timing is_a SynchronousInputTiming:
@@ -420,6 +456,7 @@ fun describe_timing(timing :: TopInputTiming):
   | timing is_a AsynchronousInputTiming: "asynchronous"
   | ~else: "unknown"
 
+/* Formats explicit clock assumptions and any authored description. */
 fun describe_relationship(relationship :: EnvironmentClockRelationship):
   def left = relationship_left(relationship).ref()
   def right = relationship_right(relationship).ref()
@@ -433,6 +470,7 @@ fun describe_relationship(relationship :: EnvironmentClockRelationship):
   | relationship is_a ExclusiveClockRelationship:
       "exclusive " ++ left ++ " " ++ right ++ " " ++ relationship.description
 
+/* Projects resolved sink timing classes to stable report labels. */
 fun describe_classification(classification :: SinkInputClassification):
   cond
   | classification is_a StaticInput: "static"
@@ -448,6 +486,7 @@ fun describe_classification(classification :: SinkInputClassification):
   | classification is_a MixedTimingFanIn: "mixed_timing_fan_in"
   | classification is_a UnknownClock: "unknown_clock"
 
+/* Formats exact symbolic, state, or crossed origins using the selected top's input names. */
 fun describe_origin(summary :: DesignTemporalSummary,
                     origin :: TemporalProvenance):
   cond
@@ -469,6 +508,7 @@ fun describe_origin(summary :: DesignTemporalSummary,
         | "@unknown"
       "crossed " ++ append_path(crossing_name, origin.path) ++ clock
 
+/* Appends output-leaf provenance in stored summary order. */
 fun append_outputs(lines :: List.of(String),
                    summary :: DesignTemporalSummary):
   def mutable result = lines
@@ -481,6 +521,7 @@ fun append_outputs(lines :: List.of(String),
     result := result ++ ["  output " ++ append_path(port.name, output.path) ++ " <- " ++ origins]
   result
 
+/* Appends occurrence-qualified sink clocks and each leaf's classification and origins. */
 fun append_sinks(lines :: List.of(String),
                  summary :: DesignTemporalSummary):
   def mutable result = lines
@@ -523,6 +564,7 @@ fun append_reconvergences(lines :: List.of(String),
       ]
   result
 
+/* Appends violation identities, classifications, and origins from stored findings. */
 fun append_cdc_violations(lines :: List.of(String),
                           summary :: DesignTemporalSummary):
   def mutable result = lines
@@ -545,6 +587,7 @@ fun append_cdc_violations(lines :: List.of(String),
       ]
   result
 
+/* Formats one completed design summary, its environment, and ordered findings into inspection text. */
 fun dump_design_temporal_report(summary :: DesignTemporalSummary):
   def top = summary.elaboration.top
   def mutable lines = ["temporal.design @" ++ top.name]

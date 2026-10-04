@@ -11,23 +11,27 @@ export:
   emit_circt
   emit_module_circt
 
+/* Associates one canonical packed record shape with its first allocated CIRCT alias. */
 class CirctRecordAlias(key :: String, type :: RecordType, name :: String)
+/* Owns shape, alias, and rendered-type caches for one emission environment. */
 class CirctTypes(shapes :: MutableMap, aliases :: MutableMap, rendered :: MutableMap)
 
 Parameter.def current_circt_types = #false
 Parameter.def current_circt_sync_register_ids = []
 
+/* Creates independent caches so standalone and whole-design emissions cannot share aliases. */
 fun fresh_circt_types():
   CirctTypes(MutableMap.by(===){}, MutableMap{}, MutableMap.by(===){})
 
-// Produces the canonical CIRCT representation used to identify equal packed
-// record shapes before any source-level bundle names are attached.
+/* Produces the canonical CIRCT representation used to identify equal packed
+   record shapes before any source-level bundle names are attached. */
 fun circt_shape_type(type :: HardwareType):
   def types :: CirctTypes = current_circt_types()
   unless types.shapes.has_key(type)
   | types.shapes[type] := render_circt_shape_type(type)
   types.shapes[type]
 
+/* Recursively renders physical scalar/record/vector shapes, treating clocks and resets as i1. */
 fun render_circt_shape_type(type :: HardwareType):
   cond
   | scalar_data_type(type):
@@ -45,23 +49,27 @@ fun render_circt_shape_type(type :: HardwareType):
       error(~who: #'emit_circt,
             "CIRCT lowering does not support hardware type " ++ type.describe())
 
+/* Looks up a record's alias by canonical shape rather than preferred name or object identity. */
 fun record_alias(type :: RecordType):
   def types :: CirctTypes = current_circt_types()
   def key = circt_shape_type(type)
   if types.aliases.has_key(key) | types.aliases[key] | #false
 
+/* Renders a record body with child aliases from the current emission environment. */
 fun circt_record_underlying_type(type :: RecordType):
   "!hw.struct<" ++ String.join(
     type.fields.map(fun (field): field.name ++ ": " ++ circt_type(field.type)),
     ", "
   ) ++ ">"
 
+/* Memoizes the rendered type within the current alias environment. */
 fun circt_type(type :: HardwareType):
   def types :: CirctTypes = current_circt_types()
   unless types.rendered.has_key(type)
   | types.rendered[type] := render_circt_type(type)
   types.rendered[type]
 
+/* Renders supported CIRCT storage types, attaching shape-selected record aliases when present. */
 fun render_circt_type(type :: HardwareType):
   cond
   | scalar_data_type(type):
@@ -80,14 +88,18 @@ fun render_circt_type(type :: HardwareType):
       error(~who: #'emit_circt,
             "CIRCT lowering does not support hardware type " ++ type.describe())
 
+/* Returns scalar width, or the one-bit control width, for scalar/control emission helpers. */
 fun circt_width(type :: HardwareType):
   if scalar_data_type(type) | scalar_width(type) | 1
 
+/* Collects nested record aliases before users in first-seen order across DPI and module types. */
 fun collect_circt_record_aliases(design :: Design):
   def types :: CirctTypes = current_circt_types()
   def mutable aliases = []
 
+  /* Finds the first unused suffix for a requested record alias in this emission. */
   fun unique_name(base_name :: String):
+    /* Searches alias suffixes deterministically without changing previously assigned names. */
     fun loop(index :: Nat):
       def candidate = if index == 0 | base_name | base_name ++ "_" ++ to_string(index)
       if aliases.find(fun (alias): alias.name == candidate)
@@ -95,6 +107,7 @@ fun collect_circt_record_aliases(design :: Design):
       | candidate
     loop(0)
 
+  /* Visits nested aggregate dependencies before interning a preferred record alias by physical shape. */
   fun collect(type :: HardwareType):
     cond
     | record_type(type):
@@ -125,6 +138,7 @@ fun collect_circt_record_aliases(design :: Design):
       collect(memory.element_type)
   aliases
 
+/* Emits one ordered type scope, or no declaration for an empty alias inventory. */
 fun emit_circt_record_aliases(aliases :: List.of(CirctRecordAlias)):
   if aliases.length() == 0
   | ""
@@ -139,13 +153,15 @@ fun emit_circt_record_aliases(aliases :: List.of(CirctRecordAlias)):
       ),
       "\n  }")
 
-// CIRCT array indices use Rhodium's minimum nonzero width for a collection count.
+/* CIRCT array indices use Rhodium's minimum nonzero width for a collection count. */
 fun circt_array_index_width(length :: PosInt):
   count_index_width(length)
 
+/* Identifies structural wires and casts whose rendered CIRCT representation is already identical. */
 fun alias_operation(operation :: Operation):
   (operation.opcode == "rtl.cast" && circt_type(operation.operands[0].type) == circt_type(operation.results[0].type)) || operation.opcode == "rtl.wire"
 
+/* Selects input and register results whose SSA spelling preserves their authored name. */
 fun named_result_opcode(opcode :: String):
   match opcode
   | "rtl.input_port" || "rtl.register" || "rtl.register_reset":
@@ -153,6 +169,7 @@ fun named_result_opcode(opcode :: String):
   | ~else:
       #false
 
+/* Resolves transparent wire/cast aliases before selecting an authored or generated SSA reference. */
 fun value_ref(value :: Value):
   def defining_operation = value.module_def.find_operation(value.defining_op_id)
   def opcode = defining_operation && defining_operation.opcode
@@ -164,8 +181,8 @@ fun value_ref(value :: Value):
     | "%" ++ value.name
     | "%__rhodium_value_" ++ to_string(value.id)
 
-// Backend-owned names are scoped to one emitted module. Use the operation's
-// module-local order so elaborating a child module cannot perturb visible RTL.
+/* Backend-owned names are scoped to one emitted module. Use the operation's
+   module-local order so elaborating a child module cannot perturb visible RTL. */
 fun operation_local_index(operation :: Operation):
   def mutable found = #false
   for (candidate in operation.module_def.operations,
@@ -176,11 +193,12 @@ fun operation_local_index(operation :: Operation):
   | error(~who: #'emit_circt, "operation is not owned by its module")
   found
 
+/* Tests one host integer bit when rendering packed decode cubes. */
 fun decode_bit_set(value :: Nat, index :: Nat):
   (value bits.and (1 << index)) != 0
 
-// Renders a packed input cube as the native bit pattern accepted by CIRCT's
-// sv.case operation. CaseZ treats z positions as relation-level don't-cares.
+/* Renders a packed input cube as the native bit pattern accepted by CIRCT's
+   sv.case operation. CaseZ treats z positions as relation-level don't-cares. */
 fun decode_case_pattern(value :: Nat, care :: Nat, width :: PosInt):
   String.join(
     for List (index in (width - 1) >=..= 0):
@@ -191,6 +209,7 @@ fun decode_case_pattern(value :: Nat, care :: Nat, width :: PosInt):
     ""
   )
 
+/* Emits a fixed-width scalar constant, using hexadecimal for very large host integers. */
 fun emit_constant(operation :: Operation):
   def result = operation.results[0]
   def integer :: Nat = operation.attribute("value")
@@ -199,11 +218,14 @@ fun emit_constant(operation :: Operation):
                 literal, " : ",
                 circt_type(result.type))
 
+/* Represents an unconstrained result with sv.constantX without defining a public four-state value. */
 fun emit_dont_care(operation :: Operation):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = sv.constantX : ",
                 circt_type(result.type))
 
+/* Lowers a non-overlapping packed decode relation to a fully assigned combinational casez;
+   aggregate selectors/results are bitcast without changing cared or unconstrained bits. */
 fun emit_decode(operation :: Operation):
   def selector = operation.operands[0]
   def result = operation.results[0]
@@ -225,6 +247,7 @@ fun emit_decode(operation :: Operation):
   def mutable one_bit_ref = #false
   def mutable x_bit_ref = #false
 
+  /* Lazily emits reusable zero, one, or unconstrained single-bit constants for decode outputs. */
   fun output_bit_ref(kind :: String):
     match kind
     | "zero":
@@ -246,8 +269,8 @@ fun emit_decode(operation :: Operation):
                                            " = sv.constantX : i1")]
         x_bit_ref
 
-  // Materializes a partial output cube without choosing values for uncared
-  // bits. Mixed patterns use concat so ExportVerilog exposes each X directly.
+  /* Materializes a partial output cube without choosing values for uncared
+     bits. Mixed patterns use concat so ExportVerilog exposes each X directly. */
   fun emit_output_pattern(value :: Nat, care :: Nat, suffix :: String):
     def pattern_ref = operation_prefix ++ "_" ++ suffix
     def full_care = (1 bits.(<<) output_width) - 1
@@ -310,6 +333,7 @@ fun emit_decode(operation :: Operation):
                                      ") -> ", circt_type(result.type))]
   String.join(lines, "\n")
 
+/* Renders a two-operand Comb operation at the verified result width. */
 fun emit_binary(operation :: Operation, circt_opcode :: String):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = ", circt_opcode, " ",
@@ -317,8 +341,8 @@ fun emit_binary(operation :: Operation, circt_opcode :: String):
                 value_ref(operation.operands[1]), " : ",
                 circt_type(result.type))
 
-// Builds a sign extension from primitive Comb extraction and concatenation so
-// the public signed semantic operation does not depend on a backend type flag.
+/* Builds a sign extension from primitive Comb extraction and concatenation so
+   the public signed semantic operation does not depend on a backend type flag. */
 fun emit_sign_extension(source_ref :: String,
                         source_type :: ScalarDataType,
                         result_ref :: String,
@@ -341,9 +365,9 @@ fun emit_sign_extension(source_ref :: String,
                 String.join(operand_refs, ", "), " : ",
                 String.join(operand_types, ", "))
 
-// CIRCT shifts require equal-width operands. Rhodium permits an independently
-// sized amount, so normalize without changing fixed-width overshift behavior.
-// A signed value is sign-extended when a wider amount forces widening.
+/* CIRCT shifts require equal-width operands. Rhodium permits an independently
+   sized amount, so normalize without changing fixed-width overshift behavior.
+   A signed value is sign-extended when a wider amount forces widening. */
 fun emit_shift(operation :: Operation,
                circt_opcode :: String,
                signed_value :: Boolean = #false):
@@ -391,6 +415,7 @@ fun emit_shift(operation :: Operation,
                       " from 0 : (", circt_type(amount.type), ") -> ",
                       circt_type(result.type))
 
+/* Implements fixed-width bitwise inversion as XOR with an all-ones constant. */
 fun emit_not(operation :: Operation):
   def operand = operation.operands[0]
   def result = operation.results[0]
@@ -402,6 +427,7 @@ fun emit_not(operation :: Operation):
                 value_ref(operand), ", ", mask_ref,
                 " : ", circt_type(result.type))
 
+/* Emits an equality comparison with the operand type and one-bit result. */
 fun emit_eq(operation :: Operation):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = comb.icmp eq ",
@@ -409,6 +435,7 @@ fun emit_eq(operation :: Operation):
                 value_ref(operation.operands[1]), " : ",
                 circt_type(operation.operands[0].type))
 
+/* Emits an unsigned comparison, independent of source-level scalar naming. */
 fun emit_ult(operation :: Operation):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = comb.icmp ult ",
@@ -416,6 +443,7 @@ fun emit_ult(operation :: Operation):
                 value_ref(operation.operands[1]), " : ",
                 circt_type(operation.operands[0].type))
 
+/* Emits an explicitly signed comparison on the packed operand bits. */
 fun emit_slt(operation :: Operation):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = comb.icmp slt ",
@@ -423,6 +451,7 @@ fun emit_slt(operation :: Operation):
                 value_ref(operation.operands[1]), " : ",
                 circt_type(operation.operands[0].type))
 
+/* Builds default-backed equality/mux selection, specializing the one-bit key-one case. */
 fun emit_mux_lookup(operation :: Operation):
   def selector = operation.operands[0]
   def default_value = operation.operands[1]
@@ -459,9 +488,9 @@ fun emit_mux_lookup(operation :: Operation):
         selected_ref := step_ref
       String.join(lines, "\n")
 
-// A one-hot mux has a deliberately partial contract: exactly one selector bit
-// is set. Gating each packed choice and OR-reducing the leaves implements that
-// contract without adding comparators or defining invalid selector encodings.
+/* A one-hot mux has a deliberately partial contract: exactly one selector bit
+   is set. Gating each packed choice and OR-reducing the leaves implements that
+   contract without adding comparators or defining invalid selector encodings. */
 fun emit_onehot_mux(operation :: Operation):
   def selector = operation.operands[0]
   def choices = operation.operands.drop(1)
@@ -542,6 +571,7 @@ fun emit_onehot_mux(operation :: Operation):
     )]
   String.join(lines, "\n")
 
+/* Concatenates operand bits in core order with explicit per-operand CIRCT types. */
 fun emit_concat(operation :: Operation):
   def result = operation.results[0]
   def operands = String.join(operation.operands.map(value_ref), ", ")
@@ -552,6 +582,7 @@ fun emit_concat(operation :: Operation):
   String.append("    ", value_ref(result), " = comb.concat ", operands,
                 " : ", operand_types)
 
+/* Extracts the verified range using its low offset and result width. */
 fun emit_extract(operation :: Operation):
   def operand = operation.operands[0]
   def result = operation.results[0]
@@ -560,6 +591,7 @@ fun emit_extract(operation :: Operation):
                 to_string(operation.attribute("low")), " : (",
                 circt_type(operand.type), ") -> ", circt_type(result.type))
 
+/* Prepends explicit zero bits to the scalar operand. */
 fun emit_zext(operation :: Operation):
   def operand = operation.operands[0]
   def result = operation.results[0]
@@ -570,6 +602,7 @@ fun emit_zext(operation :: Operation):
                 value_ref(operand), " : i", to_string(zero_width), ", ",
                 circt_type(operand.type))
 
+/* Delegates scalar widening to explicit sign-bit replication. */
 fun emit_sext(operation :: Operation):
   def operand = operation.operands[0]
   def result = operation.results[0]
@@ -579,6 +612,7 @@ fun emit_sext(operation :: Operation):
                       result.type,
                       "%__rhodium_sext_" ++ to_string(operation.id))
 
+/* Extracts the low result-width bits without changing their interpretation. */
 fun emit_trunc(operation :: Operation):
   def operand = operation.operands[0]
   def result = operation.results[0]
@@ -586,6 +620,7 @@ fun emit_trunc(operation :: Operation):
                 value_ref(operand), " from 0 : (", circt_type(operand.type),
                 ") -> ", circt_type(result.type))
 
+/* Bitcasts equal packed widths between supported hardware representations. */
 fun emit_cast(operation :: Operation):
   def source = operation.operands[0]
   def result = operation.results[0]
@@ -593,12 +628,14 @@ fun emit_cast(operation :: Operation):
                 value_ref(source), " : (", circt_type(source.type),
                 ") -> ", circt_type(result.type))
 
+/* Creates a packed struct in verified field order. */
 fun emit_record_create(operation :: Operation):
   def result = operation.results[0]
   String.append("    ", value_ref(result), " = hw.struct_create (",
                 String.join(operation.operands.map(value_ref), ", "),
                 ") : ", circt_type(result.type))
 
+/* Extracts the named verified struct field using the source record type. */
 fun emit_record_get(operation :: Operation):
   def record = operation.operands[0]
   def result = operation.results[0]
@@ -606,6 +643,7 @@ fun emit_record_get(operation :: Operation):
                 value_ref(record), "[\"", operation.attribute("field"),
                 "\"] : ", circt_type(record.type))
 
+/* Reverses logical element order for CIRCT's most-significant-first array construction. */
 fun emit_vector_create(operation :: Operation):
   def result = operation.results[0]
   // CIRCT array_create lists elements from most- to least-significant, while
@@ -614,6 +652,7 @@ fun emit_vector_create(operation :: Operation):
                 String.join(operation.operands.reverse().map(value_ref), ", "),
                 " : ", circt_type(result.type.element_type))
 
+/* Materializes a fixed array index with the core collection-index width. */
 fun emit_vector_get(operation :: Operation):
   def vector = operation.operands[0]
   def result = operation.results[0]
@@ -626,6 +665,7 @@ fun emit_vector_get(operation :: Operation):
                 value_ref(vector), "[", index_ref, "] : ",
                 circt_type(vector.type), ", i", to_string(index_width))
 
+/* Emits dynamic array selection, preserving a named wire for selectors narrower than eight bits. */
 fun emit_vector_index(operation :: Operation):
   def vector = operation.operands[0]
   def index = operation.operands[1]
@@ -643,6 +683,7 @@ fun emit_vector_index(operation :: Operation):
                     value_ref(vector), "[", index_ref, "] : ",
                     circt_type(vector.type), ", ", circt_type(index.type))
 
+/* Produces a new array value with one selected element replaced, not a mutation of its source. */
 fun emit_vector_inject(operation :: Operation):
   def vector = operation.operands[0]
   def index = operation.operands[1]
@@ -653,9 +694,9 @@ fun emit_vector_inject(operation :: Operation):
                 value_ref(element), " : ", circt_type(vector.type), ", ",
                 circt_type(index.type))
 
-// Lowers an unordered vector write set as symmetric per-element decode and
-// merge logic. Colliding enabled ports OR their data, which is one legal
-// implementation of the operation's deliberately undefined collision case.
+/* Lowers an unordered vector write set as symmetric per-element decode and
+   merge logic. Colliding enabled ports OR their data, which is one legal
+   implementation of the operation's deliberately undefined collision case. */
 fun emit_vector_write_set(operation :: Operation):
   def vector = operation.operands[0]
   def enables = operation.operands[1]
@@ -698,6 +739,7 @@ fun emit_vector_write_set(operation :: Operation):
     index_refs := index_refs ++ [index_ref]
     data_refs := data_refs ++ [data_ref]
 
+  /* Builds a balanced nonempty OR tree, carrying an unpaired leaf unchanged to the next level. */
   fun reduce_or(refs :: List.of(String), width :: PosInt, stem :: String):
     def mutable current = refs
     def mutable level = 0
@@ -819,26 +861,30 @@ fun emit_vector_write_set(operation :: Operation):
   )]
   String.join(lines, "\n")
 
+/* Renders asynchronous-read memory storage with its depth and logical element type. */
 fun circt_memory_type(memory :: Memory):
   String.append("!seq.hlmem<", to_string(memory.depth), "x",
                 circt_type(memory.element_type), ">")
 
+/* Assigns an SSA reference to one module-local memory resource identity. */
 fun memory_ref(memory :: Memory):
   "%__rhodium_memory_" ++ to_string(memory.id)
 
-// CIRCT represents the sole address of a depth-one memory with i0, while Rhodium
-// deliberately keeps collection indices authorable as at least Bits(1).
+/* CIRCT represents the sole address of a depth-one memory with i0, while Rhodium
+   deliberately keeps collection indices authorable as at least Bits(1). */
 fun memory_index_ref(operation :: Operation, memory :: Memory, address :: Value):
   if memory.depth == 1
   | "%__rhodium_memory_index_" ++ to_string(operation.id)
   | value_ref(address)
 
+/* Emits the sole i0 address for depth-one storage and no adapter for larger memories. */
 fun emit_memory_index(operation :: Operation, memory :: Memory, address :: Value):
   if memory.depth == 1
   | String.append("    ", memory_index_ref(operation, memory, address),
                   " = hw.constant 0 : i0\n")
   | ""
 
+/* Declares uninitialized high-level memory using its shared write clock or an inert clock if unwritten. */
 fun emit_memory(operation :: Operation):
   def memory = operation.attribute("memory")
   def writes = operation.module_def.operations.filter(
@@ -858,6 +904,7 @@ fun emit_memory(operation :: Operation):
                 " ", clock_ref, ", ", reset_ref, " : ",
                 circt_memory_type(memory))
 
+/* Emits a zero-latency read with the depth-one address-width adaptation when needed. */
 fun emit_memory_read_async(operation :: Operation):
   def memory = operation.attribute("memory")
   def address = operation.operands[0]
@@ -866,6 +913,7 @@ fun emit_memory_read_async(operation :: Operation):
                 memory_ref(memory), "[", memory_index_ref(operation, memory, address),
                 "] {latency = 0 : i64} : ", circt_memory_type(memory))
 
+/* Emits an enabled one-cycle write to the declared memory without adding reset or collision priority. */
 fun emit_memory_write(operation :: Operation):
   def memory = operation.attribute("memory")
   def address = operation.operands[0]
@@ -876,6 +924,7 @@ fun emit_memory_write(operation :: Operation):
                 value_ref(operation.operands[3]),
                 " {latency = 1 : i64} : ", circt_memory_type(memory))
 
+/* Computes the flat packed storage and optional granule-mask widths for a synchronous memory. */
 fun sync_memory_type(operation :: Operation):
   def width = operation.attribute("element_type").packed_width()
   unless width is_a PosInt
@@ -891,6 +940,7 @@ fun sync_memory_type(operation :: Operation):
                 if mask_width | ", mask " ++ to_string(mask_width) | "",
                 ">")
 
+/* Emits fixed-latency firmem ports, packing aggregate data and preserving undefined read results. */
 fun emit_sync_memory(operation :: Operation):
   def clock_ref = "%__rhodium_sync_memory_clock_" ++ to_string(operation.id)
   def memory_ref = "%" ++ operation.attribute("name")
@@ -1020,6 +1070,7 @@ fun emit_sync_memory(operation :: Operation):
                 | ""
                 | "\n" ++ String.join(port_operations, "\n"))
 
+/* Declares the verified foreign input and result ABI without changing external function identity. */
 fun emit_dpi_import(dpi_import :: DpiImport):
   def inputs:
     for List (name in dpi_import.input_names, type in dpi_import.input_types):
@@ -1032,6 +1083,7 @@ fun emit_dpi_import(dpi_import :: DpiImport):
                 String.join(arguments, ", "),
                 ")")
 
+/* Emits a rising-edge assertion gated by the sampled guard and inverse synchronous reset. */
 fun emit_assert(operation :: Operation):
   def condition = operation.operands[0]
   def clock = operation.operands[1]
@@ -1052,6 +1104,7 @@ fun emit_assert(operation :: Operation):
                 if label | " label \"" ++ label ++ "\"" | "",
                 " : i1")
 
+/* Emits an enabled clocked foreign call with zero, one, or multiple typed results. */
 fun emit_dpi_operation(operation :: Operation):
   def dpi_import = operation.attribute("dpi_import")
   def clock_ref = "%__rhodium_dpi_clock_" ++ to_string(operation.id)
@@ -1075,6 +1128,7 @@ fun emit_dpi_operation(operation :: Operation):
                 " enable ", value_ref(operation.operands[1]),
                 " : (", input_types, ") -> ", result_type)
 
+/* Emits explicit-clock firreg state with optional synchronous reset and verified async_reg stage metadata. */
 fun emit_register(operation :: Operation):
   def current = operation.results[0]
   def next = operation.places[0]
@@ -1097,6 +1151,7 @@ fun emit_register(operation :: Operation):
                 value_ref(next.driver), " clock ", clock_ref,
                 reset_text, attribute_text, " : ", circt_type(current.type))
 
+/* Connects one child occurrence in verified input/result order with the child module's port types. */
 fun emit_instance(operation :: Operation):
   def child = operation.attribute("module")
   def instance_name = operation.attribute("name")
@@ -1120,6 +1175,7 @@ fun emit_instance(operation :: Operation):
                 "(", String.join(inputs, ", "), ") -> (",
                 String.join(outputs, ", "), ")")
 
+/* Dispatches concrete operations to CIRCT lowering, omitting alias/structural metadata and rejecting gaps. */
 fun emit_operation(operation :: Operation):
   if alias_operation(operation)
   | ""
@@ -1210,10 +1266,13 @@ fun emit_operation(operation :: Operation):
         error(~who: #'emit_circt,
               "no CIRCT lowering for operation " ++ operation.opcode)
 
+/* Renders one concrete module in a fresh alias-free type environment. */
 fun emit_module_circt(module_def :: Module):
   parameterize { current_circt_types: fresh_circt_types() }:
     render_module_circt(module_def)
 
+/* Renders a concrete module under the current type environment, deriving synchronizer stage
+   attributes from verified evidence and resolving output drivers to their SSA values. */
 fun render_module_circt(module_def :: Module):
   require_concrete_module(module_def)
   def ports:
@@ -1245,6 +1304,7 @@ fun render_module_circt(module_def :: Module):
                 String.join(operations ++ [output], "\n"),
                 "\n  }")
 
+/* Verifies the design and emits ordered aliases, DPI declarations, and modules with emission-local caches. */
 fun emit_circt(design :: Design):
   verify_design(design)
   parameterize { current_circt_types: fresh_circt_types() }:
