@@ -78,10 +78,10 @@ $(PROGRAM_TARGET):
 	@echo "Prebuilt program target descriptor is missing: $@" >&2; exit 2
 endif
 
-isa-smoke-config:
+isa-smoke-config: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(SMOKE_SOCS))" || (echo 'ISA smoke supports SOC=$(SMOKE_SOCS)' >&2; exit 2)
 	mkdir -p "$(ISA_SMOKE_DIR)"
-	cd "$(REPO_DIR)" && tools/run-racket.sh -S "$(REPO_DIR)" sims/program-test/write-target.rhm $(PROGRAM_TARGET_SELECTION) "$(ISA_SMOKE_DIR)/target.json"
+	cp "$(PROGRAM_TARGET)" "$(ISA_SMOKE_DIR)/target.json"
 
 isa-smoke-elfs: isa-smoke-config
 	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite isa --source "$(RISCV_TESTS_DIR)" \

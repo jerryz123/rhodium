@@ -385,6 +385,8 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
                      $(FESVR_LIBRARY) $(SOC_DPI_DEPENDENCY)
 	# Direct RTL keeps legal constant comparisons that CIRCT normally folds.
 	# The outer prerequisites include libraries omitted from Verilator's link rule.
+	# Statistics can be written before Verilator creates its output directory.
+	mkdir -p $(SOC_OBJECT_DIR)
 	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) \
 	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \

@@ -355,10 +355,24 @@ class ProgramShardReportTest(unittest.TestCase):
 
 
 class ProductSelectionTest(unittest.TestCase):
+    def setUp(self):
+        self.build_directory = tempfile.TemporaryDirectory()
+        self.addCleanup(self.build_directory.cleanup)
+
     def dry_run(self, *arguments, target='program-target'):
+        if not any(argument.startswith('BUILD_ROOT=') for argument in arguments):
+            arguments = (f'BUILD_ROOT={self.build_directory.name}', *arguments)
         return subprocess.run(
             ['make', '-C', str(SCRIPTS.parent), '-n', target,
              'SPIKE_IDENTITY=fixture', *arguments], capture_output=True, text=True)
+
+    def test_simulator_creates_output_directory_before_statistics(self):
+        result = self.dry_run('SOC=tiled-rv5stage-rva23', 'VERILATOR=verilator --stats', target='simulator')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        directory = f'{self.build_directory.name}/tiled-rv5stage-rva23/obj'
+        self.assertLess(result.stdout.index(f'mkdir -p {directory}\n'),
+                        result.stdout.index('verilator --stats --binary'))
+        self.assertIn(f'--Mdir {directory}', result.stdout)
 
     def test_explicit_axes_and_product_key_share_artifacts(self):
         axes = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rva23')
@@ -387,6 +401,22 @@ class ProductSelectionTest(unittest.TestCase):
                 self.assertIn('ISA smoke supports SOC=mini simple tiled', result.stdout)
                 self.assertIn(f'/simple-{core}-{isa}/isa-smoke/manifest.json', result.stdout)
 
+    def test_isa_smoke_reuses_prebuilt_target_without_elaboration(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            target = root / 'program-target.json'
+            target.write_text(json.dumps(program_target('tiled-rv5stage-rva23')))
+            command = ['make', '-C', str(SCRIPTS.parent), 'isa-smoke-config',
+                       'SOC=tiled-rv5stage-rva23', f'PREBUILT_PROGRAM_TARGET={target}',
+                       f'ISA_SMOKE_DIR={root / "smoke"}', 'SPIKE_IDENTITY=fixture', 'RACKET=false']
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual((root / 'smoke/target.json').read_bytes(), target.read_bytes())
+            target.unlink()
+            result = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn('Prebuilt program target descriptor is missing', result.stderr)
+
     def test_backend_selection_isolates_models_and_attests_emitted_rtl(self):
         with tempfile.TemporaryDirectory() as directory:
             for backend, suffix, artifact in (('circt', '', 'soc_harness.mlir'),
@@ -400,7 +430,7 @@ class ProductSelectionTest(unittest.TestCase):
                     self.assertIn(f'--backend {backend} --variant normal', result.stdout)
                     self.assertIn(f'--Mdir {root}/obj', result.stdout)
                     if backend == 'verilog':
-                        self.assertIn('--backend verilog simple rv5stage rva23', result.stdout)
+                        self.assertRegex(result.stdout, r'--backend\s+verilog\s+simple\s+rv5stage\s+rva23')
                         self.assertNotIn('circt-opt', result.stdout)
                     else:
                         self.assertIn('--export-verilog', result.stdout)

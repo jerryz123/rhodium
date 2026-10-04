@@ -123,22 +123,25 @@ jobs:
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   simulator:
-    name: Shared simulators
+    name: Product simulator chains
     needs: [plan, compile-racket]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}
     uses: ./.github/workflows/ci-simulator.yml
     with:
-      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).simulator_matrix) }}
+      product: ${{ toJSON(matrix) }}
+      run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   simulation:
-    name: Simulation
+    name: Platform qualifications
     needs: [plan, compile-racket, simulator]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
     uses: ./.github/workflows/ci-simulation.yml
     with:
-      matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).simulation_matrix) }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 

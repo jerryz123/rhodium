@@ -127,8 +127,8 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
-    Compile --> Simulators["Reusable simulator workflow<br/>twenty exact products for simulation;<br/>six full-suite Single products for software only"]
-    Simulators --> Simulation["Per-product simulation jobs<br/>shape/ISA-selected software;<br/>both Tiled multihart suites"]
+    Compile --> Simulators["Per-product reusable workflows<br/>twenty exact products for simulation;<br/>six full-suite Single products for software only"]
+    Simulators --> Simulation["Each product's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
     Compile --> QualificationTargets["Generate qualification targets and DTBs<br/>group compatible builds"]
     QualificationTargets --> QualificationBuilds["Shared litmus / OpenSBI build artifacts"]
     QualificationBuilds --> Qualification["Per-product qualification execution<br/>litmus histograms; OpenSBI handoff"]
@@ -142,6 +142,7 @@ flowchart TD
     Simulators --> ActRun["Six-profile ACT execution<br/>16 RV5Stage RVA23; 8 RV5Stage RV32 / Spike RVA23;<br/>4 Spike RV32"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
+    Simulators --> Gate
     Simulation --> Gate
     Qualification --> Gate
     Programs --> Gate
@@ -157,8 +158,15 @@ requires Verilator without CIRCT; the differential lane installs both. Its
 Builder fixtures, oracle, and runner live under
 [`rhodium/backend/tests/verilog/`](../../rhodium/backend/tests/verilog/); see the
 [backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation). The
-simulation workflow remains independent from backend fixtures and owns the
-repository's harness and ISA-smoke flow. Each OpenSBI qualification has its own
+root simulator matrix calls `ci-simulator.yml` once per product. Each call
+publishes its simulator before starting `ci-harness.yml`; its harness depends
+only on that product's build. The simulator result aggregates both phases for
+the stable gate. Software and platform qualifications still consume the shared
+simulator artifacts after the full build-and-harness product matrix completes.
+Producers upload build logs and Verilator pass statistics independently of their
+simulator artifacts, including on failure. `ci-simulation.yml`
+owns platform qualification grouping and execution, independently of backend
+fixtures. Each OpenSBI qualification has its own
 job budget and uses the matching exact-commit single-core simulator artifact,
 so firmware execution cannot consume another SoC's or the harness job's budget.
 That workflow groups litmus builds by software requirements and OpenSBI builds
@@ -204,7 +212,14 @@ products receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
 `rv64imafdcb` presets enroll only their paired Simple products; these six products
 run only that suite, without ACT,
 benchmarks, or platform qualifications. Both Tiled cores run the
-eight-hart benchmark manifests in CI. Software selection is a
+eight-hart benchmark manifests in CI. Harness jobs compile their platform and
+ISA-smoke software with the RISC-V toolchain, but ordinary RV5Stage jobs install
+no Racket, CIRCT, Verilator, or FESVR. ISA-smoke target preparation copies the
+producer's target descriptor; the ordinary manifest and simulator checks retain
+configuration validation. Only mapped MiniRV5Stage checks install Racket and
+hardware build tools. Spike consumers restore their required runtime libraries.
+Native DPI and transport checks run once in the Simple RV5Stage CIRCT producer,
+where their build dependencies already exist. Software selection is a
 function of SoC shape and ISA, never core identity. No timeout or prior failure
 removes a workload from one core. None receives the full
 single-hart suite matrices. ACT configuration

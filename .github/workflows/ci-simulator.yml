@@ -1,4 +1,4 @@
-# Builds and attests the selected SoC/core simulator products for exact-commit reuse.
+# Builds one attested simulator and starts its harness without waiting for other products.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI simulator
@@ -14,10 +14,14 @@ on:
         description: Pinned Rhombus package checksum.
         required: true
         type: string
-      matrix:
-        description: Product matrix selected by the CI planner.
+      product:
+        description: One product selected by the CI planner.
         required: true
         type: string
+      run-harness:
+        description: Run this product's selected harness tests after publication.
+        required: true
+        type: boolean
 
 permissions:
   contents: read
@@ -27,7 +31,8 @@ jobs:
     name: Build ${{ matrix.simulator_id }} simulator
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(inputs.matrix) }}
+      matrix:
+        include: ${{ fromJSON(format('[{0}]', inputs.product)) }}
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -63,7 +68,7 @@ jobs:
           RTL_BACKEND: ${{ matrix.backend }}
           SIMULATOR_ID: ${{ matrix.simulator_id }}
         run: |
-          make -C sims simulator program-target SOC="$SOC"
+          make -C sims simulator program-target SOC="$SOC" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
           ldd "/tmp/rhodium-sims/$SIMULATOR_ID/obj/VTestDriver"
       - name: Test Spike DPI integration
         if: matrix.core == 'spike'
@@ -71,6 +76,13 @@ jobs:
           verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
           test -n "$verilator_root"
           make -C sims spike-core-test spike-dpi-abi-check VERILATOR_ROOT="$verilator_root"
+      - name: Test native harness adapters
+        if: inputs.run-harness && matrix.backend == 'circt' && matrix.soc == 'simple-rv5stage-rva23'
+        run: |
+          verilator_root="$(verilator -V | sed -n 's/^ *VERILATOR_ROOT *= *//p' | head -1)"
+          test -n "$verilator_root"
+          make -C sims dpi-compile-check VERILATOR_ROOT="$verilator_root"
+          make -C sims transport-test arch-test-adapter-test program-test-adapter-test cosim-hooks-test simulation-runtime-test
       - name: Publish exact simulator and target descriptor
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -81,3 +93,23 @@ jobs:
             /tmp/rhodium-sims/${{ matrix.simulator_id }}/obj/program-target.json
           if-no-files-found: error
           retention-days: 3
+
+      - name: Publish simulator build diagnostics
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: simulator-build-${{ matrix.simulator_id }}-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/${{ matrix.simulator_id }}-build.log
+            /tmp/rhodium-sims/${{ matrix.simulator_id }}/obj/VTestDriver__stats*.txt
+          if-no-files-found: warn
+          retention-days: 7
+
+  harness:
+    needs: build
+    if: inputs.run-harness
+    uses: ./.github/workflows/ci-harness.yml
+    with:
+      product: ${{ inputs.product }}
+      racket-version: ${{ inputs.racket-version }}
+      rhombus-checksum: ${{ inputs.rhombus-checksum }}

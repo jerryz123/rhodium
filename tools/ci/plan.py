@@ -221,12 +221,10 @@ class Selection:
         run_simulator = self.simulation or run_program_native or self.arch
         products = (SIMULATOR_PRODUCTS if self.simulation else
                     tuple(product for product in SIMULATOR_PRODUCTS if product[0] in SINGLE_CORE_SOCS))
-        builds = [simulator_entry(*product) for product in products] if run_simulator else []
-        simulations = []
+        entry = simulation_entry if self.simulation else simulator_entry
+        builds = [entry(*product) for product in products] if run_simulator else []
         if self.simulation:
-            builds.append(simulator_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
-            simulations = [simulation_entry(*product) for product in SIMULATOR_PRODUCTS]
-            simulations.append(simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
+            builds.append(simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
         return {
             "run_compile": run_checks or run_simulator,
             "run_checks": run_checks,
@@ -234,7 +232,6 @@ class Selection:
             "run_simulator": run_simulator,
             "simulator_matrix": {"include": builds},
             "run_simulation": self.simulation,
-            "simulation_matrix": {"include": simulations},
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,

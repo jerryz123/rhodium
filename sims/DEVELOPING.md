@@ -699,14 +699,32 @@ upstream virtual environment owns its own stack and page tables. Keep its
 fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
-The simulation CI matrix downloads and verifies one exact-commit simulator and
-target descriptor per product. Products other than the three Simple smoke-only
+The root simulator matrix starts one reusable build-to-harness chain per product.
+Each producer publishes its exact-commit simulator and target descriptor before
+its own harness starts; no harness waits for unrelated simulator builds.
+`ci-harness.yml` downloads and verifies those artifacts. Ordinary RV5Stage
+harness execution needs the RISC-V software compiler and Python, not hardware
+build tools or Racket. ISA smoke copies the already-generated `PROGRAM_TARGET`
+into its suite directory instead of re-elaborating a target. A missing prebuilt
+descriptor is an error, never permission to regenerate it. Native DPI/transport,
+co-simulation hook, and runtime checks run in the Simple RV5Stage CIRCT producer.
+Mapped Mini execution
+retains its separate build dependencies; Spike consumers retain their runtime
+library setup. Products other than the three Simple smoke-only
 presets run platform checks; Mini
 and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
 benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
 each core binding consumes the identical selection. The matrix disables
 fail-fast, attempts every selected target even after failure, and uploads independent results.
 Changes to the adapter or upstream ISA sources must select that job.
+
+Every simulator producer retains its build log and Verilator `--stats` reports
+in a separate `simulator-build-<simulator_id>-<commit>` diagnostic artifact,
+including failed builds. The reports expose conversion-pass timings separately
+from native C++ compilation; use them before tuning output splitting or disabling
+an optimization. Compare simulator execution on the same ELFs and configured
+hart count before accepting a build-time improvement. Keep assertions and the
+hardware configuration unchanged during these comparisons.
 
 Native suite CI first generates the selected program targets using the shared
 Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
@@ -817,7 +835,7 @@ by index modulo shard count. Its tests enforce disjoint full coverage and safe
 replacement of stale shard links. Shard inventories and results are artifacts;
 all configured matrix jobs must complete to claim full execution coverage.
 
-The shared CI build publishes `VTestDriver` and its JSON attestation. Consumers
+Each product CI build publishes `VTestDriver` and its JSON attestation. Consumers
 set `PREBUILT_SIMULATOR` to the downloaded executable. This bypasses native
 build prerequisites and verifies commit, platform, SoC, and binary hash before
 execution; missing artifacts must fail rather than silently build a replacement.
