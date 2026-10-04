@@ -117,6 +117,8 @@ cache. The root targets below already do so.
 | Compiler/backend host contracts | `make backend-test` |
 | Direct SV and authored integrations, without CIRCT | `make verilog-test` |
 | Both backends against oracles and each other | `make backend-differential-test` |
+| CI no-CIRCT smoke | `make ci-verilog-direct-test` |
+| CI compiler comparison and authored direct behavior/manifests | `make ci-backend-differential-test` |
 | One family | `python3 rhodium/backend/tests/verilog/run.py --family sync-memory --differential` |
 | One authored integration | `python3 rhodium/backend/tests/verilog/run-integration.py --fixture uart-dpi --differential` |
 
@@ -125,6 +127,16 @@ and defaults to all. `--differential` additionally requires the pinned CIRCT
 executable (`CIRCT_OPT`, PATH, or repository installation). Both routes use
 Verilator with runtime assertions; direct-only execution must not require CIRCT.
 Failed runs retain their temporary logs/artifacts; successful runs remove them.
+
+The authored runner's `--check-manifests` compares both targets' signatures,
+module inventories, portable-lowering decisions, trace descriptors, and source
+preservation, but simulates only direct SV. CI uses this mode because the
+language, standard-library, and protocol lanes already run the same authored
+CIRCT benches. The planner always selects those owners alongside the
+differential lane. Local `--differential` retains both behavioral routes for
+self-contained integration checks. The full direct suite remains available
+locally; CI's independent direct lane runs only SyncRam with an invalid
+`CIRCT_OPT` to protect backend independence without repeating the full suite.
 
 ### Behavioral coverage
 

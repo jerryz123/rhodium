@@ -29,7 +29,7 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 | Fallback-aware allocation | [`allocator.rhdl`](allocator.rhdl) |
 | Single-beat and uniform-family routers, physical-slot binding, and unused-local closure | [`router.rhdl`](router.rhdl) |
 | Wormhole reservation and switching | [`wormhole-router.rhdl`](wormhole-router.rhdl) |
-| Backend fixture designs | [`tests/`](tests/) |
+| Behavioral fixture designs | [`tests/`](tests/) |
 | CIRCT emitters and Verilator benches | [`tests/circt/`](tests/circt/) |
 | Shared CIRCT runner | [`../../tools/testing/circt/`](../../tools/testing/circt/DEVELOPING.md) |
 
@@ -52,7 +52,7 @@ wiring. NoC RTL owns only reusable realization of the supplied plan.
 
 ## Focused validation
 
-Run the complete host-side NoC suite from the repository root:
+Run the pure-model, proof, and hardware-plan NoC suite from the repository root:
 
 ```sh
 make noc-test

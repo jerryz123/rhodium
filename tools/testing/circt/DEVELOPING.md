@@ -85,6 +85,13 @@ roots rather than collecting uninstantiated circuit references in a suite.
 manifest coverage and validate only declared golden exports without running
 CIRCT or Verilator.
 
+`--list-example-sources` exposes the manifest's unique source paths without
+loading Racket or external tools. CI subtracts those paths from the non-formal
+example inventory to select its auxiliary host examples; the owning CIRCT
+lane already executes each declared source's top-level checks and elaboration.
+Keep example checks at top level so materialization exercises them. Local
+example targets still run complete groups independently.
+
 Behavioral benches live under the owning package's `tests/circt/verilog/`.
 An example fixture with a top uses `verilog/<fixture>_tb.sv`. The runner
 automatically links a matching `verilog/<fixture>_dpi.cpp`; direct emitter

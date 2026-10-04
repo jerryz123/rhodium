@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 .PHONY: verilog-test backend-differential-test
+.PHONY: ci-verilog-direct-test ci-backend-differential-test ci-host-examples-test print-ci-host-examples
 .PHONY: sram-test
 .PHONY: setup-verilator
 export PATH := $(CURDIR)/.tools/verilator/bin:$(PATH)
@@ -53,6 +54,8 @@ CORE_EXAMPLES := $(sort $(shell find examples/cores -type f \( -name '*.rhm' -o 
 FORMAL_EXAMPLES := $(sort $(shell find examples/formal -type f \( -name '*.rhm' -o -name '*.rhdl' \)))
 RV5STAGE_EXAMPLES := $(sort $(shell find examples/rv5stage -type f \( -name '*.rhm' -o -name '*.rhdl' \)))
 EXAMPLES := $(sort $(shell find examples -path examples/formal -prune -o -type f \( -name '*.rhm' -o -name '*.rhdl' \) -print) $(RFPL_EXAMPLES))
+CIRCT_EXAMPLES = $(shell bash tools/testing/circt/run.sh --list-example-sources)
+CI_HOST_EXAMPLES = $(filter-out $(CIRCT_EXAMPLES),$(EXAMPLES))
 RACKET_COMPILE_SOURCES := $(sort \
   $(SUPPORT_ANNOTATION_TESTS) $(CORE_TESTS) $(LOWERING_TESTS) $(ANALYSIS_TESTS) $(FRONTEND_TESTS) \
   $(STD_TESTS) $(FLOW_TESTS) $(EVENT_TESTS) $(DIAGRAM_TESTS) $(BACKEND_TESTS) $(COMPILE_TESTS) \
@@ -71,6 +74,9 @@ RACKET_COMPILE_SOURCES := $(sort \
 
 print-racket-compile-sources:
 	@printf '%s\n' $(RACKET_COMPILE_SOURCES)
+
+print-ci-host-examples:
+	@printf '%s\n' $(CI_HOST_EXAMPLES)
 
 check-boundaries:
 	bash tools/check-boundaries.sh
@@ -147,6 +153,13 @@ verilog-test: check-boundaries
 backend-differential-test: check-boundaries
 	python3 rhodium/backend/tests/verilog/run.py --differential
 	python3 rhodium/backend/tests/verilog/run-integration.py --differential
+
+ci-verilog-direct-test: check-boundaries
+	CIRCT_OPT=/nonexistent python3 rhodium/backend/tests/verilog/run-integration.py --fixture sync-ram
+
+ci-backend-differential-test: check-boundaries
+	python3 rhodium/backend/tests/verilog/run.py --differential
+	python3 rhodium/backend/tests/verilog/run-integration.py --check-manifests
 
 formal-test: check-boundaries
 	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \
@@ -289,9 +302,13 @@ update-verilog-goldens:
 
 host-checks: check-license-headers check-parameter-annotations support-annotation-test devicetree-test unit-test rfpl-unit-test noc-test riscv-test device-test chi-test soc-test hardfloat-host-test rv5stage-host-test
 
-ci-host-foundation-test: support-annotation-test frontend-test lop-test
+ci-host-foundation-test: support-annotation-test frontend-test std-test flow-test event-test diagram-test
 
 ci-host-backend-test: backend-test
+	python3 -m unittest discover -s rhodium/backend/tests/verilog -p 'test_*.py'
+
+ci-host-examples-test:
+	tools/run-racket-tests.sh $(CI_HOST_EXAMPLES)
 
 ci-host-models-test: devicetree-test noc-test riscv-test hardfloat-host-test
 

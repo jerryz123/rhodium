@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, EXAMPLE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, arch_products, arch_shards
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, arch_products, arch_shards
 
 
 def matches(path, *patterns):
@@ -24,6 +24,9 @@ class Selection:
 
     def add_checks(self, *keys):
         self.checks.update(keys)
+        if "circt-verilog-differential" in keys:
+            # Authored comparisons reuse these lanes' CIRCT behavioral oracles.
+            self.checks.update(("circt-language", "circt-std", "circt-protocols"))
 
     def add_native(self, *suites):
         self.native_suites.update(suites)
@@ -109,27 +112,27 @@ class Selection:
         elif path == "Makefile":
             self.all()
         elif path == "tools/check-example-verilog.sh":
-            self.add_checks("host-hygiene", *CIRCT_CHECKS, *EXAMPLE_CHECKS)
+            self.add_checks("host-hygiene", "host-examples", *CIRCT_CHECKS)
         elif matches(path, "tools/testing/circt/*"):
-            self.add_checks(*CIRCT_CHECKS)
+            self.add_checks("host-hygiene", "host-examples", *CIRCT_CHECKS)
         elif path == "tools/testing/run-negative.rkt":
             self.add_checks(*HOST_CHECKS)
         elif path == "tools/run-racket-tests.sh":
-            self.add_checks(*HOST_CHECKS, "verilog-direct", *EXAMPLE_CHECKS)
+            self.add_checks(*HOST_CHECKS, "verilog-direct")
             self.simulation = True
             self.all_programs()
         elif matches(path, "tools/run-racket.sh", "tools/racket-build-cache.sh", "tools/refresh-racket-project-cache.sh", "tools/invalidate-racket-build-cache.rkt"):
-            self.add_checks(*HOST_CHECKS, "verilog-direct", *CIRCT_CHECKS, *EXAMPLE_CHECKS)
+            self.add_checks(*HOST_CHECKS, "verilog-direct", *CIRCT_CHECKS)
             self.simulation = True
             self.all_programs()
         elif path == "tools/testing/racket-build-cache-test.sh":
             self.add_checks("host-hygiene")
         elif path == "tools/write-rv5stage-core-diagram.rhm":
-            self.add_checks("example-rv5stage")
+            self.add_checks("host-examples")
         elif path == "tools/write-riscv-udb-config.rhm":
             self.add_checks("host-models", "host-cores", "host-socs")
         elif path == "tools/write-noc-router-diagram.rhm":
-            self.add_checks("example-noc")
+            self.add_checks("host-examples")
         elif matches(path, ".githooks/pre-commit", "tools/check-license-headers.sh", "tools/check-parameter-annotations.rkt", "tools/parameter-annotation-scope.txt", "tools/check-boundaries.sh", "rfpl/check-boundaries.sh", "noc/check-boundaries.sh", "riscv/check-boundaries.sh", "chi/check-boundaries.sh", "cores/check-boundaries.sh", "socs/check-boundaries.sh"):
             self.add_checks("host-hygiene")
         elif matches(path, "rhodium/event/*", "rheg/*"):
@@ -138,53 +141,53 @@ class Selection:
         elif matches(path, "rhodium/core/*", "rhodium/lowering/*", "rhodium/analysis/*", "rhodium/frontend/*", "rhodium/base/*", "rhodium/language.rhm", "rhodium/main.rkt"):
             self.all()
         elif matches(path, "rhodium/std/*", "flow/*"):
-            self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "circt-language", "circt-std", "circt-protocols", *CIRCT_CORE_CHECKS, "example-rtl", "example-clocking", "example-std", "example-noc", "example-riscv", "example-chi", "example-cores", "example-rv5stage")
+            self.add_checks("host-hygiene", "host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-examples", "circt-language", "circt-std", "circt-protocols", *CIRCT_CORE_CHECKS)
             self.simulation = True
         elif matches(path, "rhodium/backend/*", "rhodium/compile/*"):
             self.add_checks("host-backend", "verilog-direct", *CIRCT_CHECKS)
             self.simulation = True
         elif matches(path, "examples/rtl/*"):
-            self.add_checks("example-rtl", "circt-language")
+            self.add_checks("host-examples", "circt-language")
         elif matches(path, "examples/clocking/*"):
-            self.add_checks("example-clocking")
+            self.add_checks("host-examples", "circt-language")
         elif matches(path, "examples/formal/*"):
             self.add_checks("host-foundation")
         elif matches(path, "examples/std/*"):
-            self.add_checks("example-std", "circt-std")
+            self.add_checks("host-examples", "circt-std")
         elif matches(path, "examples/noc/*"):
-            self.add_checks("example-noc", "circt-protocols")
+            self.add_checks("host-examples", "circt-protocols")
         elif matches(path, "examples/lop/*"):
-            self.add_checks("example-lop", "circt-language")
+            self.add_checks("host-examples", "host-foundation", "host-backend", "circt-language")
         elif matches(path, "examples/rfpl/*"):
-            self.add_checks("example-rfpl", "circt-rfpl")
+            self.add_checks("host-examples", "circt-rfpl")
         elif matches(path, "examples/riscv/*"):
-            self.add_checks("example-riscv", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-examples", "circt-core-components")
         elif matches(path, "examples/chi/*"):
-            self.add_checks("example-chi", "circt-protocols")
+            self.add_checks("host-examples", "circt-protocols")
         elif matches(path, "examples/cores/*"):
-            self.add_checks("example-cores", *CIRCT_CORE_CHECKS)
+            self.add_checks("host-examples", "circt-core-components", "circt-core-execution-datapath")
         elif matches(path, "examples/rv5stage/*"):
-            self.add_checks("example-rv5stage")
+            self.add_checks("host-examples")
         elif matches(path, "examples/*"):
             self.all()
         elif matches(path, "rfpl/*"):
-            self.add_checks("host-protocols", "circt-rfpl", "example-rfpl")
+            self.add_checks("host-protocols", "circt-rfpl", "host-examples")
         elif matches(path, "noc/*"):
-            self.add_checks("host-models", "host-socs", "circt-protocols", "example-noc")
+            self.add_checks("host-models", "host-socs", "circt-protocols", "host-examples")
         elif matches(path, "riscv/*"):
-            self.add_checks("host-models", "host-cores", "host-socs", *CIRCT_CORE_CHECKS, "example-riscv", "example-cores", "example-rv5stage")
+            self.add_checks("host-models", "host-cores", "host-socs", "host-examples", *CIRCT_CORE_CHECKS)
         elif matches(path, "hardfloat/*"):
             self.add_checks("host-models", *CIRCT_CORE_CHECKS)
             self.simulation = True
         elif matches(path, "devicetree/*"):
             self.add_checks("host-models")
         elif matches(path, "chi/subordinate/memory-controller.rhdl", "chi/subordinate/dpi-memory.rhdl", "chi/subordinate/dpi/*", "chi/tests/dpi-memory-*", "chi/tests/chi_dpi_memory_*"):
-            self.add_checks("host-protocols", "host-socs", "circt-protocols", "example-chi")
+            self.add_checks("host-protocols", "host-socs", "circt-protocols", "host-examples")
             self.simulation = True
         elif matches(path, "chi/*"):
-            self.add_checks("host-protocols", "host-socs", "circt-protocols", "example-chi")
+            self.add_checks("host-protocols", "host-socs", "circt-protocols", "host-examples")
         elif matches(path, "cores/*"):
-            self.add_checks("host-cores", "host-socs", *CIRCT_CORE_CHECKS, "example-cores", "example-rv5stage")
+            self.add_checks("host-cores", "host-socs", "host-examples", *CIRCT_CORE_CHECKS)
             self.simulation = True
         elif matches(path, "sims/fesvr/*.rhdl"):
             self.add_checks("circt-protocols")

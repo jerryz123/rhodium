@@ -34,8 +34,11 @@ Representative compiler integration tests may reuse existing package-owned
 circuits, benches, and DPI companions. The direct/differential backend targets
 include SyncRam and UART DPI integrations; their focused invocation and checks
 are documented in the [backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation).
-Keep those test artifacts with their original owners and route dependency
-changes to both backend CI lanes.
+Keep those test artifacts with their original owners. CI runs direct authored
+behavior plus shared-target manifest comparisons in the differential lane,
+reusing the language, standard-library, and protocol lanes for CIRCT behavior.
+The planner enrolls those three owners whenever it selects the differential
+lane. A separate SyncRam smoke retains the no-CIRCT dependency boundary.
 
 ## Authoring principles
 
@@ -126,7 +129,7 @@ flowchart TD
     Docs -->|no| Selected["Dependency-aware selection"]
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
-    Compile --> Checks["Capability matrix<br/>host, examples, and CIRCT"]
+    Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
     Compile --> Simulators["Per-product reusable workflows<br/>twenty exact products for simulation;<br/>six full-suite Single products for software only"]
     Simulators --> Simulation["Each product's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
     Compile --> QualificationTargets["Generate qualification targets and DTBs<br/>group compatible builds"]
@@ -154,11 +157,20 @@ CHI, core, and shared standard/flow library changes also select the SoC host sha
 when their behavior feeds system composition. Backend implementation or fixture
 changes select the backend host shard, direct SystemVerilog simulation, and every
 external CIRCT group, including the backend differential route. The direct lane
-requires Verilator without CIRCT; the differential lane installs both. Its
+requires Verilator without CIRCT and runs one authored SyncRam smoke; the
+differential lane installs both and owns the full compiler behavioral families. Its
 Builder fixtures, oracle, and runner live under
 [`rhodium/backend/tests/verilog/`](../../rhodium/backend/tests/verilog/); see the
 [backend contributor guide](../../rhodium/backend/DEVELOPING.md#validation). The
-root simulator matrix calls `ci-simulator.yml` once per product. Each call
+example manifest partitions execution: CIRCT loads and checks each declared
+example source once in its owning lane, while `ci-host-examples-test` derives
+the remaining non-formal examples by subtracting the manifest's source list.
+Keep the local example targets for focused authoring checks; do not add a
+second CI lane that merely reloads the same concrete designs. The foundation
+host lane also executes standard-library, Flow, event, and diagram contracts;
+the frontend and backend host owners execute their equivalence tests once.
+
+The root simulator matrix calls `ci-simulator.yml` once per product. Each call
 publishes its simulator before starting `ci-harness.yml`; its harness depends
 only on that product's build. The simulator result aggregates both phases for
 the stable gate. Software and platform qualifications still consume the shared

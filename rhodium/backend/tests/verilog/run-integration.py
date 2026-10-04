@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Runs existing authored-circuit benches through direct SV and optional CIRCT targets.
+# Runs authored direct-SV benches with optional target-manifest or CIRCT behavioral comparison.
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 import os
@@ -47,7 +47,10 @@ def simulate(work, fixture, route, source, verilator):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--differential", action="store_true")
+    comparison = parser.add_mutually_exclusive_group()
+    comparison.add_argument("--differential", action="store_true")
+    comparison.add_argument("--check-manifests", action="store_true",
+                            help="compare target manifests; reuse package-owned CIRCT simulations")
     parser.add_argument("--fixture", choices=CASES, action="append")
     args = parser.parse_args()
     verilator = shutil.which("verilator")
@@ -64,11 +67,14 @@ def main():
             emitter = [ROOT / "tools/run-racket.sh", FIXTURES / "emit-integration.rhm"]
             direct = run([*emitter, "direct", fixture], work / f"{fixture}-direct-emit.log")
             simulate(work, fixture, "direct", direct, verilator)
-            if args.differential:
+            if args.differential or args.check_manifests:
                 mlir = work / f"{fixture}.mlir"
                 # The emitter compares both targets' manifests on the same
                 # elaboration before publishing any reference artifact.
                 mlir.write_text(run([*emitter, "circt", fixture], work / f"{fixture}-circt-emit.log"))
+                if args.check_manifests:
+                    print(f"{fixture}: direct behavior and compatible target manifests passed", flush=True)
+                    continue
                 reference = run([circt, "--canonicalize", "--cse", "--lower-seq-hlmem", "--lower-seq-firmem",
                                  "--lower-sim-to-sv", "--lower-verif-to-sv",
                                  "--lower-seq-to-sv=disable-mem-randomization=true disable-reg-randomization=true",

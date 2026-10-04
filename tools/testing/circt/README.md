@@ -86,6 +86,10 @@ the manifest without CIRCT, Racket elaboration, or Verilator. For example,
 `bash tools/testing/circt/run.sh --group cores-vector-functional-1 --list-fixtures`
 prints the first functional CI shard.
 
+`bash tools/testing/circt/run.sh --list-example-sources` lists the unique source
+paths for every example-backed fixture, also without external tools. CI uses
+this inventory to avoid executing the same examples in a separate host lane.
+
 The main targets differ in scope and stage:
 
 | Command | Selection and work performed |

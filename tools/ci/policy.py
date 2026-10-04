@@ -40,18 +40,9 @@ CHECKS = (
     Check("host-cores", "Host / cores", "ci-host-cores-test"),
     Check("host-socs", "Host / SoCs", "ci-host-socs-test", dtc=True),
     Check("host-hygiene", "Host / hygiene", "ci-host-hygiene-test"),
-    Check("example-rtl", "Examples / Rhodium", "examples-rhodium", timeout=15),
-    Check("example-clocking", "Examples / clocking analysis", "examples-clocking", timeout=15),
-    Check("example-std", "Examples / standard library", "examples-std", timeout=15),
-    Check("example-noc", "Examples / NoC", "examples-noc", timeout=15),
-    Check("example-lop", "Examples / language-oriented programming", "examples-lop", timeout=15),
-    Check("example-rfpl", "Examples / RFPL", "examples-rfpl", timeout=15),
-    Check("example-riscv", "Examples / RISC-V", "examples-riscv", timeout=15),
-    Check("example-chi", "Examples / CHI", "examples-chi", timeout=15),
-    Check("example-cores", "Examples / processor cores", "examples-cores", timeout=15),
-    Check("example-rv5stage", "Examples / RV5Stage", "examples-rv5stage", timeout=15),
-    Check("verilog-direct", "SystemVerilog / direct", "verilog-test", verilator=True),
-    Check("circt-verilog-differential", "SystemVerilog / differential", "backend-differential-test", circt=True, verilator=True),
+    Check("host-examples", "Host / auxiliary examples", "ci-host-examples-test", timeout=15),
+    Check("verilog-direct", "SystemVerilog / direct smoke", "ci-verilog-direct-test", verilator=True),
+    Check("circt-verilog-differential", "SystemVerilog / differential", "ci-backend-differential-test", circt=True, verilator=True),
     Check("circt-language", "CIRCT / language", "ci-circt-language-test", circt=True, verilator=True),
     Check("circt-std", "CIRCT / standard library", "ci-circt-std-test", circt=True, verilator=True),
     Check("circt-protocols", "CIRCT / protocols", "ci-circt-protocols-test", circt=True, verilator=True),
@@ -71,7 +62,6 @@ CHECKS = (
 CHECK_BY_KEY = {check.key: check for check in CHECKS}
 
 HOST_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("host-"))
-EXAMPLE_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("example-"))
 CIRCT_CHECKS = frozenset(check.key for check in CHECKS if check.key.startswith("circt-"))
 CIRCT_CORE_CHECKS = frozenset(
     check.key for check in CHECKS if check.key.startswith("circt-core-") or check.key == "circt-hardfloat"

@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 
 import re
+import shlex
 import subprocess
 import unittest
 from pathlib import Path
@@ -64,6 +65,43 @@ class PlanTest(unittest.TestCase):
                      "devices/tests/circt/verilog/uart-dpi_dpi.cpp"):
             with self.subTest(path=path):
                 self.assert_checks(path, "verilog-direct", "circt-verilog-differential")
+
+    def test_authored_comparisons_enroll_the_reused_circt_behavioral_owners(self):
+        for path in ("rhodium/backend/tests/verilog/run-integration.py", "examples/std/sync-ram.rhdl",
+                     "devices/uart/dpi/uart_dpi.cc", "rhodium/event/trace-pass.rhm"):
+            self.assert_checks(path, "circt-verilog-differential", "circt-language", "circt-std", "circt-protocols")
+
+    def test_example_execution_is_partitioned_between_host_and_circt(self):
+        self.assert_checks("tools/testing/circt/run.sh", "host-hygiene", "host-examples", "circt-language")
+        circt = set(subprocess.run(["bash", "tools/testing/circt/run.sh", "--list-example-sources"],
+                                  cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines())
+        host = set(subprocess.run(["make", "--no-print-directory", "-s", "print-ci-host-examples"],
+                                 cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines())
+        examples = {str(path.relative_to(REPO)) for path in (REPO / "examples").rglob("*")
+                    if path.suffix in (".rhdl", ".rhm", ".rfpl")
+                    and "formal" not in path.relative_to(REPO / "examples").parts}
+        self.assertEqual(host | (circt & examples), examples)
+        self.assertTrue(host.isdisjoint(circt))
+        self.assertTrue({"examples/clocking/report.rhm", "examples/rv5stage/core-diagram.rhdl"} <= host)
+        for path, owner in (("examples/clocking/reconvergence.rhdl", "circt-language"),
+                            ("examples/std/flit-formats.rhdl", "circt-std"),
+                            ("examples/noc/noc-router.rhdl", "circt-protocols"),
+                            ("examples/riscv/instruction-fields.rhdl", "circt-core-components"),
+                            ("examples/cores/rv5stage.rhdl", "circt-core-execution-datapath"),
+                            ("examples/rfpl/circuit-pair.rhdl", "circt-rfpl")):
+            self.assert_checks(path, owner)
+
+    def test_ci_host_batches_run_each_file_once_and_include_library_contracts(self):
+        targets = [check.target for check in CHECKS if check.key.startswith("host-")]
+        commands = subprocess.run(["make", "--no-print-directory", "-n", *targets],
+                                  cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()
+        files = [path for command in commands if command.startswith("tools/run-racket-tests.sh ")
+                 for path in shlex.split(command)[1:]]
+        self.assertEqual(len(files), len(set(files)))
+        for root in ("rhodium/std/tests", "flow/tests", "rhodium/event/tests", "rhodium/diagram/tests"):
+            expected = {str(path.relative_to(REPO)) for path in (REPO / root).glob("*-test.rhm")}
+            self.assertTrue(expected)
+            self.assertTrue(expected <= set(files), root)
 
     def test_documentation_selects_no_execution(self):
         for path in ("README.md", "LICENSE", "NOTICE", "DCO", "flow/DEVELOPING.md", "sram/README.md"):
@@ -283,15 +321,15 @@ class PlanTest(unittest.TestCase):
             "rhodium/compile/program.rhm": ("host-backend", "circt-language"),
             "rhodium/lowering/program.rhm": ("host-foundation", "host-backend", "circt-language"),
             "rhodium/event/instrument.rhm": ("host-foundation", "host-backend", "circt-language"),
-            "flow/queue.rhdl": ("host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-hygiene", "circt-std", "circt-protocols", "circt-core-cache", "example-std"),
+            "flow/queue.rhdl": ("host-foundation", "host-backend", "host-protocols", "host-cores", "host-socs", "host-hygiene", "circt-std", "circt-protocols", "circt-core-cache", "host-examples"),
             "rhodium/backend/tests/circt/verilog/adder_tb.sv": ("host-backend", "circt-language", "circt-rfpl"),
             "devicetree/main.rhm": ("host-models", "host-hygiene"),
-            "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "example-noc"),
+            "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "host-examples"),
             "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "circt-hardfloat"),
-            "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "example-chi"),
-            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "example-cores", "example-rv5stage"),
+            "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples"),
+            "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "host-examples"),
             "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
-            "examples/rfpl/circuit-pair.rhdl": ("example-rfpl", "circt-rfpl", "host-hygiene"),
+            "examples/rfpl/circuit-pair.rhdl": ("host-examples", "circt-rfpl", "host-hygiene"),
             "tools/write-riscv-udb-config.rhm": ("host-models", "host-cores", "host-socs", "host-hygiene"),
             "sims/arch-test/platform.rhm": ("host-socs", "host-hygiene"),
             "sims/arch-test/write-platform.rhm": ("host-socs", "host-hygiene"),

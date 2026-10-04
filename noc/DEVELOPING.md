@@ -74,7 +74,7 @@ make noc-test
 
 This target checks package boundaries, the pure model, authoring and embedded
 language, standard definitions, analysis, proof regimes, plans, diagnostics,
-equivalence cases, and host-side RTL construction. It also runs the intentional
+equivalence cases, and hardware-plan contracts. It also runs the intentional
 invalid language cases.
 
 For one host file, use the repository wrapper so it receives the persistent

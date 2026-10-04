@@ -15,7 +15,7 @@ while (( $# > 0 )); do
       fixture_group="$2"
       shift 2
       ;;
-    --list-fixtures|--verify-only|--simulate-only|--golden-only|--full|--update-goldens)
+    --list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens)
       if [[ "$mode" != run ]]; then
         echo "select at most one CIRCT test mode" >&2
         exit 2
@@ -24,7 +24,7 @@ while (( $# > 0 )); do
       shift
       ;;
     *)
-      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-control|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
+      echo "usage: $0 [--group language|std|protocols|cores|cores-components|cores-execution|cores-execution-frontend|cores-execution-control|cores-execution-datapath|cores-vector|cores-vector-functional|cores-vector-functional-1|cores-vector-functional-2|cores-vector-configurations|cores-memory|cores-cache|socs|rfpl] [--list-fixtures|--list-example-sources|--verify-only|--simulate-only|--golden-only|--full|--update-goldens]" >&2
       exit 2
       ;;
   esac
@@ -38,6 +38,11 @@ run_direct_fixtures=true
 case "$mode" in
   run) ;;
   --list-fixtures)
+    compare_goldens=false
+    simulate_fixtures=false
+    ;;
+  --list-example-sources)
+    fixture_scope=all
     compare_goldens=false
     simulate_fixtures=false
     ;;
@@ -112,7 +117,7 @@ repo_dir="$(cd "$(dirname "$0")/../../.." && pwd)"
 test_tmp_dir="$(mktemp -d /tmp/rhodium-circt.XXXXXX)"
 trap 'rm -rf "$test_tmp_dir"' EXIT
 
-if [[ "$mode" != --list-fixtures ]]; then
+if [[ "$mode" != --list-fixtures && "$mode" != --list-example-sources ]]; then
   circt_opt="${CIRCT_OPT:-$repo_dir/.tools/firtool-1.155.0/bin/circt-opt}"
   if [[ ! -x "$circt_opt" ]]; then
     if command -v circt-opt >/dev/null 2>&1; then
@@ -1022,6 +1027,16 @@ for requested_fixture in ${FIXTURE:-} ${FIXTURES:-}; do
     exit 1
   fi
 done
+
+if [[ "$mode" == --list-example-sources ]]; then
+  for spec in "${fixture_specs[@]}"; do
+    IFS='|' read -r fixture _ example _ _ <<< "$spec"
+    if fixture_selected "$fixture"; then
+      printf '%s\n' "$example"
+    fi
+  done | sort -u
+  exit 0
+fi
 
 for direct_spec in "${direct_fixture_specs[@]}"; do
   IFS='|' read -r direct_fixture _ <<< "$direct_spec"
