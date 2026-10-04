@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines XLEN-independent integer instruction encodings shared by RV32I and RV64I.
+/* Defines XLEN-independent integer instruction encodings shared by RV32I and RV64I. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -73,23 +73,27 @@ def JALR_OPCODE = 0x67
 def JAL_OPCODE = 0x6F
 def SYSTEM = 0x73
 
+/* Builds an instruction whose supplied format supplies all variable fields beyond the fixed opcode. */
 fun opcode_instruction(name :: NonemptyString,
                        format :: InstructionFormat,
                        opcode_value :: Nat):
   instruction(name, format, [opcode.constrain(opcode_value)])
 
+/* Builds an instruction descriptor with fixed opcode and three-bit function fields. */
 fun function3_instruction(name :: NonemptyString,
                           format :: InstructionFormat,
                           opcode_value :: Nat,
                           function3 :: Nat):
   instruction(name, format, [opcode.constrain(opcode_value), funct3.constrain(function3)])
 
+/* Builds a two-source integer register instruction with fixed opcode and function fields. */
 fun register_instruction(name :: NonemptyString,
                          opcode_value :: Nat,
                          function3 :: Nat,
                          function7 :: Nat):
   instruction(name, RFormat, [opcode.constrain(opcode_value), funct3.constrain(function3), funct7.constrain(function7)])
 
+/* Builds an operand-free SYSTEM instruction with zero register fields and a fixed immediate opcode. */
 fun system_instruction(name :: NonemptyString, immediate_value :: Nat):
   instruction(name, SystemFormat, [opcode.constrain(SYSTEM), rd.constrain(0), funct3.constrain(0), rs1.constrain(0), immediate12.constrain(immediate_value)])
 

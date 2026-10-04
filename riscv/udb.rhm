@@ -1,67 +1,88 @@
 #lang rhombus
-// Defines a small typed model and deterministic YAML encoder for UDB architecture configurations.
+/* Defines a small typed model and deterministic YAML encoder for UDB architecture configurations. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../support/annotations.rhm".NonemptyString
 
+/* Renders a quoted and escaped host string for YAML scalar positions. */
 fun yaml_string(value :: String) :: String:
   to_string(value, ~mode: #'expr)
 
+/* Defines serialization for the supported typed UDB parameter values. */
 interface UdbParameterValue:
+  /* Returns the parameter value's YAML scalar or inline sequence representation. */
   method to_yaml() :: String
 
+/* Stores one typed Boolean configuration parameter. */
 class UdbBooleanValue(value :: Boolean):
   implements UdbParameterValue
+  /* Renders the YAML true or false scalar. */
   override method to_yaml(): if value | "true" | "false"
 
+/* Stores one nonnegative integer configuration parameter. */
 class UdbNaturalValue(value :: Nat):
   implements UdbParameterValue
+  /* Renders the parameter as a decimal integer scalar. */
   override method to_yaml(): to_string(value)
 
+/* Stores one string configuration parameter. */
 class UdbStringValue(value :: String):
   implements UdbParameterValue
+  /* Returns a quoted and escaped YAML string scalar. */
   override method to_yaml(): yaml_string(value)
 
+/* Stores a nonempty list of nonnegative integer parameter values. */
 class UdbNaturalListValue(values :: NonemptyList.of(Nat)):
   implements UdbParameterValue
+  /* Renders integer values as an inline YAML sequence in supplied order. */
   override method to_yaml():
     "[" ++ String.join(values.map(to_string), ", ") ++ "]"
 
+/* Stores a nonempty list of Boolean parameter values. */
 class UdbBooleanListValue(values :: NonemptyList.of(Boolean)):
   implements UdbParameterValue
+  /* Renders Boolean values as an inline YAML sequence in supplied order. */
   override method to_yaml():
     "[" ++ String.join(
       values.map(fun (value): if value | "true" | "false"),
       ", "
     ) ++ "]"
 
+/* Pairs an architectural extension name with its exact implemented version. */
 class UdbExtension(name :: NonemptyString,
                    version :: NonemptyString):
+  /* Renders an extension entry with a quoted exact-version requirement. */
   method to_yaml() :: String:
     "  - { name: " ++ yaml_string(name) ++ ", version: " ++ yaml_string("= " ++ version) ++ " }"
 
+/* Pairs a named configuration parameter with its typed serializable value. */
 class UdbParameter(name :: NonemptyString,
                    value :: UdbParameterValue):
+  /* Renders an indented parameter entry using the value's serializer. */
   method to_yaml() :: String:
     "  " ++ name ++ ": " ++ value.to_yaml()
 
+/* Detects repeated extension names in the supplied configuration inventory. */
 fun duplicate_extension(extensions :: NonemptyList.of(UdbExtension)):
   for any (extension in extensions):
     extensions.filter(
       ~keep: fun (candidate): candidate.name == extension.name
     ).length() != 1
 
+/* Detects repeated parameter names in the supplied configuration inventory. */
 fun duplicate_parameter(parameters :: NonemptyList.of(UdbParameter)):
   for any (parameter in parameters):
     parameters.filter(
       ~keep: fun (candidate): candidate.name == parameter.name
     ).length() != 1
 
+/* Stores a named fully configured architectural description with typed extension and parameter inventories. */
 class UdbConfiguration(name :: NonemptyString,
                        description :: NonemptyString,
                        extensions :: NonemptyList.of(UdbExtension),
                        parameters :: NonemptyList.of(UdbParameter)):
+  /* Rejects duplicate extension and parameter names before retaining the configuration. */
   constructor (name :: NonemptyString,
                description :: NonemptyString,
                extensions :: NonemptyList.of(UdbExtension),
@@ -72,6 +93,7 @@ class UdbConfiguration(name :: NonemptyString,
     | error(~who: #'UdbConfiguration, "parameter names must be unique")
     super(name, description, extensions, parameters)
 
+  /* Serializes the complete configuration deterministically in supplied inventory order with its schema and generated-output header. */
   method to_yaml() :: String:
     def header = [
       "# Generated UDB architecture configuration; do not edit.",

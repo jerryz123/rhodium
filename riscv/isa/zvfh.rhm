@@ -1,5 +1,5 @@
 #lang rhombus
-// Identifies the vector instructions whose additional SEW=8 forms comprise Zvfh.
+/* Identifies the vector instructions whose additional SEW=8 forms comprise Zvfh. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -15,6 +15,7 @@ def ZvfhInstructions = VectorFloatingPointInstructions
 def ZvfhRevision = "Zvfh 1.0"
 def Zvfh = InstructionCatalog("Zvfh", ZvfhRevision, ZvfhInstructions)
 
+/* Returns the named descriptor from Zvfh, rejecting unknown instruction names. */
 fun zvfh_instruction(name :: String): Zvfh.find(name)
 
 export:

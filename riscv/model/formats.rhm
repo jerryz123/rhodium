@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines shared RISC-V operand fields, immediate layouts, and instruction formats.
+/* Defines shared RISC-V operand fields, immediate layouts, and instruction formats. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -69,12 +69,15 @@ export:
   Shift32Immediate
   PrefetchImmediate
 
+/* Distinguishes architectural integer, floating-point, and vector register namespaces. */
 enum RegisterBank
 | Integer
 | FloatingPoint
 | Vector
 
+/* Describes a five-bit register field, its source/destination role, and its architectural bank. */
 class RegisterOperand(name :: NonemptyString, field :: BitField, role :: String, bank :: RegisterBank):
+  /* Requires a five-bit register field and a supported source or destination role. */
   constructor (name :: NonemptyString, field :: BitField, role :: String, bank :: RegisterBank = RegisterBank.Integer):
     unless field.width == 5
     | error(~who: #'RegisterOperand,
@@ -84,7 +87,9 @@ class RegisterOperand(name :: NonemptyString, field :: BitField, role :: String,
             "register operand role must be source or destination")
     super(name, field, role, bank)
 
+/* Maps one instruction slice into an equal-width slice of a semantic immediate. */
 class ImmediatePiece(source :: BitField, output_high :: Nat, output_low :: Nat):
+  /* Rejects reversed output bounds and unequal source/destination slice widths. */
   constructor (source :: BitField, output_high :: Nat, output_low :: Nat):
     unless output_low <= output_high
     | error(~who: #'ImmediatePiece,
@@ -94,14 +99,17 @@ class ImmediatePiece(source :: BitField, output_high :: Nat, output_low :: Nat):
             "immediate source and destination slices must have equal widths")
     super(source, output_high, output_low)
 
+  /* Returns the host mask of immediate bits supplied by this piece. */
   method output_mask():
     width_mask(output_high - output_low + 1) << output_low
 
+/* Describes a signed or unsigned immediate assembled from disjoint pieces and implicit-zero bits. */
 class ImmediateLayout(name :: NonemptyString,
                       width :: PosInt,
                       signed :: Boolean,
                       pieces :: NonemptyList.of(ImmediatePiece),
                       zero_bits :: List.of(Nat)):
+  /* Requires complete disjoint output coverage and source/destination slices within their widths. */
   constructor (name :: NonemptyString,
                width :: PosInt,
                signed :: Boolean,
@@ -130,9 +138,11 @@ class ImmediateLayout(name :: NonemptyString,
             "immediate pieces and zero bits must cover the output width")
     super(name, width, signed, pieces, zero_bits)
 
+  /* Returns the instruction slices supplying this immediate, in declared piece order. */
   method source_fields():
     pieces.map(fun (piece): piece.source)
 
+  /* Gathers instruction slices into an unsigned immediate image, leaving implicit-zero bits clear. */
   method decode(word :: Nat):
     unless word <= width_mask(32)
     | error(~who: #'decode, "instruction word must fit 32 bits")
@@ -141,8 +151,8 @@ class ImmediateLayout(name :: NonemptyString,
       result := result + (piece.source.extract(word) << piece.output_low)
     result
 
-  // Scatters an already width-masked immediate into its instruction fields.
-  // This lower-level form is also used when expanding compressed encodings.
+  /* Scatters an already width-masked immediate into its instruction fields.
+   * This lower-level form is also used when expanding compressed encodings. */
   method scatter(value :: Nat):
     unless value <= width_mask(width)
     | error(~who: #'scatter, "immediate value does not fit its layout")
@@ -155,7 +165,7 @@ class ImmediateLayout(name :: NonemptyString,
       | error(~who: #'scatter, "immediate value sets an implicit-zero bit")
     result
 
-  // Validates a semantic signed or unsigned immediate before scattering it.
+  /* Validates a semantic signed or unsigned immediate before scattering it. */
   method encode(value :: Int):
     def limit = 1 << (width - 1)
     if signed
@@ -165,6 +175,7 @@ class ImmediateLayout(name :: NonemptyString,
       | error(~who: #'encode, "unsigned immediate is out of range")
     scatter(value bits.and width_mask(width))
 
+/* Combines field masks while rejecting overlapping variable instruction slices. */
 fun fields_mask(fields :: List.of(BitField), who :: Symbol):
   def mutable mask = 0
   for (field in fields):
@@ -173,12 +184,14 @@ fun fields_mask(fields :: List.of(BitField), who :: Symbol):
     mask := mask bits.or field.mask()
   mask
 
+/* Describes register operands, an optional immediate, auxiliary fields, and their combined variable-bit coverage. */
 class InstructionFormat(name :: NonemptyString,
                         operands :: List.of(RegisterOperand),
                         immediate :: maybe(ImmediateLayout),
                         auxiliary_fields :: List.of(BitField),
                         variable_fields :: List.of(BitField),
                         variable_mask :: Nat):
+  /* Collects all variable fields and rejects overlapping slices before storing their union mask. */
   constructor (name :: NonemptyString,
                operands :: List.of(RegisterOperand),
                immediate :~ maybe(ImmediateLayout) = #false,

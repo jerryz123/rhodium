@@ -1,5 +1,5 @@
 #lang rhodium
-// Converts pure RISC-V instruction encodings into typed Rhodium input patterns.
+/* Converts pure RISC-V instruction encodings into typed Rhodium input patterns. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,14 +7,15 @@ import:
   "../model/instruction.rhm".InstructionSpec
   lib("rhodium/std/decode/pattern.rhdl").Pattern
 
-// Architectural value/care images become ordinary Bits patterns at their
-// declared instruction width. The pure model remains unaware of Rhodium.
+/* Architectural value/care images become ordinary Bits patterns at their
+ * declared instruction width. The pure model remains unaware of Rhodium. */
 fun encoding_pattern(encoding :: InstructionEncoding):
   Pattern(
     ~value: bits(encoding.value, encoding.width),
     ~care: bits(encoding.care, encoding.width)
   )
 
+/* Converts an instruction's fixed encoding relation into a typed host decode cube. */
 fun instruction_pattern(instruction :: InstructionSpec):
   encoding_pattern(instruction.encoding)
 

@@ -1,11 +1,12 @@
 #lang rhodium
-// Defines transport-independent RISC-V physical-memory regions and hardware access lookup.
+/* Defines transport-independent RISC-V physical-memory regions and hardware access lookup. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/interconnect.rhdl") open
 
+/* Stores reusable host permissions and memory semantics, including independent instruction-only caching. */
 class RiscvPhysicalMemoryAttributes(readable :: Boolean,
                                     writable :: Boolean,
                                     executable :: Boolean,
@@ -17,6 +18,7 @@ class RiscvPhysicalMemoryAttributes(readable :: Boolean,
                                     instruction_cacheable :: Boolean):
   implements StableCircuitParam
 
+  /* Rejects cacheable device memory and requires read-only executable idempotent nondevice semantics for instruction-only caching. */
   constructor (readable :: Boolean,
                writable :: Boolean,
                executable :: Boolean,
@@ -35,10 +37,12 @@ class RiscvPhysicalMemoryAttributes(readable :: Boolean,
             "instruction-only caching requires read-only executable idempotent non-device memory")
     super(readable, writable, executable, cacheable, atomic, device, read_idempotent, cache_block_zero, instruction_cacheable)
 
+/* Pairs a protocol-neutral masked address set with stable physical-memory attributes. */
 class RiscvPhysicalMemoryRegion(address_set :: AddressSet,
                                 attributes :: RiscvPhysicalMemoryAttributes):
   implements StableCircuitParam
 
+/* Carries mapping validity and resolved permission, idempotence, device, and cacheability flags. */
 bundle RiscvPhysicalMemoryLookup():
   mapped: Bool
   readable: Bool
@@ -51,10 +55,12 @@ bundle RiscvPhysicalMemoryLookup():
   cache_block_zero: Bool
   instruction_cacheable: Bool
 
+/* Stores a validated nonoverlapping physical-region map and elaborates hardware attribute lookup. */
 class RiscvPhysicalMemoryMap(address_width :: PosInt,
                              regions :: NonemptyList.of(RiscvPhysicalMemoryRegion)):
   implements StableCircuitParam
 
+  /* Requires every address set to fit the map width and rejects overlapping regions. */
   constructor (address_width :: PosInt,
                regions :: NonemptyList.of(RiscvPhysicalMemoryRegion)):
     for (region in regions):
@@ -69,6 +75,7 @@ class RiscvPhysicalMemoryMap(address_width :: PosInt,
         | #void
     super(address_width, regions)
 
+  /* Checks both supplied address endpoints against one region, rejecting high-bit truncation and clearing all flags when unmapped. */
   method lookup(raw_address :: Bits,
                 raw_last_address :: Bits = raw_address) :~ RiscvPhysicalMemoryLookup():
     def raw_width = raw_address.type.packed_width()

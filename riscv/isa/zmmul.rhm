@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the RV32 and RV64 Zmmul integer-multiplication instruction catalogs.
+/* Defines the RV32 and RV64 Zmmul integer-multiplication instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -23,9 +23,11 @@ def RV64ZmmulInstructions = RV32ZmmulInstructions ++ [MULW]
 def RV32Zmmul = InstructionCatalog("RV32Zmmul", RV32ZmmulRevision, RV32ZmmulInstructions)
 def RV64Zmmul = InstructionCatalog("RV64Zmmul", RV64ZmmulRevision, RV64ZmmulInstructions)
 
+/* Returns the named descriptor from RV32Zmmul, rejecting unknown instruction names. */
 fun rv32zmmul_instruction(name :: String):
   RV32Zmmul.find(name)
 
+/* Returns the named descriptor from RV64Zmmul, rejecting unknown instruction names. */
 fun rv64zmmul_instruction(name :: String):
   RV64Zmmul.find(name)
 

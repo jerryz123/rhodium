@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified Zvbb vector basic bit-manipulation instruction catalog.
+/* Defines the ratified Zvbb vector basic bit-manipulation instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,9 +20,11 @@ def VectorRotateVIFormat = InstructionFormat(
   [vm]
 )
 
+/* Builds a vector bit-manipulation descriptor from its function and operand-form selectors. */
 fun zvbb_arithmetic(name :: String, code :: Nat, form :: InstructionFormat, operand_code :: Nat):
   InstructionSpec(name, form, [opcode.constrain(0x57), funct3.constrain(operand_code), funct6.constrain(code)])
 
+/* Builds a vector unary bit-manipulation descriptor with its fixed vs1 operation selector. */
 fun zvbb_unary(name :: String, selector :: Nat):
   InstructionSpec(name, VectorUnaryFormat, [opcode.constrain(0x57), funct3.constrain(2), funct6.constrain(0x12), vs1.constrain(selector)])
 
@@ -54,6 +56,7 @@ def ZvbbInstructions = [
 def ZvbbRevision = "Zvbb 1.0.0"
 def Zvbb = InstructionCatalog("Zvbb", ZvbbRevision, ZvbbInstructions)
 
+/* Returns the named descriptor from Zvbb, rejecting unknown instruction names. */
 fun zvbb_instruction(name :: String): Zvbb.find(name)
 
 export:

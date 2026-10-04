@@ -1,18 +1,21 @@
 #lang rhombus
-// Defines implementation-neutral architectural descriptions of RISC-V harts and private caches.
+/* Defines implementation-neutral architectural descriptions of RISC-V harts and private caches. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "profile.rhm".RiscvIsaProfile
   "xlen.rhm".XLen
 
+/* Names the supported architectural translation modes without owning an implementation. */
 enum RiscvMmuType
 | Bare
 | Sv39
 
+/* Records architectural block size, set count, and total cache capacity. */
 class RiscvCacheDescription(block_bytes :: PosInt,
                             sets :: PosInt,
                             size_bytes :: PosInt):
+  /* Requires cache capacity to contain an integral positive number of equally populated ways. */
   constructor (block_bytes :: PosInt,
                sets :: PosInt,
                size_bytes :: PosInt):
@@ -23,19 +26,22 @@ class RiscvCacheDescription(block_bytes :: PosInt,
 
   property ways :: PosInt: size_bytes / (block_bytes * sets)
 
-// Exact implementation geometry, unlike the minimum-length Zvl ISA claims.
+/* Exact implementation geometry, unlike the minimum-length Zvl ISA claims. */
 class RiscvVectorDescription(vlen :: PosInt, elen :: PosInt):
+  /* Validates exact power-of-two VLEN and supported ELEN geometry independently of minimum ISA length claims. */
   constructor (vlen :: PosInt, elen :: PosInt):
     unless [32, 64].contains(elen) && elen <= vlen && vlen <= 65536 && (vlen bits.and (vlen - 1)) == 0
     | error(~who: #'RiscvVectorDescription, "vector geometry requires power-of-two VLEN <= 65536 and ELEN 32 or 64 <= VLEN")
     super(vlen, elen)
 
+/* Combines an ISA profile with translation mode, private cache geometry, and optional CBO/vector geometry. */
 class RiscvHartDescription(isa_profile :: RiscvIsaProfile,
                            mmu_type :: RiscvMmuType,
                            instruction_cache :: RiscvCacheDescription,
                            data_cache :: RiscvCacheDescription,
                            cbo_block_bytes :: maybe(PosInt),
                            vector :: maybe(RiscvVectorDescription)):
+  /* Requires RV64 for Sv39, CBO geometry for relevant extensions, and vector claims paired with exact vector geometry. */
   constructor (isa_profile :: RiscvIsaProfile,
                mmu_type :: RiscvMmuType,
                instruction_cache :: RiscvCacheDescription,

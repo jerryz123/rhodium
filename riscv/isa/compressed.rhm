@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines shared descriptors and constructors for compressed-instruction catalogs.
+/* Defines shared descriptors and constructors for compressed-instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -51,24 +51,29 @@ export:
   stack_store_word_offset
   stack_store_double_offset
 
+/* Pairs one compact instruction's 16-bit encoding alternatives and legality predicates with its canonical expansion. */
 class CompressedInstructionSpec(name :: NonemptyString,
                                 encodings :: NonemptyList.of(InstructionEncoding),
                                 constraints :: List.of(ExpansionConstraint),
                                 expansion :: InstructionExpansion):
+  /* Requires an accepted encoding alternative and every additional legality predicate. */
   method matches(word :: Nat):
     (for any (encoding in encodings): encoding.matches(word)) && (
       for all (constraint in constraints): constraint.matches(word)
     )
 
+  /* Rejects an unmatched or illegal compact word before assembling its canonical 32-bit instruction. */
   method expand(word :: Nat):
     unless matches(word)
     | error(~who: #'expand,
             "compressed instruction word does not satisfy its encoding and legality constraints")
     expansion.expand(word)
 
+/* Groups compact instruction descriptors with a revision and nonoverlapping encoding alternatives. */
 class CompressedInstructionCatalog(name :: NonemptyString,
                                    revision :: NonemptyString,
                                    instructions :: NonemptyList.of(CompressedInstructionSpec)):
+  /* Rejects duplicate names and overlap between any two instructions' encoding alternatives. */
   constructor (name :: NonemptyString,
                revision :: NonemptyString,
                instructions :: NonemptyList.of(CompressedInstructionSpec)):
@@ -90,12 +95,14 @@ class CompressedInstructionCatalog(name :: NonemptyString,
                                   right.name))
     super(name, revision, instructions)
 
+  /* Returns the named compact descriptor or reports an unknown compressed instruction. */
   method find(instruction_name :: String):
     def found = instructions.find(fun (candidate): candidate.name == instruction_name)
     unless found
     | error(~who: #'find, "unknown compressed instruction " ++ instruction_name)
     found
 
+  /* Returns the descriptor accepting both encoding and legality constraints, or false when none matches. */
   method matching(word :: Nat):
     instructions.find(fun (instruction): instruction.matches(word))
 
@@ -225,23 +232,28 @@ def direct_rs2 = FieldExpansionValue(compressed_rs2)
 def compact_rd_rs2 = FieldExpansionValue(compressed_compact_rd_rs2, 8)
 def compact_rs1 = FieldExpansionValue(compressed_compact_rs1, 8)
 
+/* Constructs one checked canonical operand binding from a compact value source. */
 fun bind(target :: BitField, source :: ExpansionValueSource):
   InstructionFieldBinding(target, source)
 
+/* Constructs a checked canonical instruction expansion with operand bindings and an optional immediate. */
 fun expansion(target :: InstructionSpec,
               bindings :: List.of(InstructionFieldBinding),
               immediate :~ maybe(Nat || ImmediateLayout) = #false):
   InstructionExpansion(target, bindings, immediate)
 
+/* Validates fixed constraints against a 16-bit compact instruction width. */
 fun compressed_encoding(requirements :: NonemptyList.of(FieldConstraint)):
   InstructionEncoding(requirements, 16)
 
+/* Builds a compact descriptor with one encoding alternative and optional legality predicates. */
 fun compressed_instruction(name :: NonemptyString,
                            requirements :: NonemptyList.of(FieldConstraint),
                            expansion :: InstructionExpansion,
                            constraints :: List.of(ExpansionConstraint) = []):
   CompressedInstructionSpec(name, [compressed_encoding(requirements)], constraints, expansion)
 
+/* Builds disjoint encoding alternatives by constraining one compact field to each supplied allowed value. */
 fun compressed_instruction_encodings(name :: NonemptyString,
                                      base :: NonemptyList.of(FieldConstraint),
                                      field :: BitField,
@@ -255,9 +267,11 @@ fun compressed_instruction_encodings(name :: NonemptyString,
     expansion
   )
 
+/* Returns fixed constraints for the compact quadrant and three-bit major opcode. */
 fun quadrant_requirements(quadrant :: Nat, function3 :: Nat):
   [compressed_quadrant.constrain(quadrant), compressed_funct3.constrain(function3)]
 
+/* Builds a compact descriptor from its quadrant, major opcode, canonical expansion, and legality predicates. */
 fun quadrant_instruction(name :: NonemptyString,
                          quadrant :: Nat,
                          function3 :: Nat,
@@ -265,6 +279,7 @@ fun quadrant_instruction(name :: NonemptyString,
                          constraints :: List.of(ExpansionConstraint) = []):
   compressed_instruction(name, quadrant_requirements(quadrant, function3), target, constraints)
 
+/* Describes nonzero stack-pointer-relative C.ADDI4SPN with a compact destination register. */
 fun addi4spn(target :: InstructionSpec):
   quadrant_instruction(
     "C.ADDI4SPN", 0, 0,
@@ -272,6 +287,7 @@ fun addi4spn(target :: InstructionSpec):
     [NonzeroImmediateConstraint(addi4spn_immediate)]
   )
 
+/* Describes a compact-register load using the supplied scattered unsigned offset. */
 fun compact_load(name :: NonemptyString,
                  target :: InstructionSpec,
                  function3 :: Nat,
@@ -281,6 +297,7 @@ fun compact_load(name :: NonemptyString,
     expansion(target, [bind(rd, compact_rd_rs2), bind(rs1, compact_rs1)], immediate)
   )
 
+/* Describes a compact-register store using the supplied scattered unsigned offset. */
 fun compact_store(name :: NonemptyString,
                   target :: InstructionSpec,
                   function3 :: Nat,
@@ -290,6 +307,7 @@ fun compact_store(name :: NonemptyString,
     expansion(target, [bind(rs1, compact_rs1), bind(rs2, compact_rd_rs2)], immediate)
   )
 
+/* Describes an in-place compact immediate instruction with a direct register and optional legality predicates. */
 fun addi(name :: NonemptyString,
          target :: InstructionSpec,
          function3 :: Nat,
@@ -300,12 +318,14 @@ fun addi(name :: NonemptyString,
     constraints
   )
 
+/* Describes C.LI as a canonical immediate operation with zero as its source register. */
 fun li(target :: InstructionSpec):
   quadrant_instruction(
     "C.LI", 1, 2,
     expansion(target, [bind(rd, direct_rd), bind(rs1, zero_register)], ci_immediate)
   )
 
+/* Describes C.ADDI16SP with fixed stack-pointer operands and a nonzero scattered immediate. */
 fun addi16sp(target :: InstructionSpec):
   compressed_instruction(
     "C.ADDI16SP",
@@ -314,6 +334,7 @@ fun addi16sp(target :: InstructionSpec):
     [NonzeroImmediateConstraint(addi16sp_immediate)]
   )
 
+/* Describes C.LUI with register alternatives excluding the stack pointer and a nonzero immediate. */
 fun lui(target :: InstructionSpec):
   compressed_instruction_encodings(
     "C.LUI", quadrant_requirements(1, 3), compressed_rd_rs1,
@@ -322,6 +343,7 @@ fun lui(target :: InstructionSpec):
     [NonzeroImmediateConstraint(lui_immediate)]
   )
 
+/* Describes an in-place compact shift, constraining the high shift bit for RV32. */
 fun compact_shift(name :: NonemptyString,
                   target :: InstructionSpec,
                   operation :: Nat,
@@ -335,6 +357,7 @@ fun compact_shift(name :: NonemptyString,
     expansion(target, [bind(rd, compact_rs1), bind(rs1, compact_rs1)], immediate)
   )
 
+/* Describes C.ANDI with an in-place compact register and signed CI immediate. */
 fun andi(target :: InstructionSpec):
   compressed_instruction(
     "C.ANDI",
@@ -342,6 +365,7 @@ fun andi(target :: InstructionSpec):
     expansion(target, [bind(rd, compact_rs1), bind(rs1, compact_rs1)], ci_immediate)
   )
 
+/* Describes compact two-source ALU operations with the destination also serving as the left operand. */
 fun compressed_alu(name :: NonemptyString,
                    target :: InstructionSpec,
                    bit12 :: Nat,
@@ -354,6 +378,7 @@ fun compressed_alu(name :: NonemptyString,
     expansion(target, [bind(rd, compact_rs1), bind(rs1, compact_rs1), bind(rs2, compact_rd_rs2)])
   )
 
+/* Describes a compact direct jump with a caller-selected canonical destination register. */
 fun jump(name :: NonemptyString,
          target :: InstructionSpec,
          function3 :: Nat,
@@ -363,6 +388,7 @@ fun jump(name :: NonemptyString,
     expansion(target, [bind(rd, destination)], jump_immediate)
   )
 
+/* Describes a compact zero-comparison branch with a scattered branch displacement. */
 fun branch(name :: NonemptyString,
            target :: InstructionSpec,
            function3 :: Nat):
@@ -371,6 +397,7 @@ fun branch(name :: NonemptyString,
     expansion(target, [bind(rs1, compact_rs1), bind(rs2, zero_register)], branch_immediate)
   )
 
+/* Describes C.SLLI with direct in-place operands and the RV32 high-shift-bit constraint. */
 fun slli(target :: InstructionSpec,
          immediate :: ImmediateLayout,
          rv32 :: Boolean):
@@ -380,6 +407,7 @@ fun slli(target :: InstructionSpec,
     expansion(target, [bind(rd, direct_rd), bind(rs1, direct_rd)], immediate)
   )
 
+/* Describes a stack-pointer-relative load, optionally excluding the zero destination register. */
 fun stack_load(name :: NonemptyString,
                target :: InstructionSpec,
                function3 :: Nat,
@@ -393,6 +421,7 @@ fun stack_load(name :: NonemptyString,
     | []
   )
 
+/* Describes a compact indirect jump with nonzero base-register alternatives and zero canonical displacement. */
 fun register_jump(name :: NonemptyString,
                   target :: InstructionSpec,
                   bit12 :: Nat,
@@ -405,6 +434,7 @@ fun register_jump(name :: NonemptyString,
     expansion(target, [bind(rd, destination), bind(rs1, direct_rd)], 0)
   )
 
+/* Describes compact move/add forms with nonzero right operands and a caller-selected left operand source. */
 fun register_alu(name :: NonemptyString,
                  target :: InstructionSpec,
                  bit12 :: Nat,
@@ -417,6 +447,7 @@ fun register_alu(name :: NonemptyString,
     expansion(target, [bind(rd, direct_rd), bind(rs1, left), bind(rs2, direct_rs2)])
   )
 
+/* Describes the exact operand-free C.EBREAK encoding and its canonical expansion. */
 fun ebreak(target :: InstructionSpec):
   compressed_instruction(
     "C.EBREAK",
@@ -426,6 +457,7 @@ fun ebreak(target :: InstructionSpec):
     expansion(target, [])
   )
 
+/* Describes a stack-pointer-relative store with a direct source register and scattered offset. */
 fun stack_store(name :: NonemptyString,
                 target :: InstructionSpec,
                 function3 :: Nat,

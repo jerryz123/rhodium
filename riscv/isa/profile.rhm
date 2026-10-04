@@ -1,11 +1,12 @@
 #lang rhombus
-// Defines normalized RISC-V ISA claims and their architectural MISA projection.
+/* Defines normalized RISC-V ISA claims and their architectural MISA projection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus.bits.(<<) as <<
   "xlen.rhm".XLen
 
+/* Names the architectural MISA feature bits supported by this profile description. */
 enum MisaExtension
 | A
 | B
@@ -19,6 +20,7 @@ enum MisaExtension
 | U
 | V
 
+/* Maps an extension symbol to its architectural MISA bit position. */
 fun misa_extension_index(extension :: MisaExtension) :: Nat:
   match extension
   | MisaExtension.A: 0
@@ -33,15 +35,18 @@ fun misa_extension_index(extension :: MisaExtension) :: Nat:
   | MisaExtension.U: 20
   | MisaExtension.V: 21
 
+/* Combines selected MISA symbols into a host integer bit mask. */
 fun pack_misa_extensions(extensions :: List.of(MisaExtension)) :: Nat:
   def mutable result = 0
   for (extension in extensions):
     result := result bits.or (1 << misa_extension_index(extension))
   result
 
+/* Stores explicit ISA claims and MISA bits and derives the architectural base and XLEN encoding. */
 class RiscvIsaProfile(xlen :: XLen,
                       isa_extensions :: NonemptyList.of(String),
                       misa_extensions :: List.of(MisaExtension)):
+  /* Rejects duplicate extension names and duplicate MISA symbols without inferring capabilities from either list. */
   constructor (xlen :: XLen,
                isa_extensions :: NonemptyList.of(String),
                misa_extensions :: List.of(MisaExtension)):

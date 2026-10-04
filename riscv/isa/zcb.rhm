@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines prerequisite-aware RV32 and RV64 Zcb compressed-integer catalogs.
+/* Defines prerequisite-aware RV32 and RV64 Zcb compressed-integer catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,6 +29,7 @@ def zcb_half_offset = ImmediateLayout(
   [0]
 )
 
+/* Builds a compact byte/halfword load or store with compact registers and the selected unsigned offset layout. */
 fun zcb_memory(name :: NonemptyString,
                target :: InstructionSpec,
                funct6 :: Nat,
@@ -43,6 +44,7 @@ fun zcb_memory(name :: NonemptyString,
                          requirements,
                          expansion(target, bindings, if half | zcb_half_offset | zcb_byte_offset))
 
+/* Builds an in-place compact unary descriptor with an optional constant canonical immediate. */
 fun zcb_unary(name :: NonemptyString,
               target :: InstructionSpec,
               operation :: Nat,
@@ -53,6 +55,7 @@ fun zcb_unary(name :: NonemptyString,
     expansion(target, [bind(rd, zcb_compact_rs1), bind(rs1, zcb_compact_rs1)], immediate)
   )
 
+/* Describes C.ZEXT.W using ADD.UW with the zero register as its second source. */
 fun zcb_zext_w():
   compressed_instruction(
     "C.ZEXT.W",
@@ -61,6 +64,7 @@ fun zcb_zext_w():
               [bind(rd, zcb_compact_rs1), bind(rs1, zcb_compact_rs1), bind(rs2, zero_register)])
   )
 
+/* Constructs the always-included Zcb memory and byte-extension/inversion descriptors from XLEN-specific targets. */
 fun zcb_base_instructions(lbu :: InstructionSpec,
                           lhu :: InstructionSpec,
                           lh :: InstructionSpec,
@@ -76,6 +80,7 @@ fun zcb_base_instructions(lbu :: InstructionSpec,
    zcb_unary("C.ZEXT.B", andi, 0x18, 0xff),
    zcb_unary("C.NOT", xori, 0x1d, 0xfff)]
 
+/* Constructs compact byte/halfword extension forms using their Zbb canonical targets. */
 fun zcb_zbb_instructions(zext_h :: InstructionSpec):
   [zcb_unary("C.SEXT.B", zbb.SEXT_B, 0x19),
    zcb_unary("C.ZEXT.H", zext_h, 0x1a),
@@ -97,6 +102,7 @@ def RV64ZcbOptionalInstructions = zcb_zbb_instructions(zbb.ZEXT_H) ++ [
 def RV32ZcbInstructions = RV32ZcbBaseInstructions ++ RV32ZcbOptionalInstructions
 def RV64ZcbInstructions = RV64ZcbBaseInstructions ++ RV64ZcbOptionalInstructions
 
+/* Selects XLEN-specific base Zcb forms and only optional forms whose canonical targets the decoder supports. */
 fun zcb_instructions(xlen :: XLen,
                      supported_instruction_names :: List.of(String)):
   def base = if xlen == XLen.X32 | RV32ZcbBaseInstructions | RV64ZcbBaseInstructions

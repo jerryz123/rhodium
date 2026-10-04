@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the host-visible constants and field helpers for Sv39 translation.
+/* Defines the host-visible constants and field helpers for Sv39 translation. */
 // SPDX-License-Identifier: Apache-2.0
 
 def Sv39ModeBare :: Nat = 0
@@ -11,6 +11,7 @@ def Sv39PteBytes :: PosInt = 8
 def Sv39VirtualBits :: PosInt = 39
 def Sv39PpnBits :: PosInt = 44
 
+/* Checks host Sv39 canonical sign extension of bit 38 into the upper RV64 address bits. */
 fun sv39_canonical_address(address :: Nat) :: Boolean:
   def upper = address bits.(>>) Sv39VirtualBits
   def sign = (address bits.(>>) (Sv39VirtualBits - 1)) bits.and 1

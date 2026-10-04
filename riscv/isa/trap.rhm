@@ -1,7 +1,8 @@
 #lang rhombus
-// Defines synchronous exception causes and their architectural cause codes.
+/* Defines synchronous exception causes and their architectural cause codes. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Names synchronous architectural exception causes independently of trap-handler state. */
 enum ExceptionCause
 | InstructionAddressMisaligned
 | InstructionAccessFault
@@ -51,6 +52,7 @@ def DelegatableExceptionCauses = [
   ExceptionCause.HardwareError
 ]
 
+/* Maps an exception cause to its architectural exception number. */
 fun exception_code(cause :: ExceptionCause) :: Nat:
   match cause
   | ExceptionCause.InstructionAddressMisaligned: 0
@@ -75,6 +77,7 @@ fun exception_code(cause :: ExceptionCause) :: Nat:
   | ExceptionCause.VirtualInstruction: 22
   | ExceptionCause.StoreGuestPageFault: 23
 
+/* Combines exception causes into a host delegation/selection mask. */
 fun exception_mask(causes :: List.of(ExceptionCause)) :: Nat:
   def mutable mask = 0
   for (cause in causes):

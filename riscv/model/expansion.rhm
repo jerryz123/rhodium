@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines validated, host-interpretable mappings from compact encodings to canonical instructions.
+/* Defines validated, host-interpretable mappings from compact encodings to canonical instructions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -19,22 +19,33 @@ export:
   NonzeroImmediateConstraint
   resize_immediate_value
 
+/* Supplies a host-decoded operand value and an upper bound used to validate canonical expansion. */
 interface ExpansionValueSource:
+  /* Returns the operand image derived from the supplied compact instruction word. */
   method decode(word :: Nat) :: Nat
+  /* Returns the greatest operand image this source can produce. */
   method maximum() :: Nat
 
+/* Supplies the same host operand value for every compact instruction. */
 class ConstantExpansionValue(value :: Nat):
   implements ExpansionValueSource
+  /* Returns the configured constant, ignoring the source instruction. */
   override method decode(_word :: Nat): value
+  /* Uses the constant itself as the exact upper bound. */
   override method maximum(): value
 
+/* Supplies a compact instruction field plus a fixed host addend, such as the compact-register bank offset. */
 class FieldExpansionValue(field :: BitField, addend :: Nat = 0):
   implements ExpansionValueSource
+  /* Extracts the compact field and adds the configured register/value offset. */
   override method decode(word :: Nat): field.extract(word) + addend
+  /* Bounds the result by the field's all-ones value plus its addend. */
   override method maximum(): width_mask(field.width) + addend
 
+/* Binds one canonical register field to a bounded compact operand source. */
 class InstructionFieldBinding(target :: BitField,
                               source :: ExpansionValueSource):
+  /* Requires a 32-bit target field and a source image that fits its width. */
   constructor (target :: BitField, source :: ExpansionValueSource):
     unless target.high < 32
     | error(~who: #'InstructionFieldBinding,
@@ -44,6 +55,7 @@ class InstructionFieldBinding(target :: BitField,
             "expansion source does not fit its target instruction field")
     super(target, source)
 
+/* Masks the compact immediate and sign- or zero-extends it to a nonnarrower target width. */
 fun resize_immediate_value(value :: Nat,
                            source_width :: PosInt,
                            signed :: Boolean,
@@ -56,9 +68,11 @@ fun resize_immediate_value(value :: Nat,
   | masked bits.or (width_mask(target_width) bits.xor width_mask(source_width))
   | masked
 
+/* Stores a canonical target, complete operand bindings, and an optional constant or scattered immediate. */
 class InstructionExpansion(target :: InstructionSpec,
                            bindings :: List.of(InstructionFieldBinding),
                            immediate :: maybe(Nat || ImmediateLayout)):
+  /* Requires exactly one binding per target operand and validates immediate presence and width. */
   constructor (target :: InstructionSpec,
                bindings :: List.of(InstructionFieldBinding),
                immediate :~ maybe(Nat || ImmediateLayout) = #false):
@@ -85,6 +99,7 @@ class InstructionExpansion(target :: InstructionSpec,
             "constant expansion immediate does not fit its target")
     super(target, bindings, immediate)
 
+  /* Assembles the canonical host instruction from fixed bits, decoded operands, and a resized/scattered immediate. */
   method expand(word :: Nat):
     def mutable instruction = target.encoding.value
     for (binding in bindings):
@@ -105,13 +120,19 @@ class InstructionExpansion(target :: InstructionSpec,
       | target.immediate.scatter(immediate) bits.or instruction
       | instruction
 
+/* Describes a host legality predicate for a compact instruction word. */
 interface ExpansionConstraint:
+  /* Reports whether the supplied compact word satisfies the additional legality condition. */
   method matches(word :: Nat) :: Boolean
 
+/* Requires a selected compact instruction field to be nonzero. */
 class NonzeroFieldConstraint(field :: BitField):
   implements ExpansionConstraint
+  /* Accepts the word only when the extracted field is nonzero. */
   override method matches(word :: Nat): field.extract(word) != 0
 
+/* Requires the decoded compact semantic immediate to be nonzero. */
 class NonzeroImmediateConstraint(immediate :: ImmediateLayout):
   implements ExpansionConstraint
+  /* Accepts the word only when the gathered immediate image is nonzero. */
   override method matches(word :: Nat): immediate.decode(word) != 0

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the XLEN-independent Zicbom 1.0.0 cache-block management instruction catalog.
+/* Defines the XLEN-independent Zicbom 1.0.0 cache-block management instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the standard single-precision floating-point instruction catalogs.
+/* Defines the standard single-precision floating-point instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,30 +11,39 @@ def STORE_FP = 0x27
 def OP_FP = 0x53
 def SINGLE = 0
 
+/* Builds a floating register load descriptor with the selected transfer width. */
 fun floating_load(name :: NonemptyString, width :: Nat):
   instruction(name, FloatingLoadFormat, [opcode.constrain(LOAD_FP), funct3.constrain(width)])
 
+/* Builds a floating register store descriptor with the selected transfer width. */
 fun floating_store(name :: NonemptyString, width :: Nat):
   instruction(name, FloatingStoreFormat, [opcode.constrain(STORE_FP), funct3.constrain(width)])
 
+/* Builds a single-precision fused four-register instruction with a variable rounding-mode field. */
 fun fused(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingR4RoundingFormat, [opcode.constrain(operation), fmt.constrain(SINGLE)])
 
+/* Builds a single-precision two-source operation with a variable rounding-mode field. */
 fun binary_rounding(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingBinaryRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(SINGLE)])
 
+/* Builds a single-precision unary operation with zero rs2 and a variable rounding-mode field. */
 fun unary_rounding(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingUnaryRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(SINGLE), rs2.constrain(0)])
 
+/* Builds a single-precision two-source operation with a fixed function subselector. */
 fun binary_fixed(name :: NonemptyString, operation :: Nat, suboperation :: Nat):
   instruction(name, FloatingBinaryFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(SINGLE), funct3.constrain(suboperation)])
 
+/* Builds a single-precision comparison with an integer destination and fixed relation. */
 fun compare(name :: NonemptyString, relation :: Nat):
   instruction(name, FloatingCompareFormat, [opcode.constrain(OP_FP), funct5.constrain(20), fmt.constrain(SINGLE), funct3.constrain(relation)])
 
+/* Builds a rounded single-precision conversion to the selected integer kind. */
 fun float_to_integer_rounding(name :: NonemptyString, integer_kind :: Nat):
   instruction(name, FloatingToIntegerRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(24), fmt.constrain(SINGLE), rs2.constrain(integer_kind)])
 
+/* Builds a rounded conversion from the selected integer kind to single precision. */
 fun integer_to_float_rounding(name :: NonemptyString, integer_kind :: Nat):
   instruction(name, IntegerToFloatingRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(26), fmt.constrain(SINGLE), rs2.constrain(integer_kind)])
 
@@ -82,7 +91,9 @@ def RV64FRevision = "RV64 F 2.2"
 def RV32F = InstructionCatalog("RV32F", RV32FRevision, RV32FInstructions)
 def RV64F = InstructionCatalog("RV64F", RV64FRevision, RV64FInstructions)
 
+/* Returns the named descriptor from RV32F, rejecting unknown instruction names. */
 fun rv32f_instruction(name :: String): RV32F.find(name)
+/* Returns the named descriptor from RV64F, rejecting unknown instruction names. */
 fun rv64f_instruction(name :: String): RV64F.find(name)
 
 export:

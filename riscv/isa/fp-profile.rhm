@@ -1,12 +1,14 @@
 #lang rhombus
-// Defines the host-side floating-point specialization selected by a core.
+/* Defines the host-side floating-point specialization selected by a core. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Selects no scalar floating point, single precision, or double precision with its included single-precision support. */
 enum FloatingPointProfile
 | None
 | F
 | D
 
+/* Selects no half precision, the minimal conversion subset, or full half-precision arithmetic. */
 enum HalfPrecisionProfile
 | None
 | Zfhmin
@@ -15,12 +17,15 @@ enum HalfPrecisionProfile
 def DefaultFloatingPointProfile = FloatingPointProfile.None
 def DefaultHalfPrecisionProfile = HalfPrecisionProfile.None
 
+/* Reports whether the selected scalar profile includes single-precision support. */
 fun floating_point_supports_f(profile :: FloatingPointProfile):
   profile != FloatingPointProfile.None
 
+/* Reports whether the selected scalar profile includes double-precision support. */
 fun floating_point_supports_d(profile :: FloatingPointProfile):
   profile == FloatingPointProfile.D
 
+/* Returns the scalar floating-point register width, rejecting the disabled profile. */
 fun floating_point_register_width(profile :: FloatingPointProfile) :: PosInt:
   cond
   | profile == FloatingPointProfile.F: 32
@@ -29,12 +34,15 @@ fun floating_point_register_width(profile :: FloatingPointProfile) :: PosInt:
       error(~who: #'floating_point_register_width,
             "the None profile has no floating-point register file")
 
+/* Reports whether minimal half-precision conversions are included, including the full Zfh profile. */
 fun half_precision_supports_zfhmin(profile :: HalfPrecisionProfile):
   profile != HalfPrecisionProfile.None
 
+/* Reports whether full half-precision arithmetic is selected. */
 fun half_precision_supports_zfh(profile :: HalfPrecisionProfile):
   profile == HalfPrecisionProfile.Zfh
 
+/* Requires a base F-capable scalar profile when either half-precision profile is enabled. */
 fun check_half_precision_profile(floating_point :: FloatingPointProfile,
                                  half_precision :: HalfPrecisionProfile):
   when half_precision_supports_zfhmin(half_precision) && !floating_point_supports_f(floating_point)

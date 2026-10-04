@@ -1,5 +1,5 @@
 #lang rhodium
-// Provides catalog-independent case-list helpers for RISC-V control decoders.
+/* Provides catalog-independent case-list helpers for RISC-V control decoders. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,26 +7,31 @@ import:
   "../model/instruction.rhm".InstructionSpec
   lib("rhodium/std/decode.rhdl") open
 
+/* Pairs each pure instruction encoding with the same caller-supplied output cube. */
 fun instruction_cases(instructions :: List.of(InstructionSpec), output :: Pattern):
   for List (instruction in instructions):
     DecodeCase(instruction_pattern(instruction), output)
 
+/* Concatenates host case groups in source order without introducing decode priority. */
 fun combine_case_groups(groups :: List):
   def mutable cases = []
   for (group in groups):
     cases := cases ++ group
   cases
 
+/* Filters out caller-specified instruction descriptors from a host list. */
 fun excluding_instructions(instructions :: List, excluded :: List):
   instructions.filter(
     ~keep: fun (instruction): !excluded.contains(instruction)
   )
 
+/* Compares exact type, width, value, and care images of two input cubes. */
 fun same_input_pattern(left :: Pattern, right :: Pattern):
   left.type.type_equal(right.type) && right.type.type_equal(left.type) && (
     left.width == right.width
   ) && left.value_bits == right.value_bits && left.care_bits == right.care_bits
 
+/* Returns the output of an exactly matching input cube, rejecting missing or duplicate rows. */
 fun component_output(cases :: List.of(DecodeCase), input :: Pattern):
   def matching = cases.filter(~keep: fun (candidate): same_input_pattern(candidate.input, input))
   unless matching.length() == 1

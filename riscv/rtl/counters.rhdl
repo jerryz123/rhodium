@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements reusable 64-bit RISC-V cycle and instruction-retirement counters.
+/* Implements reusable 64-bit RISC-V cycle and instruction-retirement counters. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,10 +8,12 @@ import:
   "csr.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Carries an already-authorized CSR address and an XLEN-sized counter replacement value. */
 bundle RiscvCounterWrite(xlen :: XLen):
   address: Bits(12)
   value: Bits(xlen.width)
 
+/* Maintains reset-zero 64-bit cycle/retirement counters with explicit CSR writes taking precedence over increments. */
 sync_circuit RiscvBaseCounters(xlen :: XLen):
   input retire: Bool
   interface machine_write(Valid(RiscvCounterWrite(xlen)), ~role: consumer)

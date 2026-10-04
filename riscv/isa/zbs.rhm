@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified RV32 and RV64 Zbs single-bit instruction catalogs.
+/* Defines the ratified RV32 and RV64 Zbs single-bit instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,6 +7,7 @@ import:
   "../model/main.rhm" open
   "integer-common.rhm" open
 
+/* Builds a shift-immediate descriptor with a five-bit shift amount and fixed function fields. */
 fun shift32_instruction(name :: NonemptyString,
                         function3 :: Nat,
                         function7 :: Nat):
@@ -14,6 +15,7 @@ fun shift32_instruction(name :: NonemptyString,
               Shift32Format,
               [opcode.constrain(OP_IMM), funct3.constrain(function3), funct7.constrain(function7)])
 
+/* Builds a shift-immediate descriptor with a six-bit shift amount and fixed function fields. */
 fun shift64_instruction(name :: NonemptyString,
                         function3 :: Nat,
                         function6 :: Nat):

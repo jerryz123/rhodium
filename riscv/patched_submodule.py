@@ -9,6 +9,7 @@ import sys
 import tempfile
 
 
+# Resolves an ordered patch list, ignoring blank/comment lines and rejecting missing files.
 def read_series(series_path):
     series = Path(series_path).resolve(strict=True)
     if not series.is_file():
@@ -24,6 +25,7 @@ def read_series(series_path):
     return series, patches
 
 
+# Tests lexical path containment after callers have normalized the relevant paths.
 def path_contains(parent, child):
     try:
         child.relative_to(parent)
@@ -32,6 +34,7 @@ def path_contains(parent, child):
         return False
 
 
+# Resolves the output parent without following a replaceable final symlink and rejects roots.
 def normalized_output_path(output_path):
     output = Path(output_path).expanduser().absolute()
     if output == Path(output.anchor):
@@ -39,6 +42,7 @@ def normalized_output_path(output_path):
     return output.parent.resolve(strict=False) / output.name
 
 
+# Applies patches in a staging copy, then replaces only a validated nonoverlapping output tree.
 def materialize(source_path, series_path, output_path, git="git"):
     source = Path(source_path).resolve(strict=True)
     if not source.is_dir():
@@ -70,6 +74,7 @@ def materialize(source_path, series_path, output_path, git="git"):
     return output
 
 
+# Runs a checked repository-scoped Git query and returns its stripped standard output.
 def git_output(git, repository, *arguments, input_text=None):
     return subprocess.run(
         [git, "-C", str(repository), *arguments],
@@ -80,6 +85,7 @@ def git_output(git, repository, *arguments, input_text=None):
     ).stdout.strip()
 
 
+# Hashes the recorded upstream gitlink plus the series and ordered patch content identities.
 def identity(repository_path, submodule_path, series_path, git="git"):
     repository = Path(repository_path).resolve(strict=True)
     series, patches = read_series(series_path)
@@ -94,6 +100,7 @@ def identity(repository_path, submodule_path, series_path, git="git"):
     return git_output(git, repository, "hash-object", "--stdin", input_text=identity_input)
 
 
+# Defines the materialize and identity commands with their required source/output arguments.
 def build_parser():
     parser = argparse.ArgumentParser(description="Manage pristine submodules with ordered patches")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -112,6 +119,7 @@ def build_parser():
     return parser
 
 
+# Dispatches one command, reporting expected filesystem, input, and patch failures as exit 1.
 def main(arguments=None):
     options = build_parser().parse_args(arguments)
     try:

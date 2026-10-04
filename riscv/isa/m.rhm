@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the complete RV32 and RV64 integer multiply/divide instruction catalogs.
+/* Defines the complete RV32 and RV64 integer multiply/divide instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -29,9 +29,11 @@ def RV64MRevision = "RV64 M 2.0"
 def RV32M = InstructionCatalog("RV32M", RV32MRevision, RV32MInstructions)
 def RV64M = InstructionCatalog("RV64M", RV64MRevision, RV64MInstructions)
 
+/* Returns the named descriptor from RV32M, rejecting unknown instruction names. */
 fun rv32m_instruction(name :: String):
   RV32M.find(name)
 
+/* Returns the named descriptor from RV64M, rejecting unknown instruction names. */
 fun rv64m_instruction(name :: String):
   RV64M.find(name)
 

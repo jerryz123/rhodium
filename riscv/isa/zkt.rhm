@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines Zkt's architectural timing scope, independently of implemented opcode catalogs.
+/* Defines Zkt's architectural timing scope, independently of implemented opcode catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -35,6 +35,7 @@ def rv64_names = [
   "SHA512SIG0", "SHA512SIG1", "SHA512SUM0", "SHA512SUM1", "RORW", "ROLW", "RORIW", "PACKW"
 ]
 
+/* Returns the XLEN-specific architectural timing-scope names without asserting that a core implements them. */
 fun zkt_instruction_names(xlen :: XLen) :: NonemptyList.of(String):
   common_names ++ (if xlen == XLen.X32 | rv32_names | rv64_names)
 

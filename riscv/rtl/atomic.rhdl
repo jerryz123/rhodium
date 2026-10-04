@@ -1,11 +1,12 @@
 #lang rhodium
-// Defines reusable RISC-V atomic operations and their integer update datapath.
+/* Defines reusable RISC-V atomic operations and their integer update datapath. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open
   lib("rhodium/std/bits.rhdl") open
 
+/* Names the base atomic read-modify-write update operations. */
 hardware_enum RiscvAtomicOperation:
   Swap
   Add
@@ -17,6 +18,7 @@ hardware_enum RiscvAtomicOperation:
   MinUnsigned
   MaxUnsigned
 
+/* Computes an AMO replacement value combinationally; RV64 word operations use low 32 bits and return a zero-extended replacement. */
 circuit RiscvAtomicALU(xlen :: XLen):
   def width = xlen.width
 

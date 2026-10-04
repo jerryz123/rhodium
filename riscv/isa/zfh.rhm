@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the complete half-precision floating-point instruction catalogs.
+/* Defines the complete half-precision floating-point instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,24 +10,31 @@ import:
 def OP_FP = 0x53
 def HALF = 2
 
+/* Builds a half-precision fused four-register instruction with a variable rounding-mode field. */
 fun fused(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingR4RoundingFormat, [opcode.constrain(operation), fmt.constrain(HALF)])
 
+/* Builds a half-precision two-source operation with a variable rounding-mode field. */
 fun binary_rounding(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingBinaryRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(HALF)])
 
+/* Builds a half-precision unary operation with zero rs2 and a variable rounding-mode field. */
 fun unary_rounding(name :: NonemptyString, operation :: Nat):
   instruction(name, FloatingUnaryRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(HALF), rs2.constrain(0)])
 
+/* Builds a half-precision two-source operation with a fixed function subselector. */
 fun binary_fixed(name :: NonemptyString, operation :: Nat, suboperation :: Nat):
   instruction(name, FloatingBinaryFormat, [opcode.constrain(OP_FP), funct5.constrain(operation), fmt.constrain(HALF), funct3.constrain(suboperation)])
 
+/* Builds a half-precision comparison with an integer destination and fixed relation. */
 fun compare(name :: NonemptyString, relation :: Nat):
   instruction(name, FloatingCompareFormat, [opcode.constrain(OP_FP), funct5.constrain(20), fmt.constrain(HALF), funct3.constrain(relation)])
 
+/* Builds a rounded half-precision conversion to the selected integer kind. */
 fun float_to_integer_rounding(name :: NonemptyString, integer_kind :: Nat):
   instruction(name, FloatingToIntegerRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(24), fmt.constrain(HALF), rs2.constrain(integer_kind)])
 
+/* Builds a rounded conversion from the selected integer kind to half precision. */
 fun integer_to_float_rounding(name :: NonemptyString, integer_kind :: Nat):
   instruction(name, IntegerToFloatingRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(26), fmt.constrain(HALF), rs2.constrain(integer_kind)])
 
@@ -71,7 +78,9 @@ def ZfhRevision = "Zfh 1.0"
 def RV32Zfh = InstructionCatalog("RV32Zfh", ZfhRevision, ZfhInstructions)
 def RV64Zfh = InstructionCatalog("RV64Zfh", ZfhRevision, RV64ZfhInstructions)
 
+/* Returns the named descriptor from RV32Zfh, rejecting unknown instruction names. */
 fun rv32zfh_instruction(name :: String): RV32Zfh.find(name)
+/* Returns the named descriptor from RV64Zfh, rejecting unknown instruction names. */
 fun rv64zfh_instruction(name :: String): RV64Zfh.find(name)
 
 export:

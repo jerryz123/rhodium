@@ -1,39 +1,43 @@
 #lang rhodium
-// Defines host/guest cache-block access decisions and xenvcfg WARL field handling.
+/* Defines host/guest cache-block access decisions and xenvcfg WARL field handling. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../isa/xlen.rhm" open
   "pma.rhdl".RiscvPhysicalMemoryLookup
 
+/* Names cache-block invalidation, cleaning, and flushing requests. */
 hardware_enum CboManagementOperation:
   Invalidate
   Clean
   Flush
 
+/* Uses the xenvcfg CBIE encodings for denial, invalidate-to-flush conversion, and allowed invalidation. */
 hardware_enum CboInvalidateMode(~width: 2):
   Disabled = 0
   Flush = 1
   Invalidate = 3
 
+/* Distinguishes allowed cache-block operations from illegal- and virtual-instruction denials. */
 hardware_enum CboAccess:
   Allowed
   IllegalInstruction
   VirtualInstruction
 
+/* Pairs an access decision with the effective management operation after invalidate-to-flush conversion. */
 bundle CboManagementPermission():
   access: CboAccess
   operation: CboManagementOperation
 
-// Machine denial wins; shared senvcfg restricts U or VU, not HS or VS.
+/* Machine denial wins; shared senvcfg restricts U or VU, not HS or VS. */
 fun cbo_access(enabled :: Boolean, user_mode :: Bool, supervisor_mode :: Bool, virtualized :: Bool,
                machine_enabled :: Bool, hypervisor_enabled :: Bool, supervisor_enabled :: Bool) :~ CboAccess:
   def illegal = Bool(!enabled) ||| ((user_mode ||| supervisor_mode) & !machine_enabled) ||| (user_mode & !virtualized & !supervisor_enabled)
   def virtual_denied = virtualized & (!hypervisor_enabled ||| (user_mode & !supervisor_enabled))
   mux(illegal, CboAccess.IllegalInstruction, mux(virtual_denied, CboAccess.VirtualInstruction, CboAccess.Allowed))
 
-// Return only the CMO-owned CSR fields; other xenvcfg fields remain caller-owned.
-// The reserved CBIE=10 write deterministically becomes Disabled, not Invalidate.
+/* Return only the CMO-owned CSR fields; other xenvcfg fields remain caller-owned.
+ * The reserved CBIE=10 write deterministically becomes Disabled, not Invalidate. */
 fun cmo_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width),
                       ~zicbom: zicbom :: Boolean, ~zicboz: zicboz :: Boolean) :~ Bits(xlen.width):
   def cbie = value[4..6]
@@ -42,7 +46,9 @@ fun cmo_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width),
   def zero = if zicboz | value & bits(0x80, xlen.width) | bits(0, xlen.width)
   management ||| zero
 
-// Current execution privilege controls xenvcfg; MPRV affects translation only.
+/* Resolves management authorization and any required invalidate-to-flush conversion.
+ * Current execution privilege controls xenvcfg; MPRV affects translation only.
+ */
 fun cbo_management_permission(xlen :: XLen, operation :: CboManagementOperation,
                               user_mode :: Bool, supervisor_mode :: Bool,
                               menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
@@ -65,6 +71,7 @@ fun cbo_management_permission(xlen :: XLen, operation :: CboManagementOperation,
                        mux(invalidate, supervisor_invalidate_enabled, senvcfg[6].into(Bool)))
     operation: mux(invalidate & force_flush, CboManagementOperation.Flush, operation)
 
+/* Checks CBO.ZERO authorization through machine, hypervisor, and supervisor xenvcfg controls. */
 fun cbo_zero_permission(xlen :: XLen, user_mode :: Bool, supervisor_mode :: Bool,
                         menvcfg :: Bits(xlen.width), senvcfg :: Bits(xlen.width),
                         ~zicboz: zicboz :: Boolean,
@@ -72,8 +79,8 @@ fun cbo_zero_permission(xlen :: XLen, user_mode :: Bool, supervisor_mode :: Bool
                         ~henvcfg: henvcfg :: Bits(xlen.width) = bits(0, xlen.width)) :~ CboAccess:
   cbo_access(zicboz, user_mode, supervisor_mode, virtualized, menvcfg[7].into(Bool), henvcfg[7].into(Bool), senvcfg[7].into(Bool))
 
-// The caller looks up the complete aligned block. Cacheability, atomics, and
-// CBO.ZERO support are not permissions for cache management. PMP is separate.
+/* The caller looks up the complete aligned block. Cacheability, atomics, and
+ * CBO.ZERO support are not permissions for cache management. PMP is separate. */
 fun cbo_management_physical_permission(physical :: RiscvPhysicalMemoryLookup()) :~ Bool:
   physical.mapped & (physical.readable ||| physical.writable)
 

@@ -1,5 +1,5 @@
 #lang rhodium
-// Resolves physical M/S and software-injected VS interrupts, priority, and delegation.
+/* Resolves physical M/S and software-injected VS interrupts, priority, and delegation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
   "privilege.rhdl" open
   lib("rhodium/std/bits.rhdl") open
 
+/* Carries the six physical machine/supervisor software, timer, and external pending sources. */
 bundle RiscvInterrupts():
   supervisor_software: Bool
   machine_software: Bool
@@ -18,11 +19,13 @@ bundle RiscvInterrupts():
   supervisor_external: Bool
   machine_external: Bool
 
+/* Carries selected-interrupt validity, an XLEN-sized architectural cause, and the trap target. */
 bundle RiscvInterruptDecision(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   target: RiscvTrapTarget
 
+/* Packs physical pending sources at their architectural interrupt bit positions. */
 fun riscv_interrupt_pending(xlen :: XLen,
                             interrupts :: RiscvInterrupts()) :~ Bits(xlen.width):
   pack_fields(xlen.width, [
@@ -34,10 +37,14 @@ fun riscv_interrupt_pending(xlen :: XLen,
     [interrupt_code(InterruptCause.MachineExternal), interrupts.machine_external]
   ])
 
+/* Builds an interrupt cause image with the top interrupt bit and architectural cause number. */
 fun interrupt_cause_bits(cause :: InterruptCause,
                          width :: PosInt) :~ Bits(width):
   bits((1 bits.(<<) (width - 1)) bits.or interrupt_code(cause), width)
 
+/* Selects enabled M/S interrupts in external/software/timer order within each privilege group,
+ * with machine sources first, counter overflow last, and privilege/delegation gates.
+ */
 fun resolve_riscv_interrupt(xlen :: XLen,
                             pending :: Bits(xlen.width),
                             enabled :: Bits(xlen.width),
@@ -47,6 +54,7 @@ fun resolve_riscv_interrupt(xlen :: XLen,
   def width = xlen.width
   def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| csr_flag(mstatus, MstatusMIE)
   def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
+  /* Combines pending, per-cause enable, and the global privilege gate chosen by delegation. */
   fun candidate(cause :: InterruptCause) :~ Bool:
     def code = interrupt_code(cause)
     def to_supervisor = delegated[code].into(Bool)
@@ -81,8 +89,9 @@ fun resolve_riscv_interrupt(xlen :: XLen,
     cause: cause
     target: mux(valid & to_supervisor, RiscvTrapTarget.Supervisor, RiscvTrapTarget.Machine)
 
-// Baseline H with GEILEN=0. Virtual pending/enables use their M/H positions;
-// only delivery to VS renumbers causes. No guest controller or AIA state.
+/* Selects M, HS, and VS delivery for baseline H with GEILEN=0.
+ * Virtual pending/enables use their M/H positions;
+ * only delivery to VS renumbers causes. No guest controller or AIA state. */
 fun resolve_riscv_hypervisor_interrupt(
   pending :: Bits(64), enabled :: Bits(64), mideleg :: Bits(64), hideleg :: Bits(64),
   mstatus :: Bits(64), vsstatus :: Bits(64), context :: RiscvExecutionContext()
@@ -96,6 +105,7 @@ fun resolve_riscv_hypervisor_interrupt(
   def vs_enabled = context.virtualized & ((context.privilege === PrivilegeMode.User) ||| csr_flag(vsstatus, MstatusSIE))
   def virtual_mask = bits(interrupt_mask(VirtualSupervisorInterruptCauses), 64)
   def active = pending & enabled & mideleg & virtual_mask
+  /* Selects virtual external/software/timer candidates for HS or VS and renumbers causes only for VS delivery. */
   fun virtual_candidate(delegated :: Boolean) :~ RiscvInterruptDecision(XLen.X64):
     def candidates = active & (if delegated | hideleg | !hideleg)
     def external = candidates[interrupt_code(InterruptCause.VirtualSupervisorExternal)].into(Bool)

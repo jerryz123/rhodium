@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified Zcmop compressed may-be-operation catalog.
+/* Defines the ratified Zcmop compressed may-be-operation catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
 
 def zcmop_zero_immediate = BitField("C.MOP zero immediate", 6, 2)
 
+/* Describes an indexed compressed may-be-operation expanding to an operand-free canonical no-op. */
 fun compressed_mop(index :: Nat):
   compressed_instruction(
     "C.MOP." ++ to_string(index),

@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified RV32 and RV64 Zicond conditional-operation catalogs.
+/* Defines the ratified RV32 and RV64 Zicond conditional-operation catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

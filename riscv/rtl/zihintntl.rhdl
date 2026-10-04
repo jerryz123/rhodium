@@ -1,7 +1,8 @@
 #lang rhodium
-// Defines architectural Zihintntl locality selectors independently of cache policy.
+/* Defines architectural Zihintntl locality selectors independently of cache policy. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Names the architectural non-temporal locality scopes without prescribing cache allocation policy. */
 hardware_enum RiscvMemoryLocality:
   Default
   P1

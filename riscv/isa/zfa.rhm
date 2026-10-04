@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified Zfa additional floating-point instruction catalogs.
+/* Defines the ratified Zfa additional floating-point instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,15 +11,19 @@ def SINGLE = 0
 def DOUBLE = 1
 def HALF = 2
 
+/* Builds a Zfa floating-immediate descriptor with its fixed format and selector subopcode. */
 fun load_immediate(name :: NonemptyString, format :: Nat):
   instruction(name, FloatingImmediateFormat, [opcode.constrain(OP_FP), funct5.constrain(30), fmt.constrain(format), rs2.constrain(1), funct3.constrain(0)])
 
+/* Builds a Zfa minimum/maximum descriptor for the supplied format and operation. */
 fun minmax(name :: NonemptyString, format :: Nat, operation :: Nat):
   instruction(name, FloatingBinaryFormat, [opcode.constrain(OP_FP), funct5.constrain(5), fmt.constrain(format), funct3.constrain(operation)])
 
+/* Builds a Zfa rounding-to-integral descriptor with a runtime rounding-mode operand. */
 fun round_to_integral(name :: NonemptyString, format :: Nat, operation :: Nat):
   instruction(name, FloatingUnaryRoundingFormat, [opcode.constrain(OP_FP), funct5.constrain(8), fmt.constrain(format), rs2.constrain(operation)])
 
+/* Builds a Zfa quiet floating comparison descriptor with an integer destination. */
 fun quiet_compare(name :: NonemptyString, format :: Nat, relation :: Nat):
   instruction(name, FloatingCompareFormat, [opcode.constrain(OP_FP), funct5.constrain(20), fmt.constrain(format), funct3.constrain(relation)])
 

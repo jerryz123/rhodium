@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the XLEN-independent Zifencei instruction-fetch fence catalog.
+/* Defines the XLEN-independent Zifencei instruction-fetch fence catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:

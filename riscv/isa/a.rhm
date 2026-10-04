@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the RV32A and RV64A atomic-instruction catalogs and encodings.
+/* Defines the RV32A and RV64A atomic-instruction catalogs and encodings. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ def AMO = 0x2F
 def WORD = 2
 def DOUBLE = 3
 
+/* Builds an atomic read-modify-write descriptor with variable aq/rl bits and fixed operation/transfer width. */
 fun atomic_instruction(name :: NonemptyString,
                        width :: Nat,
                        operation :: Nat):
@@ -19,6 +20,7 @@ fun atomic_instruction(name :: NonemptyString,
                funct3.constrain(width),
                funct5.constrain(operation)])
 
+/* Builds a load-reserved descriptor with the required zero second register. */
 fun load_reserved_instruction(name :: NonemptyString, width :: Nat):
   instruction(name,
               LoadReservedFormat,
@@ -66,9 +68,11 @@ def RV64ARevision = "RV64 A 2.1"
 def RV32A = InstructionCatalog("RV32A", RV32ARevision, RV32AInstructions)
 def RV64A = InstructionCatalog("RV64A", RV64ARevision, RV64AInstructions)
 
+/* Returns the named descriptor from RV32A, rejecting unknown instruction names. */
 fun rv32a_instruction(name :: String):
   RV32A.find(name)
 
+/* Returns the named descriptor from RV64A, rejecting unknown instruction names. */
 fun rv64a_instruction(name :: String):
   RV64A.find(name)
 

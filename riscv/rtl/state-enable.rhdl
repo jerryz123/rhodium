@@ -1,5 +1,5 @@
 #lang rhodium
-// Resolves architectural state-enable CSR access gates without owning privileged state.
+/* Resolves architectural state-enable CSR access gates without owning privileged state. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,12 +7,13 @@ import:
   "csr.rhdl" open
   "privilege.rhdl" open
 
+/* Separates machine-level illegal-instruction denial from guest-level virtual-instruction denial. */
 bundle RiscvStateEnableAccess():
   illegal: Bool
   virtual_instruction: Bool
 
-// The caller separately checks CSR implementation, XLEN, and base privilege.
-// Machine denial wins even when a guest access would otherwise be virtual.
+/* The caller separately checks CSR implementation, XLEN, and base privilege.
+ * Machine denial wins even when a guest access would otherwise be virtual. */
 fun state_enable_access(context :: RiscvExecutionContext(), address :: Bits(12), machine :: Vec(4, Bits(64)), hypervisor :: Vec(4, Bits(64))) :~ RiscvStateEnableAccess():
   def mutable machine_allowed = Bool(#true)
   def mutable guest_allowed = Bool(#true)

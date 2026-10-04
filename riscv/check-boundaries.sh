@@ -6,6 +6,7 @@ set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$repo_dir"
 
+# Searches first-party production sources, excluding tests, with a grep fallback.
 search_sources() {
   local pattern="$1"
   local file_glob="$2"

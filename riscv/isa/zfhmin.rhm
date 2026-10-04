@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the standard minimal half-precision floating-point instruction catalogs.
+/* Defines the standard minimal half-precision floating-point instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -26,7 +26,9 @@ def ZfhminRevision = "Zfhmin 1.0"
 def Zfhmin = InstructionCatalog("Zfhmin", ZfhminRevision, ZfhminInstructions)
 def ZfhminD = InstructionCatalog("Zfhmin with D", ZfhminRevision, ZfhminInstructions ++ ZfhminDInstructions)
 
+/* Returns the named descriptor from Zfhmin, rejecting unknown instruction names. */
 fun zfhmin_instruction(name :: String): Zfhmin.find(name)
+/* Returns the named descriptor from ZfhminD, rejecting unknown instruction names. */
 fun zfhmin_d_instruction(name :: String): ZfhminD.find(name)
 
 export:

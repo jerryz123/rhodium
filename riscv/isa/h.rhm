@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the H 1.0 guest-memory and hypervisor translation-fence catalogs.
+/* Defines the H 1.0 guest-memory and hypervisor translation-fence catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -17,16 +17,19 @@ def HypervisorFenceFormat = InstructionFormat("hypervisor fence", [
   RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")
 ])
 
+/* Builds a guest-load descriptor with fixed access-width and extension selectors. */
 fun guest_load(name :: NonemptyString, function :: Nat, extension :: Nat):
   instruction(name, HypervisorLoadFormat, [
     opcode.constrain(SYSTEM), funct3.constrain(4), funct7.constrain(function), rs2.constrain(extension)
   ])
 
+/* Builds a guest-store descriptor with a fixed width selector and zero destination field. */
 fun guest_store(name :: NonemptyString, function :: Nat):
   instruction(name, HypervisorStoreFormat, [
     opcode.constrain(SYSTEM), funct3.constrain(4), funct7.constrain(function), rd.constrain(0)
   ])
 
+/* Builds a hypervisor translation-fence descriptor with variable source operands and zero destination. */
 fun guest_fence(name :: NonemptyString, function :: Nat):
   instruction(name, HypervisorFenceFormat, [
     opcode.constrain(SYSTEM), funct3.constrain(0), funct7.constrain(function), rd.constrain(0)

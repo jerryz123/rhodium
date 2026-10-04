@@ -1,5 +1,5 @@
 #lang rhombus
-// Identifies the existing vector conversions whose SEW=16 forms comprise Zvfhmin.
+/* Identifies the existing vector conversions whose SEW=16 forms comprise Zvfhmin. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ def ZvfhminInstructions = [VFWCVT_F_F_V, VFNCVT_F_F_W]
 def ZvfhminRevision = "Zvfhmin 1.0"
 def Zvfhmin = InstructionCatalog("Zvfhmin", ZvfhminRevision, ZvfhminInstructions)
 
+/* Returns the named descriptor from Zvfhmin, rejecting unknown instruction names. */
 fun zvfhmin_instruction(name :: String): Zvfhmin.find(name)
 
 export:

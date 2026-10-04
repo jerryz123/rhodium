@@ -1,5 +1,5 @@
 #lang rhodium
-// Materializes descriptor-driven compressed-instruction profiles as combinational hardware.
+/* Materializes descriptor-driven compressed-instruction profiles as combinational hardware. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -14,10 +14,12 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
+/* Carries compact-decode validity and the resulting canonical 32-bit instruction. */
 bundle RiscvCompressedExpansion():
   valid: Bool
   instruction: Bits(32)
 
+/* Expands each legal compact pattern into disjoint rows selecting its descriptor index. */
 fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstructionSpec)):
   def operation_width = index_width(instructions.length())
   def mutable cases = []
@@ -28,6 +30,7 @@ fun compressed_selector_cases(instructions :: NonemptyList.of(CompressedInstruct
         cases := cases ++ [DecodeCase(term, bits(index, operation_width))]
   cases
 
+/* Builds the forbidden zero cube for a supported nonzero field/immediate legality predicate. */
 fun constraint_zero_pattern(constraint :: ExpansionConstraint):
   def mutable care = 0
   cond
@@ -41,6 +44,7 @@ fun constraint_zero_pattern(constraint :: ExpansionConstraint):
             "unknown instruction-expansion legality constraint")
   Pattern(~value: bits(0, 16), ~care: bits(care, 16))
 
+/* Subtracts each forbidden zero cube from an encoding's accepted compact-word set. */
 fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
                                     encoding :: InstructionEncoding):
   def mutable accepted :: PatternSetLike.to_pattern_set = encoding_pattern(encoding)
@@ -48,6 +52,7 @@ fun compressed_instruction_patterns(instruction :: CompressedInstructionSpec,
     accepted := accepted.subtract(constraint_zero_pattern(constraint))
   accepted
 
+/* Materializes a supported constant or extracted-field-plus-addend operand source at the target width. */
 fun expansion_source_bits(source :: ExpansionValueSource,
                           width :: PosInt,
                           compressed :: Bits(16)) :~ Bits(width):
@@ -62,6 +67,7 @@ fun expansion_source_bits(source :: ExpansionValueSource,
       error(~who: #'expansion_source_bits,
             "unknown instruction-expansion value source")
 
+/* Places a semantic immediate's pieces into their canonical 32-bit instruction slices. */
 fun scatter_immediate_bits(layout :: ImmediateLayout,
                            value :: Bits(layout.width)) :~ Bits(32):
   def mutable result = bits(0, 32)
@@ -71,6 +77,7 @@ fun scatter_immediate_bits(layout :: ImmediateLayout,
     result := result ||| (extended << piece.source.low)
   result
 
+/* Assembles canonical instruction hardware from descriptor fixed bits, operand bindings, and optional immediate. */
 fun materialize_expansion(expansion :: InstructionExpansion,
                           compressed :: Bits(16)) :~ Bits(32):
   def mutable instruction = bits(expansion.target.encoding.value, 32)
@@ -90,6 +97,7 @@ fun materialize_expansion(expansion :: InstructionExpansion,
                                                   expansion.target.immediate.width))
     | instruction
 
+/* Combinationally decodes the selected compressed profile and returns its canonical expansion with an explicit validity bit. */
 circuit RiscvCompressedExpander(xlen :: XLen,
                                 floating_point :: FloatingPointProfile = DefaultFloatingPointProfile,
                                 compressed_extensions :: List.of(CompressedExtension) = CCompressedExtensions,

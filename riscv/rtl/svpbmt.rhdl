@@ -1,5 +1,5 @@
 #lang rhodium
-// Resolves Svpbmt access attributes without granting physical permissions or changing coherence routing.
+/* Resolves Svpbmt access attributes without granting physical permissions or changing coherence routing. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,18 +8,19 @@ import:
   "csr.rhdl" open
   "pma.rhdl".RiscvPhysicalMemoryLookup
 
+/* Uses architectural inherit-PMA, noncacheable, IO, and reserved page-memory encodings. */
 hardware_enum PageMemoryType(~width: 2):
   PMA = 0
   NC = 1
   IO = 2
   Reserved = 3
 
-// Bare stages supply PMA. A non-default stage-one override wins over G-stage.
+/* Bare stages supply PMA. A non-default stage-one override wins over G-stage. */
 fun compose_page_memory_type(stage_one :: PageMemoryType, stage_two :: PageMemoryType) :~ PageMemoryType:
   mux(stage_one === PageMemoryType.PMA, stage_two, stage_one)
 
-// Permissions, atomic support, and physical Home selection remain with the PMA.
-// Both fence domains apply when PBMT changes main memory into IO or vice versa.
+/* Permissions, atomic support, and physical Home selection remain with the PMA.
+ * Both fence domains apply when PBMT changes main memory into IO or vice versa. */
 bundle RiscvMemoryAccessAttributes():
   cacheable: Bool
   instruction_cacheable: Bool
@@ -28,6 +29,7 @@ bundle RiscvMemoryAccessAttributes():
   fence_memory: Bool
   fence_io: Bool
 
+/* Combines PBMT and PMA into cacheability, ordering, idempotence, and fence-domain flags without adding access permissions. */
 fun resolve_memory_attributes(physical :: RiscvPhysicalMemoryLookup(), pbmt :: PageMemoryType) :~ RiscvMemoryAccessAttributes():
   def inherit = pbmt === PageMemoryType.PMA
   def nc = pbmt === PageMemoryType.NC
@@ -40,11 +42,13 @@ fun resolve_memory_attributes(physical :: RiscvPhysicalMemoryLookup(), pbmt :: P
     fence_memory: physical.mapped & (nc ||| !physical.device)
     fence_io: physical.mapped & (io ||| physical.device)
 
+/* Preserves only PBMTE for enabled RV64 specialization, returning zero otherwise. */
 fun svpbmt_envcfg_fields(xlen :: XLen, value :: Bits(xlen.width), ~enabled: enabled :: Boolean) :~ Bits(xlen.width):
   if enabled && xlen == XLen.X64
   | value & bits(MenvcfgPBMTE.mask(), xlen.width)
   | bits(0, xlen.width)
 
+/* Reads RV64 PBMTE; RV32 specialization always disables page memory-type overrides. */
 fun svpbmt_enabled(xlen :: XLen, value :: Bits(xlen.width)) :~ Bool:
   if xlen == XLen.X64 | csr_flag(value, MenvcfgPBMTE) | Bool(#false)
 

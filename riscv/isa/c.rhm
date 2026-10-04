@@ -1,5 +1,5 @@
 #lang rhombus
-// Composes independently selected Zc extensions into validated instruction catalogs.
+/* Composes independently selected Zc extensions into validated instruction catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,6 +12,7 @@ import:
   "zcf.rhm" open
   "zcd.rhm" open
 
+/* Names full C and independently selectable compressed subsets. */
 enum CompressedExtension
 | C
 | Zca
@@ -25,6 +26,7 @@ def ZcaCompressedExtensions = [CompressedExtension.Zca]
 def CCompressedExtensions = [CompressedExtension.C]
 def DefaultCompressedExtensions = NoCompressedExtensions
 
+/* Rejects duplicates, redundant full-C subsets, and additions lacking a C/Zca base. */
 fun validate_compressed_extensions(extensions :: List.of(CompressedExtension)):
   for (extension in extensions):
     when extensions.filter(~keep: fun (candidate): candidate == extension).length() != 1
@@ -45,6 +47,7 @@ fun validate_compressed_extensions(extensions :: List.of(CompressedExtension)):
   | error(~who: #'compressed_extensions, "Zcd requires Zca or C")
   extensions
 
+/* Validates variadic selections and returns them in canonical compressed-extension order. */
 fun compressed_extensions(extension :: CompressedExtension, ...):
   def supplied = validate_compressed_extensions([extension, ...])
   def mutable normalized = []
@@ -58,9 +61,11 @@ fun compressed_extensions(extension :: CompressedExtension, ...):
     | normalized := normalized ++ [candidate]
   normalized
 
+/* Validates the selection and reports whether any compressed extension is present. */
 fun compressed_extensions_enabled(extensions :: List.of(CompressedExtension)):
   validate_compressed_extensions(extensions).length() != 0
 
+/* Checks compressed subset prerequisites against XLEN and scalar floating-point capability. */
 fun validate_compressed_configuration(xlen :: XLen,
                                       floating_point :: FloatingPointProfile,
                                       extensions :: List.of(CompressedExtension)):
@@ -73,6 +78,7 @@ fun validate_compressed_configuration(xlen :: XLen,
   | error(~who: #'compressed_extensions_instructions, "Zcd requires D")
   extensions
 
+/* Reports MISA.C only when the selected subsets supply the full C contract for this XLEN and floating-point profile. */
 fun compressed_extensions_report_misa_c(
   xlen :: XLen,
   floating_point :: FloatingPointProfile,
@@ -92,9 +98,11 @@ fun compressed_extensions_report_misa_c(
           xlen == XLen.X32 && zcf
       | ~else: #true
 
+/* Selects the XLEN-specific compressed-integer instruction list. */
 fun zca_instructions(xlen :: XLen):
   if xlen == XLen.X32 | RV32ZcaInstructions | RV64ZcaInstructions
 
+/* Combines the XLEN-specific integer and applicable floating-point subsets of full C. */
 fun c_instructions(xlen :: XLen, floating_point :: FloatingPointProfile):
   if xlen == XLen.X32
   | RV32ZcaInstructions ++ (
@@ -106,6 +114,7 @@ fun c_instructions(xlen :: XLen, floating_point :: FloatingPointProfile):
       if floating_point_supports_d(floating_point) | RV64ZcdInstructions | []
     )
 
+/* Builds the selected compressed catalog and rejects canonical targets unsupported by the downstream decoder. */
 fun compressed_extensions_instructions(
   xlen :: XLen,
   floating_point :: FloatingPointProfile,

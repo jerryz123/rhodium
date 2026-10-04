@@ -1,10 +1,11 @@
 #lang rhombus
-// Defines architectural CSR identifiers, addresses, and named register fields.
+/* Defines architectural CSR identifiers, addresses, and named register fields. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/fields.rhm".BitField
 
+/* Names the architectural CSR inventory independently of register storage and access policy. */
 enum CsrId
 | Fflags
 | Frm
@@ -385,6 +386,7 @@ def CsrIds = [
   CsrId.Mvendorid, CsrId.Marchid, CsrId.Mimpid, CsrId.Mhartid, CsrId.Mconfigptr
 ] ++ HpmCounterIds ++ HpmCounterHighIds ++ MachineHpmCounterIds ++ MachineHpmCounterHighIds ++ MachineHpmEventIds ++ MachineHpmEventHighIds ++ [CsrId.Scountovf, CsrId.Mcountinhibit] ++ HypervisorCsrIds ++ StateEnableCsrIds
 
+/* Maps each CSR identifier to its architectural 12-bit address. */
 fun csr_address(id :: CsrId) :: Nat:
   match id
   | CsrId.Mstateen0: 0x30c
@@ -735,6 +737,7 @@ def Satp64Mode = BitField("satp.MODE", 63, 60)
 def ExtensionStatusDirty :: Nat = 3
 def XLen64Encoding :: Nat = 2
 
+/* Combines architectural field masks into one host CSR preservation mask. */
 fun csr_fields_mask(fields :: List.of(BitField)) :: Nat:
   def mutable mask = 0
   for (field in fields):

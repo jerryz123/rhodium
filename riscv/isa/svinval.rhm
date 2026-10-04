@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines Svinval 1.0 invalidation and ordering instructions, including H companions.
+/* Defines Svinval 1.0 invalidation and ordering instructions, including H companions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
 def InvalidationFormat = InstructionFormat("translation invalidation", [
   RegisterOperand("rs1", rs1, "source"), RegisterOperand("rs2", rs2, "source")
 ])
+/* Builds a translation invalidation instruction with variable source operands and fixed function encoding. */
 fun invalidate(name :: NonemptyString, function :: Nat):
   instruction(name, InvalidationFormat, [
     opcode.constrain(SYSTEM), funct3.constrain(0), funct7.constrain(function), rd.constrain(0)

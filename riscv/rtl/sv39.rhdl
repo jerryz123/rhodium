@@ -1,5 +1,5 @@
 #lang rhodium
-// Defines Sv39/Svnapot mapping geometry and demand, management, and prefetch permissions.
+/* Defines Sv39/Svnapot mapping geometry and demand, management, and prefetch permissions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,18 +7,21 @@ import:
   "svpbmt.rhdl".PageMemoryType
   lib("rhodium/std/bits.rhdl") open
 
+/* Distinguishes instruction fetch, load, store, and cache-management permission checks. */
 hardware_enum Sv39Access:
   Fetch
   Load
   Store
   CacheManagement
 
+/* Names ordinary Sv39 page sizes and the supported 64 KiB Svnapot mapping. */
 hardware_enum Sv39PageSize:
   Page4KiB
   Page64KiB
   Page2MiB
   Page1GiB
 
+/* Represents the complete 64-bit PTE image, including PBMT, NAPOT, reserved bits, and permission/state flags. */
 bundle Sv39Pte():
   napot: Bool
   pbmt: PageMemoryType
@@ -34,6 +37,7 @@ bundle Sv39Pte():
   read: Bool
   valid: Bool
 
+/* Carries a resolved physical address and leaf permissions without owning walker or TLB state. */
 bundle Sv39Translation():
   physical_address: Bits(56)
   read: Bool
@@ -42,39 +46,48 @@ bundle Sv39Translation():
   user: Bool
   global_mapping: Bool
 
+/* Checks RV64 sign extension above the Sv39 virtual-address sign bit. */
 fun sv39_canonical(address :: Bits(64)) :~ Bool:
   address[39..64] === mux(address[38].into(Bool), !bits(0, 25), bits(0, 25))
 
+/* Selects one of the three nine-bit Sv39 VPN components. */
 fun sv39_vpn(address :: Bits(64), level :: Bits(2)) :~ Bits(9):
   mux_lookup(level, ~default: address[30..39]):
     0: address[12..21]
     1: address[21..30]
 
+/* Recognizes a leaf PTE when either read or execute permission is set. */
 fun sv39_leaf(pte :: Sv39Pte()) :~ Bool:
   pte.read ||| pte.execute
 
+/* Checks V/R/W constraints, reserved bits, enabled leaf PBMT, and the supported level-zero 64 KiB NAPOT encoding. */
 fun sv39_pte_structurally_valid(pte :: Sv39Pte(), ~level: level :: Bits(2) = bits(0, 2), ~svnapot: svnapot :: Boolean = #false, ~pbmte: pbmte :: Bool = Bool(#false)) :~ Bool:
   def pbmt_valid = (pte.pbmt === PageMemoryType.PMA) ||| (pbmte & sv39_leaf(pte) & (pte.pbmt =/= PageMemoryType.Reserved))
   def napot_valid = !pte.napot ||| (Bool(svnapot) & sv39_leaf(pte) & (level === bits(0, 2)) & (pte.ppn[0..4] === bits(8, 4)))
   pte.valid & !(pte.write & !pte.read) & napot_valid & !pte.reserved.or_reduce() & pbmt_valid
 
+/* Requires lower PPN components to be zero for the selected superpage level. */
 fun sv39_superpage_aligned(pte :: Sv39Pte(), level :: Bits(2)) :~ Bool:
   mux_lookup(level, ~default: !pte.ppn[0..18].or_reduce()):
     0: Bool(#true)
     1: !pte.ppn[0..9].or_reduce()
 
-// Only structurally valid, aligned leaves reach mapping construction.
+/* Derives mapping size from the level and supported NAPOT bit.
+ * The caller admits only structurally valid, aligned leaves to mapping construction.
+ */
 fun sv39_page_size(pte :: Sv39Pte(), level :: Bits(2)) :~ Sv39PageSize:
   mux_lookup(level, ~default: Sv39PageSize.Page1GiB):
     0: mux(pte.napot, Sv39PageSize.Page64KiB, Sv39PageSize.Page4KiB)
     1: Sv39PageSize.Page2MiB
 
+/* Clears page-offset PPN bits to normalize a leaf into its mapping base. */
 fun sv39_base_ppn(ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(44):
   mux_lookup(page_size, ~default: ppn):
     Sv39PageSize.Page64KiB: ppn[4..44] ++ bits(0, 4)
     Sv39PageSize.Page2MiB: ppn[9..44] ++ bits(0, 9)
     Sv39PageSize.Page1GiB: ppn[18..44] ++ bits(0, 18)
 
+/* Compares addresses above the offset width of the selected mapping size. */
 fun sv39_same_page(left :: Bits, right :: Bits(left.type.packed_width()), page_size :: Sv39PageSize) :~ Bool:
   def width = left.type.packed_width()
   mux_lookup(page_size, ~default: left[12..width] === right[12..width]):
@@ -82,12 +95,14 @@ fun sv39_same_page(left :: Bits, right :: Bits(left.type.packed_width()), page_s
     Sv39PageSize.Page2MiB: left[21..width] === right[21..width]
     Sv39PageSize.Page1GiB: left[30..width] === right[30..width]
 
+/* Combines a normalized mapping PPN with the virtual offset for the selected page size. */
 fun sv39_physical_address(virtual_address :: Bits(64), base_ppn :: Bits(44), page_size :: Sv39PageSize) :~ Bits(56):
   mux_lookup(page_size, ~default: base_ppn ++ virtual_address[0..12]):
     Sv39PageSize.Page64KiB: base_ppn[4..44] ++ virtual_address[0..16]
     Sv39PageSize.Page2MiB: base_ppn[9..44] ++ virtual_address[0..21]
     Sv39PageSize.Page1GiB: base_ppn[18..44] ++ virtual_address[0..30]
 
+/* Checks privilege/SUM, access/MXR, and A/D permissions; callers separately validate the PTE's structure. */
 fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
                           user_mode :: Bool, supervisor_mode :: Bool,
                           sum :: Bool, mxr :: Bool,
@@ -105,8 +120,8 @@ fun sv39_permission_valid(pte :: Sv39Pte(), access :: Sv39Access,
     Sv39Access.CacheManagement: pte.read ||| pte.write ||| (mxr & pte.execute)
   privilege_valid & access_valid & pte.accessed
 
-// Prefetch permission is the union of fetch, load, and store permission, but
-// the architectural hint neither checks nor updates the PTE A/D bits.
+/* Prefetch permission is the union of fetch, load, and store permission, but
+ * the architectural hint neither checks nor updates the PTE A/D bits. */
 fun sv39_prefetch_permission_valid(pte :: Sv39Pte(),
                                    user_mode :: Bool, supervisor_mode :: Bool,
                                    sum :: Bool, mxr :: Bool) :~ Bool:

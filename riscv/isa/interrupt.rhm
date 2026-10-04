@@ -1,7 +1,8 @@
 #lang rhombus
-// Defines the standard RISC-V interrupt causes and architectural cause codes.
+/* Defines the standard RISC-V interrupt causes and architectural cause codes. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Names standard physical, virtual-supervisor, guest-external, and counter-overflow interrupt causes. */
 enum InterruptCause
 | SupervisorSoftware
 | MachineSoftware
@@ -36,6 +37,7 @@ def SupervisorInterruptCauses = [
   InterruptCause.SupervisorExternal
 ]
 
+/* Maps an interrupt cause to its architectural cause number. */
 fun interrupt_code(cause :: InterruptCause) :: Nat:
   match cause
   | InterruptCause.SupervisorSoftware: 1
@@ -50,6 +52,7 @@ fun interrupt_code(cause :: InterruptCause) :: Nat:
   | InterruptCause.SupervisorGuestExternal: 12
   | InterruptCause.LocalCounterOverflow: 13
 
+/* Combines interrupt causes into a host pending/enable bit mask at their architectural positions. */
 fun interrupt_mask(causes :: List.of(InterruptCause)) :: Nat:
   def mutable mask = 0
   for (cause in causes):

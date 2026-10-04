@@ -1,5 +1,5 @@
 #lang rhombus
-// Enumerates the architectural RV64I 2.1 instruction encodings and field layouts.
+/* Enumerates the architectural RV64I 2.1 instruction encodings and field layouts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -70,6 +70,7 @@ def RV64IRevision = "RV64I 2.1 over RV32I 2.1"
 def OP_IMM_32 = 0x1B
 def OP_32 = 0x3B
 
+/* Builds a shift-immediate descriptor with a six-bit shift amount and fixed function fields. */
 fun shift64_instruction(name :: NonemptyString,
                         function3 :: Nat,
                         function6 :: Nat):
@@ -79,6 +80,7 @@ fun shift64_instruction(name :: NonemptyString,
                funct3.constrain(function3),
                funct6.constrain(function6)])
 
+/* Builds a shift-immediate descriptor with a five-bit shift amount and fixed function fields. */
 fun shift32_instruction(name :: NonemptyString,
                         function3 :: Nat,
                         function7 :: Nat):
@@ -123,5 +125,6 @@ def RV64IInstructions = [
 
 def RV64I = InstructionCatalog("RV64I", RV64IRevision, RV64IInstructions)
 
+/* Returns the named descriptor from RV64I, rejecting unknown instruction names. */
 fun rv64i_instruction(name :: String):
   RV64I.find(name)

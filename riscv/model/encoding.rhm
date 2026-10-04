@@ -1,5 +1,5 @@
 #lang rhombus
-// Builds validated value/care encodings from named instruction-field constraints.
+/* Builds validated value/care encodings from named instruction-field constraints. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,15 +9,18 @@ export:
   InstructionEncoding
   instruction_encoding
 
+/* Rejects host instruction words wider than the declared encoding width. */
 fun require_word(word :: Nat, width :: PosInt, who :: Symbol):
   unless word <= width_mask(width)
   | error(~who: who, "instruction word must fit the encoding width")
   word
 
+/* Represents a validated host value/care relation over an instruction word. */
 class InstructionEncoding(width :: PosInt,
                           constraints :: NonemptyList.of(FieldConstraint),
                           value :: Nat,
                           care :: Nat):
+  /* Combines fixed constraints, allowing agreeing overlap but rejecting conflicts and out-of-width fields. */
   constructor (constraints :: NonemptyList.of(FieldConstraint), width :: PosInt = 32):
     def all_bits = width_mask(width)
     def mutable value = 0
@@ -35,10 +38,12 @@ class InstructionEncoding(width :: PosInt,
       care := care bits.or constraint.mask
     super(width, constraints, value bits.and care, care)
 
+  /* Tests a width-checked host word against all cared encoding bits. */
   method matches(word :: Nat):
     def candidate = require_word(word, width, #'matches)
     (candidate bits.and care) == value
 
+  /* Checks whether two equal-width encodings admit any common word. */
   method overlaps(other :: InstructionEncoding):
     unless other.width == width
     | error(~who: #'overlaps,
@@ -47,6 +52,7 @@ class InstructionEncoding(width :: PosInt,
     def jointly_cared = care bits.and other.care
     (differing bits.and jointly_cared) == 0
 
+  /* Checks whether every word admitted by the other equal-width encoding also satisfies this one. */
   method subsumes(other :: InstructionEncoding):
     unless other.width == width
     | error(~who: #'subsumes,
@@ -55,6 +61,7 @@ class InstructionEncoding(width :: PosInt,
     def differing = value bits.xor other.value
     shared_care == care && (differing bits.and care) == 0
 
+/* Normalizes variadic constraints or one constraint list into the default 32-bit encoding. */
 fun instruction_encoding(constraint :: FieldConstraint || List.of(FieldConstraint), ...):
   def supplied = [constraint, ...]
   def constraints:

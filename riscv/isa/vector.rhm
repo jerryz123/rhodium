@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Models architectural vector configurations, register groups, and bit positions without physical storage policy.
+/* Models architectural vector configurations, register groups, and bit positions without physical storage policy. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,18 +7,21 @@ import:
 
 def VectorLengths = [64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768, 65536]
 
+/* Recognizes the supported architectural power-of-two vector register lengths. */
 fun vector_length(value :: PosInt):
   VectorLengths.contains(value)
 
 annot.macro 'VectorLength':
   'PosInt && satisfying(vector_length)'
 
+/* Names the supported architectural element widths. */
 enum VectorSEW
 | E8
 | E16
 | E32
 | E64
 
+/* Names supported fractional and whole vector register-group multipliers. */
 enum VectorLMUL
 | MF8
 | MF4
@@ -31,6 +34,7 @@ enum VectorLMUL
 def VectorElementWidths = [VectorSEW.E8, VectorSEW.E16, VectorSEW.E32, VectorSEW.E64]
 def VectorRegisterGroups = [VectorLMUL.MF8, VectorLMUL.MF4, VectorLMUL.MF2, VectorLMUL.M1, VectorLMUL.M2, VectorLMUL.M4, VectorLMUL.M8]
 
+/* Converts an architectural SEW symbol to its host bit count. */
 fun vector_element_bits(sew :: VectorSEW) :: PosInt:
   cond
   | sew == VectorSEW.E8: 8
@@ -38,6 +42,7 @@ fun vector_element_bits(sew :: VectorSEW) :: PosInt:
   | sew == VectorSEW.E32: 32
   | ~else: 64
 
+/* Converts an LMUL symbol to its exact rational register-group multiplier. */
 fun vector_lmul(lmul :: VectorLMUL):
   cond
   | lmul == VectorLMUL.MF8: 1/8
@@ -48,10 +53,11 @@ fun vector_lmul(lmul :: VectorLMUL):
   | lmul == VectorLMUL.M4: 4
   | ~else: 8
 
-// The geometry supports fractional LMUL through SEW <= LMUL*64; profile ELEN
-// independently limits the largest legal SEW.
-// It describes a decoded legal configuration, not the vtype CSR's vill state.
+/* The geometry supports fractional LMUL through SEW <= LMUL*64; profile ELEN
+ * independently limits the largest legal SEW.
+ * It describes a decoded legal configuration, not the vtype CSR's vill state. */
 class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
+  /* Rejects SEW/LMUL pairs outside the model's supported fractional-group geometry. */
   constructor (vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
     unless vector_element_bits(sew) <= 64 * vector_lmul(lmul)
     | error(~who: #'VectorConfig, "unsupported SEW/LMUL combination")
@@ -62,23 +68,27 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
   property vlmax :: PosInt: group_bits / element_bits
   property registers :: PosInt: math.max(1, vector_lmul(lmul))
 
+  /* Checks base-register alignment and containment within the 32-register architectural file. */
   method legal_group(base :: Nat) :: Boolean:
     base mod registers == 0 && base + registers <= 32
 
+  /* Selects the deterministic minimum of AVL and this configuration's VLMAX. */
   method select_vl(avl :: Nat) :: Nat:
     math.min(avl, vlmax)
 
+  /* Returns an element's architectural bit position after validating its register group and element index. */
   method bit_offset(base :: Nat, element :: Nat) :: Nat:
     unless legal_group(base) && element < vlmax
     | error(~who: #'VectorConfig.bit_offset, "element or register group out of range")
     base * vlen + element * element_bits
 
+  /* Tests mask enable and the vstart-to-vl active interval, rejecting vl beyond VLMAX. */
   method active(element :: Nat, vl :: Nat, vstart :: Nat, enabled :: Boolean) :: Boolean:
     unless vl <= vlmax
     | error(~who: #'VectorConfig.active, "vl exceeds VLMAX")
     enabled && vstart <= element && element < vl
 
-  // EEW changes EMUL while preserving the number of elements in the group.
+  /* EEW changes EMUL while preserving the number of elements in the group. */
   method with_eew(eew :: VectorSEW) :: VectorConfig:
     def ratio = vector_lmul(lmul) * vector_element_bits(eew) / element_bits
     def matches = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul(group) == ratio)
@@ -86,6 +96,7 @@ class VectorConfig(vlen :: VectorLength, sew :: VectorSEW, lmul :: VectorLMUL):
     | error(~who: #'VectorConfig.with_eew, "effective register group is not representable")
     VectorConfig(vlen, eew, matches[0])
 
+/* Returns the architectural vsew field encoding for the selected element width. */
 fun vector_sew_encoding(sew :: VectorSEW) :: Nat:
   match sew
   | VectorSEW.E8: 0
@@ -93,6 +104,7 @@ fun vector_sew_encoding(sew :: VectorSEW) :: Nat:
   | VectorSEW.E32: 2
   | VectorSEW.E64: 3
 
+/* Returns the architectural vlmul encoding, including fractional negative-exponent encodings. */
 fun vector_lmul_encoding(lmul :: VectorLMUL) :: Nat:
   match lmul
   | VectorLMUL.M1: 0
@@ -103,7 +115,7 @@ fun vector_lmul_encoding(lmul :: VectorLMUL) :: Nat:
   | VectorLMUL.MF4: 6
   | VectorLMUL.MF2: 7
 
-// Unsupported runtime encodings become vill; they are not host contract errors.
+/* Unsupported runtime encodings become vill; they are not host contract errors. */
 fun vector_vtype_config(vlen :: VectorLength, raw :: Nat, ~elen: elen :: VectorSEW = VectorSEW.E64) :: maybe(VectorConfig):
   def sew = bits.field(raw, 3, 6)
   def lmul = bits.field(raw, 0, 3)
@@ -114,8 +126,8 @@ fun vector_vtype_config(vlen :: VectorLength, raw :: Nat, ~elen: elen :: VectorS
     | #false
     | VectorConfig(vlen, VectorElementWidths[sew], groups[0])
 
-// Ordinary elementwise data operands only: masks and instruction-specific
-// overlap restrictions are checked by the eventual instruction decoder.
+/* Ordinary elementwise data operands only: masks and instruction-specific
+ * overlap restrictions are checked by the eventual instruction decoder. */
 fun vector_data_overlap_legal(source :: VectorConfig, source_base :: Nat,
                               destination :: VectorConfig, destination_base :: Nat) :: Boolean:
   unless source.vlen == destination.vlen && source.legal_group(source_base) && destination.legal_group(destination_base)

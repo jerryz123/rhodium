@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines validated instruction specifications and disjoint ISA catalogs.
+/* Defines validated instruction specifications and disjoint ISA catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,6 +13,7 @@ export:
   InstructionCatalog
   instruction
 
+/* Pairs a named 32-bit instruction format with fixed encoding requirements and reflected variable operands. */
 class InstructionSpec(name :: NonemptyString,
                       format :: InstructionFormat,
                       requirements :: NonemptyList.of(FieldConstraint),
@@ -20,6 +21,7 @@ class InstructionSpec(name :: NonemptyString,
                       operands :: List.of(RegisterOperand),
                       immediate :: maybe(ImmediateLayout),
                       encoding_fields :: List.of(BitField)):
+  /* Requires fixed constraints and variable fields to cover 32 bits exactly without overlap. */
   constructor (name :: NonemptyString,
                format :: InstructionFormat,
                requirements :: NonemptyList.of(FieldConstraint)):
@@ -38,11 +40,12 @@ class InstructionSpec(name :: NonemptyString,
           format.immediate,
           format.variable_fields)
 
+  /* Tests a host instruction word against this instruction's fixed encoding. */
   method matches(word :: Nat):
     encoding.matches(word)
 
-  // Assembles one complete instruction from values for every variable
-  // register or auxiliary field plus the format-owned semantic immediate.
+  /* Assembles one complete instruction from values for every variable
+   * register or auxiliary field plus the format-owned semantic immediate. */
   method encode(fields :: List.of(FieldConstraint),
                 ~immediate: immediate_value :~ maybe(Int) = #false):
     def supplied_fields = format.operands.map(fun (operand): operand.field) ++ (
@@ -71,9 +74,11 @@ class InstructionSpec(name :: NonemptyString,
     | #void
     word
 
+/* Groups named instructions with a revision and pairwise-disjoint encoding relations. */
 class InstructionCatalog(name :: NonemptyString,
                          revision :: NonemptyString,
                          instructions :: NonemptyList.of(InstructionSpec)):
+  /* Rejects duplicate names and overlapping encodings before retaining the catalog. */
   constructor (name :: NonemptyString,
                revision :: NonemptyString,
                instructions :: NonemptyList.of(InstructionSpec)):
@@ -95,6 +100,7 @@ class InstructionCatalog(name :: NonemptyString,
                               right.name))
     super(name, revision, instructions)
 
+  /* Returns the named descriptor or reports an unknown instruction. */
   method find(instruction_name :: String):
     def found = instructions.find(
       fun (candidate): candidate.name == instruction_name
@@ -103,9 +109,11 @@ class InstructionCatalog(name :: NonemptyString,
     | error(~who: #'find, "unknown instruction " ++ instruction_name)
     found
 
+  /* Returns the matching descriptor, or false when no catalog encoding accepts the word. */
   method matching(word :: Nat):
     instructions.find(fun (instruction): instruction.matches(word))
 
+/* Normalizes variadic requirements or one requirement list into a validated instruction descriptor. */
 fun instruction(name :: NonemptyString,
                 format :: InstructionFormat,
                 requirement :: FieldConstraint || List.of(FieldConstraint), ...):

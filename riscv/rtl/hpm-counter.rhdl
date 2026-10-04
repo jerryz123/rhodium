@@ -1,5 +1,5 @@
 #lang rhodium
-// Implements one 64-bit HPM counter with Sscofpmf filtering and sticky overflow.
+/* Implements one 64-bit HPM counter with Sscofpmf filtering and sticky overflow. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,11 +9,13 @@ import:
   "privilege.rhdl" open
   lib("rhodium/std/ready-valid.rhdl") open
 
+/* Carries an XLEN-sized HPM replacement value and, for RV32, its low/high-half selector. */
 bundle RiscvHpmWrite(xlen :: XLen):
   if xlen == XLen.X32:
     high: Bool
   value: Bits(xlen.width)
 
+/* Counts externally selected events with privilege/inhibit filtering, write precedence, sticky overflow state, and a first-overflow pulse. */
 sync_circuit RiscvHpmCounter(xlen :: XLen, ~hypervisor: hypervisor :: Boolean = #false):
   interface event(Valid(RiscvExecutionContext()), ~role: consumer)
   input inhibit: Bool

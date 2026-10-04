@@ -1,11 +1,12 @@
 #lang rhodium
-// Generates hardware field and immediate extraction from pure RISC-V descriptors.
+/* Generates hardware field and immediate extraction from pure RISC-V descriptors. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../model/fields.rhm" open
   "../model/formats.rhm" open
 
+/* Extracts a descriptor-selected instruction slice after requiring it to fit the 32-bit word. */
 fun instruction_field(field :: BitField,
                       instruction :: Bits(32)) :~ Bits(field.width):
   unless field.high < 32
@@ -13,6 +14,7 @@ fun instruction_field(field :: BitField,
           "instruction field must fit the 32-bit instruction word")
   instruction[field.low..(field.high + 1)]
 
+/* Gathers descriptor pieces and implicit zeros in semantic bit order without changing the immediate width. */
 fun immediate_bits(layout :: ImmediateLayout,
                    instruction :: Bits(32)) :~ Bits(layout.width):
   def piece_fragments = for List (piece in layout.pieces):
@@ -28,6 +30,7 @@ fun immediate_bits(layout :: ImmediateLayout,
   | fragment_values[0]
   | concat(fragment_values)
 
+/* Materializes a descriptor immediate and sign- or zero-extends it to a nonnarrower output width. */
 fun instruction_immediate(layout :: ImmediateLayout,
                           instruction :: Bits(32),
                           output_width :: PosInt) :~ Bits(output_width):

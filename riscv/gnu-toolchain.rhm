@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects a canonical RISC-V capability list to GNU compiler architecture and ABI options.
+/* Projects a canonical RISC-V capability list to GNU compiler architecture and ABI options. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,8 +20,10 @@ def GnuMultiLetterExtensions = [
   "zve64d"
 ] ++ GnuVectorLengthExtensions
 
+/* Stores GNU compiler architecture and ABI spellings for a concrete target. */
 class GnuIsaTarget(march :: String, mabi :: String)
 
+/* Requires base I, rejects unknown spellings, drops environment-only claims, and derives march and the scalar floating-point ABI. */
 fun gnu_isa_target(xlen :: XLen, extensions :: List.of(String)) :: GnuIsaTarget:
   unless extensions.contains("i")
   | error(~who: #'gnu_isa_target, "GNU RISC-V targets require the base I extension")

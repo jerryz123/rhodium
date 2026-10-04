@@ -1,5 +1,5 @@
 #lang rhombus
-// Enumerates the six XLEN-independent Zicsr instruction encodings.
+/* Enumerates the six XLEN-independent Zicsr instruction encodings. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -32,6 +32,7 @@ def CsrImmediateFormat = InstructionFormat(
   [rs1, immediate12]
 )
 
+/* Builds a register- or immediate-source CSR instruction with a fixed SYSTEM function selector. */
 fun csr_instruction(name :: NonemptyString,
                     format :: InstructionFormat,
                     function3 :: Nat):

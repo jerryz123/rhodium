@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines ratified Zihintntl 1.0 locality hints and their compressed aliases.
+/* Defines ratified Zihintntl 1.0 locality hints and their compressed aliases. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,7 @@ import:
   "integer-common.rhm".OP
   "compressed.rhm" open
 
+/* Builds an operand-free locality hint by fixing the ADD encoding's register and selector fields. */
 fun locality_hint(name :: NonemptyString, selector :: Nat):
   instruction(name, SystemFormat, [opcode.constrain(OP), rd.constrain(0), funct3.constrain(0), rs1.constrain(0), rs2.constrain(selector), funct7.constrain(0)])
 
@@ -19,6 +20,7 @@ def ZihintntlInstructions = [NTL_P1, NTL_PALL, NTL_S1, NTL_ALL]
 def ZihintntlRevision = "Zihintntl 1.0"
 def Zihintntl = InstructionCatalog("Zihintntl", ZihintntlRevision, ZihintntlInstructions)
 
+/* Builds a compact locality-hint alias with no canonical runtime operand bindings. */
 fun compressed_locality_hint(target :: InstructionSpec, selector :: Nat):
   compressed_instruction(
     "C." ++ target.name,

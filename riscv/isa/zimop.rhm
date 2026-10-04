@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified Zimop may-be-operation instruction catalog.
+/* Defines the ratified Zimop may-be-operation instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -20,9 +20,11 @@ def mop_destination = RegisterOperand("rd", rd, "destination")
 def MopRFormat = InstructionFormat("MOP.R", [mop_destination], #false, [rs1])
 def MopRRFormat = InstructionFormat("MOP.RR", [mop_destination], #false, [rs1, rs2])
 
+/* Extracts one host index bit used in scattered may-be-operation opcode selectors. */
 fun mop_index_bit(index :: Nat, bit :: Nat):
   (index bits.(>>) bit) bits.and 1
 
+/* Builds the indexed single-source MOP.R descriptor by scattering its subopcode bits. */
 fun mop_r(index :: Nat):
   instruction(
     "MOP.R." ++ to_string(index),
@@ -34,6 +36,7 @@ fun mop_r(index :: Nat):
      mop_bit20.constrain(mop_index_bit(index, 0))]
   )
 
+/* Builds the indexed two-source MOP.RR descriptor by scattering its subopcode bits. */
 fun mop_rr(index :: Nat):
   instruction(
     "MOP.RR." ++ to_string(index),

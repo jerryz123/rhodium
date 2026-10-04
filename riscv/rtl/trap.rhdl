@@ -1,5 +1,5 @@
 #lang rhodium
-// Materializes synchronous exception causes, selection, and delegation.
+/* Materializes synchronous exception causes, selection, and delegation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,16 +7,19 @@ import:
   "../isa/xlen.rhm" open
   "privilege.rhdl" open
 
+/* Carries exception validity, cause, trap value, and the selected trap privilege. */
 bundle RiscvTrapDecision(xlen :: XLen):
   valid: Bool
   cause: Bits(xlen.width)
   value: Bits(xlen.width)
   target: RiscvTrapTarget
 
+/* Materializes an architectural synchronous cause number at the supplied width. */
 fun exception_cause_bits(cause :: ExceptionCause,
                          width :: PosInt) :~ Bits(width):
   bits(exception_code(cause), width)
 
+/* Prioritizes explicit exceptions over generated exceptions and applies supported medeleg routing below Machine mode. */
 fun resolve_riscv_trap(xlen :: XLen,
                        explicit_valid :: Bool,
                        explicit_cause :: Bits(xlen.width),

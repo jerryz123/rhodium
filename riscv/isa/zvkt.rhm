@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines Zvkt's architectural timing scope and explicit control-operand exemptions.
+/* Defines Zvkt's architectural timing scope and explicit control-operand exemptions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
 // https://docs.riscv.org/reference/isa/extensions/crypto-vector/_attachments/riscv-crypto-spec-vector.pdf
 def ZvktVersion = "1.0.0"
 
+/* Names control operands exempted from vector data-independent timing requirements. */
 enum ZvktControlOperand
 | Vs1
 | Rs1
@@ -59,9 +60,11 @@ def ZvktInstructionNames = ZvbbInstructions.map(fun (instruction): instruction.n
   ZvktCarrylessMultiplyNames ++ ZvktBaseInstructions.map(fun (instruction): instruction.name)
 )
 
+/* Returns the catalog-derived names within the modeled Zvkt timing scope. */
 fun zvkt_instruction_names() :: NonemptyList.of(String):
   ZvktInstructionNames
 
+/* Returns the index/slide control operand exemptions for the supplied instruction name. */
 fun zvkt_control_operands(name :: String) :: List.of(ZvktControlOperand):
   cond
   | ["VRGATHER.VV", "VRGATHEREI16.VV"].contains(name): [ZvktControlOperand.Vs1]

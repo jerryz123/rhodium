@@ -1,5 +1,5 @@
 #lang rhombus
-// Enumerates the architectural RV32I 2.1 instruction encodings and field layouts.
+/* Enumerates the architectural RV32I 2.1 instruction encodings and field layouts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -55,6 +55,7 @@ export:
 
 def RV32IRevision = "RV32I 2.1"
 
+/* Builds a shift-immediate descriptor with a five-bit shift amount and fixed function fields. */
 fun shift32_instruction(name :: NonemptyString,
                         function3 :: Nat,
                         function7 :: Nat):
@@ -77,5 +78,6 @@ def RV32IInstructions = [
 
 def RV32I = InstructionCatalog("RV32I", RV32IRevision, RV32IInstructions)
 
+/* Returns the named descriptor from RV32I, rejecting unknown instruction names. */
 fun rv32i_instruction(name :: String):
   RV32I.find(name)

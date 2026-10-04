@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified RV32 and RV64 Zbb basic bit-manipulation catalogs.
+/* Defines the ratified RV32 and RV64 Zbb basic bit-manipulation catalogs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,6 +10,7 @@ import:
 def OP_32 = 0x3B
 def OP_IMM_32 = 0x1B
 
+/* Builds an integer unary descriptor with a fixed immediate subopcode. */
 fun unary_instruction(name :: NonemptyString,
                       opcode_value :: Nat,
                       function3 :: Nat,
@@ -18,6 +19,7 @@ fun unary_instruction(name :: NonemptyString,
               UnaryFormat,
               [opcode.constrain(opcode_value), funct3.constrain(function3), immediate12.constrain(immediate)])
 
+/* Builds a shift-immediate descriptor with a five-bit shift amount and fixed function fields. */
 fun shift32_instruction(name :: NonemptyString,
                         opcode_value :: Nat,
                         function3 :: Nat,
@@ -26,6 +28,7 @@ fun shift32_instruction(name :: NonemptyString,
               Shift32Format,
               [opcode.constrain(opcode_value), funct3.constrain(function3), funct7.constrain(function7)])
 
+/* Builds a shift-immediate descriptor with a six-bit shift amount and fixed function fields. */
 fun shift64_instruction(name :: NonemptyString,
                         opcode_value :: Nat,
                         function3 :: Nat,

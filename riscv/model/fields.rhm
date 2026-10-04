@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines named instruction bit fields and fixed-value encoding constraints.
+/* Defines named instruction bit fields and fixed-value encoding constraints. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,26 +11,34 @@ export:
   FieldConstraint
   width_mask
 
+/* Returns a host mask with exactly width low bits set. */
 fun width_mask(width :: PosInt):
   (1 << width) - 1
 
+/* Names an inclusive instruction-bit slice and its derived packed width. */
 class BitField(name :: NonemptyString, high :: Nat, low :: Nat, width :: PosInt):
+  /* Rejects reversed bounds and derives the positive slice width. */
   constructor (name :: NonemptyString, high :: Nat, low :: Nat):
     unless low <= high
     | error(~who: #'BitField,
             "field bounds must be natural numbers with high >= low")
     super(name, high, low, high - low + 1)
 
+  /* Returns the field's bit positions as a shifted host mask. */
   method mask():
     width_mask(width) << low
 
+  /* Extracts this slice from a host instruction word as an unsigned integer. */
   method extract(word :: Nat):
     bits.field(word, low, high + 1)
 
+  /* Builds a validated fixed-value requirement for this field. */
   method constrain(value :: Nat):
     FieldConstraint(this, value)
 
+/* Stores a field value together with its instruction-position care mask and shifted image. */
 class FieldConstraint(field :: BitField, value :: Nat, mask :: Nat, value_bits :: Nat):
+  /* Requires the host value to fit the field before deriving its mask and positioned bits. */
   constructor (field :: BitField, value :: Nat):
     unless value <= width_mask(field.width)
     | error(~who: #'FieldConstraint,

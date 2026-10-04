@@ -1,5 +1,5 @@
 #lang rhombus
-// Defines the ratified Zicbop cache-block prefetch instruction catalog.
+/* Defines the ratified Zicbop cache-block prefetch instruction catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -9,6 +9,7 @@ import:
 
 def prefetch_operation = BitField("prefetch operation", 24, 20)
 
+/* Builds a base-relative cache-prefetch descriptor with a fixed hint selector and scattered offset. */
 fun prefetch_instruction(name :: NonemptyString, operation :: Nat):
   instruction(
     name,
