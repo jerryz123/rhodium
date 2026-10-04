@@ -3,6 +3,8 @@
 
 `default_nettype none
 
+// Preserves the harness port boundary while routing GPIO 0 through the inverter to GPIO 1.
+// Unused reset, high-voltage, loopback, and analog ports remain part of that fixed boundary.
 module double_wide_openframe_project_wrapper (
 `ifdef USE_POWER_PINS
     inout vddio, vssio, vccd, vssd, vdda, vssa,

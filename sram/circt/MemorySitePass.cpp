@@ -31,6 +31,7 @@ using namespace mlir;
 
 namespace {
 
+/* Records schema-1, logical-top-relative site decisions with inference as the required default. */
 struct MemoryPolicy {
   unsigned schemaVersion = 0;
   std::string top;
@@ -38,6 +39,7 @@ struct MemoryPolicy {
   std::map<std::string, std::string> sites;
 };
 
+/* Keeps a scoped occurrence's policy identity, actual path, decision, and source/instance operations. */
 struct MemorySite {
   std::string path;
   std::string instancePath;
@@ -54,7 +56,9 @@ LLVM_YAML_IS_STRING_MAP(std::string)
 
 namespace llvm::yaml {
 
+/* Reads the required policy fields using LLVM's YAML mapping diagnostics. */
 template <> struct MappingTraits<MemoryPolicy> {
+  /* Maps the version, logical top, default, and explicit site decisions into the host policy. */
   static void mapping(IO &io, MemoryPolicy &policy) {
     io.mapRequired("schema_version", policy.schemaVersion);
     io.mapRequired("top", policy.top);
@@ -73,6 +77,7 @@ constexpr llvm::StringLiteral kSiteAttr = "rhodium.memory.site";
 constexpr llvm::StringLiteral kMacroAttr = "rhodium.memory.macro";
 constexpr llvm::StringLiteral kSourceAttr = "rhodium.memory.source";
 
+/* Loads and validates the policy, reporting malformed fields on the pass's diagnostic anchor. */
 static FailureOr<MemoryPolicy> readPolicy(StringRef path, Operation *anchor) {
   auto buffer = llvm::MemoryBuffer::getFile(path);
   if (!buffer) {
@@ -115,6 +120,7 @@ static FailureOr<MemoryPolicy> readPolicy(StringRef path, Operation *anchor) {
   return policy;
 }
 
+/* Removes the lowered-memory instance's trailing _ext marker from its flattened occurrence path. */
 static std::string canonicalSitePath(StringRef instanceName) {
   constexpr llvm::StringLiteral suffix = "_ext";
   if (instanceName.ends_with(suffix))
@@ -122,6 +128,7 @@ static std::string canonicalSitePath(StringRef instanceName) {
   return instanceName.str();
 }
 
+/* Hashes the complete policy-relative path so truncated readable names retain a stable suffix. */
 static uint32_t fnv1a(StringRef text) {
   uint32_t hash = 2166136261u;
   for (unsigned char character : text.bytes()) {
@@ -131,6 +138,7 @@ static uint32_t fnv1a(StringRef text) {
   return hash;
 }
 
+/* Builds a stable wrapper symbol from a sanitized path tail and full-path hash; collisions are checked later. */
 static std::string wrapperName(StringRef site) {
   std::string result = "rhodium_sram_";
   for (char character : site.take_back(72)) {
@@ -141,6 +149,7 @@ static std::string wrapperName(StringRef site) {
   return result;
 }
 
+/* Identifies generated-module structural attributes that must not be copied into the replacement extern. */
 static bool isStructuralAttribute(StringRef name) {
   return name == SymbolTable::getSymbolAttrName() || name == "generatorKind" ||
          name == "module_type" || name == "parameters" ||
@@ -148,6 +157,7 @@ static bool isStructuralAttribute(StringRef name) {
          name == "verilogName" || name == SymbolTable::getVisibilityAttrName();
 }
 
+/* Preserves logical memory metadata and adds the site, requested macro, and source-definition identities. */
 static SmallVector<NamedAttribute>
 memoryAttributes(hw::HWModuleGeneratedOp generator, StringRef site,
                  StringRef macro, StringRef source) {
@@ -165,6 +175,7 @@ memoryAttributes(hw::HWModuleGeneratedOp generator, StringRef site,
   return attributes;
 }
 
+/* Writes every scoped mapped or inferred occurrence and the selection context to a schema-1 JSON inventory. */
 static LogicalResult writeInventory(StringRef path, const MemoryPolicy &policy,
                                     StringRef top, StringRef scopePrefix,
                                     ArrayRef<MemorySite> sites,
@@ -216,11 +227,14 @@ static LogicalResult writeInventory(StringRef path, const MemoryPolicy &policy,
   return success();
 }
 
+/* Makes one HW definition public so subsequent flattening and symbol DCE can prepare its hierarchy. */
 struct SelectHWTopPass
     : public PassWrapper<SelectHWTopPass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(SelectHWTopPass)
 
+  /* Creates the pass with its default empty top selection. */
   SelectHWTopPass() = default;
+  /* Preserves the requested top when MLIR clones the pass. */
   SelectHWTopPass(const SelectHWTopPass &other) : PassWrapper(other) {
     top = other.top;
   }
@@ -229,11 +243,14 @@ struct SelectHWTopPass
                           llvm::cl::desc("HW module to retain as the public top"),
                           llvm::cl::init("")};
 
+  /* Exposes the command-line and pipeline name for top selection. */
   StringRef getArgument() const final { return "rhodium-select-hw-top"; }
+  /* Describes the visibility change in pass help. */
   StringRef getDescription() const final {
     return "Make one HW module public and other HW definitions private";
   }
 
+  /* Marks only the named HW module public and fails if that top was not supplied or found. */
   void runOnOperation() override {
     ModuleOp module = getOperation();
     if (top.empty()) {
@@ -255,11 +272,14 @@ struct SelectHWTopPass
   }
 };
 
+/* Applies occurrence policy after flattening, retaining inferred memories and creating site-specific externs. */
 struct MapMemorySitesPass
     : public PassWrapper<MapMemorySitesPass, OperationPass<ModuleOp>> {
   MLIR_DEFINE_EXPLICIT_INTERNAL_INLINE_TYPE_ID(MapMemorySitesPass)
 
+  /* Creates the pass with empty policy, inventory, and optional scope overrides. */
   MapMemorySitesPass() = default;
+  /* Preserves all selection and inventory options when MLIR clones the pass. */
   MapMemorySitesPass(const MapMemorySitesPass &other) : PassWrapper(other) {
     policyPath = other.policyPath;
     inventoryPath = other.inventoryPath;
@@ -282,11 +302,14 @@ struct MapMemorySitesPass
       llvm::cl::desc("flattened instance prefix stripped before policy lookup"),
       llvm::cl::init("")};
 
+  /* Exposes the command-line and pipeline name for occurrence mapping. */
   StringRef getArgument() const final { return "rhodium-map-memory-sites"; }
+  /* Describes the occurrence-specific extern transformation in pass help. */
   StringRef getDescription() const final {
     return "Retarget selected FIRRTLMem occurrences to site-specific externs";
   }
 
+  /* Validates scoped paths and policy coverage, retargets selected instances, and emits the complete inventory. */
   void runOnOperation() override {
     ModuleOp module = getOperation();
     if (policyPath.empty()) {
@@ -317,6 +340,8 @@ struct MapMemorySitesPass
     std::vector<MemorySite> sites;
     llvm::StringSet<> seenPaths;
     bool duplicatePath = false;
+    // Discovery uses flattened instance names; stripping the scope keeps wrapper identities
+    // identical for direct-top and harness-scoped uses of the same logical policy.
     topModule.walk([&](hw::InstanceOp instance) {
       auto generator = symbols.lookup<hw::HWModuleGeneratedOp>(
           instance.getReferencedModuleName());
@@ -372,6 +397,7 @@ struct MapMemorySitesPass
       return;
     }
 
+    // Stable occurrence order determines both emitted extern order and the inventory order.
     llvm::sort(sites, [](const MemorySite &left, const MemorySite &right) {
       return left.path < right.path;
     });
@@ -408,6 +434,7 @@ struct MapMemorySitesPass
   }
 };
 
+/* Registers the top-selection and occurrence-mapping passes with MLIR. */
 static void registerPasses() {
   PassRegistration<SelectHWTopPass>();
   PassRegistration<MapMemorySitesPass>();
@@ -415,6 +442,7 @@ static void registerPasses() {
 
 } // namespace
 
+/* Supplies the plugin ABI descriptor and registration callback consumed by circt-opt. */
 extern "C" LLVM_ATTRIBUTE_WEAK mlir::PassPluginLibraryInfo
 mlirGetPassPluginInfo() {
   return {MLIR_PLUGIN_API_VERSION, "RhodiumMemorySites", "1",

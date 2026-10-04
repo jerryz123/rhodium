@@ -13,11 +13,15 @@ from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
 
+# Distinguishes rejected mapping contracts and malformed input from successful artifact
+# generation.
 class MappingError(Exception):
     """Reports an unsupported memory contract or malformed mapper input."""
 
 
 @dataclass(frozen=True)
+# Records the lowered port direction, name, MLIR type, and integer width; clocks have no bit
+# width.
 class Port:
     direction: str
     name: str
@@ -26,6 +30,8 @@ class Port:
 
 
 @dataclass(frozen=True)
+# Keeps a logical FIRRTLMem contract plus optional policy-relative site and requested macro
+# identity.
 class Memory:
     module: str
     ports: Tuple[Port, ...]
@@ -38,16 +44,20 @@ class Memory:
     source_module: Optional[str] = None
 
     @property
+    # Indexes the lowered ports by their exact names for contract checks and wrapper generation.
     def port_map(self) -> Dict[str, Port]:
         return {port.name: port for port in self.ports}
 
     @property
+    # Returns the logical mask port width, or None when writes have no lane mask.
     def mask_width(self) -> Optional[int]:
         port = self.port_map.get("RW0_wmask")
         return None if port is None else port.width
 
 
 @dataclass(frozen=True)
+# Collects one catalog macro's pin convention, geometry, mask lanes, physical views, and
+# functional model.
 class Macro:
     name: str
     interface: str
@@ -64,15 +74,18 @@ class Macro:
     functional_verilog: Optional[Path]
 
     @property
+    # Returns the number of independently enabled write lanes in one macro word.
     def mask_width(self) -> int:
         return self.width // self.write_granularity
 
     @property
+    # Computes the catalogued footprint of one physical macro instance.
     def area_um2(self) -> float:
         return self.width_um * self.height_um
 
 
 @dataclass(frozen=True)
+# Pairs a validated logical memory with a macro and its depth-bank and width-slice counts.
 class Plan:
     memory: Memory
     macro: Macro
@@ -80,6 +93,7 @@ class Plan:
     width_slices: int
 
     @property
+    # Returns the total physical macro instances required by the rectangular bank/slice tiling.
     def instance_count(self) -> int:
         return self.depth_banks * self.width_slices
 
@@ -97,6 +111,8 @@ _INTEGER_RE = re.compile(r"^(-?[0-9]+)\s*:\s*[us]?i[0-9]+$")
 _BIT_TYPE_RE = re.compile(r"^i([0-9]+)$")
 
 
+# Splits the pinned MLIR metadata at outermost commas, preserving quoted strings and nested
+# delimiters.
 def split_top_level(text: str) -> List[str]:
     """Splits comma-separated MLIR syntax while respecting nested delimiters."""
     parts: List[str] = []
@@ -131,10 +147,12 @@ def split_top_level(text: str) -> List[str]:
     return parts
 
 
+# Decodes a quoted MLIR symbol through JSON escaping or retains an unquoted symbol name.
 def decode_symbol(symbol: str) -> str:
     return json.loads(symbol) if symbol.startswith('"') else symbol
 
 
+# Parses a lowered input/output port and records integer width separately from noninteger types.
 def parse_port(text: str) -> Port:
     match = _PORT_RE.match(text)
     if match is None:
@@ -145,6 +163,7 @@ def parse_port(text: str) -> Port:
     return Port(direction, name, mlir_type, width)
 
 
+# Splits the lowered attribute list into named raw values for subsequent typed validation.
 def parse_attributes(text: str) -> Dict[str, str]:
     result: Dict[str, str] = {}
     for item in split_top_level(text):
@@ -155,6 +174,7 @@ def parse_attributes(text: str) -> Dict[str, str]:
     return result
 
 
+# Requires a named attribute in typed MLIR integer syntax and returns its host integer value.
 def integer_attribute(attributes: Dict[str, str], name: str) -> int:
     if name not in attributes:
         raise MappingError(f"FIRRTLMem is missing the {name} attribute")
@@ -164,6 +184,7 @@ def integer_attribute(attributes: Dict[str, str], name: str) -> int:
     return int(match.group(1))
 
 
+# Requires the named attribute to spell exactly true or false.
 def boolean_attribute(attributes: Dict[str, str], name: str) -> bool:
     if attributes.get(name) == "true":
         return True
@@ -172,6 +193,8 @@ def boolean_attribute(attributes: Dict[str, str], name: str) -> bool:
     raise MappingError(f"FIRRTLMem {name} is not a boolean: {attributes.get(name)}")
 
 
+# Requires a JSON-escaped string attribute and reports absent or malformed values as mapping
+# errors.
 def string_attribute(attributes: Dict[str, str], name: str) -> str:
     try:
         value = json.loads(attributes[name])
@@ -182,6 +205,8 @@ def string_attribute(attributes: Dict[str, str], name: str) -> str:
     return value
 
 
+# Reads the pinned one-line memory form, preferring selected externs when present and rejecting
+# duplicate module or site identities.
 def parse_memories(mlir: str, selected_only: bool = False) -> List[Memory]:
     generated_memories: List[Memory] = []
     selected_memories: List[Memory] = []
@@ -224,6 +249,8 @@ def parse_memories(mlir: str, selected_only: bool = False) -> List[Memory]:
     return memories
 
 
+# Checks the presence, direction, width, and optional exact MLIR type of one required memory
+# port.
 def require_port(
     memory: Memory,
     name: str,
@@ -240,6 +267,8 @@ def require_port(
         raise MappingError(f"{memory.module}: unexpected {name} type {port.mlir_type}")
 
 
+# Enforces the supported single-RW-port, one-cycle, uninitialized memory contract with one clock
+# and optional uniform lane masks.
 def validate_memory(memory: Memory) -> None:
     if integer_attribute(memory.attributes, "numReadPorts") != 0:
         raise MappingError(f"{memory.module}: separate read ports are not supported")
@@ -280,6 +309,8 @@ def validate_memory(memory: Memory) -> None:
         raise MappingError(f"{memory.module}: unsupported ports: {', '.join(extras)}")
 
 
+# Loads INI macro metadata and checks address geometry, mask divisibility, supported pin
+# convention, model existence, and unique names.
 def load_catalog(path: Path) -> List[Macro]:
     parser = configparser.ConfigParser(interpolation=None)
     try:
@@ -351,6 +382,7 @@ def load_catalog(path: Path) -> List[Macro]:
     return macros
 
 
+# Checks that a macro can implement the logical write-mask lanes without coarsening them.
 def macro_is_compatible(memory: Memory, macro: Macro) -> bool:
     if macro.read_write_ports < 1:
         return False
@@ -362,6 +394,8 @@ def macro_is_compatible(memory: Memory, macro: Macro) -> bool:
     )
 
 
+# Validates the memory, honors any explicit macro selection, and ranks compatible tilings by
+# area, wasted bits, then instance count.
 def plan_memory(memory: Memory, macros: Sequence[Macro]) -> Plan:
     validate_memory(memory)
     if memory.requested_macro is not None:
@@ -396,6 +430,8 @@ def plan_memory(memory: Memory, macros: Sequence[Macro]) -> Plan:
     return candidates[0][1]
 
 
+# When a PDK root is supplied, requires every selected macro's listed physical-view files to
+# exist.
 def verify_collateral(plans: Sequence[Plan], pdk_root: Optional[Path]) -> None:
     if pdk_root is None:
         return
@@ -409,6 +445,8 @@ def verify_collateral(plans: Sequence[Plan], pdk_root: Optional[Path]) -> None:
         raise MappingError("missing macro collateral:\n  " + "\n  ".join(sorted(missing)))
 
 
+# Validates the schema-1 occurrence inventory and normalizes optional policy-top, scope, and
+# actual-path fields.
 def load_site_inventory(path: Path) -> Dict[str, object]:
     try:
         inventory = json.loads(path.read_text(encoding="utf-8"))
@@ -460,6 +498,8 @@ def load_site_inventory(path: Path) -> Dict[str, object]:
     return inventory
 
 
+# Requires a one-to-one match between selected externs and mapped inventory sites, including
+# wrapper, macro, and source identities.
 def validate_site_inventory(memories: Sequence[Memory], inventory: Dict[str, object]) -> None:
     inventory_sites = inventory["sites"]
     assert isinstance(inventory_sites, list)
@@ -490,16 +530,20 @@ def validate_site_inventory(memories: Sequence[Memory], inventory: Dict[str, obj
             raise MappingError(f"{site_path}: source module does not match site inventory")
 
 
+# Formats an unsigned Verilog vector range, omitting the range for a scalar.
 def sv_range(width: int) -> str:
     return "" if width == 1 else f"[{width - 1}:0] "
 
 
+# Formats a bit or contiguous part-select for one slice of a logical signal.
 def data_slice(signal: str, offset: int, width: int) -> str:
     if width == 1:
         return f"{signal}[{offset}]"
     return f"{signal}[{offset + width - 1}:{offset}]"
 
 
+# Emits exact-name banks and slices with delayed read-bank selection, mask expansion, width
+# padding, and the macro's read-only port disabled.
 def render_openram_1rw1r_wrapper(plan: Plan) -> str:
     memory = plan.memory
     macro = plan.macro
@@ -624,6 +668,7 @@ def render_openram_1rw1r_wrapper(plan: Plan) -> str:
     return "\n".join(lines)
 
 
+# Dispatches to the catalogued pin adapter and rejects unsupported macro interfaces.
 def render_wrapper(plan: Plan) -> str:
     if plan.macro.interface == "openram_1rw1r":
         return render_openram_1rw1r_wrapper(plan)
@@ -632,6 +677,7 @@ def render_wrapper(plan: Plan) -> str:
     )
 
 
+# Concatenates generated wrapper modules with their source provenance header.
 def render_verilog(plans: Sequence[Plan], source: Path) -> str:
     lines = [
         "// Implements selected CIRCT memory sites using catalogued physical SRAM macros.",
@@ -643,6 +689,8 @@ def render_verilog(plans: Sequence[Plan], source: Path) -> str:
     return "\n".join(lines)
 
 
+# Records logical contracts, tilings, utilization, area, collateral, and power metadata; site
+# inventories produce schema-2 occurrence totals.
 def plan_manifest(
     plans: Sequence[Plan],
     source: Path,
@@ -790,11 +838,14 @@ def plan_manifest(
     return manifest
 
 
+# Creates the destination's parent directories and writes a UTF-8 generated artifact.
 def write_output(path: Path, contents: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(contents, encoding="utf-8")
 
 
+# Validates inputs before emitting wrappers and a manifest, returning status two for mapping or
+# filesystem errors.
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_mlir", type=Path, help="MLIR after circt-opt --lower-seq-firmem")

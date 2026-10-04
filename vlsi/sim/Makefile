@@ -13,6 +13,7 @@ BUILD_ROOT ?= $(VLSI_DIR)/build/sim
 BUILD_DIR := $(BUILD_ROOT)/$(SOC)/$(TECH)
 HARNESS_SOURCE := sims/mini-rv5stage-soc-harness.rhdl
 
+# Reject unsupported shape/technology combinations before constructing mapped artifacts.
 ifeq ($(SOC),mini-rv5stage-soc)
 else
 $(error mapped simulation currently supports SOC=mini-rv5stage-soc, not SOC=$(SOC))
@@ -95,6 +96,7 @@ $(SOC_MLIR): $(SIMULATOR_SOURCES) | $(BUILD_DIR)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 		sims/emit-soc-harness.rhm $(HARNESS_SOURCE) > $@
 
+# Scope the design-relative policy through SoCHarness.soc without changing logical wrapper identities.
 $(MAPPING_SELECTION_STAMP): $(SOC_MLIR) $(MEMORY_SITE_PLUGIN) $(MEMORY_POLICY)
 	@test -x $(CIRCT_OPT) || { \
 		echo "circt-opt not found at $(CIRCT_OPT); run 'make setup-circt' at the repository root or set CIRCT_OPT" >&2; \
@@ -108,6 +110,7 @@ $(MAPPING_SELECTION_STAMP): $(SOC_MLIR) $(MEMORY_SITE_PLUGIN) $(MEMORY_POLICY)
 	@test -s $(MAPPING_INVENTORY)
 	touch $@
 
+# Use checked-in cycle models, not PDK timing views, and assert the harness-scoped design manifest.
 $(MAPPING_STAMP): $(MAPPING_SELECTION_STAMP) $(MEMORY_MAPPER) $(MEMORY_CATALOG) $(FUNCTIONAL_MODELS) $(MEMORY_MANIFEST_CHECK)
 	@test -n "$(FUNCTIONAL_MODELS)" || { \
 		echo "no functional SRAM model found under $(SRAM_DIR)/$(TECH)/models" >&2; \
@@ -140,6 +143,7 @@ $(FESVR_LIBRARY):
 	@echo "FESVR is not installed; run 'make -C vlsi/sim setup' first" >&2
 	@exit 1
 
+# Reuse the normal TestDriver, FESVR, UART DPI, and runtime with mixed mapped/inferred RTL.
 $(SIMULATOR_BINARY): $(SOC_VERILOG) $(MAPPING_STAMP) $(SIMS_DIR)/TestDriver.v \
 		$(VERILATOR_DIR)/simulation_runtime.cc $(VERILATOR_DIR)/simulation_runtime.h \
 		$(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \

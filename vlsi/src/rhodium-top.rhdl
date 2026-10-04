@@ -1,7 +1,8 @@
 #lang rhodium
-// Defines the minimal combinational Rhodium leaf used by the OpenFrame GDS smoke flow.
+/* Defines the minimal combinational Rhodium leaf used by the OpenFrame GDS smoke flow. */
 // SPDX-License-Identifier: Apache-2.0
 
+/* Inverts one input bit without state, clocks, or reset for wrapper and physical-flow smoke checks. */
 circuit RhodiumTop():
   input in_bit: Bits(1)
   output out_bit: Bits(1)

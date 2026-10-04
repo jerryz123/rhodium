@@ -1,5 +1,7 @@
 // Provides a zero-delay functional Sky130 SRAM model for mapping tests and mapped simulation.
 // SPDX-License-Identifier: Apache-2.0
+// Models 512 uninitialized 32-bit words with a byte-masked RW port and independent read-only port.
+// This zero-delay model has no reset, supply behavior, or physical timing checks.
 module sky130_sram_2kbyte_1rw1r_32x512_8(
   input wire clk0,
   input wire csb0,
@@ -16,6 +18,7 @@ module sky130_sram_2kbyte_1rw1r_32x512_8(
   reg [31:0] storage [0:511];
   integer lane;
 
+  // Active-low chip select enables either a registered read or byte writes; writes hold dout0.
   always @(posedge clk0) begin
     if (!csb0) begin
       if (web0)
@@ -27,6 +30,7 @@ module sky130_sram_2kbyte_1rw1r_32x512_8(
     end
   end
 
+  // Enabled reads sample port 1 on its own clock; disabled cycles retain the prior output.
   always @(posedge clk1)
     if (!csb1)
       dout1 <= storage[addr1];

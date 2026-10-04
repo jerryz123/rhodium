@@ -1,6 +1,7 @@
 # Balances MiniRV5StageSoC's Sky130 RV64 arithmetic capture cones and proves each replacement before handoff.
 # SPDX-License-Identifier: Apache-2.0
 
+# Reuse the completed synthesis metadata while keeping the repaired handoff outside its input tree.
 set step [file normalize $::env(MINI_RV5STAGE_SOC_SYNTH_STEP_DIR)]
 set out [file normalize $::env(MINI_RV5STAGE_SOC_POST_SYNTH_DIR)]
 if {$out eq $step || [string first "$out/" "$step/"] == 0} {
@@ -24,6 +25,7 @@ set sdc [open "$out/mapping.sdc" w]
 puts $sdc "set_driving_cell $driver\nset_load $load"
 close $sdc
 
+# Load the standard-cell models separately from the mapped design for local remapping and SAT proof.
 yosys read_liberty -ignore_miss_func -ignore_miss_dir -ignore_miss_data_latch -ignore_buses "\"$model\""
 yosys design -stash models
 yosys read_json "\"$step/MiniRV5StageSoC.nl.v.json\""
@@ -39,6 +41,7 @@ if {$::env(MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER) ni {0 1}} {
 if {$::env(MINI_RV5STAGE_SOC_REPAIR_MULTIPLIER)} {
     lappend repairs multiplier_repair {rv5stage2Fcore2Fmultiplier2Fmultiplier2Fmultiplicand rv5stage2Fcore2Fmultiplier2Fmultiplier2Fmultiplier} 4000
 }
+# Each repair targets an exact register boundary and bounds its extracted combinational cone size.
 foreach {repair registers limit} $repairs {
     yosys select -module MiniRV5StageSoC
     set endpoints {}
@@ -73,6 +76,7 @@ foreach {repair registers limit} $repairs {
     exec diff -I {^autoidx [0-9][0-9]*$} "$out/$repair-outside-before.il" "$out/$repair-outside-after.il"
     yosys design -save mapped
 
+    # Prove every extracted output, including shared side outputs, before reinstalling the mapped cone.
     yosys design -reset
     yosys design -copy-from reference -as gold $repair
     yosys design -copy-from mapped -as gate $repair
@@ -87,6 +91,7 @@ foreach {repair registers limit} $repairs {
     yosys select -assert-none MiniRV5StageSoC/t:$repair
     yosys delete $repair
 }
+# Only a structurally valid reassembled design reaches the Verilog/JSON synthesis handoff.
 yosys check -assert
 yosys write_verilog -noattr -noexpr -nohex -nodec "\"$out/MiniRV5StageSoC.nl.v\""
 yosys write_json "\"$out/MiniRV5StageSoC.nl.v.json\""

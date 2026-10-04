@@ -20,6 +20,7 @@ VERILATOR ?= verilator
 
 all: test
 
+# Build against the same CIRCT installation that will load the occurrence-selection plugin.
 $(PLUGIN): $(CIRCT_PASS_DIR)/CMakeLists.txt $(CIRCT_PASS_DIR)/MemorySitePass.cpp
 	@test -x $(CIRCT_OPT) || { \
 		echo "circt-opt not found at $(CIRCT_OPT); run 'make setup-circt' at the repository root or set CIRCT_OPT" >&2; \
@@ -36,6 +37,7 @@ $(PLUGIN): $(CIRCT_PASS_DIR)/CMakeLists.txt $(CIRCT_PASS_DIR)/MemorySitePass.cpp
 
 plugin: $(PLUGIN)
 
+# Exercise selection, mapper contracts, generated wrappers, and functional macro behavior together.
 test: $(PLUGIN)
 	env PYTHONDONTWRITEBYTECODE=1 PYTHON=$(PYTHON) VERILATOR=$(VERILATOR) CIRCT_OPT=$(CIRCT_OPT) \
 		MEMORY_SITE_PLUGIN=$(PLUGIN) \

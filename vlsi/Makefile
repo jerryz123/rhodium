@@ -72,6 +72,7 @@ $(BUILD_DIR):
 setup-circt:
 	$(MAKE) -C $(RHODIUM_ROOT) setup-circt
 
+# The smoke leaf and its public wrapper checks are independent of the Mini SoC memory flow.
 $(BUILD_DIR)/rhodium-top.mlir: src/rhodium-top.rhdl tools/emit-top.rhm | $(BUILD_DIR)
 	env PLTCOMPILEDROOTS=$(BUILD_DIR)/compiled $(RACKET) -S $(RHODIUM_ROOT) tools/emit-top.rhm > $@
 
@@ -94,6 +95,7 @@ $(BUILD_DIR)/rhodium-top.sv: $(BUILD_DIR)/rhodium-top.mlir
 
 rtl: $(BUILD_DIR)/rhodium-top.sv
 
+# Compare the local wrapper ports and fixed pin template with the harness-owned contract.
 contract-check:
 	$(PYTHON) tools/check-openframe-contract.py \
 		--wrapper $(WRAPPER) \
@@ -127,6 +129,7 @@ $(MINI_RV5STAGE_SOC_MLIR): tools/emit-mini-rv5stage-soc.rhm $(MINI_RV5STAGE_SOC_
 	env PLTCOMPILEDROOTS=$(BUILD_DIR)/compiled PLTCOLLECTS=$(RHODIUM_ROOT): \
 		$(RACKET) -S $(RHODIUM_ROOT) tools/emit-mini-rv5stage-soc.rhm > $@
 
+# Flatten the selected top before applying design-relative occurrence policy and recording all sites.
 $(MINI_RV5STAGE_SOC_MEMORY_SITE_STAMP): $(MINI_RV5STAGE_SOC_MLIR) $(MEMORY_SITE_PLUGIN) $(MINI_RV5STAGE_SOC_MEMORY_POLICY)
 	@test -x $(CIRCT_OPT) || { \
 		echo "circt-opt not found at $(CIRCT_OPT); run 'make setup-circt' or set CIRCT_OPT" >&2; \
@@ -140,6 +143,7 @@ $(MINI_RV5STAGE_SOC_MEMORY_SITE_STAMP): $(MINI_RV5STAGE_SOC_MLIR) $(MEMORY_SITE_
 	@test -s $(MINI_RV5STAGE_SOC_MEMORY_SITE_INVENTORY)
 	touch $@
 
+# Validate physical-view existence and exact design-owned tiling after generic wrapper generation.
 mini-rv5stage-soc-memory-map: \
 		$(MINI_RV5STAGE_SOC_MEMORY_SITE_STAMP) $(MEMORY_MAPPER) $(MEMORY_MAP_CATALOG) $(MINI_RV5STAGE_SOC_MEMORY_CHECK)
 	$(PYTHON) $(MEMORY_MAPPER) $(MINI_RV5STAGE_SOC_FIRRTL_MEM_MLIR) \
@@ -176,6 +180,7 @@ mini-rv5stage-soc-macro-rtl-check: mini-rv5stage-soc-macro-rtl
 		-Wno-fatal -Wno-DECLFILENAME -Wno-UNUSEDSIGNAL -Wno-PINCONNECTEMPTY -Wno-UNOPTFLAT \
 		$(MINI_RV5STAGE_SOC_RTL) $(MINI_RV5STAGE_SOC_MEMORY_WRAPPERS) $(SKY130_SRAM_MODEL)
 
+# Slang elaboration checks packed SystemVerilog and macro retention without full synthesis.
 mini-rv5stage-soc-slang-check: mini-rv5stage-soc-macro-rtl
 	@if command -v librelane >/dev/null 2>&1; then \
 		$(MAKE) mini-rv5stage-soc-slang-check-native; \
@@ -199,6 +204,7 @@ mini-rv5stage-soc-slang-check-native: mini-rv5stage-soc-macro-rtl
 		exit 1; \
 	fi
 
+# Synthesis hands its raw output to the separately proven arithmetic-cone repair recipe.
 mini-rv5stage-soc-synth: mini-rv5stage-soc-macro-rtl
 	@if command -v librelane >/dev/null 2>&1; then \
 		$(MAKE) mini-rv5stage-soc-synth-native; \
@@ -242,6 +248,7 @@ enable-pdk:
 		exit 1; \
 	fi
 
+# Sparse wrapper hardening and the compact LVS fixture establish different physical proof boundaries.
 harden: rtl-check
 	@if command -v librelane >/dev/null 2>&1; then \
 		$(MAKE) harden-native; \
@@ -275,6 +282,7 @@ lvs-smoke-native: rtl lvs-smoke-rtl-check
 	grep -Eq "^Final result: (Circuits|Netlists) match" \
 		$(LVS_RUN_DIR)/*-netgen-lvs/reports/lvs.netgen.rpt
 
+# Delegate padframe cell swapping to the pinned harness rather than regenerating its physical assets.
 integrate: harden
 	@if command -v magic >/dev/null 2>&1; then \
 		$(MAKE) integrate-native; \

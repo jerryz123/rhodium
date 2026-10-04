@@ -3,6 +3,7 @@
 
 `default_nettype none
 
+// Carries the generated inverter into the compact LVS fixture; supplies are exposed when enabled.
 module rhodium_lvs_smoke (
 `ifdef USE_POWER_PINS
     inout vccd1,

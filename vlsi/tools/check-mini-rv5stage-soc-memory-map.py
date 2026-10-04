@@ -66,11 +66,14 @@ EXPECTED_TOTALS = {
 }
 
 
+# Reports a design-specific mapping mismatch on stderr and terminates with status two.
 def fail(message: str) -> None:
     print(f"MiniRV5StageSoC memory-map check failed: {message}", file=sys.stderr)
     raise SystemExit(2)
 
 
+# Checks one selected site's logical contract, macro tiling coordinates, utilization, and usable
+# functional model against RV64 design policy.
 def check_mapped_site(path: str, site: dict[str, object], expected: dict[str, object]) -> None:
     if site.get("macro") != MACRO:
         fail(f"{path}: expected macro {MACRO}, got {site.get('macro')}")
@@ -133,6 +136,8 @@ def check_mapped_site(path: str, site: dict[str, object], expected: dict[str, ob
         fail(f"{path}: no usable functional model")
 
 
+# Validates the manifest's selection scope, exact mapped/inferred site inventory, source shapes,
+# and aggregate 36-macro handoff.
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("manifest", type=Path)

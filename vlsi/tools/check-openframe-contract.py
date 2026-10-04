@@ -12,6 +12,8 @@ from pathlib import Path
 DESIGN_NAME = "double_wide_openframe_project_wrapper"
 
 
+# Extracts the wrapper's port declaration and normalizes line comments and whitespace for exact
+# boundary comparison.
 def module_header(path: Path) -> str:
     text = path.read_text()
     match = re.search(
@@ -25,6 +27,7 @@ def module_header(path: Path) -> str:
     return re.sub(r"\s+", " ", header).strip()
 
 
+# Requires the pinned DEF template's wrapper design name and 1216-pin count.
 def check_pin_template(path: Path) -> None:
     text = path.read_text()
     design = re.search(r"^DESIGN\s+(\S+)\s*;", text, flags=re.MULTILINE)
@@ -35,6 +38,7 @@ def check_pin_template(path: Path) -> None:
         raise ValueError(f"{path}: expected the current 1216-pin harness template")
 
 
+# Compares the local and harness-owned wrapper headers and checks the fixed DEF pin template.
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--wrapper", required=True, type=Path)

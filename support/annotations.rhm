@@ -1,5 +1,5 @@
 #lang rhombus/and_meta
-// Defines dependency-neutral Rhombus refinements shared by repository packages.
+/* Defines dependency-neutral Rhombus refinements shared by repository packages. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -10,16 +10,20 @@ export:
   NonemptyString
   AsciiIdentifier
 
+/* Accepts strings with at least one character without imposing identifier syntax. */
 fun nonempty_string(value :: String):
   value.length() > 0
 
+/* Refines String with the nonempty predicate at ordinary host API boundaries. */
 annot.macro 'NonemptyString':
   'String && satisfying(nonempty_string)'
 
 def ascii_identifier_pattern = rx'bof ["A"-"Z" "a"-"z" "_"] ["A"-"Z" "a"-"z" "0"-"9" "_"]* eof'
 
+/* Requires an ASCII letter or underscore first, followed only by letters, digits, or underscores. */
 fun ascii_identifier(value :: String):
   ascii_identifier_pattern.is_match(value)
 
+/* Refines String with the complete ASCII identifier pattern used by generated-name consumers. */
 annot.macro 'AsciiIdentifier':
   'String && satisfying(ascii_identifier)'
