@@ -1,4 +1,4 @@
-// Encodes Perfetto v58.2 packets with symbolic captures and parses RHEG snapshots.
+/* Projects exact RHEG captures into Perfetto v58.2 packets and parses saved snapshots. */
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <nlohmann/json.hpp>
@@ -17,9 +17,11 @@
 namespace rheg {
 namespace {
 using Json = nlohmann::json;
+/* Reports malformed inputs and exporter contract violations as exceptions. */
 void require(bool ok, const char* message) {
   if (!ok) throw std::runtime_error(message);
 }
+/* Reads exact unsigned JSON integers or decimal strings, rejecting overflow and coercion. */
 std::uint64_t number(const Json& value, std::uint64_t maximum = UINT64_MAX) {
   std::uint64_t result = 0;
   if (value.is_string()) {
@@ -36,6 +38,7 @@ std::uint64_t number(const Json& value, std::uint64_t maximum = UINT64_MAX) {
   require(result <= maximum, "integer out of range");
   return result;
 }
+/* Parses bounded-depth JSON, rejecting duplicate object keys and input-stream failures. */
 Json parse(std::istream& input) {
   std::vector<std::set<std::string>> keys;
   auto result = Json::parse(input, [&](int depth, Json::parse_event_t event, Json& value) {
@@ -49,15 +52,19 @@ Json parse(std::istream& input) {
   require(!input.bad(), "trace input read failed");
   return result;
 }
+/* Applies the same strict JSON parser to compiler metadata held in memory. */
 Json parse(const std::string& text) {
   std::istringstream input(text);
   return parse(input);
 }
+/* Checks the expected version-1 format discriminator before interpreting an envelope. */
 void format(const Json& value, const char* name) {
   require(value.at("format") == name && number(value.at("version")) == 1, "unsupported trace format/version");
 }
+/* Carries display metadata separately from numeric graph identities and payload schemas. */
 struct Site { std::string id, label, source, kind, observation_of, group, track_name; };
-// Display paths are explicit labels, never hardware identities or filesystem paths.
+/* Splits explicit slash labels into display groups, not hardware or filesystem paths;
+   legacy hardware IDs remain flat. */
 void display_path(Site& site, bool explicit_label) {
   site.track_name = site.label;
   if (!explicit_label) return;
@@ -74,10 +81,12 @@ void display_path(Site& site, bool explicit_label) {
     start = slash + 1;
   }
 }
+/* Finds a display group's immediate slash-separated parent without normalizing its path. */
 std::string parent_path(const std::string& path) {
   const auto slash = path.rfind('/');
   return slash == std::string::npos ? std::string() : path.substr(0, slash);
 }
+/* Combines validated compiler metadata with presentation-only track sharing and gap details. */
 struct Description {
   Manifest manifest;
   std::string top;
@@ -88,6 +97,8 @@ struct Description {
   std::set<std::uint32_t> grouped_tracks;
   std::map<std::uint32_t, Json> gaps;
 };
+/* Validates a manifest and resolves explicit and automatic exclusive track groups;
+   stall observers follow their transfer's track without becoming lineage sources. */
 Description describe(const Json& json, const PerfettoTrackGroups& track_groups = {}) {
   format(json, "rhodium-event-graph");
   Description result;
@@ -146,6 +157,7 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
     }
   } else require(!json.contains("site_instances"), "instance membership without scopes");
   validate_capture_schema(result.manifest);
+  /* Returns a site's declared scope chain, with an empty chain for legacy manifests. */
   const auto scopes_for = [&](std::uint32_t site) {
     return result.manifest.site_instances.empty() ? std::vector<std::uint32_t>{} : result.manifest.site_instances.at(site);
   };
@@ -222,41 +234,49 @@ Description describe(const Json& json, const PerfettoTrackGroups& track_groups =
   }
   return result;
 }
+/* Decodes an exact two-element site/sequence reference with site-width checking. */
 Ref ref(const Json& value) {
   require(value.is_array() && value.size() == 2, "invalid event reference");
   return {static_cast<std::uint32_t>(number(value[0], UINT32_MAX)), number(value[1])};
 }
-// Minimal protobuf wire encoder: only unsigned varints and length-delimited
-// fields used by this exporter. Field numbers/types are from the pinned schema:
-// https://github.com/google/perfetto/tree/v58.2/protos/perfetto/trace
-// No generated code, recording service, protobuf runtime, or SDK is required.
+/* Appends an unsigned varint for this minimal protobuf encoder. Field numbers/types
+   use https://github.com/google/perfetto/tree/v58.2/protos/perfetto/trace;
+   no generated code, recording service, protobuf runtime, or SDK is required. */
 void varint(std::string& out, std::uint64_t n) {
   while (n >= 128) { out.push_back(static_cast<char>((n & 127) | 128)); n >>= 7; }
   out.push_back(static_cast<char>(n));
 }
+/* Writes a protobuf varint field tag and its integer value. */
 void integer(std::string& out, unsigned field, std::uint64_t n) {
   varint(out, std::uint64_t(field) << 3); varint(out, n);
 }
+/* Writes a protobuf length-delimited field for strings and nested messages. */
 void bytes(std::string& out, unsigned field, const std::string& value) {
   varint(out, (std::uint64_t(field) << 3) | 2); varint(out, value.size()); out += value;
 }
+/* Appends one TracePacket as a repeated packet field in the outer Trace message. */
 void packet(std::string& out, const std::string& value) { bytes(out, 1, value); }
 
-// One sequence owns four independent IID spaces. Admission is bounded; existing
-// entries remain valid for the epoch and excess/oversized strings stay inline.
+/* One sequence owns four independent IID spaces. Admission is bounded; existing
+   entries remain valid for the epoch and excess/oversized strings stay inline. */
 struct InternedStrings {
+  /* Keeps independent IID namespaces for categories, event names, annotation names, and values. */
   enum Kind { Category, Name, AnnotationName, Value };
+  /* Tracks string IDs and their admission byte budget, whether staged or committed. */
   struct Dictionary {
     std::map<std::string, std::uint64_t> ids;
     std::size_t bytes = 0;
   };
   std::array<Dictionary, 4> dictionaries;
 };
+/* Stages bounded dictionary additions and their wire definitions until output succeeds. */
 struct PendingInterns {
   InternedStrings& known;
   InternedStrings added;
   std::string pending;
+  /* Borrows epoch dictionaries while keeping this operation's new entries separate. */
   explicit PendingInterns(InternedStrings& committed) : known(committed) {}
+  /* Reuses or stages an IID, falling back to inline text when admission limits are reached. */
   void reference(std::string& message, unsigned iid_field, unsigned inline_field,
                  InternedStrings::Kind kind, const std::string& value) {
     const auto& prior = known.dictionaries[kind];
@@ -277,6 +297,7 @@ struct PendingInterns {
     bytes(pending, tables[kind], entry);
     integer(message, iid_field, iid);
   }
+  /* Transfers staged entries into the epoch dictionaries after their packets are written. */
   void commit() {
     for (std::size_t i = 0; i < added.dictionaries.size(); ++i) {
       known.dictionaries[i].ids.merge(added.dictionaries[i].ids);
@@ -284,6 +305,7 @@ struct PendingInterns {
     }
   }
 };
+/* Adds a string debug annotation, optionally bypassing value interning for unique counters. */
 void annotation(std::string& event, PendingInterns& interns, const std::string& name,
                 const std::string& value, bool intern_value = true) {
   std::string arg;
@@ -292,6 +314,7 @@ void annotation(std::string& event, PendingInterns& interns, const std::string& 
   else bytes(arg, 6, value);
   bytes(event, 4, arg);
 }
+/* Emits exact hardware-cycle counts as signed-range integers or lossless decimal strings. */
 void duration_annotation(std::string& event, PendingInterns& interns, __uint128_t cycles) {
   // Keep ordinary counts queryable as integers, and oversized counts lossless.
   if (cycles <= INT64_MAX) {
@@ -306,12 +329,14 @@ void duration_annotation(std::string& event, PendingInterns& interns, __uint128_
     annotation(event, interns, "duration_cycles", value, false);
   }
 }
+/* Looks up a captured enum symbol, retaining hexadecimal for undeclared bit patterns. */
 std::string enum_text(const Field& field, const FieldValue& value) {
   const auto code = value.unsigned_value();
   const auto symbol = std::find_if(field.symbols.begin(), field.symbols.end(),
       [&](const auto& entry) { return entry.first == code; });
   return symbol == field.symbols.end() ? value.hex() : symbol->second;
 }
+/* Projects non-instruction captures into typed scalars, enum names, or lossless numeric strings. */
 void capture_annotation(std::string& event, PendingInterns& interns, const Field& field, const Node& node) {
   const auto value = capture_field(node, field);
   const auto& name = field.name;
@@ -330,18 +355,23 @@ void capture_annotation(std::string& event, PendingInterns& interns, const Field
   }
 }
 
-// Decoder state and its bounded cache are private to one export, never the graph.
+/* Owns a decoder whose ISA parser outlives its disassembler; neither mutates the graph. */
 struct RiscvDecoder {
   isa_parser_t isa;
   disassembler_t decoder;
+  /* Creates a paired ISA parser and disassembler without instantiating a Spike simulator. */
   explicit RiscvDecoder(const std::string& name) : isa(name.c_str(), "MSU"), decoder(&isa, true) {}
 };
+/* Owns per-ISA decoders and a bounded instruction/PC formatting cache for one export. */
 struct RiscvFormatting {
   std::map<std::string, std::unique_ptr<RiscvDecoder>> decoders;
   std::map<std::tuple<std::string, std::uint64_t, std::uint32_t, std::uint32_t>, std::string> cache;
+  /* Validates each declared ISA and constructs its decoder before trace bytes are written. */
   void prepare(const std::string& isa) {
     if (!decoders.count(isa)) decoders.emplace(isa, std::make_unique<RiscvDecoder>(isa));
   }
+  /* Disassembles captured instructions, resolves PC-relative targets with XLEN wrapping,
+     and preserves unknown encodings as hexadecimal rather than inventing an opcode. */
   std::string render(const Field& field, const Node& node, const std::vector<Field>& fields) {
     const auto value = capture_field(node, field);
     const auto bits = static_cast<std::uint32_t>(value.unsigned_value());
@@ -379,14 +409,17 @@ struct RiscvFormatting {
   }
 };
 
-// Persistent gzip dictionary, with bounded scratch space independent of trace size.
+/* Maintains a persistent gzip dictionary with bounded scratch space independent of trace size. */
 struct GzipEncoder {
   z_stream state{};
+  /* Initializes one gzip-framed deflate stream whose dictionary survives batch boundaries. */
   GzipEncoder() {
     require(deflateInit2(&state, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8,
                          Z_DEFAULT_STRATEGY) == Z_OK, "gzip initialization failed");
   }
+  /* Releases compression resources; only explicit finish writes the gzip footer. */
   ~GzipEncoder() { deflateEnd(&state); }
+  /* Compresses into bounded scratch space and checks both zlib and output-stream failures. */
   int pump(std::ostream& output, int mode) {
     std::array<unsigned char, 32768> buffer;
     state.next_out = buffer.data(); state.avail_out = buffer.size();
@@ -396,6 +429,7 @@ struct GzipEncoder {
     require(bool(output), "Perfetto output write failed");
     return result;
   }
+  /* Feeds bounded input chunks without per-cycle sync flushes or whole-trace buffering. */
   void write(std::ostream& output, const std::string& data) {
     if (data.empty()) return;
     for (std::size_t offset = 0; offset < data.size();) {
@@ -408,6 +442,7 @@ struct GzipEncoder {
     // Keep deflate blocks open across batches. Perfetto requires the footer at
     // finish() before importing gzip, so per-cycle sync flushes buy no live view.
   }
+  /* Drains the compressor through the final gzip footer, reporting output errors. */
   void finish(std::ostream& output) {
     state.next_in = nullptr; state.avail_in = 0;
     while (pump(output, Z_FINISH) != Z_STREAM_END) {}
@@ -415,7 +450,10 @@ struct GzipEncoder {
 };
 }
 
+/* Owns one epoch's presentation state and stages batches before committing successful I/O;
+   exact occurrence identities remain distinct even when display tracks are shared. */
 struct PerfettoWriter::Impl {
+  /* Retains an open interval's last observation, parents, and first cycle for exact duration. */
   struct StallRun {
     Ref last;
     Node node;
@@ -438,6 +476,8 @@ struct PerfettoWriter::Impl {
   std::map<std::uint32_t, std::pair<std::uint64_t, std::uint64_t>> instance_tracks;
   std::unique_ptr<GzipEncoder> gzip;
 
+  /* Checks descriptor/JSON agreement and ISA schemas, then emits deterministic track
+     hierarchy and epoch metadata before accepting any occurrence batches. */
   Impl(std::ostream& out, const Manifest& manifest, TraceTiming clock, PerfettoCompression compression,
        const PerfettoTrackGroups& track_groups)
       : output(out), description(describe(parse(manifest.json), track_groups)), timing(clock) {
@@ -471,6 +511,7 @@ struct PerfettoWriter::Impl {
     // Reserve site UUIDs even for observers; groups never alias event tracks.
     using GroupKey = std::pair<std::vector<std::uint32_t>, std::string>;
     std::map<GroupKey, std::uint64_t> groups;
+    /* Selects scope ancestry when constructing distinct group UUIDs for each instance chain. */
     const auto scopes_for = [&](std::size_t i) {
       return manifest.site_instances.empty() ? std::vector<std::uint32_t>{} : manifest.site_instances.at(i);
     };
@@ -503,6 +544,7 @@ struct PerfettoWriter::Impl {
       integer(group, 11, 1); integer(group, 15, 2);
       bytes(pkt, 60, group); packet(stream, pkt);
     }
+    /* Builds complete per-site display metadata, preserving original identities on shared tracks. */
     const auto site_description = [&](std::size_t i) {
       Json site = {{"site", i}, {"site_id", description.sites[i].id}, {"label", description.sites[i].label},
                    {"source_location", description.sites[i].source},
@@ -552,6 +594,7 @@ struct PerfettoWriter::Impl {
     }
     flush(stream);
   }
+  /* Writes staged bytes, optionally through gzip, and permanently poisons the writer on I/O failure. */
   void flush(const std::string& data) {
     require(!failed, "Perfetto output previously failed");
     require(data.size() <= static_cast<std::size_t>(std::numeric_limits<std::streamsize>::max()), "Perfetto batch too large");
@@ -562,6 +605,8 @@ struct PerfettoWriter::Impl {
       require(bool(output), "Perfetto output write failed");
     } catch (...) { failed = true; throw; }
   }
+  /* Closes observed stall intervals and finalizes output idempotently; unfinished residency
+     owners stay open because end of simulation is not a hardware release. */
   void finish() {
     require(!failed, "Perfetto output previously failed");
     if (finished) return;
@@ -579,11 +624,13 @@ struct PerfettoWriter::Impl {
       finished = true;
     } catch (...) { failed = true; throw; }
   }
+  /* Quantizes each cycle boundary independently to nanoseconds, rejecting signed-64-bit overflow. */
   std::uint64_t timestamp(__uint128_t cycle) const {
     const auto ns = cycle * 1000000000 / timing.clock_frequency_hz;
     require(ns <= INT64_MAX, "Perfetto timestamp overflow");
     return static_cast<std::uint64_t>(ns);
   }
+  /* Emits a timed TrackEvent and any newly referenced intern definitions on sequence one. */
   void event(std::string& stream, PendingInterns& interns, Ref ref, __uint128_t cycle, std::string fields) const {
     integer(fields, 11, std::uint64_t(description.track_sites[ref.site]) + 1);
     std::string pkt;
@@ -592,6 +639,7 @@ struct PerfettoWriter::Impl {
     if (!interns.pending.empty()) { bytes(pkt, 12, interns.pending); interns.pending.clear(); }
     bytes(pkt, 11, fields); packet(stream, pkt);
   }
+  /* Emits legacy non-closing flow endpoints so exact lineage supports joins and delayed fanout. */
   void flow(std::string& stream, PendingInterns& interns, Ref ref, __uint128_t cycle, char phase, std::uint64_t id) const {
     std::string fields, legacy;
     interns.reference(fields, 10, 23, InternedStrings::Name, "dependency");
@@ -599,6 +647,7 @@ struct PerfettoWriter::Impl {
     integer(legacy, 2, phase); integer(legacy, 6, id); integer(legacy, 12, 1);
     bytes(fields, 6, legacy); event(stream, interns, ref, cycle, fields);
   }
+  /* Closes selected stall runs in deterministic end-cycle/track order, retaining exact cycle counts. */
   template<class Predicate>
   void close_stalls(std::string& stream, PendingInterns& interns,
                     std::map<std::uint32_t, StallRun>& runs, Predicate should_close) const {
@@ -614,6 +663,8 @@ struct PerfettoWriter::Impl {
       runs.erase(track);
     }
   }
+  /* Validates a settled delta, topologically orders same-cycle lineage, and stages interval,
+     identity, and intern state; commits only after writing the complete staged batch. */
   void write(const CycleBatch& batch) {
     require(!failed, "Perfetto output previously failed");
     require(!finished, "Perfetto writer already finished");
@@ -664,6 +715,7 @@ struct PerfettoWriter::Impl {
       for (auto child : children[ref]) if (!--indegree[child]) ready.emplace(batch.nodes.at(child).cycle, child);
     }
     require(order.size() == batch.nodes.size(), "cyclic same-cycle dependencies");
+    /* Represents a registration, residency release, or occurrence at a hardware cycle boundary. */
     struct Action { Ref ref; std::uint64_t cycle; bool end; bool instance = false; };
     std::vector<Action> actions;
     for (const auto& [scope, value] : batch.instances) actions.push_back({{scope, 0}, value.cycle, false, true});
@@ -678,6 +730,7 @@ struct PerfettoWriter::Impl {
     }
     std::stable_sort(actions.begin(), actions.end(), [](const Action& a, const Action& b) {
       if (a.cycle != b.cycle) return a.cycle < b.cycle;
+      /* Orders releases before registrations before begins at the same hardware cycle. */
       const auto rank = [](const Action& action) { return action.end ? 0 : action.instance ? 1 : 2; };
       return rank(a) < rank(b);
     });
@@ -808,13 +861,18 @@ struct PerfettoWriter::Impl {
     watermark = batch.cycle;
   }
 };
+/* Constructs the epoch encoder while retaining the caller-owned output stream by reference. */
 PerfettoWriter::PerfettoWriter(std::ostream& output, const Manifest& manifest, TraceTiming timing,
                                PerfettoCompression compression, const PerfettoTrackGroups& track_groups)
     : impl_(std::make_unique<Impl>(output, manifest, timing, compression, track_groups)) {}
+/* Releases encoder resources without implicitly finalizing or hiding output failures. */
 PerfettoWriter::~PerfettoWriter() = default;
+/* Forwards one settled delta to the validated epoch encoder. */
 void PerfettoWriter::write(const CycleBatch& batch) { impl_->write(batch); }
+/* Explicitly completes pending display intervals and output framing. */
 void PerfettoWriter::finish() { impl_->finish(); }
 
+/* Parses strict version-1 track overrides, checking labels and unique exact site memberships. */
 PerfettoTrackGroups read_perfetto_track_groups(std::istream& input) {
   const auto json = parse(input);
   format(json, "rheg-perfetto-tracks");
@@ -832,6 +890,7 @@ PerfettoTrackGroups read_perfetto_track_groups(std::istream& input) {
   return groups;
 }
 
+/* Reconstructs a timed saved graph through collector callbacks, then returns its validated snapshot. */
 Snapshot read_event_trace(std::istream& input) {
   const auto json = parse(input);
   format(json, "rhodium-event-trace");
@@ -864,6 +923,7 @@ Snapshot read_event_trace(std::istream& input) {
   for (const auto& edge : occurrences.at("edges")) graph.record_edge(ref(edge.at("parent")), ref(edge.at("child")));
   return graph.snapshot();
 }
+/* Replays a snapshot as one complete delta through the same encoder used for live batches. */
 void write_perfetto(std::ostream& output, const Snapshot& snapshot, PerfettoCompression compression,
                     const PerfettoTrackGroups& track_groups) {
   require(snapshot.timing().has_value(), "Perfetto export requires timing");

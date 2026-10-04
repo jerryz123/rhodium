@@ -1,4 +1,4 @@
-// Collects rheg DPI callbacks and exports timed snapshots and settled-cycle batches.
+/* Collects unordered rheg DPI callbacks and validates snapshots and settled-cycle deltas. */
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg.h"
 
@@ -8,8 +8,11 @@
 #include <limits>
 
 namespace rheg {
+/* Checks compiler field layouts and scope ancestry before accepting callbacks;
+   instruction ISA parsing remains the optional exporter's responsibility. */
 void validate_capture_schema(const Manifest& manifest) {
   std::set<std::string> instance_ids;
+  /* Recognizes the leading character of an ASCII scope identifier. */
   const auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
   for (const auto& scope : manifest.instances)
     if (scope.id.empty() || scope.label.empty() || !letter(scope.label.front()) ||
@@ -53,6 +56,7 @@ void validate_capture_schema(const Manifest& manifest) {
         throw std::runtime_error("duplicate or empty capture field name");
       if (field.name == "cycle" || field.name == "sequence" || field.name == "ancestry_unknown" || field.name == "duration_cycles")
         throw std::runtime_error("reserved capture field name: " + field.name);
+      /* Recognizes the leading character of an ASCII capture-field identifier. */
       auto letter = [](char c) { return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'; };
       if (!letter(field.name.front()) || !std::all_of(field.name.begin(), field.name.end(), [&](char c) {
             return letter(c) || (c >= '0' && c <= '9');
@@ -99,6 +103,7 @@ void validate_capture_schema(const Manifest& manifest) {
     if (remaining) throw std::runtime_error("incomplete capture field layout");
   }
 }
+/* Extracts compact capture bits across word boundaries without truncating wide fields. */
 FieldValue capture_field(const Node& node, const Field& field) {
   if (!node.present || !field.width || std::uint64_t(field.offset) + field.width > node.width)
     throw std::runtime_error("capture field outside present node");
@@ -115,16 +120,19 @@ FieldValue capture_field(const Node& node, const Field& field) {
   }
   return result;
 }
+/* Renders all width-significant nibbles, including leading zeroes. */
 std::string FieldValue::hex() const {
   std::string result = "0x";
   for (std::uint64_t digit = (std::uint64_t(width) + 3) / 4; digit-- > 0;)
     result += "0123456789abcdef"[(words.at(digit / 8) >> ((digit % 8) * 4)) & 15];
   return result;
 }
+/* Combines at most two payload words into a checked unsigned scalar. */
 std::uint64_t FieldValue::unsigned_value() const {
   if (width > 64) throw std::runtime_error("capture exceeds 64 bits");
   return words.at(0) | (width > 32 ? std::uint64_t(words.at(1)) << 32 : 0);
 }
+/* Sign-extends the captured width without overflowing signed conversion. */
 std::int64_t FieldValue::signed_value() const {
   auto value = unsigned_value();
   const bool negative = (value >> (width - 1)) & 1;
@@ -132,6 +140,7 @@ std::int64_t FieldValue::signed_value() const {
   if (width < 64) value |= UINT64_MAX << width;
   return -1 - static_cast<std::int64_t>(~value);
 }
+/* Uses decimal double-and-add for arbitrary widths and two's-complement magnitude. */
 std::string FieldValue::decimal() const {
   const bool negative = encoding == "signed" && ((words.at((width - 1) / 32) >> ((width - 1) % 32)) & 1);
   // Double-and-add decimal digits keeps arbitrary-width captures lossless.
@@ -155,6 +164,7 @@ std::string FieldValue::decimal() const {
   }
   return std::string(digits.rbegin(), digits.rend());
 }
+/* Resolves a field name in the occurrence site's bound schema, then extracts its bits. */
 FieldValue Graph::field(Ref ref, const std::string& name) const {
   if (!manifest_ || ref.site >= manifest_->fields.size())
     throw std::runtime_error("node has no capture schema");
@@ -162,15 +172,19 @@ FieldValue Graph::field(Ref ref, const std::string& name) const {
     if (field.name == name) return capture_field(nodes.at(ref), field);
   throw std::runtime_error("unknown capture field: " + name);
 }
+/* Validates complete nodes and edges against all known endpoints and optional metadata. */
 static void validate_entries(const std::map<Ref, Node>& nodes,
                              const std::set<std::pair<Ref, Ref>>& edges,
                              const std::map<Ref, Node>& all_nodes,
                              const Manifest* manifest_);
+/* Provides the single simulator-thread collector used by the fixed DPI ABI. */
 Graph& graph() { static Graph value; return value; }
+/* Drops occurrences outside streaming while retaining manifest, timing, and scope bindings. */
 void Graph::clear() {
   if (streaming_) throw std::runtime_error("end event stream before clearing graph");
   nodes.clear(); edges.clear();
 }
+/* Registers a scope once per epoch, enforcing width and stream watermark constraints. */
 void Graph::record_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle) {
   if (!manifest_ || scope >= manifest_->instances.size()) throw std::runtime_error("unknown instance scope");
   const auto width = manifest_->instances[scope].width;
@@ -181,6 +195,7 @@ void Graph::record_instance(std::uint32_t scope, std::uint64_t value, std::uint6
   if (streaming_) pending_instances_.emplace(scope, InstanceValue{value, cycle});
   started_ = epoch_active_ = true;
 }
+/* Allows arbitrary callback order but rejects events preceding their scope registrations. */
 static void validate_instances(const std::map<Ref, Node>& nodes, const Manifest* manifest,
                                const std::map<std::uint32_t, InstanceValue>& instances) {
   if (!manifest || manifest->site_instances.empty()) return;
@@ -189,6 +204,7 @@ static void validate_instances(const std::map<Ref, Node>& nodes, const Manifest*
       if (!instances.count(scope) || instances.at(scope).cycle > node.cycle)
         throw std::runtime_error("event precedes instance registration");
 }
+/* Captures the empty epoch header before enabling pending callback accumulation. */
 Snapshot Graph::begin_stream() {
   if (streaming_ || !nodes.empty() || !edges.empty() || !instances_.empty())
     throw std::runtime_error("event stream requires an empty graph and no active stream");
@@ -199,6 +215,7 @@ Snapshot Graph::begin_stream() {
   finished_cycle_.reset();
   return header;
 }
+/* Leaves the captured graph intact, requiring all pending deltas to be drained first. */
 void Graph::end_stream() {
   if (!streaming_) throw std::runtime_error("no active event stream");
   if (!pending_nodes_.empty() || !pending_edges_.empty() || !pending_ends_.empty() || !pending_instances_.empty())
@@ -206,6 +223,8 @@ void Graph::end_stream() {
   streaming_ = false;
   finished_cycle_.reset();
 }
+/* Validates only the pending delta against retained parents and a settled watermark;
+   pending state is cleared only after validation succeeds. */
 CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   if (!streaming_) throw std::runtime_error("no active event stream");
   if (finished_cycle_ && cycle <= *finished_cycle_)
@@ -240,6 +259,7 @@ CycleBatch Graph::finish_cycle(std::uint64_t cycle) {
   finished_cycle_ = cycle;
   return batch;
 }
+/* Binds positive-frequency run timing once before activity begins. */
 void Graph::bind_timing(const TraceTiming& timing) {
   if (timing_ || started_ || !nodes.empty() || !edges.empty())
     throw std::runtime_error("event timing must be bound once before callbacks");
@@ -247,6 +267,7 @@ void Graph::bind_timing(const TraceTiming& timing) {
     throw std::runtime_error("event clock frequency must be positive");
   timing_ = timing;
 }
+/* Checks and copies the compiler descriptor before callbacks can refer to its site indices. */
 void Graph::bind_manifest(const Manifest& manifest) {
   if (manifest_ || started_ || !nodes.empty() || !edges.empty())
     throw std::runtime_error("event manifest must be bound once before callbacks");
@@ -259,6 +280,7 @@ void Graph::bind_manifest(const Manifest& manifest) {
   validate_capture_schema(manifest);
   manifest_ = std::make_shared<const Manifest>(manifest);
 }
+/* Validates complete nodes and edges against all known endpoints and optional metadata. */
 static void validate_entries(const std::map<Ref, Node>& nodes,
                              const std::set<std::pair<Ref, Ref>>& edges,
                              const std::map<Ref, Node>& all_nodes,
@@ -290,15 +312,18 @@ static void validate_entries(const std::map<Ref, Node>& nodes,
       throw std::runtime_error("event parent occurs after child");
   }
 }
+/* Checks the full graph's payloads, lineage, and instance registration chronology. */
 void Graph::validate() const {
   validate_entries(nodes, edges, nodes, manifest_.get());
   validate_instances(nodes, manifest_.get(), instances_);
 }
+/* Requires a compiler descriptor and copies the validated graph into an immutable view. */
 Snapshot Graph::snapshot() const {
   if (!manifest_) throw std::runtime_error("event snapshot requires a bound compiler manifest");
   validate();
   return Snapshot(*this);
 }
+/* Serializes scope registrations deterministically, keeping 64-bit values as decimal strings. */
 static std::string instances_json(const std::map<std::uint32_t, InstanceValue>& instances) {
   if (instances.empty()) return "";
   std::string result = ",\"instances\":[";
@@ -311,6 +336,7 @@ static std::string instances_json(const std::map<std::uint32_t, InstanceValue>& 
   }
   return result + ']';
 }
+/* Wraps exact occurrences and compiler metadata in the versioned trace envelope. */
 std::string Snapshot::json() const {
   std::string metadata;
   if (timing()) {
@@ -322,6 +348,7 @@ std::string Snapshot::json() const {
   return "{\"format\":\"rhodium-event-trace\",\"version\":1,\"manifest\":" +
          manifest().json + metadata + instances_json(instances()) + ",\"occurrences\":" + graph_.json() + "}\n";
 }
+/* Serializes stable site/sequence identities, payload words, and parent-child references. */
 static std::string occurrences_json(const std::map<Ref, Node>& nodes,
                                     const std::set<std::pair<Ref, Ref>>& edges) {
   std::ostringstream out;
@@ -356,10 +383,12 @@ static std::string occurrences_json(const std::map<Ref, Node>& nodes,
   out << "]}\n";
   return out.str();
 }
+/* Validates and emits occurrence JSON without adding snapshot metadata. */
 std::string Graph::json() const {
   validate();
   return occurrences_json(nodes, edges);
 }
+/* Encodes one settled delta, including releases of owners from earlier batches. */
 std::string CycleBatch::json() const {
   auto occurrences = occurrences_json(nodes, edges);
   occurrences.pop_back(); // One complete JSON object per line for pipe consumers.
@@ -373,6 +402,7 @@ std::string CycleBatch::json() const {
          std::to_string(cycle) + "\",\"occurrences\":" + occurrences +
          (ends.empty() ? "" : ",\"ends\":[" + endings + "]") + instances_json(instances) + "}\n";
 }
+/* Accepts one residency release, even before its begin callback or after its begin was streamed. */
 void Graph::record_end(Ref ref, std::uint64_t cycle) {
   if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
     throw std::runtime_error("residency end cycle already streamed");
@@ -382,6 +412,7 @@ void Graph::record_end(Ref ref, std::uint64_t cycle) {
   started_ = epoch_active_ = true;
   if (streaming_) pending_ends_.emplace(ref, cycle);
 }
+/* Fills occurrence metadata once, rejecting duplicate nodes and backdated streamed activity. */
 void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
   if (streaming_ && finished_cycle_ && cycle <= *finished_cycle_)
     throw std::runtime_error("event node cycle already streamed");
@@ -394,6 +425,7 @@ void Graph::record_node(Ref ref, std::uint64_t cycle, std::uint32_t width) {
   node.width = width;
   if (streaming_) pending_nodes_.insert(ref);
 }
+/* Accumulates indexed payload words while allowing node metadata to arrive later. */
 void Graph::record_payload(Ref ref, std::uint32_t index, std::uint32_t word) {
   if (streaming_ && nodes.count(ref) && nodes.at(ref).present && !pending_nodes_.count(ref))
     throw std::runtime_error("event payload node already streamed");
@@ -403,6 +435,7 @@ void Graph::record_payload(Ref ref, std::uint32_t index, std::uint32_t word) {
   if (!words.emplace(index, word).second) throw std::runtime_error("duplicate event payload word");
   if (streaming_) pending_nodes_.insert(ref);
 }
+/* Stores parent-first lineage; old parents remain legal but an emitted child cannot change. */
 void Graph::record_edge(Ref parent, Ref child) {
   if (streaming_ && nodes.count(child) && nodes.at(child).present && !pending_nodes_.count(child))
     throw std::runtime_error("event edge child already streamed");
@@ -411,6 +444,7 @@ void Graph::record_edge(Ref parent, Ref child) {
   edges.insert({parent, child});
   if (streaming_) pending_edges_.insert({parent, child});
 }
+/* Marks an unstreamed occurrence's unknown ancestry without inventing an edge. */
 void Graph::record_unknown(Ref ref) {
   if (streaming_ && nodes.count(ref) && nodes.at(ref).present && !pending_nodes_.count(ref))
     throw std::runtime_error("event ancestry node already streamed");
@@ -421,6 +455,8 @@ void Graph::record_unknown(Ref ref) {
   node.ancestry_unknown = true;
   if (streaming_) pending_nodes_.insert(ref);
 }
+/* Starts a new epoch after activity, clearing occurrences and scope registrations but
+   preserving compiler and timing bindings; held reset advances the epoch only once. */
 void Graph::reset(bool active) {
   if (active && streaming_ && (epoch_active_ || finished_cycle_ || !pending_nodes_.empty() || !pending_edges_.empty()))
     throw std::runtime_error("end event stream before reset");
@@ -440,26 +476,33 @@ void Graph::reset(bool active) {
 }
 }
 
+/* Converts the DPI reset level to the collector's epoch reset operation. */
 extern "C" void rheg_reset(std::uint8_t active) {
   rheg::graph().reset(active != 0);
 }
+/* Forwards a compiler-indexed runtime scope registration to the process collector. */
 extern "C" void rheg_instance(std::uint32_t scope, std::uint64_t value, std::uint64_t cycle) {
   rheg::graph().record_instance(scope, value, cycle);
 }
+/* Forwards an occurrence's metadata using the compiler site and per-site sequence. */
 extern "C" void rheg_node(std::uint32_t site, std::uint64_t sequence,
                                     std::uint64_t cycle, std::uint32_t width) {
   rheg::graph().record_node({site, sequence}, cycle, width);
 }
+/* Forwards an instrumentation ancestry gap for one exact occurrence. */
 extern "C" void rheg_unknown(std::uint32_t site, std::uint64_t sequence) {
   rheg::graph().record_unknown({site, sequence});
 }
+/* Forwards the hardware release cycle of a residency occurrence. */
 extern "C" void rheg_end(std::uint32_t site, std::uint64_t sequence, std::uint64_t cycle) {
   rheg::graph().record_end({site, sequence}, cycle);
 }
+/* Forwards one least-significant-word-first payload chunk without interpreting its schema. */
 extern "C" void rheg_payload(std::uint32_t site, std::uint64_t sequence,
                                        std::uint32_t index, std::uint32_t word) {
   rheg::graph().record_payload({site, sequence}, index, word);
 }
+/* Translates the child-first ABI arguments into the collector's parent-first edge order. */
 extern "C" void rheg_edge(std::uint32_t child, std::uint64_t child_sequence,
                                     std::uint32_t parent, std::uint64_t parent_sequence) {
   rheg::graph().record_edge({parent, parent_sequence}, {child, child_sequence});

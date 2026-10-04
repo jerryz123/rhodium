@@ -18,6 +18,7 @@ SPIKE_SOURCE_DIR := $(RISCV_DIR)/riscv-isa-sim
 SPIKE_PATCH_DIR := $(RISCV_DIR)/riscv-isa-sim-patches
 SPIKE_PATCHES := $(wildcard $(SPIKE_PATCH_DIR)/*.patch)
 PATCHED_SUBMODULE_TOOL := $(RISCV_DIR)/patched_submodule.py
+# Cache the repository's pinned Spike revision plus local patch-series identity.
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) \
   --submodule riscv/riscv-isa-sim --series $(SPIKE_PATCH_DIR)/series)
 SPIKE_PATCHED_DIR := $(BUILD_DIR)/spike-patched
@@ -26,6 +27,7 @@ SPIKE_CONFIG_DIR := $(BUILD_DIR)/spike-config
 SPIKE_CONFIG := $(SPIKE_CONFIG_DIR)/config.h
 OBJECT_DIR := $(BUILD_DIR)/objects
 
+# Use the explicit JSON dependency; an include override takes precedence over pkg-config.
 ifeq ($(strip $(NLOHMANN_JSON_INCLUDE_DIR)),)
 NLOHMANN_JSON_INCLUDE_DIR := $(shell $(PKG_CONFIG) --variable=includedir nlohmann_json 2>/dev/null)
 endif
@@ -61,6 +63,7 @@ tests: $(CONVERTER) $(EVENT_PERFETTO_TEST) $(EVENT_STREAM_TEST)
 test: tests
 	$(EVENT_PERFETTO_TEST) $(BUILD_DIR)
 
+# Materialize patched disassembly sources in the build directory, never in the submodule.
 $(SPIKE_PATCH_STAMP): $(PATCHED_SUBMODULE_TOOL) $(SPIKE_PATCH_DIR)/series $(SPIKE_PATCHES) \
     $(SPIKE_SOURCE_DIR)/disasm/disasm.cc $(SPIKE_SOURCE_DIR)/disasm/regnames.cc \
     $(SPIKE_SOURCE_DIR)/disasm/isa_parser.cc
@@ -69,6 +72,7 @@ $(SPIKE_PATCH_STAMP): $(PATCHED_SUBMODULE_TOOL) $(SPIKE_PATCH_DIR)/series $(SPIK
 	  --series $(SPIKE_PATCH_DIR)/series --output $(SPIKE_PATCHED_DIR)
 	@touch $@
 
+# Supply only the configuration header needed by standalone Spike disassembly.
 $(SPIKE_CONFIG):
 	@mkdir -p $(@D)
 	@printf '%s\n' '// Standalone disassembly requires no simulator configuration defines.' > $@
@@ -77,6 +81,7 @@ $(OBJECT_DIR)/runtime/%.o: $(RUNTIME_DIR)/%.cc
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(COMMON_INCLUDES) -c $< -o $@
 
+# Diagnose a missing JSON header before compiling the optional exporter.
 $(OBJECT_DIR)/perfetto/rheg_perfetto.o: $(REPO_DIR)/rheg/perfetto/rheg_perfetto.cc $(NLOHMANN_JSON_HEADER) $(SPIKE_PATCH_STAMP) $(SPIKE_CONFIG)
 	@mkdir -p $(@D)
 	@printf '%s\n' '#include <nlohmann/json.hpp>' | $(CXX) $(CPPFLAGS) $(CXXFLAGS) $(JSON_INCLUDES) -MF /dev/null -x c++ -fsyntax-only - >/dev/null 2>&1 || { \
@@ -97,6 +102,7 @@ $(OBJECT_DIR)/tests/%.o: $(TEST_DIR)/%.cpp
 	@mkdir -p $(@D)
 	$(CXX) $(CPPFLAGS) $(CXXFLAGS) $(COMMON_INCLUDES) -c $< -o $@
 
+# Keep the stdlib-only collector separate from the JSON, Spike, and zlib exporter.
 $(RUNTIME_LIBRARY): $(RUNTIME_OBJECT)
 	@mkdir -p $(@D)
 	$(RM) $@
@@ -116,5 +122,6 @@ $(EVENT_PERFETTO_TEST): $(EVENT_PERFETTO_OBJECT) $(PERFETTO_LIBRARY) $(RUNTIME_L
 $(EVENT_STREAM_TEST): $(EVENT_STREAM_OBJECT) $(PERFETTO_LIBRARY) $(RUNTIME_LIBRARY)
 	$(CXX) $(LDFLAGS) -o $@ $(EVENT_STREAM_OBJECT) $(PERFETTO_LIBRARY) $(RUNTIME_LIBRARY) -lz $(LDLIBS)
 
+# Compiler dependency files make header edits rebuild only their affected objects.
 $(ALL_OBJECTS:.o=.d): ;
 -include $(wildcard $(ALL_OBJECTS:.o=.d))

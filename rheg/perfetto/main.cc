@@ -1,4 +1,4 @@
-// Converts a saved Rhodium event snapshot to native Perfetto on standard output.
+/* Converts saved event snapshots to raw or gzip Perfetto on standard output. */
 // SPDX-License-Identifier: Apache-2.0
 #include "rheg_perfetto.h"
 #include <fstream>
@@ -6,6 +6,8 @@
 #include <stdexcept>
 #include <string_view>
 
+/* Accepts one trace and optional compression/track overrides; usage errors return 2
+   and conversion errors return 1. Failed conversion may leave partial stdout. */
 int main(int argc, char** argv) {
   bool gzip = false;
   const char* path = nullptr;
