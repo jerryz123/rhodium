@@ -122,8 +122,16 @@ registers and synchronous-read results with nested/wide payloads. Crossing roots
 need no scratch payload or pointer slot; each consumer helper resolves its binding
 afresh. Local roots use the same reference policy. State stays unchanged until
 all frame consumers finish, and frame/output sinks still copy their values.
-External input normalization, computed asynchronous reads, and scalar roots keep
-their existing materialization. Other nonconstant values consumed in later regions
+Static aggregate record-field and vector-index projections also borrow subobjects
+when their parent has evaluation-long backing in state, constants, scratch, or a
+borrowed binding. Follow only static projection chains when finding that backing;
+parenthesize dereferenced parents before appending a field or index. Such crossing
+projections need no additional slots. A computed helper-local parent cannot back
+a crossing reference: materialize the projection without promoting its parent.
+Local projections may reference earlier locals in the same helper. Resolve constant
+symbols before layout so projected consumers need no undeclared ancestor aliases.
+External input normalization, dynamic/asynchronous reads, and scalar projections
+keep their existing materialization. Other nonconstant values consumed in later regions
 receive scratch slots. Slots are grouped in typed arrays by C++
 carrier; a producer writes its slot directly, and consumers bind const references.
 Aggregate lookup-mux results use const-pointer slots when every branch already
@@ -458,6 +466,8 @@ concatenation and cross-boundary slices, and modular results before widening.
 `tests/rsim/aggregate.py` adds field-level oracles for nested records/vectors,
 lengths 1/3/4, totals through 341 bits, preferred-name collisions, aggregate
 reset/swap/hold behavior, independent instances, and 64-bit canonical packing.
+A nested cast-to-record/vector projection covers computed parents whose subobjects
+may need copies across helper boundaries.
 Its record/vector feedback through lookup and one-hot muxes has acyclic field
 dependencies. Separate observations check both selectors and repeated module
 instances, while nested projections and aggregate state share the integer oracle.

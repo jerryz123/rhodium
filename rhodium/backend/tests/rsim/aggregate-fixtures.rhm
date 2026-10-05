@@ -133,5 +133,11 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   b.drive(b.output(top, "repacked", Bits(64)), b.cast(top, reversed_record, Bits(64)))
   def halves = RecordType([RecordField("high", Bits(32)), RecordField("low", Bits(32))], "Model")
   b.drive(b.output(top, "halves", halves), b.cast(top, unpacked, halves))
+  // A cast is a computed parent, so nested aggregate projections must retain
+  // copies when that parent remains local to the producer helper.
+  def lane = RecordType([RecordField("data", Bits(27)), RecordField("tag", Bits(5))])
+  def lane_box = RecordType([RecordField("entries", VectorType(2, lane))])
+  def cast_box = b.cast(top, packed, lane_box)
+  b.drive(b.output(top, "cast_lane", lane), b.vector_get(top, b.record_get(top, cast_box, "entries"), 1))
   b.finish(top)
   ElaboratedProgram(design, top)

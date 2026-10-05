@@ -394,3 +394,53 @@ check:
   root_emission[0].contains("struct outputScratch {\n\n  };") ~is #true
   root_emission[1].contains("frame.next.s0 = v0;") ~is #true
   root_emission[1].contains("next_outputs.presult = v0;") ~is #true
+
+// Casts retain a whole computed parent, unlike constructor projection forwarding.
+// Exercise nested aggregate fields/indices with wide leaves, shared constants,
+// current state, crossing scratch parents, and a helper-local fallback.
+fun projection_program(mode :: String):
+  def d = Design()
+  def builder = Builder(d)
+  def module = builder.module("ProjectionLifetime")
+  def clock = builder.input(module, "clock", Clock)
+  def element = RecordType([RecordField("data", Bits(65)), RecordField("tag", Bits(5))])
+  def type = RecordType([RecordField("entries", VectorType(2, element))])
+  def packed = if mode == "constant" | builder.constant(module, Bits(140), 2 ** 139 + 37) | builder.input(module, "data", Bits(140))
+  def converted = builder.cast(module, packed, type)
+  def parent:
+    if mode == "state"
+    | def reg = builder.register(module, "q", type, clock)
+      builder.drive(reg.next, converted)
+      reg.current
+    | converted
+  def entries = builder.record_get(module, parent, "entries")
+  builder.drive(builder.output(module, "result", element), builder.vector_get(module, entries, 1))
+  builder.finish(module)
+  ElaboratedProgram(d, module)
+
+for (mode in ["constant", "state", "input"]):
+  def planned = build_schedule(prepare_rtl(projection_program(mode), CompileOptions(), "projection lifetime").rtl)
+  def result = planned.outputs[0].value
+  def emitted = emit_rsim(planned, ~region_budget: 1)
+  def producer = "const auto& v" ++ to_string(result) ++ " = v"
+  check: emitted[1].contains(producer) ~is #true
+  check: emit_rsim(planned, ~region_budget: 1000000)[1].contains(producer) ~is #true
+  cond
+  | mode == "constant":
+      check: emitted[1].contains("((constant") && emitted[1].contains(").pentries)[1]") ~is #true
+  | mode == "state":
+      check: emitted[1].contains("((state_.s0).pentries)[1]") ~is #true
+  | ~else:
+      check: emitted[1].contains(".pentries)[1]") ~is #true
+      def evaluated = build_evaluation_plan(planned)
+      def cast = planned.steps.index(planned.steps.find(fun (step): step.opcode == "rtl.cast"))
+      def candidates = MutableList[]
+      for (budget in 1..100):
+        def regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: budget)
+        when (for any (region in regions): result in region.outputs && cast in region.steps && !(cast in region.outputs))
+        | candidates.add(budget)
+      check: candidates.length() > 0 ~is #true
+      // The producer must materialize this result before returning; its parent
+      // has only helper-local lifetime. No parent promotion is permitted.
+      def fallback = emit_rsim(planned, ~region_budget: candidates[0])
+      check: fallback[1].contains("const auto& v" ++ to_string(result) ++ " = scratch.") ~is #true

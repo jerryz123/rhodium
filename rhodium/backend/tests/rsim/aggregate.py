@@ -39,7 +39,8 @@ def ports(width):
     result += [('sample', length(width) * (width + 5), sample),
                ('unpacked', 64, [('.phead', 1, 63)] + [(f'.planes[{i}]', 21, 21*i) for i in range(3)]),
                ('roundtrip', 64, [('', 64, 0)]), ('repacked', 64, [('', 64, 0)]),
-               ('halves', 64, [('.phigh', 32, 32), ('.plow', 32, 0)])]
+               ('halves', 64, [('.phigh', 32, 32), ('.plow', 32, 0)]),
+               ('cast_lane', 32, [('.pdata', 27, 5), ('.ptag', 5, 0)])]
     return result
 
 
@@ -175,4 +176,5 @@ class Oracle:
         lanes = [(packed // (1 << (21*i))) % (1 << 21) for i in range(3)]
         repacked = head * (1 << 63) + sum(value * (1 << (21*i)) for i, value in enumerate(reversed(lanes)))
         result += [head, *lanes, packed, repacked, packed >> 32, packed & ((1 << 32) - 1)]
+        result += [packed // (1 << 37), (packed // (1 << 32)) % 32]
         return result + [0] * (OUTPUT_COUNT - len(result))
