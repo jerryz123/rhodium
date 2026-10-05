@@ -45,8 +45,10 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
+| `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
+| `rsim/arrays.rhm` | Element, fill, and affine-gather runs for existing vector constructors |
 | `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
-| `rsim/emit.rhm` | Typed expressions, bounded C++ helpers, boundary storage, evaluation frames, and simultaneous commits |
+| `rsim/emit.rhm` | C++ rendering of expressions, storage and array plans, bounded helpers, evaluation frames, and simultaneous commits |
 | `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
 | `rsim/sv-binding.rhm` | Scalar boundary validation, state-only output dependencies, SV wrapper, and C++ DPI bridge |
 | `tests/rsim/` | Builder fixtures, standalone native harness, integer/state oracles, and optional direct-SV comparison |
@@ -122,6 +124,15 @@ than another step's alias. Planning rejects missing producers and reordered
 steps before emission. Boundary values describe one evaluation invocation, not a
 cache across edges.
 
+`layout.rhm` plans one authoritative value-to-backing map for each body. A
+`StorageRef` contains a state, constant, or scratch root and an ordered static
+field/index path. Scratch roots identify a typed group, slot, and indirection;
+group descriptors retain the physical C++ carrier and allocation count. Whole
+scratch ownership and borrowing are derived from these references, not parallel
+maps of rendered expressions. `emit.rhm` owns C++ names, dereferences, projection
+parentheses, and declarations. Keep allocation deterministic and independent of
+rendering; this is private backend storage policy, not a new RTL representation.
+
 The emitter renders multi-region bodies as private C++ helpers and leaves
 single-region bodies inline in their coordinator. Aggregate current-state roots
 bind directly to their model's `state_` members by const reference, including
@@ -153,12 +164,14 @@ directly into its indexed element before binding the result alias. The destinati
 is unique and cannot alias any earlier operand, including a borrowed mux result;
 this avoids the temporary required by general C++ aggregate assignment. Keep this
 optimization confined to those slots, not arbitrary frame or state destinations.
-The layout also records each physical scratch group, index, and whether its slot
-holds a value or a borrowed pointer. Vector construction uses that metadata to
-emit counted gather loops for affine runs in one group, including descending
-indices and strides. Repeated operands become fill loops. Runs of at least four
-elements use loops; irregular elements retain assignments. Never infer storage
-from generated C++ strings or move an operand's computation into these loops.
+`arrays.rhm` uses structured scratch locations to plan `ArrayElement`,
+`ArrayFill`, and `ArrayGather` runs, covering every constructor element exactly
+once in logical order. Gathers match affine runs in one group, including
+descending indices and strides; projected subobjects are not whole scratch
+locations. Repeated operands become fills. Runs of at least four elements use
+loops; irregular elements retain assignments. The emitter renders these runs
+without rediscovering their structure. Never infer storage from generated C++
+strings or move an operand's computation into these loops.
 Local constructors may use fresh local array storage for such kernels; other
 locals retain ordinary initializers, and constants retain their immutable
 materialization. Every element is assigned before the const result alias is
@@ -654,6 +667,12 @@ storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
+Planner checks validate structured backing, borrowing and helper-local fallback,
+deterministic slot allocation, and array-run expansion against the original
+ordered operands, including direct/indirect and descending/strided gathers.
+For rendering-neutral refactors, compare complete generated fixture artifacts
+before and after at both default and forced small region budgets; use the simple
+RV5Stage SoC to check large-layout emission as well.
 Emission checks additionally protect local-only intermediates, crossing-value
 slots, aggregate borrowing and its local-operand fallback, direct vector
 construction into distinct boundary slots, deterministic helper order, and

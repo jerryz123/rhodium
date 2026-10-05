@@ -136,8 +136,12 @@ and dependency identity lookup. `backend/rsim/evaluation.rhm` imports only the
 local schedule descriptors for value/storage dependencies and evaluation planning.
 `backend/rsim/regions.rhm` imports core types and local schedule/evaluation
 descriptors for cost-based partitioning and boundary liveness.
-`backend/rsim/emit.rhm` imports core types, local schedule/evaluation/region modules,
-and `backend/rsim/types.rhm`. It also uses Rhombus runtime
+`backend/rsim/layout.rhm` imports core types, local schedule/region descriptors,
+and the C++ type helper for backing and scratch planning.
+`backend/rsim/arrays.rhm` imports only the local layout descriptors and scratch
+lookup helper for constructor-run recognition.
+`backend/rsim/emit.rhm` imports core types, local schedule/evaluation/region,
+layout/array modules, and `backend/rsim/types.rhm`. It also uses Rhombus runtime
 paths and Racket file/base primitives to read its local C++ support header at
 emission time. The type helper imports core types
 for C++ representation and packing. `backend/rsim/sv-binding.rhm` imports core

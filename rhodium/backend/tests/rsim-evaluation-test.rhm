@@ -8,6 +8,9 @@ import:
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
   "../rsim/regions.rhm" open
+  "../rsim/layout.rhm" open
+  "../rsim/arrays.rhm" open
+  "../rsim/types.rhm".CppTypes
   "../rsim/emit.rhm".emit_rsim
   "rsim/fixtures.rhm".make_scalar
   "rsim/aggregate-fixtures.rhm".make_aggregate
@@ -314,6 +317,19 @@ borrow_builder.finish(borrow_top)
 def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top), CompileOptions(), "borrow lifetime").rtl)
 def borrow_evaluation = build_evaluation_plan(borrow_schedule)
 def local_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 22)
+for (budget in [1, 22]):
+  def regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: budget)
+  def layout = boundary_layout(regions, borrow_schedule, CppTypes(), borrow_evaluation.constants)
+  def result = scratch_slot(layout.bindings[borrow_schedule.outputs[0].value])
+  check:
+    layout ~is boundary_layout(regions, borrow_schedule, CppTypes(), borrow_evaluation.constants)
+    result.indirect ~is (budget == 1)
+    layout.groups[result.group].indirect ~is result.indirect
+  for (group in layout.groups, number in 0..layout.groups.length()):
+    def slots = for List ((value, binding) in layout.bindings):
+      def slot = scratch_slot(binding)
+      if slot && slot.group == number | slot.index | #false
+    check: slots.filter(~keep: fun (index): index != #false).sort() ~is for List (index in 0..group.count): index
 check:
   local_regions.length() ~is 2
   local_regions[0].outputs ~is [borrow_schedule.outputs[0].value]
@@ -427,7 +443,18 @@ fun projection_program(mode :: String):
 
 for (mode in ["constant", "state", "input"]):
   def planned = build_schedule(prepare_rtl(projection_program(mode), CompileOptions(), "projection lifetime").rtl)
+  def evaluated = build_evaluation_plan(planned)
   def result = planned.outputs[0].value
+  def regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: 1)
+  def layout = boundary_layout(regions, planned, CppTypes(), evaluated.constants)
+  def backing = backed_reference(result, planned.steps, evaluated.constants, layout.bindings)
+  check:
+    backing.path ~is ["entries", 1]
+    scratch_slot(backing) ~is #false
+  cond
+  | mode == "constant": check: backing.root is_a ConstantStorage ~is #true
+  | mode == "state": check: backing.root ~is StateStorage("state", 0)
+  | ~else: check: backing.root is_a ScratchSlot ~is #true
   def emitted = emit_rsim(planned, ~region_budget: 1)
   def producer = "const auto& v" ++ to_string(result) ++ " = v"
   check: emitted[1].contains(producer) ~is #true
@@ -439,7 +466,6 @@ for (mode in ["constant", "state", "input"]):
       check: emitted[1].contains("((state_.s0).pentries)[1]") ~is #true
   | ~else:
       check: emitted[1].contains(".pentries)[1]") ~is #true
-      def evaluated = build_evaluation_plan(planned)
       def cast = planned.steps.index(planned.steps.find(fun (step): step.opcode == "rtl.cast"))
       def candidates = MutableList[]
       for (budget in 1..100):
@@ -451,3 +477,45 @@ for (mode in ["constant", "state", "input"]):
       // has only helper-local lifetime. No parent promotion is permitted.
       def fallback = emit_rsim(planned, ~region_budget: candidates[0])
       check: fallback[1].contains("const auto& v" ++ to_string(result) ++ " = scratch.") ~is #true
+      def fallback_regions = build_regions(planned, evaluated, evaluated.outputs, ~budget: candidates[0])
+      def fallback_layout = boundary_layout(fallback_regions, planned, CppTypes(), evaluated.constants)
+      check:
+        scratch_slot(fallback_layout.bindings[result]).indirect ~is #false
+        backed_reference(cast, planned.steps, evaluated.constants, fallback_layout.bindings) ~is #false
+
+// Expand planned assignments independently into destination/source pairs. Each
+// source is an operand ID or a physical location; projections retain their full
+// path and must never be mistaken for the containing scratch slot.
+fun array_source(value :: Nat, bindings :: Map):
+  bindings.get(value, value)
+
+fun expand_array(runs :: List, bindings :: Map):
+  def assignments = MutableList[]
+  for (run in runs):
+    cond
+    | run is_a ArrayElement: assignments.add([run.offset, array_source(run.value, bindings)])
+    | run is_a ArrayFill:
+        for (lane in 0..run.length): assignments.add([run.offset + lane, array_source(run.value, bindings)])
+    | run is_a ArrayGather:
+        for (lane in 0..run.length):
+          assignments.add([run.offset + lane, StorageRef(ScratchSlot(run.source.group, run.source.index + lane * run.stride, run.source.indirect))])
+  assignments.snapshot()
+
+for (indirect in [#false, #true]):
+  def bindings = (for Map (value in 0..16): values(value, StorageRef(ScratchSlot(0, value, indirect))))
+                  ++ {16: StorageRef(ScratchSlot(1, 0, indirect)),
+                      17: StorageRef(ScratchSlot(0, 0, indirect), ["entries", 1])}
+  for (operands in [
+         [], [0], [0, 1, 2], [0, 1, 2, 3], [1, 3, 5, 7], [7, 5, 3, 1],
+         [5, 5, 5, 5], [20, 20, 20, 20], [0, 1, 2, 3, 20, 5, 5, 5, 5, 7, 5, 3, 1],
+         [0, 1, 2, 16], [17, 1, 2, 3], [0, 3, 1, 2], [20, 21, 22, 23]
+       ]):
+    def runs = plan_array(operands, bindings)
+    check:
+      runs ~is plan_array(operands, bindings)
+      expand_array(runs, bindings) ~is for List (value in operands, offset in 0..operands.length()): [offset, array_source(value, bindings)]
+  check:
+    plan_array([0, 1, 2], bindings) ~is [ArrayElement(0, 0), ArrayElement(1, 1), ArrayElement(2, 2)]
+    plan_array([0, 1, 2, 3], bindings) ~is [ArrayGather(0, 4, ScratchSlot(0, 0, indirect), 1)]
+    plan_array([7, 5, 3, 1], bindings) ~is [ArrayGather(0, 4, ScratchSlot(0, 7, indirect), -2)]
+    plan_array([20, 20, 20, 20], bindings) ~is [ArrayFill(0, 4, 20)]

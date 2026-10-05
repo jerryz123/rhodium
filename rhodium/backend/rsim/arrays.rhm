@@ -1,0 +1,51 @@
+#lang rhombus
+/* Recognizes scalar assignments, repeated fills, and affine scratch gathers for existing vector constructors. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "layout.rhm" open
+
+export ArrayElement ArrayFill ArrayGather plan_array
+
+/* Copy one normalized scheduled operand into its logical destination index. */
+class ArrayElement(offset :: Nat, value :: Nat)
+
+/* Repeat one normalized operand over a contiguous destination range. */
+class ArrayFill(offset :: Nat, length :: PosInt, value :: Nat)
+
+/* Copy an affine sequence of direct values or borrowed pointers from one
+   scratch group. Source indices were checked against every original operand;
+   a negative stride is safe because all matched locations are nonnegative. */
+class ArrayGather(offset :: Nat, length :: PosInt, source :: ScratchSlot, stride :: Int)
+
+/* Cover every constructor element exactly once, in order. Loops replace runs of
+   at least four assignments; shorter/irregular runs retain scalar elements.
+   Recognition uses already-computed value bindings and never moves producers.
+   Callers supply a fresh destination that cannot alias an earlier operand. */
+fun plan_array(operands :: List.of(Nat), bindings :: Map) :: List.of(ArrayElement || ArrayFill || ArrayGather):
+  def runs = MutableList[]
+  def mutable start = 0
+  while start < operands.length():
+    def first = operands[start]
+    def mutable end = start + 1
+    while end < operands.length() && operands[end] == first:
+      end := end + 1
+    def mutable gather = #false
+    when end == start + 1 && end < operands.length()
+    | def a = scratch_slot(bindings.get(first, #false))
+      def b = scratch_slot(bindings.get(operands[end], #false))
+      when a && b && a.group == b.group && a.indirect == b.indirect
+      | def stride = b.index - a.index
+        end := end + 1
+        def mutable matching = #true
+        while end < operands.length() && matching:
+          def next = scratch_slot(bindings.get(operands[end], #false))
+          if next && next.group == a.group && next.indirect == a.indirect && next.index == a.index + (end - start) * stride
+          | end := end + 1
+          | matching := #false
+        gather := ArrayGather(start, end - start, a, stride)
+    if end - start >= 4
+    | runs.add(gather || ArrayFill(start, end - start, first))
+    | runs.add(ArrayElement(start, first))
+      end := start + 1
+    start := end
+  runs.snapshot()
