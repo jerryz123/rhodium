@@ -1,0 +1,24 @@
+Subject: [PATCH] Keep mandatory hedeleg fault bits writable without optional extensions
+Purpose: Preserves H trap-delegation CSR writability independently of exception generation.
+SPDX-License-Identifier: Apache-2.0
+
+The H specification requires hedeleg bits 18 and 19 to be writable. Whether
+CFI or a hardware-error source can raise those exceptions does not change
+the CSR's writable mask. Do not gate delegation by those optional features.
+
+diff --git a/riscv/csr_init.cc b/riscv/csr_init.cc
+--- a/riscv/csr_init.cc
++++ b/riscv/csr_init.cc
+@@ -271,10 +271,8 @@ void state_t::csr_init(processor_t* const proc, reg_t max_isa)
+     (1 << CAUSE_FETCH_PAGE_FAULT) |
+     (1 << CAUSE_LOAD_PAGE_FAULT) |
+     (1 << CAUSE_STORE_PAGE_FAULT) |
+-    ((proc->extension_enabled(EXT_ZICFISS) || proc->extension_enabled(EXT_ZICFILP))?
+-     (1 << CAUSE_SOFTWARE_CHECK_FAULT) : 0) |
+-    (proc->extension_enabled(EXT_ZICNTR)?
+-     (1 << CAUSE_HARDWARE_ERROR_FAULT) : 0);
++    (1 << CAUSE_SOFTWARE_CHECK_FAULT) |
++    (1 << CAUSE_HARDWARE_ERROR_FAULT);
+   hedeleg = std::make_shared<masked_csr_t>(proc, CSR_HEDELEG, hedeleg_mask, 0);
+   if (xlen == 32) {
+     add_hypervisor_csr(CSR_HEDELEG, std::make_shared<rv32_low_csr_t>(proc, CSR_HEDELEG, hedeleg));

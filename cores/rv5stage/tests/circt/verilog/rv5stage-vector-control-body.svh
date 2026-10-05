@@ -631,6 +631,15 @@
         assert(decoded_valid && legal==(sew<=lm+3)) else $fatal(1,"scalar extraction geometry");
         instruction={6'h10,1'b1,5'd0,5'd5,3'd6,5'd3,7'h57}; #1;
         assert(decoded_valid && legal==(sew<=lm+3)) else $fatal(1,"scalar insertion geometry");
+        // FP scalar-element moves also ignore LMUL, including odd registers.
+        if (sew >= 1) begin
+          instruction={6'h10,1'b1,5'd1,5'd0,3'd1,5'd12,7'h57}; #1; // vfmv.f.s f12,v1
+          assert(decoded_valid && full_half_legal==(sew<=lm+3) && legal==(sew>=2 && sew<=lm+3)) else $fatal(1,"FP scalar extraction geometry");
+          instruction={6'h10,1'b1,5'd0,5'd12,3'd5,5'd1,7'h57}; #1; // vfmv.s.f v1,f12
+          assert(decoded_valid && full_half_legal==(sew<=lm+3) && legal==(sew>=2 && sew<=lm+3)) else $fatal(1,"FP scalar insertion geometry");
+          instruction={6'h00,1'b1,5'd1,5'd8,3'd1,5'd16,7'h57}; #1; // vfadd.vv v16,v1,v8
+          assert(decoded_valid && full_half_legal==(sew<=lm+3 && lm<=0) && legal==(sew>=2 && sew<=lm+3 && lm<=0)) else $fatal(1,"FP vector source alignment");
+        end
         for (int op=0;op<8;op++) begin
           for (int src=8;src<10;src++) begin
             instruction={6'(op),1'b0,5'(src),5'd3,3'd2,5'd0,7'h57}; #1;

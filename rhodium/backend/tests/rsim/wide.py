@@ -183,9 +183,10 @@ def driver(width, reference=False):
         access = f'dut.{name}' if reference else 'dut.outputs().p' + name.replace('_', '_u')
         if bits > 64:
             access += '' if reference else '.words'
-            output += [f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) std::cout << {access}[i] << " ";']
+            output += [f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) {{ std::cout << {access}[i] << " "; }}']
         else:
-            output += [f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) std::cout << std::uint32_t(std::uint64_t({access}) >> (32*i)) << " ";']
+            output += [f'for (unsigned i = 0; i < {(bits+31)//32}; ++i) {{ std::cout << std::uint32_t(std::uint64_t({access}) >> (32*i)) << " "; }}']
+    output_lines = '\n    '.join(output)
     return f'''// SPDX-License-Identifier: Apache-2.0
 #include "{include}"
 #include <cstdint>
@@ -202,7 +203,7 @@ int main() {{
     {' '.join(read)}
     dut.eval(); dut.eval();
     if (tick) {{ {'dut.clock = 1; dut.eval();' if reference else 'dut.tick();'} }}
-    {' '.join(output)}
+    {output_lines}
     std::cout << "\\n";
   }}
 }}

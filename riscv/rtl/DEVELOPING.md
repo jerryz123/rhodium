@@ -72,6 +72,11 @@ implementation.
 
 ## Focused validation
 
+The `riscv-control-policy` fixture checks M/S destination-first interrupt
+arbitration for RV32/RV64, per-cause enables and privilege gates, and ELEN32/64
+vtype normalization. Pair it with `riscv/tests/vector-test.rhm` for host geometry
+changes and `rv5stage-hypervisor-csr` when interrupt selection changes.
+
 For guest execution contracts, pair `riscv/tests/hypervisor-test.rhm` and
 `riscv/tests/csr-test.rhm` with the `rv5stage-hypervisor-csr` fixture.
 Keep opcode/CSR catalogs pure, substitution/delegation helpers here, and

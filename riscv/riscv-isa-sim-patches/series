@@ -20,3 +20,4 @@
 0021-recognize-supervisor-properties.patch
 0022-mask-unimplemented-guest-interrupt-enable.patch
 0023-limit-p1p13-state-enable-to-rv32.patch
+0024-keep-hedeleg-fault-bits-writable.patch

@@ -1199,7 +1199,7 @@ circuit RV5StageVectorOperationLegality(xlen :: XLen, vlen :: VectorLength, prof
   def fp_e16_legal = (config.sew === bits(1, 2)) & (fp_zvfh ||| (control.fp_zvfhmin_e16 & fp_zvfhmin))
   def fp_width_change_profile_legal = mux_lookup(config.sew, ~default: Bool(vector_profile_supports_fp64(profile)), [[0, fp_e8_legal], [1, fp_e16_legal]])
   def fp_width_change_legal = fp_reduction ||| !fp_width_change ||| ((config.sew <= bits(2, 2)) & (widening_emul <= SInt(5)(3)) & mux(fp_widening, fp_widening_overlap_legal, narrowing_overlap_legal()))
-  def fp_move_sources_legal = (!control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
+  def fp_move_sources_legal = (control.element_move ||| !control.uses_vs2 ||| source2_aligned) & (!control.slide ||| slide_overlap_legal)
   def fp_move_destination_legal = control.floating_scalar_destination ||| control.element_move ||| (destination_aligned & !(masked & !destination.or_reduce()))
   def fp_service_legal = !(fp_widening & fp_narrowing) & (!fp_width_change ||| fp_width_change_profile_legal) & fp_sources_legal & fp_destination_legal & fp_width_change_legal
   def fp_move_legal = fp_move_sources_legal & fp_move_destination_legal & (!control.mask_select ||| merge_sources_legal)

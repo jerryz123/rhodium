@@ -1,0 +1,10 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../../../../rhodium/backend/circt.rhm" open
+  "../../../../rhodium/frontend/kernel.rhm" as embedded
+  "../control-policy-fixture.rhdl" open
+
+def design = embedded.run_elaboration(fun (): RiscvControlPolicyFixture())
+print(emit_circt(design))

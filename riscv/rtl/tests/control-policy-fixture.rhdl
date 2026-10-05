@@ -1,0 +1,35 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../interrupt.rhdl" open
+  "../privilege.rhdl" open
+  "../vector.rhdl" open
+  "../../isa/vector.rhm" open
+  "../../isa/xlen.rhm" open
+
+circuit RiscvControlPolicyFixture():
+  input(pending, enabled, delegated, mstatus): Bits(64)
+  input privilege: PrivilegeMode
+  input vtype: Bits(32)
+  output(valid32, valid64): Bool
+  output(cause32, cause64): Bits(4)
+  output(target32, target64): RiscvTrapTarget
+  output(vill32, vill64): Bool
+  output(vlmax32, vlmax64): Bits(8)
+  def rv32 = resolve_riscv_interrupt(XLen.X32, pending[0..32], enabled[0..32], delegated[0..32], mstatus[0..32], privilege)
+  def rv64 = resolve_riscv_interrupt(XLen.X64, pending, enabled, delegated, mstatus, privilege)
+  valid32 <== rv32.valid
+  valid64 <== rv64.valid
+  cause32 <== rv32.cause[0..4]
+  cause64 <== rv64.cause[0..4]
+  target32 <== rv32.target
+  target64 <== rv64.target
+  def type32 = vector_type(XLen.X32, 128, vtype, ~elen: VectorSEW.E32)
+  def type64 = vector_type(XLen.X64, 128, vtype.zext(64))
+  vill32 <== type32.vill
+  vill64 <== type64.vill
+  vlmax32 <== type32.vlmax
+  vlmax64 <== type64.vlmax
+
+export RiscvControlPolicyFixture

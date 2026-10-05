@@ -3,3 +3,4 @@
 0002-add-embedded-platform-providers.patch
 0003-add-embedded-time-source.patch
 0004-allow-subpage-device-pmas.patch
+0005-preserve-effective-trap-address.patch

@@ -119,6 +119,13 @@ static void check_architecture(unsigned xlen, bool zicclsm, bool hypervisor, boo
     assert(read_csr(CSR_MEDELEGH) == 0); // Upstream implements the RV32 high-half CSR.
   }
   if (hypervisor) {
+    // H mandates writable software-check/hardware-error delegation even without CFI/Zicntr.
+    const reg_t fault_delegation = (reg_t(1) << CAUSE_SOFTWARE_CHECK_FAULT) |
+                                  (reg_t(1) << CAUSE_HARDWARE_ERROR_FAULT);
+    write_csr(CSR_HEDELEG, fault_delegation);
+    assert(read_csr(CSR_HEDELEG) == fault_delegation);
+    write_csr(CSR_HEDELEG, 0);
+    assert(read_csr(CSR_HEDELEG) == 0);
     assert(read_csr(CSR_HGEIP) == 0 && read_csr(CSR_HGEIE) == 0);
     write_csr(CSR_MIDELEG, ~reg_t(0));
     assert(!(read_csr(CSR_MIDELEG) & MIP_SGEIP));

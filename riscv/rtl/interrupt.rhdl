@@ -42,8 +42,8 @@ fun interrupt_cause_bits(cause :: InterruptCause,
                          width :: PosInt) :~ Bits(width):
   bits((1 bits.(<<) (width - 1)) bits.or interrupt_code(cause), width)
 
-/* Selects enabled M/S interrupts in external/software/timer order within each privilege group,
- * with machine sources first, counter overflow last, and privilege/delegation gates.
+/* Selects enabled M/S interrupts by trap destination first, then architectural cause priority.
+ * Each destination retains its own global privilege gate; counter overflow is last within it.
  */
 fun resolve_riscv_interrupt(xlen :: XLen,
                             pending :: Bits(xlen.width),
@@ -54,40 +54,24 @@ fun resolve_riscv_interrupt(xlen :: XLen,
   def width = xlen.width
   def machine_globally_enabled = (privilege =/= PrivilegeMode.Machine) ||| csr_flag(mstatus, MstatusMIE)
   def supervisor_globally_enabled = (privilege === PrivilegeMode.User) ||| ((privilege === PrivilegeMode.Supervisor) & csr_flag(mstatus, MstatusSIE))
-  /* Combines pending, per-cause enable, and the global privilege gate chosen by delegation. */
-  fun candidate(cause :: InterruptCause) :~ Bool:
-    def code = interrupt_code(cause)
-    def to_supervisor = delegated[code].into(Bool)
-    pending[code].into(Bool) & enabled[code].into(Bool) & mux(to_supervisor, supervisor_globally_enabled, machine_globally_enabled)
-  def machine_external = candidate(InterruptCause.MachineExternal)
-  def machine_software = candidate(InterruptCause.MachineSoftware)
-  def machine_timer = candidate(InterruptCause.MachineTimer)
-  def supervisor_external = candidate(InterruptCause.SupervisorExternal)
-  def supervisor_software = candidate(InterruptCause.SupervisorSoftware)
-  def supervisor_timer = candidate(InterruptCause.SupervisorTimer)
-  def counter_overflow = candidate(InterruptCause.LocalCounterOverflow)
-  def valid = machine_external ||| machine_software ||| machine_timer ||| supervisor_external ||| supervisor_software ||| supervisor_timer ||| counter_overflow
-  def cause = priority_mux(~default: interrupt_cause_bits(InterruptCause.LocalCounterOverflow, width)):
-    machine_external: interrupt_cause_bits(InterruptCause.MachineExternal, width)
-    machine_software: interrupt_cause_bits(InterruptCause.MachineSoftware, width)
-    machine_timer: interrupt_cause_bits(InterruptCause.MachineTimer, width)
-    supervisor_external: interrupt_cause_bits(InterruptCause.SupervisorExternal, width)
-    supervisor_software: interrupt_cause_bits(InterruptCause.SupervisorSoftware, width)
-    supervisor_timer: interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
-  def to_supervisor = mux_lookup(
-    cause[0..4],
-    ~default: Bool(#false),
-    [
-      [interrupt_code(InterruptCause.SupervisorSoftware), delegated[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool)],
-      [interrupt_code(InterruptCause.SupervisorTimer), delegated[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool)],
-      [interrupt_code(InterruptCause.SupervisorExternal), delegated[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool)],
-      [interrupt_code(InterruptCause.LocalCounterOverflow), delegated[interrupt_code(InterruptCause.LocalCounterOverflow)].into(Bool)]
-    ]
-  )
-  RiscvInterruptDecision(xlen):
-    valid: valid
-    cause: cause
-    target: mux(valid & to_supervisor, RiscvTrapTarget.Supervisor, RiscvTrapTarget.Machine)
+  def supported = bits(interrupt_mask(InterruptCauses ++ [InterruptCause.LocalCounterOverflow]), width)
+  def active = pending & enabled & supported
+  /* Applies cause priority within one already-partitioned trap destination. */
+  fun select_destination(candidates :: Bits(width), globally_enabled :: Bool, target :: RiscvTrapTarget) :~ RiscvInterruptDecision(xlen):
+    def cause = priority_mux(~default: interrupt_cause_bits(InterruptCause.LocalCounterOverflow, width)):
+      candidates[interrupt_code(InterruptCause.MachineExternal)].into(Bool): interrupt_cause_bits(InterruptCause.MachineExternal, width)
+      candidates[interrupt_code(InterruptCause.MachineSoftware)].into(Bool): interrupt_cause_bits(InterruptCause.MachineSoftware, width)
+      candidates[interrupt_code(InterruptCause.MachineTimer)].into(Bool): interrupt_cause_bits(InterruptCause.MachineTimer, width)
+      candidates[interrupt_code(InterruptCause.SupervisorExternal)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorExternal, width)
+      candidates[interrupt_code(InterruptCause.SupervisorSoftware)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorSoftware, width)
+      candidates[interrupt_code(InterruptCause.SupervisorTimer)].into(Bool): interrupt_cause_bits(InterruptCause.SupervisorTimer, width)
+    RiscvInterruptDecision(xlen):
+      valid: candidates.or_reduce() & globally_enabled
+      cause: cause
+      target: target
+  def machine = select_destination(active & !delegated, machine_globally_enabled, RiscvTrapTarget.Machine)
+  def supervisor = select_destination(active & delegated, supervisor_globally_enabled, RiscvTrapTarget.Supervisor)
+  mux(machine.valid ||| !supervisor.valid, machine, supervisor)
 
 /* Selects M, HS, and VS delivery for baseline H with GEILEN=0.
  * Virtual pending/enables use their M/H positions;

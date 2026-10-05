@@ -115,14 +115,14 @@ fun vector_lmul_encoding(lmul :: VectorLMUL) :: Nat:
   | VectorLMUL.MF4: 6
   | VectorLMUL.MF2: 7
 
-/* Unsupported runtime encodings become vill; they are not host contract errors. */
+/* Rejects unsupported SEW/LMUL encodings, including SEW above ELEN; runtime failures become vill. */
 fun vector_vtype_config(vlen :: VectorLength, raw :: Nat, ~elen: elen :: VectorSEW = VectorSEW.E64) :: maybe(VectorConfig):
   def sew = bits.field(raw, 3, 6)
   def lmul = bits.field(raw, 0, 3)
   def groups = VectorRegisterGroups.filter(~keep: fun (group): vector_lmul_encoding(group) == lmul)
   if raw >= 256 || sew >= 4 || groups.is_empty()
   | #false
-  | if vector_element_bits(VectorElementWidths[sew]) > vector_element_bits(elen) * vector_lmul(groups[0])
+  | if vector_element_bits(VectorElementWidths[sew]) > vector_element_bits(elen) || vector_element_bits(VectorElementWidths[sew]) > vector_element_bits(elen) * vector_lmul(groups[0])
     | #false
     | VectorConfig(vlen, VectorElementWidths[sew], groups[0])
 

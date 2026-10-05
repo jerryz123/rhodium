@@ -102,12 +102,15 @@ and retain regression coverage for that behavior.
 
 At pin `609dbe0b9994154833039209fa37151e7c05e9d4`, upstream supplies RV32
 `medelegh`, CSRIND state-enable gating, and HS overflow-interrupt priority;
-their former downstream patches are retired. The 20-patch series preserves
+their former downstream patches are retired. The 21-patch series preserves
 the embedding hooks and advertised architectural contracts, including an XLEN
 guard for P1P13, whose controlled
 [`hedelegh` CSR](https://docs.riscv.org/reference/isa/priv/hypervisor) is RV32-only.
 Keep native regression coverage for RV32/RV64 with and without H, and for
 `hedelegh` permission checks.
+The H-mandated `hedeleg` software-check and hardware-error bits remain writable
+independently of optional exception sources; `spike_arch_test.cc` exercises
+their set/clear behavior without CFI or counters.
 Execution-loop rebases must preserve pre-instruction counter controls, trap accounting,
 WFI retirement/idle/wakeup, and both fast and logged paths. Run
 `make -C sims spike-core-test transport-test spike-dpi-compile-check spike-dpi-abi-check`
@@ -124,9 +127,12 @@ to the ACT flow under `sims/arch-test/`.
 At pin `5482c232c826131e88c047d373cd3e86a88d0f2b`, the model requires Sail
 compiler 0.20.3 but still reports release version 0.14.1. Upstream supplies the
 GEILEN=0 interrupt mask and explicit v2 memory-access classification, so their
-former standalone patches are retired. The three remaining patches provide
+former standalone patches are retired. The four remaining patches provide
 default-disabled host memory/interrupt hooks, host time, and exact subpage device
-PMAs. Keep the executable and embedded library in one identity-scoped package.
+PMAs, and preserve effective fault addresses above the implemented physical
+width. Keep the executable and embedded library in one identity-scoped package.
+The fault-address patch includes a Sail unit test for positive, negative, and
+XLEN-wrapped offsets; run the upstream `unit_tests` target when building the model.
 Validate `arch-test-sail-test`, `sail-cosim-test`, representative
 `sail-cosim-config-test` configs, both supported scalar `cosim-smoke` configs,
 and freshly generated full ACT inventories after changing the pin or patch stack.
