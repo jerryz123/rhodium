@@ -6,6 +6,7 @@ import:
   "../../../compile/rtl.rhm" open
   "../../rsim-target.rhm" as production
   "../../rsim/plan.rhm" open
+  "../../rsim/cse.rhm".share_scalar_expressions
   "../../rsim/emit.rhm".emit_rsim
 
 export rsim_target
@@ -16,7 +17,7 @@ class RegionTestPlan(prepared :: PreparedRTL, budget :: PosInt):
   implements TargetPlan
   override method manifest(): prepared.manifest
   override method emit():
-    def schedule = build_schedule(prepared.rtl)
+    def schedule = share_scalar_expressions(build_schedule(prepared.rtl))
     def contents = emit_rsim(schedule, ~region_budget: budget)
     [Artifact(schedule.name ++ ".hpp", "text/x-c++hdr", contents[0]),
      Artifact(schedule.name ++ ".cpp", "text/x-c++src", contents[1])] ++ (if contents.length() == 3 | [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])] | [])

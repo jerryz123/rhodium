@@ -43,6 +43,7 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
+| `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
@@ -84,6 +85,25 @@ Verified `cdc.sync_level` metadata has no separate simulation action: keep its
 ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
+
+Both rsim targets apply `share_scalar_expressions` after scheduling and before
+binding validation or evaluation planning. It retains the first matching pure
+scalar expression in dependency order, matching opcode, ordered remapped operands,
+semantic attributes, and hardware type equality. Only the diagnostic value `name`
+is excluded from attribute comparison; the retained step keeps its original
+attributes. Width is only a lookup bucket; nominal
+types with equal widths or descriptions remain distinct. Static scalar projections
+may share their aggregate source; other admitted expressions require scalar
+operands. Mutable roots, aggregate computations, and partial operations remain
+distinct. This pass performs no algebraic rewriting or cross-evaluation caching.
+
+The returned schedule remaps ports, register next/reset values, memory read/write
+controls and data, assertions, and foreign arguments/enables. Resource indices,
+occurrence paths, labels, locations, and effect ordering do not change. Derive
+evaluation bodies, dependencies, regions, and storage from this returned schedule;
+never carry old step indices across the rewrite. The emitter renders its supplied
+schedule without another optimization pass. The forced-region fixture target
+uses the same CSE pass before applying its smaller partition budget.
 
 `RsimSchedule` checks its immutable step list at construction; `emit_rsim` checks
 the incoming schedule. Private renderer helpers receive that same list and use
@@ -666,6 +686,12 @@ CI does not impose runtime thresholds for this optimization.
 storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
+`tests/rsim-cse-test.rhm` checks transitive expression sharing, operand order,
+type/attribute distinctions, deterministic and idempotent rewriting, complete
+consumer remapping (including optional value zero), and preserved effect/resource
+identity. Native and direct-SV scoreboards exercise the optimized target with
+independently authored duplicate arithmetic and existing state, memory, assertion,
+and DPI fixtures at ordinary and forced-small region budgets.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Planner checks validate structured backing, borrowing and helper-local fallback,
 deterministic slot allocation, and array-run expansion against the original

@@ -5,6 +5,7 @@ import:
   "../compile/contracts.rhm" open
   "../compile/rtl.rhm" open
   "rsim/plan.rhm" open
+  "rsim/cse.rhm".share_scalar_expressions
   "rsim/emit.rhm".emit_rsim
   "rsim/sv-binding.rhm" open
 
@@ -24,7 +25,7 @@ class RsimPlan(prepared :: PreparedRTL, schedule :: RsimSchedule):
     | artifacts ++ [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])]
     | artifacts
 
-def rsim_target = RTLTarget("rsim", "rsim uses concrete RTL; use the portable implementation", fun (prepared): RsimPlan(prepared, build_schedule(prepared.rtl)))
+def rsim_target = RTLTarget("rsim", "rsim uses concrete RTL; use the portable implementation", fun (prepared): RsimPlan(prepared, share_scalar_expressions(build_schedule(prepared.rtl))))
 
 /* Add simulator-host bindings to the same model plan without preparing or
    scheduling the circuit a second time. The manifest remains the logical RTL boundary. */

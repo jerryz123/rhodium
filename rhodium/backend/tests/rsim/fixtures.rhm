@@ -56,6 +56,13 @@ fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
   def design = Design()
   for (_ in 0..consumed_ids): design.fresh_id()
   def b = Builder(design)
+  // Distinct occurrences with identical bound inputs retain separate schedule
+  // values until backend CSE, despite sharing one authored module definition.
+  def adder = b.module("Adder" ++ to_string(width))
+  def left = b.input(adder, "left", Bits(width))
+  def right = b.input(adder, "right", Bits(width))
+  b.drive(b.output(adder, "sum", Bits(width)), b.add(adder, left, right))
+  b.finish(adder)
   def top = b.module("Scalar" ++ to_string(width))
   def a = b.input(top, "a", Bits(width))
   def z = b.input(top, "b", Bits(width))
@@ -63,14 +70,19 @@ fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
   def select = b.cast(top, b.cast(top, select_input, Reset), Bits(1))
   def forward = b.wire(top, "forward", Bits(width))
   def inverted = b.bit_not(top, b.read(forward))
-  def sum = b.add(top, a, z)
+  def first = b.instance(top, adder, "first")
+  def second = b.instance(top, adder, "second")
+  for (instance in [first, second]):
+    b.drive(instance.input("left"), a)
+    b.drive(instance.input("right"), z)
+  def sum = first.output("sum")
   b.drive(forward, sum)
   def outputs = [["sum", sum], ["inverted", inverted], ["difference", b.sub(top, a, z)],
                  ["product", b.mul(top, a, z)], ["both", b.bit_and(top, a, z)],
                  ["either", b.bit_or(top, a, z)], ["parity", b.bit_xor(top, a, z)],
                  ["equal", b.eq(top, a, z)], ["less", b.ult(top, a, z)],
                  ["selected", b.mux_lookup(top, select, a, [[1, z]])],
-                 ["wrapped", b.eq(top, sum, b.constant(top, Bits(width), 0))],
+                 ["wrapped", b.eq(top, second.output("sum"), b.constant(top, Bits(width), 0))],
                  ["class", a], ["__class__", z]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)

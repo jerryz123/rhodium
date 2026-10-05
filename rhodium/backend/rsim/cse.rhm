@@ -1,0 +1,76 @@
+#lang rhombus
+/* Shares exact scalar computations while remapping every consumer of an rsim schedule. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/types.rhm" open
+  "plan.rhm" open
+
+export share_scalar_expressions
+
+def scalar_operations = [
+  "rtl.constant", "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
+  "rtl.add", "rtl.sub", "rtl.mul", "rtl.eq", "rtl.ult", "rtl.slt",
+  "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
+  "rtl.zext", "rtl.sext", "rtl.trunc", "rtl.cast", "rtl.mux_lookup"
+]
+
+/* Admit total scalar computations explicitly. Static scalar projections may
+   read aggregates; other operations require scalar operands as well. Mutable
+   roots, partial selections, don't-cares, and aggregate computations stay unique.
+   The steps list is already checked by RsimSchedule and remains immutable. */
+fun shareable(step :: RsimStep, steps :~ List.of(RsimStep)) :: Boolean:
+  scalar_width(step.type) != #false
+    && (step.opcode in ["rtl.record_get", "rtl.vector_get"]
+          || (step.opcode in scalar_operations
+                && (for all (operand in step.operands): scalar_width(steps[operand].type) != #false)))
+
+/* Value names are diagnostic labels on admitted expressions, not computation.
+   Preserve every other attribute conservatively, and keep the retained step's
+   original attributes. Root names never reach this function's sharing key. */
+fun expression_attributes(attributes :: Map) :: Map:
+  def result = MutableMap{}
+  for ((key, value) in attributes):
+    unless key == "name" | result[key] := value
+  result.snapshot()
+
+/* Retain the first exact expression in dependency order. Width/opcode/operand/
+   attribute keys locate candidates, but hardware type_equal decides sharing:
+   carrier width and descriptive names must not conflate nominal scalar types.
+   This is per-compilation value sharing, never a cache across evaluations.
+   Resource indices, diagnostic identity, and ordered effects remain unchanged. */
+fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
+  def steps = MutableList[]
+  def refs = MutableMap{}
+  def expressions = MutableMap{}
+  /* Resolve one original value, including index zero, after its producer. */
+  fun remap(value :: Nat) :: Nat:
+    refs[value]
+  /* Absence is distinct from original or rewritten value zero. */
+  fun optional(value :: maybe(Nat)) :: maybe(Nat):
+    if value == #false | #false | remap(value)
+  for (step in schedule.steps, index in 0..schedule.steps.length()):
+    def operands = step.operands.map(remap)
+    def key = if shareable(step, schedule.steps) | [step.opcode, scalar_width(step.type), operands, expression_attributes(step.attributes)] | #false
+    def candidates = if key | expressions.get(key, []) | []
+    def found = candidates.find(fun (candidate): type_equal(step.type, steps[candidate].type))
+    if found != #false
+    | refs[index] := found
+    | refs[index] := steps.length()
+      when key | expressions[key] := candidates ++ [steps.length()]
+      steps.add(RsimStep(step.opcode, step.type, operands, step.attributes))
+  /* Preserve the public port inventory and types while replacing only values. */
+  fun port(old :: RsimPort) :: RsimPort:
+    RsimPort(old.name, old.type, remap(old.value))
+  def registers = for List (reg in schedule.registers):
+    RsimRegister(reg.path, reg.name, reg.type, remap(reg.next_value), optional(reg.reset), optional(reg.reset_value))
+  def writes = for List (write in schedule.writes):
+    RsimWrite(write.memory, remap(write.address), remap(write.data), remap(write.enable),
+              optional(write.write_mode), optional(write.mask_value), write.mask_granularity)
+  def reads = for List (read in schedule.reads):
+    RsimRead(read.memory, remap(read.address), remap(read.enable), optional(read.write_mode))
+  def assertions = for List (assertion in schedule.assertions):
+    RsimAssertion(assertion.path, assertion.label, assertion.location, remap(assertion.condition), remap(assertion.reset), remap(assertion.guard))
+  def calls = for List (call in schedule.foreign_calls):
+    RsimForeign(call.import_decl, remap(call.enable), call.arguments.map(remap))
+  RsimSchedule(schedule.name, schedule.inputs.map(port), schedule.outputs.map(port), steps.snapshot(),
+               registers, schedule.memories, writes, reads, assertions, calls)

@@ -1,0 +1,106 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../../compile/contracts.rhm".CompileOptions
+  "../../compile/rtl.rhm".prepare_rtl
+  "../rsim-target.rhm".rsim_target
+  "../rsim/plan.rhm" open
+  "../rsim/cse.rhm".share_scalar_expressions
+  "../rsim/evaluation.rhm".build_evaluation_plan
+  "rsim/fixtures.rhm".make_scalar
+
+// Explicit duplicates and transitive users exercise complete renumbering,
+// including optional value zero and resource indices that must not be remapped.
+def byte = Bits(8)
+def steps = [
+  RsimStep("rtl.constant", Bits(1), [], {"value": 1, "name": "true_a"}),
+  RsimStep("rtl.constant", Bits(1), [], {"value": 1, "name": "true_b"}),
+  RsimStep("rtl.constant", byte, [], {"value": 7, "name": "seven_a"}),
+  RsimStep("rtl.constant", byte, [], {"value": 7, "name": "seven_b"}),
+  RsimStep("input", byte, [], {"name": "a"}),
+  RsimStep("rtl.constant", byte, [], {"value": 9}),
+  RsimStep("rtl.add", byte, [4, 2], {"name": "sum_a"}),
+  RsimStep("rtl.add", byte, [4, 3], {"name": "sum_b"}),
+  RsimStep("rtl.xor", byte, [6, 2], {"name": "xor_a"}),
+  RsimStep("rtl.xor", byte, [7, 3], {"name": "xor_b"}),
+  RsimStep("input", byte, [], {"name": "b"}),
+  RsimStep("rtl.sub", byte, [4, 10], {}),
+  RsimStep("rtl.sub", byte, [10, 4], {}),
+  RsimStep("rtl.constant", Bits(65), [], {"value": 7}),
+  RsimStep("rtl.constant", Bits(65), [], {"value": 7}),
+  RsimStep("state", byte, [], {"slot": 0}),
+  RsimStep("state", byte, [], {"slot": 1}),
+  RsimStep("memory_read", byte, [3], {"slot": 0}),
+  RsimStep("memory_read", byte, [3], {"slot": 1}),
+  RsimStep("sync_read", byte, [], {"slot": 0}),
+  RsimStep("foreign_result", byte, [], {"slot": 0, "result": 0}),
+  RsimStep("rtl.dont_care", byte, [], {}),
+  RsimStep("rtl.dont_care", byte, [], {}),
+  RsimStep("rtl.vector_create", VectorType(2, byte), [6, 7], {}),
+  RsimStep("rtl.vector_get", byte, [23], {"index": 0}),
+  RsimStep("rtl.vector_get", byte, [23], {"index": 0}),
+  RsimStep("rtl.vector_get", byte, [23], {"index": 1})
+]
+def imp = Builder(Design()).dpi_import_results("cse_foreign", ["arg"], [byte], [DpiResult("result", byte, "return")])
+def memories = [RsimMemory(["first"], "ram", 256, byte), RsimMemory(["second"], "ram", 256, byte)]
+def original = RsimSchedule("CSE", [RsimPort("a", byte, 4), RsimPort("b", byte, 10)],
+                            [RsimPort("sum", byte, 7), RsimPort("chain", byte, 9), RsimPort("lane0", byte, 25), RsimPort("lane1", byte, 26)], steps,
+                            [RsimRegister(["first"], "q", byte, 9, 1, 3), RsimRegister(["second"], "q", byte, 8, #false, #false)], memories,
+                            [RsimWrite(0, 3, 9, 1, 0, 0, 8), RsimWrite(1, 2, 8, 0)], [RsimRead(1, 3, 1, 0)],
+                            [RsimAssertion(["first"], "check", "one:1", 1, 0, 1), RsimAssertion(["second"], "check", "two:2", 1, 0, 1)],
+                            [RsimForeign(imp, 1, [9]), RsimForeign(imp, 0, [8])])
+def optimized = share_scalar_expressions(original)
+check:
+  original.steps ~is steps
+  optimized ~is share_scalar_expressions(original)
+  optimized ~is share_scalar_expressions(optimized)
+  optimized.steps.length() ~is 21
+  optimized.inputs ~is [RsimPort("a", byte, 2), RsimPort("b", byte, 6)]
+  optimized.outputs ~is [RsimPort("sum", byte, 4), RsimPort("chain", byte, 5), RsimPort("lane0", byte, 19), RsimPort("lane1", byte, 20)]
+  optimized.registers ~is [RsimRegister(["first"], "q", byte, 5, 0, 1), RsimRegister(["second"], "q", byte, 5, #false, #false)]
+  optimized.memories === original.memories ~is #true
+  optimized.writes ~is [RsimWrite(0, 1, 5, 0, 0, 0, 8), RsimWrite(1, 1, 5, 0)]
+  optimized.reads ~is [RsimRead(1, 1, 0, 0)]
+  optimized.assertions ~is [RsimAssertion(["first"], "check", "one:1", 0, 0, 0), RsimAssertion(["second"], "check", "two:2", 0, 0, 0)]
+  optimized.foreign_calls ~is [RsimForeign(imp, 0, [5]), RsimForeign(imp, 0, [5])]
+  optimized.steps[4].operands ~is [2, 1]
+  optimized.steps[4].attributes ~is {"name": "sum_a"}
+  optimized.steps[5].operands ~is [4, 1]
+  optimized.steps[7].operands ~is [2, 6]
+  optimized.steps[8].operands ~is [6, 2]
+  optimized.steps[18].operands ~is [4, 4]
+  optimized.steps[19].attributes ~is {"index": 0}
+  optimized.steps[20].attributes ~is {"index": 1}
+for (step in optimized.steps, index in 0..optimized.steps.length()):
+  check: (for all (operand in step.operands): operand < index) ~is #true
+def evaluation = build_evaluation_plan(optimized)
+check:
+  evaluation.pre_edge.sinks.map(fun (sink): sink.kind) ~is ["foreign", "foreign", "assertion", "assertion", "register", "register", "sync_read", "write", "write"]
+  evaluation.outputs.steps ~is [1, 2, 4, 5, 18, 19, 20]
+
+// Extension-defined equality is authoritative even when width and description
+// agree. Distinct equal instances share, while distinct nominal types do not.
+class Token(tag :: String):
+  implements ScalarDataType
+  override method describe(): "token"
+  override method type_equal(other): other is_a Token && tag == other.tag
+  override method packed_width(): 8
+
+def typed_steps = [RsimStep("rtl.constant", Token("first"), [], {"value": 1}),
+                   RsimStep("rtl.constant", Token("second"), [], {"value": 1}),
+                   RsimStep("rtl.constant", Token("first"), [], {"value": 1}),
+                   RsimStep("rtl.constant", Bits(8), [], {"value": 1})]
+def typed = RsimSchedule("Types", [], for List (step in typed_steps, index in 0..typed_steps.length()): RsimPort(to_string(index), step.type, index),
+                         typed_steps, [], [], [], [], [], [])
+check: share_scalar_expressions(typed).outputs.map(fun (port): port.value) ~is [0, 1, 0, 2]
+
+// The production target exposes the optimized schedule and rebuilds dependency
+// planning from it; separately authored additions feed independent consumers.
+def prepared = prepare_rtl(make_scalar(5), CompileOptions(), "scalar CSE")
+def raw = build_schedule(prepared.rtl)
+def target = rsim_target.plan(prepared)
+check:
+  target.schedule ~is share_scalar_expressions(raw)
+  target.schedule.steps.length() < raw.steps.length() ~is #true
+  target.manifest() === prepared.manifest ~is #true
