@@ -10,6 +10,7 @@ import:
   "../rsim/regions.rhm" open
   "../rsim/emit.rhm".emit_rsim
   "rsim/fixtures.rhm".make_scalar
+  "rsim/aggregate-fixtures.rhm".make_aggregate
   "rsim/wide-fixtures.rhm".make_constant_rom
   "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
   "rsim/memory-fixtures.rhm".make_memory
@@ -272,3 +273,38 @@ for (budget in [1, 24, 4096]):
           helper.contains("foreign::") ~is #false
           helper.contains("throw ") ~is #false
           helper.contains("state_ =") ~is #false
+
+// A crossing mux can borrow only storage that outlives its producer. With a
+// one-step budget both branches cross; at 22 both branches are helper locals
+// and only the result crosses into the output consumer.
+def borrow_design = Design()
+def borrow_builder = Builder(borrow_design)
+def borrow_top = borrow_builder.module("BoundaryMux")
+def borrow_type = VectorType(2, Bits(5))
+def borrow_select = borrow_builder.input(borrow_top, "select", Bits(1))
+def borrow_data = borrow_builder.input(borrow_top, "data", borrow_type)
+def borrow_scalar = borrow_builder.input(borrow_top, "scalar", Bits(5))
+def borrow_local = borrow_builder.vector_create(borrow_top, borrow_type, [borrow_scalar, borrow_scalar])
+def borrow_mux = borrow_builder.mux_lookup(borrow_top, borrow_select, borrow_data, [[1, borrow_local]])
+borrow_builder.drive(borrow_builder.output(borrow_top, "result", borrow_type), borrow_mux)
+borrow_builder.finish(borrow_top)
+def borrow_schedule = build_schedule(prepare_rtl(ElaboratedProgram(borrow_design, borrow_top), CompileOptions(), "borrow lifetime").rtl)
+def borrow_evaluation = build_evaluation_plan(borrow_schedule)
+def local_regions = build_regions(borrow_schedule, borrow_evaluation, borrow_evaluation.outputs, ~budget: 22)
+check:
+  local_regions.length() ~is 2
+  local_regions[0].outputs ~is [borrow_schedule.outputs[0].value]
+  local_regions[0].inputs ~is []
+  emit_rsim(borrow_schedule, ~region_budget: 1)[1].contains(" = &(") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 1)[0].contains("const std::array<std::uint64_t, 2>*") ~is #true
+  emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains(" = &(") ~is #false
+  emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint64_t, 2>, 1>") ~is #true
+
+// Native aggregate scoreboards include constants, chained/multi-arm lookup
+// muxes, nested records/vectors, state capture, and dirty input padding. Protect
+// that their forced-boundary run actually exercises pointer-backed results.
+def aggregate_schedule = build_schedule(prepare_rtl(make_aggregate(5), CompileOptions(), "aggregate borrowing").rtl)
+def aggregate_emission = emit_rsim(aggregate_schedule, ~region_budget: 24)
+check:
+  aggregate_emission ~is emit_rsim(aggregate_schedule, ~region_budget: 24)
+  aggregate_emission[1].contains(" = &(") ~is #true

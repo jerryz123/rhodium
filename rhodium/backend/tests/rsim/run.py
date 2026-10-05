@@ -239,7 +239,7 @@ def main():
         source.write_text(native_driver())
         run(shlex.split(os.environ.get("CXX", "c++")) +
             ["-std=c++17", "-O2", "-Wall", "-Wextra", "-Werror",
-             "-fsanitize=undefined", "-fno-sanitize-recover=undefined",
+             "-fsanitize=address,undefined", "-fno-sanitize-recover=undefined",
              *map(str, sorted(p for p in work.glob("*.cpp") if p.name != "DpiNative.cpp")), "-o", str(work / "rsim")], work, "build")
         vectors, expected = stimuli()
         compare(run([str(work / "rsim")], work, "rsim", vectors), expected, "rsim")

@@ -2,7 +2,7 @@
 """Field-level aggregate state oracle and typed/native versus packed/SV adapters."""
 
 PACKETS = ('echo', 'built', 'picked', 'first_left', 'first_right', 'second_left', 'second_right',
-           'mux_record', 'mux_other', 'mux_vector')
+           'mux_record', 'mux_other', 'mux_vector', 'mux_constant', 'mux_chain', 'mux_captured')
 
 
 def encoded(name):
@@ -56,8 +56,15 @@ def native_setup(width):
             lines.append(f'agg.inputs.p{port}{path} = {value};')
     lines += ['agg.inputs.preset = reset; agg.inputs.penable = enable; agg.inputs.pload = load;',
               'agg.inputs.ppacked = amount;', 'if (tick) agg.tick(); else agg.eval();', 'idle_agg.eval();']
+    # Scratch pointers are not model state: copies must refresh them before use,
+    # even when the source of the copy has already been destroyed.
+    lines += [f'auto copied = [&]() {{ auto temporary = agg; temporary.eval(); '
+              f'return rsim_pAggregate{width}::Model(temporary); }}();', 'copied.eval();']
     for port, _, fields in ports(width):
-        if port.startswith(('first_', 'second_')) or port == 'sample':
+        for path, _, _ in fields:
+            lines.append(f'if (copied.outputs().{encoded(port)}{path} != '
+                         f'agg.outputs().{encoded(port)}{path}) return 5;')
+        if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured'):
             for path, _, _ in fields:
                 lines.append(f'if (idle_agg.outputs().{encoded(port)}{path} != 0) return 4;')
     return '\n'.join(lines)
@@ -112,6 +119,7 @@ class Oracle:
         self.width = width
         zero = (tuple((0, 0) for _ in range(length(width))), 0, 0)
         self.left = self.right = self.other_left = self.other_right = zero
+        self.captured = zero
         self.sample = zero[0]
 
     def observe(self, tick, reset, enable, load, a, b, packed):
@@ -130,8 +138,13 @@ class Oracle:
         mask = (1 << width) - 1
         built = (tuple(((data + 1) & mask, tag ^ 31) for data, tag in reversed(pa[0])),
                  pa[1] ^ 1, pa[0][0][0])
+        constant_mux = initial(width, 11) if enable else pa
+        chain = (constant_mux, pb, initial(width, 19), built)[2 * enable + load]
+        if tick:
+            self.captured = initial(width, 3) if reset else chain
         packets = [pa, built, pb if load else pa, self.left, self.right, self.other_left, self.other_right,
-                   pb if enable else pa, pa if enable else pb, pb if load and enable else pa]
+                   pb if enable else pa, pa if enable else pb, pb if load and enable else pa,
+                   constant_mux, chain, self.captured]
         result = [value for packet in packets for value in flatten(packet)]
         result += flatten(pb if enable else pa) + flatten(pa)
         result += [value for pair in self.sample for value in pair]

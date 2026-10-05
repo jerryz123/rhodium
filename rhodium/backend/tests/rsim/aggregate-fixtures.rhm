@@ -91,6 +91,16 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
                                             ["single", b.vector_create(top, single, [b.record_get(top, b.vector_get(top, payload, 0), "class")])]])
   b.drive(b.output(top, "built", packet), built)
   b.drive(b.output(top, "picked", packet), b.mux_lookup(top, tl, ta, [[1, tb]]))
+  // Keep whole aggregate consumers so borrowed mux chains cannot disappear
+  // through projection forwarding. Exercise constants and multi-arm selection.
+  def constant_mux = b.mux_lookup(top, te, ta, [[1, initial(top, 11)]])
+  def chain = b.mux_lookup(top, b.concat(top, [te, tl]), constant_mux,
+                           [[1, tb], [2, initial(top, 19)], [3, built]])
+  b.drive(b.output(top, "mux_constant", packet), constant_mux)
+  b.drive(b.output(top, "mux_chain", packet), chain)
+  def captured = b.register(top, "captured", packet, tc, tr, initial(top, 3))
+  b.drive(captured.next, chain)
+  b.drive(b.output(top, "mux_captured", packet), captured.current)
   for (name in ["first", "second"]):
     def child = b.instance(top, leaf, name)
     for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],

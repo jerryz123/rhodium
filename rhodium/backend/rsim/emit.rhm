@@ -212,30 +212,40 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
 
-/* C++ slots and array declarations for one evaluation phase. The logical
-   region plan stays independent of this concrete storage representation. */
-class BoundaryStorage(slots :: Map, declarations :: List.of(String))
+/* Value expressions, borrowed-result pointer slots, and typed arrays for one
+   evaluation phase. Logical regions remain independent of C++ storage policy. */
+class BoundaryStorage(slots :: Map, borrowed :: Map, declarations :: List.of(String))
 
 /* Allocate only produced boundary values, grouping slots by C++ carrier rather
    than generating one struct member per value. Stable region/value order gives
-   deterministic names; each phase owns independent scratch and slot bindings. */
-fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes) :: BoundaryStorage:
+   deterministic names; each phase owns independent scratch and slot bindings.
+   Aggregate lookup muxes may borrow already-backed operands: constants or earlier
+   boundary values, including borrowed muxes. Never borrow a helper-local value
+   or recycle a backing slot within the evaluation. */
+fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
   def bindings = MutableMap{}
+  def borrowed = MutableMap{}
   def carriers = MutableList[]
   def groups = MutableMap{}
   def counts = MutableMap{}
   for (region in regions):
     for (index in region.outputs):
-      def carrier = types.name(plan.steps[index].type)
+      def step = plan.steps[index]
+      def borrow:
+        step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
+          && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
+      def carrier = (if borrow | "const " | "") ++ types.name(step.type) ++ (if borrow | "*" | "")
       unless groups.has_key(carrier)
       | groups[carrier] := "g" ++ to_string(carriers.length())
         counts[carrier] := 0
         carriers.add(carrier)
-      bindings[index] := "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
+      def slot = "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
+      bindings[index] := (if borrow | "*" | "") ++ slot
+      when borrow | borrowed[index] := slot
       counts[carrier] := counts[carrier] + 1
   def declarations = for List (carrier in carriers):
     "    std::array<" ++ carrier ++ ", " ++ to_string(counts[carrier]) ++ "> " ++ groups[carrier] ++ ";"
-  BoundaryStorage(bindings.snapshot(), declarations)
+  BoundaryStorage(bindings.snapshot(), borrowed.snapshot(), declarations)
 
 /* Declare phase-local reusable buffers and bounded sampling helpers. Scratch is
    overwritten before every read, never a cache; initialization happens once per
@@ -259,7 +269,11 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
         source.add(step_declaration(constant, plan.steps, types, constants))
       for (step in region.steps):
         unless constants.has_key(step)
-        | source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
+        | if layout.borrowed.has_key(step)
+          // All branches are normalized aggregate lvalues backed for this whole
+          // invocation. Taking the selected lvalue's address performs no copy.
+          | source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.slots[step] ++ ";")
+          | source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
       for (sink in region.sinks): emit_sink(sink, plan, types, source)
       source.add("}")
 
@@ -296,8 +310,8 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   for (call in plan.foreign_calls):
     for (type in call.import_decl.input_types ++ call.import_decl.results.map(fun (result): result.type)):
       types.name(type)
-  def pre_layout = boundary_layout(pre_regions, plan, types)
-  def output_layout = boundary_layout(output_regions, plan, types)
+  def pre_layout = boundary_layout(pre_regions, plan, types, evaluation.constants)
+  def output_layout = boundary_layout(output_regions, plan, types, evaluation.constants)
   def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
                            "// SPDX-License-Identifier: Apache-2.0", "#pragma once", "#include <cstdint>", "#include <array>" ++ (if types.wide | "\n#include \"rsim-bits.hpp\"" | ""),
                            "namespace " ++ namespace ++ " {", String.join(types.declarations.snapshot(), "\n"), "class Model {", "public:",

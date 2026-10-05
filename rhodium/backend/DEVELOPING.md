@@ -119,11 +119,20 @@ The emitter renders multi-region bodies as private C++ helpers and leaves
 single-region bodies inline in their coordinator. Only nonconstant values consumed
 in later regions receive scratch slots. Slots are grouped in typed arrays by C++
 carrier; a producer writes its slot directly, and consumers bind const references.
+Aggregate lookup-mux results use const-pointer slots when every branch already
+has evaluation-long backing storage: an immutable constant or an earlier boundary
+value, including another borrowed mux. Selection takes the chosen lvalue's address
+without copying its aggregate. Helper-local branches retain materialized results;
+do not promote extra values merely to enable borrowing. Scalar results keep their
+ordinary normalization and materialization. Boundary slots are never recycled
+within an evaluation, so later consumers can safely follow borrowed chains.
 Other intermediates remain function locals, while constants reference the shared
 immutable pool. Each phase has its own model-owned scratch, initialized once and
 overwritten before every use. This physical reuse provides no cross-invocation
 validity: do not skip a helper based on old scratch contents. Helpers cannot retain
-references in the sampled frame or outputs. No evaluation allocates or clears a
+references in the sampled frame or outputs; sinks still copy values. Pointer slots
+are refreshed before every read, including after a model copy or move, and never
+provide validity across phases or calls. No evaluation allocates or clears a
 scratch buffer, and separate models have independent buffers.
 
 Region helpers use a local no-inline annotation for Clang/GCC and MSVC so native
@@ -589,7 +598,11 @@ Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Emission checks additionally protect local-only intermediates, crossing-value
-slots, deterministic helper order, and effect-free helper bodies. Force small
+slots, aggregate borrowing and its local-operand fallback, deterministic helper
+order, and effect-free helper bodies. The aggregate native/direct-SV scoreboard
+checks chained and multi-arm selections with constants, nested records/vectors,
+dirty padding, and register capture; its native build uses ASan and UBSan.
+Force small
 boundaries through the existing native Builder scoreboards and sanitizers with:
 
 ```sh
