@@ -1,0 +1,120 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_scalar make_swap make_arithmetic
+
+class Signed(width :: PosInt):
+  implements SignedArithmeticType
+  override method describe(): "rsim-signed<" ++ to_string(width) ++ ">"
+  override method type_equal(other): other is_a Signed && width == other.width
+  override method packed_width(): width
+  override method with_bit_width(width): Signed(width)
+
+fun make_arithmetic(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("Arithmetic" ++ to_string(width))
+  def a = b.input(top, "a", Bits(width))
+  def z = b.input(top, "b", Bits(width))
+  def amount = b.input(top, "amount", Bits(64))
+  def signed_a = b.cast(top, a, Signed(width))
+  def signed_b = b.cast(top, z, Signed(width))
+  // Widen only proper sub-64-bit inputs, including 63 -> 64. Full-width shifts
+  // and comparisons still consume all 64 input bits in the width-64 fixture.
+  def base_width = if width < 63 | width | 63
+  def extended_width = if width + 3 < 64 | width + 3 | 64
+  def base_a = b.extract(top, a, base_width - 1, 0)
+  def base_b = b.extract(top, z, base_width - 1, 0)
+  def extended = b.sext(top, b.cast(top, base_a, Signed(base_width)), extended_width)
+  def part_width = if width < 32 | width | 32
+  def joined = b.concat(top, [b.extract(top, a, part_width - 1, 0), b.extract(top, z, part_width - 1, 0)])
+  def tail_width = if width < 62 | width | 62
+  def joined_three = b.concat(top, [b.constant(top, Bits(1), 1), b.extract(top, a, 0, 0), b.extract(top, z, tail_width - 1, 0)])
+  def huge = b.constant(top, Bits(64), 64)
+  def outputs:
+    [["left_shift", b.shl(top, a, amount)], ["right_shift", b.shru(top, a, amount)],
+     ["signed_shift", b.shrs(top, signed_a, amount)], ["signed_left", b.shl(top, signed_a, amount)],
+     ["signed_less", b.slt(top, signed_a, signed_b)],
+     ["full", b.extract(top, a, width - 1, 0)], ["msb", b.extract(top, a, width - 1, width - 1)],
+     ["lsb", b.extract(top, a, 0, 0)], ["joined", joined], ["joined_three", joined_three],
+     ["cross_slice", b.extract(top, joined, part_width, part_width - 1)],
+     ["truncated", b.trunc(top, joined, part_width)],
+     ["zero_extended", b.zext(top, base_a, extended_width)], ["sign_extended", extended],
+     ["extended_right", b.shrs(top, extended, amount)],
+     ["widened_sum", b.zext(top, b.add(top, base_a, base_b), extended_width)],
+     ["widened_product", b.zext(top, b.mul(top, base_a, base_b), extended_width)],
+     ["widened_shift", b.zext(top, b.shl(top, base_a, amount), extended_width)],
+     ["constant_left", b.shl(top, a, huge)], ["constant_right", b.shru(top, a, huge)],
+     ["constant_signed", b.shrs(top, signed_a, huge)]]
+  for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_scalar(width :: PosInt, consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def b = Builder(design)
+  def top = b.module("Scalar" ++ to_string(width))
+  def a = b.input(top, "a", Bits(width))
+  def z = b.input(top, "b", Bits(width))
+  def select_input = b.input(top, "select", Bits(1))
+  def select = b.cast(top, b.cast(top, select_input, Reset), Bits(1))
+  def forward = b.wire(top, "forward", Bits(width))
+  def inverted = b.bit_not(top, b.read(forward))
+  def sum = b.add(top, a, z)
+  b.drive(forward, sum)
+  def outputs = [["sum", sum], ["inverted", inverted], ["difference", b.sub(top, a, z)],
+                 ["product", b.mul(top, a, z)], ["both", b.bit_and(top, a, z)],
+                 ["either", b.bit_or(top, a, z)], ["parity", b.bit_xor(top, a, z)],
+                 ["equal", b.eq(top, a, z)], ["less", b.ult(top, a, z)],
+                 ["selected", b.mux_lookup(top, select, a, [[1, z]])],
+                 ["wrapped", b.eq(top, sum, b.constant(top, Bits(width), 0))],
+                 ["class", a], ["__class__", z]]
+  for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_swap(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def leaf = b.module("SwapLeaf" ++ to_string(width))
+  def clock = b.input(leaf, "clock", Clock)
+  def reset = b.input(leaf, "reset", Reset)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def load = b.input(leaf, "load", Bits(1))
+  def a = b.input(leaf, "a", Bits(width))
+  def z = b.input(leaf, "b", Bits(width))
+  def clock_alias = b.wire(leaf, "clock_alias", Clock)
+  b.drive(clock_alias, clock)
+  def mask = 2 ** width - 1
+  def left = b.register(leaf, "qleft", Bits(width), b.read(clock_alias), reset, b.constant(leaf, Bits(width), 1))
+  def right = b.register(leaf, "qright", Bits(width), b.read(clock_alias), reset, b.constant(leaf, Bits(width), mask - 1))
+  b.drive(left.next, b.mux_lookup(leaf, load, b.mux_lookup(leaf, enable, left.current, [[1, right.current]]), [[1, a]]))
+  b.drive(right.next, b.mux_lookup(leaf, load, b.mux_lookup(leaf, enable, right.current, [[1, left.current]]), [[1, z]]))
+  b.drive(b.output(leaf, "left", Bits(width)), left.current)
+  b.drive(b.output(leaf, "right", Bits(width)), right.current)
+  b.finish(leaf)
+  def top = b.module("Swap" ++ to_string(width))
+  def tc = b.input(top, "clock", Clock)
+  def tr = b.input(top, "reset", Reset)
+  def te = b.input(top, "enable", Bits(1))
+  def tl = b.input(top, "load", Bits(1))
+  def ta = b.input(top, "a", Bits(width))
+  def tb = b.input(top, "b", Bits(width))
+  for (name in ["first", "second"]):
+    def child = b.instance(top, leaf, name)
+    for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
+                  ["a", if name == "first" | ta | tb], ["b", if name == "first" | tb | ta]]):
+      b.drive(child.input(pair[0]), pair[1])
+    for (output in ["left", "right"]):
+      b.drive(b.output(top, name ++ "_" ++ output, Bits(width)), child.output(output))
+  def count = b.register(top, "qcount", Bits(width), tc, tr, b.constant(top, Bits(width), 0))
+  b.drive(count.next, b.add(top, count.current, b.constant(top, Bits(width), 1)))
+  b.drive(b.output(top, "count", Bits(width)), count.current)
+  def sample = b.register(top, "sampled", Bits(width), tc)
+  b.drive(sample.next, ta)
+  b.drive(b.output(top, "sample", Bits(width)), sample.current)
+  b.finish(top)
+  ElaboratedProgram(design, top)

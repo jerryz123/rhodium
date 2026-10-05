@@ -120,7 +120,7 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../rheg/`](../rheg/README.md) | Independent C++ event collector, manifest-bound snapshots, and streaming/standalone Perfetto export | Runtime: C++ standard library only; exporter: runtime and private nlohmann JSON dependency |
 | [`std/`](std/README.md) | Optional host utilities, protocols, and circuit generators written in ordinary Rhodium | Public `#lang rhodium` authoring surface only |
 | [`../flow/`](../flow/README.md) | Streaming buffers, arbitration, routing, packet adapters, and configured topology stages | Public `#lang rhodium`; focused `std/` modules; other flow modules |
-| [`backend/`](backend/README.md) | Consume verified public IR; independent CIRCT and direct SystemVerilog emitters and explicit targets | Core; neutral compile contracts and RTL preparation only in target adapters |
+| [`backend/`](backend/README.md) | Consume verified public IR; independent CIRCT, direct SystemVerilog, and typed C++ simulation targets | Core; neutral compile contracts and RTL preparation only in target adapters |
 | [`formal/`](formal/README.md) | Optional Rosette-backed behavioral equivalence, output reachability, and combinational output properties over verified public IR | Core only; Rosette through one Racket interoperability module |
 | [`../chi/`](../chi/README.md) | AMBA CHI flits, links, monitors, fabric metadata, coherent Homes, shared memory control, single-beat subordinate transactions, and cache maintenance | Public `#lang rhodium`; protocol-neutral `std/` libraries and root-level `flow/`, including `std/ready-valid.rhdl` for Home snoop-target tracking and the single-beat subordinate engine, `std/bits.rhdl` and `flow/main.rhdl` for service matching, shared memory control, and maintenance, and `std/read-write.rhdl` and `std/sync-ram.rhdl` only for the concrete RAM backend within the memory stack |
 | [`../socs/`](../socs/README.md) | Concrete system composition and end-to-end integration | Public domain-library and core surfaces only |
@@ -129,6 +129,17 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../riscv/rtl/`](../riscv/rtl/README.md) | Converts RISC-V instruction encodings into generic typed decode patterns | Pure RISC-V model; public `#lang rhodium` libraries |
 | [`../hardfloat/`](../hardfloat/README.md) | Rhodium port of Berkeley HardFloat representations and floating-point units | Public `#lang rhodium` authoring surface only |
 | [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/compilation surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
+
+The `backend/rsim-target.rhm` adapter imports compile contracts, RTL preparation,
+and its local scheduler/emitter. `backend/rsim/plan.rhm` imports core IR/types
+and dependency identity lookup. `backend/rsim/emit.rhm` imports core types, local
+schedule descriptors, and `backend/rsim/types.rhm`. It also uses Rhombus runtime
+paths and Racket file/base primitives to read its local C++ support header at
+emission time. The type helper imports core types
+for C++ representation and packing. `backend/rsim/sv-binding.rhm` imports core
+IR/types and the local schedule/type helpers for clocked-boundary validation
+and SV/C++ binding emission. These implementations import no other
+backend, portable lowering, frontend, or domain libraries.
 
 The event compiler and RHEG exchange generated descriptors and fixed DPI calls;
 neither imports the other's implementation. Event inference consumes generic

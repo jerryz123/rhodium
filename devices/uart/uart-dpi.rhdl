@@ -44,6 +44,7 @@ sync_circuit UartDPI(
   uart_rx <== transmitter.tx
 
   def reset = reset_active().into(Bool)
+  wire pty_to_uart_ready: Bool
   dpi_reg (pty_to_uart_valid,
            pty_to_uart_byte,
            status) = uart_pty_tick(
@@ -52,9 +53,12 @@ sync_circuit UartDPI(
     receiver.received.valid & !reset,
     receiver.received.bits,
     receiver.framing_error,
-    transmitter.bytes.ready & !reset
+    pty_to_uart_ready
   )
 
+  // The held DPI byte reserves the idle transmitter until the next edge.
+  // Do not dequeue another host byte on the edge that accepts this one.
+  pty_to_uart_ready <== transmitter.bytes.ready & !pty_to_uart_valid & !reset
   transmitter.bytes.valid <== pty_to_uart_valid & !reset
   transmitter.bytes.bits <== pty_to_uart_byte
   when (!reset):

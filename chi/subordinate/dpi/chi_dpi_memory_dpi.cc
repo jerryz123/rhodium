@@ -32,7 +32,7 @@ void set_packed_byte(svBitVecVal* value,
 
 }  // namespace
 
-unsigned char rhodium_chi_memory_init(int model_id, long long capacity, long long base_address) {
+char rhodium_chi_memory_init(int model_id, long long capacity, long long base_address) {
   try {
     const auto scope = svGetScope();
     const char* owner = scope ? svGetNameFromScope(scope) : nullptr;
@@ -46,14 +46,14 @@ unsigned char rhodium_chi_memory_init(int model_id, long long capacity, long lon
   }
 }
 
-unsigned char rhodium_chi_memory_access(int model_id,
-                                        long long capacity,
-                                        unsigned char beat_bytes,
-                                        unsigned char write,
-                                        long long address,
-                                        const svBitVecVal* write_data,
-                                        long long write_mask,
-                                        svBitVecVal* read_data) {
+char rhodium_chi_memory_access(int model_id,
+                              long long capacity,
+                              char beat_bytes,
+                              unsigned char write,
+                              long long address,
+                              const svBitVecVal* write_data,
+                              long long write_mask,
+                              svBitVecVal* read_data) {
   if (write_data == nullptr || read_data == nullptr) {
     return 2;
   }

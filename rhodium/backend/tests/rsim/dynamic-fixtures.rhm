@@ -1,0 +1,58 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_dynamic
+
+fun make_dynamic(length :: PosInt, aggregate :: Boolean):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("Dynamic" ++ (if aggregate | "Record" | "Scalar") ++ to_string(length))
+  def index_width = count_index_width(length)
+  def lanes = VectorType(2, Bits(64))
+  def element_type = if aggregate | RecordType([RecordField("tag", Bits(5)), RecordField("lanes", lanes)]) | Bits(64)
+  def vector = VectorType(length, element_type)
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def selector = b.input(top, "selector", Bits(index_width))
+  def index0 = b.input(top, "index0", Bits(index_width))
+  def index1 = b.input(top, "index1", Bits(index_width))
+  def enables = b.input(top, "enables", Bits(2))
+  // The bench observes valid write sets, and hides invalid sets behind this mux.
+  // Both backends still elaborate the partial operation in the unused arm.
+  def valid_write = b.input(top, "valid_write", Bits(1))
+  def a = b.input(top, "a", Bits(64))
+  def z = b.input(top, "b", Bits(64))
+  fun element(seed :: Nat):
+    def sum = b.add(top, a, b.constant(top, Bits(64), seed))
+    if aggregate
+    | b.record_create(top, element_type, [["tag", b.extract(top, sum, 4, 0)], ["lanes", b.vector_create(top, lanes, [sum, b.bit_xor(top, z, b.constant(top, Bits(64), seed))])]])
+    | sum
+  def zero = b.constant(top, Bits(64), 0)
+  def zero_element = if aggregate | b.record_create(top, element_type, [["tag", b.constant(top, Bits(5), 0)], ["lanes", b.vector_create(top, lanes, [zero, zero])]]) | zero
+  def zero_vector = b.vector_create(top, vector, for List (_ in 0..length): zero_element)
+  def base = b.vector_create(top, vector, for List (index in 0..length): element(index))
+  def read_ok = b.ult(top, b.zext(top, selector, index_width + 1), b.constant(top, Bits(index_width + 1), length))
+  def read = b.vector_index(top, base, selector)
+  def injected = b.vector_inject(top, base, selector, element(11))
+  def enable_values = [b.extract(top, enables, 0, 0), b.extract(top, enables, 1, 1)]
+  def index_values = [index0, index1]
+  def elements = [element(17), element(29)]
+  fun writes(source :: Value, reverse :: Boolean):
+    b.vector_write_set(top, source,
+                       b.vector_create(top, VectorType(2, Bits(1)), if reverse | enable_values.reverse() | enable_values),
+                       b.vector_create(top, VectorType(2, Bits(index_width)), if reverse | index_values.reverse() | index_values),
+                       b.vector_create(top, VectorType(2, element_type), if reverse | elements.reverse() | elements))
+  def state = b.register(top, "stored", vector, clock, reset, zero_vector)
+  def captured = b.register(top, "old_read", element_type, clock, reset, zero_element)
+  b.drive(state.next, b.mux_lookup(top, valid_write, state.current, [[1, writes(state.current, #false)]]))
+  b.drive(captured.next, b.mux_lookup(top, read_ok, zero_element, [[1, b.vector_index(top, state.current, selector)]]))
+  b.drive(b.output(top, "read", element_type), b.mux_lookup(top, read_ok, zero_element, [[1, read]]))
+  b.drive(b.output(top, "injected", vector), b.mux_lookup(top, read_ok, base, [[1, injected]]))
+  b.drive(b.output(top, "written", vector), b.mux_lookup(top, valid_write, base, [[1, writes(base, #false)]]))
+  b.drive(b.output(top, "reversed", vector), b.mux_lookup(top, valid_write, base, [[1, writes(base, #true)]]))
+  b.drive(b.output(top, "state", vector), state.current)
+  b.drive(b.output(top, "captured", element_type), captured.current)
+  b.finish(top)
+  ElaboratedProgram(design, top)

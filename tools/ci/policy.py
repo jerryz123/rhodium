@@ -109,20 +109,28 @@ def native_configs(suite):
 
 # Backend variants reuse the architectural config and software target descriptor.
 # Only simulator build/run matrices include this additional backend test.
-DIRECT_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
-DIRECT_SMOKE_TESTS = ('smoke', 'host-mmio-test', 'uart-pty-test')
+BACKEND_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
+BACKEND_SMOKE_VARIANTS = {
+    'verilog': dict(software_tests=('smoke', 'host-mmio-test', 'uart-pty-test')),
+    'rsim': dict(software_tests=('smoke',), opt_fast='-O0',
+                 smoke_max_cycles=100000, harness_timeout_minutes=5),
+}
 
 
 def simulator_entry(soc, shape, core, backend='circt'):
     return dict(soc=soc, shape=shape, core=core, backend=backend,
-                simulator_id=soc + ('-verilog' if backend == 'verilog' else ''))
+                simulator_id=soc + ('' if backend == 'circt' else '-' + backend),
+                opt_fast=BACKEND_SMOKE_VARIANTS.get(backend, {}).get('opt_fast', ''))
 
 
 def simulation_entry(soc, shape, core, backend='circt'):
     isa = SELECTIONS[soc][2]
-    tests = DIRECT_SMOKE_TESTS if backend == 'verilog' else SOFTWARE_TESTS[shape, isa]
+    policy = BACKEND_SMOKE_VARIANTS.get(backend, {})
+    tests = policy.get('software_tests', SOFTWARE_TESTS[shape, isa])
     return dict(**simulator_entry(soc, shape, core, backend), isa=isa,
-                software_tests=" ".join(tests))
+                software_tests=" ".join(tests),
+                smoke_max_cycles=policy.get('smoke_max_cycles', 0),
+                harness_timeout_minutes=policy.get('harness_timeout_minutes', 60))
 
 
 def arch_configs():

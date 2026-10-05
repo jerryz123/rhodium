@@ -14,7 +14,9 @@ include config.mk
 RTL_BACKEND ?= circt
 ifneq ($(RTL_BACKEND),circt)
 ifneq ($(RTL_BACKEND),verilog)
-$(error RTL_BACKEND must be circt or verilog)
+ifneq ($(RTL_BACKEND),rsim)
+$(error RTL_BACKEND must be circt, verilog, or rsim)
+endif
 endif
 endif
 TRACE ?= 0
@@ -52,7 +54,7 @@ CXXFLAGS += -std=c++20 -Wall -Wextra -Werror
 FESVR_LIBRARY := $(FESVR_PREFIX)/lib/libfesvr.a
 SPIKE_LIBRARY := $(FESVR_PREFIX)/lib/libriscv.so
 # Direct RTL must never reuse CIRCT model objects or emitted-artifact timestamps.
-SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)$(if $(filter verilog,$(RTL_BACKEND)),-verilog)
+SOC_BUILD_DIR := $(BUILD_ROOT)/$(SOC_ID)$(if $(filter-out circt,$(RTL_BACKEND)),-$(RTL_BACKEND))
 ifeq ($(TRACE),1)
 ifneq ($(RTL_BACKEND),circt)
 $(error TRACE=1 currently requires RTL_BACKEND=circt)
@@ -103,7 +105,11 @@ SPIKE_VERILOG := $(SPIKE_LOWERING_DIR)/SpikeCore.sv
 SPIKE_VERILATOR_DIR := $(SPIKE_LOWERING_DIR)/obj
 SOC_MLIR := $(SOC_BUILD_DIR)/soc_harness.mlir
 SOC_VERILOG := $(SOC_BUILD_DIR)/SoCHarness.sv
-SOC_EMITTED := $(if $(filter verilog,$(RTL_BACKEND)),$(SOC_VERILOG),$(SOC_MLIR))
+SOC_EMITTED := $(if $(filter circt,$(RTL_BACKEND)),$(SOC_MLIR),$(SOC_VERILOG))
+ifeq ($(RTL_BACKEND),rsim)
+SOC_RSIM_SOURCES := $(SOC_BUILD_DIR)/SoCHarness.cpp $(SOC_BUILD_DIR)/SoCHarness_bridge.cpp
+SOC_RSIM_HEADERS := $(SOC_BUILD_DIR)/SoCHarness.hpp
+endif
 SOC_OBJECT_DIR := $(SOC_BUILD_DIR)/obj
 SIMULATOR_BINARY := $(if $(PREBUILT_SIMULATOR),$(abspath $(PREBUILT_SIMULATOR)),$(SOC_OBJECT_DIR)/VTestDriver)
 SMOKE_BINARY := $(SOC_BUILD_DIR)/smoke.elf
@@ -367,11 +373,22 @@ $(SOC_VERILOG): $(SOC_MLIR)
 else
 $(SOC_VERILOG): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/config.mk | $(SOC_BUILD_DIR)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
-	  $(HARNESS_EMITTER) --backend verilog $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_VERILOG)
+	  $(HARNESS_EMITTER) --backend $(RTL_BACKEND) $(if $(filter rsim,$(RTL_BACKEND)),--output-directory "$(SOC_BUILD_DIR)" )$(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_VERILOG)
+endif
+
+# Regenerate the entire multi-file emission once if a required companion is
+# missing. Make shares the SV prerequisite between parallel companion targets.
+ifeq ($(RTL_BACKEND),rsim)
+ifneq ($(words $(wildcard $(SOC_RSIM_SOURCES) $(SOC_RSIM_HEADERS))),3)
+.PHONY: rsim-missing-companion
+$(SOC_VERILOG): rsim-missing-companion
+endif
+$(SOC_RSIM_SOURCES) $(SOC_RSIM_HEADERS): $(SOC_VERILOG)
+	@test -f "$@"
 endif
 
 ifeq ($(PREBUILT_SIMULATOR),)
-$(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+$(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(SOC_RSIM_HEADERS) $(CURDIR)/TestDriver.v \
                      $(VERILATOR_DIR)/simulation_runtime.cc $(VERILATOR_DIR)/simulation_runtime.h \
                      $(VERILATOR_DIR)/image_memory_map.cc $(FESVR_DIR)/image_memory.h \
                      $(VERILATOR_DIR)/relink.mk \
@@ -390,7 +407,7 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
 	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) \
 	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
-	  $(SOC_VERILOG) $(CURDIR)/TestDriver.v \
+	  $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \
 	  $(SOC_DPI_SOURCE) $(TRACE_SOURCES) $(COSIM_SOURCES) $(VERILATOR_DIR)/image_memory_map.cc $(VERILATOR_DIR)/simulation_runtime.cc \
 	  -CFLAGS "-I$(FESVR_PREFIX)/include -I$(FESVR_DIR) -I$(VERILATOR_DIR) -I$(CHI_DPI_DIR) -std=c++20 $(SOC_DPI_CFLAGS) $(TRACE_CFLAGS) $(COSIM_CFLAGS)" \

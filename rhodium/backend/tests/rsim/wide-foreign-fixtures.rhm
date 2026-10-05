@@ -1,0 +1,75 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "foreign-fixtures.rhm".Signed
+export:
+  make_wide_foreign
+  make_unused_wide_foreign
+
+fun unused_module(b):
+  def leaf = b.module("UnusedWideLeaf")
+  def clock = b.input(leaf, "clock", Clock)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def imp = b.dpi_import_results("rsim_wide_unused", ["tag"], [Bits(8)], [DpiResult("wide", Bits(513), "out"), DpiResult("returned", Bits(8), "return")])
+  b.dpi_register_results(leaf, ["ignored_wide", "ignored_return"], imp, [b.constant(leaf, Bits(8), 0)], clock, enable)
+  b.finish(leaf)
+  leaf
+
+fun make_unused_wide_foreign():
+  def design = Design()
+  def b = Builder(design)
+  def leaf = unused_module(b)
+  def top = b.module("DpiUnusedWide")
+  def child = b.instance(top, leaf, "monitor")
+  for (port in leaf.inputs): b.drive(child.input(port.name), b.input(top, port.name, port.type))
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_wide_foreign():
+  def design = Design()
+  def b = Builder(design)
+  def leaf = b.module("WideForeignLeaf")
+  def clock = b.input(leaf, "clock", Clock)
+  def reset = b.input(leaf, "reset", Reset)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def tag = b.input(leaf, "tag", Bits(8))
+  for (width in [65, 129, 512, 513]):
+    def suffix = to_string(width)
+    def type = if width == 129 || width == 513 | Signed(width) | Bits(width)
+    def data = b.input(leaf, "data" ++ suffix, type)
+    def argument = b.wire(leaf, "argument" ++ suffix, type)
+    def imp = b.dpi_import_results("rsim_wide" ++ suffix, ["tag", "data"], [Bits(8), type], [DpiResult("wide", type, "out"), DpiResult("native", Bits(16), "out"), DpiResult("returned", Bits(5), "return")])
+    def results = b.dpi_register_results(leaf, ["held" ++ suffix, "held_native" ++ suffix, "held_returned" ++ suffix], imp, [tag, b.read(argument)], clock, enable)
+    b.drive(argument, b.mux_lookup(leaf, b.cast(leaf, reset, Bits(1)), b.bit_xor(leaf, data, results[0]), [[1, data]]))
+    for (value in results, kind in ["wide", "native", "returned"]):
+      def consumer = b.register(leaf, "consumer_" ++ kind ++ suffix, value.type, clock, reset, b.cast(leaf, b.constant(leaf, Bits(value.type.packed_width()), 0), value.type))
+      b.drive(consumer.next, value)
+      b.drive(b.output(leaf, kind ++ suffix, value.type), value)
+      b.drive(b.output(leaf, "sample_" ++ kind ++ suffix, value.type), consumer.current)
+    // Observe old held state during the same edge that publishes new results.
+    def proc = b.dpi_import("rsim_wide_observe" ++ suffix, ["tag", "data"], [Bits(8), type])
+    b.dpi_call(leaf, proc, [tag, results[0]], clock, enable)
+    // Even an unconsumed wide out must have a correctly sized ABI buffer.
+    def partial = b.dpi_register_results(leaf, ["unused_wide" ++ suffix, "unused_native" ++ suffix, "held_partial" ++ suffix], imp, [b.add(leaf, tag, b.constant(leaf, Bits(8), 10)), data], clock, enable)
+    b.drive(b.output(leaf, "partial" ++ suffix, Bits(5)), partial[2])
+  b.finish(leaf)
+  def monitor = unused_module(b)
+  def top = b.module("DpiWide")
+  def clock_top = b.input(top, "clock", Clock)
+  def reset_top = b.input(top, "reset", Reset)
+  for (side in ["first", "second"]):
+    def child = b.instance(top, leaf, side)
+    b.drive(child.input("clock"), clock_top)
+    b.drive(child.input("reset"), reset_top)
+    b.drive(child.input("tag"), b.constant(top, Bits(8), if side == "first" | 1 | 2))
+    for (port in leaf.inputs.filter(~keep: fun (port): !(port.name in ["clock", "reset", "tag"]))):
+      b.drive(child.input(port.name), b.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in leaf.outputs): b.drive(b.output(top, side ++ "_" ++ port.name, port.type), child.output(port.name))
+  def instance = b.instance(top, monitor, "monitor")
+  b.drive(instance.input("clock"), clock_top)
+  b.drive(instance.input("enable"), b.input(top, "monitor_enable", Bits(1)))
+  b.assert(top, b.constant(top, Bits(1), 0), clock_top, reset_top, b.input(top, "fail_guard", Bits(1)), "wide_before_foreign")
+  b.finish(top)
+  ElaboratedProgram(design, top)

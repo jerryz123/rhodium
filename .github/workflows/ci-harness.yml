@@ -86,17 +86,24 @@ jobs:
         if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke')
         run: make -C sims isa-setup
       - name: Run shape-and-ISA software selection
+        timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}
+        shell: bash
         env:
           SOC: ${{ fromJSON(inputs.config).soc }}
           RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
           SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
           SOFTWARE_TESTS: ${{ fromJSON(inputs.config).software_tests }}
+          SMOKE_MAX_CYCLES: ${{ fromJSON(inputs.config).smoke_max_cycles }}
         run: |
           simulator="$RUNNER_TEMP/$SIMULATOR_ID/VTestDriver"
+          run_args=()
+          if [[ "${SMOKE_MAX_CYCLES:-0}" -gt 0 ]]; then
+            run_args+=("HTIF_ARGS=+max-cycles=$SMOKE_MAX_CYCLES")
+          fi
           status=0
           for target in $SOFTWARE_TESTS; do
             make -C sims "$target" SOC="$SOC" PROGRAM_JOBS=2 \
-              PREBUILT_SIMULATOR="$simulator" || status=1
+              PREBUILT_SIMULATOR="$simulator" "${run_args[@]}" 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-$target.log" || status=1
           done
           exit "$status"
       - name: Verify RV5Stage-specific NTL cache timing
@@ -136,5 +143,14 @@ jobs:
         with:
           name: ${{ fromJSON(inputs.config).simulator_id }}-smoke-elfs-${{ github.sha }}
           path: /tmp/rhodium-sims/${{ fromJSON(inputs.config).simulator_id }}/*.elf
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Publish harness logs
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: harness-logs-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/${{ fromJSON(inputs.config).simulator_id }}-*.log
           if-no-files-found: warn
           retention-days: 7

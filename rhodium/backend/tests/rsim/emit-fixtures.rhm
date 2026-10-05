@@ -1,0 +1,62 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "fixtures.rhm" open
+  "aggregate-fixtures.rhm".make_aggregate
+  "selection-fixtures.rhm".make_selection
+  "assertion-fixtures.rhm".make_assertions
+  "foreign-fixtures.rhm".make_foreign
+  "dynamic-fixtures.rhm".make_dynamic
+  "memory-fixtures.rhm".make_memory
+  "sync-memory-fixtures.rhm".make_sync_memory
+  "../../../compile/program.rhm".compile_program
+  "../../rsim-target.rhm".rsim_target
+  "../../verilog-target.rhm".verilog_target
+
+def args = rkt.#{current-command-line-arguments}()
+unless rkt.#{vector-length}(args) == 2 | error("expected OUTPUT_DIRECTORY rsim|verilog")
+def target:
+  match rkt.#{vector-ref}(args, 1)
+  | "rsim": rsim_target
+  | "verilog": verilog_target
+  | ~else: error("expected rsim or verilog")
+for (width in [1, 5, 63, 64]):
+  for (make in [make_scalar, make_swap, make_arithmetic, make_aggregate, make_selection]):
+    def result = compile_program(make(width), target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+for (length in [1, 3, 4]):
+  for (aggregate in [#false, #true]):
+    def result = compile_program(make_dynamic(length, aggregate), target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+for (depth in [1, 3, 4]):
+  for (aggregate in [#false, #true]):
+    def result = compile_program(make_memory(depth, aggregate), target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+for (depth in [1, 3, 4]):
+  for (aggregate in [#false, #true]):
+    def result = compile_program(make_sync_memory(depth, aggregate), target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+for (depth in [1, 3, 4]):
+  for (aggregate in [#false, #true]):
+    for (granularity in (if aggregate | [7, 19, 133] | [1, 8, 64])):
+      def result = compile_program(make_sync_memory(depth, aggregate, granularity), target)
+      for (artifact in result.artifacts):
+        file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+def assertion_result = compile_program(make_assertions(), target)
+for (artifact in assertion_result.artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})
+
+def foreign_result = compile_program(make_foreign(), target)
+for (artifact in foreign_result.artifacts):
+  file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(args, 0), artifact.name), ~exists: #'#{truncate/replace})

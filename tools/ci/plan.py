@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, DIRECT_SMOKE_CONFIG, arch_configs, arch_shards
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -75,6 +75,19 @@ class Selection:
                                          "devices/tests/uart-dpi*", "devices/tests/circt/verilog/uart-dpi*",
                                          "examples/std/sync-ram.rhdl", "flow/*", "rhodium/event/*", "rheg/*"):
             self.add_checks("verilog-direct", "circt-verilog-differential")
+
+        # The native rsim smoke also reuses the production UART and PTY helpers.
+        if not documentation and matches(path, "devices/uart/uart.rhdl", "devices/uart/uart-dpi.rhdl",
+                                         "devices/uart/dpi/*", "devices/tests/circt/verilog/uart-dpi_dpi.cpp"):
+            self.add_checks("host-backend")
+
+        # The SV-hosted rsim memory qualification uses production CHI RTL and DPI.
+        if not documentation and matches(path, "chi/protocol/*", "chi/subordinate/*"):
+            self.add_checks("circt-verilog-differential")
+
+        # The rsim SV binding proof runs the unchanged production clock driver.
+        if path in ("sims/TestDriver.v", "sims/verilator/simulation_runtime.cc", "sims/verilator/simulation_runtime.h"):
+            self.add_checks("circt-verilog-differential")
 
         if path.endswith((".rhm", ".rhdl")) and not matches(path, "tools/emacs/*"):
             self.add_checks("host-hygiene")
@@ -227,7 +240,8 @@ class Selection:
         entry = simulation_entry if self.simulation else simulator_entry
         builds = [entry(*config) for config in configs] if run_simulator else []
         if self.simulation:
-            builds.append(simulation_entry(*DIRECT_SMOKE_CONFIG, backend="verilog"))
+            builds.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend)
+                          for backend in BACKEND_SMOKE_VARIANTS)
         return {
             "run_compile": run_checks or run_simulator,
             "run_checks": run_checks,

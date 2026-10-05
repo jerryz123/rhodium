@@ -79,6 +79,8 @@ fail_matches "direct SystemVerilog must remain independent of CIRCT" \
   '^[[:space:]]+(lib\()?"[^"]*circt' rhodium/backend/verilog.rhm
 fail_matches "the SystemVerilog target must remain independent of CIRCT" \
   '^[[:space:]]+(lib\()?"[^"]*circt' rhodium/backend/verilog-target.rhm
+fail_matches "rsim scheduling and emission must depend only on core and local implementation" \
+  '^[[:space:]]+"[^"]*(compile/|lowering/|analysis/|verilog|circt)' rhodium/backend/rsim
 fail_matches "concrete emitters must not import compilation" \
   '^[[:space:]]+"[^"]*compile/' rhodium/backend/verilog.rhm
 fail_matches "formal engine must not import lowering, frontend, backend, or standard-library modules" \

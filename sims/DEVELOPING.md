@@ -27,13 +27,16 @@ all-CHI facade. The [CHI import guide](../chi/README.md#package-boundary-and-imp
 owns the public entry-point contract.
 
 Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
-adds a `-verilog` suffix so backend artifacts cannot be reused accidentally.
+adds a `-verilog` suffix and SV-hosted rsim adds `-rsim`, so backend artifacts
+cannot be reused accidentally.
 CI names all twenty configs explicitly and publishes an exact-commit simulator and target
 descriptor for each selected build variant. The additional
 `simple-rv5stage-rva23-verilog` variant reuses its architectural config and runs
-only `smoke`, `host-mmio-test`, and `uart-pty-test`. Software-only changes build
+only `smoke`, `host-mmio-test`, and `uart-pty-test`. The
+`simple-rv5stage-rva23-rsim` variant reuses the same config and runs only `smoke`.
+Software-only changes build
 the six full-suite Single configs; simulation changes build all twenty configs,
-including all four Mini RV32 bindings, plus the direct variant. The host emitter
+including all four Mini RV32 bindings, plus the direct-SV and rsim variants. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
@@ -55,7 +58,7 @@ setup and host adapter tests remain usable without an ISA selection.
 
 Config metadata is projected by `socs/configs/metadata.rhm`, not reconstructed
 in Python. The target JSON embeds that snapshot and its SHA-256; the harness emitter
-writes the same fingerprint into either MLIR or direct SV. `simulator` records an attestation only after matching
+writes the same fingerprint into emitted MLIR or SV. `simulator` records an attestation only after matching
 those identities, and includes the selected backend and harness variant. The
 emitter writes `rhodium-rtl-backend` provenance, checked during recording; every
 prebuilt use verifies the requested backend against the sidecar. Missing backend
@@ -65,7 +68,8 @@ target descriptor. ACT's generated UDB and payload archive carry the same config
 execution rejects a mismatch before running a shard. Keep these descriptors in
 artifact uploads and cache identities, never as checked-in generated catalogs.
 
-`RTL_BACKEND` selects `circt` or `verilog`, with CIRCT remaining the default.
+`RTL_BACKEND` selects `circt`, `verilog`, or experimental `rsim`, with CIRCT
+remaining the default.
 The harness emitter loads only the selected compile target and gives it the
 same `ElaboratedProgram` and explicit top. Direct builds emit `SoCHarness.sv`
 without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
@@ -79,6 +83,36 @@ Direct RTL can retain unsigned comparisons against zero and type bounds after
 parameter specialization. Permit the additional `UNSIGNED` and `CMPCONST`
 Verilator warnings for that route, retaining the existing simulator lint policy
 and runtime assertions.
+
+The experimental `RTL_BACKEND=rsim` route selects `rsim_sv_target` without
+changing harness elaboration. `emit-soc-harness.rhm --backend rsim` requires
+`--output-directory <dir>` for `SoCHarness.hpp`, `SoCHarness.cpp`,
+`SoCHarness_bridge.cpp`, and optional `rsim-bits.hpp`; stdout remains the SV
+wrapper with config provenance. The Make rule passes both generated C++
+sources to Verilator alongside the unchanged `TestDriver.v` and native adapters.
+Missing required model/bridge companions trigger a fresh emission. Tracing
+remains CIRCT-only. CI enrolls rsim only as a bounded smoke variant.
+
+Keep build wiring validation separate from execution qualification. Simulator
+adapter tests cover backend directories, source arguments, and provenance.
+The backend's [CHI differential fixture](../rhodium/backend/DEVELOPING.md)
+qualifies one real native memory. Simple RV5Stage RVA23 also passes the existing
+smoke ELF through the real FESVR loader and unchanged `TestDriver.v` with
+`OPT_FAST=-O0` and `+max-cycles=100000`. The default `-Os` build of the monolithic
+model was stopped after roughly eight minutes of compilation; it has no execution
+result. Use a fresh build root or object directory when changing optimization
+flags, since object timestamps do not encode those flags. Broader workloads and
+optimized builds require separate execution validation.
+
+`tools/ci/policy.py` owns backend smoke variants, including rsim's `opt_fast`,
+`smoke_max_cycles`, and `harness_timeout_minutes`. The simulator workflow passes
+the optimization override explicitly to Make; the harness workflow uses the
+attested prebuilt binary, bounds execution, and uploads per-target logs even on
+failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,
+and platform-test inventories. Test changes with
+`python3 -m unittest tools.ci.test_plan` and `make -C sims program-test-adapter-test`, then rebuild
+and run the selected smoke through the prebuilt-artifact path. Linux CI remains
+the owner of runner-specific compiler, memory, and timeout validation.
 
 ## Implementation map
 

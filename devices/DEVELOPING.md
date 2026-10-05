@@ -107,6 +107,13 @@ DPI boundary. The backend test
 [`DEVELOPING.md`](../tools/testing/circt/DEVELOPING.md) owns runner modes, toolchain
 requirements, and artifact policy.
 
+The backend-owned [rsim UART integration](../rhodium/backend/DEVELOPING.md#validation)
+reuses `UartDPI`, the production PTY model, and the existing PTY test helpers with
+a shared C++ scoreboard. Its queued-byte case guards the registered DPI-result
+reservation: host ready must be false while a result byte is pending, including
+the edge that accepts it into the transmitter. Run it after changing that adapter
+or its host ABI; it covers rsim and direct SV without duplicating device logic.
+
 The `hdmi-scanout` fixture tests the composed reader and row buffers against
 a CHI response model and an independent video-position scoreboard. It checks
 SRAM bank reuse across five-row frames, RGB byte order, sync polarities,

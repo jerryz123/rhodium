@@ -1,0 +1,47 @@
+#lang rhombus
+/* Supplies standalone C++ and clocked SV-binding targets over one rsim preparation path. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../compile/contracts.rhm" open
+  "../compile/rtl.rhm" open
+  "rsim/plan.rhm" open
+  "rsim/emit.rhm".emit_rsim
+  "rsim/sv-binding.rhm" open
+
+export rsim_target rsim_sv_target
+
+/* Retain the supplied manifest and schedule without another graph copy or expansion. */
+class RsimPlan(prepared :: PreparedRTL, schedule :: RsimSchedule):
+  implements TargetPlan
+  /* Preserve logical ports, occurrence attribution, and portable expansion provenance. */
+  override method manifest(): prepared.manifest
+  /* Return standalone C++ sources; compilation and file publication belong to the caller. */
+  override method emit():
+    def contents = emit_rsim(schedule)
+    def artifacts = [Artifact(schedule.name ++ ".hpp", "text/x-c++hdr", contents[0]),
+                     Artifact(schedule.name ++ ".cpp", "text/x-c++src", contents[1])]
+    if contents.length() == 3
+    | artifacts ++ [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])]
+    | artifacts
+
+def rsim_target = RTLTarget("rsim", "rsim uses concrete RTL; use the portable implementation", fun (prepared): RsimPlan(prepared, build_schedule(prepared.rtl)))
+
+/* Add simulator-host bindings to the same model plan without preparing or
+   scheduling the circuit a second time. The manifest remains the logical RTL boundary. */
+class RsimSVPlan(model :: RsimPlan, clock :: String):
+  implements TargetPlan
+  /* Reuse the model's occurrence and lowering provenance verbatim. */
+  override method manifest(): model.manifest()
+  /* Return the C++ model and support sources followed by the SV wrapper and DPI bridge. */
+  override method emit():
+    def binding = emit_sv_binding(model.schedule, clock)
+    def name = model.schedule.name
+    model.emit() ++ [Artifact(name ++ ".sv", "text/x-systemverilog", binding[0]),
+                     Artifact(name ++ "_bridge.cpp", "text/x-c++src", binding[1])]
+
+/* Validate the binding on the scheduled graph before a plan can publish artifacts. */
+fun plan_sv(prepared :: PreparedRTL) :: RsimSVPlan:
+  def model :: RsimPlan = rsim_target.plan(prepared)
+  RsimSVPlan(model, validate_sv_binding(model.schedule, prepared.rtl.top))
+
+def rsim_sv_target = RTLTarget("rsim-sv", "rsim uses concrete RTL; use the portable implementation", plan_sv)

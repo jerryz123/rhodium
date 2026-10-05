@@ -1,0 +1,46 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_bridge_ports make_wide_bridge_ports
+
+fun make_bridge_ports(consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def b = Builder(design)
+  def top = b.module("RsimBridgePorts")
+  def clock = b.input(top, "edge", Clock)
+  def reset = b.input(top, "reset", Reset)
+  for (width in [1, 5, 31, 33, 63, 64], name in ["flag", "_rsim1", "word31", "word33", "word63", "class"]):
+    def data = b.input(top, name, Bits(width))
+    def state = b.register(top, "q" ++ name, Bits(width), clock, reset, b.constant(top, Bits(width), 0))
+    b.drive(state.next, data)
+    b.drive(b.output(top, "out" ++ to_string(width), Bits(width)), state.current)
+  b.drive(b.output(top, "_rsim2", Bits(64)), b.constant(top, Bits(64), 2 ** 63 + 7))
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_wide_bridge_ports(consumed_ids :: Nat = 0):
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def b = Builder(design)
+  def top = b.module("RsimBridgeWide")
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def enable = b.input(top, "enable", Bits(1))
+  def fault = b.input(top, "fault", Bits(1))
+  for (width in [65, 129, 512, 513]):
+    def type = Bits(width)
+    def suffix = to_string(width)
+    def data = b.input(top, "data" ++ suffix, type)
+    def state = b.register(top, "q" ++ suffix, type, clock, reset, b.constant(top, type, 0))
+    def delayed = b.register(top, "delayed" ++ suffix, type, clock, reset, b.constant(top, type, 0))
+    b.drive(state.next, b.mux_lookup(top, enable, state.current, [[1, data]]))
+    b.drive(delayed.next, state.current)
+    b.drive(b.output(top, "out" ++ suffix, type), state.current)
+    b.drive(b.output(top, "sample" ++ suffix, type), delayed.current)
+    b.drive(b.output(top, "constant" ++ suffix, type), b.constant(top, type, 2 ** (width - 1) + 2 ** 32 + 7))
+  b.assert(top, b.bit_not(top, fault), clock, reset, b.constant(top, Bits(1), 1), "bridge_wide_check")
+  b.finish(top)
+  ElaboratedProgram(design, top)

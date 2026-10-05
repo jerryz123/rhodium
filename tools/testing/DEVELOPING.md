@@ -40,6 +40,19 @@ reusing the language, standard-library, and protocol lanes for CIRCT behavior.
 The planner enrolls those three owners whenever it selects the differential
 lane. A separate SyncRam smoke retains the no-CIRCT dependency boundary.
 
+The host/backend lane also runs the small standalone rsim C++ fixtures, using
+the runner's C++ compiler without HDL tools. The backend differential lane
+compares the same fixtures through direct SV/Verilator. Rsim's sources, driver,
+and independent oracles remain in `rhodium/backend/tests/rsim/`; its generated
+models and native binaries are temporary artifacts. The native suite also runs
+the production PTY UART integration; its UART/host/helper dependencies select
+both host/backend and backend differential lanes.
+The differential suite also checks the generated SV/DPI binding for rsim
+using the unchanged `sims/TestDriver.v` and its native lifecycle runtime; changes
+to that driver or runtime select the
+backend differential lane. This binding proof requires Verilator and remains
+outside the HDL-free native suite.
+
 ## Authoring principles
 
 - A new hardware module does not require a dedicated test merely because it
@@ -73,10 +86,15 @@ CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 by [`policy.py`](../ci/policy.py). The config rows come from the single
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
 by shape and ISA, independently of core. Simulator matrices additionally carry
-backend and artifact identity. The direct `simple-rv5stage-rva23-verilog` entry
-uses the same config/target with three smoke tests; it does not expand the
-architectural or software test inventories. Its build job omits CIRCT,
-and its prebuilt consumer verifies backend provenance. Its unit tests also reject tracked executable
+backend and artifact identity. `BACKEND_SMOKE_VARIANTS` in `policy.py` adds
+`simple-rv5stage-rva23-verilog` with three smoke tests and
+`simple-rv5stage-rva23-rsim` with only `smoke`. Both reuse the same architectural
+config/target without expanding the architectural or software test inventories.
+Rsim uses `OPT_FAST=-O0`, a 100,000-cycle limit, and a five-minute harness step.
+Both build jobs omit CIRCT, and prebuilt consumers verify backend provenance.
+Workflow tests exercise optimization propagation, bounded smoke arguments, and
+nonzero status through log capture. CI retains build and harness logs.
+The planner unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects

@@ -1,0 +1,118 @@
+#lang rhombus
+/* Validates a clocked scalar boundary and renders its SV wrapper and C++ DPI binding. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/ir.rhm" open
+  "plan.rhm" open
+  "types.rhm" open
+
+export validate_sv_binding emit_sv_binding
+
+/* Escape authored module and port names, including SV keywords. */
+fun sv_name(name :: String) :: String:
+  "\\" ++ name ++ " "
+
+/* Give each top an injective C symbol family, separate from model identifiers. */
+fun bridge_symbol(plan :: RsimSchedule, operation :: String) :: String:
+  "rhodium_rsim_" ++ cpp_name(plan.name) ++ "_" ++ operation
+
+/* Check the boundary before rendering any artifact. Stateful schedule roots
+   terminate dependency propagation; asynchronous reads still depend on their
+   addresses. This is conservative structural reachability, not simplification. */
+fun validate_sv_binding(plan :: RsimSchedule, top :: Module) :: String:
+  def clocks = top.inputs.filter(~keep: fun (port): clock_type(port.type))
+  unless clocks.length() == 1
+  | error(~who: #'rsim_sv, plan.name ++ ": requires exactly one root Clock input")
+  for (port in plan.inputs ++ plan.outputs):
+    def width = if reset_type(port.type) | 1 | scalar_width(port.type)
+    unless width
+    | error(~who: #'rsim_sv, plan.name ++ "." ++ port.name ++ ": binding ports require scalar widths")
+  def depends_on_input = MutableList[]
+  for (step in plan.steps):
+    depends_on_input.add(step.opcode == "input" || for any (operand in step.operands): depends_on_input[operand])
+  for (port in plan.outputs):
+    when depends_on_input[port.value]
+    | error(~who: #'rsim_sv, plan.name ++ "." ++ port.name ++ ": output depends combinationally on an input; the clocked binding requires state-only outputs")
+  for (operation in ["create", "tick", "destroy"]):
+    def symbol = bridge_symbol(plan, operation)
+    when for any (call in plan.foreign_calls): call.import_decl.name == symbol
+    | error(~who: #'rsim_sv, plan.name ++ ": foreign symbol collides with binding: " ++ symbol)
+  clocks[0].name
+
+/* Keep narrow bridge ports on the established longint ABI; wide ports use
+   two-state packed vectors whose DPI buffers contain low-word-first uint32s. */
+fun bridge_sv_type(width :: PosInt) :: String:
+  if width <= 64 | "longint unsigned" | "bit [" ++ to_string(width - 1) ++ ":0]"
+
+/* Render the validated boundary without SV hierarchy emulation. Wide values
+   marshal through explicit word buffers. Outputs remain private until NBA
+   publication, so external synchronous consumers always sample old state. */
+fun emit_sv_binding(plan :: RsimSchedule, clock :: String) :: List.of(String):
+  def used = MutableSet{clock}
+  for (port in plan.inputs ++ plan.outputs): used.add(port.name)
+  def mutable serial = 0
+  /* Allocate private SV names outside the authored port namespace. */
+  fun fresh() :: String:
+    serial := serial + 1
+    def name = "_rsim" ++ to_string(serial)
+    if name in used | fresh() | name
+  def create = fresh()
+  def tick = fresh()
+  def destroy = fresh()
+  def handle = fresh()
+  def error = fresh()
+  def temporaries = plan.outputs.map(fun (port): fresh())
+  def input_declarations = plan.inputs.map(fun (port): "input logic [" ++ to_string(scalar_carrier_width(port.type) - 1) ++ ":0] " ++ sv_name(port.name))
+  def output_declarations = plan.outputs.map(fun (port): "output logic [" ++ to_string(scalar_carrier_width(port.type) - 1) ++ ":0] " ++ sv_name(port.name))
+  def declarations = ["input logic " ++ sv_name(clock)] ++ input_declarations ++ output_declarations
+  def out_parameters = for List (port in plan.outputs, index in 0..plan.outputs.length()): "output " ++ bridge_sv_type(scalar_carrier_width(port.type)) ++ " o" ++ to_string(index)
+  def in_parameters = for List (port in plan.inputs, index in 0..plan.inputs.length()): "input " ++ bridge_sv_type(scalar_carrier_width(port.type)) ++ " i" ++ to_string(index)
+  def sv = MutableList["// Hosts the rsim model for " ++ plan.name ++ " behind a clocked DPI boundary.",
+                       "// SPDX-License-Identifier: Apache-2.0", "module " ++ sv_name(plan.name) ++ "(\n  " ++ String.join(declarations, ",\n  ") ++ "\n);"]
+  sv.add("  import \"DPI-C\" " ++ bridge_symbol(plan, "create") ++ " = function int " ++ create ++ "(" ++ String.join(["output chandle model"] ++ out_parameters ++ ["output string error"], ", ") ++ ");")
+  sv.add("  import \"DPI-C\" context " ++ bridge_symbol(plan, "tick") ++ " = function int " ++ tick ++ "(" ++ String.join(["input chandle model"] ++ in_parameters ++ out_parameters ++ ["output string error"], ", ") ++ ");")
+  sv.add("  import \"DPI-C\" " ++ bridge_symbol(plan, "destroy") ++ " = function void " ++ destroy ++ "(input chandle model);")
+  sv.add("  chandle " ++ handle ++ ";\n  string " ++ error ++ ";")
+  for (port in plan.outputs, temporary in temporaries):
+    sv.add("  " ++ bridge_sv_type(scalar_carrier_width(port.type)) ++ " " ++ temporary ++ ";")
+  def result_args = temporaries ++ [error]
+  sv.add("  initial begin\n    if (" ++ create ++ "(" ++ String.join([handle] ++ result_args, ", ") ++ ") != 0) $fatal(1, \"rsim bridge: %s\", " ++ error ++ ");")
+  // Evaluate constants and initial stored state once, without invoking foreign
+  // calls. All outputs were proven independent of unsampled external inputs.
+  for (port in plan.outputs, temporary in temporaries):
+    sv.add("    " ++ sv_name(port.name) ++ "= " ++ to_string(scalar_carrier_width(port.type)) ++ "'(" ++ temporary ++ ");")
+  sv.add("  end\n  final begin\n    if (" ++ handle ++ " != null) " ++ destroy ++ "(" ++ handle ++ ");\n  end")
+  def inputs = plan.inputs.map(fun (port): to_string((if scalar_carrier_width(port.type) <= 64 | 64 | scalar_carrier_width(port.type))) ++ "'(" ++ sv_name(port.name) ++ ")")
+  sv.add("  always @(posedge " ++ sv_name(clock) ++ ") begin\n    if (" ++ tick ++ "(" ++ String.join([handle] ++ inputs ++ result_args, ", ") ++ ") != 0) $fatal(1, \"rsim bridge: %s\", " ++ error ++ ");")
+  for (port in plan.outputs, temporary in temporaries):
+    sv.add("    " ++ sv_name(port.name) ++ "<= " ++ to_string(scalar_carrier_width(port.type)) ++ "'(" ++ temporary ++ ");")
+  sv.add("  end\nendmodule")
+
+  def out_args = for List (port in plan.outputs, index in 0..plan.outputs.length()): (if scalar_carrier_width(port.type) <= 64 | "unsigned long long*" | "std::uint32_t*") ++ " o" ++ to_string(index)
+  def in_args = for List (port in plan.inputs, index in 0..plan.inputs.length()): (if scalar_carrier_width(port.type) <= 64 | "unsigned long long" | "const std::uint32_t*") ++ " i" ++ to_string(index)
+  def result_copies = for List (port in plan.outputs, index in 0..plan.outputs.length()):
+    def width = scalar_carrier_width(port.type)
+    def output = "o" ++ to_string(index)
+    def value = "model->outputs()." ++ cpp_name(port.name)
+    if width <= 64
+    | "    *" ++ output ++ " = " ++ value ++ ";"
+    | "    const auto " ++ output ++ "_words = rhodium_rsim::to_words<" ++ to_string(width) ++ ">(" ++ value ++ ");\n    for (std::size_t word = 0; word < " ++ output ++ "_words.size(); ++word) " ++ output ++ "[word] = " ++ output ++ "_words[word];"
+  def catches = "  } catch (const std::exception& exception) {\n    diagnostic = exception.what();\n  } catch (...) {\n    diagnostic = \"unknown rsim bridge failure\";\n  }\n  *error = diagnostic.c_str();\n  return 1;\n}"
+  def cpp = MutableList["// Binds the rsim model for " ++ plan.name ++ " to its generated SV wrapper.", "// SPDX-License-Identifier: Apache-2.0",
+                        "#include \"" ++ plan.name ++ ".hpp\"", "#include <exception>\n#include <memory>\n#include <string>",
+                        "static_assert(sizeof(unsigned long long) == 8, \"DPI longint requires 64 bits\");",
+                        "namespace {\nusing Model = rsim_" ++ cpp_name(plan.name) ++ "::Model;\n// SV copies the diagnostic before the next call on this thread.\nthread_local std::string diagnostic;\n}"]
+  cpp.add("extern \"C\" int " ++ bridge_symbol(plan, "create") ++ "(" ++ String.join(["void** handle"] ++ out_args ++ ["const char** error"], ", ") ++ ") {\n  *handle = nullptr;\n  *error = \"\";\n  try {\n    auto model = std::make_unique<Model>();\n    model->eval();")
+  for (copy in result_copies): cpp.add(copy)
+  cpp.add("    *handle = model.release();\n    return 0;\n" ++ catches)
+  cpp.add("extern \"C\" int " ++ bridge_symbol(plan, "tick") ++ "(" ++ String.join(["void* handle"] ++ in_args ++ out_args ++ ["const char** error"], ", ") ++ ") {\n  *error = \"\";\n  try {\n    auto* model = static_cast<Model*>(handle);")
+  for (port in plan.inputs, index in 0..plan.inputs.length()):
+    def input = "i" ++ to_string(index)
+    def width = scalar_carrier_width(port.type)
+    def value = if width <= 64 | input | "rhodium_rsim::from_words<" ++ to_string(width) ++ ">(" ++ input ++ ")"
+    cpp.add("    model->inputs." ++ cpp_name(port.name) ++ " = " ++ value ++ ";")
+  cpp.add("    model->tick();")
+  for (copy in result_copies): cpp.add(copy)
+  cpp.add("    return 0;\n" ++ catches)
+  cpp.add("extern \"C\" void " ++ bridge_symbol(plan, "destroy") ++ "(void* handle) {\n  delete static_cast<Model*>(handle);\n}")
+  [String.join(sv.snapshot(), "\n") ++ "\n", String.join(cpp.snapshot(), "\n") ++ "\n"]

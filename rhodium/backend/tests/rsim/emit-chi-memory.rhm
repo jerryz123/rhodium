@@ -1,0 +1,30 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "chi-memory-fixture.rhdl" open
+  lib("chi/protocol/flits.rhdl") open
+  "../../../core/printer.rhm".dump_ir
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "../../../compile/program.rhm".compile_program
+  "../../rsim-target.rhm".rsim_sv_target
+  "../../verilog-target.rhm".verilog_target
+
+def arguments = current_command_line()
+unless arguments.length() == 1 | error("expected OUTPUT_DIRECTORY")
+def before = dump_ir(design)
+def program = ElaboratedProgram(design, design.find_module_named("RsimCHIMemory"))
+def native = compile_program(program, rsim_sv_target)
+def reference = compile_program(program, verilog_target)
+unless native.manifest.signature == reference.manifest.signature && dump_ir(design) == before
+| error("CHI memory compilation changed source or signature")
+for (result in [native, reference]):
+  for (artifact in result.artifacts):
+    def name = (if result === reference | "reference-" | "") ++ artifact.name
+    file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], name), ~exists: #'#{truncate/replace})
+// Test-owned aliases expose the actual wire layout to a common SV scoreboard.
+def aliases = for List (type in [CHIReqFlit(p), CHIRspFlit(p), CHIDatFlit(p)], name in ["test_req_t", "test_rsp_t", "test_dat_t"]):
+  "typedef struct packed {\n" ++ String.join(type.fields.map(fun (field): "  logic [" ++ to_string(field.type.packed_width() - 1) ++ ":0] " ++ field.name ++ ";"), "\n") ++ "\n} " ++ name ++ ";\n"
+file.#{display-to-file}(String.join(aliases, "\n"), rkt.#{build-path}(arguments[0], "chi-types.svh"), ~exists: #'#{truncate/replace})

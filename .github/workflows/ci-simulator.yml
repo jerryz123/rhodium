@@ -59,12 +59,18 @@ jobs:
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
       - name: Build and attest simulator
+        shell: bash
         env:
           SOC: ${{ fromJSON(inputs.config).soc }}
           RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
           SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
+          OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}
         run: |
-          make -C sims simulator program-target SOC="$SOC" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
+          build_args=()
+          if [[ -n "$OPT_FAST" ]]; then build_args+=("OPT_FAST=$OPT_FAST"); fi
+          # An empty override must leave Verilator's normal compiler flags intact.
+          unset OPT_FAST
+          make -C sims simulator program-target SOC="$SOC" "${build_args[@]}" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
           ldd "/tmp/rhodium-sims/$SIMULATOR_ID/obj/VTestDriver"
       - name: Test Spike DPI integration
         if: fromJSON(inputs.config).core == 'spike'

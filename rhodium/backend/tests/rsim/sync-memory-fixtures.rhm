@@ -1,0 +1,93 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_sync_memory
+
+fun make_sync_memory(depth :: PosInt, aggregate :: Boolean, granularity :: maybe(PosInt) = #false, width :: PosInt = 64):
+  def design = Design()
+  def b = Builder(design)
+  def suffix = (if aggregate | "Record" | "Scalar") ++ to_string(depth) ++ (if granularity | "Mask" ++ to_string(granularity) | "") ++ (if width == 64 | "" | "W" ++ to_string(width))
+  def address_width = memory_address_width(depth)
+  def address_type = Bits(address_width)
+  def lanes = VectorType(2, Bits(width))
+  def element_type = if aggregate | RecordType([RecordField("tag", Bits(5)), RecordField("lanes", lanes)]) | Bits(width)
+  def mask_width = if granularity | element_type.packed_width() / granularity | 64
+  def leaf = b.module("SyncMemoryLeaf" ++ suffix)
+  def clock = b.input(leaf, "clock", Clock)
+  def reset = b.input(leaf, "reset", Reset)
+  def alias = b.wire(leaf, "clock_alias", Clock)
+  b.drive(alias, clock)
+  def addresses = for Map (name in ["read_address", "write_address", "shared_address"]):
+    values(name, b.input(leaf, name, address_type))
+  def controls = for Map (name in ["read_enable", "write_enable", "shared_enable", "write_mode", "copy", "feedback", "mask_from_read"]):
+    values(name, b.input(leaf, name, Bits(1)))
+  def write_mask = b.input(leaf, "write_mask", Bits(mask_width))
+  def data = b.input(leaf, "data", element_type)
+  def zero = b.constant(leaf, Bits(width), 0)
+  def zero_element = if aggregate | b.record_create(leaf, element_type, [["tag", b.constant(leaf, Bits(5), 0)], ["lanes", b.vector_create(leaf, lanes, [zero, zero])]]) | zero
+  def separate = b.sync_memory(leaf, "separate", depth, element_type, b.read(alias), #true, #true, #false, granularity)
+  def shared = b.sync_memory(leaf, "shared", depth, element_type, b.read(alias), #false, #false, #true, granularity)
+  def readonly = b.sync_memory(leaf, "readonly", depth, element_type, b.read(alias), #true, #false)
+  def writeonly = b.sync_memory(leaf, "writeonly", depth, element_type, b.read(alias), #false, #true, #false, granularity)
+  def rp = separate.read_ports[0]
+  def wp = separate.write_ports[0]
+  def rw = shared.read_write_ports[0]
+  // Read results are state roots, even when they feed their own future address
+  // or write data. Following those places as combinational operands would cycle.
+  def address_source = if aggregate | b.vector_get(leaf, b.record_get(leaf, rp.data, "lanes"), 0) | rp.data
+  b.drive(rp.address, b.mux_lookup(leaf, controls["feedback"], addresses["read_address"], [[1, b.extract(leaf, address_source, address_width - 1, 0)]]))
+  b.drive(rp.enable, controls["read_enable"])
+  b.drive(wp.address, addresses["write_address"])
+  b.drive(wp.data, b.mux_lookup(leaf, controls["copy"], data, [[1, rp.data]]))
+  b.drive(wp.enable, controls["write_enable"])
+  b.drive(rw.address, addresses["shared_address"])
+  b.drive(rw.enable, controls["shared_enable"])
+  b.drive(rw.write, controls["write_mode"])
+  b.drive(rw.write_data, b.mux_lookup(leaf, controls["copy"], data, [[1, rw.read_data]]))
+  b.drive(readonly.read_ports[0].address, addresses["read_address"])
+  b.drive(readonly.read_ports[0].enable, controls["read_enable"])
+  b.drive(writeonly.write_ports[0].address, addresses["write_address"])
+  b.drive(writeonly.write_ports[0].data, data)
+  b.drive(writeonly.write_ports[0].enable, controls["write_enable"])
+  when granularity
+  | def mask_source = (if mask_width > width | b.cast(leaf, rp.data, Bits(element_type.packed_width())) | address_source)
+    def shared_source = (if mask_width > width | b.cast(leaf, rw.read_data, Bits(element_type.packed_width())) | (if aggregate | b.vector_get(leaf, b.record_get(leaf, rw.read_data, "lanes"), 0) | rw.read_data))
+    b.drive(wp.mask, b.mux_lookup(leaf, controls["mask_from_read"], write_mask, [[1, b.extract(leaf, mask_source, mask_width - 1, 0)]]))
+    b.drive(rw.write_mask, b.mux_lookup(leaf, controls["mask_from_read"], write_mask, [[1, b.extract(leaf, shared_source, mask_width - 1, 0)]]))
+    b.drive(writeonly.write_ports[0].mask, write_mask)
+  for (name in ["separate", "shared", "readonly"], value in [rp.data, rw.read_data, readonly.read_ports[0].data]):
+    def sample = b.register(leaf, "q_" ++ name, element_type, b.read(alias), reset, zero_element)
+    b.drive(sample.next, value)
+    b.drive(b.output(leaf, name ++ "_result", element_type), value)
+    b.drive(b.output(leaf, name ++ "_sample", element_type), sample.current)
+  def ro = readonly.read_ports[0].data
+  def masked = if aggregate | b.vector_get(leaf, b.record_get(leaf, ro, "lanes"), 0) | ro
+  b.drive(b.output(leaf, "masked", Bits(width)), b.bit_and(leaf, masked, zero))
+  b.finish(leaf)
+  def top = b.module("SyncMemory" ++ suffix)
+  def tc = b.input(top, "clock", Clock)
+  def tr = b.input(top, "reset", Reset)
+  def top_addresses = for Map ((name, value) in addresses): values(name, b.input(top, name, value.type))
+  def top_controls = for Map ((name, value) in controls): values(name, b.input(top, name, Bits(2)))
+  def mask_input_width = if mask_width > 64 | mask_width | 64
+  def masks = [b.input(top, "mask_a", Bits(mask_input_width)), b.input(top, "mask_b", Bits(mask_input_width))]
+  def a = b.input(top, "a", Bits(width))
+  def z = b.input(top, "b", Bits(width))
+  fun payload(first :: Value, second :: Value):
+    if aggregate
+    | b.record_create(top, element_type, [["tag", b.extract(top, first, 4, 0)], ["lanes", b.vector_create(top, lanes, [first, second])]])
+    | first
+  def packets = [payload(a, z), payload(z, a)]
+  for (side in 0..2):
+    def child = b.instance(top, leaf, "side" ++ to_string(side))
+    b.drive(child.input("clock"), tc)
+    b.drive(child.input("reset"), tr)
+    b.drive(child.input("data"), packets[side])
+    b.drive(child.input("write_mask"), b.extract(top, masks[side], mask_width - 1, 0))
+    for ((name, value) in top_addresses): b.drive(child.input(name), value)
+    for ((name, value) in top_controls): b.drive(child.input(name), b.extract(top, value, side, side))
+    for (port in leaf.outputs): b.drive(b.output(top, "side" ++ to_string(side) ++ "_" ++ port.name, port.type), child.output(port.name))
+  b.finish(top)
+  ElaboratedProgram(design, top)

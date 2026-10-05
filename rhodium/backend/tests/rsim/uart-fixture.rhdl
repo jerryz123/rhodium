@@ -1,0 +1,20 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("devices/uart/uart-dpi.rhdl").UartDPI
+
+// Two real adapters share the root clock but use distinct PTYs and baud rates.
+sync_circuit RsimUartPair():
+  input first_tx: Bits(1)
+  input second_tx: Bits(1)
+  output first_rx: Bits(1)
+  output second_rx: Bits(1)
+  inst first(UartDPI(7, 1))
+  inst second(UartDPI(8, 2))
+  first.uart_tx <== first_tx
+  second.uart_tx <== second_tx
+  first_rx <== first.uart_rx
+  second_rx <== second.uart_rx
+
+def design = elaborate(RsimUartPair())
+export design

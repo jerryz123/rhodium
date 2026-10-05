@@ -1,0 +1,96 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../rsim-target.rhm" open
+  "rsim/sv-binding-fixtures.rhm" open
+  "rsim/fixtures.rhm".make_swap
+  "verilog/fixtures.rhm".make_hierarchy_program
+  "../../core/main.rhm" open
+  "../../core/printer.rhm".dump_ir
+  "../../lowering/program.rhm".ElaboratedProgram
+  "../../compile/program.rhm".compile_program
+  "../../compile/contracts.rhm".CompileOptions
+  "../../compile/rtl.rhm".prepare_rtl
+
+for (program in [make_bridge_ports(), make_swap(5), make_wide_bridge_ports()]):
+  def before = dump_ir(program.design)
+  def prepared = prepare_rtl(program, CompileOptions(), "binding test")
+  def snapshot = dump_ir(prepared.rtl.design)
+  def binding = rsim_sv_target.plan(prepared)
+  def artifacts = binding.emit()
+  def native = rsim_target.plan(prepared).emit()
+  check:
+    binding.manifest() === prepared.manifest ~is #true
+    artifacts.map(fun (artifact): artifact.name) ~is native.map(fun (artifact): artifact.name) ++ [program.top.name ++ ".sv", program.top.name ++ "_bridge.cpp"]
+    artifacts.take(native.length()) ~is native
+    binding.emit() ~is artifacts
+    compile_program(program, rsim_sv_target).artifacts ~is artifacts
+    dump_ir(program.design) ~is before
+    dump_ir(prepared.rtl.design) ~is snapshot
+    program.design.sealed ~is #false
+check:
+  compile_program(make_bridge_ports(100), rsim_sv_target).artifacts ~is compile_program(make_bridge_ports(), rsim_sv_target).artifacts
+
+check:
+  compile_program(make_wide_bridge_ports(100), rsim_sv_target).artifacts ~is compile_program(make_wide_bridge_ports(), rsim_sv_target).artifacts
+
+// Clock the outputs of the existing portable fixture to check that binding
+// composition prepares providers once and retains occurrence provenance.
+def mutable expansions = 0
+def child_program = make_hierarchy_program(5, 0, fun (): expansions := expansions + 1)
+def b = Builder(child_program.design)
+def top = b.module("ClockedPortable")
+def clock = b.input(top, "clock", Clock)
+def child = b.instance(top, child_program.top, "child")
+for (port in child_program.top.inputs): b.drive(child.input(port.name), b.input(top, port.name, port.type))
+for (port in child_program.top.outputs):
+  def state = b.register(top, "q" ++ port.name, port.type, clock)
+  b.drive(state.next, child.output(port.name))
+  b.drive(b.output(top, port.name, port.type), state.current)
+b.finish(top)
+def program = ElaboratedProgram(child_program.design, top, child_program.providers)
+def result = compile_program(program, rsim_sv_target)
+check:
+  expansions ~is 1
+  result.manifest.lowerings.map(fun (decision): decision.path) ~is [["child", "portable"], ["child", "portable_again"]]
+
+// These are invalid boundaries for the supported clocked binding, even though
+// standalone rsim can evaluate them with an explicit host eval() call.
+fun boundary(kind :: String):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("Boundary")
+  def clock = if kind == "no_clock" | #false | b.input(top, "clock", Clock)
+  when kind == "two_clocks" | b.input(top, "other_clock", Clock)
+  def type = if kind in ["aggregate_input", "aggregate_output"] | VectorType(2, Bits(5)) | Bits(5)
+  def input = b.input(top, "data", if kind == "aggregate_input" | type | Bits(5))
+  def constant = b.cast(top, b.constant(top, Bits(type.packed_width()), 0), type)
+  def value:
+    cond
+    | kind == "feedthrough": b.add(top, input, constant)
+    | kind in ["projected_selector", "projected_sibling"]:
+        def pair_type = RecordType([RecordField("selected", Bits(5)), RecordField("sibling", Bits(5))])
+        def choices = for List (number in [3, 7]):
+          b.record_create(top, pair_type, [["selected", b.constant(top, Bits(5), number)], ["sibling", input]])
+        def selector = if kind == "projected_selector" | input | b.constant(top, Bits(5), 1)
+        b.record_get(top, b.mux_lookup(top, selector, choices[0], [[1, choices[1]]]), "selected")
+    | ~else: constant
+  def output_type = if kind == "aggregate_input" | Bits(5) | type
+  b.drive(b.output(top, "result", output_type), if kind == "aggregate_input" | b.constant(top, output_type, 0) | value)
+  when kind == "symbol_collision"
+  | def call = b.dpi_import("rhodium_rsim_pBoundary_create", ["value"], [Bits(5)])
+    b.dpi_call(top, call, [input], clock, b.constant(top, Bits(1), 1))
+  b.finish(top)
+  ElaboratedProgram(design, top)
+check:
+  compile_program(boundary("no_clock"), rsim_sv_target) ~throws "exactly one root Clock"
+  compile_program(boundary("two_clocks"), rsim_sv_target) ~throws "at most one root clock"
+  compile_program(boundary("feedthrough"), rsim_sv_target) ~throws "Boundary.result: output depends combinationally on an input"
+  compile_program(boundary("aggregate_input"), rsim_sv_target) ~throws "Boundary.data: binding ports require scalar widths"
+  compile_program(boundary("aggregate_output"), rsim_sv_target) ~throws "Boundary.result: binding ports require scalar widths"
+  compile_program(boundary("symbol_collision"), rsim_sv_target) ~throws "foreign symbol collides with binding: rhodium_rsim_pBoundary_create"
+
+// Projected muxes retain selector dependencies but omit unrelated branch fields.
+check:
+  compile_program(boundary("projected_selector"), rsim_sv_target) ~throws "Boundary.result: output depends combinationally on an input"
+  compile_program(boundary("projected_sibling"), rsim_sv_target).artifacts.length() ~is 4

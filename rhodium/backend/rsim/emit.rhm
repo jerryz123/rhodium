@@ -1,0 +1,323 @@
+#lang rhombus
+/* Renders a scheduled typed circuit as standalone C++ with explicit evaluate and commit phases. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/types.rhm" open
+  "plan.rhm" open
+  "types.rhm" open
+  rhombus/meta open
+  rhombus/runtime_path
+  lib("racket/file.rkt") as file
+  lib("racket/base.rkt") as rkt
+
+export emit_rsim
+
+// Resolve support relative to the installed emitter, independent of the caller's cwd.
+runtime_path.def bits_header: "rsim-bits.hpp"
+
+/* Refer to a previously scheduled temporary. */
+fun ref(index :: Nat) :: String:
+  "v" ++ to_string(index)
+
+/* Quote diagnostic paths without letting source punctuation or line breaks
+   become C++ syntax. Labels and occurrence names are already identifiers. */
+fun cpp_string(value :: String) :: String:
+  def mutable escaped = value
+  for (pair in [["\\", "\\\\"], ["\"", "\\\""], ["\n", "\\n"], ["\r", "\\r"], ["\t", "\\t"]]):
+    escaped := escaped.replace(pair[0], pair[1], ~all: #true)
+  "\"" ++ escaped ++ "\""
+
+/* Distinguish the ABI's native widths from packed vectors, independently of
+   author-level signedness and the model's scalar carriers. */
+fun foreign_packed(type :: HardwareType) :: Boolean:
+  !(scalar_width(type) in [1, 8, 16, 32, 64])
+
+/* Use the same native and packed-word types as the SystemVerilog DPI ABI.
+   Packed returns use one uint32 word; packed arguments use arrays of words. */
+fun foreign_type(type :: HardwareType) :: String:
+  {1: "unsigned char", 8: "char", 16: "short", 32: "int", 64: "long long"}.get(scalar_width(type), "std::uint32_t")
+
+/* Identify one held result independently of both its sibling results and
+   other occurrences of the same imported function. */
+fun foreign_slot(call_index :: Nat, result_index :: Nat) :: String:
+  "f" ++ to_string(call_index) ++ "_" ++ to_string(result_index)
+
+/* Emit one operation; normalization at the caller preserves each intermediate
+   hardware width before any later comparison or conversion. */
+fun expression(step :: RsimStep, steps :: List.of(RsimStep), types :: CppTypes) :: String:
+  def args = step.operands.map(ref)
+  def binary = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+",
+                "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}
+  cond
+  | step.opcode == "input": "inputs." ++ cpp_name(step.attributes["name"])
+  | step.opcode == "state": "state_.s" ++ to_string(step.attributes["slot"])
+  | step.opcode == "foreign_result": "state_." ++ foreign_slot(step.attributes["slot"], step.attributes["result"])
+  | step.opcode == "sync_read": "state_.r" ++ to_string(step.attributes["slot"])
+  | step.opcode == "memory_read": "vector_index(memory" ++ to_string(step.attributes["slot"]) ++ "_, " ++ args[0] ++ ")"
+  | step.opcode == "rtl.constant": types.constant(step.type, step.attributes["value"])
+  // Deterministic choices for partial values do not introduce four-state logic
+  // or promise values for uncared bits or invalid one-hot selectors.
+  | step.opcode == "rtl.dont_care": types.constant(step.type, 0)
+  | step.opcode == "rtl.onehot_mux":
+      def selector_type = steps[step.operands[0]].type
+      def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):
+        types.bit_test(selector_type, args[0], index) ++ " ? " ++ value ++ " : "
+      String.join(cases, "") ++ types.name(step.type) ++ "{}"
+  | step.opcode == "rtl.decode":
+      def input_type = steps[step.operands[0]].type
+      def cases = for List (row in step.attributes["cases"]):
+        types.cube_match(input_type, args[0], row[0], row[1]) ++ " ? " ++ types.constant(step.type, row[2] bits.and row[3]) ++ " : "
+      String.join(cases, "") ++ types.constant(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])
+  | step.opcode == "rtl.not": "~" ++ args[0]
+  | step.opcode == "rtl.cast":
+      def source_type = steps[step.operands[0]].type
+      if scalar_width(step.type) && scalar_width(source_type)
+      | args[0]
+      | def packed = types.pack(source_type, args[0])
+        cond
+        | scalar_width(step.type): packed
+        | scalar_width(source_type): types.unpack(step.type, packed)
+        | ~else: "([&]() { const auto packed = " ++ packed ++ "; return " ++ types.unpack(step.type, "packed") ++ "; }())"
+  | step.opcode in ["rtl.record_create", "rtl.vector_create"]: types.construct(step.type, args)
+  | step.opcode == "rtl.record_get": args[0] ++ "." ++ cpp_name(step.attributes["field"])
+  | step.opcode == "rtl.vector_get": args[0] ++ "[" ++ to_string(step.attributes["index"]) ++ "]"
+  | step.opcode in ["rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set"]:
+      def name = {"rtl.vector_index": "vector_index", "rtl.vector_inject": "vector_inject", "rtl.vector_write_set": "vector_write_set"}[step.opcode]
+      name ++ "(" ++ String.join(args, ", ") ++ ")"
+  | step.opcode in ["rtl.zext", "rtl.trunc", "rtl.extract", "rtl.sext"] && (scalar_carrier_width(step.type) > 64 || scalar_carrier_width(steps[step.operands[0]].type) > 64):
+      def target_width = scalar_carrier_width(step.type)
+      def source_width = scalar_carrier_width(steps[step.operands[0]].type)
+      def helper = if step.opcode == "rtl.sext" | "sign_extend" | "slice"
+      def offset = if step.opcode == "rtl.extract" | ", " ++ to_string(step.attributes["low"]) | ""
+      "rhodium_rsim::" ++ helper ++ "<" ++ to_string(target_width) ++ ", " ++ to_string(source_width) ++ ">(" ++ args[0] ++ offset ++ ")"
+  | step.opcode in ["rtl.zext", "rtl.trunc"]: args[0]
+  | step.opcode == "rtl.extract": args[0] ++ " >> " ++ to_string(step.attributes["low"])
+  | step.opcode == "rtl.concat" && scalar_carrier_width(step.type) > 64:
+      def widths = [scalar_carrier_width(step.type)] ++ step.operands.map(fun (operand): scalar_carrier_width(steps[operand].type))
+      "rhodium_rsim::concat<" ++ String.join(widths.map(to_string), ", ") ++ ">(" ++ String.join(args, ", ") ++ ")"
+  | step.opcode == "rtl.concat":
+      def mutable remaining = scalar_carrier_width(step.type)
+      def terms = for List (operand in step.operands, arg in args):
+        remaining := remaining - scalar_carrier_width(steps[operand].type)
+        if remaining == 0 | arg | "(" ++ arg ++ " << " ++ to_string(remaining) ++ ")"
+      String.join(terms, " | ")
+  | step.opcode == "rtl.slt" && scalar_carrier_width(steps[step.operands[0]].type) > 64:
+      "rhodium_rsim::signed_less(" ++ args[0] ++ ", " ++ args[1] ++ ")"
+  | step.opcode in ["rtl.sext", "rtl.slt"]:
+      // Flipping the sign bit orders two's-complement values as unsigned.
+      // Subtracting that bit afterward instead gives sign extension modulo 2^64.
+      def sign = literal(2 ** (scalar_carrier_width(steps[step.operands[0]].type) - 1))
+      if step.opcode == "rtl.sext"
+      | "(" ++ args[0] ++ " ^ " ++ sign ++ ") - " ++ sign
+      | "(" ++ args[0] ++ " ^ " ++ sign ++ ") < (" ++ args[1] ++ " ^ " ++ sign ++ ")"
+  | step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"]:
+      def name = {"rtl.shl": "shift_left", "rtl.shru": "shift_right", "rtl.shrs": "shift_signed"}[step.opcode]
+      def width = scalar_carrier_width(step.type)
+      def count_width = scalar_carrier_width(steps[step.operands[1]].type)
+      if width > 64 || count_width > 64
+      | "rhodium_rsim::" ++ name ++ "<" ++ to_string(width) ++ ", " ++ to_string(count_width) ++ ">(" ++ String.join(args, ", ") ++ ")"
+      | name ++ "(" ++ args[0] ++ ", " ++ args[1] ++ ", " ++ to_string(width) ++ ")"
+  | binary.has_key(step.opcode): args[0] ++ " " ++ binary[step.opcode] ++ " " ++ args[1]
+  | step.opcode == "rtl.mux_lookup":
+      def selector_type = steps[step.operands[0]].type
+      def cases = for List (key in step.attributes["keys"], value in args.drop(2)):
+        "(" ++ args[0] ++ " == " ++ types.constant(selector_type, key) ++ ") ? " ++ value ++ " : "
+      String.join(cases, "") ++ args[1]
+  | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
+
+/* Produce model sources and optional wide support, with private storage per model object.
+   The evaluator is pure with respect to state; tick commits only after every
+   next-state expression and pending write has sampled the old state. Memory
+   arrays live outside the frame, so evaluation never copies whole memories. */
+fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
+  def namespace = "rsim_" ++ cpp_name(plan.name)
+  def types = CppTypes()
+  for (step in plan.steps):
+    types.name(step.type)
+    // An aggregate-to-aggregate cast may need a wide temporary even when all
+    // stored leaves are narrow. Decide support packaging before the header.
+    when step.opcode == "rtl.cast" && step.type.packed_width() > 64
+    | types.wide := #true
+  for (memory in plan.memories): types.name(memory.type)
+  // Live calls own every ABI result even when no scheduled value consumes it.
+  // Discover these types before deciding whether to package wide support.
+  for (call in plan.foreign_calls):
+    for (type in call.import_decl.input_types ++ call.import_decl.results.map(fun (result): result.type)):
+      types.name(type)
+  def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
+                           "// SPDX-License-Identifier: Apache-2.0", "#pragma once", "#include <cstdint>", "#include <array>" ++ (if types.wide | "\n#include \"rsim-bits.hpp\"" | ""),
+                           "namespace " ++ namespace ++ " {", String.join(types.declarations.snapshot(), "\n"), "class Model {", "public:",
+                           "  struct Inputs {"]
+  for (port in plan.inputs): header.add("    " ++ types.name(port.type) ++ " " ++ cpp_name(port.name) ++ "{};")
+  header.add("  } inputs;\n  struct Outputs {")
+  for (port in plan.outputs): header.add("    " ++ types.name(port.type) ++ " " ++ cpp_name(port.name) ++ "{};")
+  header.add("  };\n  void eval();\n  void tick();\n  const Outputs& outputs() const { return outputs_; }\nprivate:\n  struct State {")
+  for (reg in plan.registers, index in 0..plan.registers.length()):
+    header.add("    " ++ types.name(reg.type) ++ " s" ++ to_string(index) ++ "{}; // " ++ String.join(reg.path ++ [reg.name], "/"))
+  for (read in plan.reads, index in 0..plan.reads.length()):
+    header.add("    " ++ types.name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "{}; // synchronous read result")
+  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
+    for (result_index in 0..call.import_decl.results.length()):
+      header.add("    " ++ types.name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "{}; // held foreign result")
+  header.add("  } state_;")
+  for (memory in plan.memories, index in 0..plan.memories.length()):
+    header.add("  std::array<" ++ types.name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
+  header.add("  struct Frame {\n    Outputs outputs;\n    State next;")
+  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
+    def prefix = "call" ++ to_string(index)
+    header.add("    bool " ++ prefix ++ "_enable{};")
+    for (arg in 0..call.arguments.length()):
+      header.add("    " ++ types.name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ "{};")
+  for (index in 0..plan.assertions.length()):
+    header.add("    bool assertion" ++ to_string(index) ++ "_failed{};")
+  for (write in plan.writes, index in 0..plan.writes.length()):
+    def prefix = "write" ++ to_string(index)
+    header.add("    std::uint64_t " ++ prefix ++ "_address{};\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data{};\n    bool " ++ prefix ++ "_enable{};")
+  header.add("  };\n  Outputs outputs_;\n  Frame evaluate() const;\n};\n}")
+  def source = MutableList["// Evaluates " ++ plan.name ++ " with simultaneous state commits.",
+                           "// SPDX-License-Identifier: Apache-2.0", "#include \"" ++ plan.name ++ ".hpp\"", "#include <cstddef>"]
+  when plan.assertions.length() > 0
+  | source.add("#include <stdexcept>")
+  when plan.foreign_calls.length() > 0
+  | source.add("#include <climits>\n#include <cstring>\n#include <type_traits>")
+  source.add("namespace " ++ namespace ++ " {")
+  when plan.foreign_calls.length() > 0
+  | source.add("static_assert(CHAR_BIT == 8 && sizeof(short) == 2 && sizeof(int) == 4 && sizeof(long long) == 8, \"unsupported native foreign ABI\");")
+    // A private namespace isolates declarations from model/helper names while
+    // C linkage preserves the authored external symbol without mangling.
+    source.add("namespace foreign {")
+    def declared = MutableSet{}
+    for (call in plan.foreign_calls):
+      def imp = call.import_decl
+      unless imp.name in declared
+      | declared.add(imp.name)
+        def result = if imp.has_result() | foreign_type(imp.return_result().type) | "void"
+        def out_types = for List (result in imp.results.filter(~keep: fun (result): result.direction == "out")):
+          foreign_type(result.type) ++ "*"
+        def input_types = imp.input_types.map(fun (type): if foreign_packed(type) | "const std::uint32_t*" | foreign_type(type))
+        source.add("extern \"C\" " ++ result ++ " " ++ imp.name ++ "(" ++ String.join(input_types ++ out_types, ", ") ++ ");")
+    source.add("}\ntemplate <typename T>\nstatic T foreign_arg(std::uint64_t value) {\n  const auto bits = static_cast<typename std::make_unsigned<T>::type>(value);\n  T result;\n  std::memcpy(&result, &bits, sizeof(result));\n  return result;\n}")
+  // Runtime guards precede every variable shift. Keeping them in ordinary
+  // functions also avoids invalid constant-shift diagnostics in unreachable
+  // expression branches. Counts remain unsigned 64-bit values until checked.
+  def opcodes = plan.steps.map(fun (step): step.opcode)
+  // Partial RTL results may be computed behind an unselected mux. Guard every
+  // array access instead of throwing or invoking C++ undefined behavior. Zero
+  // reads and skipped invalid writes are backend choices for unconstrained
+  // results; loop order does not create a hardware collision-priority contract.
+  def masked_writes = plan.writes.filter(~keep: fun (write): write.mask_value != #false)
+  when "rtl.vector_index" in opcodes || "memory_read" in opcodes || plan.reads.length() > 0 || masked_writes.length() > 0
+  | source.add("template <typename T, std::size_t N>\nstatic T vector_index(const std::array<T, N>& value, std::uint64_t index) {\n  return index < N ? value[index] : T{};\n}")
+  when "rtl.vector_inject" in opcodes
+  | source.add("template <typename T, std::size_t N>\nstatic std::array<T, N> vector_inject(std::array<T, N> value, std::uint64_t index, const T& element) {\n  if (index < N) value[index] = element;\n  return value;\n}")
+  when "rtl.vector_write_set" in opcodes
+  | source.add("template <typename T, std::size_t N, std::size_t P>\nstatic std::array<T, N> vector_write_set(std::array<T, N> value, const std::array<std::uint64_t, P>& enables, const std::array<std::uint64_t, P>& indices, const std::array<T, P>& elements) {\n  for (std::size_t port = 0; port < P; ++port) {\n    if (enables[port] != 0 && indices[port] < N) value[indices[port]] = elements[port];\n  }\n  return value;\n}")
+  // Emit narrow helpers only when called; models with exclusively wide shift
+  // operations use the shared support header and need no unused local functions.
+  def narrow_shifts = plan.steps.filter(~keep: fun (step): step.opcode in ["rtl.shl", "rtl.shru", "rtl.shrs"] && scalar_carrier_width(step.type) <= 64 && scalar_carrier_width(plan.steps[step.operands[1]].type) <= 64).map(fun (step): step.opcode)
+  for (entry in [["rtl.shl", "shift_left", "<<"], ["rtl.shru", "shift_right", ">>"]]):
+    when entry[0] in narrow_shifts
+    | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")
+  when "rtl.shrs" in narrow_shifts
+  | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
+  source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
+  for (step in plan.steps, index in 0..plan.steps.length()):
+    def rendered = expression(step, plan.steps, types)
+    // External aggregates need leaf masking. All other aggregate operations
+    // copy normalized members; scalar expressions are masked at every boundary.
+    def value:
+      if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
+      | types.normalize(step.type, rendered)
+      | rendered
+    source.add("  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";")
+  for (port in plan.outputs): source.add("  frame.outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
+  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
+    def slot = to_string(index)
+    source.add("  frame.call" ++ slot ++ "_enable = " ++ ref(call.enable) ++ " != 0;")
+    for (argument in call.arguments, arg in 0..call.arguments.length()):
+      source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+    for (result_index in 0..call.import_decl.results.length()):
+      def name = foreign_slot(index, result_index)
+      source.add("  frame.next." ++ name ++ " = state_." ++ name ++ ";")
+  // Evaluation only computes sampled predicates; checks remain tick-only and
+  // cannot mutate state or outputs, even when the caller catches a failure.
+  for (assertion in plan.assertions, index in 0..plan.assertions.length()):
+    source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0 && " ++ ref(assertion.condition) ++ " == 0;")
+  for (reg in plan.registers, index in 0..plan.registers.length()):
+    def value = if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
+    source.add("  frame.next.s" ++ to_string(index) ++ " = " ++ value ++ ";")
+  // Read ports and consumers sample old storage on the same edge. Zero is only
+  // this backend's choice for disabled/shared-write results, which are unspecified.
+  for (read in plan.reads, index in 0..plan.reads.length()):
+    def enabled = ref(read.enable) ++ " != 0" ++ (if read.write_mode | " && " ++ ref(read.write_mode) ++ " == 0" | "")
+    def value = "vector_index(memory" ++ to_string(read.memory) ++ "_, " ++ ref(read.address) ++ ")"
+    source.add("  frame.next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
+  for (write in plan.writes, index in 0..plan.writes.length()):
+    def prefix = "frame.write" ++ to_string(index)
+    def enabled = ref(write.enable) ++ " != 0" ++ (if write.write_mode | " && " ++ ref(write.write_mode) ++ " != 0" | "")
+    // Merge before committing any state, including a mask fed by an old read
+    // result. Guard the old-word load even for disabled or invalid writes.
+    def data:
+      if write.mask_value
+      | def old = "write" ++ to_string(index) ++ "_old"
+        source.add("  const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");")
+        types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
+      | ref(write.data)
+    source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ data ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
+  source.add("  return frame;\n}\nvoid Model::eval() { outputs_ = evaluate().outputs; }\nvoid Model::tick() {\n  auto before = evaluate();")
+  for (assertion in plan.assertions, index in 0..plan.assertions.length()):
+    def message = "assertion failed: " ++ (assertion.label || "<unlabeled>") ++ " [" ++ String.join([plan.name] ++ assertion.path, "/") ++ "] " ++ assertion.location
+    source.add("  if (before.assertion" ++ to_string(index) ++ "_failed) throw std::runtime_error(" ++ cpp_string(message) ++ ");")
+  // All arguments and ordinary next-state values were sampled before the first
+  // effect. Assertions above suppress the whole batch; external effects cannot
+  // be rolled back if a host function fails after another call has run.
+  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
+    def imp = call.import_decl
+    def slot = to_string(index)
+    source.add("  if (before.call" ++ slot ++ "_enable) {")
+    def arguments = for List (type in imp.input_types, arg in 0..call.arguments.length()):
+      def name = "call" ++ slot ++ "_arg" ++ to_string(arg)
+      if foreign_packed(type)
+      | def width = scalar_width(type)
+        if width > 64
+        | source.add("    const auto " ++ name ++ " = rhodium_rsim::to_words<" ++ to_string(width) ++ ">(before." ++ name ++ ");")
+        | def words = (if width <= 32 | 1 | 2)
+          def elements = for List (word in 0..words):
+            "static_cast<std::uint32_t>(before." ++ name ++ " >> " ++ to_string(32 * word) ++ ")"
+          source.add("    const std::array<std::uint32_t, " ++ to_string(words) ++ "> " ++ name ++ "{{" ++ String.join(elements, ", ") ++ "}};")
+        name ++ ".data()"
+      | "foreign_arg<" ++ foreign_type(type) ++ ">(before." ++ name ++ ")"
+    // Out parameters point to native temporaries or low-word-first packed
+    // arrays, never directly to model state. Core guarantees ordered outs then a return.
+    def out_results = imp.results.filter(~keep: fun (result): result.direction == "out")
+    def out_arguments = for List (result in out_results, result_index in 0..out_results.length()):
+      def name = foreign_slot(index, result_index)
+      if foreign_packed(result.type)
+      | def words = rkt.quotient(scalar_width(result.type) + 31, 32)
+        source.add("    std::array<std::uint32_t, " ++ to_string(words) ++ "> " ++ name ++ "{};")
+        name ++ ".data()"
+      | source.add("    " ++ foreign_type(result.type) ++ " " ++ name ++ "{};")
+        "&" ++ name
+    def invocation = "foreign::" ++ imp.name ++ "(" ++ String.join(arguments ++ out_arguments, ", ") ++ ")"
+    if imp.has_result()
+    | source.add("    const auto " ++ foreign_slot(index, imp.results.length() - 1) ++ " = " ++ invocation ++ ";")
+      for (result in imp.results, result_index in 0..imp.results.length()):
+        def name = foreign_slot(index, result_index)
+        def raw:
+          if result.direction == "out" && foreign_packed(result.type)
+          | if scalar_width(result.type) > 64
+            | "rhodium_rsim::from_words<" ++ to_string(scalar_width(result.type)) ++ ">(" ++ name ++ ".data())"
+            | "static_cast<std::uint64_t>(" ++ name ++ "[0])" ++ (if scalar_width(result.type) > 32 | " | (static_cast<std::uint64_t>(" ++ name ++ "[1]) << 32)" | "")
+          | "static_cast<std::uint64_t>(" ++ name ++ ")"
+        def value = types.normalize(result.type, raw)
+        source.add("    before.next." ++ name ++ " = " ++ value ++ ";")
+    | source.add("    " ++ invocation ++ ";")
+    source.add("  }")
+  source.add("  state_ = before.next;")
+  // Registers and writes sample the same old state. Guard addresses independently
+  // of register reset; statement order only chooses unspecified collision results.
+  for (write in plan.writes, index in 0..plan.writes.length()):
+    def prefix = "before.write" ++ to_string(index)
+    source.add("  if (" ++ prefix ++ "_enable && " ++ prefix ++ "_address < " ++ to_string(plan.memories[write.memory].depth) ++ ") memory" ++ to_string(write.memory) ++ "_[" ++ prefix ++ "_address] = " ++ prefix ++ "_data;")
+  source.add("  eval();\n}\n}")
+  [String.join(header.snapshot(), "\n") ++ "\n", String.join(source.snapshot(), "\n") ++ "\n"] ++ (if types.wide | [rkt.#{string->immutable-string}(file.#{file->string}(bits_header))] | [])

@@ -1,5 +1,5 @@
 #lang rhombus
-/* Compiles an explicit SoC config with independently selected passive RTL instrumentation. */
+/* Compiles an explicit SoC config with selected RTL backend and passive instrumentation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -18,15 +18,21 @@ import:
 def arguments = current_command_line()
 def backend_option = arguments.length() > 0 && arguments[0] == "--backend"
 when backend_option && arguments.length() < 2
-| error(~who: #'emit_soc_harness, "--backend requires circt or verilog")
+| error(~who: #'emit_soc_harness, "--backend requires circt, verilog, or rsim")
 def backend = if backend_option | arguments[1] | "circt"
-unless backend in ["circt", "verilog"] | error(~who: #'emit_soc_harness, "backend must be circt or verilog")
-def remaining = if backend_option | arguments.drop(2) | arguments
+unless backend in ["circt", "verilog", "rsim"] | error(~who: #'emit_soc_harness, "backend must be circt, verilog, or rsim")
+def backend_args = if backend_option | arguments.drop(2) | arguments
+def output_option = backend_args.length() > 0 && backend_args[0] == "--output-directory"
+when output_option && backend_args.length() < 2
+| error(~who: #'emit_soc_harness, "--output-directory requires a directory")
+unless output_option == (backend == "rsim")
+| error(~who: #'emit_soc_harness, "rsim requires --output-directory for its C++ model and bridge")
+def remaining = if output_option | backend_args.drop(2) | backend_args
 def instrumented = remaining.length() == 5 && remaining[0] in ["--trace", "--cosim", "--trace-cosim"]
 def tracing = instrumented && remaining[0] in ["--trace", "--trace-cosim"]
 def cosim = instrumented && remaining[0] in ["--cosim", "--trace-cosim"]
 unless remaining.length() == 1 || remaining.length() == 3 || instrumented
-| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace/--cosim/--trace-cosim output-directory shape core ISA")
+| error(~who: #'emit_soc_harness, "expected [--backend circt|verilog|rsim] [--output-directory directory] followed by shape core ISA, a fixture path, or --trace/--cosim/--trace-cosim output-directory shape core ISA")
 when tracing && backend != "circt" | error(~who: #'emit_soc_harness, "tracing currently requires the CIRCT backend")
 def selectors = if instrumented | remaining.drop(2) | remaining
 def resolved = if selectors.length() == 1
@@ -59,11 +65,12 @@ def elaboration = if resolved | selected_elaboration(resolved) | #false
 def design = if resolved | elaboration.design | dynamic_require(selectors[0], #'design)
 def top = if resolved | elaboration.top | design.find_module_named("SoCHarness")
 unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
-// Load only the selected backend. Both receive the same explicit top and
+// Load only the selected backend. All receive the same explicit top and
 // preserve the selected config and harness identity comments.
-def rtl_target = if backend == "verilog"
-| dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
-| dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
+def rtl_target = match backend
+| "verilog": dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
+| "rsim": dynamic_require("rhodium/backend/rsim-target.rhm", #'rsim_sv_target)
+| ~else: dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
 def passes = (if cosim | [dynamic_require("sims/cosim/pass.rhm", #'cosim_pass)()] | []) ++ (
   if tracing
   | def trace_pass = dynamic_require("rhodium/event/trace-pass.rhm", #'event_trace_pass)
@@ -92,4 +99,9 @@ when resolved
     println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(config_metadata(resolved, resolved_config)))
     println("// rhodium-rtl-backend: " ++ backend)
     println("// rhodium-harness-variant: " ++ (if cosim | (if tracing | "trace-cosim" | "cosim") | (if tracing | "trace" | "normal")))
-print(compiled.artifacts.find(fun (artifact): artifact.media_type == (if backend == "circt" | "text/x-mlir" | "text/x-systemverilog")).content)
+if backend == "rsim"
+| block:
+    for (artifact in compiled.artifacts.filter(~keep: fun (artifact): artifact.name != "SoCHarness.sv")):
+      write_file(artifact.content, build_path(backend_args[1], artifact.name), ~exists: #'#{truncate/replace})
+    print(compiled.artifacts.find(fun (artifact): artifact.name == "SoCHarness.sv").content)
+| print(compiled.artifacts.find(fun (artifact): artifact.media_type == (if backend == "circt" | "text/x-mlir" | "text/x-systemverilog")).content)

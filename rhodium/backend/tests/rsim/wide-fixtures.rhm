@@ -1,0 +1,191 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "memory-fixtures.rhm".make_memory
+  "sync-memory-fixtures.rhm".make_sync_memory
+export make_wide make_wide_aggregate make_relayout make_wide_memories
+
+fun make_wide_memories():
+  def programs = MutableList[]
+  for (width in [65, 129, 512]):
+    for (aggregate in [#false, #true]): programs.add(make_memory(3, aggregate, width))
+  for (entry in [[65, #false, 1], [65, #true, 3], [129, #true, 1], [129, #false, 129],
+                 [512, #false, 8], [512, #true, 7], [512, #false, #false], [512, #false, 1], [64, #true, 1]]):
+    programs.add(make_sync_memory(3, entry[1], entry[2], entry[0]))
+  programs.snapshot()
+
+class Signed(width :: PosInt):
+  implements SignedArithmeticType
+  override method describe(): "wide-signed<" ++ to_string(width) ++ ">"
+  override method type_equal(other): other is_a Signed && width == other.width
+  override method packed_width(): width
+  override method with_bit_width(width): Signed(width)
+
+fun make_wide(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def leaf = b.module("WideLeaf" ++ to_string(width))
+  def clock = b.input(leaf, "clock", Clock)
+  def reset = b.input(leaf, "reset", Reset)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def data = b.input(leaf, "data", Bits(width))
+  def seed = 2 ** (width - 1) + 0x123456789abcdef
+  def q = b.register(leaf, "state_q", Bits(width), clock, reset, b.constant(leaf, Bits(width), seed))
+  def delayed = b.register(leaf, "state_delayed", Bits(width), clock, reset, b.constant(leaf, Bits(width), 3))
+  b.drive(q.next, b.mux_lookup(leaf, enable, q.current, [[1, b.bit_xor(leaf, q.current, data)]]))
+  b.drive(delayed.next, q.current)
+  b.drive(b.output(leaf, "q", Bits(width)), q.current)
+  b.drive(b.output(leaf, "delayed", Bits(width)), delayed.current)
+  b.finish(leaf)
+  def top = b.module("Wide" ++ to_string(width))
+  def tc = b.input(top, "clock", Clock)
+  def tr = b.input(top, "reset", Reset)
+  def te = b.input(top, "enable", Bits(1))
+  def a = b.input(top, "a", Bits(width))
+  def z = b.input(top, "b", Bits(width))
+  def narrow = b.input(top, "narrow", Bits(64))
+  def small = b.input(top, "small", Bits(5))
+  def amount = b.input(top, "amount", Bits(129))
+  def low_count = b.extract(top, amount, 63, 0)
+  def select = b.input(top, "select", Bits(2))
+  def selected = b.mux_lookup(top, select, a, [[1, z], [2, b.bit_xor(top, a, z)], [3, b.bit_not(top, a)]])
+  def cross_width = if width > 128 | 65 | 33
+  def sum = b.add(top, a, z)
+  def difference = b.sub(top, a, z)
+  def product = b.mul(top, a, z)
+  def joined = b.concat(top, [small, a, z, narrow])
+  def joined_narrow = b.concat(top, [small, narrow, small])
+  def sign = 2 ** (width - 1)
+  def full = 2 ** width - 1
+  def care = sign + 2 ** 32 + 1
+  def rows = [[0, care, full, full], [sign, care, seed, full bits.xor sign],
+              [2 ** 32, care, sign + 5, full bits.xor (2 ** 32)]]
+  def decoded = b.decode(top, a, Bits(width), Bits(width), rows, 7, full bits.xor 1)
+  def picked = b.onehot_mux(top, amount, for List (index in 0..129): b.constant(top, Bits(width), sign + index + 1))
+  // A wide selector must also preserve high bits when choosing narrow aggregates.
+  def packet_type = RecordType([RecordField("tag", Bits(5)), RecordField("data", Bits(64))])
+  def packets = for List (tag in [3, 17, 29], data in [narrow, b.extract(top, a, 63, 0), b.extract(top, z, 63, 0)]):
+    b.record_create(top, packet_type, [["tag", b.constant(top, Bits(5), tag)], ["data", data]])
+  def packet = b.mux_lookup(top, amount, packets[0], [[1, packets[1]], [2 ** 64 + 1, packets[2]]])
+  def outputs:
+    [["both", b.bit_and(top, a, z)], ["either", b.bit_or(top, a, z)],
+     ["parity", b.bit_xor(top, a, z)], ["inverted", b.bit_not(top, a)],
+     ["equal", b.eq(top, a, z)], ["selected", selected],
+     ["low", b.trunc(top, a, 63)], ["high", b.extract(top, a, width - 1, width - 64)],
+     ["cross", b.extract(top, a, 31 + cross_width - 1, 31)],
+     ["zero", if width == 64 | narrow | b.zext(top, narrow, width)],
+     ["sign", if width == 64 | narrow | b.sext(top, b.cast(top, narrow, Signed(64)), width)],
+     ["small_sign", b.sext(top, b.cast(top, small, Signed(5)), width)],
+     ["grown", b.zext(top, a, width + 33)],
+     ["grown_sign", b.sext(top, b.cast(top, a, Signed(width)), width + 33)],
+     ["shrunk", b.trunc(top, b.zext(top, a, width + 33), width)],
+     ["constant", b.constant(top, Bits(width), seed)],
+     ["sum", sum], ["difference", difference], ["product", product],
+     ["unsigned_less", b.ult(top, a, z)],
+     ["signed_less", b.slt(top, b.cast(top, a, Signed(width)), b.cast(top, z, Signed(width)))],
+     ["sum_extended", b.zext(top, sum, width + 33)],
+     ["difference_extended", b.zext(top, difference, width + 33)],
+     ["product_extended", b.zext(top, product, width + 33)],
+     ["left", b.shl(top, a, amount)], ["right", b.shru(top, a, amount)],
+     ["signed_right", b.shrs(top, b.cast(top, a, Signed(width)), amount)],
+     ["left_low_count", b.shl(top, a, low_count)], ["right_low_count", b.shru(top, a, low_count)],
+     ["signed_low_count", b.shrs(top, b.cast(top, a, Signed(width)), low_count)],
+     ["narrow_left", b.shl(top, narrow, amount)], ["narrow_right", b.shru(top, narrow, amount)],
+     ["narrow_signed", b.shrs(top, b.cast(top, narrow, Signed(64)), amount)],
+     ["small_left", b.shl(top, small, amount)], ["small_right", b.shru(top, small, amount)],
+     ["small_signed", b.shrs(top, b.cast(top, small, Signed(5)), amount)],
+     ["joined", joined], ["joined_narrow", joined_narrow],
+     ["joined_a", b.extract(top, joined, 64 + 2 * width - 1, 64 + width)],
+     ["joined_low", b.extract(top, joined, 63, 0)],
+     ["lookup_narrow", b.mux_lookup(top, a, small, for List (key in [0, 1, sign + 1, full], value in [7, 9, 11, 13]): [key, b.constant(top, Bits(5), value)])],
+     ["lookup_wide", b.mux_lookup(top, amount, b.constant(top, Bits(width), seed), [[0, a], [1, z], [2 ** 64 + 1, b.bit_xor(top, a, z)], [2 ** 128 + 1, b.bit_not(top, a)]])],
+     ["packet_tag", b.record_get(top, packet, "tag")], ["packet_data", b.record_get(top, packet, "data")],
+     ["decoded", decoded],
+     ["decode_reordered", b.decode(top, a, Bits(width), Bits(width), rows.reverse(), 7, full bits.xor 1)],
+     ["decode_small", b.decode(top, amount, Bits(129), Bits(5), [[0, 2 ** 128 + 2 ** 64 + 1, 3, 31], [2 ** 64, 2 ** 128 + 2 ** 64 + 1, 9, 29], [2 ** 128, 2 ** 128 + 2 ** 64 + 1, 21, 31]], 7, 15)],
+     ["decode_from_small", b.decode(top, small, Bits(5), Bits(width), [[0, 3, full, full], [1, 3, seed, full bits.xor 1], [2, 3, 0, full]], 9, full)],
+     ["decode_empty", b.decode(top, a, Bits(width), Bits(width), [], seed, full bits.xor sign)],
+     ["decode_catchall", b.decode(top, amount, Bits(129), Bits(width), [[0, 0, full, full]], 0, 0)],
+     ["onehot_wide", picked],
+     ["onehot_narrow", b.onehot_mux(top, amount, for List (index in 0..129): b.constant(top, Bits(8), index + 1))],
+     ["guarded_onehot", b.mux_lookup(top, select, b.constant(top, Bits(width), 0), [[1, picked]])]]
+  for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
+  for (name in ["first", "second"]):
+    def child = b.instance(top, leaf, name)
+    for (entry in [["clock", tc], ["reset", tr], ["enable", te], ["data", if name == "first" | selected | z]]):
+      b.drive(child.input(entry[0]), entry[1])
+    for (output in ["q", "delayed"]):
+      b.drive(b.output(top, name ++ "_" ++ output, Bits(width)), child.output(output))
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+fun make_wide_aggregate(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("WideAggregate" ++ to_string(width))
+  def element = RecordType([RecordField("mark", Bits(5)), RecordField("data", Bits(width))])
+  def vector = VectorType(3, element)
+  def packet = RecordType([RecordField("head", Bits(7)), RecordField("items", vector)])
+  def total = packet.packed_width()
+  def other = RecordType([RecordField("first", Bits(width + 3)), RecordField("rest", Bits(total - width - 3))])
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def value = b.input(top, "value", packet)
+  def bits = b.input(top, "bits", Bits(total))
+  def selector = b.input(top, "selector", Bits(2))
+  def index0 = b.input(top, "index0", Bits(2))
+  def index1 = b.input(top, "index1", Bits(2))
+  def enables = b.input(top, "enables", Bits(2))
+  def items = b.record_get(top, value, "items")
+  def zero = b.cast(top, b.constant(top, Bits(element.packed_width()), 0), element)
+  def initial = 2 ** (vector.packed_width() - 1) + 0x12345
+  def state = b.register(top, "state_q", vector, clock, reset, b.cast(top, b.constant(top, Bits(vector.packed_width()), initial), vector))
+  def read_ok = b.ult(top, selector, b.constant(top, Bits(2), 3))
+  def read = b.mux_lookup(top, read_ok, zero, [[1, b.vector_index(top, items, selector)]])
+  def replacement = b.record_create(top, element, [["mark", b.constant(top, Bits(5), 23)], ["data", b.record_get(top, b.vector_get(top, items, 2), "data")]])
+  def injected = b.mux_lookup(top, read_ok, items, [[1, b.vector_inject(top, items, selector, replacement)]])
+  def enable_values = [b.extract(top, enables, 0, 0), b.extract(top, enables, 1, 1)]
+  def indices = [index0, index1]
+  def replacements = [replacement, b.vector_get(top, items, 0)]
+  def valid_indices = for List (index in indices, enable in enable_values):
+    b.bit_or(top, b.bit_not(top, enable), b.ult(top, index, b.constant(top, Bits(2), 3)))
+  def collision = b.bit_and(top, b.eq(top, index0, index1), b.bit_and(top, enable_values[0], enable_values[1]))
+  def valid_write = b.bit_and(top, b.bit_and(top, valid_indices[0], valid_indices[1]), b.bit_not(top, collision))
+  fun writes(source :: Value, reverse :: Boolean):
+    def written = b.vector_write_set(top, source,
+                                     b.vector_create(top, VectorType(2, Bits(1)), if reverse | enable_values.reverse() | enable_values),
+                                     b.vector_create(top, VectorType(2, Bits(2)), if reverse | indices.reverse() | indices),
+                                     b.vector_create(top, VectorType(2, element), if reverse | replacements.reverse() | replacements))
+    b.mux_lookup(top, valid_write, source, [[1, written]])
+  b.drive(state.next, writes(state.current, #false))
+  def captured = b.register(top, "captured_q", element, clock, reset, zero)
+  b.drive(captured.next, b.mux_lookup(top, read_ok, zero, [[1, b.vector_index(top, state.current, selector)]]))
+  def unpacked = b.cast(top, bits, packet)
+  def reversed = b.vector_create(top, vector, for List (index in 0..3): b.vector_get(top, items, 2 - index))
+  def rebuilt = b.record_create(top, packet, [["head", b.record_get(top, value, "head")], ["items", reversed]])
+  def care = 2 ** (total - 1) + 2 ** (width - 1) + 1
+  def full = 2 ** total - 1
+  def outputs = [["echo", value], ["packed_bits", b.cast(top, value, Bits(total))], ["unpacked", unpacked],
+                 ["roundtrip", b.cast(top, unpacked, Bits(total))], ["relayout", b.cast(top, value, other)],
+                 ["rebuilt", rebuilt], ["read", read], ["injected", injected],
+                 ["written", writes(items, #false)], ["reversed_writes", writes(items, #true)],
+                 ["state", state.current], ["captured", captured.current],
+                 ["onehot", b.onehot_mux(top, enables, [value, unpacked])],
+                 ["decoded", b.decode(top, value, packet, packet, [[0, care, full, full], [1, care, initial, full]], 2 ** (total - 1) + 7, full)]]
+  for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
+  b.finish(top)
+  ElaboratedProgram(design, top)
+
+// No wide stored leaf or scalar IR temporary: the cast alone needs support.
+fun make_relayout():
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("WideRelayout")
+  def source = VectorType(3, Bits(32))
+  def target = RecordType([RecordField("high", Bits(32)), RecordField("low", VectorType(2, Bits(32)))])
+  def value = b.input(top, "value", source)
+  b.drive(b.output(top, "result", target), b.cast(top, value, target))
+  b.finish(top)
+  ElaboratedProgram(design, top)

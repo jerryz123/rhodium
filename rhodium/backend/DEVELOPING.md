@@ -15,7 +15,9 @@ and generated-artifact policy.
 preparation calls the shared `prepare_rtl` helper to obtain a fresh, verified
 reachable graph and manifest, then constructs its emission plan. The same
 target's `.plan(prepared)` accepts an existing `PreparedRTL` without preparing
-again, for composition inside another target. Both paths emit one artifact.
+again, for composition inside another target. Both paths return the backend's
+artifact set: one RTL artifact, the rsim C++ model (with optional support header), or
+that model with an SV/DPI binding.
 Compilation owns requests/results; lowering owns copying and portable
 expansion; each backend owns its representation. Frontend and Flow libraries
 need no backend-specific branches.
@@ -39,6 +41,13 @@ a shared semantic responsibility actually belongs in core.
 | `circt-target.rhm`, `verilog-target.rhm` | RTL targets with shared ordinary/prepared plan construction |
 | `circt.rhm` | CIRCT types, aliases, operation lowering, and textual MLIR |
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
+| `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
+| `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
+| `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
+| `rsim/emit.rhm` | Typed expressions, evaluation frames, and simultaneous commits |
+| `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
+| `rsim/sv-binding.rhm` | Scalar boundary validation, state-only output dependencies, SV wrapper, and C++ DPI bridge |
+| `tests/rsim/` | Builder fixtures, standalone native harness, integer/state oracles, and optional direct-SV comparison |
 | `tests/*-test.rhm` | Host contracts, prepared graph reuse, invalid uses, determinism, and source preservation |
 | `tests/verilog/fixtures.rhm` | Builder-owned semantic fixtures shared by both backends |
 | `tests/verilog/emit-{direct,circt}.rhm` | Explicit-target fixture emission |
@@ -51,6 +60,155 @@ a shared semantic responsibility actually belongs in core.
 | `tests/verilog/run-integration.py` | Existing SyncRam and UART benches/native model |
 
 ### Representation invariants
+
+Rsim keeps graph scheduling separate from C++ rendering. Its schedule is a
+backend-private representation, not another public hardware IR. Resolve wire
+and hierarchy bindings before scheduling typed dependencies. Forward static
+record/vector projections through their constructors without scheduling sibling
+fields; otherwise legal field-wise feedback appears as a whole-bundle cycle.
+Carry the requested field/index path through lookup and one-hot muxes: schedule
+the whole selector and the same projection from every branch, following core's
+direct dependency semantics. Memoize by occurrence, source value, and projection;
+whole-value requests remain distinct. Other computed aggregates retain whole
+execution followed by typed projection, so packed casts/extracts do not yet gain
+bit-range dependency precision. Register reads terminate dependency walks;
+next-state expressions are separate sinks. Allocate
+register slots per occurrence, even when preparation reuses a module definition.
+Retain occurrence paths for diagnostics and emitted state comments. Scheduling
+maps and storage descriptors belong to one compilation, never an elaboration cache.
+Verified `cdc.sync_level` metadata has no separate simulation action: keep its
+ordinary register stages and apply the same root-clock checks to them.
+Steps, ports, and state descriptors retain hardware types; only scalar operations
+query a scalar width.
+
+The baseline evaluator returns outputs, register and synchronous-read next-state
+values, pending memory writes, checks, and foreign-call arguments in a private
+frame without modifying state. Persistent memory arrays live outside that frame: evaluation copies no complete memory. Register
+reads and asynchronous memory contents both come from old storage; a memory
+read schedules its address but never its writers. Collect all memory declarations,
+including unused/read-only/write-only resources, and intern their element types.
+Synchronous read results terminate dependency walks like registers; collect their
+slots before scheduling address, enable, mode, and write-data sinks. This permits
+feedback through a stored read result without inventing a combinational cycle.
+`RsimRead` identifies that result's memory and sampled controls; shared reads and
+writes test opposite values of the same mode. Root-clock verification covers
+every memory write and synchronous-memory declaration through occurrence aliases.
+`tick()` samples the complete frame, commits registers, synchronous read results,
+and guarded memory writes, then evaluates again for post-edge outputs. A consuming
+register therefore captures the preceding read result. Register reset does not
+gate reads or writes. Disabled/shared-write read results use zero as this backend's
+choice for unspecified data; tests must not make that choice a portable guarantee.
+Masked writes retain their mask value and granularity in `RsimWrite`. During
+evaluation, a guarded old-word load and the sampled mask/data produce the complete
+pending word. `CppTypes.masked_merge` maps canonical granules onto individual
+scalar leaves and constructs a typed result without packing the aggregate.
+Narrow leaves and masks retain constant intersections. When either is wide,
+the support helper builds a selection mask for each 32-bit limb from the leaf's
+canonical offset and the sampled mask. This handles granules spanning limbs,
+fields, or vector elements without growing expressions of wide constants.
+Disabled granules preserve their old bits. All merging happens
+before the shared commit phase; mask zero never changes shared-port read/write mode.
+Collect assertions independently of value reachability and include their clocks
+in root-clock validation. `RsimAssertion` retains condition/reset/guard references,
+the occurrence path, label, and source location. Evaluation stores failed-check
+flags in the private frame without throwing. `tick()` reports a failed sampled
+check with `std::runtime_error` before committing any state or refreshing outputs.
+Keep reporting separate from evaluation so retries and ordinary `eval()` remain
+side-effect free. Do not implement hardware checks with the C++ `assert` macro.
+Collect live foreign operations independently of value reachability, including
+outputless children and unused function results. Validate scalar ABI capabilities
+at these operations, not at unused design imports. Allocate foreign result roots
+before scheduling argument sinks so feedback terminates at stored state. Each
+result is keyed by both its call occurrence and its position in the result list.
+`RsimForeign` retains the import plus enable/argument references. Evaluation
+samples them into the frame and copies held results into pending state. After
+all assertion checks, `tick()` invokes enabled functions/procedures using only
+sampled arguments, then commits all results and ordinary state together. Native
+`out` parameters point to temporary objects of their exact ABI types, never
+directly to model state. Collect their values and the return value from a single
+invocation, normalize each result by its own width,
+and store them in the pending frame. Allocate and pass every declared out
+parameter even when its RTL result is unused.
+Declare C symbols once in a private namespace; use width-selected native types
+and bit-preserving argument conversion rather than implementation-defined signed
+casts. Foreign declarations, helpers, and includes are emitted only for live
+calls. Foreign frame and result fields use hardware-derived scalar carriers.
+Collect all live import types before header emission, including unconsumed outs,
+so signature-only wide results still package the support header. Marshal
+non-native inputs into `ceil(width / 32)` separate `std::uint32_t` words from the
+sampled frame, low word first. Packed outs receive separate word arrays. Wide
+marshalling uses explicit word copies in the support header, clearing outgoing
+padding and discarding incoming padding without reinterpreting object layouts.
+Narrow packed values retain their unsigned shifts and masks. Packed returns are
+scalar uint32 values and remain limited to 32 bits; the native width-64 return
+is unchanged. Never introduce scope emulation or a callback registry in this ABI.
+For widths up to 64, unsigned 64-bit carriers plus an
+explicit mask at every scalar value boundary preserve modular arithmetic, including
+width 64. Width conversions and concatenation use scheduled operand widths.
+Variable shifts check the full unsigned count before executing a C++ shift;
+arithmetic right shifts construct sign fill explicitly. Sign extension and signed
+comparison transform unsigned bit patterns, avoiding signed C++ overflow and
+implementation-defined right shifts. Preserve normalization before widening.
+Wide scalar storage uses `WideBits<W>` with low-word-first 32-bit limbs. Keep
+normalization at value boundaries, explicit conversions, and operation-level
+signedness. `check_wide_operation` admits only implemented operand/result
+combinations; inspect nested leaves and operands even when results are narrow.
+Foreign ABI checks retain their separate return-value limits. Scalar reinterpretation
+casts preserve bits; aggregate casts use the canonical packed layout.
+Wide add/subtract propagate carry/borrow through the 32-bit limbs. Truncated
+schoolbook multiplication accumulates each limb product, stored limb, and carry
+in `uint64_t`; their sum is at most `2^64 - 1`. Discard overflow above the declared
+hardware width before subsequent operations, including widening. Unsigned ordering
+visits limbs from high to low. Signed ordering first compares declared sign bits,
+then uses unsigned ordering for equal signs. Keep signedness in the operation and
+preserve the existing machine-word emission for widths through 64.
+Wide concatenation places normalized operand limbs at canonical bit offsets into
+one zeroed result; unaligned fields split across adjacent limbs. Left shifts use
+the same placement with truncation, and right shifts reuse slicing. Arithmetic
+right shifts fill bits above `width - count` from the declared sign bit.
+Saturate shift counts to the value width only after inspecting all count limbs;
+never discard high count bits during host-index conversion. Mixed narrow/wide
+data and counts use the support helpers. Preserve local uint64 helpers when
+both widths are at most 64, emitting those helpers only when actually called.
+`CppTypes` selects carriers and splits host constants; the support header owns
+portable limb operations. The emitter reads that header relative to its installed
+module at emission time, preventing cached bytecode from embedding stale support.
+Package it only for models that need it. The hyphen in `rsim-bits.hpp` prevents a
+collision with any legal module header name. Keep the shared include guard and
+contents identical across models compiled by the same compiler revision.
+Struct declarations are interned by recursive representation shape, independent
+of preferred names and global IDs. Arrays retain logical index order. Normalize
+external aggregate inputs leaf by leaf; copies and constructors preserve that
+invariant without packing aggregates into machine words. Packing casts use
+explicit canonical offsets. For totals above 64 bits, place every leaf into one
+zeroed packed carrier and unpack using slices of its original width. Preserve
+the shift/OR path for narrow totals. Aggregate-to-aggregate casts evaluate their
+packed temporary once, then construct the destination's typed leaves. Support
+packaging must detect wide cast temporaries even when every stored leaf is narrow.
+Decode compares cared bits leaf by leaf using `CppTypes.cube_match` and builds
+outputs with `CppTypes.constant`. Host-side slicing of arbitrary-width constants
+keeps every emitted integer literal within a scalar carrier; wide scalar masks
+and lookup keys use the same limb constants as ordinary data. One-hot selection
+tests a bit in its containing limb, retaining machine-word masks for narrow
+selectors. Verified disjoint
+rows permit a conditional chain without giving row order meaning. One-hot muxes
+select whole typed values; their invalid-selector fallback is unconstrained by
+core. `dont_care` and uncared decode bits choose zero without introducing runtime
+unknown-state tracking. Keep these partial choices out of behavioral expectations.
+Dynamic vector helpers check bounds before subscripting. Injection and write
+sets modify value copies, keeping scheduled operands and old register state
+immutable. Partial operations may execute behind unselected muxes, so invalid
+indices cannot throw or invoke C++ undefined behavior. The helper's zero read,
+skipped invalid writes, and write-loop order are implementation choices for
+unconstrained results, not circuit guarantees or collision priorities.
+Core requires vector selectors and write-set indices to have exactly
+`count_index_width(length)` bits. Small vectors cannot receive arbitrary wide
+indices; a vector requiring more than 64 index bits cannot fit in a host array.
+Keep this verified type constraint rather than broadening core to exercise a
+backend index-conversion path.
+Extend the capability list and renderer together with an independent behavioral
+oracle. Do not introduce dirty flags, state-update elision, or a public optimizer
+framework while extending baseline semantic coverage.
 
 Direct SV gives each IR result a width-constrained net. This preserves modular
 arithmetic before later widening; changes to expression inlining must retain
@@ -115,6 +273,8 @@ cache. The root targets below already do so.
 | Scope | Command |
 |---|---|
 | Compiler/backend host contracts | `make backend-test` |
+| Standalone C++ simulator, with undefined-behavior sanitization | `make rsim-test` |
+| C++ simulator and direct SV against the same oracle | `make rsim-differential-test` |
 | Direct SV and authored integrations, without CIRCT | `make verilog-test` |
 | Both backends against oracles and each other | `make backend-differential-test` |
 | CI no-CIRCT smoke | `make ci-verilog-direct-test` |
@@ -137,6 +297,209 @@ differential lane. Local `--differential` retains both behavioral routes for
 self-contained integration checks. The full direct suite remains available
 locally; CI's independent direct lane runs only SyncRam with an invalid
 `CIRCT_OPT` to protect backend independence without repeating the full suite.
+
+`tests/rsim/wide.py` checks widths 64/65/127/128/129/512 against Python integers and
+optionally direct SV, compiling native execution with ASan and UBSan. It covers
+bitwise operations, equality/ordering, modular arithmetic, muxes, constants, cross-word extraction, narrowing,
+zero/sign extension, dirty external padding, reset/hold behavior, simultaneous
+state sampling, and repeated instances. Arithmetic patterns exercise carry/borrow
+chains, multiplication overflow, signed extrema, comparisons whose low bits match,
+and widening of already-wrapped results. Shift counts cover limb boundaries,
+width-minus-one/width/width-plus-one, and high bits through bit 128, including
+dirty padding beyond a 129-bit count. Narrow 5/64-bit data also uses wide counts.
+Concatenation covers mixed-width operands, all-narrow operands forming a wide
+result, unaligned fields, and extraction round trips. Selection covers full-width keys,
+selectors whose low bits match but high bits differ, every bit of a 129-bit
+one-hot selector, and narrow/aggregate results selected by wide values. Decode
+checks cared bits across limbs, wide output constants, row permutation,
+empty/catch-all tables, and partial output masks. Invalid one-hot results and
+uncared decoder bits are excluded from portable expectations, while guarded
+contexts and output padding are checked. Multiple generated headers share one
+support header in the same translation unit. Run the focused slice with
+`python3 rhodium/backend/tests/rsim/wide.py --differential`; both ordinary rsim
+suites include it. Host tests check support packaging, deterministic emission,
+manifest identity, and preservation of source/prepared graphs.
+
+The same wide runner covers nested records/vectors with 21/65/129/512-bit data
+leaves and mixed narrow fields. It observes both packed bits and typed leaves,
+including different-layout casts, to prevent opposing layout bugs from cancelling.
+It checks dirty input padding, constants/decode, aggregate one-hot selection,
+guarded dynamic reads/injection/write sets, write-port permutation, reset, and
+pre-edge capture during state updates. A separate 96-bit cast between aggregates
+with only narrow leaves verifies support packaging without any wide scalar IR
+value. Native execution uses ASan/UBSan, and the packed Python oracle is shared
+with direct SV.
+
+Rsim's native fixtures exercise widths 1/5/63/64, overflow, forward connections,
+reset sampling, repeated evaluation, simultaneous swaps, holds, priority, constant-input
+feedback, resetless sampling, keyword/underscore names, and independent child/model
+state. `tests/rsim/arithmetic.py` supplies independent integer expectations for
+signed extrema, shift counts at and beyond width/64 (including large 64-bit counts),
+concatenation and cross-boundary slices, and modular results before widening.
+`tests/rsim/aggregate.py` adds field-level oracles for nested records/vectors,
+lengths 1/3/4, totals through 341 bits, preferred-name collisions, aggregate
+reset/swap/hold behavior, independent instances, and 64-bit canonical packing.
+Its record/vector feedback through lookup and one-hot muxes has acyclic field
+dependencies. Separate observations check both selectors and repeated module
+instances, while nested projections and aggregate state share the integer oracle.
+These deliberate whole-aggregate loops require the Verilator `UNOPTFLAT`
+allowance; its `class` field also requires `SYMRSVDWORD`. Other diagnostics remain
+fatal. SV binding host checks separately verify that projected muxes retain
+selector dependencies but omit unrelated sibling-field dependencies.
+`tests/rsim/dynamic.py` covers all selector/index/enable combinations at lengths
+1/3/4 for scalar and nested record elements, write-port permutation, disabled
+invalid indices, and pre-edge read capture with vector state updates. Invalid
+partial results are masked by fixture muxes; only defined outputs are compared.
+Its separate native harness uses address/undefined-behavior sanitization at
+`-O0` to keep eager partial computations visible to bounds checks; the baseline
+harness retains its optimized build.
+`tests/rsim/memory.py` tracks per-word definedness across two occurrences at
+depths 1/3/4 with scalar and nested aggregate data. It covers multiple readers
+and writers, register capture before writes, simultaneous read-dependent writes,
+addresses from old registers, writes during reset, disabled/invalid addresses,
+and storage-only declarations. Address/undefined-behavior sanitization checks
+guarded access; the oracle discards knowledge after conflicting or invalid writes.
+`tests/rsim/sync_memory.py` covers 1R/1W/1R1W/1RW ports at depths 1/3/4,
+scalar and aggregate payloads, stored-read feedback, consuming-register latency,
+independent occurrences, and control changes between edges. Mask cases include bit,
+byte, whole-word, and cross-field granules on 133-bit aggregates; bit 63 of the mask;
+partial initialization; zero-mask writes with unknown data; and masks from old read
+results. Its packed-integer oracle tracks definedness per bit independently of C++
+leaf traversal, excluding disabled, uninitialized, invalid, and colliding read bits
+while checking later reads of written storage. The native harness also uses address
+and undefined-behavior sanitizers.
+The wide runner reuses both memory fixtures and oracles at 65/129/512-bit leaf
+widths, with two independent occurrences at depth 3. Its synchronous matrix
+includes unmasked, bit, byte, whole-word, and cross-field writes; masks through
+512 bits; and a 133-bit mask over an aggregate containing only narrow leaves.
+It checks each mask position during partial initialization and preserves the
+same definedness rules for old-read data/mask feedback, collisions, disabled
+reads, and invalid addresses. Native carriers receive dirty input padding;
+the direct-SV adapter masks every control and copies only declared input bits.
+`tests/rsim/selection.py` covers scalar widths 1/5/63/64, one-hot selectors of
+1/3/64 bits, unknown choices hidden by selection, and nested aggregate decode
+inputs/outputs through 139 bits. Its packed-integer oracle checks care masks,
+defaults, empty/catch-all/reordered tables, scalar-carrier boundary crossings,
+and register capture with reset and repeated evaluation. Invalid one-hot results
+and uncared bits are excluded from comparisons; surrounding defined behavior is
+still checked. The native family uses address/undefined-behavior sanitizers.
+`tests/rsim/assertions.py` runs three passing and eight expected-failure scenarios
+on native C++ and assertion-enabled direct SV. It checks reset/guard suppression,
+pre-edge state and reset sampling, repeated instances, outputless verification
+children, top-level/unlabeled checks, and repeated `eval()` calls. Native failures
+also verify unchanged cached outputs, registers, asynchronous/synchronous memory,
+and read-result state, then retry successfully. Native builds use `NDEBUG` plus
+address/undefined-behavior sanitizers, and check quoted/multiline source diagnostics.
+`tests/rsim/foreign.py` links the same host implementation into native and
+Verilator models, compiling it against Verilator's generated DPI declarations.
+It compares effect multisets and held/consumer state at every observation for
+widths 1/8/16/32/64, including signed and high-bit patterns, disabled holds,
+feedback, resets, repeated evaluation/instances, and outputless/unused-result
+calls. A mixed-width function exercises every native out-pointer type, a return
+whose type differs from the first out, simultaneous result publication, separate
+enables, and feedback through both an out result and the return. Other calls
+consume only the return or leave every result unused. Packed widths 3/5/31/33/63
+exercise mixed native/packed signatures, low-word-first input/output arrays,
+scalar packed returns, feedback, and unused packed results. Host code deliberately
+sets high padding bits in results; the oracle checks they cannot reach held state
+or later procedure arguments. Boundary and asymmetric-word inputs distinguish
+word order and correct input padding. The native sanitizer build additionally
+checks independent model objects
+and that assertion failure suppresses all calls and preserves state before retry.
+`tests/rsim/wide_foreign.py` extends that ABI proof to 65/129/512/513-bit
+inputs and outs, mixed native/wide results, and signed bit patterns. It compares
+all argument words, effect counts, held results, and pre-edge consumers with a
+Python oracle. It includes unused wide outs and a separate model whose only wide
+type is an entirely unconsumed foreign result, plus dirty input/result padding,
+feedback, repeated occurrences, independent objects, and assertion suppression.
+The native build uses ASan/UBSan; direct SV compiles the same host implementation
+against its generated DPI declarations. Run it with
+`python3 rhodium/backend/tests/rsim/wide_foreign.py --differential`; both rsim
+suites include it through the foreign-call family.
+`tests/rsim/uart.py` compiles one authored pair of production `UartDPI` instances
+through rsim and optionally direct SV, checking compatible manifests and source
+preservation. Both executables link the unchanged device PTY model and its
+existing test access helpers. A shared C++ serial/PTY scoreboard checks two model
+IDs at different baud rates, queued input under backpressure, bidirectional bytes,
+reset retention, bad-stop delivery, framing-error history, and absence of duplicates.
+The native build uses address/undefined-behavior sanitizers. Host I/O is bounded;
+compare protocol outcomes rather than OS-dependent polling latency. This smoke
+runs in the ordinary rsim suites; for a focused run use:
+
+```sh
+python3 rhodium/backend/tests/rsim/uart.py --differential
+```
+
+Omit `--differential` to run without HDL tools. Changes to the production UART,
+its PTY model, or shared test helpers must also select the host/backend CI lane.
+
+`rsim_sv_target.plan(prepared)` reuses `rsim_target.plan(prepared)` once, validates
+its schedule, and wraps that model plan without another graph preparation or
+schedule. The binding emitter propagates external-input dependency flags in
+schedule order; state roots break those paths. Keep this check separate from
+native model capabilities. The bridge retains unsigned 64-bit DPI carriers for
+narrow ports and uses two-state packed vectors for wider scalar ports. Wide
+inputs/outputs use the same explicit word-copy helpers as functional DPI, with
+padding normalization and no reinterpretation of model storage. Keep the wrapper
+ABI distinct from functional foreign signatures. Both representations use
+model-specific C symbols and private SV names allocated outside the authored
+port namespace. Initialize outputs with a
+side-effect-free `eval()` so constant outputs are available before the first
+edge. Keep DPI output buffers private and publish through NBA assignments.
+
+`tests/rsim/sv_bridge.py` compiles the same Builder circuits through the binding
+target and direct SV. It runs both with unchanged `sims/TestDriver.v` and its native lifecycle runtime, a separate
+two-instance scoreboard, and a scalar-port conversion bench. The shared host
+callback verifies pre-edge state, context scope, VPI arguments, and exactly one
+call per edge. The scoreboard checks independent resets, wraparound, output
+stability between edges, and external synchronous consumers. Both routes must
+terminate on a hardware assertion; the bound model's exception must appear as
+an SV fatal. Conversion coverage includes widths 1/5/31/33/63/64, high bits,
+authored keywords/private-name collisions, a nonstandard clock name, and constant
+outputs before the first edge. A two-instance wide bench checks 65/129/512/513-bit
+ports, initial constants, reset/hold behavior, pre-edge consumers, and output
+stability between edges against direct SV and an SV state oracle. Wide assertion
+failures must also cross the bridge as SV fatals. A standalone ASan/UBSan driver
+calls the generated bridge ABI with dirty input padding, checks output padding,
+and verifies unchanged output buffers and held state after a caught failure and
+retry. The separate benches force-include Verilator's generated DPI header when
+compiling the bridge to check its C ABI against the SV declarations. The
+production-driver run links the runtime with its own `noexcept` declarations.
+
+```sh
+python3 rhodium/backend/tests/rsim/sv_bridge.py
+```
+
+This requires Verilator but no CIRCT. It runs in the rsim differential suite,
+not the HDL-free native suite. Changes to `sims/TestDriver.v` or its native
+lifecycle runtime also select that CI lane. Generated models, wrappers, builds, and logs remain temporary; failed
+runs retain them for diagnosis. Host contracts in `tests/rsim-sv-test.rhm` cover
+boundary diagnostics, source preservation, deterministic artifacts, shared
+manifests, identical standalone model artifacts, and single provider expansion.
+This fixture's scope is the binding contract. Separate full-SoC smoke
+qualification is described in the [simulator guide](../../sims/DEVELOPING.md).
+
+`tests/rsim/chi_memory.py` qualifies one production `CHIDPIMemory` with 512-bit
+DAT and its native registry/storage implementation through SV-hosted rsim and
+direct SV. Testbench launch registers place the combinational CHI ready/valid
+interface inside the clocked wrapper; they do not alter the memory controller.
+The scoreboard compares cycle/response transcripts, read data, byte masks across
+word boundaries, independent RSP/DAT stalls, capacity backpressure, and reset
+of an incomplete transaction. A host helper freezes and checks one reset-time
+registration, preloads bytes through the real store, and verifies reset retention.
+Compile the production DPI adapter against generated declarations on the direct
+route; the rsim route also checks its wrapper declarations. Run it with
+`python3 rhodium/backend/tests/rsim/chi_memory.py`. It runs in the differential
+suite, and CHI protocol/subordinate changes select that CI lane.
+
+
+The differential runs compare only defined values, using identical stimuli and
+observation points. Register fixtures initialize through reset; memory fixtures
+initialize through writes and never assume portable zero contents.
+`CXX` selects the native compiler. The host/backend CI target includes the small
+native run without HDL tools; the existing backend differential lane also runs
+the rsim/direct-SV comparison. Host tests additionally cover source preservation,
+deterministic naming independent of global IDs, and prepared/provider reuse.
 
 ### Behavioral coverage
 

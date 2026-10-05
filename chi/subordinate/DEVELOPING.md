@@ -46,7 +46,9 @@ registration must preserve identity, range, and bytes. Invalid registrations
 poison the registry so a host consumer cannot silently fall back after a failure.
 The native registry freezes before image loading; access requires successful
 initialization. Reset suppresses transactions without erasing memory.
-The store and registry have no FESVR dependency.
+The store and registry have no FESVR dependency. Native 8-bit DPI arguments and
+returns use `char`, matching simulator-generated `byte` declarations; the one-bit
+write flag retains its unsigned `svBit` carrier.
 The facade imports shared configuration from its owner, not through SRAM.
 
 Keep the controller as an elaboration helper, not a wrapper circuit or a new
@@ -114,3 +116,8 @@ behavioral benches in [`../tests/circt/`](../tests/circt/).
 For source moves, update direct consumers, docs, and build/CI paths together.
 Run `make check-boundaries` after module or dependency changes and use the
 repository wrappers for affected host and behavioral checks.
+
+The backend-owned [SV-hosted rsim memory qualification](../../rhodium/backend/DEVELOPING.md#validation)
+reuses the production 512-bit controller and native store. Its launch-register
+harness checks cycle timing against direct SV, stalls, masks, reset registration,
+and retained bytes. Run it when changing the controller, DPI ABI, or registry.

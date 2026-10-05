@@ -1,0 +1,36 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "../../../core/main.rhm" open
+  "sv-binding-fixtures.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+  "../../../compile/program.rhm".compile_program
+  "../../rsim-target.rhm".rsim_sv_target
+  "../../verilog-target.rhm".verilog_target
+
+// Keep the bridge proof frontend-independent and compile the same program twice.
+def design = Design()
+def b = Builder(design)
+def top = b.module("RsimBridgeCounter")
+def clock = b.input(top, "clock", Clock)
+def reset = b.input(top, "reset", Reset)
+def step = b.input(top, "step", Bits(8))
+def fault = b.input(top, "fault", Bits(1))
+def count = b.register(top, "counter", Bits(8), clock, reset, b.constant(top, Bits(8), 0))
+b.drive(count.next, b.add(top, count.current, step))
+b.drive(b.output(top, "count", Bits(8)), count.current)
+b.drive(b.output(top, "exit", Bits(32)), b.zext(top, b.eq(top, count.current, b.constant(top, Bits(8), 4)), 32))
+b.assert(top, b.bit_not(top, fault), clock, reset, b.constant(top, Bits(1), 1), "bridge_counter_check")
+def observe = b.dpi_import("rsim_bridge_observe", ["reset", "step", "count"], [Bits(1), Bits(8), Bits(8)])
+b.dpi_call(top, observe, [b.cast(top, reset, Bits(1)), step, count.current], clock, b.constant(top, Bits(1), 1))
+b.finish(top)
+def program = ElaboratedProgram(design, top)
+def arguments = rkt.#{current-command-line-arguments}()
+unless rkt.#{vector-length}(arguments) == 1 | error("expected OUTPUT_DIRECTORY")
+for (fixture in [program, make_bridge_ports(), make_wide_bridge_ports()]):
+  for (target in [rsim_sv_target, verilog_target]):
+    def result = compile_program(fixture, target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(rkt.#{vector-ref}(arguments, 0), (if target === verilog_target | "reference-" | "") ++ artifact.name), ~exists: #'#{truncate/replace})

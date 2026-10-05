@@ -1,0 +1,218 @@
+#lang rhombus
+/* Maps hardware types to C++ structures, canonical bit layouts, and typed partial operations. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/types.rhm" open
+
+export CppTypes cpp_name literal mask scalar_carrier_width
+
+/* Escape authored identifiers injectively, avoiding keywords and reserved underscores. */
+fun cpp_name(name :: String) :: String:
+  "p" ++ name.replace("_", "_u", ~all: #true)
+
+/* Spell unsigned constants without relying on signed literal inference. */
+fun literal(value :: Nat) :: String:
+  "UINT64_C(" ++ to_string(value) ++ ")"
+
+/* Compute masks on the host so a 64-bit scalar never requires a shift by 64. */
+fun mask(width :: PosInt) :: String:
+  literal(2 ** width - 1)
+
+/* Query scalar width only where the schedule's opcode guarantees a scalar. */
+fun scalar_carrier_width(type :: HardwareType) :: PosInt:
+  if reset_type(type) | 1 | scalar_width(type)
+
+/* Extract a leaf from an arbitrary-width host constant; generated literals
+   remain machine words even when their enclosing aggregate is wider. */
+fun packed_slice(value :: Nat, offset :: Nat, width :: PosInt) :: Nat:
+  (value mod (2 ** (offset + width)) - value mod (2 ** offset)) / (2 ** offset)
+
+/* Identify C++ representation shapes independently of preferred names and IR IDs.
+   Hardware scalar identities remain in the schedule; equal-width scalar carriers
+   share a C++ representation, including inside structurally equal records. */
+fun shape(type :: HardwareType) :: String:
+  cond
+  | record_type(type):
+      "record{" ++ String.join(type.fields.map(fun (field): field.name ++ ":" ++ shape(field.type)), ";") ++ "}"
+  | vector_type(type): "array[" ++ to_string(type.length) ++ "]" ++ shape(type.element_type)
+  | ~else: "scalar" ++ to_string(scalar_carrier_width(type))
+
+/* Own one artifact's dependency-ordered record declarations. Struct names are
+   private representation details; authored field names use the port encoding. */
+class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList = MutableList[],
+               mutable wide :: Boolean = #false):
+  /* Intern records after their children and render vectors with logical index order. */
+  method name(type :: HardwareType) :: String:
+    cond
+    | record_type(type):
+        def key = shape(type)
+        unless names.has_key(key)
+        | def fields = type.fields.map(fun (field): "  " ++ this.name(field.type) ++ " " ++ cpp_name(field.name) ++ "{};")
+          def name = "Record" ++ to_string(names.length())
+          names[key] := name
+          declarations.add("struct " ++ name ++ " {\n" ++ String.join(fields, "\n") ++ "\n};")
+        names[key]
+    | vector_type(type): "std::array<" ++ this.name(type.element_type) ++ ", " ++ to_string(type.length) ++ ">"
+    | ~else:
+        def width = scalar_carrier_width(type)
+        if width <= 64
+        | "std::uint64_t"
+        | wide := #true
+          "rhodium_rsim::WideBits<" ++ to_string(width) ++ ">"
+
+  /* Construct a value in declaration/index order without C++ object-layout assumptions. */
+  method construct(type :: HardwareType, members :: List.of(String)) :: String:
+    this.name(type) ++ (if vector_type(type) | "{{" | "{") ++ String.join(members, ", ") ++ (if vector_type(type) | "}}" | "}")
+
+  /* Normalize external inputs leaf by leaf; internal aggregate copies preserve
+     this invariant because every constructed member is already normalized. */
+  method normalize(type :: HardwareType, value :: String) :: String:
+    cond
+    | record_type(type):
+        this.construct(type, type.fields.map(fun (field): this.normalize(field.type, value ++ "." ++ cpp_name(field.name))))
+    | vector_type(type):
+        this.construct(type, for List (index in 0..type.length): this.normalize(type.element_type, value ++ "[" ++ to_string(index) ++ "]"))
+    | ~else:
+        if scalar_carrier_width(type) <= 64
+        | "(" ++ value ++ ") & " ++ mask(scalar_carrier_width(type))
+        | "rhodium_rsim::normalized(" ++ value ++ ")"
+
+  /* Construct canonical constant bits directly as typed leaves. This is host
+     decomposition, so it imposes no whole-aggregate C++ integer width limit. */
+  method constant(type :: HardwareType, value :: Nat, offset :: Nat = 0) :: String:
+    cond
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def members = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          this.constant(field.type, value, offset + remaining)
+        this.construct(type, members)
+    | vector_type(type):
+        def members = for List (index in 0..type.length):
+          this.constant(type.element_type, value, offset + index * type.element_type.packed_width())
+        this.construct(type, members)
+    | ~else:
+        def width = scalar_carrier_width(type)
+        if width <= 64
+        | literal(packed_slice(value, offset, width))
+        | def count = (width + 31 - (width + 31) mod 32) / 32
+          def words = for List (index in 0..count):
+            "UINT32_C(" ++ to_string(packed_slice(packed_slice(value, offset, width), index * 32, 32)) ++ ")"
+          this.name(type) ++ "{{" ++ String.join(words, ", ") ++ "}}"
+
+  /* Test one verified selector bit without a whole-value host conversion.
+     Narrow selectors retain machine-word masks; wide selectors address a limb. */
+  method bit_test(type :: HardwareType, source :: String, index :: Nat) :: String:
+    if scalar_carrier_width(type) <= 64
+    | "((" ++ source ++ " & " ++ literal(2 ** index) ++ ") != 0)"
+    | "((" ++ source ++ ".words[" ++ to_string((index - index mod 32) / 32) ++ "] & UINT32_C(" ++ to_string(2 ** (index mod 32)) ++ ")) != 0)"
+
+  /* Compare only cared canonical bits of each typed leaf. Verified decode rows
+     are disjoint, and uncared leaves contribute no runtime comparison. */
+  method cube_match(type :: HardwareType, source :: String, value :: Nat,
+                    care :: Nat, offset :: Nat = 0) :: String:
+    cond
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def terms = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          this.cube_match(field.type, source ++ "." ++ cpp_name(field.name), value, care, offset + remaining)
+        "(" ++ String.join(terms, " && ") ++ ")"
+    | vector_type(type):
+        def terms = for List (index in 0..type.length):
+          this.cube_match(type.element_type, source ++ "[" ++ to_string(index) ++ "]", value, care, offset + index * type.element_type.packed_width())
+        "(" ++ String.join(terms, " && ") ++ ")"
+    | ~else:
+        def width = scalar_carrier_width(type)
+        def leaf_care = packed_slice(care, offset, width)
+        if leaf_care == 0
+        | "true"
+        | "((" ++ source ++ " & " ++ this.constant(type, leaf_care) ++ ") == " ++ this.constant(type, value bits.and care, offset) ++ ")"
+
+  /* Merge canonical granules into typed leaves without packing an aggregate.
+     Narrow leaves/masks use constant bit intersections; wide cases pass the
+     leaf offset to the limb helper so granules can cross fields and words. */
+  method masked_merge(type :: HardwareType, old :: String, data :: String,
+                      write_mask :: String, mask_width :: PosInt, granularity :: PosInt, offset :: Nat = 0) :: String:
+    cond
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def members = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          def suffix = "." ++ cpp_name(field.name)
+          this.masked_merge(field.type, old ++ suffix, data ++ suffix, write_mask, mask_width, granularity, offset + remaining)
+        this.construct(type, members)
+    | vector_type(type):
+        def members = for List (index in 0..type.length):
+          def suffix = "[" ++ to_string(index) ++ "]"
+          this.masked_merge(type.element_type, old ++ suffix, data ++ suffix, write_mask, mask_width, granularity, offset + index * type.element_type.packed_width())
+        this.construct(type, members)
+    | scalar_carrier_width(type) > 64 || mask_width > 64:
+        "rhodium_rsim::masked_merge<" ++ to_string(scalar_carrier_width(type)) ++ ", " ++ to_string(mask_width) ++ ">(" ++ old ++ ", " ++ data ++ ", " ++ write_mask ++ ", " ++ to_string(granularity) ++ ", " ++ to_string(offset) ++ ")"
+    | ~else:
+        def width = scalar_carrier_width(type)
+        def first = (offset - offset mod granularity) / granularity
+        def end = offset + width
+        def last = (end - 1 - (end - 1) mod granularity) / granularity
+        def terms = for List (index in first..(last + 1)):
+          def low = if index * granularity > offset | index * granularity | offset
+          def high = if (index + 1) * granularity < end | (index + 1) * granularity | end
+          def bits = (2 ** (high - low) - 1) * 2 ** (low - offset)
+          "((" ++ write_mask ++ " & " ++ literal(2 ** index) ++ ") != 0 ? " ++ literal(bits) ++ " : UINT64_C(0))"
+        "(" ++ old ++ " ^ ((" ++ old ++ " ^ " ++ data ++ ") & (" ++ String.join(terms, " | ") ++ ")))"
+
+  /* Place normalized leaves into one wide packed temporary at canonical offsets.
+     Records count from the high end; vector index zero occupies the low end. */
+  method place_leaves(type :: HardwareType, value :: String, total :: PosInt,
+                      offset :: Nat = 0) :: String:
+    cond
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def parts = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          this.place_leaves(field.type, value ++ "." ++ cpp_name(field.name), total, offset + remaining)
+        String.join(parts, " ")
+    | vector_type(type):
+        def parts = for List (index in 0..type.length):
+          this.place_leaves(type.element_type, value ++ "[" ++ to_string(index) ++ "]", total, offset + index * type.element_type.packed_width())
+        String.join(parts, " ")
+    | ~else:
+        "rhodium_rsim::place_bits<" ++ to_string(total) ++ ", " ++ to_string(scalar_carrier_width(type)) ++ ">(packed, " ++ value ++ ", " ++ to_string(offset) ++ ");"
+
+  /* Pack canonical bits without using C++ object layout. Wide aggregates fill
+     one temporary; aggregates of at most 64 bits retain unsigned shift/OR. */
+  method pack(type :: HardwareType, value :: String) :: String:
+    cond
+    | (record_type(type) || vector_type(type)) && type.packed_width() > 64:
+        "([&]() { rhodium_rsim::WideBits<" ++ to_string(type.packed_width()) ++ "> packed{}; " ++ this.place_leaves(type, value, type.packed_width()) ++ " return packed; }())"
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def terms = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          "(" ++ this.pack(field.type, value ++ "." ++ cpp_name(field.name)) ++ " << " ++ to_string(remaining) ++ ")"
+        "(" ++ String.join(terms, " | ") ++ ")"
+    | vector_type(type):
+        def terms = for List (index in 0..type.length):
+          "(" ++ this.pack(type.element_type, value ++ "[" ++ to_string(index) ++ "]") ++ " << " ++ to_string(index * type.element_type.packed_width()) ++ ")"
+        "(" ++ String.join(terms, " | ") ++ ")"
+    | ~else: value
+
+  /* Reconstruct typed leaves from one packed value. Carry its original width
+     and canonical offset through recursion so wide slicing never truncates it. */
+  method unpack(type :: HardwareType, value :: String,
+                source_width :: PosInt = type.packed_width(), offset :: Nat = 0) :: String:
+    cond
+    | record_type(type):
+        def mutable remaining = type.packed_width()
+        def members = for List (field in type.fields):
+          remaining := remaining - field.type.packed_width()
+          this.unpack(field.type, value, source_width, offset + remaining)
+        this.construct(type, members)
+    | vector_type(type):
+        def members = for List (index in 0..type.length):
+          this.unpack(type.element_type, value, source_width, offset + index * type.element_type.packed_width())
+        this.construct(type, members)
+    | ~else:
+        if source_width <= 64
+        | this.normalize(type, "(" ++ value ++ " >> " ++ to_string(offset) ++ ")")
+        | "rhodium_rsim::slice<" ++ to_string(scalar_carrier_width(type)) ++ ", " ++ to_string(source_width) ++ ">(" ++ value ++ ", " ++ to_string(offset) ++ ")"

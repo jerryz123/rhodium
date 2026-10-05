@@ -1,0 +1,75 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_selection
+
+fun make_selection(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def top = b.module("Selection" ++ to_string(width))
+  def clock = b.input(top, "clock", Clock)
+  def reset = b.input(top, "reset", Reset)
+  def a = b.input(top, "a", Bits(width))
+  def z = b.input(top, "b", Bits(width))
+  def c = b.input(top, "c", Bits(width))
+  def d = b.input(top, "d", Bits(width))
+  def tag = b.input(top, "tag", Bits(5))
+  def code = b.input(top, "code", Bits(5))
+  def sel1 = b.input(top, "sel1", Bits(1))
+  def sel3 = b.input(top, "sel3", Bits(3))
+  def sel64 = b.input(top, "sel64", Bits(64))
+  def guard = b.input(top, "guard", Bits(1))
+  def element = RecordType([RecordField("lo", Bits(width)), RecordField("mark", Bits(3))])
+  def vector = VectorType(2, element)
+  def packet_type = RecordType([RecordField("tag", Bits(5)), RecordField("data", vector)])
+  fun packet(first :: Value, second :: Value, header :: Value, mark0 :: Nat, mark1 :: Nat):
+    def members = for List (value in [first, second], mark in [mark0, mark1]):
+      b.record_create(top, element, [["lo", value], ["mark", b.constant(top, Bits(3), mark)]])
+    b.record_create(top, packet_type, [["tag", header], ["data", b.vector_create(top, vector, members)]])
+  def packets = [packet(a, z, tag, 1, 2),
+                 packet(b.add(top, z, b.constant(top, Bits(width), 1)), b.bit_not(top, a), b.bit_not(top, tag), 3, 4),
+                 packet(c, d, b.constant(top, Bits(5), 17), 5, 6)]
+  def zero = b.constant(top, Bits(width), 0)
+  def zero_packet = packet(zero, zero, b.constant(top, Bits(5), 0), 0, 0)
+  def free = b.dont_care(top, Bits(width))
+  def scalar_mask = 2 ** width - 1
+  def packet_width = packet_type.packed_width()
+  def full = 2 ** packet_width - 1
+  def low_entry = 2 ** (width + 3) - 1
+  def cases = [[0, 3, full, full bits.xor low_entry],
+               [1, 3, 2 ** (width + 2) + 5, full],
+               [2, 7, full bits.xor (2 ** (width + 3)), low_entry + 2 ** (packet_width - 1)]]
+  def default_value = 2 ** (packet_width - 1) + 9
+  def default_care = full bits.xor (2 ** (packet_width - 2))
+  def decoded = b.decode(top, code, Bits(5), packet_type, cases, default_value, default_care)
+  def reordered = b.decode(top, code, Bits(5), packet_type, cases.reverse(), default_value, default_care)
+  // These cared bits straddle the high tag, second vector element, and first
+  // element. For width 64, comparison must span multiple C++ scalar carriers.
+  def tag_bit = 2 ** (2 * (width + 3))
+  def data_high = 2 ** (2 * width + 5)
+  def input_care = tag_bit + data_high + 8
+  def wide_cases = [[0, input_care, scalar_mask, scalar_mask],
+                    [tag_bit, input_care, scalar_mask - 1, scalar_mask - 1],
+                    [8, input_care, 1, scalar_mask]]
+  def wide_decode = b.decode(top, packets[0], packet_type, Bits(width), wide_cases, 0, scalar_mask)
+  def picked = b.onehot_mux(top, sel3, packets)
+  def widepick = b.onehot_mux(top, sel64, for List (index in 0..64): packets[index mod 3])
+  def partial = b.onehot_mux(top, sel3, [a, free, z])
+  def outputs = [["one", b.onehot_mux(top, sel1, [a])], ["partial", partial], ["free", free],
+                 ["forced", b.bit_or(top, free, b.constant(top, Bits(width), scalar_mask))],
+                 ["known", b.bit_or(top, b.bit_and(top, free, zero), a)],
+                 ["decoded", decoded], ["reordered", reordered], ["picked", picked], ["widepick", widepick],
+                 ["guarded", b.mux_lookup(top, guard, packets[2], [[1, widepick]])], ["wide_decode", wide_decode],
+                 ["empty", b.decode(top, code, Bits(5), Bits(width), [], scalar_mask, scalar_mask - 1)],
+                 ["catchall", b.decode(top, packets[0], packet_type, packet_type, [[0, 0, 17, full]], 0, 0)]]
+  for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
+  for (entry in [["decoded", decoded], ["picked", picked], ["wide_decode", wide_decode], ["partial", partial]]):
+    def value = entry[1]
+    def initial = if type_equal(value.type, packet_type) | zero_packet | zero
+    def reg = b.register(top, "q_" ++ entry[0], value.type, clock, reset, initial)
+    b.drive(reg.next, value)
+    b.drive(b.output(top, "sample_" ++ entry[0], value.type), reg.current)
+  b.finish(top)
+  ElaboratedProgram(design, top)

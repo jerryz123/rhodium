@@ -1,7 +1,7 @@
-# Build and test entry points for Rhodium, CIRCT, and direct SystemVerilog.
+# Build and test entry points for Rhodium, RTL emission, and direct C++ simulation.
 # SPDX-License-Identifier: Apache-2.0
 
-.PHONY: verilog-test backend-differential-test
+.PHONY: verilog-test backend-differential-test rsim-test rsim-differential-test
 .PHONY: ci-verilog-direct-test ci-backend-differential-test ci-host-examples-test print-ci-host-examples
 .PHONY: sram-test
 .PHONY: setup-verilator
@@ -65,6 +65,7 @@ RACKET_COMPILE_SOURCES := $(sort \
   tools/write-riscv-udb-config.rhm \
   $(shell find . -type f -path '*/tests/circt/emit-*.rhm' -print) \
   $(wildcard rhodium/backend/tests/verilog/emit-*.rhm) \
+  $(wildcard rhodium/backend/tests/rsim/emit-*.rhm) \
   $(wildcard sims/tests/*.rhm sims/tests/*.rhdl) \
   $(wildcard sims/emit-*.rhm) \
   $(wildcard sims/program-test/*.rhm) \
@@ -146,6 +147,12 @@ event-runtime-test: check-boundaries
 backend-test: check-boundaries
 	tools/run-racket-tests.sh $(COMPILE_TESTS) $(BACKEND_TESTS)
 
+rsim-test: check-boundaries
+	python3 rhodium/backend/tests/rsim/run.py
+
+rsim-differential-test: check-boundaries
+	python3 rhodium/backend/tests/rsim/run.py --differential
+
 verilog-test: check-boundaries
 	python3 rhodium/backend/tests/verilog/run.py
 	python3 rhodium/backend/tests/verilog/run-integration.py
@@ -153,6 +160,7 @@ verilog-test: check-boundaries
 backend-differential-test: check-boundaries
 	python3 rhodium/backend/tests/verilog/run.py --differential
 	python3 rhodium/backend/tests/verilog/run-integration.py --differential
+	python3 rhodium/backend/tests/rsim/run.py --differential
 
 ci-verilog-direct-test: check-boundaries
 	CIRCT_OPT=/nonexistent python3 rhodium/backend/tests/verilog/run-integration.py --fixture sync-ram
@@ -160,6 +168,7 @@ ci-verilog-direct-test: check-boundaries
 ci-backend-differential-test: check-boundaries
 	python3 rhodium/backend/tests/verilog/run.py --differential
 	python3 rhodium/backend/tests/verilog/run-integration.py --check-manifests
+	python3 rhodium/backend/tests/rsim/run.py --differential
 
 formal-test: check-boundaries
 	@if ! env PLTCOLLECTS=$(CURDIR): tools/run-racket.sh -e '(require rosette) (unless (sat? (solve (assert #t))) (error '\''formal-test "Rosette solver probe failed"))'; then \
@@ -304,7 +313,7 @@ host-checks: check-license-headers check-parameter-annotations support-annotatio
 
 ci-host-foundation-test: support-annotation-test frontend-test std-test flow-test event-test diagram-test
 
-ci-host-backend-test: backend-test
+ci-host-backend-test: backend-test rsim-test
 	python3 -m unittest discover -s rhodium/backend/tests/verilog -p 'test_*.py'
 
 ci-host-examples-test:

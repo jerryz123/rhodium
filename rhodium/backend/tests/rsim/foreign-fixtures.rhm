@@ -1,0 +1,121 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export:
+  make_foreign
+  Signed
+
+class Signed(width :: PosInt):
+  implements SignedArithmeticType
+  override method describe(): "foreign-signed<" ++ to_string(width) ++ ">"
+  override method type_equal(other): other is_a Signed && width == other.width
+  override method packed_width(): width
+  override method with_bit_width(width): Signed(width)
+
+fun make_foreign(byte_function_name :: String = "rsim_foreign8", packed_return_width :: PosInt = 5):
+  def design = Design()
+  def b = Builder(design)
+  // An unused declaration must not impose target capabilities on live RTL.
+  b.dpi_import("unused_packed", ["arg"], [Bits(129)])
+  def leaf = b.module("ForeignLeaf")
+  def clock = b.input(leaf, "clock", Clock)
+  def alias = b.wire(leaf, "alias", Clock)
+  b.drive(alias, clock)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def reset = b.input(leaf, "reset", Reset)
+  def tag = b.input(leaf, "tag", Bits(8))
+  for (width in [1, 8, 16, 32, 64]):
+    def suffix = to_string(width)
+    def type = if width == 16 || width == 64 | Signed(width) | Bits(width)
+    def data = b.input(leaf, "data" ++ suffix, type)
+    def imp = b.dpi_import((if width == 8 | byte_function_name | "rsim_foreign" ++ suffix), ["tag", "data"], [Bits(8), type], "result", type)
+    def argument = b.wire(leaf, "argument" ++ suffix, type)
+    def result = b.dpi_register(leaf, "held" ++ suffix, imp, [tag, b.read(argument)], b.read(alias), enable)
+    // Exercise a true feedback edge through foreign result state. Reset selects
+    // an initializing argument, but never suppresses the enabled call.
+    b.drive(argument, if width == 32 | b.mux_lookup(leaf, b.cast(leaf, reset, Bits(1)), b.bit_xor(leaf, data, result), [[1, data]]) | data)
+    def consumer = b.register(leaf, "consumer" ++ suffix, type, b.read(alias), reset, b.cast(leaf, b.constant(leaf, Bits(width), 0), type))
+    b.drive(consumer.next, result)
+    b.drive(b.output(leaf, "result" ++ suffix, type), result)
+    b.drive(b.output(leaf, "sample" ++ suffix, type), consumer.current)
+    // Procedure arguments depend on held state, not just external inputs.
+    def proc = b.dpi_import("rsim_observe" ++ suffix, ["tag", "data"], [Bits(8), type])
+    b.dpi_call(leaf, proc, [tag, result], b.read(alias), enable)
+  def packed_seed = b.input(leaf, "packed_seed", Bits(64))
+  for (width in [3, 5, 31, 33, 63]):
+    def suffix = to_string(width)
+    def type = if width == 5 || width == 63 | Signed(width) | Bits(width)
+    def return_type = Bits(if width <= 32 | width | packed_return_width)
+    def argument = b.wire(leaf, "packed_argument" ++ suffix, type)
+    def imp = b.dpi_import_results("rsim_packed" ++ suffix, ["tag", "data", "seed"], [Bits(8), type, Bits(64)], [DpiResult("inverted", type, "out"), DpiResult("native", Bits(16), "out"), DpiResult("returned", return_type, "return")])
+    def result = b.dpi_register_results(leaf, ["packed_held_out" ++ suffix, "packed_held_native" ++ suffix, "packed_held_return" ++ suffix], imp, [tag, b.read(argument), packed_seed], b.read(alias), enable)
+    def data = b.cast(leaf, b.trunc(leaf, packed_seed, width), type)
+    b.drive(argument, b.mux_lookup(leaf, b.cast(leaf, reset, Bits(1)), b.bit_xor(leaf, data, result[0]), [[1, data]]))
+    for (value in result, kind in ["out", "native", "return"]):
+      def consumer = b.register(leaf, "packed_consumer_" ++ kind ++ suffix, value.type, b.read(alias), reset, b.cast(leaf, b.constant(leaf, Bits(value.type.packed_width()), 0), value.type))
+      b.drive(consumer.next, value)
+      b.drive(b.output(leaf, "packed_" ++ kind ++ suffix, value.type), value)
+      b.drive(b.output(leaf, "packed_sample_" ++ kind ++ suffix, value.type), consumer.current)
+    def proc = b.dpi_import("rsim_packed_observe" ++ suffix, ["tag", "data"], [Bits(8), type])
+    b.dpi_call(leaf, proc, [tag, result[0]], b.read(alias), enable)
+    // Allocate packed buffers even when only a different result is consumed.
+    def partial = b.dpi_register_results(leaf, ["packed_unused_out" ++ suffix, "packed_unused_native" ++ suffix, "packed_used_return" ++ suffix], imp, [b.add(leaf, tag, b.constant(leaf, Bits(8), 10)), data, packed_seed], b.read(alias), enable)
+    b.drive(b.output(leaf, "packed_partial" ++ suffix, return_type), partial[2])
+  def group_enable = b.input(leaf, "group_enable", Bits(1))
+  def group_data = b.input(leaf, "group_data", Bits(64))
+  def group_argument = b.wire(leaf, "group_argument", Bits(64))
+  def group_types = [Bits(1), Bits(8), Signed(16), Bits(32), Signed(64), Signed(16)]
+  def group_results = for List (type in group_types, index in 0..group_types.length()):
+    DpiResult("result" ++ to_string(index), type, if index == 5 | "return" | "out")
+  def group_import = b.dpi_import_results("rsim_group", ["tag", "data"], [Bits(8), Bits(64)], group_results)
+  def group_names = for List (index in 0..group_types.length()): "group" ++ to_string(index)
+  def group = b.dpi_register_results(leaf, group_names, group_import, [tag, b.read(group_argument)], b.read(alias), group_enable)
+  // Both an out result and the return participate in feedback. Reset supplies
+  // an initializing argument rather than resetting or suppressing foreign state.
+  def feedback = b.bit_xor(leaf, b.cast(leaf, group[4], Bits(64)), b.zext(leaf, b.cast(leaf, group[5], Bits(16)), 64))
+  b.drive(group_argument, b.mux_lookup(leaf, b.cast(leaf, reset, Bits(1)), b.bit_xor(leaf, group_data, feedback), [[1, group_data]]))
+  for (result in group, type in group_types, index in 0..group.length()):
+    def suffix = to_string(index)
+    def consumer = b.register(leaf, "group_consumer" ++ suffix, type, b.read(alias), reset, b.cast(leaf, b.constant(leaf, Bits(type.packed_width()), 0), type))
+    b.drive(consumer.next, result)
+    b.drive(b.output(leaf, "group_result" ++ suffix, type), result)
+    b.drive(b.output(leaf, "group_sample" ++ suffix, type), consumer.current)
+  // A second call reuses the declaration but only its return is observed.
+  // Every out parameter still needs an ABI temporary and one invocation.
+  def partial_names = for List (index in 0..group_types.length()): "partial" ++ to_string(index)
+  def partial = b.dpi_register_results(leaf, partial_names, group_import, [b.add(leaf, tag, b.constant(leaf, Bits(8), 10)), group_data], b.read(alias), group_enable)
+  b.drive(b.output(leaf, "partial_return", group_types[5]), partial[5])
+  b.finish(leaf)
+  def monitor = b.module("ForeignMonitor")
+  def mc = b.input(monitor, "clock", Clock)
+  def me = b.input(monitor, "enable", Bits(1))
+  def md = b.input(monitor, "data", Bits(8))
+  def sink = b.dpi_import("rsim_sink", ["data"], [Bits(8)])
+  b.dpi_call(monitor, sink, [md], mc, me)
+  def unused = b.dpi_import("rsim_unused_result", ["data"], [Bits(8)], "result", Bits(8))
+  b.dpi_register(monitor, "unused", unused, [md], mc, me)
+  // No result is reachable from an output, but this call must remain live.
+  def ignored_names = for List (index in 0..group_types.length()): "ignored" ++ to_string(index)
+  b.dpi_register_results(monitor, ignored_names, group_import, [b.constant(monitor, Bits(8), 0), b.zext(monitor, md, 64)], mc, me)
+  b.finish(monitor)
+  def top = b.module("DpiNative")
+  def tc = b.input(top, "clock", Clock)
+  def top_reset = b.input(top, "reset", Reset)
+  for (side in ["first", "second"]):
+    def child = b.instance(top, leaf, side)
+    b.drive(child.input("clock"), tc)
+    b.drive(child.input("reset"), top_reset)
+    b.drive(child.input("tag"), b.constant(top, Bits(8), if side == "first" | 1 | 2))
+    for (port in leaf.inputs.filter(~keep: fun (port): !(port.name in ["clock", "reset", "tag"]))):
+      b.drive(child.input(port.name), b.input(top, side ++ "_" ++ port.name, port.type))
+    for (port in leaf.outputs): b.drive(b.output(top, side ++ "_" ++ port.name, port.type), child.output(port.name))
+  def monitor_instance = b.instance(top, monitor, "monitor")
+  b.drive(monitor_instance.input("clock"), tc)
+  b.drive(monitor_instance.input("enable"), b.input(top, "monitor_enable", Bits(1)))
+  b.drive(monitor_instance.input("data"), b.input(top, "monitor_data", Bits(8)))
+  def fail_guard = b.input(top, "fail_guard", Bits(1))
+  b.assert(top, b.constant(top, Bits(1), 0), tc, top_reset, fail_guard, "before_foreign")
+  b.finish(top)
+  ElaboratedProgram(design, top)

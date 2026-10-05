@@ -1,0 +1,20 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  rhombus/cmdline open
+  lib("racket/base.rkt") as rkt
+  lib("racket/file.rkt") as file
+  "wide-fixtures.rhm" open
+  "../../../compile/program.rhm".compile_program
+  "../../rsim-target.rhm".rsim_target
+  "../../verilog-target.rhm".verilog_target
+
+def arguments = current_command_line()
+unless arguments.length() == 2 && arguments[1] in ["native", "differential"]
+| error("expected OUTPUT_DIRECTORY native|differential")
+def programs = [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ make_wide_memories()
+for (program in programs):
+  for (target in (if arguments[1] == "native" | [rsim_target] | [rsim_target, verilog_target])):
+    def result = compile_program(program, target)
+    for (artifact in result.artifacts):
+      file.#{display-to-file}(artifact.content, rkt.#{build-path}(arguments[0], artifact.name), ~exists: #'#{truncate/replace})

@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import tarfile
 from pathlib import Path
 import subprocess
@@ -420,7 +421,8 @@ class ConfigSelectionTest(unittest.TestCase):
     def test_backend_selection_isolates_models_and_attests_emitted_rtl(self):
         with tempfile.TemporaryDirectory() as directory:
             for backend, suffix, artifact in (('circt', '', 'soc_harness.mlir'),
-                                               ('verilog', '-verilog', 'SoCHarness.sv')):
+                                               ('verilog', '-verilog', 'SoCHarness.sv'),
+                                               ('rsim', '-rsim', 'SoCHarness.sv')):
                 with self.subTest(backend=backend):
                     result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={backend}',
                                           f'BUILD_ROOT={directory}', target='simulator')
@@ -429,15 +431,20 @@ class ConfigSelectionTest(unittest.TestCase):
                     self.assertIn(f'--rtl "{root}/{artifact}"', result.stdout)
                     self.assertIn(f'--backend {backend} --variant normal', result.stdout)
                     self.assertIn(f'--Mdir {root}/obj', result.stdout)
-                    if backend == 'verilog':
-                        self.assertRegex(result.stdout, r'--backend\s+verilog\s+simple\s+rv5stage\s+rva23')
+                    if backend in ('verilog', 'rsim'):
+                        if backend == 'rsim':
+                            self.assertRegex(result.stdout, rf'--backend rsim --output-directory "{re.escape(str(root))}"\s+simple\s+rv5stage\s+rva23')
+                            self.assertIn(f'{root}/SoCHarness.cpp', result.stdout)
+                            self.assertIn(f'{root}/SoCHarness_bridge.cpp', result.stdout)
+                        else:
+                            self.assertRegex(result.stdout, r'--backend\s+verilog\s+simple\s+rv5stage\s+rva23')
                         self.assertNotIn('circt-opt', result.stdout)
                     else:
                         self.assertIn('--export-verilog', result.stdout)
             for invalid in ('', 'typo', 'circt verilog'):
                 result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={invalid}')
                 self.assertNotEqual(result.returncode, 0)
-                self.assertIn('RTL_BACKEND must be circt or verilog', result.stderr)
+                self.assertIn('RTL_BACKEND must be circt, verilog, or rsim', result.stderr)
             traced = self.dry_run('SOC=simple-rv5stage-rva23', 'RTL_BACKEND=verilog', 'TRACE=1')
             self.assertNotEqual(traced.returncode, 0)
             self.assertIn('TRACE=1 currently requires RTL_BACKEND=circt', traced.stderr)
@@ -570,7 +577,7 @@ class SimulatorArtifactTest(unittest.TestCase):
             binary.write_bytes(b'direct simulator')
             command = [sys.executable, str(SCRIPTS / 'artifact.py')]
             options = ['--binary', str(binary), '--soc', 'simple-rv5stage-rva23']
-            for backend in ('circt', 'verilog'):
+            for backend in ('circt', 'rsim', 'verilog'):
                 other = 'verilog' if backend == 'circt' else 'circt'
                 rtl = artifact_inputs(binary, backend=backend)
                 subprocess.run(command + ['record'] + options + ['--backend', backend] + rtl, check=True)

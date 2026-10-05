@@ -1,7 +1,11 @@
 # Tests CI selection, fail-closed coverage, and completed build-artifact orchestration.
 # SPDX-License-Identifier: Apache-2.0
 
+import json
+import os
 import re
+import tempfile
+import textwrap
 import shlex
 import subprocess
 import unittest
@@ -10,7 +14,7 @@ from pathlib import Path
 from .gate import failures
 from .plan import Selection, plan_for_paths
 from .programs import program_matrices
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_configs, simulation_entry, simulator_entry, DIRECT_SMOKE_CONFIG, DIRECT_SMOKE_TESTS, platform_configs
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, platform_configs
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -103,6 +107,27 @@ class PlanTest(unittest.TestCase):
             self.assertTrue(expected)
             self.assertTrue(expected <= set(files), root)
 
+    def test_rsim_uart_integration_dependencies(self):
+        for path in ("rhodium/backend/tests/rsim/uart-fixture.rhdl",
+                     "rhodium/backend/tests/rsim/emit-uart.rhm",
+                     "rhodium/backend/tests/rsim/uart.cpp", "rhodium/backend/tests/rsim/uart.py",
+                     "devices/uart/uart.rhdl", "devices/uart/uart-dpi.rhdl",
+                     "devices/uart/dpi/uart_dpi.cc", "devices/uart/dpi/uart_dpi.h",
+                     "devices/tests/circt/verilog/uart-dpi_dpi.cpp",
+                     "rhodium/std/cdc/level.rhdl", "rhodium/std/ready-valid.rhdl"):
+            with self.subTest(path=path):
+                self.assert_checks(path, "host-backend", "circt-verilog-differential")
+
+    def test_rsim_sv_bridge_dependencies(self):
+        for path in ("sims/TestDriver.v", "sims/verilator/simulation_runtime.cc", "sims/verilator/simulation_runtime.h",
+                     "rhodium/backend/tests/rsim/emit-sv-bridge.rhm",
+                     "rhodium/backend/rsim/sv-binding.rhm", "rhodium/backend/tests/rsim-sv-test.rhm",
+                     "rhodium/backend/tests/rsim/sv-binding-fixtures.rhm",
+                     "rhodium/backend/tests/rsim/sv-bridge-host.cpp", "rhodium/backend/tests/rsim/sv-bridge-bench.sv",
+                     "rhodium/backend/tests/rsim/sv_bridge.py"):
+            with self.subTest(path=path):
+                self.assert_checks(path, "circt-verilog-differential")
+
     def test_documentation_selects_no_execution(self):
         for path in ("README.md", "LICENSE", "NOTICE", "DCO", "flow/DEVELOPING.md", "sram/README.md"):
             with self.subTest(path=path):
@@ -137,7 +162,8 @@ class PlanTest(unittest.TestCase):
     def test_simulation_builds_and_runs_all_configs(self):
         plan = self.plan("sims/Makefile")
         expected = [simulation_entry(*config) for config in SIMULATOR_CONFIGS]
-        expected.append(simulation_entry(*DIRECT_SMOKE_CONFIG, backend="verilog"))
+        expected.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend)
+                        for backend in BACKEND_SMOKE_VARIANTS)
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
         self.assertEqual({entry["soc"] for entry in expected},
                          {"mini-rv5stage-rv32int", "mini-spike-rv32int", "simple-rv5stage-rv32int", "simple-spike-rv32int",
@@ -163,7 +189,7 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(len(direct), 1)
                 self.assertEqual(direct[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(direct[0]['simulator_id'], 'simple-rv5stage-rva23-verilog')
-                self.assertEqual(direct[0]['software_tests'].split(), list(DIRECT_SMOKE_TESTS))
+                self.assertEqual(direct[0]['software_tests'].split(), ['smoke', 'host-mmio-test', 'uart-pty-test'])
                 self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
         build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
         run = (REPO / '.github/workflows/ci-harness.yml').read_text()
@@ -172,6 +198,97 @@ class PlanTest(unittest.TestCase):
             self.assertIn('RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}', workflow)
             self.assertIn('fromJSON(inputs.config).simulator_id', workflow)
         self.assertIn('--backend "$RTL_BACKEND"', run)
+
+    def test_rsim_is_an_isolated_bounded_smoke_variant(self):
+        for path in ('rhodium/backend/rsim/emit.rhm', 'rhodium/compile/rtl.rhm',
+                     'cores/rv5stage/core.rhdl', 'sims/TestDriver.v', '.github/workflows/ci.yml'):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                entries = plan['simulator_matrix']['include']
+                self.assertEqual(len({entry['simulator_id'] for entry in entries}), len(entries))
+                rsim = [entry for entry in entries if entry['backend'] == 'rsim']
+                self.assertEqual(len(rsim), 1)
+                self.assertEqual(rsim[0]['simulator_id'], 'simple-rv5stage-rva23-rsim')
+                self.assertEqual(rsim[0]['soc'], 'simple-rv5stage-rva23')
+                self.assertEqual(rsim[0]['software_tests'], 'smoke')
+                self.assertEqual(rsim[0]['opt_fast'], '-O0')
+                self.assertEqual(rsim[0]['smoke_max_cycles'], 100000)
+                self.assertEqual(rsim[0]['harness_timeout_minutes'], 5)
+                self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
+                self.assertTrue(all(row['soc'] in SINGLE_CORE_SOCS for row in plan['program_matrix']['include']))
+        # Software-only builds still use the ordinary simulator inventory.
+        self.assertTrue(all(row['backend'] == 'circt' for row in
+                            self.plan('sw/build/build-coremark.py')['simulator_matrix']['include']))
+        self.assertTrue({row['soc'] for row in platform_configs()} <= {c[0] for c in SIMULATOR_CONFIGS})
+
+    def test_backend_workflow_commands_propagate_settings_and_failures(self):
+        def step(workflow, name):
+            text = (REPO / '.github/workflows' / workflow).read_text()
+            section = text.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
+            self.assertIn('        shell: bash\n', section)
+            return section, textwrap.dedent(section.split('        run: |\n', 1)[1])
+
+        build_section, build = step('ci-simulator.yml', 'Build and attest simulator')
+        run_section, run = step('ci-harness.yml', 'Run shape-and-ISA software selection')
+        self.assertIn('OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}', build_section)
+        self.assertIn('timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}', run_section)
+        self.assertIn('SMOKE_MAX_CYCLES: ${{ fromJSON(inputs.config).smoke_max_cycles }}', run_section)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            calls = root / 'calls.jsonl'
+            # Exercise the actual workflow shell, substituting only expensive tools.
+            stub = textwrap.dedent("""\
+                #!/usr/bin/env python3
+                import json
+                import os
+                import sys
+                from pathlib import Path
+                with open(os.environ['CALL_LOG'], 'a') as output:
+                    output.write(json.dumps([Path(sys.argv[0]).name, *sys.argv[1:]]) + '\\n')
+                print('tool transcript')
+                sys.exit(int(os.environ.get('MAKE_EXIT', '0')) if Path(sys.argv[0]).name == 'make' else 0)
+            """)
+            for name in ('make', 'ldd'):
+                tool = root / name
+                tool.write_text(stub)
+                tool.chmod(0o755)
+            env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
+                       CALL_LOG=str(calls), RUNNER_TEMP=str(root), SOC='simple-rv5stage-rva23',
+                       RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
+                       SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000')
+            for opt in ('-O0', ''):
+                calls.write_text('')
+                result = subprocess.run(['bash', '-eo', 'pipefail', '-c', build], env=dict(env, OPT_FAST=opt),
+                                        text=True, capture_output=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                commands = [json.loads(line) for line in calls.read_text().splitlines()]
+                self.assertEqual([c[0] for c in commands], ['make', 'ldd'])
+                self.assertEqual([arg for arg in commands[0] if arg.startswith('OPT_FAST=')],
+                                 ['OPT_FAST=-O0'] if opt else [])
+            calls.write_text('')
+            result = subprocess.run(['bash', '-eo', 'pipefail', '-c', run],
+                                    env=dict(env, SMOKE_MAX_CYCLES='0',
+                                             SOFTWARE_TESTS='smoke host-mmio-test uart-pty-test'),
+                                    text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            commands = [json.loads(line) for line in calls.read_text().splitlines()]
+            self.assertEqual([command[3] for command in commands],
+                             ['smoke', 'host-mmio-test', 'uart-pty-test'])
+            self.assertFalse(any(arg.startswith('HTIF_ARGS=') for command in commands for arg in command))
+            for command in (build, run):
+                for exit_code in (0, 7):
+                    calls.write_text('')
+                    result = subprocess.run(['bash', '-eo', 'pipefail', '-c', command],
+                                            env=dict(env, OPT_FAST='-O0', MAKE_EXIT=str(exit_code)),
+                                            text=True, capture_output=True)
+                    self.assertEqual(result.returncode == 0, exit_code == 0, result.stderr)
+                    commands = [json.loads(line) for line in calls.read_text().splitlines()]
+                    if command == run:
+                        self.assertEqual(len(commands), 1)
+                        self.assertEqual(commands[0][3], 'smoke')
+                        self.assertIn('HTIF_ARGS=+max-cycles=100000', commands[0])
+                        self.assertIn(f'PREBUILT_SIMULATOR={root}/simple-rv5stage-rva23-rsim/VTestDriver', commands[0])
+                        self.assertIn('tool transcript', (root / 'simple-rv5stage-rva23-rsim-smoke.log').read_text())
 
     def test_software_selection_is_identical_for_matching_shape_and_isa(self):
         entries = self.plan("sims/Makefile")["simulator_matrix"]["include"]
@@ -325,8 +442,9 @@ class PlanTest(unittest.TestCase):
             "devicetree/main.rhm": ("host-models", "host-hygiene"),
             "noc/rtl/router.rhdl": ("host-models", "host-socs", "circt-protocols", "host-examples"),
             "hardfloat/rtl/recode.rhdl": ("host-models", "circt-core-cache", "circt-hardfloat"),
-            "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples"),
+            "chi/subordinate/dpi-memory.rhdl": ("host-protocols", "host-socs", "circt-protocols", "host-examples", "circt-verilog-differential"),
             "cores/rv5stage/core.rhdl": ("host-cores", "host-socs", "circt-core-execution-frontend", "circt-core-execution-control", "circt-core-execution-datapath", "host-examples"),
+            "chi/subordinate/dpi/chi_dpi_memory_dpi.cc": ("circt-verilog-differential",),
             "socs/mini-rv5stage-soc.rhdl": ("host-socs", "circt-core-memory", "host-hygiene"),
             "examples/rfpl/circuit-pair.rhdl": ("host-examples", "circt-rfpl", "host-hygiene"),
             "tools/write-riscv-udb-config.rhm": ("host-models", "host-cores", "host-socs", "host-hygiene"),

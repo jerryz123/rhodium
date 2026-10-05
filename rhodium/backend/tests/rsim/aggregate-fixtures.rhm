@@ -1,0 +1,118 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../../core/main.rhm" open
+  "../../../lowering/program.rhm".ElaboratedProgram
+export make_aggregate
+
+fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
+  def length = if width == 1 | 1 | (if width == 5 | 3 | 4)
+  def element = RecordType([RecordField("class", Bits(width)), RecordField("__class__", Bits(5))], "Model")
+  def vector = VectorType(length, element)
+  def single = VectorType(1, Bits(width))
+  def packet = RecordType([RecordField("payload", vector), RecordField("flag", Bits(1)), RecordField("single", single)], "Record0")
+  def alias = RecordType(packet.fields, "Inputs")
+  def design = Design()
+  for (_ in 0..consumed_ids): design.fresh_id()
+  def b = Builder(design)
+  fun initial(module_def :: Module, seed :: Nat):
+    def entries = for List (index in 0..length):
+      b.record_create(module_def, element, [["__class__", b.constant(module_def, Bits(5), (seed + index) mod 32)],
+                                            ["class", b.constant(module_def, Bits(width), (seed + index) mod (2 ** width))]])
+    b.record_create(module_def, packet, [["single", b.vector_create(module_def, single, [b.constant(module_def, Bits(width), seed mod (2 ** width))])],
+                                         ["flag", b.constant(module_def, Bits(1), seed mod 2)],
+                                         ["payload", b.vector_create(module_def, vector, entries)]])
+  def leaf = b.module("AggregateLeaf" ++ to_string(width))
+  def clock = b.input(leaf, "clock", Clock)
+  def reset = b.input(leaf, "reset", Reset)
+  def enable = b.input(leaf, "enable", Bits(1))
+  def load = b.input(leaf, "load", Bits(1))
+  def a = b.input(leaf, "a", packet)
+  def z = b.input(leaf, "b", packet)
+  def left = b.register(leaf, "qleft", packet, clock, reset, initial(leaf, 3))
+  def right = b.register(leaf, "qright", packet, clock, reset, initial(leaf, 7))
+  b.drive(left.next, b.mux_lookup(leaf, load, b.mux_lookup(leaf, enable, left.current, [[1, right.current]]), [[1, a]]))
+  b.drive(right.next, b.mux_lookup(leaf, load, b.mux_lookup(leaf, enable, right.current, [[1, left.current]]), [[1, z]]))
+  b.drive(b.output(leaf, "left", packet), left.current)
+  b.drive(b.output(leaf, "right", packet), right.current)
+  b.finish(leaf)
+  // Whole bundles feed back, but each selected field has an acyclic path.
+  // Resolving one projection must not schedule all of its sibling operands.
+  def pair = RecordType([RecordField("a", packet), RecordField("b", packet)], "ProjectionPair")
+  def project = b.module("ProjectRecord" ++ to_string(width))
+  def pair_input = b.mux_lookup(project, b.input(project, "select", Bits(1)), b.input(project, "pair", pair), [[1, b.input(project, "alternative", pair)]])
+  for (field in ["a", "b"]):
+    b.drive(b.output(project, field, packet), b.record_get(project, pair_input, field))
+  b.drive(b.output(project, "whole", pair), pair_input)
+  b.finish(project)
+  def pair_vector = VectorType(2, packet)
+  def project_vector = b.module("ProjectVector" ++ to_string(width))
+  def vector_input = b.onehot_mux(project_vector, b.input(project_vector, "select", Bits(2)), [b.input(project_vector, "pair", pair_vector), b.input(project_vector, "alternative", pair_vector)])
+  for (index in 0..2):
+    b.drive(b.output(project_vector, "v" ++ to_string(index), packet), b.vector_get(project_vector, vector_input, index))
+  b.finish(project_vector)
+  def top = b.module("Aggregate" ++ to_string(width))
+  def tc = b.input(top, "clock", Clock)
+  def tr = b.input(top, "reset", Reset)
+  def te = b.input(top, "enable", Bits(1))
+  def tl = b.input(top, "load", Bits(1))
+  def raw_a = b.input(top, "a", alias)
+  def tb = b.input(top, "b", alias)
+  def projected = b.instance(top, project, "record_projection")
+  b.drive(projected.input("select"), te)
+  b.drive(projected.input("alternative"), b.record_create(top, pair, [["a", tb], ["b", raw_a]]))
+  b.drive(projected.input("pair"), b.record_create(top, pair, [["a", raw_a], ["b", projected.output("a")]]))
+  def projected_vector = b.instance(top, project_vector, "vector_projection")
+  b.drive(projected_vector.input("pair"), b.vector_create(top, pair_vector, [projected.output("b"), projected_vector.output("v0")]))
+  b.drive(projected_vector.input("select"), b.mux_lookup(top, tl, b.constant(top, Bits(2), 1), [[1, b.constant(top, Bits(2), 2)]]))
+  b.drive(projected_vector.input("alternative"), b.vector_create(top, pair_vector, [projected.output("a"), projected.output("b")]))
+  // Both feedback paths still yield raw_a; distinct mux observations below
+  // independently check selectors, projection identity, and occurrence identity.
+  def ta = projected_vector.output("v1")
+  b.drive(b.output(top, "mux_record", packet), projected.output("a"))
+  b.drive(b.output(top, "mux_whole", pair), projected.output("whole"))
+  b.drive(b.output(top, "mux_vector", packet), projected_vector.output("v0"))
+  def other_projected = b.instance(top, project, "other_record_projection")
+  b.drive(other_projected.input("select"), te)
+  b.drive(other_projected.input("pair"), b.record_create(top, pair, [["a", tb], ["b", other_projected.output("a")]]))
+  b.drive(other_projected.input("alternative"), b.record_create(top, pair, [["a", raw_a], ["b", tb]]))
+  b.drive(b.output(top, "mux_other", packet), other_projected.output("a"))
+  def packed = b.input(top, "packed", Bits(64))
+  def forward = b.wire(top, "forward", packet)
+  b.drive(b.output(top, "echo", alias), b.read(forward))
+  b.drive(forward, ta)
+  def payload = b.record_get(top, ta, "payload")
+  def rebuilt = for List (index in 0..length):
+    def old = b.vector_get(top, payload, length - 1 - index)
+    b.record_create(top, element, [["class", b.add(top, b.record_get(top, old, "class"), b.constant(top, Bits(width), 1))],
+                                   ["__class__", b.bit_not(top, b.record_get(top, old, "__class__"))]])
+  def built = b.record_create(top, packet, [["payload", b.vector_create(top, vector, rebuilt)],
+                                            ["flag", b.bit_not(top, b.record_get(top, ta, "flag"))],
+                                            ["single", b.vector_create(top, single, [b.record_get(top, b.vector_get(top, payload, 0), "class")])]])
+  b.drive(b.output(top, "built", packet), built)
+  b.drive(b.output(top, "picked", packet), b.mux_lookup(top, tl, ta, [[1, tb]]))
+  for (name in ["first", "second"]):
+    def child = b.instance(top, leaf, name)
+    for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
+                  ["a", if name == "first" | ta | tb], ["b", if name == "first" | tb | ta]]):
+      b.drive(child.input(pair[0]), pair[1])
+    for (output in ["left", "right"]):
+      b.drive(b.output(top, name ++ "_" ++ output, packet), child.output(output))
+  def sample = b.register(top, "sampled", vector, tc)
+  b.drive(sample.next, payload)
+  b.drive(b.output(top, "sample", vector), sample.current)
+  // Observe unpacked members as well as round trips, so opposing packing bugs
+  // cannot cancel. This nested layout uses all 64 bits, without a wide scalar.
+  def lanes = VectorType(3, Bits(21))
+  def narrow = RecordType([RecordField("head", Bits(1)), RecordField("lanes", lanes)], "Model")
+  def unpacked = b.cast(top, packed, narrow)
+  b.drive(b.output(top, "unpacked", narrow), unpacked)
+  b.drive(b.output(top, "roundtrip", Bits(64)), b.cast(top, unpacked, Bits(64)))
+  def lane_values = b.record_get(top, unpacked, "lanes")
+  def reversed = b.vector_create(top, lanes, for List (index in 0..3): b.vector_get(top, lane_values, 2 - index))
+  def reversed_record = b.record_create(top, narrow, [["head", b.record_get(top, unpacked, "head")], ["lanes", reversed]])
+  b.drive(b.output(top, "repacked", Bits(64)), b.cast(top, reversed_record, Bits(64)))
+  def halves = RecordType([RecordField("high", Bits(32)), RecordField("low", Bits(32))], "Model")
+  b.drive(b.output(top, "halves", halves), b.cast(top, unpacked, halves))
+  b.finish(top)
+  ElaboratedProgram(design, top)

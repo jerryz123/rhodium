@@ -281,7 +281,9 @@ range from 0 through `0xffffffff`; the oversample divisor ranges from 1 through
 The C++ companion creates one nonblocking raw PTY per model ID, prints its
 slave path on first use, and exposes that path through `uart_pty_path`. It
 queues host input across hardware reset but suppresses transfers while reset
-is active. A received byte with a bad stop bit still reaches the PTY because
+is active. A byte held in the DPI result register reserves the transmitter until
+consumed, preserving queued byte order while the transmitter is busy. A received
+byte with a bad stop bit still reaches the PTY because
 the terminal stream has no framing-error sideband; the model logs and counts
 the error for diagnostics.
 

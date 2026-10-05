@@ -1,0 +1,330 @@
+#lang rhombus
+/* Schedules typed RTL by occurrence, separating values, state updates, checks, and foreign effects. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/ir.rhm" open
+  "../../core/dependencies.rhm".identity_index
+
+export:
+  RsimStep
+  RsimPort
+  RsimRegister
+  RsimMemory
+  RsimWrite
+  RsimRead
+  RsimAssertion
+  RsimForeign
+  RsimSchedule
+  build_schedule
+
+/* Describes one typed value in dependency order; operand indices
+   refer only to earlier steps. Input and state steps are evaluation roots. */
+class RsimStep(opcode :: String, type :: HardwareType, operands :: List.of(Nat), attributes :: Map)
+
+/* Maps an authored port to its scheduled value and hardware type. */
+class RsimPort(name :: String, type :: HardwareType, value :: Nat)
+
+/* Holds one occurrence's next-state sinks; the slot index identifies its
+   current-state storage independently of shared module definitions. */
+class RsimRegister(path :: List.of(String), name :: String, type :: HardwareType,
+                   next_value :: Nat, reset :: maybe(Nat), reset_value :: maybe(Nat))
+
+/* Allocate independent typed memory storage for each hierarchy occurrence. */
+class RsimMemory(path :: List.of(String), name :: String, depth :: PosInt, type :: HardwareType)
+
+/* Sample one write's operands before any state changes; optional masks select
+   canonical packed granules. The memory slot identifies persistent storage. */
+class RsimWrite(memory :: Nat, address :: Nat, data :: Nat, enable :: Nat,
+                write_mode :: maybe(Nat) = #false, mask_value :: maybe(Nat) = #false,
+                mask_granularity :: maybe(PosInt) = #false)
+
+/* One synchronous read result is stored state. Shared-port reads additionally
+   require write_mode to be zero; addresses/enables remain next-state sinks. */
+class RsimRead(memory :: Nat, address :: Nat, enable :: Nat, write_mode :: maybe(Nat))
+
+/* Preserve each occurrence's check and diagnostic identity independently of
+   value reachability. All three predicates sample the same pre-edge state. */
+class RsimAssertion(path :: List.of(String), label :: maybe(String), location :: String,
+                    condition :: Nat, reset :: Nat, guard :: Nat)
+
+/* Sample a live foreign call independently of result reachability. Function
+   results use distinct slots within the call's occurrence; procedures have none. */
+class RsimForeign(import_decl :: DpiImport, enable :: Nat, arguments :: List.of(Nat))
+
+/* Keeps the renderer independent of graph traversal and provider expansion. */
+class RsimSchedule(name :: String, inputs :: List.of(RsimPort), outputs :: List.of(RsimPort),
+                   steps :: List.of(RsimStep), registers :: List.of(RsimRegister),
+                   memories :: List.of(RsimMemory), writes :: List.of(RsimWrite),
+                   reads :: List.of(RsimRead), assertions :: List.of(RsimAssertion), foreign_calls :: List.of(RsimForeign))
+
+/* Binds a shared definition to one hierarchy path and parent-owned input values. */
+class Occurrence(module_def :: Module, path :: List.of(String), bindings :: Map,
+                 children :: MutableMap)
+
+def supported = ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
+                 "rtl.constant", "rtl.dont_care", "rtl.onehot_mux", "rtl.decode",
+                 "rtl.not", "rtl.and", "rtl.or", "rtl.xor",
+                 "rtl.add", "rtl.sub", "rtl.mul", "rtl.eq", "rtl.ult", "rtl.mux_lookup",
+                 "rtl.slt", "rtl.shl", "rtl.shru", "rtl.shrs", "rtl.concat", "rtl.extract",
+                 "rtl.zext", "rtl.sext", "rtl.trunc",
+                 "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
+                 "rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set",
+                 "rtl.memory", "rtl.memory_read_async", "rtl.memory_write",
+                 "rtl.sync_memory", "verif.assert", "sim.dpi_call", "sim.dpi_register",
+                 "cdc.sync_level",
+                 "rtl.cast", "rtl.register", "rtl.register_reset"]
+
+/* Attribute unsupported representations to the exact source occurrence. */
+fun fail(path :: List.of(String), operation :: Operation, message :: String):
+  error(~who: #'rsim, operation.location.describe() ++ " [" ++ String.join(path, "/") ++ "] " ++ operation.opcode ++ ": " ++ message)
+
+/* Check fixed-width typed leaves recursively in ports, state, and memory storage. */
+fun check_type(type :: HardwareType, path :: List.of(String), operation :: Operation):
+  cond
+  | record_type(type):
+      for (field in type.fields): check_type(field.type, path, operation)
+  | vector_type(type): check_type(type.element_type, path, operation)
+  | ~else:
+      def width = if reset_type(type) | 1 | scalar_width(type)
+      unless width | fail(path, operation, "requires fixed-width scalar data")
+
+/* Find wide leaves even when an operation transports an enclosing aggregate. */
+fun has_wide_leaf(type :: HardwareType) :: Boolean:
+  cond
+  | record_type(type): for any (field in type.fields): has_wide_leaf(field.type)
+  | vector_type(type): has_wide_leaf(type.element_type)
+  | ~else:
+      def width = scalar_width(type)
+      width != #false && width > 64
+
+/* Admit wide leaves only where emission handles all operands and result widths.
+   Inspect operands too: comparisons and slices may return a narrow result, and
+   a wide selector must never be implicitly narrowed by an ordinary C++ helper. */
+fun check_wide_operation(operation :: Operation, path :: List.of(String)):
+  def has_wide = for any (value in operation.results ++ operation.operands ++ operation.places):
+    has_wide_leaf(value.type)
+  when has_wide
+  | unless operation.opcode in ["rtl.input_port", "rtl.output_port", "rtl.wire", "rtl.drive", "rtl.instance",
+                                "rtl.constant", "rtl.dont_care", "rtl.not", "rtl.and", "rtl.or", "rtl.xor", "rtl.eq",
+                                "rtl.add", "rtl.sub", "rtl.mul", "rtl.ult", "rtl.slt",
+                                "rtl.concat", "rtl.shl", "rtl.shru", "rtl.shrs",
+                                "rtl.extract", "rtl.trunc", "rtl.zext", "rtl.sext", "rtl.cast",
+                                "rtl.record_create", "rtl.record_get", "rtl.vector_create", "rtl.vector_get",
+                                "rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set",
+                                "rtl.memory_read_async", "rtl.memory_write", "rtl.sync_memory", "sim.dpi_call", "sim.dpi_register",
+                                "rtl.mux_lookup", "rtl.onehot_mux", "rtl.decode", "rtl.register", "rtl.register_reset"]
+    | fail(path, operation, "wide scalar operands or results are not supported by this operation")
+
+/* Restrict only live imports to the standalone scalar C ABI. C++ keywords
+   cannot name ordinary extern-C declarations; report them at the RTL call. */
+fun check_foreign(import_decl :: DpiImport, path :: List.of(String), operation :: Operation):
+  def keywords = "alignas alignof and and_eq asm auto bitand bitor bool break case catch char char16_t char32_t class compl const constexpr const_cast continue decltype default delete do double dynamic_cast else enum explicit export extern false float for friend goto if inline int long mutable namespace new noexcept not not_eq nullptr operator or or_eq private protected public register reinterpret_cast return short signed sizeof static static_assert static_cast struct switch template this thread_local throw true try typedef typeid typename union unsigned using virtual void volatile wchar_t while xor xor_eq".split(" ")
+  when import_decl.name in keywords
+  | fail(path, operation, "foreign symbol is a reserved C++ identifier: " ++ import_decl.name)
+  def result = import_decl.return_result()
+  when result && scalar_width(result.type) > 32 && scalar_width(result.type) != 64
+  | fail(path, operation, "packed foreign returns require at most 32 bits; use an out result for wider packed values")
+
+/* Resolve hierarchy and wire aliases into a flat, deterministic value schedule.
+   The supplied RTL is already verified; this pass checks target capabilities
+   and keeps all state and memoized traversal results local to this compilation. */
+fun build_schedule(rtl :: DesignElaboration) :: RsimSchedule:
+  def occurrences = MutableList[]
+  def state_sites = MutableList[]
+  def state_slots = MutableMap{}
+  def memories = MutableList[]
+  def memory_slots = MutableMap{}
+  def write_sites = MutableList[]
+  def sync_sites = MutableList[]
+  def read_sites = MutableList[]
+  def read_slots = MutableMap{}
+  def assertion_sites = MutableList[]
+  def foreign_sites = MutableList[]
+  def foreign_slots = MutableMap{}
+  /* Enumerate occurrences before scheduling so forward connections and repeated
+     children do not depend on declaration order or share register slots. */
+  fun collect(module_def :: Module, path :: List.of(String), bindings :: Map) :: Nat:
+    def index = occurrences.length()
+    def children = MutableMap{}
+    occurrences.add(Occurrence(module_def, path, bindings, children))
+    for (op in module_def.operations):
+      unless op.opcode in supported | fail(path, op, "unsupported operation")
+      // Verified crossing evidence has no runtime effect. Its ordinary register
+      // stages still allocate state and undergo the root-clock checks below.
+      for (value in op.results):
+        unless clock_type(value.type) | check_type(value.type, path, op)
+      for (place in op.places):
+        unless clock_type(place.type) | check_type(place.type, path, op)
+      when op.opcode == "rtl.cast" && (clock_type(op.operands[0].type) || clock_type(op.results[0].type))
+      | fail(path, op, "clock values may only be connected to clock ports and registers")
+      check_wide_operation(op, path)
+      when op.opcode in ["rtl.register", "rtl.register_reset"]
+      | state_slots[[index, op.results[0].id]] := state_sites.length()
+        state_sites.add([index, op])
+      when op.opcode in ["sim.dpi_call", "sim.dpi_register"]
+      | check_foreign(op.attribute("dpi_import"), path, op)
+        for (result in op.results, result_index in 0..op.results.length()):
+          foreign_slots[[index, result.id]] := [foreign_sites.length(), result_index]
+        foreign_sites.add([index, op])
+      when op.opcode == "rtl.memory"
+      | def memory = op.attribute("memory")
+        check_type(memory.element_type, path, op)
+        memory_slots[[index, memory.id]] := memories.length()
+        memories.add(RsimMemory(path, memory.name, memory.depth, memory.element_type))
+      when op.opcode == "rtl.memory_write"
+      | write_sites.add([index, op])
+      when op.opcode == "verif.assert"
+      | assertion_sites.add([index, op])
+      when op.opcode == "rtl.sync_memory"
+      | check_type(op.attribute("element_type"), path, op)
+        memory_slots[[index, op.id]] := memories.length()
+        memories.add(RsimMemory(path, op.attribute("name"), op.attribute("depth"), op.attribute("element_type")))
+        sync_sites.add([index, op])
+        when op.attribute("has_read") || op.attribute("has_read_write")
+        | read_slots[[index, op.results[0].id]] := read_sites.length()
+          read_sites.add([index, op])
+      when op.opcode == "rtl.instance"
+      | def child = op.attribute("module")
+        def inputs = for Map (port in child.inputs, place in op.places):
+          values(port.value.id, [index, place.driver])
+        children[op.id] := collect(child, path ++ [op.attribute("name")], inputs)
+    index
+  collect(rtl.top, [], {})
+  /* Find the hardware type selected by a verified field/index path. The path
+     describes representation selection, not a new public IR operation. */
+  fun projection_type(type :: HardwareType, path :: List.of(String || Nat)) :: HardwareType:
+    if path.length() == 0
+    | type
+    | projection_type(if record_type(type) | type.field(path[0]).type | type.element_type, path.drop(1))
+  /* Carry a requested projection through hierarchy, aliases, and constructors.
+     Like core's direct dependency walk, record/vector gets prepend their path
+     and constructors consume it without depending on unrelated siblings. */
+  fun resolve(index :: Nat, value :: Value, path :: List.of(String || Nat) = []) :: List:
+    def occurrence = occurrences[index]
+    def op = occurrence.module_def.find_operation(value.defining_op_id)
+    cond
+    | occurrence.bindings.has_key(value.id):
+        def binding = occurrence.bindings[value.id]
+        resolve(binding[0], binding[1], path)
+    | op.opcode == "rtl.wire": resolve(index, op.places[0].driver, path)
+    | op.opcode == "rtl.instance":
+        def output_index = identity_index(op.results, value)
+        def child_index = occurrence.children[op.id]
+        resolve(child_index, occurrences[child_index].module_def.outputs[output_index].place.driver, path)
+    | op.opcode == "rtl.record_get": resolve(index, op.operands[0], [op.attribute("field")] ++ path)
+    | op.opcode == "rtl.vector_get": resolve(index, op.operands[0], [op.attribute("index")] ++ path)
+    | path.length() > 0 && op.opcode == "rtl.record_create":
+        resolve(index, op.operands[op.attribute("fields").index(path[0])], path.drop(1))
+    | path.length() > 0 && op.opcode == "rtl.vector_create":
+        resolve(index, op.operands[path[0]], path.drop(1))
+    | ~else: [index, value, path]
+  def clocks = rtl.top.inputs.filter(~keep: fun (port): clock_type(port.type))
+  when clocks.length() > 1
+  | fail([], rtl.top.find_operation(clocks[1].value.defining_op_id), "requires at most one root clock")
+  for (site in state_sites.snapshot() ++ write_sites.snapshot() ++ sync_sites.snapshot() ++ assertion_sites.snapshot() ++ foreign_sites.snapshot()):
+    def op = site[1]
+    def clock_index = if op.opcode == "rtl.memory_write" | 2 | (if op.opcode == "verif.assert" | 1 | 0)
+    def clock = resolve(site[0], op.operands[clock_index])
+    unless clocks.length() == 1 && clock[0] == 0 && clock[1] === clocks[0].value && clock[2].length() == 0
+    | fail(occurrences[site[0]].path, op, "clocked operation must use the root clock through structural aliases")
+  def steps = MutableList[]
+  def refs = MutableMap{}
+  def active = MutableSet{}
+  /* Memoize typed computations by occurrence, value, and requested projection.
+     Muxes schedule the selector and only that projection of every data branch,
+     matching core dependency semantics. Other operations keep whole evaluation
+     followed by typed projection. State roots never visit next-state sinks. */
+  fun schedule(index :: Nat, value :: Value, path :: List.of(String || Nat) = []) :: Nat:
+    def resolved = resolve(index, value, path)
+    def owner = resolved[0]
+    def source = resolved[1]
+    def projection = resolved[2]
+    def key = [owner, source.id, projection]
+    def state_key = [owner, source.id]
+    unless refs.has_key(key)
+    | def occurrence = occurrences[owner]
+      def op = occurrence.module_def.find_operation(source.defining_op_id)
+      when key in active | fail(occurrence.path, op, "cyclic scheduling dependency")
+      active.add(key)
+      def type = projection_type(source.type, projection)
+      check_type(type, occurrence.path, op)
+      def step:
+        cond
+        | projection.length() > 0 && op.opcode in ["rtl.mux_lookup", "rtl.onehot_mux"]:
+            RsimStep(op.opcode, type,
+                     [schedule(owner, op.operands[0])] ++ op.operands.drop(1).map(fun (operand): schedule(owner, operand, projection)), op.attributes)
+        | projection.length() > 0:
+            def part = projection[projection.length() - 1]
+            def parent = schedule(owner, source, projection.take(projection.length() - 1))
+            if part is_a String
+            | RsimStep("rtl.record_get", type, [parent], {"field": part})
+            | RsimStep("rtl.vector_get", type, [parent], {"index": part})
+        | op.opcode == "rtl.input_port":
+            RsimStep("input", type, [], {"name": op.attribute("name")})
+        | state_slots.has_key(state_key):
+            RsimStep("state", type, [], {"slot": state_slots[state_key]})
+        | foreign_slots.has_key(state_key):
+            RsimStep("foreign_result", type, [], {"slot": foreign_slots[state_key][0], "result": foreign_slots[state_key][1]})
+        | read_slots.has_key(state_key):
+            RsimStep("sync_read", type, [], {"slot": read_slots[state_key]})
+        | op.opcode == "rtl.memory_read_async":
+            RsimStep("memory_read", type, [schedule(owner, op.operands[0])],
+                     {"slot": memory_slots[[owner, op.attribute("memory").id]]})
+        | ~else:
+            RsimStep(op.opcode, type, op.operands.map(fun (operand): schedule(owner, operand)), op.attributes)
+      refs[key] := steps.length()
+      steps.add(step)
+      active.remove(key)
+    refs[key]
+  def inputs = for List (port in rtl.top.inputs.filter(~keep: fun (port): !clock_type(port.type))):
+    def ref = schedule(0, port.value)
+    RsimPort(port.name, port.type, ref)
+  def outputs = for List (port in rtl.top.outputs):
+    def ref = schedule(0, port.place.driver)
+    RsimPort(port.name, port.type, ref)
+  def registers = for List (site in state_sites):
+    def index = site[0]
+    def op = site[1]
+    def next_value = schedule(index, op.places[0].driver)
+    def has_reset = op.opcode == "rtl.register_reset"
+    RsimRegister(occurrences[index].path, op.attribute("name"), op.results[0].type,
+                 next_value, has_reset && schedule(index, op.operands[1]),
+                 has_reset && schedule(index, op.operands[2]))
+  def writes = MutableList[]
+  for (site in write_sites):
+    def index = site[0]
+    def op = site[1]
+    writes.add(RsimWrite(memory_slots[[index, op.attribute("memory").id]],
+                         schedule(index, op.operands[0]), schedule(index, op.operands[1]), schedule(index, op.operands[3])))
+  // Decode the verified fixed port layout locally; no source graph expansion or
+  // synthetic registers are needed to model the stored synchronous read result.
+  for (site in sync_sites):
+    def index = site[0]
+    def op = site[1]
+    def shared = op.attribute("has_read_write")
+    when op.attribute("has_write") || shared
+    | def offset = (if op.attribute("has_read") | 2 | 0)
+      def granularity = op.attribute("mask_granularity", #false)
+      writes.add(RsimWrite(memory_slots[[index, op.id]],
+                           schedule(index, op.places[offset].driver),
+                           schedule(index, op.places[if shared | 3 | offset + 1].driver),
+                           schedule(index, op.places[if shared | 1 | offset + 2].driver),
+                           shared && schedule(index, op.places[2].driver),
+                           granularity && schedule(index, op.places[if shared | 4 | offset + 3].driver),
+                           granularity))
+  def reads = for List (site in read_sites):
+    def index = site[0]
+    def op = site[1]
+    RsimRead(memory_slots[[index, op.id]], schedule(index, op.places[0].driver),
+             schedule(index, op.places[1].driver), op.attribute("has_read_write") && schedule(index, op.places[2].driver))
+  def assertions = for List (site in assertion_sites):
+    def index = site[0]
+    def op = site[1]
+    RsimAssertion(occurrences[index].path, op.attribute("label", #false), op.location.describe(),
+                  schedule(index, op.operands[0]), schedule(index, op.operands[2]), schedule(index, op.operands[3]))
+  def foreign_calls = for List (site in foreign_sites):
+    def index = site[0]
+    def op = site[1]
+    def arguments = op.operands.drop(2).map(fun (value): schedule(index, value))
+    RsimForeign(op.attribute("dpi_import"), schedule(index, op.operands[1]), arguments)
+  RsimSchedule(rtl.top.name, inputs, outputs, steps.snapshot(), registers, memories.snapshot(), writes.snapshot(), reads, assertions, foreign_calls)

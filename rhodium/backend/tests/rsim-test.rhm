@@ -1,0 +1,82 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../rsim-target.rhm".rsim_target
+  "rsim/fixtures.rhm" open
+  "rsim/wide-fixtures.rhm" open
+  "rsim/wide-foreign-fixtures.rhm" open
+  "rsim/aggregate-fixtures.rhm".make_aggregate
+  "rsim/selection-fixtures.rhm".make_selection
+  "rsim/assertion-fixtures.rhm".make_assertions
+  "rsim/foreign-fixtures.rhm".make_foreign
+  "rsim/dynamic-fixtures.rhm".make_dynamic
+  "rsim/memory-fixtures.rhm".make_memory
+  "rsim/sync-memory-fixtures.rhm".make_sync_memory
+  "verilog/fixtures.rhm".make_hierarchy_program
+  "../../compile/program.rhm".compile_program
+  "../../compile/contracts.rhm".CompileOptions
+  "../../compile/rtl.rhm".prepare_rtl
+  "../../core/printer.rhm".dump_ir
+
+for (program in [make_scalar(5), make_swap(5), make_hierarchy_program(5), make_arithmetic(64), make_aggregate(64), make_dynamic(3, #true), make_memory(3, #true), make_sync_memory(3, #true), make_sync_memory(3, #true, 7), make_selection(64), make_assertions(), make_foreign()]):
+  def before = dump_ir(program.design)
+  def prepared = prepare_rtl(program, CompileOptions(), "test")
+  def source = dump_ir(prepared.rtl.design)
+  def plan = rsim_target.plan(prepared)
+  def artifacts = plan.emit()
+  check:
+    artifacts.length() ~is 2
+    artifacts.map(fun (artifact): artifact.name) ~is [program.top.name ++ ".hpp", program.top.name ++ ".cpp"]
+    plan.manifest() === prepared.manifest ~is #true
+    rsim_target.plan(prepared).emit() ~is artifacts
+    compile_program(program, rsim_target).artifacts ~is artifacts
+    dump_ir(program.design) ~is before
+    dump_ir(prepared.rtl.design) ~is source
+    program.design.sealed ~is #false
+check:
+  compile_program(make_scalar(5, 100), rsim_target).artifacts ~is compile_program(make_scalar(5), rsim_target).artifacts
+
+def mutable expansions = 0
+def program = make_hierarchy_program(5, 0, fun (): expansions := expansions + 1)
+def prepared = prepare_rtl(program, CompileOptions(), "once")
+def plan = rsim_target.plan(prepared)
+def first_emission = plan.emit()
+def second_emission = plan.emit()
+check:
+  first_emission ~is second_emission
+  expansions ~is 1
+  plan.manifest().lowerings.map(fun (decision): decision.path) ~is [["portable"], ["portable_again"]]
+
+check:
+  compile_program(make_aggregate(5, 100), rsim_target).artifacts ~is compile_program(make_aggregate(5), rsim_target).artifacts
+
+// A valid RTL symbol that cannot be declared by the native ABI must fail at
+// target planning, with the source occurrence instead of a later C++ error.
+check:
+  compile_program(make_foreign("class"), rsim_target) ~throws "[first] sim.dpi_register: foreign symbol is a reserved C++ identifier: class"
+
+// Packed inputs and out results can cross a word boundary; a packed return
+// must use the scalar return ABI. Diagnose this invalid signature at its call.
+check:
+  compile_program(make_foreign("rsim_foreign8", 33), rsim_target) ~throws "packed foreign returns require at most 32 bits; use an out result"
+
+// The shared support source is packaged deterministically with every wide model.
+// Compilation preserves both the authored graph and the prepared graph.
+def mutable support_header = #false
+for (program in [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ make_wide_memories() ++ [make_wide_foreign(), make_unused_wide_foreign()]):
+  def before = dump_ir(program.design)
+  def prepared = prepare_rtl(program, CompileOptions(), "wide test")
+  def rtl_before = dump_ir(prepared.rtl.design)
+  def plan = rsim_target.plan(prepared)
+  def artifacts = plan.emit()
+  check:
+    artifacts.map(fun (artifact): artifact.name) ~is [program.top.name ++ ".hpp", program.top.name ++ ".cpp", "rsim-bits.hpp"]
+    artifacts ~is plan.emit()
+    artifacts ~is compile_program(program, rsim_target).artifacts
+    plan.manifest() === prepared.manifest ~is #true
+    dump_ir(prepared.rtl.design) ~is rtl_before
+    dump_ir(program.design) ~is before
+    program.design.sealed ~is #false
+  if support_header
+  | check: artifacts[2].content ~is support_header
+  | support_header := artifacts[2].content
