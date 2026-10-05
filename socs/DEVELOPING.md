@@ -168,7 +168,7 @@ two generated views. It checks every RVA23 shape/core product, required versions
 and parameters, and mutation cases that remove each mandatory declaration.
 Opcode-free supervisor guarantees belong in hart/device-tree and UDB capabilities,
 not assembler flags; the pinned Spike parser must accept their published names.
-Behavioral evidence remains with each core and the SoC memory-map qualification.
+Behavioral evidence remains with each core and the SoC memory-map validation.
 
 Tiled LLC subordinate ports share the existing CHI fabric with requester and
 device traffic. Compile one `CHISNConnection` from each Home to the single
@@ -211,8 +211,8 @@ regions are outside these cacheable/coherent main-memory requirements.
 MiniRV5StageSoC, SingleCoreRV5StageSoC, and TiledSoC enable Ziccrse. The core profile and UDB tests
 check this selection, and `run-device-tree.sh` checks every hart's advertised
 extension list. Static PMA checks do not prove eventuality; retain the
-[complete-system qualification](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate)
-when changing a qualified system's memory hierarchy or scheduling.
+[complete-system validation](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate)
+when changing a validated system's memory hierarchy or scheduling.
 The [RV5Stage validation guide](../cores/rv5stage/DEVELOPING.md#focused-validation)
 owns the fetch, AMO, and coherence datapath checks and their coverage limits.
 

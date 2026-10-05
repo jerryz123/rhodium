@@ -83,7 +83,7 @@ ifeq ($(filter $(SOC_SHAPE),mini simple),)
 $(error COSIM=1 currently requires Mini or Simple)
 endif
 ifneq ($(SOC_ISA),rv64imacb)
-$(error COSIM=1 currently qualifies only rv64imacb; other profiles require complete observation coverage)
+$(error COSIM=1 currently supports only rv64imacb; other profiles require complete observation coverage)
 endif
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-cosim
 COSIM_SOURCES := $(CURDIR)/cosim/simulation.cc
@@ -185,12 +185,12 @@ lrsc-test:
 
 lrsc-run: $(LRSC_BINARIES) simulator
 	@status=0; for mode in 0 1; do \
-	  echo "LR/SC qualification: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
+	  echo "LR/SC test: SOC=$(SOC) Sv39=$$mode harts=$(LRSC_HARTS)"; \
 	  signature="$(SOC_BUILD_DIR)/lrsc_$$mode.signature"; \
 	  if $(SIMULATOR_BINARY) $(LRSC_BOOT_HARTS) +max-cycles=20000000 +signature="$$signature" +signature-granularity=8 "$(SOC_BUILD_DIR)/lrsc_$$mode.elf" && \
 	    awk -v expected="$(if $(filter tiled,$(SOC_SHAPE)),0000000000000040,0000000000000008)" '{ if ($$0 != expected) exit 1 } END { if (NR != 6) exit 1 }' "$$signature"; then \
-	    echo "LR/SC qualification passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
-	  else echo "LR/SC qualification FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
+	    echo "LR/SC test passed: SOC=$(SOC) Sv39=$$mode (6 placements)"; \
+	  else echo "LR/SC test FAILED: SOC=$(SOC) Sv39=$$mode"; status=1; fi; \
 	done; exit $$status
 
 trace-smoke:
@@ -226,7 +226,7 @@ zihintntl-test:
 	@exit 2
 endif
 
-# Cache-policy timing is a separate RV5Stage microarchitecture qualification,
+# Cache-policy timing is a separate RV5Stage microarchitecture test,
 # not part of the architecture-based software matrix.
 .PHONY: zihintntl-policy-test
 zihintntl-policy-test:

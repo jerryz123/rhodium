@@ -74,7 +74,7 @@ out real classes of bad hardware.
 
 Keep each essay self-contained enough to read directly, but link shared
 Rhodium contracts rather than reproducing them. Avoid permanent rankings and
-unqualified claims about rapidly changing ecosystems.
+claims without stated limits about rapidly changing ecosystems.
 
 ## Implementation map and validation
 

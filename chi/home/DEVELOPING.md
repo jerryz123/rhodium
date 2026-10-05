@@ -140,7 +140,7 @@ Inclusive-Home tracing uses an intrinsic `describe_interface_contract` from
 the admission checkpoint to requester RSP/DAT, direct subordinate REQ/DAT, and
 victim-writeback enqueue with the named `request` retained bank. Its capture
 predicates use `allocation_slot`; requester DAT selects `response_data_slot`,
-and the other outputs select `advance_slot`. Release predicates must qualify both the
+and the other outputs select `advance_slot`. Release predicates must gate both the
 real finishing operation and its owning slot, allowing independent slots to
 finish together. Keep ownership throughout the real FSM lifetime, releasing
 on copyback finish, terminal completion, or final data. Do not release on the

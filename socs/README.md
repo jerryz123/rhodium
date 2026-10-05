@@ -52,7 +52,7 @@ RV64D, VLEN=128, and Sv39 on both core implementations. The independent
 and required architectural parameters for all six shape/core products. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
 published capabilities. Declaration completeness
-is not an external certification or an exhaustive system qualification;
+is not an external certification or an exhaustive system validation;
 firmware and the execution environment retain their own obligations.
 `RV32Int` selects the
 integer RV32/Zve32x architecture; `RV32Max` adds scalar F and Zve32f, without D,
@@ -66,7 +66,7 @@ address range. Simple retains its 1-GiB external RAM window at `0x80000000`
 and its inclusive LLC with either RV32 hart. All Mini RV32 bindings
 participate in simulation CI; all Simple RV32 products select platform,
 native ISA, and ACT lanes. See the [ACT guide](../sims/README.md#architectural-certification-tests)
-for reference-model restrictions and qualification status.
+for reference-model restrictions and validation status.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
 preserves this broad profile and implementation-specific parameters; see the
 [Spike projection limits](../cores/spike/README.md). It never substitutes a narrower architecture.
@@ -82,7 +82,7 @@ presets with M/S/U modes and Sv39, without V or H. The latter adds F/D; neither
 enables Zfh/Zfa, extended compressed instructions, optional hints, cache-block
 operations, pointer masking, or optional supervisor extensions. Both retain
 the core's fixed Zicsr/Zifencei, Zicntr/Zihpm, Zicond, Zimop, Zkt, Za64rs,
-Zic64b/Zicclsm, B constituents, and the qualified Sv39 supervisor guarantees.
+Zic64b/Zicclsm, B constituents, and the validated Sv39 supervisor guarantees.
 Their names describe the scalar baseline, not an exhaustive extension string.
 
 The presets are `RV32Int`, `RV32Max`, `RV64IMACB`, `RV64IMAFDCB`, `RV64Max`,
@@ -130,7 +130,7 @@ defaults to RV64D, V 1.0 with VLEN 128,
 and the full C composition; its device tree and UDB configuration advertise
 `V`, the implied Zve32x/Zve32f/Zve64x/Zve64f/Zve64d closure, `Zfh`, `Zvfh`,
 `Zvkb`, `Zvbb`, `Zvkt`, the cumulative `Zvl32b`/`Zvl64b`/`Zvl128b` closure,
-`Zcb`, `Zfa`, `Zicbom`, `Ssnpm`, and the qualified `Supm` user-environment
+`Zcb`, `Zfa`, `Zicbom`, `Ssnpm`, and the validated `Supm` user-environment
 contract, plus `misa.V` from that same profile. `TiledRV5StageSoC` uses the
 same architectural ISA fields while retaining its independent direct-mapped
 L1 and tiled-system configuration. `MiniRV5StageSoC` uses the same architecture

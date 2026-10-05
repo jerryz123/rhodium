@@ -82,7 +82,7 @@ bridge, and search/enumeration failure propagation.
    [README.md](README.md) when the supported public profile changes.
 
 For import-only migrations, check that declarations and RTL bodies are unchanged
-apart from namespace qualification. Inspect transitive imports before claiming
+apart from namespace prefixing. Inspect transitive imports before claiming
 narrower loading: a selective name import still loads its module. Run affected
 host contracts, device/cache fixtures, and the Mini, Single, or Tiled SoC smoke
 tests when consumers span those compositions.

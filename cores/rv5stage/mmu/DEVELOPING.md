@@ -80,7 +80,7 @@ invalidate translations or cancel accepted page-table response ownership.
    before issuing either fragment. Retain the original writeback owner through
    one response, and leave atomic/LRSC alignment traps in the scalar core.
    Keep `request_fault_address` virtual and paired with the selected fragment's
-   guest provenance. Scalar/vector arbitration qualifies the owning fault flags;
+   guest provenance. Scalar/vector arbitration gates the owning fault flags;
    only that owner may consume the shared address sideband at retirement.
    Do not add virtual trap metadata to the physical cache protocol.
    Never use relaxed prefetch A/D permissions or start a speculative data walk.
@@ -127,7 +127,7 @@ invalidate translations or cancel accepted page-table response ownership.
    them with an accepted descriptor without requiring an idle vector window.
    Each certified request carries its physical address, derived from the
    captured page, and bypasses both the DTLB and the fallback page window.
-   The vector-physical sidebands are qualified by the selected lookup/request
+   The vector-physical sidebands are gated by the selected lookup/request
    owner; they must never bypass translation for scalar traffic. Check context
    equality and the invalidation epoch at WB. A mismatch before WB rejects the speculative
    certificate; admitted vector ownership keeps the context stable thereafter.
@@ -167,7 +167,7 @@ invalidate translations or cancel accepted page-table response ownership.
    [README.md](README.md) for observable changes.
 
 The walker binds `mmu/walk` to its active state (excluding Idle and Drain), request acceptance
-qualified by cancellation priority, and active completion/cancel release.
+gated by cancellation priority, and active completion/cancel release.
 One retained contract covers its PTE requests and completion; no new functional
 owner state or inferred address matching is needed. Keep ordinary instruction
 recovery distinct from `walker.cancel` when extending this instrumentation.
@@ -212,7 +212,7 @@ frame owns the continuation while the active frame runs G translation; no
 second walker or nested memory requester is instantiated. Keep memory-response
 ownership in the shared walker; the MMU must not filter replies on invalidation.
 Shared PTE/address helpers remain in `riscv/rtl`; retained frames and arbitration
-remain here. Keep H profile publication separate from component qualification.
+remain here. Keep H profile publication separate from component validation.
 
 Mapping geometry belongs in the public Sv39 adapter. Keep walker `level`
 separate from result/entry `page_size`, and normalize `base_ppn` at leaf
@@ -228,7 +228,7 @@ replacement, held results, and invalidation. The integrated replay fixture
 covers scalar/fetch/prefetch reuse and two-page vector authorization both
 within and across 64 KiB boundaries. ISA/UDB publication follows the selected
 Svnapot/Svpbmt flags; the shared RVA23 preset selects both. Keep component
-qualification and exact-profile ACT projection distinct from full RVA23
+validation and exact-profile ACT projection distinct from full RVA23
 conformance, which enabling these extensions alone does not establish.
 
 For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `rv5stage-csr`,

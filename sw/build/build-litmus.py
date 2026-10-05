@@ -16,7 +16,7 @@ from program_target import (elf_architecture, load_target, probe_compiler, reade
                             target_fingerprint, elf_build_metadata)
 
 # The upstream model log keys outcomes by name, not path. Resolve only the
-# duplicate names whose source variant we intentionally qualify here.
+# duplicate names whose source variant we explicitly select here.
 DUPLICATE_CASES = {
     'MP': 'non-mixed-size/BASIC_2_THREAD/MP.litmus',
     'SB': 'non-mixed-size/BASIC_2_THREAD/SB.litmus',
@@ -141,7 +141,7 @@ def main():
     selection.add_argument('--tests-file', type=Path, help='newline-delimited names for a fixed suite selection')
     parser.add_argument('--litmus7', required=True, help='explicit litmus7 executable for generated C tests')
     parser.add_argument('--litmus7-libdir', type=Path, help='litmus7 source-build support directory')
-    parser.add_argument('--keep-going', action='store_true', help='record case build failures and continue the bulk qualification')
+    parser.add_argument('--keep-going', action='store_true', help='record case build failures and continue the batch build')
     args = parser.parse_args()
     if args.runs <= 0:
         parser.error('--runs must be positive')

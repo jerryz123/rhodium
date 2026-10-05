@@ -34,7 +34,7 @@ fun json_value(value :: String || Boolean || Number || Array || List || Map):
       error(~who: #'event_manifest_to_json,
             "event manifest value is not JSON-serializable: " ++ to_string(value))
 
-/* Projects an occurrence-qualified site's capture schema and kind into JSON, including applicable display/observation metadata. */
+/* Projects an occurrence-scoped site's capture schema and kind into JSON, including applicable display/observation metadata. */
 fun json_site(site :: EventSite):
   {
     "id": site.id,

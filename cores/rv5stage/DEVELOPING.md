@@ -103,7 +103,7 @@ including the exemption for files under `tests/`.
    register-file data, MEM, or normal WB. Resolve newest-producer priority and
    the register-file fallback in Decode; EX uses the enum's typed `.mux`.
    Selectors remain legal during bubbles and are asserted outside token validity.
-   Do not qualify forwarding with live MEM fault/replay/kill results;
+   Do not gate forwarding with live MEM fault/replay/kill results;
    those cancel younger token validity, independently of payload capture.
    Use `ValidPipeAlwaysCapture` for these stage boundaries.
    EX's WB bypass reads `wb_input.bits.value`, not the retirement-context
@@ -308,8 +308,8 @@ and return redirects continue to establish the next instruction's context.
 
 Keep the hardware and execution-environment selections distinct: `ssnpm` owns
 the core mechanism, while `supm` is legal only with `ssnpm` and publishes the
-qualified user-environment contract. The generic defaults remain disabled;
-`SingleCoreRV5StageSoC` is the qualified concrete profile that enables both.
+validated user-environment contract. The generic defaults remain disabled;
+`SingleCoreRV5StageSoC` is the validated concrete profile that enables both.
 Run `pointer-masking-test.rhm`, `profile-test.rhm`, `riscv-pointer-masking`,
 `rv5stage-pointer-masking`, and `rv5stage-csr`; include `rv5stage-mmu-replay`
 when modifying the shared effective-data-privilege helper. The core fixture
@@ -328,7 +328,7 @@ The Flow stage modules own their public interface trace contracts; `core.rhdl`
 does not redeclare them on instances. Keep storage certification local to its
 implementation; do not replace
 always-capture payload registers or derive controls from generated signal names.
-EX's payload is still computed unconditionally; its flow filter qualifies only
+EX's payload is still computed unconditionally; its flow filter gates only
 token validity, preserving the feed-forward datapath and cancellation timing.
 
 The inline retirement flows in `core.rhdl` preserve WRS-over-maintenance-over-live WB payload
@@ -336,7 +336,7 @@ selection, even before a resident completes and while the output is invalid.
 Generic `OfferRegister` instances own pending payloads and their intrinsic
 lineage contracts. Capture comes from the original MEM/WB token;
 completion gates acceptance and releases that same owner. Keep WRS timeout/wake policy, maintenance
-completion/fault policy, and architectural commit qualification in `core.rhdl`.
+completion/fault policy, and architectural commit gating in `core.rhdl`.
 Grant selection follows pending ownership, then gates completion; arbitration
 must not fall through to younger live WB while a resident is unfinished.
 Explicit forks separate WB arrival, memory observation, FP issue, and retirement
@@ -409,19 +409,19 @@ Fork scalar EX into instruction context and lookup flows. The shared LSU
 arbiter routes returned lineage only to the selected requester; losing lookups
 produce local replay from their own retained context. MMU similarly chooses
 cache-return lineage or its local translation/fault outcome. Preserve inactive
-payload values and all original qualification predicates.
+payload values and all original gating predicates.
 At scalar MEM and vector decision capture, pair context with the optional
 same-cycle response using a combinational Flow join. A context-derived fallback
 supplies the absent response, so the join cannot wait, drop a context, or add
 storage. Filter responses for killed contexts before the checked conversion.
 WB inherits MEM and available cache ancestry through the existing register;
 do not override its parents to discard either contribution.
-`dcache/s2.resp` observes the scalar response at WB before slow-request qualification.
+`dcache/s2.resp` observes the scalar response at WB before slow-request gating.
 It retains those same parents independently of retirement; replay/fault responses
 must not depend on a non-fired WB checkpoint.
 Its annotation stays at the existing caller-owned capture in `core.rhdl`,
 but its display group is `dcache`; do not add a duplicate core result event.
-`vector/memory.result` observes the adapter's registered decision. Qualify
+`vector/memory.result` observes the adapter's registered decision. Gate
 memory observations without filtering functional tokens. Hits, faults, and
 replays remain visible even without cache access. Record nonfaulting admission
 without feeding readiness/fault status into functional request validity.
@@ -711,7 +711,7 @@ for FP-hit writeback or shared payload changes.
 
 ### Ziccrse progress gate
 
-The full-core qualification matrix for the [Ziccrse integration
+The full-core test matrix for the [Ziccrse integration
 guarantee](README.md#lrsc-eventuality-ziccrse) is:
 
 ```sh
@@ -746,9 +746,9 @@ never a passing result.
 Before the progress cases, the same bench executes a self-modifying-code
 program: warm an instruction line, modify it through the core's dirty data
 cache, execute `FENCE.I`, and call the updated code.
-The [SoC qualification](../../sims/DEVELOPING.md#lrsc-system-qualification)
+The [SoC progress tests](../../sims/DEVELOPING.md#lrsc-system-validation)
 adds real MiniRV5StageSoC, SingleCoreRV5StageSoC, and eight-hart TiledSoC/RV5Stage memory paths through normal FESVR.
-The expanded qualification passed on 2026-09-08 against `d78ce435` production
+The expanded validation passed on 2026-09-08 against `d78ce435` production
 RTL: 108/108 core cases, all three FENCE.I checks, 12/12 SingleCoreRV5StageSoC placements,
 12/12 eight-hart TiledSoC/RV5Stage placements, and 81/81 concrete memory-map checks.
 MiniRV5StageSoC subsequently passed 12/12 placements on the same date through its
@@ -756,8 +756,8 @@ ordinary harness and forwarding HN-F/internal CHI RAM. Its compressed-disabled
 profile uses word-aligned page-boundary starts and page tables inside its
 64-KiB RAM; the six placements still cover LR.W/SC.W and LR.D/SC.D in both
 Bare and Sv39. The adapted shared payload also passed all 24 SingleCoreRV5StageSoC/TiledSoC-RV5Stage
-placements on their previously qualified simulators.
-Only qualification fixtures, payloads, build targets, and documentation
+placements on their previously validated simulators.
+Only test fixtures, payloads, build targets, and documentation
 changed; no further production RTL fix was required for this matrix.
 MiniRV5StageSoC, SingleCoreRV5StageSoC, and the TiledSoC RV5Stage configuration now enable the explicit `ziccrse` profile claim;
 generic profiles remain opt-out. Preserve the matrix as a regression
@@ -857,7 +857,7 @@ architectural result data. The explicit
 gather indices and variable slide distances are control operands and must remain
 equal between lanes. Retain the vector mul/div fixture and scalar Zkt multiplier
 contention regression as the fixed-latency evidence for the shared iterative
-multiplier. This is differential RTL qualification plus a source-level timing
+multiplier. This is differential RTL validation plus a source-level timing
 argument, not exhaustive formal noninterference or physical side-channel
 certification.
 

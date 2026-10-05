@@ -1,4 +1,4 @@
-# Builds shared OpenSBI qualification artifacts and runs their attested generic-platform handoff.
+# Builds shared OpenSBI validation artifacts and runs their attested generic-platform handoff.
 # SPDX-License-Identifier: Apache-2.0
 OPENSBI_SOURCE ?= $(REPO_DIR)/sw/opensbi
 OPENSBI_BUILD_ROOT ?= /tmp/rhodium-software

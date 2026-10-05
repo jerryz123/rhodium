@@ -75,7 +75,7 @@ for suffix in '' .gz; do
   assert_query "$file" "SELECT count(*)=0 AS ok FROM stats WHERE value!=0 AND (severity='error' OR name='track_event_parser_errors' OR name GLOB 'flow_*')"
 done
 assert_query "$stream_test_dir/build/shared-tracks.pftrace.prefix" "SELECT count(*)=6 AND sum(name='stall' AND dur=20)=2 AND sum(name='stall' AND dur=-1)=2 AS ok FROM slice"
-assert_query "$stream_test_dir/build/qualified-labels.pftrace" "WITH expected(track,label) AS (VALUES('frontend.s0.request','request'),('backend.s0.request','request'),('plain','plain'),('trailing.','trailing.')) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(s.name=e.label AND s.dur=10)=4 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON e.track=t.name"
+assert_query "$stream_test_dir/build/scoped-labels.pftrace" "WITH expected(track,label) AS (VALUES('frontend.s0.request','request'),('backend.s0.request','request'),('plain','plain'),('trailing.','trailing.')) SELECT count(*)=4 AND count(DISTINCT s.track_id)=4 AND sum(s.name=e.label AND s.dur=10)=4 AS ok FROM slice s JOIN track t ON t.id=s.track_id JOIN expected e ON e.track=t.name"
 for suffix in '' .gz; do
   file="$stream_test_dir/build/hierarchy.pftrace$suffix"
   assert_query "$file" "WITH RECURSIVE paths(id,path) AS (SELECT id,name FROM track WHERE parent_id IS NULL UNION ALL SELECT t.id,p.path||'/'||t.name FROM track t JOIN paths p ON t.parent_id=p.id) SELECT count(*)=7 AND sum(p.path='Hierarchy/'||json_extract(EXTRACT_ARG(t.source_arg_set_id,'description'),'$.label'))=7 AS ok FROM track t JOIN paths p USING(id) WHERE EXTRACT_ARG(t.source_arg_set_id,'description') IS NOT NULL"

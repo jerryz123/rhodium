@@ -318,7 +318,7 @@ maturity or a shared-service request directly.
 Pair the optional LSU response with the same-cycle lookup context before the
 existing decision pipe; a context-owned
 fallback preserves absent responses and no join may add a wait. Observe its
-registered result as `vector/memory.result`, qualified for enabled memory beats.
+registered result as `vector/memory.result`, gated for enabled memory beats.
 The shared cache owns `dcache/s1.access`; do not duplicate it in this adapter.
 
 Run `event-vector` for exact public-transfer lineage,

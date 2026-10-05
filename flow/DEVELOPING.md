@@ -49,7 +49,7 @@ flowchart TD
   `~when` without changing functional transfers.
 - `offer-decoupled.rhdl` owns best-effort Valid-to-Decoupled wiring;
   `to-decoupled.rhdl` retains the checked same-cycle acceptance contract.
-  Keep fault/replay policy downstream. Event qualification in `event.rhdl`
+  Keep fault/replay policy downstream. Event observation gating in `event.rhdl`
   changes only the observed valid predicate, never functional protocol wiring.
 
 The exact direct-import inventory lives in
@@ -215,7 +215,7 @@ toolchain requirements. Credited, flit, control-only, valid-only, and event
 fixtures provide additional coverage when those contracts change.
 Use `make ci-circt-std-test` for the complete shared library backend group.
 Use `FIXTURE=event-offer bash tools/testing/circt/run.sh` for best-effort offer
-conversion and qualified transfer/stall lineage; its scoreboard checks exact
+conversion and observation-gated transfer/stall lineage; its scoreboard checks exact
 current-attempt parents, rejected/replayed offers, reset, and unchanged wiring.
 Preserve example-owned Verilog references unless generated hardware changes
 intentionally; a path migration should not require new references.

@@ -177,14 +177,14 @@ The `rv5stage-load-hit` fixture also links RHEG and exports a matching descripto
 its scoreboard checks D-cache S1/MEM and S2/WB alignment, public core/cache
 admission, and retained S2-to-S3-to-S4 ancestry including direct-refill fields.
 The existing bench checks functional load timing and architectural results.
-`event-parents` checks qualified original/intermediate checkpoints, late-bound WB,
+`event-parents` checks observation-gated original/intermediate checkpoints, late-bound WB,
 and selected intermediate/combined parents past WB through one flushed pipe and
 its ordinary consumer fork. An unannotated pipe checks unchanged functional valid
 and payload. Its public-input scoreboard uses repeated payloads, bubbles, and reset
 and compares every occurrence and edge. Host coverage also retains complementary
 filter/selection paths, rejects bad references, rebinding, conditional binding,
 and uncertified fanout, and checks module-occurrence identities and metadata-only binding.
-The negative bench forces a child observation without its qualified upstream
+The negative bench forces a child observation without its observed upstream
 checkpoint and requires the runtime missing-parent assertion.
 Every refill receives RetryAck and PCrdGrant before retransmission, with request
 backpressure; both attempts must retain the same refill residency, whose parent

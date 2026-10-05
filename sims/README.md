@@ -42,7 +42,7 @@ RV64 products select lean scalar `rv64imacb`/`rv64imafdcb`, maximal non-hypervis
 `rv64max`, or `rva23`. Spike remains
 simulation-only and executes the exact selected architecture. Its broad
 ACT/UDB projection preserves the requested ISA; simulator execution and successful
-configuration generation do not imply full ACT qualification. See the
+configuration generation do not imply full ACT validation. See the
 [Spike reference-model limits](../cores/spike/README.md). No narrower fallback is selected.
 The two core choices do not add a runtime mux to the RTL.
 
@@ -82,11 +82,11 @@ make -C sims boot-test host-mmio-test uart-pty-test SOC=mini-spike-rv32max
 ```
 
 Substitute `rv32int` to run the integer-only preset. This is bounded platform
-and vector bring-up, not ACT qualification. All four Mini RV32 bindings run
+and vector bring-up, not ACT validation. All four Mini RV32 bindings run
 smoke, boot, host MMIO, UART PTY, and capability-filtered ISA smoke in CI.
 
 Simple also accepts all four RV32 bindings with its inclusive LLC and 1-GiB
-external memory. Qualify the platform and complete applicable native ISA
+external memory. Validate the platform and complete applicable upstream ISA
 inventory through the same FESVR path:
 
 ```sh
@@ -115,7 +115,7 @@ models, and payload. It does not invoke CIRCT. Builds live under
 `$(BUILD_ROOT)/<product>-verilog/`, separate from the default CIRCT objects;
 configuration attestation reads the emitted `SoCHarness.sv` and records the
 backend. Prebuilt reuse must request the same `RTL_BACKEND`; a backend mismatch
-is rejected before execution. CI qualifies the additional
+is rejected before execution. CI validates the additional
 `simple-rv5stage-rva23-verilog` build with `smoke`, `host-mmio-test`, and
 `uart-pty-test`, reusing the existing architectural configuration. The direct route
 currently supports untraced builds (`TRACE=0`). Use the default CIRCT route
@@ -257,7 +257,7 @@ FESVR loads the next-stage ELF with its existing auxiliary-payload facility
 and boots from `fw_jump.elf`. OpenSBI owns the firmware's `tohost` and
 `fromhost`; an S-mode next stage terminates through SBI system reset rather
 than defining a second HTIF mailbox. OpenSBI itself contains no embedded
-application. The repository's tiny S-mode SBI qualification image is available
+application. The repository's tiny S-mode SBI test image is available
 only through:
 
 ```sh
@@ -265,7 +265,7 @@ make -C sims opensbi-test SOC=simple CORE=rv5stage ISA=rva23
 make -C sims opensbi-test SOC=simple CORE=spike ISA=rva23
 ```
 
-The initial qualification requires one bootable RV64 hart, IMA,
+The initial test requires one bootable RV64 hart, IMA,
 Zicsr/Zifencei/Zicntr, and enough writable RAM for the firmware, a 2 MiB-aligned
 next stage, and a 64 KiB FDT reservation. Other cores and SoCs are selected by
 those capabilities rather than by core name.
@@ -481,7 +481,7 @@ can access platform devices, including the boot-address register and UART.
 ## SoC software suites
 
 Run the complete profile-selected upstream ISA suite, benchmarks, both CoreMark
-variants, Embench-IoT, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI qualification on
+variants, Embench-IoT, a Bringup-Bench smoke, configuration-exact ACT, and OpenSBI validation on
 both single-core SoCs:
 
 ```sh
@@ -496,9 +496,9 @@ select one implementation. The aggregate target requires the ACT dependencies
 described below. The individual
 `isa-test`, `benchmark-test`, `coremark-test`, `coremark_scalar-test`,
 `embench-test`, and `bringup-test` targets accept either single-core SoC and
-remain available for focused execution. CI schedules five complete native
+remain available for focused execution. CI schedules five complete program
 suites, a bounded Bringup-Bench smoke, and ACT independently for Spike and RV5Stage;
-it also qualifies OpenSBI on both. Each ACT lane uses its own UDB projection and
+it also validates OpenSBI on both. Each ACT lane uses its own UDB projection and
 generated test inventory.
 
 The full ISA adapter selects upstream physical-environment tests from the
@@ -556,7 +556,7 @@ by the target's extensions. Eight workers divide the upstream matrix benchmark's
 16 rows evenly while exercising shared barriers and data through the coherent mesh.
 The private build overlay reports a successful HTIF exit only after every
 selected hart reaches its exit; a nonzero exit from any hart fails the run.
-ACT and the complete native suites remain restricted to the two single-core
+ACT and the complete program suites remain restricted to the two single-core
 SoCs.
 
 Run the same model-checked litmus7 path in either eight-hart tiled composition.
@@ -704,9 +704,9 @@ The runner requires confirmed HTIF success and executes the entire manifest,
 including tests following a failure. Empty selections and missing/modified ELFs
 are errors. Results include exact simulator commands for reruns.
 
-CI builds native suites once per distinct ELF build specification and runs the
+CI builds program suites once per distinct ELF build specification and runs the
 shared binaries on every selected compatible SoC. The current matrix has eight
-native build groups and sixteen SoC/suite execution jobs. The shared build
+program build groups and sixteen SoC/suite execution jobs. The shared build
 artifacts contain `manifest.json`, an instruction report when available, and every selected ELF at the manifest's
 relative path, including ISA binaries without a filename extension. Extract an
 archive to an empty directory and bind it to the intended simulator target:
@@ -721,12 +721,12 @@ make -C sims bringup-run SOC=simple-spike-rva23 \
 ```
 
 Use the matching `isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`,
-or `embench-run` target for other native suites. These targets execute existing
+or `embench-run` target for other program suites. These targets execute existing
 ELFs without compiling them; binding rejects incompatible build inputs or
 modified ELFs, and execution still requires the exact simulator attestation.
 The usual `*-test` commands continue to build and run. For compilation using
 an existing descriptor, set `PREBUILT_PROGRAM_TARGET=/absolute/path/to/target.json`.
-Platform qualifications use this same artifact flow. `litmus-smoke-run` executes
+Platform tests use this same artifact flow. `litmus-smoke-run` executes
 a bound litmus archive without litmus7 or a compiler. `opensbi-smoke-run`
 executes a bound firmware/payload archive; OpenSBI binding additionally requires
 `--fdt /absolute/path/to/execution-platform.dtb`, generated for that exact
@@ -748,7 +748,7 @@ not measured performance requirements. Override `BENCHMARK_MAX_CYCLES`,
 Benchmark CI checks correctness, never exact cycle counts.
 
 CI selects ISA tests, benchmarks, both CoreMark variants, Embench-IoT, and ACT on pull requests and
-pushes to `main`; manual dispatch selects all six. The native suites consume
+pushes to `main`; manual dispatch selects all six. The program suites consume
 each core's exact-commit executable, with the matching patched Spike runtime
 where needed. ACT builds or reuses one verified, complete profile-specific ELF
 inventory for each single-core SoC, then partitions it across independent
@@ -892,7 +892,7 @@ checks shared scalar/vector arithmetic, conversions and flags, masked updates,
 memory round-trips, and ordered reduction. The supported traced SingleCoreRV5StageSoC
 build adds one compressed instruction for its disassembly check.
 
-Run the LR/SC progress qualification through normal FESVR loading and coherent
+Run the LR/SC progress validation through normal FESVR loading and coherent
 signature collection with:
 
 ```sh
@@ -907,8 +907,8 @@ MiniRV5StageSoC keeps page tables within its 64 KiB RAM. TiledRV5StageSoC uses i
 harness and `+boot-harts=0-7` to release all eight harts onto shared counters.
 Builds and six-value
 signatures stay under `BUILD_ROOT/lrsc-test/<soc>/`. Each execution has a
-20-million-cycle limit. See the [qualification scope](DEVELOPING.md#lrsc-system-qualification);
-Ziccrse advertisement is owned by the qualified SoC profiles, not this test target.
+20-million-cycle limit. See the [validation scope](DEVELOPING.md#lrsc-system-validation);
+Ziccrse advertisement is owned by the validated SoC profiles, not this test target.
 
 The smoke starts with `tohost` cleared, executes RV64I instructions on
 RV5Stage, stores the passing value into a dirty L1D line, and succeeds only
@@ -947,7 +947,7 @@ Contributor binding, structural, and lowering checks are documented in
 The [embedded Sail reference](cosim/README.md) supports opt-in scalar co-simulation
 for Mini/Simple RV5Stage `rv64imacb` builds through `COSIM=1`. It checks ordered RTL
 observations against private reference memory and explicit device-read replay,
-using the normal FESVR loader. Its bounded smoke is not full-profile qualification;
+using the normal FESVR loader. Its bounded smoke is not full-profile validation;
 see the component's supported-event limits before running other software.
 
 These simulators always use CIRCT-inferred memories. To validate a

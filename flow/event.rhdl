@@ -8,11 +8,11 @@ import:
   lib("flow/ready-valid-support.rhdl") open
 
 /* Configures a transparent ready-valid checkpoint with compiler-visible event
-   metadata. Qualification gates observation only; functional validity, payload,
+   metadata. The predicate gates observation only; functional validity, payload,
    and readiness are forwarded unchanged. */
 fun trace_event_config(label :: String,
                        ~parents: parents :: maybe(List.of(Endpoint)) = #false,
-                       ~when: qualification :: Bool = Bool(#true),
+                       ~when: observation_enabled :: Bool = Bool(#true),
                        ~stalls: stalls :: Boolean = #false,
                        ~residency: residency :: maybe(String) = #false,
                        ~payload: raw :: Boolean = #false,
@@ -36,17 +36,17 @@ fun trace_event_config(label :: String,
         ~residency: residency,
         ~payload: if raw | input_endpoint.field("bits") | #false,
         ~fields: if capture | capture(flow_payload_type(source), input_endpoint.field("bits")) | [],
-        ~valid: input_endpoint.field("valid") & qualification,
+        ~valid: input_endpoint.field("valid") & observation_enabled,
         ~ready: output_endpoint.field("ready"),
         ~stalls
       )
     )
 
 /* Configures a transparent Valid checkpoint with no reverse readiness path.
-   Qualification and captures affect observation only, not forwarded events. */
+   The predicate and captures affect only tracing, not forwarded events. */
 fun trace_valid_event_config(label :: String,
                              ~parents: parents :: maybe(List.of(Endpoint)) = #false,
-                             ~when: qualification :: Bool = Bool(#true),
+                             ~when: observation_enabled :: Bool = Bool(#true),
                              ~payload: raw :: Boolean = #false,
                              ~capture: capture :: maybe(Function) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):
@@ -66,7 +66,7 @@ fun trace_valid_event_config(label :: String,
         ~parents: parents,
         ~payload: if raw | input_endpoint.field("bits") | #false,
         ~fields: if capture | capture(valid_flow_payload_type(source), input_endpoint.field("bits")) | [],
-        ~valid: input_endpoint.field("valid") & qualification
+        ~valid: input_endpoint.field("valid") & observation_enabled
       )
     )
 

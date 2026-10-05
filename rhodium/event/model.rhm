@@ -38,7 +38,7 @@ class EventField(name :: String, type :: String, width :: PosInt,
                  offset :: Nat, encoding :: String, isa :: String = "", pc :: String = "",
                  symbols :: List.of(Map) = [], label :: Boolean = #false)
 
-/* Identifies one occurrence-qualified checkpoint and its capture schema, observation kind, and optional retained-bank entry. */
+/* Identifies one occurrence-scoped checkpoint and its capture schema, observation kind, and optional retained-bank entry. */
 class EventSite(id :: String,
                 label :: String,
                 module_name :: String,
@@ -96,7 +96,7 @@ class EventTraceSource(site :: maybe(String), unknown :: maybe(String) = #false,
 class EventTraceRequire(input :: EventTracePlan):
   implements EventTracePlan
 /*
- * Occurrence-qualified back references are resolved once after graph discovery.
+ * Occurrence-scoped back references are resolved once after graph discovery.
  * Acyclic paths keep their existing expression shape.
  */
 class EventTraceLink(vertex :: String, mutable target :: maybe(EventTracePlan) = #false):
@@ -239,7 +239,7 @@ class EventDependency(parent :: String,
 /* Records a consuming site and the precise boundary/reason where partial inference lacks ancestry semantics. */
 class EventTraceGap(site :: String, boundary :: String, reason :: String)
 
-/* Associates an occurrence-qualified hierarchy scope and label with its original local runtime identity value. */
+/* Associates an occurrence-scoped hierarchy scope and label with its original local runtime identity value. */
 class EventInstance(id :: String, label :: String, path :: List.of(String), value :: Value)
 
 /* Retains sites, static dependencies, dynamic plans, gaps, scope identities, and ordinary topology separately from selected ancestry. */
@@ -251,6 +251,6 @@ class EventManifest(logical :: DesignElaboration,
                     topology_dependencies :: maybe(List.of(EventDependency)) = #false,
                     topology_trace_plans :: maybe(Map) = #false,
                     instances :: List.of(EventInstance) = []):
-  /* Finds an occurrence-qualified site by ID, returning false when absent. */
+  /* Finds an occurrence-scoped site by ID, returning false when absent. */
   method site(id :: String):
     sites.find(fun (candidate): candidate.id == id)

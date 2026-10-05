@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the opt-in H CSR specialization for architectural state qualification.
+// Emits the opt-in H CSR specialization for architectural state validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

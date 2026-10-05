@@ -71,8 +71,8 @@ same `ElaboratedProgram` and explicit top. Direct builds emit `SoCHarness.sv`
 without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
 artifact to attestation. Keep compiler/backend imports in the host emitter,
 never in circuit definitions. CI uses `simulator_id` for artifact/build paths,
-`soc` for the unchanged hardware/software target, and `qualification` to gate
-the existing broader platform steps. Backend variants stay out of architectural
+`soc` for the unchanged hardware/software target, and `backend` to select
+backend-specific tests. Backend variants stay out of architectural
 product, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
 supported.
 Direct RTL can retain unsigned comparisons against zero and type bounds after
@@ -100,10 +100,10 @@ and runtime assertions.
 | Target software sources, ports, patches, and ELF builders | [`../sw/`](../sw/DEVELOPING.md) |
 | SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
 | Bare-metal litmus ELF generation and pinned model states | [`../sw/`](../sw/DEVELOPING.md) |
-| Embedded Sail library boundary and focused host qualification | [`cosim/`](cosim/README.md) |
+| Embedded Sail library boundary and focused host validation | [`cosim/`](cosim/README.md) |
 | Shared UDB-to-Sail architectural projection and product identity | [`sail/`](sail/README.md) |
 | ACT platform configuration and execution adapter | [`arch-test/`](arch-test/) |
-| OpenSBI DTB projection, simulator handoff, and qualification | [`opensbi/`](opensbi/DEVELOPING.md) |
+| OpenSBI DTB projection, simulator handoff, and validation | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
 
 ## Embedded Sail reference
@@ -122,7 +122,7 @@ Sail execution. `cosim/simulation.*` owns the single-hart runtime, embedded prod
 configuration, ROM loading, successful FESVR-write mirroring, and sticky failures.
 `COSIM=1` selects the pass/runtime in the simulator build, independently from the
 HDL generator. Keep its narrow supported-product guard until new event families
-have end-to-end qualification; never run an unsupported profile unchecked.
+have end-to-end validation; never run an unsupported profile unchecked.
 `TestDriver.v` begins samples before rising edges and ends them before falling
 edges, outside the generated DPI callback ordering. Finalization checks both
 binding errors and incomplete collector state. A later warm-reset feature must
@@ -159,7 +159,7 @@ not in the pass or collector.
 Run `tools/run-racket-tests.sh sims/cosim/tests/pass-test.rhm` for target
 selection, repeated occurrences, source reuse, both backends, and both Flow
 pass orders. It also runs in the host-SoC lane. The two `rv5stage-cosim*`
-fixtures qualify real scalar behavior through target-selected observation.
+fixtures validate real scalar behavior through target-selected observation.
 
 Run `make -C sims cosim-hooks-test` after collector/ABI changes. The host-adapter
 CI step includes it without requiring Sail. The `cosim-hooks` CIRCT fixture
@@ -196,7 +196,7 @@ environment tests). After exporter or environment changes, run
 RV32/RV64, and RV5Stage/Spike products. This validates the exact profile and
 retires a ROM probe without RTL or firmware boot. Known model differences remain
 in the generated manifest. Configuration and environment fingerprints establish
-artifact identity, not full execution qualification or trust in arbitrary input.
+artifact identity, not full execution validation or trust in arbitrary input.
 
 The existing `arch-test/install-sail.sh` now packages static model, runtime,
 and SoftFloat libraries, generated/platform headers, JSON schema and jsoncons
@@ -221,7 +221,7 @@ provider, which only the embedding supplies.
 
 After changing embedding hooks, rebuild with `make -C sims arch-test-sail-setup`
 (set `SAIL_COMPILER` on hosts without a downloadable compiler). Run
-`make -C sims sail-cosim-test` for the minimum qualification. It uses real
+`make -C sims sail-cosim-test` for the minimum validation. It uses real
 generated Sail execution, explicit RV32/RV64 configurations, and the existing
 FESVR transport in the same binary. The build is product-independent and
 identity-scoped under `.rhodium-cache/sail-cosim/`. Tests must exercise trap
@@ -234,7 +234,7 @@ the real FESVR ELF flow and a deliberate observation-corruption failure. Run
 `test_sail_config.py`/`SimulatorArtifactTest` Python tests after changing embedding
 or artifact identity. This opt-in milestone is not yet part of the simulator
 software-test CI matrix; broader profiles require translation, interrupt,
-CSR/counter, FP/vector, and memory-order qualification first.
+CSR/counter, FP/vector, and memory-order validation first.
 
 ## Add or change a harness
 
@@ -454,7 +454,7 @@ is large enough for scalar and vector tests, fits the physical address width,
 and does not overlap a Sail memory region before publishing
 `RVMODEL_ACCESS_FAULT_ADDRESS`. No per-core or per-ISA Make configuration is
 authored. ACT currently accepts the Simple shape; adding another shape requires
-qualifying its platform macros and memory capacity, not adding a product table.
+validating its platform macros and memory capacity, not adding a product table.
 Processor extension policy stays in the owning core's UDB projection. The common
 `configure.py` writes generated UDB consumer files, using `sail/` for the pinned
 default schema and explicit UDB mappings. Reject unsupported architecture
@@ -583,7 +583,7 @@ current coverage limits.
 bindings and relocation through the SoC description. The ACT writer is in the
 root Racket compilation manifest so configuration generation can reuse CI bytecode.
 
-### LR/SC system qualification
+### LR/SC system validation
 
 `make -C sims lrsc-test SOC=simple-rv5stage-rva23`, `SOC=mini-rv5stage-rva23`, and `SOC=tiled-rv5stage-rva23` complement the
 [full-core progress matrix](../cores/rv5stage/DEVELOPING.md#ziccrse-progress-gate).
@@ -617,7 +617,7 @@ FESVR reads those values coherently after normal HTIF completion.
 Keep these builds isolated under `BUILD_ROOT/lrsc-test/`. Both Bare and Sv39 executions must be
 attempted, with a nonzero overall status if either fails. Preserve failed
 results and do not count timeout, post-pressure recovery, or partial
-signatures as qualification success. This finite regression is evidence for
+signatures as validation success. This finite regression is evidence for
 the concrete configurations, not an advertisement switch or a proof for
 arbitrary external fabric fairness.
 
@@ -680,8 +680,8 @@ benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own 
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-All four Simple RV32 products additionally select their full native ISA inventory
-and ACT in CI. Native suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
+All four Simple RV32 products additionally select their full upstream ISA inventory
+and ACT in CI. Program suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
 RV64 benchmark ports remain outside RV32 coverage. ACT projects XLEN, physical
 addressability, indexed-memory EEW and vector geometry independently. RV32
 products use 32-bit physical addresses and disable PMP; both retain the platform's
@@ -705,7 +705,7 @@ nonzero exit is reported as failure. Keep the source submodule pristine and
 make both exact upstream markers fail closed when their runtimes change. This
 coverage assignment is test policy, not hardware metadata; do not add a suite
 category to an SoC or core configuration.
-`ISA_GROUPS` maps target ISA extensions to XLEN-qualified upstream groups;
+`ISA_GROUPS` maps target ISA extensions to XLEN-compatible upstream groups;
 the pinned upstream's RV64-only CBO group is recorded as a coverage gap for RV32.
 Full selection also
 uses the projected MMU and privilege modes to include their virtual-environment
@@ -747,10 +747,10 @@ an optimization. Compare simulator execution on the same ELFs and configured
 hart count before accepting a build-time improvement. Keep assertions and the
 hardware configuration unchanged during these comparisons.
 
-Native suite CI first generates the selected program targets using the shared
+Program suite CI first generates the selected program targets using the shared
 Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
-not a shape/ISA naming assumption. The six native-suite Simple products produce
+not a shape/ISA naming assumption. The six program-suite Simple products produce
 eight build groups and sixteen execution jobs. Build jobs consume
 `PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
 archives; their caches are keyed by the group and software inputs rather than
@@ -761,10 +761,10 @@ and `bringup-run` run that manifest through the ordinary attested simulator
 without invoking a builder. The corresponding `*-test` targets still build and
 run for local use. Run jobs preserve all suite limits and workload coverage;
 they attempt every successfully published group even if another build failed.
-Native adapter contracts run once in the planning job. Platform qualifications
-use the same grouping/archive/binding machinery in `ci-simulation.yml`:
-`qualification-plan` emits targets and OpenSBI DTBs, `qualification-build`
-compiles each compatible group, and `qualification` executes every product.
+Program adapter contracts run once in the planning job. Platform tests
+use the same grouping/archive/binding machinery in `ci-platform.yml`:
+`platform-plan` emits targets and OpenSBI DTBs, `platform-build`
+compiles each compatible group, and `platform` executes every product.
 `litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
 auxiliary `payload`, passed through FESVR's existing `+payload` option; its DTB
@@ -788,11 +788,11 @@ assembly. All four Mini RV32 bindings run this smoke in CI alongside
 boot, host MMIO, UART PTY, and ISA smoke.
 
 Simple RV32Int/RV32Max use these same width-selected platform payloads on both cores,
-but the external-memory shape runs the full applicable native ISA inventory
+but the external-memory shape runs the full applicable upstream ISA inventory
 with `isa-test`. Keep architectural selection identical while preserving
 RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
-CI inventory includes all four products. Their native ISA and ACT lanes retain
-the same shape/ISA selection policy; selecting a lane does not claim ACT qualification.
+CI inventory includes all four products. Their ISA and ACT lanes retain
+the same shape/ISA selection policy; selecting a lane does not claim ACT validation.
 
 The architectural `zihintntl-test` checks translated integer/FP hinted loads and
 dirty-data preservation on both single-core implementations. The separately
@@ -808,7 +808,7 @@ not an extension switch. The adapter checks its version, MXLEN, and UXLEN before
 accepting that mapping. Other supervisor guarantees retain their modeled
 extension switches; preserve the exact published UDB input.
 
-The platform qualification matrix runs the same checked-in, litmus7-generated
+The platform test matrix runs the same checked-in, litmus7-generated
 smoke selection on both exact tiled simulators. Litmus7 and ELFs are built only
 in the shared build jobs; execution retains histogram checking and its own
 90-minute job budget. OpenSBI executions retain independent 45-minute budgets

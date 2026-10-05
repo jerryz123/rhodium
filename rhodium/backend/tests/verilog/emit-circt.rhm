@@ -14,7 +14,7 @@ def program:
   | "hierarchy": make_hierarchy_program(width)
   | "aggregate": make_aggregate_program(width)
   | "sequential": make_sequential_program(width)
-  // The pinned CIRCT exporter uses an unqualified Packet typedef, which a
+  // The pinned CIRCT exporter uses an unscoped Packet typedef, which a
   // same-named port hides. Compare identical logic with a distinct port name;
   // the direct fixture still exercises the collision unchanged.
   | "types": make_type_program(0, "restored")

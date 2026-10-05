@@ -115,7 +115,7 @@ class StaticProvenance():
 class ExternalProvenance(input_index :: Nat,
                          path :: List.of(String || Nat)):
   implements TemporalProvenance
-/* Qualifies a clock or reset Value by its instance occurrence path. */
+/* Scopes a clock or reset Value by its instance occurrence path. */
 class ControlReference(instance_path :: List.of(Operation),
                        value :: Value)
 /* Identifies a state-producing operation and leaf in one occurrence, retaining any known controls. */
@@ -125,7 +125,7 @@ class StateProvenance(instance_path :: List.of(Operation),
                       clock :: maybe(ControlReference),
                       reset :: maybe(ControlReference) = #false):
   implements TemporalProvenance
-/* Qualifies explicit crossing evidence by its instance occurrence, not merely its definition. */
+/* Scopes explicit crossing evidence by its instance occurrence, not merely its definition. */
 class CrossingReference(instance_path :: List.of(Operation),
                         operation :: Operation)
 /* Retains verified crossing identity, upstream origins, and destination timing for a result leaf. */
@@ -138,7 +138,7 @@ class CrossedProvenance(crossing :: CrossingReference,
 /* Classifies a sink input with no dynamic timing source. */
 class StaticInput():
   implements SinkInputClassification
-/* Classifies a single timing source identical to the sink's occurrence-qualified clock. */
+/* Classifies a single timing source identical to the sink's occurrence-scoped clock. */
 class SameClock(clock :: ControlReference):
   implements SinkInputClassification
 /* Classifies a single known source clock distinct from the sink before environment resolution. */
@@ -232,7 +232,7 @@ class TemporalSinkInput(name :: String,
                         origins :: List.of(TemporalProvenance),
                         classification :: SinkInputClassification,
                         crossing :: maybe(CrossingReference) = #false)
-/* Qualifies one clocked effect and its leaf-sensitive input classifications by occurrence. */
+/* Scopes one clocked effect and its leaf-sensitive input classifications by occurrence. */
 class TemporalSink(instance_path :: List.of(Operation),
                    operation :: Operation,
                    kind :: String,

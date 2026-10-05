@@ -5,7 +5,7 @@ import:
   "../event-parents-fixture.rhdl" as fixture
   "../../../../rhodium/event/main.rhm" open
   "../../../../rhodium/backend/circt.rhm".emit_circt
-def traced = instrument_events(fixture.qualified())
+def traced = instrument_events(fixture.gated())
 def constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
   "inline constexpr unsigned " ++ site.label ++ " = " ++ to_string(index) ++ ";\n"
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(constants, "") ++ "}\n"

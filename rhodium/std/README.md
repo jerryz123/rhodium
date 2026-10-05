@@ -334,7 +334,7 @@ protocol assertions.
 
 `endpoint.fire()` accepts any endpoint supporting `DecoupledCtrl` and returns
 `endpoint.valid and endpoint.ready`. The exported receiver-first `fire`
-function remains available for qualified calls and compatibility.
+function remains available for module-prefixed calls and compatibility.
 
 Flow stages consume these nominal contracts; see their
 [normalization rules](../../flow/README.md#protocol-normalization).

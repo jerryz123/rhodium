@@ -198,7 +198,7 @@ fun direct_operation_dependencies(value :: Value,
                                   operation :: maybe(Operation)):
   def dependencies = MutableList[]
 
-  /* Appends a path-qualified operand leaf to the direct-dependency result. */
+  /* Appends a path-scoped operand leaf to the direct-dependency result. */
   fun add_operand(operand :: Value,
                   operand_path :: List.of(String || Nat)):
     dependencies.add(ValueLeaf(operand, operand_path))
@@ -289,7 +289,7 @@ fun summarize_module_dependencies(module_defs :: List.of(Module)):
     def dependencies = MutableList[]
     def path = leaf_layout(value.type).paths[leaf_index]
 
-    /* Converts a path-qualified operand leaf to its cached layout index before appending it. */
+    /* Converts a path-scoped operand leaf to its cached layout index before appending it. */
     fun add_operand(operand :: Value,
                     operand_path :: List.of(String || Nat)):
       dependencies.add(

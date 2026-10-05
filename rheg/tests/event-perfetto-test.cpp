@@ -86,7 +86,7 @@ std::string inflate_trace(const std::string& encoded) {
   check(remaining == 0 && status == Z_STREAM_END);
   return decoded;
 }
-void qualified_labels(const std::string& path) {
+void scoped_labels(const std::string& path) {
   Manifest descriptor{R"({"format":"rhodium-event-graph","version":1,"top":"Labels","sites":[{"id":"front","label":"frontend.s0.request","payload_width":0,"fields":[]},{"id":"back","label":"backend.s0.request","payload_width":0,"fields":[]},{"id":"plain","label":"plain","payload_width":0,"fields":[]},{"id":"trailing","label":"trailing.","payload_width":0,"fields":[]}],"dependencies":[]})",
       {0,0,0,0}, {}, {{},{},{},{}}};
   Graph graph; graph.bind_manifest(descriptor); graph.bind_timing({100000000});
@@ -100,7 +100,7 @@ void qualified_labels(const std::string& path) {
   std::istringstream input(graph.snapshot().json());
   std::ostringstream replay;
   write_perfetto(replay, read_event_trace(input));
-  check(live.str() == replay.str(), "qualified label live/replay bytes differ");
+  check(live.str() == replay.str(), "scoped label live/replay bytes differ");
   std::ofstream file(path,std::ios::binary); file << live.str(); file.close(); check(bool(file));
 }
 void instance_context(const std::string& path) {
@@ -787,7 +787,7 @@ int main(int argc, char** argv) {
     malformed.replace(malformed.find("\"ancestry_unknown\":true"), 23, "\"ancestry_unknown\":1");
     rejects([&] { std::istringstream bad(malformed); read_event_trace(bad); }, "ancestry_unknown must be boolean");
   }
-  qualified_labels(std::string(argv[1]) + "/qualified-labels.pftrace");
+  scoped_labels(std::string(argv[1]) + "/scoped-labels.pftrace");
   hierarchical_labels(std::string(argv[1]) + "/hierarchy.pftrace");
   instance_context(std::string(argv[1]) + "/instances.pftrace");
   {

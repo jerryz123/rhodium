@@ -1,4 +1,4 @@
-# Builds the passive observation collector and optional embedded Sail qualification.
+# Builds the passive observation collector and optional embedded Sail validation.
 # SPDX-License-Identifier: Apache-2.0
 cmake_minimum_required(VERSION 3.20)
 project(rhodium_sail_cosim LANGUAGES CXX)

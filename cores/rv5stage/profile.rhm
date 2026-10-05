@@ -309,7 +309,7 @@ class RV5StageConfig(xlen :: XLen,
   /* Derives ISA names and MISA bits from the same choices used to build hardware. */
   property isa_profile :: RiscvIsaProfile:
     def selected_vector = vector_profile_isa_extensions(vector, vector_length, vector_extensions)
-    // Fixed behavioral guarantees qualified on the RV64 Sv39 implementation,
+    // Fixed behavioral guarantees validated on the RV64 Sv39 implementation,
     // not optional datapaths or new implementation switches.
     def supervisor = if xlen == XLen.X64 && mmu_mode == RV5StageMmuMode.Sv39 | ["ssccptr", "sstvecd", "sstvala", "sscounterenw", "ssu64xl"] | []
     def names = extensions.names(xlen) ++ supervisor ++ selected_vector ++ (if vector_profile_enabled(vector) | ["zvkt"] | [])

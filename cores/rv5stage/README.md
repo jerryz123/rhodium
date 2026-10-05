@@ -117,8 +117,8 @@ ordering; observation cannot stall the core. A 64-entry passive owner queue
 per service fails with an assertion on overflow or unmatched completion.
 
 This is an observation producer, not an enabled SoC/Sail comparator. Its focused
-qualification covers RV32/RV64 scalar execution; guest execution and complete
-profile qualification remain later integration work.
+validation covers RV32/RV64 scalar execution; guest execution and complete
+profile validation remain later integration work.
 
 ## Experimental hypervisor integration
 
@@ -129,7 +129,7 @@ The `rva23` preset enables H/Sha, state-enable, Sstc, and Svinval. RV32 presets
 are unchanged. Standalone MMU and protocol generators retain an explicit H
 parameter.
 The CSR specialization adds the execution-context output and
-commit-qualified `guest_fault` input, guest entry/exit through MRET/SRET,
+commit-gated `guest_fault` input, guest entry/exit through MRET/SRET,
 HS/VS status and trap-state separation, synchronous two-level delegation,
 virtual-instruction restrictions, H counter permissions/time offset, and
 GPA/PTE-read fault provenance. Physical M/HS interrupts can preempt guests.
@@ -238,7 +238,7 @@ trap/interrupt entry wait for accepted vector effects to drain. Software owns
 VRF save/restore; there is no separate guest register bank.
 
 Guest pointer masking, Sstc, and the current feature set's state-enable controls
-are integrated. Broader guest-system qualification remains an ongoing validation
+are integrated. Broader guest-system validation remains an ongoing integration
 task, separate from the implemented and advertised architectural capabilities.
 RV64/Sv39 configurations explicitly publish Ssccptr, Sstvecd, Sstvala,
 Sscounterenw, and Ssu64xl.
@@ -312,7 +312,7 @@ responsible for the external Home/memory coherence contract. See the
 `RV5StageExtensions(~ziccrse: #true)` advertises **Ziccrse 1.0.0** through the
 profile's ISA extension list, device tree, and UDB configuration. It adds no
 instructions, CSRs, or `misa` bit and does not change the datapath. The switch
-defaults to false for custom integrations; the qualified MiniRV5StageSoC, SingleCoreRV5StageSoC,
+defaults to false for custom integrations; the validated MiniRV5StageSoC, SingleCoreRV5StageSoC,
 and the TiledSoC RV5Stage profile enable it.
 
 All cacheable coherent main-memory regions provide **RsrvEventual**: the
@@ -326,7 +326,7 @@ Elaboration requires cacheable regions to permit reads, writes, atomics, and
 idempotent reads; the CHI configuration also enforces HN-F routing and complete
 cache lines. These static checks cannot establish external fabric liveness.
 Integrators enabling the claim must provide fair request/coherence service and
-eventual memory responses, and qualify their complete fetch, translation,
+eventual memory responses, and validate their complete fetch, translation,
 cache, and fabric configuration. The [progress gate](DEVELOPING.md#ziccrse-progress-gate)
 records the concrete evidence and repeatable regression suite. Reservation
 size remains the independent [Za64rs contract](#cache-block-and-reservation-bounds).
@@ -368,7 +368,7 @@ data operands. The guarantee includes data in masked-off, pre-`vstart`, and tail
 elements. `vl`, `vtype`, the execution mask, immediates, and the specification's
 explicit gather/slide index operands remain control inputs and may affect
 latency. The packed integer datapath is combinational; multiply uses the same
-profile-selected fixed-latency service qualified by Zkt; the sequencer schedules
+profile-selected fixed-latency service validated against Zkt; the sequencer schedules
 from decoded metadata and architectural vector control rather than result data.
 
 The contract covers only the instructions named by Zvkt. In particular, vector
@@ -421,7 +421,7 @@ or two admitted S2 packets that supply its instruction, including same-cycle
 queue bypass and retained halfwords. It records issue only when hazard and squash
 gating permit it. Raw-packet acceptance is not a separate instruction transfer.
 Execute and Memory record surviving stage transfers; WB records successful
-architectural retirement, using the same qualification as `minstret`.
+architectural retirement, using the same gating condition as `minstret`.
 Replayed attempts and trapping instructions do not emit WB. WRS and cache
 maintenance emit once on successful completion, retaining their original
 instruction lineage. Ordinary retirement remains one cycle after MEM; retained
@@ -1105,7 +1105,7 @@ explicit loads, never the implicit VS page-table reads checked by G-stage
 translation. PBMTE changes serialize architectural state and invalidate
 translations; page-table A/D updates remain software-managed through Svade.
 This base-version claim alone does not establish complete RVA23 compliance;
-Sscofpmf is selected and qualified separately below.
+Sscofpmf is selected and validated separately below.
 
 RV32 `medelegh` reads zero and ignores writes: all implemented delegation
 causes are below 32, and high-half writes preserve the low half. This CSR is
@@ -1316,7 +1316,7 @@ ISA strings, hart descriptions, and UDB counter/permission claims follow this
 option. Shared RV32Int, RV32Max, and RVA23 SoC ISA presets enable it for both
 RV5Stage and Spike. Sail 0.14.1 projects the writable counter and filter
 CSRs, but does not increment implementation-defined HPM events. Directed RTL
-tests, not ACT signatures alone, therefore qualify event counting and overflow.
+tests, not ACT signatures alone, therefore validate event counting and overflow.
 
 ## Pause hint
 

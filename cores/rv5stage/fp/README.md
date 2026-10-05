@@ -16,7 +16,7 @@ ownership and validation.
 an integer operand, decoded controls, an immediate index, a resolved rounding
 mode, and a caller-selected `Tag` type. Its `Decoupled` request transfers
 authorize execution; its default `Irrevocable` result holds the unchanged tag, FP and
-integer result lanes, exception flags, and a flag-update qualifier until consumed.
+integer result lanes, exception flags, and a flag-update enable until consumed.
 The selected operation determines which result lane is meaningful. Control
 register-use/destination fields select numeric conversion direction; they do
 not name, read, reserve, or write an architectural register.

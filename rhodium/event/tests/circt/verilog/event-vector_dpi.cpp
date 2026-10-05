@@ -230,7 +230,7 @@ extern "C" void vector_trace_check() {
     } else if(event.ref.site==vector_sites::complete) {
       if(graph.field(event.ref,"destination").unsigned_value()!=destination) fail("completion destination");
       const bool write=graph.field(event.ref,"write_enabled").unsigned_value();
-      if(write!=writes) fail("completion write qualification");
+      if(write!=writes) fail("completion write gating");
       if(!write) ++no_write;
     }
   }

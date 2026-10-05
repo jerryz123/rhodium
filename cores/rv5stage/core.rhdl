@@ -1369,7 +1369,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
   wire wb_memory_replay: Bool
   wire wb_memory_response_replay: Bool
   // Observe the scalar cache response at its existing MEM/WB capture.
-  // Admission qualifies continuation, not whether the S2 response is recorded.
+  // Admission gates continuation, not whether the S2 response is recorded.
   def wb_memory_response = wb_memory_path
     |> trace_valid_event("dcache/s2.resp", ~when: wb_memory_path.bits.data_request.access.into(RV5StageMemoryOperation).is_memory(), ~fields: operation):
          pc: operation.pc
@@ -1389,7 +1389,7 @@ sync_circuit RV5StageCore(core_profile :: RV5StageConfig, ~reset_address: reset_
     |> map_valid(operation => operation.fp_issue)
     |> eject_interface(~valid: wb_fp.issue.valid, ~bits: wb_fp.issue.bits)
   def wb_page_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.PageFault)) ||| (scalar_data.request.valid & scalar_data.request_fault)
-  // The arbiter qualifies the fault for this owner. Pipeline and delayed
+  // The arbiter gates the fault for this owner. Pipeline and delayed
   // completion faults still use their retained instruction address context.
   def wb_fault_address = mux(scalar_data.request.valid & (scalar_data.request_fault ||| scalar_data.request_access_fault), request_fault_address, wb_offer_bits.data_request.address)
   def wb_access_fault = (wb_attempt & (wb_offer_bits.cache_outcome === RV5StagePipelineOutcome.AccessFault)) ||| (scalar_data.request.valid & !wb_page_fault & scalar_data.request_access_fault) ||| (wb_maintenance_done & wb_other_response.bits.access_fault)

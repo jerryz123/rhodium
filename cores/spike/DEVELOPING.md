@@ -138,4 +138,4 @@ Run `make -C sims smoke SOC=mini-spike-rva23` for the complete BootROM/FESVR
 path. The shared RVA23 smoke also checks VLEN, ELEN=64 execution, vector memory,
 Zvbb, and binary64/binary16 vector FP results. Repeat with
 `HTIF_ARGS=+load-through-chi` to cover both loader paths. This bounded smoke
-does not replace ISA/ACT qualification.
+does not replace ISA/ACT validation.

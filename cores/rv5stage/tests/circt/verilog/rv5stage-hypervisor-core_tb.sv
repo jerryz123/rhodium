@@ -1,4 +1,4 @@
-// Qualifies host/guest translation, supervisor trap values, RV64 user execution, and WB effects.
+// Tests host/guest translation, supervisor trap values, RV64 user execution, and WB effects.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_hypervisor_core_tb;
   logic clock = 0, reset = 1;
@@ -1143,7 +1143,7 @@ module rv5stage_hypervisor_core_tb;
         emit(ld(13, 10, 8)); emit(sd(13, 10, 16));
         cause = 8; value = 0; pc = virtual_base+24; emit(32'h00000073);
       end
-      default: $fatal(1, "unknown supervisor qualification case");
+      default: $fatal(1, "unknown supervisor test case");
     endcase
     emit(sd(0, 10, 32)); emit(32'h0000006f);
     repeat (5) @(negedge clock); reset = 0;
@@ -1407,9 +1407,9 @@ module rv5stage_hypervisor_core_tb;
     $display("25 hypervisor WRS timeout, retirement and wake cases passed");
     if ($test$plusargs("wrs-only")) $finish;
     for (int kind=0; kind<7; kind++) begin run_sha_fetch(kind,0); run_sha_fetch(kind,1); end
-    $display("14 compressed/straddled guest fetch qualification cases passed");
+    $display("14 compressed/straddled guest fetch test cases passed");
     for (int kind=0; kind<6; kind++) begin run_sha_data(kind,0); run_sha_data(kind,1); end
-    $display("12 guest data fault/delegation qualification cases passed");
+    $display("12 guest data fault/delegation test cases passed");
     for (int kind = 0; kind < 3; kind++) begin run_invalidation(kind,0); run_invalidation(kind,1); end
     for (int op = 0; op < 5; op++) begin run_invalidation_denial(op,0); run_invalidation_denial(op,1); end
     $display("16 Svinval paged remapping and precise permission cases passed");

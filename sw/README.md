@@ -37,7 +37,7 @@ make -C sims litmus-smoke-test SOC=tiled CORE=spike ISA=rva23 LITMUS7=/path/to/l
 ```
 
 The Spike/FESVR upstream under [`riscv/riscv-isa-sim`](../riscv/riscv-isa-sim/)
-is a host simulator dependency, not target software. Simulator qualification
+is a host simulator dependency, not target software. Simulator validation
 payloads remain under [`sims/tests/`](../sims/tests/) and
 [`sims/opensbi/tests/`](../sims/opensbi/tests/) because they test harness behavior.
 
@@ -59,7 +59,7 @@ bare-metal port emits the test identity and complete histogram, omitting the
 unused witness footer to limit simulated HTIF traffic. The builder discovers
 model-backed candidate cases, including branches and memory outcomes. It filters
 Zalasr acquire/release ordinary loads and stores when the selected target lacks
-`zalasr`; a case is qualified only after its ELF builds and runs on the selected
+`zalasr`; a case is validated only after its ELF builds and runs on the selected
 SoC. `litmus-test` uses the same builder for explicit subsets, with
 `LITMUS_CASES=MP,LB+ctrls` and `LITMUS_RUNS` controlling selection and samples.
 A passing run means no forbidden state was observed, not that every allowed

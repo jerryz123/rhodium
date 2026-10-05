@@ -59,7 +59,7 @@ The result contains:
 
 - `target`: the selected target's name.
 - `diagnostics`: ordered immutable `Diagnostic(code, severity, message, location, path)`
-  findings. Codes are stable and target-qualified; severity is `error`, `warning`,
+  findings. Codes are stable and target-scoped; severity is `error`, `warning`,
   or `note`. Messages are human-readable. Optional locations and occurrence paths
   carry source attribution without live IR; missing locations are `#false`.
 - `has_errors`: derived from error-severity diagnostics. A returned result means

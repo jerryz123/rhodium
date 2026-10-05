@@ -84,7 +84,7 @@ priority, global enables, and VS cause renumbering. It allocates no CSR state
 and includes no AIA or timer-comparator mechanism.
 `RiscvGuestFault` carries captured GVA provenance, the original GPA, and
 explicit-access versus implicit VS page-table-read provenance. The CSR consumer
-qualifies it with the trapping instruction, shifts GPA by two for xTVAL2/HTVAL,
+gates it with the trapping instruction, shifts GPA by two for xTVAL2/HTVAL,
 and uses the RV64 page-table-read pseudo-instruction for xTINST.
 It does not perform translation or allocate architectural state.
 
@@ -151,7 +151,7 @@ implementing Zbb, Zba, and M/Zmmul prerequisites without duplicating feature
 flags. Optional Zcmop descriptors then occupy the C.LUI zero-immediate holes
 without a priority decoder. An unmatched,
 reserved, or unsupported encoding deasserts `valid`; consumers must use
-`valid` to qualify the instruction bits. Architectural hints that the pure
+`valid` to gate the instruction bits. Architectural hints that the pure
 catalog accepts remain valid and expand to their canonical no-effect base
 instruction. There is no parallel operation enum or handwritten opcode table.
 

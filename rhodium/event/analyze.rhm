@@ -1,5 +1,5 @@
 #lang rhombus
-/* Infers nearest checkpoints and finite occurrence-qualified lineage graphs, including registered feedback. */
+/* Infers nearest checkpoints and finite occurrence-scoped lineage graphs, including registered feedback. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,7 +13,7 @@ import:
 export:
   infer_event_manifest
 
-/* Records an occurrence-qualified topology edge with optional transform identity, fixed latency, and linear storage stages. */
+/* Records an occurrence-scoped topology edge with optional transform identity, fixed latency, and linear storage stages. */
 class FlowArc(source :: String,
               destination :: String,
               transform :: maybe(String) = #false,
@@ -27,7 +27,7 @@ class EventCandidate(site :: EventSite,
                      trace_stages :: maybe(List.of(EventTraceStage || EventTraceQueue || EventTraceRetained || EventTraceWindow)))
 /* Retains a selector's owner path, functional grants, input vertices, and pending-offer certification during expansion. */
 class FlowSelection(instance_path :: List.of(String), grants :: List, inputs :: List.of(String), pending :: Boolean)
-/* Retains one routed output's predicates and input vertex under a shared occurrence-qualified routing identity. */
+/* Retains one routed output's predicates and input vertex under a shared occurrence-scoped routing identity. */
 class FlowRouting(instance_path :: List.of(String), routing_id :: String, predicates :: List,
                   input :: String, output_index :: Nat)
 /* Identifies one certified fanout output and its common input vertex during topology expansion. */
@@ -41,11 +41,11 @@ class ExplicitTraceEdge(parent :: String,
                         transform_path :: String,
                         stage :: EventTraceRetained)
 
-/* Formats a concrete instance path for occurrence-qualified topology and event identities. */
+/* Formats a concrete instance path for occurrence-scoped topology and event identities. */
 fun occurrence_prefix(instance_path :: List.of(String)):
   String.join(instance_path, "/")
 
-/* Builds an occurrence-qualified terminal key from its hierarchy path, block ID, and port ID. */
+/* Builds an occurrence-scoped terminal key from its hierarchy path, block ID, and port ID. */
 fun terminal_id(instance_path :: List.of(String),
                 block_id :: String,
                 port_id :: String):

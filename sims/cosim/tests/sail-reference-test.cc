@@ -1,4 +1,4 @@
-// Qualifies real embedded Sail stepping, memory replay, traps, and FESVR coexistence.
+// Tests real embedded Sail stepping, memory replay, traps, and FESVR coexistence.
 // SPDX-License-Identifier: Apache-2.0
 #include "sail-reference.h"
 #include "config_utils.h"

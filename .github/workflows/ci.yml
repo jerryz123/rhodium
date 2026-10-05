@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   plan:
-    name: Plan affected CI lanes
+    name: Plan
     runs-on: ubuntu-slim
     timeout-minutes: 5
     outputs:
@@ -58,7 +58,7 @@ jobs:
           python3 -m json.tool <<< "$plan"
 
   compile-racket:
-    name: Compile Rhodium once
+    name: Compile Rhodium
     needs: plan
     if: ${{ fromJSON(needs.plan.outputs.plan).run_compile }}
     runs-on: ubuntu-24.04
@@ -113,7 +113,7 @@ jobs:
           compression-level: 0
 
   checks:
-    name: Host, example, and CIRCT checks
+    name: Checks
     needs: [plan, compile-racket]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_checks }}
     uses: ./.github/workflows/ci-checks.yml
@@ -123,7 +123,7 @@ jobs:
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   simulator:
-    name: Product simulator chains
+    name: SoC / ${{ matrix.simulator_id }}
     needs: [plan, compile-racket]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
     strategy:
@@ -137,22 +137,22 @@ jobs:
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   simulation:
-    name: Platform qualifications
+    name: Platform
     needs: [plan, compile-racket, simulator]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulation }}
-    uses: ./.github/workflows/ci-simulation.yml
+    uses: ./.github/workflows/ci-platform.yml
     with:
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}
 
   software:
-    name: Bare-metal software
+    name: Software
     needs: [plan, compile-racket, simulator]
     if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && (fromJSON(needs.plan.outputs.plan).run_program_native || fromJSON(needs.plan.outputs.plan).run_program_arch) }}
     uses: ./.github/workflows/ci-software.yml
     with:
-      run-native: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
-      native-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
+      run-programs: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
+      program-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).program_matrix) }}
       run-arch: ${{ fromJSON(needs.plan.outputs.plan).run_program_arch }}
       arch-build-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_build_matrix) }}
       arch-run-matrix: ${{ toJSON(fromJSON(needs.plan.outputs.plan).arch_run_matrix) }}

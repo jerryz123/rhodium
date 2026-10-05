@@ -38,7 +38,7 @@ closed. The generated ACT configuration reports reference-model differences:
 Sail 0.14.1 preserves an inactive unordered-reduction NaN seed, while Spike
 canonicalizes it and flags signaling NaNs. No tests are removed to hide this
 legal implementation difference; generating a configuration is not full ACT
-qualification.
+validation.
 
 The pinned Spike parser recognizes Sha and its opcode-free properties through
 the shared downstream patch series. ACT uses the same H-enabled profile;

@@ -94,7 +94,7 @@ fun block_node(block :: DiagramBlock):
 fun block_has_flow_port(block :: DiagramBlock):
   for any (port in block.ports): port.compound
 
-/* Builds a block/port-qualified identifier for an abstract combinational sideband stub. */
+/* Builds a block/port-scoped identifier for an abstract combinational sideband stub. */
 fun combo_ether_id(block :: DiagramBlock, port :: DiagramPort):
   block.id ++ "::ether::" ++ port.id
 
@@ -132,7 +132,7 @@ fun boundary_port_label(block :: DiagramBlock, port :: DiagramPort):
     | block.label ++ suffix
     | block.label ++ "." ++ suffix
 
-/* Builds a block/port-qualified identifier for a module-boundary anchor. */
+/* Builds a block/port-scoped identifier for a module-boundary anchor. */
 fun boundary_anchor_id(block :: DiagramBlock, port :: DiagramPort):
   block.id ++ "::" ++ port.id
 

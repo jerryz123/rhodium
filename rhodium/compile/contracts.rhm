@@ -52,7 +52,7 @@ class CompileManifest(top :: String, signature :: ModuleSignature,
                       modules :: List.of(String), lowerings :: List.of(LoweringDecision))
 /* Target-owned structured findings; hardware emitters may omit this projection. */
 interface CompilationReport
-/* A target-qualified finding detached from live IR. Instance paths distinguish
+/* A target-scoped finding detached from live IR. Instance paths distinguish
    occurrences of a shared definition; absent source locations stay absent. */
 class Diagnostic(code :: String, severity :: String, message :: String,
                  location :: maybe(Location) = #false, path :: List.of(String) = []):

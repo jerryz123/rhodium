@@ -162,7 +162,7 @@ types before their users. Identical physical shapes share a typedef across the
 hierarchy, independently of record preferred names. The first encountered shape
 uses its preferred record name when available; anonymous types receive generated
 names. Collisions receive deterministic suffixes. All module references are
-package-qualified, so local port names do not hide type names. The package name
+package-prefixed, so local port names do not hide type names. The package name
 is derived from the first prepared module and disambiguated against names in the
 artifact. Typedef and package names are generated implementation details;
 logical module and port identities remain unchanged.

@@ -1,11 +1,11 @@
-// Checks qualified checkpoints on an unchanged pipeline with repeated data, bubbles, flush, and reset.
+// Checks observation-gated checkpoints on an unchanged pipeline with repeated data, bubbles, flush, and reset.
 // SPDX-License-Identifier: Apache-2.0
 module event_parents_tb;
   typedef struct packed {logic valid; logic [7:0] bits;} forward_t;
   logic clock=0,reset=1,flush=0;
   logic force_cache_event=0;
   forward_t source_in,wb_out,cache_out,both_out;
-  EventQualifiedParents dut(.*);
+  EventGatedParents dut(.*);
   always #5 clock=~clock;
   import "DPI-C" function void parents_bind();
   import "DPI-C" function void parents_sample(int unsigned reset, flush, valid, data, wb_valid, wb_data, cache_valid, both_valid);

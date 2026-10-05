@@ -226,7 +226,7 @@ fun same_control_reference(left :: ControlReference,
                            right :: ControlReference):
   left.value === right.value && same_instance_path(left.instance_path, right.instance_path)
 
-/* Matches absent controls or delegates present references to occurrence-qualified identity. */
+/* Matches absent controls or delegates present references to occurrence-scoped identity. */
 fun same_optional_control_reference(left :: maybe(ControlReference),
                                     right :: maybe(ControlReference)):
   (!left && !right) || same_control_reference(left, right)
@@ -420,7 +420,7 @@ fun hierarchical_name(instance_path :: List.of(Operation), name :: String):
   def prefix = instance_path_name(instance_path)
   if prefix == "" | name | prefix ++ "." ++ name
 
-/* Formats a control's occurrence-qualified Value reference. */
+/* Formats a control's occurrence-scoped Value reference. */
 fun describe_control(reference :: ControlReference):
   hierarchical_name(reference.instance_path, reference.value.ref())
 
@@ -463,7 +463,7 @@ fun summarize_module_temporal(module_def :: Module):
         def active_values = MutableMap()
         def temporal_index = index_module_temporal(current_module)
 
-        /* Rebinds a child's boundary control to the parent driver, or qualifies internal controls by occurrence. */
+        /* Rebinds a child's boundary control to the parent driver, or scopes internal controls by occurrence. */
         fun bind_child_control(reference :: maybe(ControlReference),
                                instance_operation :: Operation):
           if !(reference is_a ControlReference)
@@ -487,7 +487,7 @@ fun summarize_module_temporal(module_def :: Module):
                     ControlReference([], canonical_wire_value(driver.value))
                 | ControlReference([instance_operation], control_value)
 
-        /* Substitutes child input leaves with parent drivers and qualifies state/crossing origins by occurrence. */
+        /* Substitutes child input leaves with parent drivers and scopes state/crossing origins by occurrence. */
         fun transform_child_origins(origins :: List.of(TemporalProvenance),
                                     instance_operation :: Operation):
           def mutable result = []
@@ -780,7 +780,7 @@ fun summarize_module_temporal(module_def :: Module):
 
   summarize_module(module_def)
 
-/* Formats reusable-module origins with leaf paths and occurrence-qualified state or crossing controls. */
+/* Formats reusable-module origins with leaf paths and occurrence-scoped state or crossing controls. */
 fun describe_origin(summary :: ModuleTemporalSummary,
                     origin :: TemporalProvenance):
   cond

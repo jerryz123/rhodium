@@ -1156,7 +1156,7 @@ works for interfaces with custom connection policies as well as structurally
 exact interfaces without them.
 
 An interface can declare one nominal parent with `refines` and additional,
-role-qualified, structurally checked contracts such as
+role-specific, structurally checked contracts such as
 `supports producer: Decoupled(T)`. The support role must be the interface's
 provider role. Parenthesized `<=>` forms
 merge a parent endpoint with its refinement delta or split a richer source
@@ -1365,7 +1365,7 @@ child instance, just like scalar retained storage). The three nonempty lists
 have one local one-bit control per entry. Allocation is exclusive for the one
 input; entries may release independently and concurrently. `grants` has one
 nonempty row per output and one one-bit selection per entry in each row.
-Use the functional owner's actual grants, qualified for that output, not a
+Use the functional owner's actual grants, gated for that output, not a
 reconstructed priority policy. At most one entry may be selected per output;
 different outputs may simultaneously read different entries or the same entry.
 Outputs do not consume ownership. Capture after simultaneous release replaces

@@ -45,9 +45,9 @@ void ScalarChecker::check(const observation::Record& record) {
       throw std::runtime_error(message.str());
     }
   };
-  require(instruction != nullptr, "interrupt comparison is not qualified yet");
+  require(instruction != nullptr, "interrupt comparison is not supported yet");
   require(!instruction->privilege.virtualized, "guest observation is not supported");
-  require((reference_.csr(0x180) >> 60) == 0, "translated-memory comparison is not qualified yet");
+  require((reference_.csr(0x180) >> 60) == 0, "translated-memory comparison is not supported yet");
   require(record.sample >= previous_sample_, "sample order moved backwards");
   while (!writes_.empty() && writes_.front().sample <= record.sample) {
     const auto& write = writes_.front();
@@ -63,9 +63,9 @@ void ScalarChecker::check(const observation::Record& record) {
   for (const auto& [id, effect] : record.effects) {
     (void)id;
     if (const auto* value = std::get_if<MemoryEffect>(&effect)) {
-      require(value->kind == AccessKind::Load || value->kind == AccessKind::Store, "atomic/cache-operation comparison is not qualified yet");
+      require(value->kind == AccessKind::Load || value->kind == AccessKind::Store, "atomic/cache-operation comparison is not supported yet");
       require(value->byte_mask && value->byte_mask <= 255 && ((value->byte_mask & (value->byte_mask + 1)) == 0), "invalid scalar byte mask");
-      require(memory.empty() && value->access_id == 0 && value->fragment_offset == 0, "fragmented-memory comparison is not qualified yet");
+      require(memory.empty() && value->access_id == 0 && value->fragment_offset == 0, "fragmented-memory comparison is not supported yet");
       require(!value->physical_valid || value->physical_address == value->virtual_address, "bare-memory physical address");
       const bool fault = value->result == AccessResult::Fault;
       require(value->result != AccessResult::ScFailure, "SC result on ordinary access");

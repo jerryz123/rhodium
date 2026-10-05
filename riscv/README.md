@@ -246,7 +246,7 @@ Concrete cores own the timing proof, regressions, and advertisement.
 instruction-name scope and the explicit gather/slide control-operand exemptions.
 It is architectural metadata, not an opcode catalog or a selectable decoder
 feature. Implementations intersect the names with their instruction catalogs
-and own the data-independent-latency qualification for that intersection. The
+and own the data-independent-latency validation for that intersection. The
 scope follows section 2.15 of the
 [RISC-V Vector Cryptography specification](https://docs.riscv.org/reference/isa/extensions/crypto-vector/_attachments/riscv-crypto-spec-vector.pdf).
 

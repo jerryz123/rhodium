@@ -88,7 +88,7 @@ not permission to strengthen protocol checks. BootROM's multibeat read engine
 and RAM's queued transactions are separate.
 
 The engine's intrinsic `responses` tracing contract connects one input to both
-outputs using the named `request` retained scope. Capture on `request_fire`, not unqualified REQ
+outputs using the named `request` retained scope. Capture on `request_fire`, not ungated REQ
 fire; release on final RSP or read DAT, never DBID or incoming write DAT. Keep
 these metadata declarations beside the production phase controls.
 

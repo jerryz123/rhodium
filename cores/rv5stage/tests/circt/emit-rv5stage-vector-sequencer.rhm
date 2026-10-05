@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the RV64 VLEN128 integer sequencer composition for behavioral qualification.
+// Emits the RV64 VLEN128 integer sequencer composition for behavioral validation.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

@@ -78,7 +78,7 @@ interface SignedArithmeticType:
 class Bits(width :: PosInt):
   implements ArithmeticType
 
-  /* Formats the width-qualified Bits type for diagnostics and IR inspection. */
+  /* Formats the width-parameterized Bits type for diagnostics and IR inspection. */
   override method describe():
     bits_text(this)
 
@@ -322,6 +322,6 @@ fun type_equal(left :~ matching(_), right :~ matching(_)):
 fun structural_member_type_equal(left :~ matching(_), right :~ matching(_)):
   type_equal(left, right)
 
-/* Renders a Bits type as its canonical width-qualified inspection text. */
+/* Renders a Bits type as its canonical width-parameterized inspection text. */
 fun bits_text(type :: Bits):
   "bits<" ++ to_string(type.width) ++ ">"

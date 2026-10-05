@@ -138,7 +138,7 @@ effects; `rhodium/event` consumes their metadata to infer possible nearest
 dependencies. The [annotation contract](../rhodium/event/README.md#annotate-events)
 owns label rules, partial ancestry, and supported tracing behavior.
 
-Both checkpoints accept `~when: Bool` to qualify observation without gating the
+Both checkpoints accept `~when: Bool` to gate observation without gating the
 flow. Use `~parents: [checkpoint, ...]` to select upstream ancestors, or bind the
 same selection later with `trace_parents(child, [checkpoint, ...])` once both
 endpoints exist. Parent binding is metadata-only and single-assignment.
@@ -432,7 +432,7 @@ valid_attempts |> offer_decoupled() |> request_sink
 
 The adapter uses the existing same-cycle combinational event-lineage contract.
 Rejected offers retain no pending identity; a replay is a new upstream occurrence.
-Admission/fault policy belongs to the consumer, not the adapter. A qualified
+Admission/fault policy belongs to the consumer, not the adapter. A conditionally observed
 [`trace_event`](../rhodium/event/README.md) can observe successful
 admission without changing the functional offer.
 

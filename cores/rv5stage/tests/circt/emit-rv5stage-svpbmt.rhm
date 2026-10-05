@@ -1,5 +1,5 @@
 #lang rhombus
-// Emits the Svpbmt architectural and translation component qualification fixture.
+// Emits the Svpbmt architectural and translation component validation fixture.
 // SPDX-License-Identifier: Apache-2.0
 
 import:

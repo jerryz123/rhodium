@@ -149,7 +149,7 @@ fun pipe(stages :: PosInt)
       )
     )
 
-/* Configures a fixed-latency Valid pipeline with valid-qualified payload
+/* Configures a fixed-latency Valid pipeline with valid-gated payload
    capture, adding a flush port only when a flush signal is supplied. */
 fun valid_pipe(stages :: PosInt, ~flush: flush :: maybe(Bool) = #false)
   :: ((source :: FlowSourceArgument) -> InterfaceTransformResult(source, Endpoint)):

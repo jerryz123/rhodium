@@ -3,7 +3,7 @@
 
 # Developing the OpenSBI simulator integration
 
-This package owns the simulator-specific DTB projection and qualification
+This package owns the simulator-specific DTB projection and validation
 payload. The target-derived layout and firmware builder live in
 [`../../sw/build/opensbi.py`](../../sw/build/opensbi.py), and the unmodified
 pinned source is the [`../../sw/opensbi`](../../sw/opensbi/) submodule. Architectural
@@ -22,7 +22,7 @@ appends only the simulator-owned `ucb,htif0` reset endpoint. FW_JUMP embeds
 that DTB, copies it into the
 adapter's reserved writable RAM range through `FW_JUMP_FDT_ADDR`, and passes
 that RAM address to its next S-mode stage. This keeps simulator transport out
-of the synthesizable SoC's BootROM DTB. The qualification firmware disables
+of the synthesizable SoC's BootROM DTB. The validation firmware disables
 OpenSBI boot prints so the RTL test does not spend most of its runtime
 serializing a diagnostic banner.
 
@@ -31,7 +31,7 @@ caller-selected auxiliary ELF with its existing `+payload` option while
 retaining OpenSBI's sole `tohost` and `fromhost` symbols. S-mode software exits
 through SBI system reset; it must not define or access an HTIF mailbox. The
 package-local [`tests/smoke.S`](tests/smoke.S) image checks that ownership and
-is only an end-to-end qualification fixture, not part of the OpenSBI target.
+is only an end-to-end validation fixture, not part of the OpenSBI target.
 
 Run the adapter tests before the real firmware test:
 
@@ -47,7 +47,7 @@ Keep generated firmware, layouts, logs, and payload ELFs under
 that firmware, the next stage, the FDT reservation, and all loaded ELF segments
 fit the selected architectural RAM without overlap.
 
-`opensbi-elfs` builds firmware and the qualification payload and writes the
+`opensbi-elfs` builds firmware and the validation payload and writes the
 shared manifest. CI supplies `PREBUILT_PROGRAM_TARGET` and
 `PREBUILT_OPENSBI_FDT` from its planning artifact, so firmware compilation does
 not elaborate Rhodium. The common archive includes both ELFs and the DTB;

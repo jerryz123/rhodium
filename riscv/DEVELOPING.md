@@ -127,7 +127,7 @@ GEILEN=0 interrupt mask and explicit v2 memory-access classification, so their
 former standalone patches are retired. The three remaining patches provide
 default-disabled host memory/interrupt hooks, host time, and exact subpage device
 PMAs. Keep the executable and embedded library in one identity-scoped package.
-Qualify `arch-test-sail-test`, `sail-cosim-test`, representative
+Validate `arch-test-sail-test`, `sail-cosim-test`, representative
 `sail-cosim-config-test` products, both supported scalar `cosim-smoke` products,
 and freshly generated full ACT inventories after changing the pin or patch stack.
 

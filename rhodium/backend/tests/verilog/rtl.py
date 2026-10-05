@@ -138,7 +138,7 @@ def bench(direct, work):
     outputs = [("type_restored", 21), ("type_swapped", 21), ("type_matrix", 18), ("type_last", 3)]
     lines += ["logic [20:0] type_input;"]
     lines += [f"wire [{size-1}:0] {name};" for name, size in outputs]
-    # CIRCT's unqualified typedef is hidden by a Packet port; its fixture renames
+    # CIRCT's unscoped typedef is hidden by a Packet port; its fixture renames
     # only that port. Direct emission retains and simulates the collision.
     type_result_port = "Packet" if direct else "restored"
     lines.append(f"TypeNames type_names(.TypeNames_types(type_input), .{type_result_port}(type_restored), "

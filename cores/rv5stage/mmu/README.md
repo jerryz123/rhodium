@@ -48,7 +48,7 @@ pipeline requests. It starts no walk or data-cache lookup. MEM snapshots the
 translated page, full-page PMA proof, and translation context with the scalar
 pipeline token. WB validates the snapshot against the current context and
 carries it in the accepted vector descriptor. Each certified vector request
-carries its physical address with an owner-qualified physical sideband; no
+carries its physical address with an owner-gated physical sideband; no
 shared-window installation is required. An occupied fallback window does not
 delay its WB retirement or sequencing. A replaced DTLB entry cannot affect the captured or pinned page.
 A miss, port conflict, unsuitable region, or changed context falls back to
@@ -234,7 +234,7 @@ address; instruction fetch and walker-generated PTE addresses remain unmasked.
    It identifies the failing virtual portion: the original address for a
    first-fragment fault, or the next word/page boundary for a second-fragment
    translation or PMA fault. Scalar and vector retirement consume it only with
-   their arbiter-qualified fault indication. Guest-fault provenance selects the
+   their arbiter-gated fault indication. Guest-fault provenance selects the
    same translation fragment, preserving the VA/GPA pair through trap entry.
 5. A legal translated or Bare request proceeds to the physical-memory router.
    The router owns mapped/readable/writable/atomic PMA checks and the choice
@@ -519,7 +519,7 @@ accepted on that edge is still drained, and cannot refill after invalidation.
 This keeps architectural cancellation out of WB's physical-arbiter ready loop.
 
 The test-only [translation service](../tests/translation-service.rhdl)
-serializes commands for behavioral qualification of the shared components;
+serializes commands for behavioral validation of the shared components;
 it is not a production MMU path. See the
 [core implementation guide](../DEVELOPING.md) for integration and validation.
 

@@ -37,9 +37,9 @@ def target_layout(target):
     missing = REQUIRED_EXTENSIONS - set(target['extensions'])
     if target['xlen'] != 64 or missing:
         detail = f'; missing {sorted(missing)}' if missing else ''
-        raise ValueError(f'OpenSBI qualification requires an RV64 IMA_Zicsr_Zifencei_Zicntr target{detail}')
+        raise ValueError(f'OpenSBI validation requires an RV64 IMA_Zicsr_Zifencei_Zicntr target{detail}')
     if target.get('harts') != [0]:
-        raise ValueError('OpenSBI qualification currently requires exactly bootable hart 0')
+        raise ValueError('OpenSBI validation currently requires exactly bootable hart 0')
     boot = target.get('boot')
     if not isinstance(boot, dict) or 'payload_address' not in boot:
         raise ValueError('OpenSBI requires boot.payload_address in the target descriptor')
@@ -261,7 +261,7 @@ def build_firmware(args):
 
 
 def write_manifest(args):
-    """Publish the firmware, qualification payload, and embedded FDT as one checked build."""
+    """Publish the firmware, validation payload, and embedded FDT as one checked build."""
     target = load_target(args.target)
     layout = target_layout(target)
     root = Path(args.output).resolve()

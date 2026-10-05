@@ -46,7 +46,7 @@ fixed-hart worker and option interfaces exercised by that build mode; generated
 files stay in the content-addressed build directory. The simulator result
 runner checks the complete histogram against the pinned Herd states and requires
 at least the requested number of samples. Source-identical duplicate names
-may share one case; the builder explicitly selects the qualified MP, SB, and LB
+may share one case; the builder explicitly selects the namespaced MP, SB, and LB
 variants, and other distinct ambiguous sources remain excluded. Keep the tool
 binary, support directory, suite build specification, and port in the cache identity.
 The tiled smoke and full profiles both require this litmus7 path. Smoke names
@@ -66,7 +66,7 @@ Filter source instructions requiring Zalasr when the selected target does not
 advertise `zalasr`; `inventory_cases` counts the raw model-backed candidates,
 while `discovered_cases` counts the profile-eligible set. Do not treat toolchain
 rejections as passing simulations.
-For a bulk qualification, `build-litmus.py --keep-going` records per-case
+For a batch build, `build-litmus.py --keep-going` records per-case
 generation, adaptation, compilation, and link failures in the manifest's
 `build_failures` list while retaining successfully built tests. It exits
 nonzero if any case failed; `discovered_cases` is only a candidate count, not
@@ -123,7 +123,7 @@ Histogram checking remains an execution contract, not a build-group selector.
 
 OpenSBI projects its minimum firmware ISA and firmware/jump/FDT layout and adds
 the checksum of the actual generated platform DTB. `opensbi.py manifest` records
-the relocatable firmware, S-mode qualification payload, and DTB as one archive.
+the relocatable firmware, S-mode validation payload, and DTB as one archive.
 Binding requires the destination's generated DTB, checks both image hashes and
 their relocated RAM ranges, and retains build provenance. Do not replace that
 DTB comparison with equality of ISA or product names. Image symbol ownership is
@@ -143,7 +143,7 @@ At pin `fa1debda686aa035dfb7bcd5c333c86dafcd1004`, ACT requires Sail model
 0.14.1 and bundles UDB 0.1.17. Refresh its isolated Python and Ruby dependencies
 with the ordinary setup target, then generate all canonical suites in a fresh
 ACT build root. Preserve each core's own UDB configuration and reference
-signatures; never weaken profiles or exclude failed tests during qualification.
+signatures; never weaken profiles or exclude failed tests during validation.
 The [simulator guide](../sims/DEVELOPING.md#other-simulation-contracts) owns
 platform hooks, schema overlays, and full generation/execution checks.
 
@@ -160,7 +160,7 @@ make check-license-headers check-boundaries
 
 For moved upstreams or ports, also initialize their new submodule paths and
 build representative ELFs with the existing `make -C sims ...-elfs` or
-`...-firmware` targets. Execute at least one workload and OpenSBI qualification
+`...-firmware` targets. Execute at least one workload and OpenSBI validation
 on each affected SoC to validate the load and completion boundary. The
 [simulator guide](../sims/README.md) owns those commands and generated-artifact
 locations. Keep source, patch, port, compiler, and target identity in each

@@ -1,4 +1,4 @@
-// Qualifies RISC-V constrained LR/SC loops on SoC memory paths, including multihart contention.
+// Tests RISC-V constrained LR/SC loops on SoC memory paths, including multihart contention.
 // SPDX-License-Identifier: Apache-2.0
 .option norvc
 .option norelax

@@ -303,7 +303,7 @@ sync_circuit DivSqrtRawFN(format :: FloatFormat,
     significand_state <== next_significand
 
   /* The raw result appends a sticky bit for a nonzero remainder. Completion
-     pulses qualify this state and the wrapper's combinational rounded result. */
+     pulses gate this state and the wrapper's combinational rounded result. */
   division_valid <== output_valid_state & !square_root_state
   square_root_valid <== output_valid_state & square_root_state
   rounding_mode_out <== rounding_mode_state

@@ -33,7 +33,7 @@ or metadata copying.
   `RTLTarget` shares one checked plan factory between ordinary preparation and
   the prepared-graph entry point; neither path changes generic target policy.
 - `pipeline.rhm`: ordered concrete instrumentation, instance-path preservation,
-  physical manifests with source attribution, and stage-qualified
+  physical manifests with source attribution, and stage-scoped
   findings. Imports core verification directly; it imports no instrumentation owner.
 - `../analysis/clocking.rhm`: clock-analysis target, structured findings, and
   CDC errors/reconvergence warnings using the same concrete preparation helper.
@@ -62,7 +62,7 @@ its manifest before creating one final backend plan. Pass implementations own
 semantic transparency and occurrence-aware copying of every metadata namespace;
 stable hierarchy paths do not replace IR-object remapping. A later graph must preserve
 prior observers and the identities recorded in their detached sidecars. Keep
-live-IR reports explicitly stage-qualified rather than silently mixing graphs.
+live-IR reports explicitly stage-scoped rather than silently mixing graphs.
 
 The supplied pass list defines execution order. Keep generic `CompileOptions`
 unchanged: pass callbacks capture their own settings and validate their semantic

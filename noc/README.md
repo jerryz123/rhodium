@@ -108,7 +108,7 @@ validation are documented in
 The authoring layer lets users name topology objects without allocating the
 numeric identities used by graph analysis. A `NamePath` is a nonempty list of
 path segments; `NodeRef` and `LinkRef` are nominal handles containing those
-paths. Topology composition can therefore qualify a fragment beneath a new
+paths. Topology composition can therefore prefix a fragment beneath a new
 path without relying on globally meaningful numeric IDs.
 
 A `TopologyLink` remains directed and owns one or more named `VCGroup` values.
@@ -125,8 +125,8 @@ authoring and diagnostics can use meaningful names such as
 `mesh/router[0]` and `mesh/east/escape[0]`, while all existing analysis
 continues to consume `NodeId`, `LinkId`, and `VCId` values.
 
-`prefix_topology` qualifies every node, link, endpoint, and derived VC beneath
-one hierarchical name. `compose_topologies` combines already qualified
+`prefix_topology` prefixes every node, link, endpoint, and derived VC beneath
+one hierarchical name. `compose_topologies` combines already prefixed
 fragments and optional cross-fragment directed links, with `TopologySpec`
 validation rejecting any remaining collisions. Composition order cannot
 change normalized identities because complete symbolic paths determine the
@@ -275,7 +275,7 @@ coordinate, direction, and the declared VC groups. Positive x is east and
 positive y is north. Queries such as `node_at`, `coordinate_of`,
 `direction_of`, `outgoing_link`, and
 `inverse_link` let future routing policies use topology semantics without
-parsing names or inspecting normalized IDs. Prefixing a mesh qualifies its
+parsing names or inspecting normalized IDs. Prefixing a mesh updates its
 symbolic handles while preserving the same coordinates and directions.
 
 Line and mesh definitions are examples of libraries built on the authoring

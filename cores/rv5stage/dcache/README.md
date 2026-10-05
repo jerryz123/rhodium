@@ -440,7 +440,7 @@ These mechanisms support the core's optional [Ziccrse integration
 guarantee](../README.md#lrsc-eventuality-ziccrse); a standalone L1D is not enough
 to establish it. Full-system constrained-loop progress also depends on
 instruction fetch, translation, and Home/network fairness.
-The [qualification matrix](../DEVELOPING.md#ziccrse-progress-gate) owns evidence
+The [test matrix](../DEVELOPING.md#ziccrse-progress-gate) owns evidence
 for boundary-crossing loops, prediction, translation, read-only eviction
 pressure, and competing LR/SC requesters on complete systems.
 

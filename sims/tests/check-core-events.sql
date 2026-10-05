@@ -1,4 +1,4 @@
--- Checks direct core-stage ancestry and retirement-qualified WB independently of cache checkpoints.
+-- Checks direct core-stage ancestry and retirement-gated WB independently of cache checkpoints.
 -- SPDX-License-Identifier: Apache-2.0
 WITH pcs AS (
   SELECT s.id, t.name, s.name AS mnemonic, s.ts, s.arg_set_id,

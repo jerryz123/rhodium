@@ -69,7 +69,7 @@ reset clears them and `clear()` preserves them.
 
 The additive `rheg_instance` ABI records semantic hierarchy identity, not
 presentation-only payload. The compiler owns stable-after-first-use assertions.
-The exporter preallocates occurrence-qualified group UUIDs and updates scope
+The exporter preallocates occurrence-scoped group UUIDs and updates scope
 descriptors at registration before their first event. Equal runtime IDs must not
 merge scopes. Include registrations in live/replay chronological ordering and
 stage them with each batch so rejected batches write no bytes or partial state.
@@ -168,7 +168,7 @@ Keep display overrides separate from site labels and schemas. Group option
 order must not affect bytes; unknown or multiply assigned sites must fail before
 output. A grouped descriptor lists complete original descriptions in `sites`,
 not a representative schema. Reuse the same-cycle occupancy check and
-site-qualified stall continuation rules for all members. Keep core-specific
+site-scoped stall continuation rules for all members. Keep core-specific
 selection policy out of this library; the caller supplies the mapping explicitly.
 Default slice names use only the final dot-separated component of that leaf;
 retain the whole leaf if that component is empty. Apply this only to the site-label

@@ -140,7 +140,7 @@ class OpenSbiTargetTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'overlaps its next stage'):
                 bind(manifest_path, destination, run_path, execution_fdt)
 
-    def test_qualification_run_targets_do_not_build_or_elaborate(self):
+    def test_prebuilt_run_targets_do_not_build_or_elaborate(self):
         repo = SCRIPT.parents[2]
         for name, soc, timeout, cycles in (('opensbi-smoke-run', 'simple-spike-rva23', '1800', '50000000'),
                                           ('litmus-smoke-run', 'tiled-spike-rva23', '600', '2000000')):

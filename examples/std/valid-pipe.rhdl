@@ -1,10 +1,11 @@
 #lang rhodium
-// Demonstrates fixed-latency Valid pipelines with qualified or unconditional payload capture.
+/* Demonstrates fixed-latency Valid pipelines with valid-gated or unconditional payload capture. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("flow/main.rhdl") open
 
+/* Delays Valid transactions by the selected number of cycles, capturing payload only when valid. */
 sync_circuit ValidDelay(T :: DataType, stages :: PosInt):
   interface ingress(Valid(T), ~role: consumer)
   interface egress(Valid(T), ~role: producer)

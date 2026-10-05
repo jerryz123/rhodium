@@ -1,4 +1,4 @@
-/* Places the OpenSBI S-mode qualification image at the configured next-stage address. */
+/* Places the OpenSBI S-mode validation image at the configured next-stage address. */
 /* SPDX-License-Identifier: Apache-2.0 */
 OUTPUT_ARCH(riscv)
 ENTRY(_start)

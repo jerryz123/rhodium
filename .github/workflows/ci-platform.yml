@@ -1,7 +1,7 @@
-# Shares platform qualification builds and runs each product's attested firmware independently.
+# Shares OpenSBI and litmus builds and runs each product's attested simulator independently.
 # SPDX-License-Identifier: Apache-2.0
 
-name: CI simulation
+name: CI platform
 
 on:
   workflow_call:
@@ -20,8 +20,8 @@ permissions:
 
 jobs:
 
-  qualification-plan:
-    name: Group platform qualification builds
+  platform-plan:
+    name: Plan builds
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     outputs:
@@ -46,40 +46,40 @@ jobs:
       - name: Generate target and platform build identities
         id: plan
         run: |
-          matrix=$(python3 -c 'import json; from tools.ci.policy import qualification_products; print(json.dumps({"include": qualification_products()}))')
-          mkdir -p "$RUNNER_TEMP/qualification-targets"
+          matrix=$(python3 -c 'import json; from tools.ci.policy import platform_products; print(json.dumps({"include": platform_products()}))')
+          mkdir -p "$RUNNER_TEMP/platform-targets"
           for soc in $(jq -r '[.include[].soc] | unique | .[]' <<< "$matrix"); do
             tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm \
-              "$soc" "$RUNNER_TEMP/qualification-targets/$soc.json"
+              "$soc" "$RUNNER_TEMP/platform-targets/$soc.json"
           done
           for soc in $(jq -r '.include[] | select(.suite == "opensbi") | .soc' <<< "$matrix"); do
             tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/opensbi/write-device-tree.rhm \
-              "$soc" "$RUNNER_TEMP/qualification-targets/$soc.dtb"
+              "$soc" "$RUNNER_TEMP/platform-targets/$soc.dtb"
           done
           python3 -m tools.ci.programs --matrix "$matrix" \
-            --targets "$RUNNER_TEMP/qualification-targets" --fdts "$RUNNER_TEMP/qualification-targets" \
-            --output "$RUNNER_TEMP/qualification-plan.json"
-          echo "build-matrix=$(jq -c .build "$RUNNER_TEMP/qualification-plan.json")" >> "$GITHUB_OUTPUT"
-          echo "run-matrix=$(jq -c .run "$RUNNER_TEMP/qualification-plan.json")" >> "$GITHUB_OUTPUT"
-          cat "$RUNNER_TEMP/qualification-plan.json"
-      - name: Test qualification adapters once
+            --targets "$RUNNER_TEMP/platform-targets" --fdts "$RUNNER_TEMP/platform-targets" \
+            --output "$RUNNER_TEMP/platform-plan.json"
+          echo "build-matrix=$(jq -c .build "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
+          echo "run-matrix=$(jq -c .run "$RUNNER_TEMP/platform-plan.json")" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/platform-plan.json"
+      - name: Test platform adapters once
         run: make -C sims litmus-setup litmus-adapter-test opensbi-adapter-test
-      - name: Publish qualification target descriptions
+      - name: Publish platform target descriptions
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qualification-targets-${{ github.sha }}
-          path: ${{ runner.temp }}/qualification-targets
+          name: platform-targets-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-targets
           if-no-files-found: error
           retention-days: 3
 
-  qualification-build:
-    name: Build ${{ matrix.suite }} artifacts (${{ matrix.soc }})
-    needs: qualification-plan
+  platform-build:
+    name: Build ${{ matrix.suite }} / group ${{ strategy.job-index }}
+    needs: platform-plan
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.qualification-plan.outputs.build-matrix) }}
+      matrix: ${{ fromJSON(needs.platform-plan.outputs.build-matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -114,39 +114,39 @@ jobs:
       - name: Download generated targets and device trees
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: qualification-targets-${{ github.sha }}
-          path: ${{ runner.temp }}/qualification-targets
-      - name: Cache qualification builds
+          name: platform-targets-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-targets
+      - name: Cache platform builds
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
-            /tmp/rhodium-qualification-builds/${{ matrix.build_id }}/build
-            /tmp/rhodium-qualification-builds/${{ matrix.build_id }}/build-configuration.json
-          key: "${{ runner.os }}-${{ runner.arch }}-qualification-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-simulation.yml') }}-${{ github.sha }}"
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
+          key: "${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-platform.yml') }}-${{ github.sha }}"
           restore-keys: |
-            ${{ runner.os }}-${{ runner.arch }}-qualification-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-simulation.yml') }}-
-      - name: Build and package shared qualification
+            ${{ runner.os }}-${{ runner.arch }}-platform-${{ matrix.build_id }}-${{ hashFiles('sw/build/**', 'sw/litmus-riscv-baremetal/**', 'sims/opensbi/**', 'sims/program-test/Makefile.inc', 'tools/install-riscv-toolchain.sh', '.github/workflows/ci-platform.yml') }}-
+      - name: Build and package shared ELFs
         env:
           SOC: ${{ matrix.soc }}
           SUITE: ${{ matrix.suite }}
           BUILD_ID: ${{ matrix.build_id }}
         run: |
-          output="/tmp/rhodium-qualification-builds/$BUILD_ID"
+          output="/tmp/rhodium-platform-builds/$BUILD_ID"
           if [[ "$SUITE" == litmus ]]; then
             make -C sims litmus-smoke-elfs SOC="$SOC" \
-              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/qualification-targets/$SOC.json" LITMUS_SMOKE_DIR="$output"
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/platform-targets/$SOC.json" LITMUS_SMOKE_DIR="$output"
           else
             make -C sims opensbi-elfs SOC="$SOC" OPENSBI_LLVM=/usr/bin OPENSBI_OUTPUT="$output" \
-              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/qualification-targets/$SOC.json" \
-              PREBUILT_OPENSBI_FDT="$RUNNER_TEMP/qualification-targets/$SOC.dtb"
+              PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/platform-targets/$SOC.json" \
+              PREBUILT_OPENSBI_FDT="$RUNNER_TEMP/platform-targets/$SOC.dtb"
           fi
           python3 sims/program-test/archive.py --manifest "$output/manifest.json" \
-            --archive "$RUNNER_TEMP/qualification-elfs/suite.tar.gz"
-      - name: Publish shared qualification artifacts
+            --archive "$RUNNER_TEMP/platform-elfs/suite.tar.gz"
+      - name: Publish shared ELFs
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qualification-elfs-${{ matrix.build_id }}-${{ github.sha }}
-          path: ${{ runner.temp }}/qualification-elfs/suite.tar.gz
+          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-elfs/suite.tar.gz
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
@@ -154,23 +154,23 @@ jobs:
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: qualification-build-${{ matrix.build_id }}-${{ github.sha }}
+          name: platform-build-${{ matrix.build_id }}-${{ github.sha }}
           path: |
-            /tmp/rhodium-qualification-builds/${{ matrix.build_id }}/manifest.json
-            /tmp/rhodium-qualification-builds/${{ matrix.build_id }}/build.log
-            /tmp/rhodium-qualification-builds/${{ matrix.build_id }}/build-configuration.json
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/manifest.json
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build.log
+            /tmp/rhodium-platform-builds/${{ matrix.build_id }}/build-configuration.json
           if-no-files-found: warn
           retention-days: 7
 
-  qualification:
-    name: ${{ matrix.soc }} (${{ matrix.suite }} qualification)
-    needs: [qualification-plan, qualification-build]
-    if: ${{ always() && !cancelled() && needs.qualification-plan.result == 'success' }}
+  platform:
+    name: Run ${{ matrix.suite }} / ${{ matrix.soc }}
+    needs: [platform-plan, platform-build]
+    if: ${{ always() && !cancelled() && needs.platform-plan.result == 'success' }}
     runs-on: ubuntu-24.04
     timeout-minutes: ${{ matrix.timeout }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.qualification-plan.outputs.run-matrix) }}
+      matrix: ${{ fromJSON(needs.platform-plan.outputs.run-matrix) }}
     steps:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -187,18 +187,18 @@ jobs:
         with:
           name: ${{ matrix.soc }}-${{ github.sha }}
           path: ${{ runner.temp }}/${{ matrix.soc }}
-      - name: Download shared qualification
+      - name: Download shared ELFs
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: qualification-elfs-${{ matrix.build_id }}-${{ github.sha }}
-          path: ${{ runner.temp }}/qualification-elfs
+          name: platform-elfs-${{ matrix.build_id }}-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-elfs
       - name: Download execution target device trees
         if: matrix.suite == 'opensbi'
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: qualification-targets-${{ github.sha }}
-          path: ${{ runner.temp }}/qualification-targets
-      - name: Verify simulator and bind shared qualification
+          name: platform-targets-${{ github.sha }}
+          path: ${{ runner.temp }}/platform-targets
+      - name: Verify simulator and bind shared ELFs
         env:
           SOC: ${{ matrix.soc }}
           SUITE: ${{ matrix.suite }}
@@ -208,30 +208,30 @@ jobs:
           library_bindings=$(ldd "$RUNNER_TEMP/$SOC/VTestDriver")
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then exit 1; fi
-          output="/tmp/rhodium-qualifications/$SOC/$SUITE"
+          output="/tmp/rhodium-platform-tests/$SOC/$SUITE"
           mkdir -p "$output"
-          tar -xzf "$RUNNER_TEMP/qualification-elfs/suite.tar.gz" -C "$output"
+          tar -xzf "$RUNNER_TEMP/platform-elfs/suite.tar.gz" -C "$output"
           fdt_args=()
-          if [[ "$SUITE" == opensbi ]]; then fdt_args=(--fdt "$RUNNER_TEMP/qualification-targets/$SOC.dtb"); fi
+          if [[ "$SUITE" == opensbi ]]; then fdt_args=(--fdt "$RUNNER_TEMP/platform-targets/$SOC.dtb"); fi
           python3 sw/build/bind.py --manifest "$output/manifest.json" \
             --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$output/run-manifest.json" "${fdt_args[@]}"
-      - name: Execute the exact product qualification
+      - name: Run platform tests
         env:
           SOC: ${{ matrix.soc }}
           SUITE: ${{ matrix.suite }}
           RUN_TARGET: ${{ matrix.run_target }}
         run: |
-          output="/tmp/rhodium-qualifications/$SOC/$SUITE"
+          output="/tmp/rhodium-platform-tests/$SOC/$SUITE"
           make -C sims "$RUN_TARGET" SOC="$SOC" PROGRAM_JOBS=2 \
             PREBUILT_SIMULATOR="$RUNNER_TEMP/$SOC/VTestDriver" PROGRAM_MANIFEST="$output/run-manifest.json" \
             LITMUS_SMOKE_DIR="$output" OPENSBI_OUTPUT="$output"
-      - name: Publish qualification diagnostics
+      - name: Publish platform diagnostics
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ matrix.soc }}-${{ matrix.suite }}-qualification-${{ github.sha }}
+          name: ${{ matrix.soc }}-${{ matrix.suite }}-platform-${{ github.sha }}
           path: |
-            /tmp/rhodium-qualifications/${{ matrix.soc }}/${{ matrix.suite }}
-            ${{ runner.temp }}/qualification-elfs
+            /tmp/rhodium-platform-tests/${{ matrix.soc }}/${{ matrix.suite }}
+            ${{ runner.temp }}/platform-elfs
           if-no-files-found: warn
           retention-days: 7

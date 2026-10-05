@@ -11,7 +11,7 @@ properties compose, and which decisions remain visible to the hardware author.
 
 Capability claims describe the repositories and public documentation examined
 as of **2026-08-17**. All systems are evolving, so treat conclusions as a
-qualified snapshot rather than a permanent ranking.
+contextual snapshot rather than a permanent ranking.
 
 Contributors updating evidence, adding a comparison, or refreshing the shared
 rubric should read [`DEVELOPING.md`](DEVELOPING.md).

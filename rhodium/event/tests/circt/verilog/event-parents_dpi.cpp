@@ -26,7 +26,7 @@ extern "C" void parents_sample(unsigned reset,unsigned flush,unsigned valid,unsi
   if(reset) { ++resets; pending.reset(); expected.clear(); sequences.clear(); cycle=0; payload_known=false; return; }
   if(bool(wb_valid)!=pending.has_value() || (payload_known && wb_data!=payload)) fail("functional WB mismatch including inactive payload");
   bool is_memory=pending && pending->middle.has_value();
-  if(bool(cache_valid)!=pending.has_value() || bool(both_valid)!=pending.has_value()) fail("qualification changed functional validity");
+  if(bool(cache_valid)!=pending.has_value() || bool(both_valid)!=pending.has_value()) fail("observation gating changed functional validity");
   if(pending) {
     node(test_sites::wb,pending->data,{pending->root});
     if(is_memory) {

@@ -29,7 +29,7 @@ make -C sims setup arch-test-sail-setup
 make -C sims sail-cosim-test
 ```
 
-These targets do not require a SoC or ISA selection. They qualify the library
+These targets do not require a SoC or ISA selection. They validate the library
 boundary, not any product configuration. The tests use explicit RV32 and RV64
 Sail configurations and execute scalar programs.
 
@@ -52,7 +52,7 @@ descriptor, so running it does not require the build directory's JSON files.
 
 The current simulator runtime accepts only `mini-rv5stage-rv64imacb` and
 `simple-rv5stage-rv64imacb`. This is a bounded bring-up workload, **not full
-qualification of the selected ISA**. The real profile is preserved; no scalar
+validation of the selected ISA**. The real profile is preserved; no scalar
 substitute configuration or second ELF loader is used.
 
 ```text
@@ -67,7 +67,7 @@ Private RAM loads are independently computed. Only device-read bytes are replaye
 before Sail's load semantics; Sail never repeats writes to real devices.
 FESVR mirrors successful image loading, clearing, and later host writes. Host writes
 are applied before records at or after their completion sample. This ordering does
-not yet qualify races between host writes and in-flight hart accesses.
+not yet validate races between host writes and in-flight hart accesses.
 
 Each evaluated rising edge is bracketed by host sample barriers. Checking runs
 after all callbacks settle, and termination rejects incomplete collected records.
@@ -79,7 +79,7 @@ a deliberate GPR-corruption probe to verify that a bad observation is rejected.
 
 Interrupt delivery, translated or fragmented accesses, atomics, cache operations,
 FP/vector/H, and complete CSR/counter-state comparison remain outside this runtime's
-qualified scope. Unsupported event kinds fail rather than being skipped. Do not
+validated scope. Unsupported event kinds fail rather than being skipped. Do not
 enable general software-suite CI with this runtime yet.
 
 ## Hook and collector contract
@@ -241,7 +241,7 @@ the actual PMA map, reset address, ROM/RAM backing, and clock/timebase frequenci
 fingerprint and environment to that product and records known model differences.
 The initialization test supplies a tiny ROM probe, not the real firmware image.
 It also checks the exact eight-byte UART aperture: an in-range read is replayed,
-and its immediate unmapped neighbor faults. It qualifies configuration and
+and its immediate unmapped neighbor faults. It validates configuration and
 environment boundaries, not complete execution of that profile.
 
 Sail's synthetic CLINT and interrupt generator are disabled. Device regions,
@@ -278,13 +278,13 @@ loading and host writes into private reference memory as described above.
 
 - One live instance on one host thread, because the pinned Sail runtime and
   configuration are process-global. Destroying and reconstructing resets it.
-- Adapter-library qualification (distinct from the narrower simulator runtime):
+- Adapter-library validation (distinct from the narrower simulator runtime):
   RV32/RV64 scalar arithmetic, branches, loads/stores, synchronous
   traps, machine external interrupts, host time, WFI, strict MMIO replay, and coexistence
   with the existing FESVR transport.
 - The callback API carries FP/vector writes, but FP/vector, atomics/reservation
   behavior, virtualized privilege, full-profile execution, and supervisor
-  interrupt delivery are not qualified by this first cut.
+  interrupt delivery are not validated by this first cut.
 - Typed RTL hooks and the deferred-effect collector also have an optional
   [RV5Stage scalar producer](../../cores/rv5stage/README.md#optional-scalar-architectural-observation).
   The scalar comparison runtime is opt-in; software-suite co-simulation is not

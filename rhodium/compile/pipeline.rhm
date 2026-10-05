@@ -31,10 +31,10 @@ class RTLPassResult(rtl :: DesignElaboration,
                     report :: maybe(CompilationReport) = #false,
                     diagnostics :: List.of(Diagnostic) = [])
 
-/* Qualifies one stage's findings so graph-backed reports retain their stage identity. */
+/* Scopes one stage's findings so graph-backed reports retain their stage identity. */
 class RTLPassReport(name :: String, findings :: maybe(CompilationReport))
 
-/* Collects stage-qualified snapshots alongside the ordinary backend findings. */
+/* Collects stage-scoped snapshots alongside the ordinary backend findings. */
 class RTLPipelineReport(stages :: List.of(RTLPassReport), backend :: maybe(CompilationReport)):
   implements CompilationReport
 
@@ -76,7 +76,7 @@ class RTLPipelinePlan(backend_plan :: TargetPlan, passes :: List.of(RTLPass),
   implements TargetPlan
   /* Describe the final backend boundary, not an intermediate pass's module inventory. */
   override method manifest(): backend_plan.manifest()
-  /* Keep reports stage-qualified rather than merging live references across graphs. */
+  /* Keep reports stage-scoped rather than merging live references across graphs. */
   override method report():
     def stages = for List (pass in passes, result in results): RTLPassReport(pass.name, result.report)
     RTLPipelineReport(stages, backend_plan.report())

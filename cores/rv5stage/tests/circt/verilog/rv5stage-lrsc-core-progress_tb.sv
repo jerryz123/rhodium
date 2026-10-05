@@ -1,4 +1,4 @@
-// Qualifies word/doubleword constrained loops, prediction, read pressure, and competing LR/SC progress.
+// Tests word/doubleword constrained loops, prediction, read pressure, and competing LR/SC progress.
 // SPDX-License-Identifier: Apache-2.0
 module rv5stage_lrsc_core_progress_tb;
   typedef struct packed { logic ready; } ready_t;
@@ -204,7 +204,7 @@ module rv5stage_lrsc_core_progress_tb;
       end
     end
     end
-    $display("LR/SC qualification: %0d passed, %0d failed", passed, failures);
+    $display("LR/SC tests: %0d passed, %0d failed", passed, failures);
     assert (failures == 0) else $fatal(1, "%0d constrained LR/SC cases failed", failures);
     $finish;
   end

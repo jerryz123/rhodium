@@ -69,19 +69,19 @@ or DPI calls. Bare checkpoints capture identity and timing, not payload fields.
 Labels must be nonempty and unique within one module definition. Each concrete
 instance of a reused definition has distinct event-site identities.
 
-Both checkpoints accept `~when: predicate` to qualify observation with a
+Both checkpoints accept `~when: predicate` to gate observation with a
 hardware `Bool` (default true). Valid events fire on `valid & predicate`;
 ready-valid transfers fire on `valid & ready & predicate`;
 with `~stalls: #true`, stalls fire on `valid & !ready & predicate`. This does
 not gate functional valid/ready, change payloads, buffer, or drop hardware
 transactions. It is useful for observing nonfaulting admission after
 [`offer_decoupled()`](../../flow/README.md#mapping-and-protocol-conversion).
-Qualification still creates an ancestry cut point: a suppressed event does not
+An observation-gated checkpoint still creates an ancestry cut point: a suppressed event does not
 forward its parent's identity. Any downstream traced transaction must have a
 recorded parent, for example because faulting transactions never reach it or
-because its observation is qualified consistently, or because `~parents` selects
+because its observation is gated consistently, or because `~parents` selects
 an earlier checkpoint across the suppressed one. Missing-parent assertions
-remain enabled; qualification is not a generic trace-sampling mechanism.
+remain enabled; observation gating is not a generic trace-sampling mechanism.
 
 Every checkpoint infers available incoming ancestry. A wholly supported region
 with no upstream checkpoint is naturally parentless; no source annotation is
@@ -103,13 +103,13 @@ The compiler searches backward along actual Flow connections, through intervenin
 checkpoints, and carries the requested occurrence references using existing storage
 and routing contracts. Multiple entries request multiple contributing parents;
 every requested contribution must be present when the consumer fires. Filters or
-observation qualification may exclude transactions lacking a parent. Duplicate, foreign, unannotated,
+observation gating may exclude transactions lacking a parent. Duplicate, foreign, unannotated,
 and non-upstream references are rejected. Ordinary topology validation still applies:
 parent selection cannot certify missing flow contracts or fanout. Unmodeled branches
 retain partial-mode diagnostics rather than acquiring invented parents.
 
 For example, WB can select MEM while a later cache response selects S1, across
-the intervening WB checkpoint on the same pipelined transaction. Qualify S1/S2
+the intervening WB checkpoint on the same pipelined transaction. Gate S1/S2 observations
 to observe only memory instructions without filtering the functional pipeline.
 This changes only
 the trace graph and instrumentation, never functional wiring or pipeline timing.
@@ -323,7 +323,7 @@ transform labels nor apparent signal connectivity establish causality.
 Contracts may describe a module-local endpoint relation or an inline adapter. A configured
 adapter that wraps a self-described module delegates through that module,
 including internal checkpoints; direct instances need no extra annotations.
-Both forms resolve to the same occurrence-qualified lineage plans. A local
+Both forms resolve to the same occurrence-scoped lineage plans. A local
 relation can fill an opaque stateful gap while surrounding Flow and checkpoints
 remain visible; it does not summarize the whole containing module. See the
 [interface API](../frontend/layers/README.md) for declaration and conflict rules.

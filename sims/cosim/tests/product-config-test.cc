@@ -37,7 +37,7 @@ int main(int argc, char** argv) {
     }
     SailReference reference(config, reset, backing);
     if (reference.pc() != reset) throw std::runtime_error("incorrect reset PC");
-    // A tiny ROM probe qualifies the configuration/backing boundary, not firmware boot.
+    // A tiny ROM probe validates the configuration/backing boundary, not firmware boot.
     const std::array<std::uint8_t, 4> addi = {0x93, 0x00, 0x70, 0x00};
     reference.load(reset, addi);
     const auto step = reference.step();

@@ -61,7 +61,7 @@ are already materialized by preparation and must not produce duplicate drivers.
 `SvTypes` is local to one artifact and owns an ordered shared type package.
 Reserve authored scope and member names before allocating aliases. Physical
 shape identity ignores preferred names; equal shapes reuse the first alias.
-Fully qualified types prevent local names from hiding typedefs. Internal net
+Package-prefixed types prevent local names from hiding typedefs. Internal net
 names use module-local traversal order, independently of global IR IDs. Allocate
 references before rendering statements so forward-driven wires remain legal.
 
@@ -170,7 +170,7 @@ Authored integrations compare logical signatures, module inventories, portable
 lowering decisions, and source preservation. Their shared behavioral benches
 are not complete cycle-trace equivalence proofs. The UART minimum-divider
 fixture permits `UNSIGNED` for a legal constant comparison; other diagnostics
-stay fatal. SoC smoke qualification and its additional warning allowances belong
+stay fatal. SoC smoke validation and its additional warning allowances belong
 to [simulation maintenance](../../sims/DEVELOPING.md).
 
 After changes, run boundary, license, parameter-annotation, and whitespace audits

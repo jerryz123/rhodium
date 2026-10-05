@@ -38,4 +38,4 @@ master pin from the older 0.14.1 tag.
 including vector reserved behavior and HPM event counting. Both consumers
 publish these differences without changing the product's UDB or disabling
 extensions. A future comparison engine must explicitly handle or reject each
-difference; configuration acceptance alone is not full-profile qualification.
+difference; configuration acceptance alone is not full-profile validation.

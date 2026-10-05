@@ -100,9 +100,9 @@ its own typed contracts and nearest-parent inference.
 | Plan | Information retained for lowering |
 |---|---|
 | `EventTraceSource` | Nearest annotation, supported unannotated root, or unknown boundary |
-| `EventTraceLink` | Resolved occurrence-qualified feedback vertex, preserving identity across repeated visits |
+| `EventTraceLink` | Resolved occurrence-scoped feedback vertex, preserving identity across repeated visits |
 | `EventTracePipeline` | Input plan and ordered fixed, elastic, queue, retained-owner, or retained-window stages |
-| `EventTraceSelection` | Ordered input plans and occurrence-qualified grants |
+| `EventTraceSelection` | Ordered input plans and occurrence-scoped grants |
 | `EventTraceRouting` | Input, concrete router ID, original predicates, output index |
 | `EventTraceReplication` | Input, concrete atomic-fork or retained-output ID, output index |
 | `EventTraceBroadcast` | Input, concrete broadcast ID, acceptance, recipient pending control |
@@ -128,7 +128,7 @@ branch without the selected site carries an absent reference through storage, no
 an invented root or unknown marker; filtering may prevent that branch from firing
 the consumer. Broadcast and retained caches must distinguish selected reference
 streams, so shared functional storage never aliases different ancestors.
-Inline and late parent binding have the same finalized metadata. Qualified
+Inline and late parent binding have the same finalized metadata. Observation-gated
 checkpoints remain cut points; consumers selecting older ancestors traverse their
 identity wiring, not a synthetic bypass or modified functional valid signal.
 
@@ -327,7 +327,7 @@ Do not duplicate that API catalog here. To support another transform:
    controls. Validate ownership, local one-bit predicates, complete ordered
    routes, and depth-dependent address widths. Reuse functional grants, pointers,
    advances, and pending bits rather than implementing a second controller.
-3. Preserve the semantics in the occurrence-qualified dynamic plan and lower it
+3. Preserve the semantics in the occurrence-scoped dynamic plan and lower it
    through ordinary core IR. Add certified fixed delays; retain variable or
    unknown latency as false, never zero or queue capacity interpreted as delay.
 4. Add invalid-contract checks and independent public-transfer scoreboards.
@@ -357,12 +357,12 @@ retained-storage metadata. Its manifest kind changes, but its lineage remains a
 normal cut point. Lower capture/release to a passive owner-sequence register and
 live bit, asserting capture equality, active-state agreement, no overwrite, and
 no idle release. Emit the normal node/captures/parents once at admission and an
-identity-qualified `rheg_end` on release. Simultaneous replacement emits the old
+identity-scoped `rheg_end` on release. Simultaneous replacement emits the old
 sequence before next-state capture. Reset clears both shadow registers and the
 normal occurrence epoch; never use a reset-suppressed end callback to order host
 reset. RHEG's existing streaming epoch boundary remains explicit.
 
-A bank residency expands into entry-qualified sites with a shared local
+A bank residency expands into entry-scoped sites with a shared local
 annotation index and distinct `residency_index` values. Occurrence IDs and labels
 gain `[index]`; the existing native descriptor and end ABI remain unchanged.
 Its input routes by the actual captures and its output selects the captured
@@ -445,7 +445,7 @@ assertions for stalls, bubbles, drain, and reset with pending work.
 | `event-broadcast` | Independent recipients, partial-delivery reset, old delivery before replacement, shared parents and duplicate-delivery rejection |
 | `event-join` | Nested joins, differently sized arbiter lineages, pre/post storage, fork/broadcast reconvergence, downstream demux, annotation cut points and distinct sequences at one site |
 | `event-stall` | Per-cycle blocked offers, changing/withdrawn Decoupled values, elastic and bypass/replacement queue ancestry, reset, repeated payloads and differential functional behavior |
-| `event-offer` | Best-effort Valid offers, qualified transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
+| `event-offer` | Best-effort Valid offers, observation-gated transfer/stall suppression, exact replay ancestry, reset, and unchanged public wiring |
 | `event-retained` | Scoped command-to-child-attempt ownership followed by payload mapping, repeated emissions, equal payloads, same-cycle release/replacement, pending reset, arbitration with unknown traffic, and independent public-state checks |
 | `event-retained-bank` | Three independent owners, two simultaneous readers, exact residency endpoints, concurrent releases, same-edge reuse, repeated payloads, pending reset, and local/child contract diagnostics |
 

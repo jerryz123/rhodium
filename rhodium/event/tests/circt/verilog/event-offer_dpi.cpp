@@ -1,4 +1,4 @@
-// Scores each offer's current parent and qualified transfer/stall against public inputs.
+// Scores each offer's current parent and observation-gated transfer/stall against public inputs.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
 #include "event-offer_manifest.h"
@@ -28,20 +28,20 @@ extern "C" void event_offer_bind() {
   rheg::graph().bind_manifest(rheg_generated::manifest());
 }
 extern "C" void event_offer_sample(unsigned reset, unsigned valid, unsigned ready,
-    unsigned qualify, unsigned payload) {
+    unsigned observe, unsigned payload) {
   in_reset = reset;
   if (reset) {
     expected.clear(); sequence = {}; cycle = 0;
     was_rejected = false; was_accepted = false;
     return;
   }
-  if (was_rejected && valid && ready && qualify && payload == last_payload) ++replayed;
+  if (was_rejected && valid && ready && observe && payload == last_payload) ++replayed;
   if (was_rejected && valid && payload != last_payload) ++changed;
   if (was_rejected && !valid) ++withdrawn;
-  if (was_accepted && valid && ready && qualify) ++consecutive;
+  if (was_accepted && valid && ready && observe) ++consecutive;
   if (valid) {
     const auto parent = node(0, payload);
-    if (qualify) {
+    if (observe) {
       const auto child = node(ready ? 1 : 2, payload);
       expected.edges.insert({parent, child});
       if (ready) ++accepted; else ++stalled;
@@ -50,7 +50,7 @@ extern "C" void event_offer_sample(unsigned reset, unsigned valid, unsigned read
     }
   }
   was_rejected = valid && !ready;
-  was_accepted = valid && ready && qualify;
+  was_accepted = valid && ready && observe;
   last_payload = payload;
 }
 extern "C" void event_offer_check() {
@@ -63,7 +63,7 @@ extern "C" void event_offer_check() {
 extern "C" void event_offer_finish() {
   if (!accepted || !stalled || !suppressed_transfers || !suppressed_stalls ||
       !replayed || !changed || !withdrawn || !consecutive)
-    fail("offer fixture missed acceptance, qualification, replay, change, withdrawal, or throughput coverage");
+    fail("offer fixture missed acceptance, observation gating, replay, change, withdrawal, or throughput coverage");
   std::printf("offer lineage passed: accepted=%u stalled=%u suppressed-transfers=%u suppressed-stalls=%u replayed=%u changed=%u withdrawn=%u consecutive=%u\n",
     accepted, stalled, suppressed_transfers, suppressed_stalls, replayed, changed, withdrawn, consecutive);
 }

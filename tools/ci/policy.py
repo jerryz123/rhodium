@@ -93,8 +93,8 @@ SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
                          if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
 
 
-def qualification_products():
-    """Select existing platform qualifications by shape and ISA, never core identity."""
+def platform_products():
+    """Select OpenSBI and litmus tests by shape and ISA, never core identity."""
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2])
@@ -108,7 +108,7 @@ def native_products(suite):
 
 
 # Backend variants reuse the architectural product and software target descriptor.
-# Only simulator build/run matrices include this additional qualification.
+# Only simulator build/run matrices include this additional backend test.
 DIRECT_SMOKE_PRODUCT = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
 DIRECT_SMOKE_TESTS = ('smoke', 'host-mmio-test', 'uart-pty-test')
 
@@ -122,7 +122,7 @@ def simulation_entry(soc, shape, core, backend='circt'):
     isa = SELECTIONS[soc][2]
     tests = DIRECT_SMOKE_TESTS if backend == 'verilog' else SOFTWARE_TESTS[shape, isa]
     return dict(**simulator_entry(soc, shape, core, backend), isa=isa,
-                qualification=backend == 'circt', software_tests=" ".join(tests))
+                software_tests=" ".join(tests))
 
 
 def arch_products():

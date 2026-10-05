@@ -10,7 +10,7 @@ from pathlib import Path
 from .gate import failures
 from .plan import Selection, plan_for_paths
 from .programs import program_matrices
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, DIRECT_SMOKE_TESTS, qualification_products
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, DIRECT_SMOKE_TESTS, platform_products
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -134,7 +134,7 @@ class PlanTest(unittest.TestCase):
         expected = [(soc, suite) for suite in ("coremark", "coremark_scalar") for soc in native_products("coremark")]
         self.assertEqual(program_entries(plan), expected)
 
-    def test_simulation_builds_and_runs_all_qualified_products(self):
+    def test_simulation_builds_and_runs_all_products(self):
         plan = self.plan("sims/Makefile")
         expected = [simulation_entry(*product) for product in SIMULATOR_PRODUCTS]
         expected.append(simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
@@ -164,20 +164,19 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(direct[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(direct[0]['simulator_id'], 'simple-rv5stage-rva23-verilog')
                 self.assertEqual(direct[0]['software_tests'].split(), list(DIRECT_SMOKE_TESTS))
-                self.assertFalse(direct[0]['qualification'])
                 self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
         build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
         run = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn("if: matrix.backend == 'circt'", build)
+        self.assertIn("if: fromJSON(inputs.product).backend == 'circt'", build)
         for workflow in (build, run):
-            self.assertIn('RTL_BACKEND: ${{ matrix.backend }}', workflow)
-            self.assertIn('matrix.simulator_id', workflow)
+            self.assertIn('RTL_BACKEND: ${{ fromJSON(inputs.product).backend }}', workflow)
+            self.assertIn('fromJSON(inputs.product).simulator_id', workflow)
         self.assertIn('--backend "$RTL_BACKEND"', run)
 
     def test_software_selection_is_identical_for_matching_shape_and_isa(self):
         entries = self.plan("sims/Makefile")["simulator_matrix"]["include"]
         for (shape, isa), tests in SOFTWARE_TESTS.items():
-            products = [entry for entry in entries if entry["qualification"] and (entry["shape"], entry["isa"]) == (shape, isa)]
+            products = [entry for entry in entries if entry["backend"] == 'circt' and (entry["shape"], entry["isa"]) == (shape, isa)]
             self.assertEqual({entry["core"] for entry in products}, {"rv5stage", "spike"})
             self.assertEqual({entry["software_tests"] for entry in products}, {" ".join(tests)})
 
@@ -198,10 +197,10 @@ class PlanTest(unittest.TestCase):
         for matrix, key in (("program_matrix", "soc"), ("arch_build_matrix", "configuration"),
                             ("arch_run_matrix", "configuration")):
             self.assertFalse(any(entry[key].endswith(tuple(f"-{isa}" for isa in presets)) for entry in plan[matrix]["include"]))
-        self.assertFalse(any(entry["soc"].endswith(tuple(f"-{isa}" for isa in presets)) for entry in qualification_products()))
+        self.assertFalse(any(entry["soc"].endswith(tuple(f"-{isa}" for isa in presets)) for entry in platform_products()))
         workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn("if: contains(matrix.software_tests, 'isa-smoke')", workflow)
-        self.assertEqual(workflow.count("if: always() && contains(matrix.software_tests, 'isa-smoke')"), 2)
+        self.assertIn("if: contains(fromJSON(inputs.product).software_tests, 'isa-smoke')", workflow)
+        self.assertEqual(workflow.count("if: always() && contains(fromJSON(inputs.product).software_tests, 'isa-smoke')"), 2)
 
     def test_software_only_builds_only_existing_single_core_products(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py", "sims/sail/configuration.py"):
@@ -235,17 +234,17 @@ class PlanTest(unittest.TestCase):
         targets['simple-spike-rva23']['ram'][0]['size'] *= 2
         self.assertEqual(len(program_matrices(entries, targets)['build']['include']), 14)
 
-    def test_shared_native_workflow_compiles_only_in_build_jobs(self):
+    def test_shared_program_workflow_compiles_only_in_build_jobs(self):
         workflow = (REPO / '.github/workflows/ci-software.yml').read_text()
-        build = workflow.split('  native-build:\n', 1)[1].split('  native:\n', 1)[0]
-        run = workflow.split('  native:\n', 1)[1].split('  arch-sail:\n', 1)[0]
+        build = workflow.split('  program-build:\n', 1)[1].split('  programs:\n', 1)[0]
+        run = workflow.split('  programs:\n', 1)[1].split('  arch-sail:\n', 1)[0]
         self.assertIn('setup-riscv-toolchain', build)
         self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
         self.assertNotIn('setup-riscv-toolchain', run)
         self.assertNotIn('Cache program builds', run)
         self.assertIn('sw/build/bind.py', run)
         self.assertIn('"$SUITE-run"', run)
-        self.assertIn("always() && !cancelled() && needs.native-plan.result == 'success'", run)
+        self.assertIn("always() && !cancelled() && needs.program-plan.result == 'success'", run)
 
     def test_shared_program_build_inputs_select_every_suite(self):
         for path in ("sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
@@ -254,8 +253,8 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(suites(plan), list(NATIVE_SUITES))
                 self.assertTrue(plan["run_program_arch"])
 
-    def test_qualifications_group_compatible_builds_without_removing_product_runs(self):
-        entries = qualification_products()
+    def test_platforms_group_compatible_builds_without_removing_product_runs(self):
+        entries = platform_products()
         self.assertEqual({(entry['soc'], entry['suite']) for entry in entries}, {
             ('simple-rv5stage-rva23', 'opensbi'), ('simple-spike-rva23', 'opensbi'),
             ('tiled-rv5stage-rva23', 'litmus'), ('tiled-spike-rva23', 'litmus')})
@@ -276,10 +275,10 @@ class PlanTest(unittest.TestCase):
         targets['tiled-spike-rva23']['harts'] = [0, 1, 2, 3]
         self.assertEqual(len(program_matrices(dict(include=entries), targets, fdts)['build']['include']), 4)
 
-    def test_qualification_execution_consumes_only_prebuilt_artifacts(self):
-        workflow = (REPO / '.github/workflows/ci-simulation.yml').read_text()
-        build = workflow.split('  qualification-build:\n', 1)[1].split('  qualification:\n', 1)[0]
-        run = workflow.split('  qualification:\n', 1)[1]
+    def test_platform_execution_consumes_only_prebuilt_artifacts(self):
+        workflow = (REPO / '.github/workflows/ci-platform.yml').read_text()
+        build = workflow.split('  platform-build:\n', 1)[1].split('  platform:\n', 1)[0]
+        run = workflow.split('  platform:\n', 1)[1]
         self.assertIn('setup-riscv-toolchain', build)
         self.assertIn('Build pinned litmus7', build)
         self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
@@ -287,8 +286,8 @@ class PlanTest(unittest.TestCase):
         self.assertIn('sw/build/bind.py', run)
         self.assertIn('"$RUN_TARGET"', run)
         self.assertIn('timeout-minutes: ${{ matrix.timeout }}', run)
-        self.assertIn("always() && !cancelled() && needs.qualification-plan.result == 'success'", run)
-        for compile_step in ('setup-riscv-toolchain', 'setup-racket', 'opam', 'litmus7', 'Cache qualification builds'):
+        self.assertIn("always() && !cancelled() && needs.platform-plan.result == 'success'", run)
+        for compile_step in ('setup-riscv-toolchain', 'setup-racket', 'opam', 'litmus7', 'Cache platform builds'):
             self.assertNotIn(compile_step, run)
 
     def test_opensbi_sources_select_simulation_without_program_matrices(self):
@@ -461,7 +460,7 @@ class PlanTest(unittest.TestCase):
         self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}", root)
         self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", root)
         self.assertIn("name: CI\n    needs: [plan, compile-racket, checks, simulator, simulation, software]", root)
-        for workflow in ("ci-checks.yml", "ci-simulator.yml", "ci-simulation.yml", "ci-software.yml"):
+        for workflow in ("ci-checks.yml", "ci-simulator.yml", "ci-platform.yml", "ci-software.yml"):
             with self.subTest(workflow=workflow):
                 text = (REPO / ".github/workflows" / workflow).read_text()
                 self.assertIn("workflow_call:", text)
@@ -508,24 +507,24 @@ class PlanTest(unittest.TestCase):
     def test_product_workflows_follow_shape_policy(self):
         root = (REPO / ".github/workflows/ci.yml").read_text()
         build = (REPO / ".github/workflows/ci-simulator.yml").read_text()
-        simulation = (REPO / ".github/workflows/ci-simulation.yml").read_text()
+        simulation = (REPO / ".github/workflows/ci-platform.yml").read_text()
         software = (REPO / ".github/workflows/ci-software.yml").read_text()
         self.assertIn(".simulator_matrix", root)
         harness = (REPO / '.github/workflows/ci-harness.yml').read_text()
         self.assertIn("product: ${{ toJSON(matrix) }}", root)
-        self.assertIn("include: ${{ fromJSON(format('[{0}]', inputs.product)) }}", build)
-        self.assertIn("name: ${{ matrix.simulator_id }}-${{ github.sha }}", build)
-        self.assertIn("name: ${{ matrix.simulator_id }}-${{ github.sha }}", harness)
-        self.assertIn("SOFTWARE_TESTS: ${{ matrix.software_tests }}", harness)
+        self.assertIn("product: ${{ inputs.product }}", build)
+        self.assertIn("name: ${{ fromJSON(inputs.product).simulator_id }}-${{ github.sha }}", build)
+        self.assertIn("name: ${{ fromJSON(inputs.product).simulator_id }}-${{ github.sha }}", harness)
+        self.assertIn("SOFTWARE_TESTS: ${{ fromJSON(inputs.product).software_tests }}", harness)
         self.assertIn('for target in $SOFTWARE_TESTS', harness)
         self.assertIn('make -C sims "$target" SOC="$SOC"', harness)
-        self.assertIn("if: contains(matrix.software_tests, 'isa-smoke')", harness)
+        self.assertIn("if: contains(fromJSON(inputs.product).software_tests, 'isa-smoke')", harness)
         self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
-        self.assertIn("qualification-plan:", simulation)
-        self.assertIn("qualification_products", simulation)
+        self.assertIn("platform-plan:", simulation)
+        self.assertIn("platform_products", simulation)
         self.assertIn("litmus-smoke-elfs", simulation)
         self.assertNotIn("litmus-full", simulation)
-        self.assertIn("if: inputs.run-harness && matrix.backend == 'circt' && matrix.soc == 'simple-rv5stage-rva23'", build)
+        self.assertIn("if: inputs.run-harness && fromJSON(inputs.product).backend == 'circt' && fromJSON(inputs.product).soc == 'simple-rv5stage-rva23'", build)
         self.assertIn('program-test-adapter-test cosim-hooks-test simulation-runtime-test', build)
         self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)
         self.assertIn("Restore pinned Spike runtime libraries", software)
@@ -547,10 +546,10 @@ class PlanTest(unittest.TestCase):
         workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
         for name in ('Install Racket', 'Restore exact Rhodium bytecode', 'Install Verilator', 'Install CIRCT'):
             step = workflow.split(f'- name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn("if: matrix.soc == 'mini-rv5stage-rva23'", step)
+            self.assertIn("if: fromJSON(inputs.product).soc == 'mini-rv5stage-rva23'", step)
         for name in ('Install mapped or Spike build dependencies', 'Install FESVR'):
             step = workflow.split(f'- name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn("if: matrix.soc == 'mini-rv5stage-rva23' || matrix.core == 'spike'", step)
+            self.assertIn("if: fromJSON(inputs.product).soc == 'mini-rv5stage-rva23' || fromJSON(inputs.product).core == 'spike'", step)
         self.assertIn('Verify exact product and target descriptor', workflow)
         self.assertIn('PREBUILT_SIMULATOR="$simulator"', workflow)
 
@@ -561,7 +560,7 @@ class PlanTest(unittest.TestCase):
         diagnostics = workflow.split('- name: Publish simulator build diagnostics\n', 1)[1].split('\n  harness:', 1)[0]
         self.assertIn('if: always()', diagnostics)
         self.assertIn('obj/VTestDriver__stats*.txt', diagnostics)
-        self.assertIn('name: simulator-build-${{ matrix.simulator_id }}-${{ github.sha }}', diagnostics)
+        self.assertIn('name: simulator-build-${{ fromJSON(inputs.product).simulator_id }}-${{ github.sha }}', diagnostics)
 
     def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
         workflow = (REPO / ".github/workflows/ci-software.yml").read_text()

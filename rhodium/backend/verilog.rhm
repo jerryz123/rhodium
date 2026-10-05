@@ -163,7 +163,7 @@ fun collect_sv_types(design :: Design) :: SvTypes:
   def base = if design.modules.length() == 0 | "_sv_types" | design.modules[0].name ++ "_types"
   SvTypes(unique_name(base, reserved), names.snapshot(), declarations.snapshot())
 
-/* Fully qualified references avoid importing typedef names into module scope. */
+/* Package-prefixed references avoid importing typedef names into module scope. */
 fun sv_type(type :: HardwareType, types :: SvTypes) :: String:
   sv_name(types.package_name) ++ "::" ++ sv_name(types.names[sv_shape(type)])
 

@@ -40,7 +40,7 @@ move so the directory boundary remains visible.
 ## Focused validation
 
 Scanner packet, repair, and fallback outputs derive from explicit ingress
-forks. Keep fallback qualification and payload unchanged when mapping its Flow
+forks. Keep fallback gating and payload unchanged when mapping its Flow
 branch: the existing late-redirect pipe and cursor retain the triggering S2
 occurrence. This identifies the fallback's triggering packet, not provenance
 of retained predictor/halfword state. No manual event edge or extra checkpoint

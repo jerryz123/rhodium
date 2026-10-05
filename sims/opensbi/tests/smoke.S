@@ -1,4 +1,4 @@
-// Qualifies OpenSBI's S-mode handoff, relocated FDT, and SBI system reset.
+// Tests OpenSBI's S-mode handoff, relocated FDT, and SBI system reset.
 // SPDX-License-Identifier: Apache-2.0
 .section .text
 .globl _start

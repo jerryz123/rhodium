@@ -222,7 +222,7 @@ fun input_timing(environment :: TemporalEnvironment,
   def contract = contract_for(environment, input, path)
   contract?.timing || UnknownInputTiming()
 
-/* Recognizes a direct top Clock input, excluding internal occurrence-qualified clocks. */
+/* Recognizes a direct top Clock input, excluding internal occurrence-scoped clocks. */
 fun root_top_control(top :: Module, reference :: ControlReference):
   reference.instance_path.length() == 0 && valid_top_clock(top, reference.value)
 
@@ -410,7 +410,7 @@ fun summarize_cdc_violations(sinks :: List.of(TemporalSink)):
         ]
   violations
 
-/* Formats the occurrence-qualified sink input and aggregate leaf named by a violation. */
+/* Formats the occurrence-scoped sink input and aggregate leaf named by a violation. */
 fun cdc_violation_name(violation :: CdcViolation):
   def sink_name = hierarchical_name(violation.instance_path,
                                     operation_name(violation.operation))
@@ -444,7 +444,7 @@ fun hierarchical_name(instance_path :: List.of(Operation), name :: String):
   )
   if prefix == "" | name | prefix ++ "." ++ name
 
-/* Formats an occurrence-qualified clock or reset Value reference. */
+/* Formats an occurrence-scoped clock or reset Value reference. */
 fun describe_control(reference :: ControlReference):
   hierarchical_name(reference.instance_path, reference.value.ref())
 
@@ -521,7 +521,7 @@ fun append_outputs(lines :: List.of(String),
     result := result ++ ["  output " ++ append_path(port.name, output.path) ++ " <- " ++ origins]
   result
 
-/* Appends occurrence-qualified sink clocks and each leaf's classification and origins. */
+/* Appends occurrence-scoped sink clocks and each leaf's classification and origins. */
 fun append_sinks(lines :: List.of(String),
                  summary :: DesignTemporalSummary):
   def mutable result = lines
