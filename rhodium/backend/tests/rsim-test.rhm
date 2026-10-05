@@ -50,6 +50,20 @@ check:
 check:
   compile_program(make_aggregate(5, 100), rsim_target).artifacts ~is compile_program(make_aggregate(5), rsim_target).artifacts
 
+// This representation check protects the optimization itself: constant ROM
+// casts must not recreate arrays or call unpack helpers during evaluation.
+// Native/direct-SV execution of this fixture separately checks bit semantics.
+for (width in [5, 65]):
+  def program = make_constant_rom(width)
+  def before = dump_ir(program.design)
+  def artifacts = compile_program(program, rsim_target).artifacts
+  def source = artifacts[1].content
+  check:
+    source.split("static constexpr std::array<").length() - 1 ~is 1
+    source.contains("rhodium_rsim::slice<") ~is #false
+    compile_program(program, rsim_target).artifacts ~is artifacts
+    dump_ir(program.design) ~is before
+
 // A valid RTL symbol that cannot be declared by the native ABI must fail at
 // target planning, with the source occurrence instead of a later C++ error.
 check:

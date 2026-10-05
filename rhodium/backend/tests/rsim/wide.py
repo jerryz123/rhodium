@@ -369,6 +369,49 @@ def run_aggregates(work, run, compare, differential):
     return total_count
 
 
+def run_constant_roms(work, run, compare, differential):
+    """Check constant cast layouts, independent addresses and immutable ROMs."""
+    total_count = 0
+    for width in (5, 65):
+        name = f'ConstantROM{width}'
+        element = width + 5
+        total = 3 * element
+        entries = [((i + 3) << width) | (1 << (width - 1)) | (i + 1) for i in range(3)]
+        packed = sum(value << (i * element) for i, value in enumerate(entries))
+        inputs = [('data', width, [('', width, 0)])]
+        outputs = [(f'{instance}_{port}', bits, [('', bits, 0)])
+                   for instance in ('first', 'second')
+                   for port, bits in (('selected', element), ('original', total), ('modified', total))]
+        rows, expected = [], []
+        for data in (0, (1 << width) - 1, 1 << (width - 1), 3, 0):
+            for first in range(4):
+                for second in range(4):
+                    rows.append(' '.join(f'{v:x}' for v in (0, first, second, *words(data, width))))
+                    values = []
+                    for address in (first, second):
+                        modified = sum((data if i == address else value) << (i * element)
+                                       for i, value in enumerate(entries))
+                        values += [entries[address] if address < 3 else 0, packed, modified]
+                    expected.append([word for value, (_, bits, _) in zip(values, outputs)
+                                     for word in words(value, bits)])
+        vectors = '\n'.join(rows) + '\n'
+        bench = work / f'{name}-bench.cpp'
+        binary = work / name
+        bench.write_text(typed_driver(name, inputs, outputs, controls=dict(first=2, second=2)))
+        run(shlex.split(os.environ.get('CXX', 'c++')) +
+            ['-std=c++17', '-O0', '-Wall', '-Wextra', '-Werror',
+             '-fsanitize=address,undefined', '-fno-sanitize-recover=all',
+             str(work / f'{name}.cpp'), str(bench), '-o', str(binary)], work, f'build-{name}')
+        compare(run([str(binary)], work, name, vectors), expected, name)
+        if differential:
+            bench.write_text(typed_driver(name, inputs, outputs, reference=True, controls=dict(first=2, second=2)))
+            run(['verilator', '--cc', '--exe', '--build', '-j', '2', '--top-module', name,
+                 '--Mdir', str(work / f'obj{name}'), str(work / f'{name}.sv'), str(bench)], work, f'build-reference-{name}')
+            compare(run([str(work / f'obj{name}/V{name}')], work, f'reference-{name}', vectors), expected, f'{name} direct SV')
+        total_count += len(expected)
+    return total_count
+
+
 def run_memories(work, run, compare, differential):
     import memory
     import sync_memory
@@ -460,7 +503,9 @@ def run_suite(work, run, differential):
             compare(run([str(work / f'obj{width}/VWide{width}')], work, f'reference-{width}', vectors),
                     expected, f'wide direct SV {width}')
         total += len(expected)
-    return total + run_aggregates(work, run, compare, differential) + run_memories(work, run, compare, differential)
+    return (total + run_aggregates(work, run, compare, differential)
+            + run_constant_roms(work, run, compare, differential)
+            + run_memories(work, run, compare, differential))
 
 
 if __name__ == '__main__':

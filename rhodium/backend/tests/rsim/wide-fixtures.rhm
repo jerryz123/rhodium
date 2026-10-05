@@ -5,7 +5,42 @@ import:
   "../../../lowering/program.rhm".ElaboratedProgram
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
-export make_wide make_wide_aggregate make_relayout make_wide_memories
+export make_wide make_wide_aggregate make_relayout make_wide_memories make_constant_rom
+
+// Equal constant casts in separate occurrences must share immutable storage,
+// while dynamic injection produces a fresh value without changing later reads.
+fun make_constant_rom(width :: PosInt):
+  def design = Design()
+  def b = Builder(design)
+  def leaf = b.module("ConstantROMLeaf" ++ to_string(width))
+  def element = RecordType([RecordField("mark", Bits(5)), RecordField("data", Bits(width))])
+  def vector = VectorType(3, element)
+  def total = vector.packed_width()
+  def layout = RecordType([RecordField("high", Bits(7)), RecordField("low", Bits(total - 7))])
+  def mutable seed = 0
+  for (index in 0..3):
+    seed := seed + ((index + 3) * 2 ** width + 2 ** (width - 1) + index + 1) * 2 ** (index * element.packed_width())
+  def address = b.input(leaf, "address", Bits(2))
+  def data = b.input(leaf, "data", Bits(width))
+  def contents = b.cast(leaf, b.cast(leaf, b.constant(leaf, Bits(total), seed), layout), vector)
+  def zero = b.cast(leaf, b.constant(leaf, Bits(element.packed_width()), 0), element)
+  def valid = b.ult(leaf, address, b.constant(leaf, Bits(2), 3))
+  def selected = b.mux_lookup(leaf, valid, zero, [[1, b.vector_index(leaf, contents, address)]])
+  def replacement = b.record_create(leaf, element, [["mark", b.constant(leaf, Bits(5), 0)], ["data", data]])
+  def modified = b.mux_lookup(leaf, valid, contents, [[1, b.vector_inject(leaf, contents, address, replacement)]])
+  for (entry in [["selected", selected], ["original", contents], ["modified", modified]]):
+    b.drive(b.output(leaf, entry[0], Bits(entry[1].type.packed_width())), b.cast(leaf, entry[1], Bits(entry[1].type.packed_width())))
+  b.finish(leaf)
+  def top = b.module("ConstantROM" ++ to_string(width))
+  def data_input = b.input(top, "data", Bits(width))
+  for (name in ["first", "second"]):
+    def child = b.instance(top, leaf, name)
+    b.drive(child.input("address"), b.input(top, name, Bits(2)))
+    b.drive(child.input("data"), data_input)
+    for (port in leaf.outputs):
+      b.drive(b.output(top, name ++ "_" ++ port.name, port.type), child.output(port.name))
+  b.finish(top)
+  ElaboratedProgram(design, top)
 
 fun make_wide_memories():
   def programs = MutableList[]

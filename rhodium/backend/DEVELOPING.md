@@ -188,7 +188,13 @@ packaging must detect wide cast temporaries even when every stored leaf is narro
 Decode compares cared bits leaf by leaf using `CppTypes.cube_match` and builds
 outputs with `CppTypes.constant`. Host-side slicing of arbitrary-width constants
 keeps every emitted integer literal within a scalar carrier; wide scalar masks
-and lookup keys use the same limb constants as ordinary data. One-hot selection
+and lookup keys use the same limb constants as ordinary data. The rsim emitter
+propagates canonical constant bits through casts and renders their destination
+leaves directly. Equal rendered values of the same C++ type share function-local
+`static constexpr` storage, with reference aliases for duplicate steps. This
+avoids per-evaluation ROM unpacking and array copies without changing schedule
+identities, dynamic casts, or per-occurrence state. The constant maps belong to
+one emission; they are not elaboration caches. One-hot selection
 tests a bit in its containing limb, retaining machine-word masks for narrow
 selectors. Verified disjoint
 rows permit a conditional chain without giving row order meaning. One-hot muxes
@@ -329,6 +335,12 @@ pre-edge capture during state updates. A separate 96-bit cast between aggregates
 with only narrow leaves verifies support packaging without any wide scalar IR
 value. Native execution uses ASan/UBSan, and the packed Python oracle is shared
 with direct SV.
+The same runner checks constant ROMs with 5- and 65-bit data leaves, nested
+record/vector cast chains, dynamic reads and injection, zero constants, and
+repeated instances with independent addresses. Repeated evaluation verifies
+that a modified vector cannot mutate shared constant storage. Host emission
+checks protect one-array materialization and the absence of runtime unpacking
+for these constant casts.
 
 Rsim's native fixtures exercise widths 1/5/63/64, overflow, forward connections,
 reset sampling, repeated evaluation, simultaneous swaps, holds, priority, constant-input

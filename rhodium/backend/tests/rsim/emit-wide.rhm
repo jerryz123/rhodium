@@ -12,7 +12,7 @@ import:
 def arguments = current_command_line()
 unless arguments.length() == 2 && arguments[1] in ["native", "differential"]
 | error("expected OUTPUT_DIRECTORY native|differential")
-def programs = [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ make_wide_memories()
+def programs = [64, 65, 127, 128, 129, 512].map(make_wide) ++ [21, 65, 129, 512].map(make_wide_aggregate) ++ [make_relayout()] ++ [5, 65].map(make_constant_rom) ++ make_wide_memories()
 for (program in programs):
   for (target in (if arguments[1] == "native" | [rsim_target] | [rsim_target, verilog_target])):
     def result = compile_program(program, target)

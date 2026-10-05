@@ -221,15 +221,35 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
   source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
+  // Casts preserve canonical bits. Track only known constants, leaving dynamic
+  // expressions and schedule identities intact. Intern their rendered typed
+  // values so different layouts or scalar widths cannot alias unequal leaves.
+  def constants = MutableMap{}
+  def constant_storage = MutableMap{}
   for (step in plan.steps, index in 0..plan.steps.length()):
-    def rendered = expression(step, plan.steps, types)
-    // External aggregates need leaf masking. All other aggregate operations
-    // copy normalized members; scalar expressions are masked at every boundary.
-    def value:
-      if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
-      | types.normalize(step.type, rendered)
-      | rendered
-    source.add("  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";")
+    def constant:
+      cond
+      | step.opcode == "rtl.constant": step.attributes["value"]
+      | step.opcode == "rtl.cast": constants.get(step.operands[0], #false)
+      | ~else: #false
+    if constant != #false
+    | constants[index] := constant
+      def rendered = types.constant(step.type, constant)
+      def key = [types.name(step.type), rendered]
+      if constant_storage.has_key(key)
+      | source.add("  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ ref(constant_storage[key]) ++ ";")
+      | constant_storage[key] := index
+        // Constant initialization requires no per-evaluation slicing, copies,
+        // or initialization guards, even at -O0 or across model instances.
+        source.add("  [[maybe_unused]] static constexpr " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ rendered ++ ";")
+    | def rendered = expression(step, plan.steps, types)
+      // External aggregates need leaf masking. All other aggregate operations
+      // copy normalized members; scalar expressions are masked at every boundary.
+      def value:
+        if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
+        | types.normalize(step.type, rendered)
+        | rendered
+      source.add("  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";")
   for (port in plan.outputs): source.add("  frame.outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def slot = to_string(index)
