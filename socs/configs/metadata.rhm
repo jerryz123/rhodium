@@ -1,9 +1,9 @@
 #lang rhombus
-/* Serializes the resolved architectural, implementation, and platform configuration shared by product artifacts. */
+/* Serializes the resolved architectural, implementation, and platform configuration shared by config artifacts. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "resolve.rhm".ResolvedSoCProduct
+  "resolve.rhm".ResolvedSoCConfig
   "metadata-json.rkt" open
   "../one-hart/system.rhdl".SingleCoreSystemParams
   "../mini-soc/main.rhdl".MiniSoCConfig
@@ -32,8 +32,8 @@ fun fabric_metadata(fabric :: SingleCoreSystemParams) :: Map:
   }
 
 /* Builds the versioned metadata envelope from the selected implementation, shape configuration, architectural description, DTS, and UDB. */
-fun product_metadata(product :: ResolvedSoCProduct,
-                     config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = product.configuration()) :: Map:
+fun config_metadata(resolved :: ResolvedSoCConfig,
+                    config :: MiniSoCConfig || SingleCoreSoCConfig || TiledSoCConfig = resolved.configuration()) :: Map:
   def platform = cond
   | config is_a MiniSoCConfig:
       {"ram": repr(config.ram), "clocks": repr(config.clocks),
@@ -48,7 +48,7 @@ fun product_metadata(product :: ResolvedSoCProduct,
        "clocks": repr(config.clocks), "flit": repr(config.flit), "boot": repr(config.boot)}
   {
     "schema": 1,
-    "product": product.key,
+    "config": resolved.key,
     "architecture": repr(config.hart.description),
     "xlen": config.hart.description.xlen.width,
     "implementation": repr(config.hart.profile),
@@ -56,10 +56,10 @@ fun product_metadata(product :: ResolvedSoCProduct,
     "platform": platform,
     "description": repr(config.description),
     "device_tree": config.description.to_device_tree().to_dts(),
-    "udb": product.udb().to_yaml()
+    "udb": resolved.udb().to_yaml()
   }
 
 export:
-  product_metadata
+  config_metadata
   metadata_json
   metadata_fingerprint

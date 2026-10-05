@@ -1,5 +1,5 @@
 #lang rhombus
-// Projects concrete SoC capabilities, compiler options, and RAM bounds for target programs.
+/* Projects concrete SoC capabilities, compiler options, and RAM bounds for target programs. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,20 +8,20 @@ import:
   "../../riscv/isa/hart.rhm".RiscvMmuType
   "../../riscv/isa/profile.rhm".MisaExtension
   "../../socs/platform/description.rhm".RiscvSoCDescription
-  "../../socs/products/selection.rhm" open
-  "../../socs/products/resolve.rhm".resolve_soc_product
-  "../../socs/products/metadata.rhm" open
+  "../../socs/configs/selection.rhm" open
+  "../../socs/configs/resolve.rhm".resolve_soc_config
+  "../../socs/configs/metadata.rhm" open
 
 def arguments = current_command_line()
 unless [2, 4].contains(arguments.length())
-| error(~who: #'write_program_target, "expected an explicit shape-core-isa product key and output file, or shape, core, ISA, and output file")
+| error(~who: #'write_program_target, "expected an explicit shape-core-isa config key and output file, or shape, core, ISA, and output file")
 def selection = if arguments.length() == 4
 | SoCSelection(parse_soc_shape(arguments[0]), parse_core_kind(arguments[1]), parse_isa_preset(arguments[2]))
 | named_soc_selection(arguments[0])
 def name = selection.key
-def product = resolve_soc_product(selection)
-def configuration = product_metadata(product)
-def description :: RiscvSoCDescription = product.description
+def config = resolve_soc_config(selection)
+def configuration = config_metadata(config)
+def description :: RiscvSoCDescription = config.description
 def compiler_target = gnu_isa_target(
   description.hart.xlen,
   description.hart.isa_profile.isa_extensions

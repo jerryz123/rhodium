@@ -45,7 +45,7 @@ fun soc_architecture(preset :: IsaPreset) :: SoCArchitecture:
       )
   | IsaPreset.RV64Max || IsaPreset.RVA23:
       // Mandatory RVA23U64/S64 declarations are checked independently in the
-      // product/UDB tests; behavioral validation remains implementation-owned.
+      // config/UDB tests; behavioral validation remains implementation-owned.
       def hypervisor = preset == IsaPreset.RVA23
       def extensions = vector_extensions(VectorExtension.Zvfh, VectorExtension.Zvbb)
       def scalar = ["i", "m", "a", "f", "d", "c", "b"] ++ (if hypervisor | ["h"] | []) ++ ["za64rs", "zba", "zbb", "zbs", "zcb", "zcmop", "zfa", "zfh", "zic64b", "zicbop", "zicboz", "zicbom", "ziccamoa", "ziccif", "zicclsm", "ziccrse", "ssnpm", "supm"]

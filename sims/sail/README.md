@@ -20,8 +20,8 @@ The projection preserves `mcountinhibit` presence and its exact writable mask.
 For H profiles, the current supported transformed-instruction policy is the
 UDB's always-zero choice; other policies fail instead of inheriting Sail defaults.
 
-`product.product_architecture` checks the selected product and any separate UDB
-export against canonical configuration metadata. `product.model_defaults` checks
+`soc_config.config_architecture` checks the selected config and any separate UDB
+export against canonical configuration metadata. `soc_config.model_defaults` checks
 the pinned Sail release and required configuration controls, then obtains its
 XLEN-specific defaults. The release string alone cannot distinguish the current
 master pin from the older 0.14.1 tag.
@@ -36,6 +36,6 @@ master pin from the older 0.14.1 tag.
 
 `reference_model_differences` records legal DUT choices Sail cannot reproduce,
 including vector reserved behavior and HPM event counting. Both consumers
-publish these differences without changing the product's UDB or disabling
+publish these differences without changing the config's UDB or disabling
 extensions. A future comparison engine must explicitly handle or reject each
 difference; configuration acceptance alone is not full-profile validation.

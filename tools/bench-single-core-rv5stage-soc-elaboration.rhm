@@ -1,11 +1,11 @@
 #lang rhombus
-// Benchmarks repeated elaboration of the existing SingleCoreRV5StageSoC design.
+/* Benchmarks repeated elaboration of the existing SingleCoreRV5StageSoC design. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
   "../rhodium/frontend/kernel.rhm" as embedded
-  "../socs/products/single-core-rv5stage-soc.rhdl" as single_core_rv5stage_soc
+  "../socs/configs/single-core-rv5stage-soc.rhdl" as single_core_rv5stage_soc
   lib("racket/base.rkt") as rkt
 
 def arguments = current_command_line()

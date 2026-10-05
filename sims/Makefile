@@ -10,7 +10,7 @@ PYTHON ?= python3
 PATCHED_SUBMODULE_TOOL := $(REPO_DIR)/riscv/patched_submodule.py
 SPIKE_IDENTITY := $(shell $(PYTHON) $(PATCHED_SUBMODULE_TOOL) identity --repository $(REPO_DIR) --submodule riscv/riscv-isa-sim --series $(REPO_DIR)/riscv/riscv-isa-sim-patches/series)
 FESVR_PREFIX ?= $(REPO_DIR)/.tools/fesvr-$(SPIKE_IDENTITY)
-include product.mk
+include config.mk
 RTL_BACKEND ?= circt
 ifneq ($(RTL_BACKEND),circt)
 ifneq ($(RTL_BACKEND),verilog)
@@ -137,8 +137,8 @@ LRSC_BOOT_HARTS := $(if $(filter tiled,$(SOC_SHAPE)),+boot-harts=0-7,)
 LRSC_IALIGN := 2
 LRSC_PAGE_TABLE_BASE := $(if $(filter mini,$(SOC_SHAPE)),0x8000b000,0x80010000)
 LRSC_MEMORY_LIMIT := $(if $(filter mini,$(SOC_SHAPE)),0x80010000,0xc0000000)
-PRODUCT_SELECTION_DATA := $(REPO_DIR)/socs/products/selections.tsv
-SIMULATOR_SOURCES := $(PRODUCT_SELECTION_DATA) $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' -o -name '*.rkt' \)))
+CONFIG_SELECTION_DATA := $(REPO_DIR)/socs/configs/selections.tsv
+SIMULATOR_SOURCES := $(CONFIG_SELECTION_DATA) $(sort $(shell find $(REPO_DIR) -type f \( -name '*.rhdl' -o -name '*.rhm' -o -name '*.rkt' \)))
 
 # Failed elaboration or lowering must not leave a reusable partial artifact.
 .DELETE_ON_ERROR:
@@ -336,7 +336,7 @@ $(SOC_BUILD_DIR) $(DPI_BUILD_DIR) $(TILED_LOWERING_DIR) $(SPIKE_LOWERING_DIR):
 	mkdir -p $@
 
 ifeq ($(RTL_BACKEND),circt)
-$(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
+$(SOC_MLIR): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/config.mk | $(SOC_BUILD_DIR)
 	@test -n "$(HARNESS_SELECTOR)" || \
 	  (echo "expected a complete SoC/core/ISA selection" >&2; exit 2)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
@@ -365,7 +365,7 @@ $(SOC_VERILOG): $(SOC_MLIR)
 	  --export-verilog $(SOC_MLIR) -o /dev/null > $(SOC_VERILOG)
 
 else
-$(SOC_VERILOG): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/product.mk | $(SOC_BUILD_DIR)
+$(SOC_VERILOG): $(SIMULATOR_SOURCES) $(HARNESS_EMITTER) $(CURDIR)/Makefile $(CURDIR)/config.mk | $(SOC_BUILD_DIR)
 	cd $(REPO_DIR) && RACKET="$(RACKET)" tools/run-racket.sh -S $(REPO_DIR) \
 	  $(HARNESS_EMITTER) --backend verilog $(HARNESS_FLAGS) $(HARNESS_SELECTOR) > $(SOC_VERILOG)
 endif

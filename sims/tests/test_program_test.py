@@ -16,7 +16,7 @@ SCRIPTS = Path(__file__).resolve().parents[1] / 'program-test'
 
 
 def program_target(soc='simple-rv5stage-rva23'):
-    configuration = dict(schema=1, product=soc, implementation='test implementation', platform=dict(ram_bytes=65536))
+    configuration = dict(schema=1, config=soc, implementation='test implementation', platform=dict(ram_bytes=65536))
     return dict(resolved_configuration=configuration, configuration_fingerprint=target_fingerprint(configuration),
                 soc=soc, xlen=64, harts=[0], extensions=['i', 'm'], march='rv64im',
                 mabi='lp64', clock_frequency_hz=100000000,
@@ -354,7 +354,7 @@ class ProgramShardReportTest(unittest.TestCase):
             self.assertFalse(json.loads((root / 'summary.json').read_text())['complete'])
 
 
-class ProductSelectionTest(unittest.TestCase):
+class ConfigSelectionTest(unittest.TestCase):
     def setUp(self):
         self.build_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.build_directory.cleanup)
@@ -374,7 +374,7 @@ class ProductSelectionTest(unittest.TestCase):
                         result.stdout.index('verilator --stats --binary'))
         self.assertIn(f'--Mdir {directory}', result.stdout)
 
-    def test_explicit_axes_and_product_key_share_artifacts(self):
+    def test_explicit_axes_and_config_key_share_artifacts(self):
         axes = self.dry_run('SOC=mini', 'CORE=rv5stage', 'ISA=rva23')
         key = self.dry_run('SOC=mini-rv5stage-rva23')
         self.assertEqual(axes.returncode, 0, axes.stderr)
@@ -465,16 +465,16 @@ class ProductSelectionTest(unittest.TestCase):
     def test_platform_payloads_follow_selected_xlen(self):
         with tempfile.TemporaryDirectory() as directory:
             for isa, xlen, abi in (('rv32int', 32, 'ilp32'), ('rv32max', 32, 'ilp32'), ('rva23', 64, 'lp64')):
-                product = f'mini-spike-{isa}'
+                config = f'mini-spike-{isa}'
                 for payload in ('smoke', 'boot_2000', 'host_mmio', 'uart_pty'):
                     with self.subTest(isa=isa, payload=payload):
-                        result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
-                                              target=f'{directory}/{product}/{payload}.elf')
+                        result = self.dry_run(f'SOC={config}', f'BUILD_ROOT={directory}',
+                                              target=f'{directory}/{config}/{payload}.elf')
                         self.assertEqual(result.returncode, 0, result.stderr)
                         self.assertIn(f'-march=rv{xlen}', result.stdout)
                         self.assertIn(f'-mabi={abi}', result.stdout)
 
-    def test_setup_does_not_require_a_product(self):
+    def test_setup_does_not_require_a_config(self):
         result = self.dry_run('ISA=', target='setup')
         self.assertEqual(result.returncode, 0, result.stderr)
 
@@ -497,9 +497,9 @@ class ProductSelectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             for isa, march in (('rv32int', 'rv32imacb_zicsr_zve32x_zvl64b_zvbb'),
                                ('rv32max', 'rv32imafcb_zicsr_zve32f_zvl64b_zvbb')):
-                product = f'mini-rv5stage-{isa}'
-                result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
-                                      target=f'{directory}/{product}/smoke.elf')
+                config = f'mini-rv5stage-{isa}'
+                result = self.dry_run(f'SOC={config}', f'BUILD_ROOT={directory}',
+                                      target=f'{directory}/{config}/smoke.elf')
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertIn(f'-march={march}', result.stdout)
                 self.assertIn('-mabi=ilp32', result.stdout)
@@ -510,15 +510,15 @@ class ProductSelectionTest(unittest.TestCase):
             for isa in ('rv32int', 'rv32max', 'rva23'):
                 commands = []
                 for core in ('rv5stage', 'spike'):
-                    product = f'mini-{core}-{isa}'
-                    result = self.dry_run(f'SOC={product}', f'BUILD_ROOT={directory}',
-                                          target=f'{directory}/{product}/smoke.elf')
+                    config = f'mini-{core}-{isa}'
+                    result = self.dry_run(f'SOC={config}', f'BUILD_ROOT={directory}',
+                                          target=f'{directory}/{config}/smoke.elf')
                     self.assertEqual(result.returncode, 0, result.stderr)
                     self.assertIn('-DRHODIUM_SMOKE_VECTOR=1', result.stdout)
-                    commands.append(result.stdout.replace(product, 'product'))
+                    commands.append(result.stdout.replace(config, 'config'))
                 self.assertEqual(commands[0], commands[1])
 
-    def test_traced_products_retain_the_explicit_isa(self):
+    def test_traced_configs_retain_the_explicit_isa(self):
         for shape in ('simple', 'tiled'):
             result = self.dry_run(f'SOC={shape}-rv5stage-rva23', 'TRACE=1')
             self.assertEqual(result.returncode, 0, result.stderr)
@@ -532,7 +532,7 @@ class ProductSelectionTest(unittest.TestCase):
             self.assertNotIn('requires the single-core', result.stdout)
             self.assertNotIn('-DRHODIUM_NTL_CACHE_POLICY=1', result.stdout)
 
-    def test_act_and_harness_use_the_same_explicit_product(self):
+    def test_act_and_harness_use_the_same_explicit_config(self):
         result = self.dry_run('ACT_CONFIGURATION=simple-rv5stage-rva23', target='arch-test-config')
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('sims/arch-test/write-platform.rhm "simple-rv5stage-rva23"', result.stdout)

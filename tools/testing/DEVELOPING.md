@@ -70,11 +70,11 @@ lane. A separate SyncRam smoke retains the no-CIRCT dependency boundary.
 
 CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py). The product rows come from the single
-[`simulator inventory`](../../sims/test-products.txt); policy selects workloads
+by [`policy.py`](../ci/policy.py). The config rows come from the single
+[`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
 by shape and ISA, independently of core. Simulator matrices additionally carry
 backend and artifact identity. The direct `simple-rv5stage-rva23-verilog` entry
-uses the same product/target with three smoke tests; it does not expand the
+uses the same config/target with three smoke tests; it does not expand the
 architectural or software test inventories. Its build job omits CIRCT,
 and its prebuilt consumer verifies backend provenance. Its unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
@@ -130,11 +130,11 @@ flowchart TD
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
-    Compile --> Simulators["Per-product reusable workflows<br/>twenty exact products for simulation;<br/>six full-suite Single products for software only"]
-    Simulators --> Simulation["Each product's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
+    Compile --> Simulators["Per-config reusable workflows<br/>twenty exact configs for simulation;<br/>six full-suite Single configs for software only"]
+    Simulators --> Simulation["Each config's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
     Compile --> PlatformTargets["Generate platform targets and DTBs<br/>group compatible builds"]
     PlatformTargets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
-    PlatformBuilds --> Platform["Per-product platform tests<br/>litmus histograms; OpenSBI handoff"]
+    PlatformBuilds --> Platform["Per-config platform tests<br/>litmus histograms; OpenSBI handoff"]
     Simulators --> Platform
     Compile --> ProgramTargets["Generate program targets<br/>group identical ELF build requirements"]
     Simulators --> ProgramTargets
@@ -170,17 +170,17 @@ second CI lane that merely reloads the same concrete designs. The foundation
 host lane also executes standard-library, Flow, event, and diagram contracts;
 the frontend and backend host owners execute their equivalence tests once.
 
-CI uses the display groups `Checks`, `SoC / <product>`, `Platform`, and
+CI uses the display groups `Checks`, `SoC / <config>`, `Platform`, and
 `Software`, with short build and run names beneath each group. ACT execution
-names include the product and shard. Shared ELF builds name the suite and matrix
+names include the config and shard. Shared ELF builds name the suite and matrix
 group rather than implying ownership by the representative SoC. The final `CI`
 gate name remains stable.
 
-The root simulator matrix calls `ci-simulator.yml` once per product. Each call
+The root simulator matrix calls `ci-simulator.yml` once per config. Each call
 publishes its simulator before starting `ci-harness.yml`; its harness depends
-only on that product's build. The simulator result aggregates both phases for
+only on that config's build. The simulator result aggregates both phases for
 the stable gate. Software and platform tests still consume the shared
-simulator artifacts after the full build-and-harness product matrix completes.
+simulator artifacts after the full build-and-harness config matrix completes.
 Producers upload build logs and Verilator pass statistics independently of their
 simulator artifacts, including on failure. `ci-platform.yml`
 owns platform test grouping and execution, independently of backend
@@ -190,9 +190,9 @@ so firmware execution cannot consume another SoC's or the harness job's budget.
 That workflow groups litmus builds by software requirements and OpenSBI builds
 by derived boot layout and generated DTB contents. Litmus7 and target compilers
 belong only to build jobs, and the common ELF archive/binder feeds all compatible
-execution products. Each tiled product runs the same bounded, model-checked
+execution configs. Each tiled config runs the same bounded, model-checked
 litmus7 selection with its independent 90-minute budget; OpenSBI retains a
-45-minute budget per single-core product. Both retain build diagnostics and
+45-minute budget per single-core config. Both retain build diagnostics and
 runner results even on failure. The full litmus inventory is manual only and has
 no CI job or schedule. Do not remove smoke cases because they expose a failure.
 
@@ -208,26 +208,26 @@ Both RVA23 single-core software matrices independently select ISA tests, benchma
 both CoreMark variants, Embench-IoT, and one bounded Bringup-Bench selection.
 `ci-software.yml` projects generated target descriptors into suite build groups,
 compiles each group once, and distributes one ELF archive to all compatible
-products. Each run binds the archive to its own full target fingerprint and
+configs. Each run binds the archive to its own full target fingerprint and
 checks its simulator attestation. Compiler installation and ELF caches belong
 only to the build jobs; the sixteen execution jobs retain every selected test.
 Program adapter contracts run once before the build matrix. A failed build does
 not prevent execution jobs from attempting other published groups.
 Platform adapters run once in the planning job. Each OpenSBI execution
-validates one single-core product under simulation change selection and
+validates one single-core config under simulation change selection and
 publishes separate diagnostics. A failed platform build does not prevent
 execution jobs from attempting other published build groups.
-All four Simple RV32 products select upstream ISA tests;
+All four Simple RV32 configs select upstream ISA tests;
 the existing RV64-only benchmark ports remain outside their coverage.
-The six Simple RV32/RVA23 products select their own ACT generation and execution: sixteen
+The six Simple RV32/RVA23 configs select their own ACT generation and execution: sixteen
 shards for RV5Stage RVA23, eight for both RV5Stage RV32 profiles and Spike RVA23,
 and four for both Spike RV32 profiles. Counts live in `tools/ci/policy.py` and
 only split execution; each profile still generates one shared ELF archive and
 builds one simulator. Shared SoC dependencies
 (including CHI, NoC, devices, and RISC-V support) select these lanes; suite-only
 adapter/source changes select the owning lane. All six CI Mini and both Tiled
-products receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
-`rv64imafdcb` presets enroll only their paired Simple products; these six products
+configs receive capability-filtered ISA smoke. The `rv64max`, `rv64imacb`, and
+`rv64imafdcb` presets enroll only their paired Simple configs; these six configs
 run only that suite, without ACT,
 benchmarks, or platform tests. Both Tiled cores run the
 eight-hart benchmark manifests in CI. Harness jobs compile their platform and

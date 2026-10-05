@@ -70,7 +70,7 @@ wrappers, emitters, checkers, and documentation. Never review a generated file
 as though it were the source of design or technology policy.
 
 The public README documents `make -C vlsi clean`; it intentionally removes only
-flow-owned build products and run directories. Keep new outputs beneath those
+flow-owned build artifacts and run directories. Keep new outputs beneath those
 owned roots so cleanup remains bounded.
 
 ## Focused validation

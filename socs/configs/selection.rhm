@@ -1,5 +1,5 @@
 #lang rhombus
-/* Defines explicit typed product axes and canonical shape-core-ISA identities. */
+/* Defines explicit typed config axes and canonical shape-core-ISA identities. */
 // SPDX-License-Identifier: Apache-2.0
 
 import: "selection-data.rkt".selection_rows
@@ -60,16 +60,16 @@ fun parse_isa_preset(name :: String) :: IsaPreset:
   | "rva23": IsaPreset.RVA23
   | ~else: error(~who: #'parse_isa_preset, "unsupported ISA preset: " ++ name)
 
-/* Keeps the three product axes together and derives their canonical shape-core-ISA key. */
+/* Keeps the three config axes together and derives their canonical shape-core-ISA key. */
 class SoCSelection(shape :: SoCShape, core :: CoreKind, isa :: IsaPreset):
   property key :: String:
     soc_shape_name(shape) ++ "-" ++ core_kind_name(core) ++ "-" ++ isa_preset_name(isa)
 
-/* Resolves a complete product key through the shared selector table, rejecting absent or ambiguous entries. */
+/* Resolves a complete config key through the shared selector table, rejecting absent or ambiguous entries. */
 fun named_soc_selection(name :: String) :: SoCSelection:
   def rows = selection_rows.filter(~keep: fun (row): row[0] == name)
   unless rows.length() == 1
-  | error(~who: #'named_soc_selection, "expected an explicit shape-core-isa product key")
+  | error(~who: #'named_soc_selection, "expected an explicit shape-core-isa config key")
   def row = rows[0]
   SoCSelection(parse_soc_shape(row[1]), parse_core_kind(row[2]), parse_isa_preset(row[3]))
 

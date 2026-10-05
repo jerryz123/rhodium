@@ -142,7 +142,7 @@ all generated files stay under `vlsi/build/sim/mini-rv5stage-soc/sky130/`:
 | Simulation | `obj/VTestDriver`, plus `smoke.elf` for `smoke` |
 
 Stamp files in the same directory track successful mapping stages. These are
-build products, not checked-in inputs.
+build artifacts, not checked-in inputs.
 
 ## Debug a failure
 

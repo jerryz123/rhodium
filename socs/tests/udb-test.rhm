@@ -3,17 +3,17 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../products/udb.rhm" open
-  "../products/core-profiles.rhm" open
-  "../products/spike-core-profile.rhm".single_core_spike_soc_core_profile
+  "../configs/udb.rhm" open
+  "../configs/core-profiles.rhm" open
+  "../configs/spike-core-profile.rhm".single_core_spike_soc_core_profile
   "../platform/fabric-profiles.rhm" open
   "../../riscv/gnu-toolchain.rhm".gnu_isa_target
   "../../riscv/udb.rhm".UdbExtension
-  "../products/selection.rhm" open
-  "../products/resolve.rhm".resolve_soc_product
+  "../configs/selection.rhm" open
+  "../configs/resolve.rhm".resolve_soc_config
 
 // Ratified RVA23 1.0, including its architectural implication closure.
-// Keep this oracle independent of the product extension lists/projections.
+// Keep this oracle independent of the config extension lists/projections.
 // Ss1p13 is represented by UDB's S/Sm versions, not an invented extension name.
 // https://docs.riscv.org/reference/rva23/v1.0/rva23-profiles.html
 def Rva23MandatoryUdb = [
@@ -57,9 +57,9 @@ for (core in ["rv5stage", "spike"]):
 
 for (core in ["rv5stage", "spike"]):
   for (shape in ["mini", "simple", "tiled"]):
-    def product = resolve_soc_product(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
-    def configuration = product.udb()
-    def hart = product.description.hart
+    def config = resolve_soc_config(named_soc_selection(shape ++ "-" ++ core ++ "-rva23"))
+    def configuration = config.udb()
+    def hart = config.description.hart
     check: missing_rva23_extensions(configuration.extensions) ~is []
     // Dropping any mandatory declaration must fail the gate, even if the
     // remaining generated configuration is internally consistent.
@@ -171,4 +171,4 @@ check:
   riscv_udb_configuration("tiled-rv5stage-rva23").name ~is "rhodium-tiled-rv5stage-rva23"
   single_core_spike_soc_core_profile.hart_description.isa_profile.isa_extensions.contains("zihpm") ~is #true
   single_core_spike_soc_core_profile.pmp_regions ~is 0
-  riscv_udb_configuration("unknown") ~throws "expected an explicit shape-core-isa product key"
+  riscv_udb_configuration("unknown") ~throws "expected an explicit shape-core-isa config key"

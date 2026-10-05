@@ -1,14 +1,14 @@
 #lang rhombus
-// Checks architectural presets, shape-specific resources, and shared hardware/software/UDB product projections.
+// Checks architectural presets, shape-specific resources, and shared hardware/software/UDB config projections.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../products/selection.rhm" open
-  "../products/isa-profiles.rhm" open
-  "../products/resolve.rhm" open
-  "../products/core-profiles.rhm" open
-  "../products/spike-core-profile.rhm" open
-  "../products/udb.rhm".riscv_udb_configuration
+  "../configs/selection.rhm" open
+  "../configs/isa-profiles.rhm" open
+  "../configs/resolve.rhm" open
+  "../configs/core-profiles.rhm" open
+  "../configs/spike-core-profile.rhm" open
+  "../configs/udb.rhm".riscv_udb_configuration
   "../mini-soc/main.rhdl".MiniSoCConfig
   "../platform/boot.rhdl".riscv_soc_boot_config
   "../../sims/program-test/targets.rhm" open
@@ -36,21 +36,21 @@ for (extension in ["f", "d", "v", "zfh", "zfa", "zve32f", "zvfh", "ssnpm", "supm
 
 for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
   def selection = SoCSelection(shape, CoreKind.RV5Stage, IsaPreset.RVA23)
-  def product = resolve_soc_product(selection)
-  def profile :: RV5StageConfig = product.hart.profile
+  def config = resolve_soc_config(selection)
+  def profile :: RV5StageConfig = config.hart.profile
   def architecture = soc_architecture(selection.isa)
-  def description = product.description
-  def udb = product.udb()
+  def description = config.description
+  def udb = config.udb()
   check:
     named_soc_selection(selection.key) ~is selection
     profile.isa_profile ~is architecture.isa
     profile.vector_length ~is architecture.vector_length
-    product.configuration().hart.description ~is description.hart
+    config.configuration().hart.description ~is description.hart
     description.hart.isa_profile ~is architecture.isa
-    simulator_soc_description(product.key) ~is description
+    simulator_soc_description(config.key) ~is description
     simulator_shape_description(soc_shape_name(shape), "rv5stage", ~isa: IsaPreset.RVA23) ~is description
-    riscv_udb_configuration(product.key) ~is udb
-    udb.name ~is "rhodium-" ++ product.key
+    riscv_udb_configuration(config.key) ~is udb
+    udb.name ~is "rhodium-" ++ config.key
     udb.to_yaml().contains("  VLEN: 128") ~is #true
     udb.to_yaml().contains("  MXLEN: 64") ~is #true
     udb.to_yaml().contains("  SUPPORTED_PMLEN_SSNPM: [0, 7, 16]") ~is #true
@@ -76,22 +76,22 @@ check:
   parse_isa_preset("rva23") ~is IsaPreset.RVA23
   parse_isa_preset("typo") ~throws "unsupported ISA preset"
 
-def spike_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RVA23))
+def spike_config = resolve_soc_config(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RVA23))
 check:
-  spike_product.description.hart.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
-  spike_product.description.hart.vector.vlen ~is 128
-  spike_product.description.hart.vector.elen ~is 64
+  spike_config.description.hart.isa_profile ~is soc_architecture(IsaPreset.RVA23).isa
+  spike_config.description.hart.vector.vlen ~is 128
+  spike_config.description.hart.vector.elen ~is 64
   single_core_spike_soc_core_profile.isa_string.length() > 64 ~is #true
   single_core_spike_soc_core_profile.isa_bytes > 0 ~is #true
-  spike_product.description ~is simulator_soc_description("mini-spike-rva23")
-  spike_product.udb().to_yaml().contains("  VLEN: 128") ~is #true
+  spike_config.description ~is simulator_soc_description("mini-spike-rva23")
+  spike_config.udb().to_yaml().contains("  VLEN: 128") ~is #true
   riscv_udb_configuration("simple-spike-rva23").to_yaml().contains("  CACHE_BLOCK_SIZE: 64") ~is #true
 
 // Both hart implementations project the same RV32 architecture and platform geometry.
-def rv32_product = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Int))
-def rv32_mini :: MiniSoCConfig = rv32_product.configuration()
-def rv32_description = rv32_product.description
-def rv32_rtl = resolve_soc_product(SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Int))
+def rv32_config = resolve_soc_config(SoCSelection(SoCShape.Mini, CoreKind.Spike, IsaPreset.RV32Int))
+def rv32_mini :: MiniSoCConfig = rv32_config.configuration()
+def rv32_description = rv32_config.description
+def rv32_rtl = resolve_soc_config(SoCSelection(SoCShape.Mini, CoreKind.RV5Stage, IsaPreset.RV32Int))
 check:
   rv32_rtl.description.hart.isa_profile ~is rv32.isa
   rv32_rtl.description.hart.vector.vlen ~is 64
@@ -112,8 +112,8 @@ check:
 // Simple keeps its full external memory and fabric widths with either RV32 hart.
 for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
   def selection = SoCSelection(SoCShape.Simple, core, IsaPreset.RV32Int)
-  def product = resolve_soc_product(selection)
-  def config = product.configuration()
+  def resolved = resolve_soc_config(selection)
+  def config = resolved.configuration()
   def description = config.description
   check:
     description.hart.isa_profile ~is rv32.isa
@@ -141,13 +141,13 @@ check:
   rv32max.isa.isa_extensions.filter(~keep: fun (name): name != "f" && name != "zve32f") ~is rv32.isa.isa_extensions
 for (shape in [SoCShape.Mini, SoCShape.Simple]):
   for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
-    def product = resolve_soc_product(SoCSelection(shape, core, IsaPreset.RV32Max))
+    def config = resolve_soc_config(SoCSelection(shape, core, IsaPreset.RV32Max))
     check:
-      product.description.hart.isa_profile ~is rv32max.isa
-      product.description.hart.vector.elen ~is 32
-      product.description.hart.vector.vlen ~is 64
-      product.description.hart.mmu_type ~is RiscvMmuType.Bare
-      product.udb().to_yaml().contains("{ name: \"Zcf\",") ~is #true
+      config.description.hart.isa_profile ~is rv32max.isa
+      config.description.hart.vector.elen ~is 32
+      config.description.hart.vector.vlen ~is 64
+      config.description.hart.mmu_type ~is RiscvMmuType.Bare
+      config.udb().to_yaml().contains("{ name: \"Zcf\",") ~is #true
 
 // RV64Max preserves RVA23's vector/supervisor contract without H or its dependent guarantees.
 def rva23 = soc_architecture(IsaPreset.RVA23)
@@ -164,15 +164,15 @@ check:
 for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
   for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
     def selection = SoCSelection(shape, core, IsaPreset.RV64Max)
-    def product = resolve_soc_product(selection)
-    def max_udb = product.udb()
-    def rva23_udb = resolve_soc_product(SoCSelection(shape, core, IsaPreset.RVA23)).udb()
+    def config = resolve_soc_config(selection)
+    def max_udb = config.udb()
+    def rva23_udb = resolve_soc_config(SoCSelection(shape, core, IsaPreset.RVA23)).udb()
     check:
       named_soc_selection(selection.key) ~is selection
-      product.description.hart.isa_profile ~is rv64max.isa
-      product.description.hart.vector.vlen ~is 128
-      product.description.hart.vector.elen ~is 64
-      product.description.hart.mmu_type ~is RiscvMmuType.Sv39
+      config.description.hart.isa_profile ~is rv64max.isa
+      config.description.hart.vector.vlen ~is 128
+      config.description.hart.vector.elen ~is 64
+      config.description.hart.mmu_type ~is RiscvMmuType.Sv39
       max_udb.extensions ~is rva23_udb.extensions.filter(~keep: fun (extension): extension.name != "H" && !extension.name.starts_with("Sh"))
       max_udb.to_yaml().contains("  VLEN: 128") ~is #true
       max_udb.to_yaml().contains("  VSSTATUS_VS_EXISTS: false") ~is #true
@@ -195,13 +195,13 @@ for ([preset, abi, prefix, misa] in [[IsaPreset.RV64IMACB, "lp64", "rv64imacb_",
   for (shape in [SoCShape.Mini, SoCShape.Simple, SoCShape.Tiled]):
     for (core in [CoreKind.RV5Stage, CoreKind.Spike]):
       def selection = SoCSelection(shape, core, preset)
-      def product = resolve_soc_product(selection)
-      def udb = product.udb()
+      def config = resolve_soc_config(selection)
+      def udb = config.udb()
       check:
         named_soc_selection(selection.key) ~is selection
-        product.description.hart.isa_profile ~is architecture.isa
-        product.description.hart.vector ~is #false
-        product.description.hart.mmu_type ~is RiscvMmuType.Sv39
+        config.description.hart.isa_profile ~is architecture.isa
+        config.description.hart.vector ~is #false
+        config.description.hart.mmu_type ~is RiscvMmuType.Sv39
         udb.to_yaml().contains("  VLEN:") ~is #false
         (for any (entry in udb.extensions): entry.name == "Sv39") ~is #true
         (for any (entry in udb.extensions): entry.name == "D") ~is (preset == IsaPreset.RV64IMAFDCB)

@@ -30,7 +30,7 @@ make -C sims sail-cosim-test
 ```
 
 These targets do not require a SoC or ISA selection. They validate the library
-boundary, not any product configuration. The tests use explicit RV32 and RV64
+boundary, not any config. The tests use explicit RV32 and RV64
 Sail configurations and execute scalar programs.
 
 Build and run the first end-to-end scalar workload through the normal FESVR loader:
@@ -45,7 +45,7 @@ make -C sims run SOC=mini-rv5stage-rv64imacb COSIM=1 BINARY=/absolute/path/to/pr
 parameter. Builds live in separate `-cosim` directories; Simple can also select
 `TRACE=1` with its required `TRACE_FILE`, producing a `-trace-cosim` build.
 Ordinary simulators contain neither the observer nor the Sail runtime.
-The executable embeds its exact product configuration, boot ROM/DTB, and hart
+The executable embeds its exact config, boot ROM/DTB, and hart
 descriptor, so running it does not require the build directory's JSON files.
 
 ### Scalar execution boundary
@@ -219,10 +219,10 @@ Construct `SailReference` with complete Sail configuration JSON, a reset PC,
 and physical ranges backed by private ROM/RAM. Initialization validates the
 supplied configuration; it does not silently substitute an ISA profile. The
 caller must disable Sail's built-in CLINT and simple interrupt generator.
-The [shared projection](../sail/README.md) consumes the resolved product's UDB;
+The [shared projection](../sail/README.md) consumes the resolved config's UDB;
 ACT and co-simulation use identical hart settings with separate environments.
 
-Generate and initialize a real product configuration with:
+Generate and initialize a real config with:
 
 ```sh
 make -C sims sail-cosim-config-test SOC=mini-rv5stage-rv32int
@@ -231,14 +231,14 @@ make -C sims sail-cosim-config-test SOC=simple-rv5stage-rva23
 
 `sail-cosim-config` generates artifacts without building the adapter. Both targets
 require an explicit ISA, accept Mini/Simple with RV5Stage or Spike, and use the
-same product resolver as the simulator. `COSIM_CONFIG_DIR` defaults to the
+same config resolver as the simulator. `COSIM_CONFIG_DIR` defaults to the
 selected simulator build directory's `cosim/`; `COSIM_PYTHON` defaults to the
 existing ACT Python environment (pyjson5 and ruamel.yaml).
 
-The export retains full product metadata, UDB, configuration fingerprint, and
+The export retains full config metadata, UDB, configuration fingerprint, and
 the actual PMA map, reset address, ROM/RAM backing, and clock/timebase frequencies.
 `sail.json` contains the reference configuration; `manifest.json` binds its
-fingerprint and environment to that product and records known model differences.
+fingerprint and environment to that config and records known model differences.
 The initialization test supplies a tiny ROM probe, not the real firmware image.
 It also checks the exact eight-byte UART aperture: an in-range read is replayed,
 and its immediate unmapped neighbor faults. It validates configuration and

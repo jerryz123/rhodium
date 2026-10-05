@@ -11,7 +11,7 @@ import:
   "isa-profiles.rhm" open
 
 /* Projects the requested ISA into RV5Stage controls, applies shape-specific caches, multiplier, and queue depths, and rejects an inexact ISA projection. */
-fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConfig:
+fun rv5stage_soc_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5StageConfig:
   def architecture = soc_architecture(preset)
   /* Tests extension membership in the requested architecture while constructing implementation controls. */
   def has = fun (name :: String): architecture.has(name)
@@ -47,15 +47,15 @@ fun rv5stage_product_profile(shape :: SoCShape, preset :: IsaPreset) :: RV5Stage
     ~vector_length: architecture.vector_length
   )
   unless profile.isa_profile == architecture.isa
-  | error(~who: #'rv5stage_product_profile, "RV5Stage cannot implement the exact requested architecture: " ++ isa_preset_name(preset))
+  | error(~who: #'rv5stage_soc_profile, "RV5Stage cannot implement the exact requested architecture: " ++ isa_preset_name(preset))
   profile
 
-def single_core_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Simple, IsaPreset.RVA23)
-def mini_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Mini, IsaPreset.RVA23)
-def tiled_rv5stage_soc_core_profile = rv5stage_product_profile(SoCShape.Tiled, IsaPreset.RVA23)
+def single_core_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Simple, IsaPreset.RVA23)
+def mini_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Mini, IsaPreset.RVA23)
+def tiled_rv5stage_soc_core_profile = rv5stage_soc_profile(SoCShape.Tiled, IsaPreset.RVA23)
 
 export:
-  rv5stage_product_profile
+  rv5stage_soc_profile
   single_core_rv5stage_soc_core_profile
   mini_rv5stage_soc_core_profile
   tiled_rv5stage_soc_core_profile

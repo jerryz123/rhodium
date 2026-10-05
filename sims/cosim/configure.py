@@ -9,16 +9,16 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sail.configuration import bits, project_architecture, reference_model_differences
-from sail.product import fingerprint, model_defaults, product_architecture
+from sail.soc_config import fingerprint, model_defaults, config_architecture
 
 
-def checked_product(exported, name):
+def checked_config(exported, name):
     """Keep architecture and physical environment bound to their resolved export."""
     configuration, environment = exported["configuration"], exported["environment"]
     for key in ("configuration", "environment"):
         if fingerprint(exported[key]) != exported[key + "_fingerprint"]:
             raise ValueError(f"{key} fingerprint mismatch")
-    udb = product_architecture(configuration, name)
+    udb = config_architecture(configuration, name)
     if environment["schema"] != 1:
         raise ValueError("unsupported co-simulation environment schema")
     return udb, environment
@@ -118,14 +118,14 @@ def runtime_header(config, manifest):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--product", type=Path, required=True)
+    parser.add_argument("--config", type=Path, required=True)
     parser.add_argument("--name", required=True)
     parser.add_argument("--sail", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--observations", type=Path)
     args = parser.parse_args()
-    exported = json.loads(args.product.read_text())
-    udb, environment = checked_product(exported, args.name)
+    exported = json.loads(args.config.read_text())
+    udb, environment = checked_config(exported, args.name)
     config = project_environment(project_architecture(model_defaults(args.sail, udb["params"]["MXLEN"]), udb), environment)
     args.output.mkdir(parents=True, exist_ok=True)
     config_path = args.output / "sail.json"
@@ -134,7 +134,7 @@ def main():
     # The standalone executable has no host provider and requires its own CLINT.
     differences = reference_model_differences(udb["params"])
     manifest = {
-        "schema": 1, "product": args.name,
+        "schema": 1, "config": args.name,
         "configuration_fingerprint": exported["configuration_fingerprint"],
         "environment_fingerprint": exported["environment_fingerprint"],
         "sail_configuration_fingerprint": fingerprint(config),

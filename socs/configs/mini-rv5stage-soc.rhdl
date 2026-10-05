@@ -1,5 +1,5 @@
 #lang rhodium
-/* Preserves the named compact RV5Stage product API as a specialization of MiniSoC. */
+/* Preserves the named compact RV5Stage config API as a specialization of MiniSoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -27,7 +27,7 @@ fun mini_rv5stage_soc_system_params(ram :: CHIRamParams,
                                     core_profile :: RV5StageConfig = mini_rv5stage_soc_core_profile):
   mini.MiniSoCConfig(rv5stage_hart(core_profile), ram, ~boot: boot).fabric
 
-/* Collects the named compact RV5Stage product's RAM, profile, clocks, and boot layout and exposes their shared fabric and architecture. */
+/* Collects the named compact RV5Stage config's RAM, profile, clocks, and boot layout and exposes their shared fabric and architecture. */
 class MiniRV5StageSoCParams(ram :: CHIRamParams,
                             core_profile :: RV5StageConfig,
                             clocks :: SoCClockConfig,
@@ -41,7 +41,7 @@ class MiniRV5StageSoCParams(ram :: CHIRamParams,
                        core_profile.hart_description,
                        clocks)
 
-  /* Builds the named compact product parameters and rejects non-RV64 profiles; generic MiniSoC owns broader hart support. */
+  /* Builds the named compact config parameters and rejects non-RV64 profiles; generic MiniSoC owns broader hart support. */
   constructor (ram :: CHIRamParams,
                ~core_profile: core_profile :: RV5StageConfig = mini_rv5stage_soc_core_profile,
                ~clocks: clocks :: SoCClockConfig = mini_rv5stage_soc_clocks,

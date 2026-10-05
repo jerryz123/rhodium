@@ -1,5 +1,5 @@
 #lang rhombus
-// Writes the simulator-specific OpenSBI device tree with an HTIF reset endpoint.
+/* Writes the simulator-specific OpenSBI device tree with an HTIF reset endpoint. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -7,8 +7,9 @@ import:
   "../../devicetree/main.rhm" open
   "../../socs/platform/description.rhm".RiscvSoCDescription
   "../program-test/targets.rhm" open
-  "../../socs/products/selection.rhm".parse_isa_preset
+  "../../socs/configs/selection.rhm".parse_isa_preset
 
+/* Adds the simulator's HTIF reset endpoint to the selected SoC's architectural device tree. */
 fun opensbi_device_tree(description :: RiscvSoCDescription):
   def base = description.to_device_tree()
   def root = base.root
@@ -29,7 +30,7 @@ fun opensbi_device_tree(description :: RiscvSoCDescription):
 
 def arguments = current_command_line()
 unless arguments.length() == 2 || arguments.length() == 4
-| error(~who: #'write_opensbi_device_tree, "expected a shape-core-isa product key and output file, or shape, core, ISA, and output file")
+| error(~who: #'write_opensbi_device_tree, "expected a shape-core-isa config key and output file, or shape, core, ISA, and output file")
 def description = if arguments.length() == 4
 | simulator_shape_description(arguments[0], arguments[1], ~isa: parse_isa_preset(arguments[2]))
 | simulator_soc_description(arguments[0])

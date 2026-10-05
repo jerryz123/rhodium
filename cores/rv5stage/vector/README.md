@@ -716,7 +716,7 @@ the macro captures at WB launch; exact sign, min/max, and comparison operations
 do not depend on `frm`; fixed-RTZ conversions also ignore it. `Zvfhmin`
 restricts SEW16 to its two FP-to-FP conversions; full `Zvfh` admits same-width
 FP16 arithmetic, comparisons, reductions, moves, slides, and all applicable
-widening/narrowing forms. The RV32Max product selects F/Zve32f only;
+widening/narrowing forms. The RV32Max config selects F/Zve32f only;
 its native-width FP32 operations share the scalar F service.
 `vfredusum.vs`, `vfredosum.vs`,
 `vfredmin.vs`, and `vfredmax.vs` fold FP32 or FP64 elements through the shared

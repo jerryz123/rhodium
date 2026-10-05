@@ -1,5 +1,5 @@
 #lang rhombus
-/* Projects explicit product architectures into the Spike execution configuration. */
+/* Projects explicit config architectures into the Spike execution configuration. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,7 +11,7 @@ import:
   "isa-profiles.rhm".soc_architecture
 
 /* Builds a PMP-disabled Spike profile with the preset's exact ISA, MMU, and optional vector geometry plus shared cache descriptions. */
-fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
+fun spike_soc_profile(preset :: IsaPreset) :: SpikeConfig:
   def architecture = soc_architecture(preset)
   SpikeConfig(
     RiscvHartDescription(architecture.isa, architecture.mmu,
@@ -21,10 +21,10 @@ fun spike_product_profile(preset :: IsaPreset) :: SpikeConfig:
     ~pmp_regions: 0
   )
 
-def single_core_spike_soc_core_profile = spike_product_profile(IsaPreset.RVA23)
+def single_core_spike_soc_core_profile = spike_soc_profile(IsaPreset.RVA23)
 def single_core_spike_soc_hart_description = single_core_spike_soc_core_profile.hart_description
 
 export:
-  spike_product_profile
+  spike_soc_profile
   single_core_spike_soc_hart_description
   single_core_spike_soc_core_profile

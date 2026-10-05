@@ -1,4 +1,4 @@
-# Checks shared architectural projection and exact-product co-simulation environments.
+# Checks shared architectural projection and exact-config co-simulation environments.
 # SPDX-License-Identifier: Apache-2.0
 import copy
 import json
@@ -13,7 +13,7 @@ SIMS = Path(__file__).resolve().parents[1]
 COSIM = runpy.run_path(str(SIMS / "cosim/configure.py"))
 ACT = runpy.run_path(str(SIMS / "arch-test/configure.py"))
 from sail.configuration import project_architecture, reference_model_differences
-from sail.product import fingerprint, model_defaults
+from sail.soc_config import fingerprint, model_defaults
 from sail.configuration import TRANSFORMED_INSTRUCTION_PARAMETERS
 
 
@@ -40,17 +40,17 @@ class SailConfigurationTest(unittest.TestCase):
         default["extensions"]["H"]["transformed_instruction"] = dict.fromkeys(TRANSFORMED_INSTRUCTION_PARAMETERS, True)
         with patch.dict("sys.modules", {"pyjson5": Mock(decode=json.loads)}):
             for xlen in (32, 64):
-                with patch("sail.product.subprocess.check_output", side_effect=["0.14.1", json.dumps(default)]) as invoke:
+                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(default)]) as invoke:
                     self.assertEqual(model_defaults("sail", xlen), default)
                     args = invoke.call_args.args[0]
                     self.assertEqual("--rv32" in args, xlen == 32)
             for key in ("mcountinhibit", "transformed_instruction"):
                 old = copy.deepcopy(default)
                 del (old["base"] if key == "mcountinhibit" else old["extensions"]["H"])[key]
-                with patch("sail.product.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
+                with patch("sail.soc_config.subprocess.check_output", side_effect=["0.14.1", json.dumps(old)]):
                     with self.assertRaisesRegex(ValueError, "rebuild with arch-test-sail-setup"):
                         model_defaults("old-sail", 64)
-            with patch("sail.product.subprocess.check_output", return_value="0.14.2"):
+            with patch("sail.soc_config.subprocess.check_output", return_value="0.14.2"):
                 with self.assertRaisesRegex(ValueError, "expected Sail 0.14.1"):
                     model_defaults("other-sail", 64)
 
@@ -180,19 +180,19 @@ class SailConfigurationTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             COSIM["project_environment"](project_architecture(self.default(), vector_udb()), env)
 
-    def test_product_and_environment_identity_are_checked(self):
-        config = {"product": "mini-rv5stage-rv32int"}
+    def test_config_and_environment_identity_are_checked(self):
+        config = {"config": "mini-rv5stage-rv32int"}
         env = environment()
         export = {"configuration": config, "environment": env,
                   "configuration_fingerprint": fingerprint(config), "environment_fingerprint": fingerprint(env)}
-        check = COSIM["checked_product"]
-        with patch.dict(check.__globals__, product_architecture=lambda c, n: {"name": n}):
-            self.assertEqual(check(export, config["product"])[1], env)
+        check = COSIM["checked_config"]
+        with patch.dict(check.__globals__, config_architecture=lambda c, n: {"name": n}):
+            self.assertEqual(check(export, config["config"])[1], env)
             for field in ("configuration", "environment"):
                 changed = copy.deepcopy(export)
                 changed[field]["tampered"] = True
                 with self.assertRaises(ValueError):
-                    check(changed, config["product"])
+                    check(changed, config["config"])
 
     def test_reference_differences_remain_explicit(self):
         params = vector_udb()["params"]

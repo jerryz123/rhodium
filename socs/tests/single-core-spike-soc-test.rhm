@@ -6,9 +6,9 @@ import:
   "../../chi/protocol/flits.rhdl" open
   "../../chi/protocol/link.rhdl".CHINodeKind
   "../../riscv/isa/hart.rhm".RiscvMmuType
-  "../products/single-core-spike-soc.rhdl" as soc
-  "../products/isa-profiles.rhm".soc_architecture
-  "../products/selection.rhm".IsaPreset
+  "../configs/single-core-spike-soc.rhdl" as soc
+  "../configs/isa-profiles.rhm".soc_architecture
+  "../configs/selection.rhm".IsaPreset
 
 def params = soc.single_core_spike_soc_params
 def fabric = params.fabric

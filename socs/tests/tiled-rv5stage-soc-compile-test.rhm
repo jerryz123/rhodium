@@ -10,8 +10,8 @@ import:
   "../../cores/rv5stage/profile.rhm" as profile
   "../../riscv/isa/xlen.rhm".XLen
   "../tiled-soc/main.rhdl" as tiled
-  "../products/tiled-rv5stage.rhdl" as tiled_default
-  "../products/core-profiles.rhm" as profiles
+  "../configs/tiled-rv5stage.rhdl" as tiled_default
+  "../configs/core-profiles.rhm" as profiles
   "../tiled-soc/compile.rhdl" as compiler
   "../harts/rv5stage.rhdl".rv5stage_hart
 

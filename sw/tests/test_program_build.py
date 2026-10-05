@@ -87,7 +87,7 @@ class ProgramTargetTest(unittest.TestCase):
                 self.target.validate_target(target)
 
 
-    def test_shared_build_spec_ignores_product_and_microarchitecture_identity(self):
+    def test_shared_build_spec_ignores_config_and_microarchitecture_identity(self):
         first = program_target('simple-rv5stage-rva23')
         second = first | dict(soc='simple-spike-rva23', resolved_configuration={'core': 'spike'},
                               configuration_fingerprint='different')

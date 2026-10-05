@@ -1,5 +1,5 @@
 #lang rhodium
-/* Preserves the named RV5Stage product API as a specialization of SingleCoreSoC. */
+/* Preserves the named RV5Stage config API as a specialization of SingleCoreSoC. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -12,7 +12,7 @@ import:
   "../harts/rv5stage.rhdl".rv5stage_hart
   "core-profiles.rhm".single_core_rv5stage_soc_core_profile
 
-/* Builds the named RV5Stage product's shared external-memory parameters with the selected profile and LLC geometry. */
+/* Builds the named RV5Stage config's shared external-memory parameters with the selected profile and LLC geometry. */
 fun make_single_core_rv5stage_soc_params(
   core_profile :: RV5StageConfig = single_core_rv5stage_soc_core_profile,
   ~llc_sets: llc_sets :: Pow2Int = 512,

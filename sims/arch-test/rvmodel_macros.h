@@ -53,7 +53,7 @@
 #define RVMODEL_MAX_CYCLES_PER_TIMER_TICK 1
 #define RVMODEL_TIMER_INT_SOON_DELAY 5000
 
-// These ACT products have no PMP entries, so S/U mode can directly program
+// These ACT configs have no PMP entries, so S/U mode can directly program
 // the timer near WRS without spending the timer delay inside T-SBI calls.
 #define RVMODEL_SU_TIMER_DIRECT_MMIO 1
 // Every tested privilege can also access the physical UART and PLIC windows.

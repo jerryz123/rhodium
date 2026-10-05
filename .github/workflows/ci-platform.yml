@@ -1,4 +1,4 @@
-# Shares OpenSBI and litmus builds and runs each product's attested simulator independently.
+# Shares OpenSBI and litmus builds and runs each config's attested simulator independently.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI platform
@@ -46,7 +46,7 @@ jobs:
       - name: Generate target and platform build identities
         id: plan
         run: |
-          matrix=$(python3 -c 'import json; from tools.ci.policy import platform_products; print(json.dumps({"include": platform_products()}))')
+          matrix=$(python3 -c 'import json; from tools.ci.policy import platform_configs; print(json.dumps({"include": platform_configs()}))')
           mkdir -p "$RUNNER_TEMP/platform-targets"
           for soc in $(jq -r '[.include[].soc] | unique | .[]' <<< "$matrix"); do
             tools/run-racket.sh -S "$GITHUB_WORKSPACE" sims/program-test/write-target.rhm \
@@ -182,7 +182,7 @@ jobs:
       - name: Restore pinned Spike runtime libraries
         if: contains(matrix.soc, '-spike-')
         uses: ./.github/actions/setup-fesvr
-      - name: Download exact product simulator
+      - name: Download exact config simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ matrix.soc }}-${{ github.sha }}

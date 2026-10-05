@@ -13,7 +13,7 @@ def selections():
         raise ValueError('invalid canonical selection table')
     result = {row[0]: tuple(row[1:]) for row in rows}
     if len(result) != len(rows):
-        raise ValueError('duplicate canonical product key')
+        raise ValueError('duplicate canonical config key')
     return result
 
 
@@ -23,9 +23,9 @@ def select(soc, core=None, isa=None, *, required=True):
     if soc in table:
         axes = table[soc]
         if core is not None and core != axes[1]:
-            raise ValueError('CORE conflicts with the explicit SOC product key')
+            raise ValueError('CORE conflicts with the explicit SOC config key')
         if isa and isa != axes[2]:
-            raise ValueError('ISA conflicts with the explicit SOC product key')
+            raise ValueError('ISA conflicts with the explicit SOC config key')
         return axes
     if soc not in {axes[0] for axes in table.values()}:
         raise ValueError('SOC must be a canonical shape or shape-core-isa key')

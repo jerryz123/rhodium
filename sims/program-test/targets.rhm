@@ -1,18 +1,20 @@
 #lang rhombus
-// Projects software targets from the same resolved products used for hardware and UDB.
+/* Projects software targets from the same resolved configs used for hardware and UDB. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../../socs/products/selection.rhm" open
-  "../../socs/products/resolve.rhm".resolve_soc_product
+  "../../socs/configs/selection.rhm" open
+  "../../socs/configs/resolve.rhm".resolve_soc_config
   "../../socs/platform/description.rhm".RiscvSoCDescription
 
+/* Returns the architectural platform description for a canonical shape-core-ISA key. */
 fun simulator_soc_description(name :: String) :: RiscvSoCDescription:
-  resolve_soc_product(named_soc_selection(name)).description
+  resolve_soc_config(named_soc_selection(name)).description
 
+/* Resolves explicit shape, core, and ISA selectors into their shared platform description. */
 fun simulator_shape_description(shape :: String, core :: String, ~isa: isa :: IsaPreset) :: RiscvSoCDescription:
   def selection = SoCSelection(parse_soc_shape(shape), parse_core_kind(core), isa)
-  resolve_soc_product(selection).description
+  resolve_soc_config(selection).description
 
 export:
   simulator_soc_description

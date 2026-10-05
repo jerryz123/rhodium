@@ -15,7 +15,7 @@ simulation-only memory, clock/reset driver, Verilator binding, and target
 execution. Keep processor, device, CHI, NoC, and synthesizable-memory policy in
 their owning packages. Keep DPI and target-loader behavior out of SoCs.
 
-RV5Stage products contain synthesizable harts. Every Spike product contains
+RV5Stage configs contain synthesizable harts. Every Spike config contains
 the simulation-only `SpikeCore` DPI boundary while retaining the selected
 SoC shape's coherent fabric and platform contract.
 
@@ -28,32 +28,32 @@ owns the public entry-point contract.
 
 Each `(SOC, CORE, ISA)` selection has an isolated build directory; direct SV
 adds a `-verilog` suffix so backend artifacts cannot be reused accidentally.
-CI names all twenty products explicitly and publishes an exact-commit simulator and target
+CI names all twenty configs explicitly and publishes an exact-commit simulator and target
 descriptor for each selected build variant. The additional
-`simple-rv5stage-rva23-verilog` variant reuses its architectural product and runs
+`simple-rv5stage-rva23-verilog` variant reuses its architectural config and runs
 only `smoke`, `host-mmio-test`, and `uart-pty-test`. Software-only changes build
-the six full-suite Single products; simulation changes build all twenty products,
+the six full-suite Single configs; simulation changes build all twenty configs,
 including all four Mini RV32 bindings, plus the direct variant. The host emitter
 selects a hart binding and specializes one of three shape-owned harnesses;
 test-only module paths remain available for focused fixtures. Every selection
-emits the same `SoCHarness` top contract. Preserve product-keyed artifact and
+emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
 target identities so switching any axis cannot reuse another simulator.
 
-The host selection layer now uses `socs/products/resolve.rhm` for hardware,
+The host selection layer now uses `socs/configs/resolve.rhm` for hardware,
 software target descriptions, and UDB. `emit-soc-harness.rhm` and
 `program-test/write-target.rhm` require an explicit third ISA selector (the
-target writer also accepts a complete product key). `product.mk` delegates Make selector validation to the shared dependency-light
-`socs/products/selection.py` and gives hardware, software, and attestations the same canonical
+target writer also accepts a complete config key). `config.mk` delegates Make selector validation to the shared dependency-light
+`socs/configs/selection.py` and gives hardware, software, and attestations the same canonical
 shape-core-ISA identity. There is no ISA default. Spike runtime configuration
 includes exact vector geometry, and its ACT/UDB projection preserves its own
-architectural choices. `test-products.txt` is the sole explicit
-twenty-product inventory, consumed by CI and the typed `test-products.rhm` view, separate from implementation support and workload
+architectural choices. `test-configs.txt` is the sole explicit
+twenty-config inventory, consumed by CI and the typed `test-configs.rhm` view, separate from implementation support and workload
 policy. Its focused contract test runs with the SoC host lane. CI callers now
 use complete keys without expanding the workload inventory. ACT configuration
-must match the selected product. Product-independent
+must match the selected config. Config-independent
 setup and host adapter tests remain usable without an ISA selection.
 
-Product metadata is projected by `socs/products/metadata.rhm`, not reconstructed
+Config metadata is projected by `socs/configs/metadata.rhm`, not reconstructed
 in Python. The target JSON embeds that snapshot and its SHA-256; the harness emitter
 writes the same fingerprint into either MLIR or direct SV. `simulator` records an attestation only after matching
 those identities, and includes the selected backend and harness variant. The
@@ -73,7 +73,7 @@ artifact to attestation. Keep compiler/backend imports in the host emitter,
 never in circuit definitions. CI uses `simulator_id` for artifact/build paths,
 `soc` for the unchanged hardware/software target, and `backend` to select
 backend-specific tests. Backend variants stay out of architectural
-product, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
+config, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
 supported.
 Direct RTL can retain unsigned comparisons against zero and type bounds after
 parameter specialization. Permit the additional `UNSIGNED` and `CMPCONST`
@@ -85,7 +85,7 @@ and runtime assertions.
 | Concern | Owner |
 |---|---|
 | Build graph, tools, variants, and artifacts | [`Makefile`](Makefile) |
-| Required ISA selection and canonical Make artifact identity | [`product.mk`](product.mk) |
+| Required ISA selection and canonical Make artifact identity | [`config.mk`](config.mk) |
 | Shared dynamic harness emitter | [`emit-soc-harness.rhm`](emit-soc-harness.rhm) |
 | Shared external-memory single-core execution harness | [`single-core-soc-harness.rhdl`](single-core-soc-harness.rhdl) |
 | Distinct internal-RAM and tiled harness circuits | [`mini-soc-harness.rhdl`](mini-soc-harness.rhdl), [`tiled-soc-harness.rhdl`](tiled-soc-harness.rhdl) |
@@ -101,7 +101,7 @@ and runtime assertions.
 | SoC target generation, workload execution, and simulator artifacts | [`program-test/`](program-test/) |
 | Bare-metal litmus ELF generation and pinned model states | [`../sw/`](../sw/DEVELOPING.md) |
 | Embedded Sail library boundary and focused host validation | [`cosim/`](cosim/README.md) |
-| Shared UDB-to-Sail architectural projection and product identity | [`sail/`](sail/README.md) |
+| Shared UDB-to-Sail architectural projection and config identity | [`sail/`](sail/README.md) |
 | ACT platform configuration and execution adapter | [`arch-test/`](arch-test/) |
 | OpenSBI DTB projection, simulator handoff, and validation | [`opensbi/`](opensbi/DEVELOPING.md) |
 | CHI simulation memory | [`../chi/subordinate/dpi-memory.rhdl`](../chi/subordinate/dpi-memory.rhdl) and [`../chi/subordinate/dpi/`](../chi/subordinate/dpi/) |
@@ -118,10 +118,10 @@ and private-memory contract is separate from ACT placement/signature policy.
 Perfetto, pipeline stages, and completion-slot allocation.
 
 `cosim/scalar-checker.*` consumes complete ordered records and compares independent
-Sail execution. `cosim/simulation.*` owns the single-hart runtime, embedded product
+Sail execution. `cosim/simulation.*` owns the single-hart runtime, embedded config
 configuration, ROM loading, successful FESVR-write mirroring, and sticky failures.
 `COSIM=1` selects the pass/runtime in the simulator build, independently from the
-HDL generator. Keep its narrow supported-product guard until new event families
+HDL generator. Keep its narrow supported-config guard until new event families
 have end-to-end validation; never run an unsupported profile unchecked.
 `TestDriver.v` begins samples before rising edges and ends them before falling
 edges, outside the generated DPI callback ordering. Finalization checks both
@@ -177,7 +177,7 @@ driver owns begin/end-sample barriers outside unordered DPI callbacks.
 
 `sail/configuration.py` owns the common architecture projection and explicit
 model-difference report. Keep ACT placement/signatures and synthetic devices in
-`arch-test/configure.py`. `cosim/write-product.rhm` exports canonical metadata
+`arch-test/configure.py`. `cosim/write-config.rhm` exports canonical metadata
 and the resolved Mini/Simple hart PMAs, reset layout, backing ranges, and clocks;
 `cosim/configure.py` composes that environment with the shared architecture.
 The export includes the actual boot ROM/DTB bytes. With an observation descriptor,
@@ -192,8 +192,8 @@ separate Sail PMA switch; its executable permission remains explicit.
 
 Run `make -C sims arch-test-adapter-test` for projection changes (includes shared
 environment tests). After exporter or environment changes, run
-`make -C sims sail-cosim-config-test SOC=<product>` for representative Mini/Simple,
-RV32/RV64, and RV5Stage/Spike products. This validates the exact profile and
+`make -C sims sail-cosim-config-test SOC=<config>` for representative Mini/Simple,
+RV32/RV64, and RV5Stage/Spike configs. This validates the exact profile and
 retires a ROM probe without RTL or firmware boot. Known model differences remain
 in the generated manifest. Configuration and environment fingerprints establish
 artifact identity, not full execution validation or trust in arbitrary input.
@@ -213,7 +213,7 @@ data effects, not infer the distinction from addresses.
 The subpage-device PMA patch permits the exact eight-byte UART aperture only
 under unsplittable, non-executable, non-atomic IO attributes. Page-table transfers
 retain ordinary physical read/write permissions and full-range checks.
-Normal memory retains Sail's page-alignment requirements. Product initialization
+Normal memory retains Sail's page-alignment requirements. Config initialization
 tests replay a UART byte and require a load access fault immediately outside its
 aperture. Validate co-simulation configurations inside `SailReference`, not with
 the standalone executable: Zicntr without CLINT requires the enabled host-time
@@ -223,7 +223,7 @@ After changing embedding hooks, rebuild with `make -C sims arch-test-sail-setup`
 (set `SAIL_COMPILER` on hosts without a downloadable compiler). Run
 `make -C sims sail-cosim-test` for the minimum validation. It uses real
 generated Sail execution, explicit RV32/RV64 configurations, and the existing
-FESVR transport in the same binary. The build is product-independent and
+FESVR transport in the same binary. The build is config-independent and
 identity-scoped under `.rhodium-cache/sail-cosim/`. Tests must exercise trap
 boundaries and raw MMIO read semantics, not substitute destination values or
 compare model state against itself. After runtime, loader mirroring, or driver
@@ -445,7 +445,7 @@ transaction distinction when checking expected traffic.
 ### Other simulation contracts
 
 The ACT flow is included from `arch-test/Makefile.inc`.
-`arch-test/write-platform.rhm` resolves the selected product once and writes its
+`arch-test/write-platform.rhm` resolves the selected config once and writes its
 implementation-specific UDB alongside generated `platform.json`.
 `arch-test/platform.rhm` derives the payload RAM window and entry point from
 the SoC description and finds a page-sized hole outside its described RAM,
@@ -454,7 +454,7 @@ is large enough for scalar and vector tests, fits the physical address width,
 and does not overlap a Sail memory region before publishing
 `RVMODEL_ACCESS_FAULT_ADDRESS`. No per-core or per-ISA Make configuration is
 authored. ACT currently accepts the Simple shape; adding another shape requires
-validating its platform macros and memory capacity, not adding a product table.
+validating its platform macros and memory capacity, not adding a config table.
 Processor extension policy stays in the owning core's UDB projection. The common
 `configure.py` writes generated UDB consumer files, using `sail/` for the pinned
 default schema and explicit UDB mappings. Reject unsupported architecture
@@ -579,7 +579,7 @@ and exercise a small `+max-cycles` timeout. See the
 [operator guide](README.md#architectural-certification-tests) for setup and
 current coverage limits.
 
-`sims/tests/product-test.rhm` checks ACT platform equivalence across core
+`sims/tests/config-test.rhm` checks ACT platform equivalence across core
 bindings and relocation through the SoC description. The ACT writer is in the
 root Racket compilation manifest so configuration generation can reuse CI bytecode.
 
@@ -594,7 +594,7 @@ Setup, barriers, function returns, signatures, and HTIF exit are outside the
 constrained loop. The linker keeps code, shared counters, and page tables
 separate. Bare and supervisor Sv39 executables use the same identity-mapped
 RAM, with independent 4-KiB leaf mappings and preset A/D bits. MiniRV5StageSoC places
-its page tables inside its 64-KiB RAM; all RVA23 products use halfword boundary
+its page tables inside its 64-KiB RAM; all RVA23 configs use halfword boundary
 starts. The payload checks `misa.C`
 against the selected alignment, and the linker rejects out-of-RAM placement.
 
@@ -675,24 +675,24 @@ duplicate ISA, topology, or RAM constants in Python. A manifest test may select
 a nonempty canonical subset through `harts`. The runner validates that subset
 against the target and translates it to `+boot-harts=`; tests without the field
 retain the hart-zero default.
-Both Single-core RVA23 products own the complete profile-selected ISA inventory,
+Both Single-core RVA23 configs own the complete profile-selected ISA inventory,
 benchmarks, CoreMark, Embench-IoT, and Bringup-Bench. Both single-core SoCs own independent ACT configurations:
 Spike's UDB projection reflects its pinned implementation, and RV5Stage uses
 its own projection. Each Sail configuration and generated ELF inventory must
 match the implementation under test.
-All four Simple RV32 products additionally select their full upstream ISA inventory
+All four Simple RV32 configs additionally select their full upstream ISA inventory
 and ACT in CI. Program suite selection is keyed by shape/ISA in `tools/ci/policy.py`;
 RV64 benchmark ports remain outside RV32 coverage. ACT projects XLEN, physical
 addressability, indexed-memory EEW and vector geometry independently. RV32
-products use 32-bit physical addresses and disable PMP; both retain the platform's
+configs use 32-bit physical addresses and disable PMP; both retain the platform's
 44-bit CHI fabric. Generate each core's own Sail
 expectations; never reuse one implementation's WARL/PMP claims for the other.
-The six CI Mini products and both Tiled products use capability-filtered ISA smoke.
+The six CI Mini configs and both Tiled configs use capability-filtered ISA smoke.
 For each of `rv64max`, `rv64imacb`, and `rv64imafdcb`, only the paired Simple
-products are enrolled. These six products run only `isa-smoke`: no platform suite, full
+configs are enrolled. These six configs run only `isa-smoke`: no platform suite, full
 native ISA suite, ACT, benchmarks, OpenSBI, or litmus. Keep this policy keyed by
 shape/ISA so RV5Stage and Spike exercise the same capability-filtered selection.
-Both Tiled products additionally own the focused upstream multihart benchmark selection. The
+Both Tiled configs additionally own the focused upstream multihart benchmark selection. The
 Make targets and CI select only eight participating harts, retaining all three
 workloads without repeating them at smaller hart counts. The
 adapter materializes a private build-tree view of the pinned benchmark sources
@@ -720,7 +720,7 @@ upstream virtual environment owns its own stack and page tables. Keep its
 fixed `0x80000000` linker and DRAM assumptions compatible with each selected
 SoC, or adapt those assumptions before adding another RAM layout.
 
-The root simulator matrix starts one reusable build-to-harness chain per product.
+The root simulator matrix starts one reusable build-to-harness chain per config.
 Each producer publishes its exact-commit simulator and target descriptor before
 its own harness starts; no harness waits for unrelated simulator builds.
 `ci-harness.yml` downloads and verifies those artifacts. Ordinary RV5Stage
@@ -731,7 +731,7 @@ descriptor is an error, never permission to regenerate it. Native DPI/transport,
 co-simulation hook, and runtime checks run in the Simple RV5Stage CIRCT producer.
 Mapped Mini execution
 retains its separate build dependencies; Spike consumers retain their runtime
-library setup. Products other than the three Simple smoke-only
+library setup. Configs other than the three Simple smoke-only
 presets run platform checks; Mini
 and Tiled profiles run `isa-smoke`, and both Tiled cores run multihart
 benchmarks. `tools/ci/policy.py` selects software targets by `(shape, ISA)` only;
@@ -750,11 +750,11 @@ hardware configuration unchanged during these comparisons.
 Program suite CI first generates the selected program targets using the shared
 Rhodium bytecode, then `tools/ci/programs.py` groups builds by the suite-specific
 projection in `sw/build/program_target.py`. Groups use actual target fields,
-not a shape/ISA naming assumption. The six program-suite Simple products produce
+not a shape/ISA naming assumption. The six program-suite Simple configs produce
 eight build groups and sixteen execution jobs. Build jobs consume
 `PREBUILT_PROGRAM_TARGET`, compile once per group, and publish checksum-bearing
 archives; their caches are keyed by the group and software inputs rather than
-the simulator product. `sw/build/bind.py` validates each archive against the
+the simulator config. `sw/build/bind.py` validates each archive against the
 execution job's downloaded target and writes its separate run manifest.
 `isa-run`, `benchmark-run`, `coremark-run`, `coremark_scalar-run`, `embench-run`,
 and `bringup-run` run that manifest through the ordinary attested simulator
@@ -764,7 +764,7 @@ they attempt every successfully published group even if another build failed.
 Program adapter contracts run once in the planning job. Platform tests
 use the same grouping/archive/binding machinery in `ci-platform.yml`:
 `platform-plan` emits targets and OpenSBI DTBs, `platform-build`
-compiles each compatible group, and `platform` executes every product.
+compiles each compatible group, and `platform` executes every config.
 `litmus-smoke-run` and `opensbi-smoke-run` consume existing bound manifests;
 neither depends on a builder. The OpenSBI test entry carries a checksum-bearing
 auxiliary `payload`, passed through FESVR's existing `+payload` option; its DTB
@@ -791,7 +791,7 @@ Simple RV32Int/RV32Max use these same width-selected platform payloads on both c
 but the external-memory shape runs the full applicable upstream ISA inventory
 with `isa-test`. Keep architectural selection identical while preserving
 RV5Stage's pipelined multiplier and larger queues/caches. The core-independent
-CI inventory includes all four products. Their ISA and ACT lanes retain
+CI inventory includes all four configs. Their ISA and ACT lanes retain
 the same shape/ISA selection policy; selecting a lane does not claim ACT validation.
 
 The architectural `zihintntl-test` checks translated integer/FP hinted loads and
@@ -856,7 +856,7 @@ by index modulo shard count. Its tests enforce disjoint full coverage and safe
 replacement of stale shard links. Shard inventories and results are artifacts;
 all configured matrix jobs must complete to claim full execution coverage.
 
-Each product CI build publishes `VTestDriver` and its JSON attestation. Consumers
+Each config CI build publishes `VTestDriver` and its JSON attestation. Consumers
 set `PREBUILT_SIMULATOR` to the downloaded executable. This bypasses native
 build prerequisites and verifies commit, platform, SoC, and binary hash before
 execution; missing artifacts must fail rather than silently build a replacement.

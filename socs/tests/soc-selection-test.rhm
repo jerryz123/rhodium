@@ -1,10 +1,10 @@
 #lang rhombus
-// Checks that both core selections compose through the shared explicit product resolver.
+// Checks that both core selections compose through the shared explicit config resolver.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../products/hart-selection.rhm".soc_hart
-  "../products/selection.rhm".IsaPreset
+  "../configs/hart-selection.rhm".soc_hart
+  "../configs/selection.rhm".IsaPreset
   "../mini-soc/main.rhdl" as mini
   "../single-core-soc/main.rhdl" as single
   "../tiled-soc/main.rhdl" as tiled

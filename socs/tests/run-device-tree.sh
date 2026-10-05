@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Cross-checks RV5Stage and requested Spike product DTBs against standard device-tree tools.
+# Cross-checks RV5Stage and requested Spike config DTBs against standard device-tree tools.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 

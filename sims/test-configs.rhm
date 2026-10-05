@@ -1,0 +1,12 @@
+#lang rhombus
+/* Lists the paired shape/ISA test configs independently of workload policy. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("socs/configs/selection.rhm") open
+  "test-config-data.rkt".test_config_names
+
+def TestConfigs :: List.of(SoCSelection) = test_config_names.map(named_soc_selection)
+
+export:
+  TestConfigs

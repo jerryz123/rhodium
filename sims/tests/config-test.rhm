@@ -1,12 +1,12 @@
 #lang rhombus
-// Checks product identities and core-independent ACT platform projection.
+// Checks config identities and core-independent ACT platform projection.
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../test-products.rhm".TestProducts
-  lib("socs/products/selection.rhm") open
-  lib("socs/products/resolve.rhm").resolve_soc_product
-  lib("socs/products/metadata.rhm") open
+  "../test-configs.rhm".TestConfigs
+  lib("socs/configs/selection.rhm") open
+  lib("socs/configs/resolve.rhm").resolve_soc_config
+  lib("socs/configs/metadata.rhm") open
   lib("socs/harts/rv5stage.rhdl").rv5stage_hart
   lib("socs/harts/spike.rhdl").spike_hart
   lib("socs/single-core-soc/main.rhdl").single_core_soc_config
@@ -16,7 +16,7 @@ import:
   lib("rhodium/std/interconnect.rhdl").AddressSet
   "../arch-test/platform.rhm".ActPlatform
 
-def names = TestProducts.map(fun (product :: SoCSelection): product.key)
+def names = TestConfigs.map(fun (config :: SoCSelection): config.key)
 check:
   names ~is [
     "mini-rv5stage-rv32int",
@@ -40,51 +40,51 @@ check:
     "tiled-rv5stage-rva23",
     "tiled-spike-rva23"
   ]
-for (product in TestProducts):
-  def resolved = resolve_soc_product(product)
-  def metadata = product_metadata(resolved)
+for (config in TestConfigs):
+  def resolved = resolve_soc_config(config)
+  def metadata = config_metadata(resolved)
   check:
-    named_soc_selection(product.key) ~is product
-    names.filter(~keep: fun (name): name == product.key).length() ~is 1
-    metadata["product"] ~is product.key
+    named_soc_selection(config.key) ~is config
+    names.filter(~keep: fun (name): name == config.key).length() ~is 1
+    metadata["config"] ~is config.key
     metadata_fingerprint(metadata).length() ~is 64
-    metadata_fingerprint(product_metadata(resolve_soc_product(product))) ~is metadata_fingerprint(metadata)
+    metadata_fingerprint(config_metadata(resolve_soc_config(config))) ~is metadata_fingerprint(metadata)
     metadata_json(metadata).contains("#<procedure") ~is #false
     metadata_json(metadata).contains("#<function") ~is #false
-  when product.core == CoreKind.Spike
+  when config.core == CoreKind.Spike
   | block:
       def profile :: SpikeConfig = resolved.hart.profile
       check: profile.max_retired_instructions_per_cycle ~is 64
 
 // Implementation changes must invalidate artifacts even when the ISA stays identical.
-def hardware = resolve_soc_product(named_soc_selection("simple-rv5stage-rva23"))
+def hardware = resolve_soc_config(named_soc_selection("simple-rv5stage-rva23"))
 def profile :: RV5StageConfig = hardware.hart.profile
 def deeper = single_core_soc_config(rv5stage_hart(profile with (data_cache_service_queue_depth = 8)))
 def larger = single_core_soc_config(hardware.hart, ~llc_sets: 128)
 check:
-  metadata_fingerprint(product_metadata(hardware, deeper)) == metadata_fingerprint(product_metadata(hardware)) ~is #false
-  metadata_fingerprint(product_metadata(hardware, larger)) == metadata_fingerprint(product_metadata(hardware)) ~is #false
+  metadata_fingerprint(config_metadata(hardware, deeper)) == metadata_fingerprint(config_metadata(hardware)) ~is #false
+  metadata_fingerprint(config_metadata(hardware, larger)) == metadata_fingerprint(config_metadata(hardware)) ~is #false
 
-def model = resolve_soc_product(named_soc_selection("simple-spike-rva23"))
+def model = resolve_soc_config(named_soc_selection("simple-spike-rva23"))
 def slower = single_core_soc_config(spike_hart(SpikeConfig(model.hart.description, ~max_retired_instructions_per_cycle: 2, ~pmp_regions: 0)))
 check:
-  metadata_fingerprint(product_metadata(model, slower)) == metadata_fingerprint(product_metadata(model)) ~is #false
+  metadata_fingerprint(config_metadata(model, slower)) == metadata_fingerprint(config_metadata(model)) ~is #false
 
 for (isa in [IsaPreset.RV32Int, IsaPreset.RV32Max, IsaPreset.RVA23]):
   def platforms = for List (core in [CoreKind.RV5Stage, CoreKind.Spike]):
-    def product = resolve_soc_product(SoCSelection(SoCShape.Simple, core, isa))
-    def platform = ActPlatform(product.description)
+    def config = resolve_soc_config(SoCSelection(SoCShape.Simple, core, isa))
+    def platform = ActPlatform(config.description)
     check:
       platform.ram.base ~is 0x80000000
       platform.ram.size_bytes ~is 0x40000000
-      platform.test_base ~is product.description.boot.payload_address
+      platform.test_base ~is config.description.boot.payload_address
       platform.access_fault_address ~is 0
       platform.access_fault_bytes ~is 4096
     platform.to_json("same-platform")
   check: platforms[0] ~is platforms[1]
 
-// Relocation and a second RAM window must follow the description, not a product table.
-def base = resolve_soc_product(named_soc_selection("simple-spike-rv32max")).description
+// Relocation and a second RAM window must follow the description, not a config table.
+def base = resolve_soc_config(named_soc_selection("simple-spike-rv32max")).description
 def relocated = base with (
   memory_regions = [SoCAddressRegion(AddressSet(0, 0xfff)), SoCAddressRegion(AddressSet(0x90000000, 0xfffff))],
   boot = RiscvBootLayout(

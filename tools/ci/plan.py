@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_PRODUCTS, SINGLE_CORE_SOCS, native_products, simulation_entry, simulator_entry, DIRECT_SMOKE_PRODUCT, arch_products, arch_shards
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, DIRECT_SMOKE_CONFIG, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -43,7 +43,7 @@ class Selection:
     def classify(self, path):
         documentation = matches(path, "*.md", "LICENSE", "LICENSE.*", "NOTICE", "DCO", "AGENTS.md", ".gitignore", ".gitattributes")
 
-        # Native workloads and ACT cover selected single-core products independently
+        # Native workloads and ACT cover selected single-core configs independently
         # of host, example, and CIRCT checks.
         if documentation or matches(path, "tools/emacs/*"):
             pass
@@ -87,7 +87,7 @@ class Selection:
             return
         elif matches(path, ".github/workflows/*", ".github/actions/*", "tools/ci/*"):
             self.all()
-        elif matches(path, "sims/arch-test/*.rhm", "sims/tests/product-test.rhm"):
+        elif matches(path, "sims/arch-test/*.rhm", "sims/tests/config-test.rhm"):
             self.add_checks("host-socs")
         elif matches(path, "sims/arch-test/*", "sims/tests/test_arch_test.py", "sims/sail/*", "sims/tests/test_sail_config.py",
                      "sw/build/build-coremark.py", "sw/build/build-embench.py",
@@ -216,18 +216,18 @@ class Selection:
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
                 continue
-            suites["include"].extend({"soc": soc, "suite": suite} for soc in native_products(suite))
+            suites["include"].extend({"soc": soc, "suite": suite} for soc in native_configs(suite))
             if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar"} for soc in native_products(suite))
+                suites["include"].extend({"soc": soc, "suite": "coremark_scalar"} for soc in native_configs(suite))
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch
-        products = (SIMULATOR_PRODUCTS if self.simulation else
-                    tuple(product for product in SIMULATOR_PRODUCTS if product[0] in SINGLE_CORE_SOCS))
+        configs = (SIMULATOR_CONFIGS if self.simulation else
+                    tuple(config for config in SIMULATOR_CONFIGS if config[0] in SINGLE_CORE_SOCS))
         entry = simulation_entry if self.simulation else simulator_entry
-        builds = [entry(*product) for product in products] if run_simulator else []
+        builds = [entry(*config) for config in configs] if run_simulator else []
         if self.simulation:
-            builds.append(simulation_entry(*DIRECT_SMOKE_PRODUCT, backend="verilog"))
+            builds.append(simulation_entry(*DIRECT_SMOKE_CONFIG, backend="verilog"))
         return {
             "run_compile": run_checks or run_simulator,
             "run_checks": run_checks,
@@ -238,7 +238,7 @@ class Selection:
             "run_program_native": run_program_native,
             "program_matrix": suites,
             "run_program_arch": self.arch,
-            "arch_build_matrix": {"include": list(arch_products()) if self.arch else []},
+            "arch_build_matrix": {"include": list(arch_configs()) if self.arch else []},
             "arch_run_matrix": {"include": list(arch_shards()) if self.arch else []},
         }
 

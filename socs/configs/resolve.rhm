@@ -1,11 +1,11 @@
 #lang rhombus
-/* Resolves typed products once for hardware composition, architectural descriptions, and UDB projection. */
+/* Resolves typed configs once for hardware composition, architectural descriptions, and UDB projection. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "selection.rhm" open
-  "core-profiles.rhm".rv5stage_product_profile
-  "spike-core-profile.rhm".spike_product_profile
+  "core-profiles.rhm".rv5stage_soc_profile
+  "spike-core-profile.rhm".spike_soc_profile
   "../harts/implementation.rhdl".RiscvHartImplementation
   "../harts/rv5stage.rhdl".rv5stage_hart
   "../harts/spike.rhdl".spike_hart
@@ -21,12 +21,12 @@ import:
   lib("riscv/udb.rhm").UdbConfiguration
 
 /* Resolves one typed selection into a hart binding shared by hardware configuration, architecture, and UDB projection. */
-class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementation):
+class ResolvedSoCConfig(selection :: SoCSelection, hart :: RiscvHartImplementation):
   /* Applies the selected core's profile factory to the explicit architecture and, for RV5Stage, shape-specific implementation policy. */
   constructor (selection :: SoCSelection):
     def hart = match selection.core
-    | CoreKind.RV5Stage: rv5stage_hart(rv5stage_product_profile(selection.shape, selection.isa))
-    | CoreKind.Spike: spike_hart(spike_product_profile(selection.isa))
+    | CoreKind.RV5Stage: rv5stage_hart(rv5stage_soc_profile(selection.shape, selection.isa))
+    | CoreKind.Spike: spike_hart(spike_soc_profile(selection.isa))
     super(selection, hart)
 
   property key :: String: selection.key
@@ -51,10 +51,10 @@ class ResolvedSoCProduct(selection :: SoCSelection, hart :: RiscvHartImplementat
         def profile :: SpikeConfig = hart.profile
         spike_udb_configuration(profile, name, "Rhodium " ++ key)
 
-/* Creates the common resolved product used by hardware and architecture-facing consumers. */
-fun resolve_soc_product(selection :: SoCSelection) :: ResolvedSoCProduct:
-  ResolvedSoCProduct(selection)
+/* Creates the common resolved config used by hardware and architecture-facing consumers. */
+fun resolve_soc_config(selection :: SoCSelection) :: ResolvedSoCConfig:
+  ResolvedSoCConfig(selection)
 
 export:
-  ResolvedSoCProduct
-  resolve_soc_product
+  ResolvedSoCConfig
+  resolve_soc_config

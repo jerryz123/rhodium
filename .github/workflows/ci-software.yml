@@ -1,4 +1,4 @@
-# Shares program ELF builds across compatible SoCs and runs per-product and architectural tests.
+# Shares program ELF builds across compatible SoCs and runs per-config and architectural tests.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI software
@@ -19,7 +19,7 @@ on:
         required: true
         type: boolean
       arch-build-matrix:
-        description: JSON ACT product matrix from the shared inventory.
+        description: JSON ACT config matrix from the shared inventory.
         required: true
         type: string
       arch-run-matrix:
@@ -142,7 +142,7 @@ jobs:
           esac
           make -C sims "$build_target" SOC="$SOC" \
             PREBUILT_PROGRAM_TARGET="$RUNNER_TEMP/program-targets/$SOC.json" \
-            PROGRAM_PRODUCT_ROOT="/tmp/rhodium-program-builds/$BUILD_ID" \
+            PROGRAM_CONFIG_ROOT="/tmp/rhodium-program-builds/$BUILD_ID" \
             2>&1 | tee "$RUNNER_TEMP/program-logs/$SUITE.log"
           python3 sims/program-test/archive.py \
             --manifest "/tmp/rhodium-program-builds/$BUILD_ID/$SUITE/manifest.json" \
@@ -371,7 +371,7 @@ jobs:
       - name: Check GEILEN-dependent Sail CSR aliases
         if: matrix.configuration == 'simple-rv5stage-rva23'
         run: make -C sims arch-test-sail-test ACT_CONFIGURATION=${{ matrix.configuration }}
-      - name: Cache ACT reference products
+      - name: Cache ACT reference outputs
         if: steps.act-payload.outputs.cache-hit != 'true'
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

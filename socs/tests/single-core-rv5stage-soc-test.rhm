@@ -9,7 +9,7 @@ import:
   "../../chi/protocol/link.rhdl".CHINodeKind
   "../../chi/noc/noc-adapter.rhdl".CHIChannelAdapterPlan
   "../../riscv/isa/fp-profile.rhm".HalfPrecisionProfile
-  "../../socs/products/single-core-rv5stage-soc.rhdl" as soc
+  "../../socs/configs/single-core-rv5stage-soc.rhdl" as soc
 
 def params = soc.single_core_rv5stage_soc_params
 def fabric = params.fabric

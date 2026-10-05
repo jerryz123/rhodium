@@ -1,4 +1,4 @@
-// Initializes an exported product without weakening its architectural configuration.
+// Initializes an exported config without weakening its architectural configuration.
 // SPDX-License-Identifier: Apache-2.0
 #include "sail-reference.h"
 #include <jsoncons/json.hpp>
@@ -42,7 +42,7 @@ int main(int argc, char** argv) {
     reference.load(reset, addi);
     const auto step = reference.step();
     if (!step.retired || step.trap || reference.integer_register(1) != 7)
-      throw std::runtime_error("product ROM probe did not retire");
+      throw std::runtime_error("config ROM probe did not retire");
     for (const auto& region : model_config["memory"]["regions"].array_range()) {
       const auto size = std::stoull(region["size"]["value"].as<std::string>(), nullptr, 0);
       if (size >= 4096) continue;
@@ -67,7 +67,7 @@ int main(int argc, char** argv) {
       if (!fault.trap || fault.trap->interrupt || fault.trap->cause != 5 || fault.retired)
         throw std::runtime_error("neighboring device address must produce a load access fault");
     }
-    std::cout << manifest["product"].as<std::string>() << ": initialized and retired ROM probe\n";
+    std::cout << manifest["config"].as<std::string>() << ": initialized and retired ROM probe\n";
     return 0;
   } catch (const std::exception& error) {
     std::cerr << error.what() << '\n';

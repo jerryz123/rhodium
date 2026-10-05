@@ -1,4 +1,4 @@
-# Loads identity-bound product architecture and defaults from the pinned Sail executable.
+# Loads identity-bound config architecture and defaults from the pinned Sail executable.
 # SPDX-License-Identifier: Apache-2.0
 import hashlib
 import json
@@ -9,14 +9,14 @@ def fingerprint(value):
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()).hexdigest()
 
 
-def product_architecture(configuration, name, udb=None):
-    """Use the resolved product's UDB, optionally checking an accompanying export."""
+def config_architecture(configuration, name, udb=None):
+    """Use the resolved config's UDB, optionally checking an accompanying export."""
     from ruamel.yaml import YAML
     resolved = YAML(typ="safe").load(configuration["udb"])
-    if configuration.get("schema") != 1 or configuration.get("product") != name:
-        raise ValueError("configuration must identify the selected product")
+    if configuration.get("schema") != 1 or configuration.get("config") != name:
+        raise ValueError("configuration must identify the selected config")
     if configuration["xlen"] != resolved["params"]["MXLEN"] or (udb is not None and resolved != udb):
-        raise ValueError("UDB differs from its resolved product configuration")
+        raise ValueError("UDB differs from its resolved config")
     return resolved
 
 

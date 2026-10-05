@@ -150,7 +150,7 @@ occurrence-aware schema 2 flow so repeated instances and inferred decisions
 are explicit.
 
 All MLIR, inventories, wrappers, manifests, lowered RTL, and simulator build
-products are generated artifacts and stay outside version control.
+artifacts are generated and stay outside version control.
 
 ## Failure boundaries
 

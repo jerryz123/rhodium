@@ -13,13 +13,13 @@ import subprocess
 # Script and runpy callers share the simulation-owned projection package.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from sail.configuration import bits, encoded_integer, project_architecture, reference_model_differences
-from sail.product import fingerprint, model_defaults, product_architecture
+from sail.soc_config import fingerprint, model_defaults, config_architecture
 
 
 def platform_settings(platform, name):
     """Check the generated platform identity and payload memory contract."""
     if platform["name"] != name:
-        raise ValueError("ACT platform must match the selected product")
+        raise ValueError("ACT platform must match the selected config")
     settings = {key: platform[key] for key in (
         "ram_origin", "ram_bytes", "test_base", "access_fault_address", "access_fault_bytes"
     )}
@@ -124,7 +124,7 @@ def main():
         parser.error(f"Sail executable not found: {args.sail}; run arch-test-setup")
     udb = YAML(typ="safe").load(args.udb)
     configuration = json.loads(args.udb.with_name("configuration.json").read_text())
-    product_architecture(configuration, args.name, udb)
+    config_architecture(configuration, args.name, udb)
     configuration_fingerprint = fingerprint(configuration)
     default = model_defaults(sail, udb["params"]["MXLEN"])
     config = sail_config(default, udb, args.ram_origin, args.ram_bytes)

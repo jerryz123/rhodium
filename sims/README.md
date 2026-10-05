@@ -21,8 +21,8 @@ including the `tests/` exemption.
 the hart implementation; `ISA=rv32int|rv32max|rv64imacb|rv64imafdcb|rv64max|rva23` is required. There is no implicit
 ISA. Alternatively pass a complete key such as `SOC=mini-rv5stage-rva23`.
 Both forms produce the same canonical artifact identity. Shape and core default to `simple` and
-`rv5stage` only when not supplied; ISA must always be explicit. The [canonical selector table](../socs/products/selections.tsv)
-serves both Make and typed host selection; the [CI inventory](test-products.txt)
+`rv5stage` only when not supplied; ISA must always be explicit. The [canonical selector table](../socs/configs/selections.tsv)
+serves both Make and typed host selection; the [CI inventory](test-configs.txt)
 is an explicit subset, not a Cartesian-product test matrix.
 
 Each simulator includes a resolved configuration fingerprint covering its hart,
@@ -38,7 +38,7 @@ configuration and are rejected before execution if it differs from the simulator
 | `tiled` | One `CHIDPIMemory` | Eight harts and four LLC slices in the default mesh |
 
 RV5Stage uses the shape-specific profiles described in the [SoC comparison](../socs/README.md#choose-a-system).
-RV64 products select lean scalar `rv64imacb`/`rv64imafdcb`, maximal non-hypervisor
+RV64 configs select lean scalar `rv64imacb`/`rv64imafdcb`, maximal non-hypervisor
 `rv64max`, or `rva23`. Spike remains
 simulation-only and executes the exact selected architecture. Its broad
 ACT/UDB projection preserves the requested ISA; simulator execution and successful
@@ -59,7 +59,7 @@ The CI enrollment and workload policy are documented in
 [`DEVELOPING.md`](DEVELOPING.md#software-suite-and-artifact-maintenance).
 
 For lean scalar RV64 with Sv39 and no V/H, choose `rv64imacb` (no FP) or
-`rv64imafdcb` (F/D). The [SoC preset contract](../socs/README.md#typed-product-selection)
+`rv64imafdcb` (F/D). The [SoC preset contract](../socs/README.md#typed-config-selection)
 lists their fixed system capabilities and deliberately disabled optional features.
 Both use the same minimal ISA-smoke command on either implementation:
 
@@ -112,14 +112,14 @@ make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=verilog
 
 The direct route uses the same circuit, Verilator driver, FESVR transport, DPI
 models, and payload. It does not invoke CIRCT. Builds live under
-`$(BUILD_ROOT)/<product>-verilog/`, separate from the default CIRCT objects;
+`$(BUILD_ROOT)/<config>-verilog/`, separate from the default CIRCT objects;
 configuration attestation reads the emitted `SoCHarness.sv` and records the
 backend. Prebuilt reuse must request the same `RTL_BACKEND`; a backend mismatch
 is rejected before execution. CI validates the additional
 `simple-rv5stage-rva23-verilog` build with `smoke`, `host-mmio-test`, and
 `uart-pty-test`, reusing the existing architectural configuration. The direct route
 currently supports untraced builds (`TRACE=0`). Use the default CIRCT route
-for event tracing. Other products and broader workloads require their own
+for event tracing. Other configs and broader workloads require their own
 execution validation before claiming parity.
 
 The host emitters require an explicit third architectural selector:
@@ -130,12 +130,12 @@ tools/run-racket.sh -S "$PWD" sims/program-test/write-target.rhm simple rv5stage
 
 Run this command from the repository root. The same three selectors are
 accepted by `emit-soc-harness.rhm`; it emits MLIR to standard output.
-Both use the [shared product resolver](../socs/README.md#typed-product-selection).
-The [paired-product inventory](test-products.rhm) describes the ten test
-products. Workload selection depends on shape and ISA, not core implementation.
+Both use the [shared config resolver](../socs/README.md#typed-config-selection).
+The [paired-config inventory](test-configs.rhm) describes the twenty test
+configs. Workload selection depends on shape and ISA, not core implementation.
 Make, software targets, simulator
-attestations, and ACT configurations include ISA in their product keys.
-Setup and product-independent adapter tests do not require an ISA.
+attestations, and ACT configurations include ISA in their config keys.
+Setup and config-independent adapter tests do not require an ISA.
 
 ## Ownership and execution boundary
 
@@ -196,7 +196,7 @@ make -C sims simulator SOC=mini CORE=spike ISA=rva23
 make -C sims simulator SOC=tiled CORE=rv5stage ISA=rva23
 ```
 
-The [test inventory](test-products.txt) lists the canonical CI products;
+The [test inventory](test-configs.txt) lists the canonical CI configs;
 each has its own target descriptor, simulator attestation,
 and build directory. The `SOC`/`CORE` selectors above remain available locally;
 all artifact identities include the explicit ISA for software and ACT consumers.
@@ -208,8 +208,8 @@ and the Spike libraries under `.tools/`. RHEG uses the same gitlink and patch se
 instruction disassembly; neither consumer modifies the submodule checkout.
 
 The Single and Tiled harnesses attach `CHIDPIMemory` to their external SN-F
-channels. Mini instead contains synthesizable `CHIRam`. Each product has an
-independent artifact at `/tmp/rhodium-sims/<product>/obj/VTestDriver`, so
+channels. Mini instead contains synthesizable `CHIRam`. Each config has an
+independent artifact at `/tmp/rhodium-sims/<config>/obj/VTestDriver`, so
 switching configurations cannot reuse generated RTL for the other SoC. The
 shared Verilator `TestDriver` exposes only clock, reset, and exit; UART traffic
 crosses the PTY inside the harness. Set
@@ -524,15 +524,15 @@ make -C sims isa-smoke SOC=tiled CORE=spike ISA=rva23
 ```
 
 Run the target-capability-filtered upstream multihart benchmarks with eight
-harts on either Tiled product:
+harts on either Tiled config:
 
 ```sh
 make -C sims tiled-mt-benchmark-test SOC=tiled-rv5stage-rva23
 make -C sims tiled-mt-benchmark-test SOC=tiled-spike-rva23
 ```
 
-Each command is independently runnable. CI gives each product its own job, so
-one slow or failing Tiled run cannot suppress another product's result.
+Each command is independently runnable. CI gives each config its own job, so
+one slow or failing Tiled run cannot suppress another config's result.
 Both Tiled cores run the same multihart manifests in CI. Slow runs remain
 visible as timeouts, not as core-specific exclusions.
 
@@ -548,7 +548,7 @@ runtime-allocated stack; virtual-environment tests bring their own upstream
 page-table, stack, and trap runtime. The complete and smoke ISA selections both bind their
 manifests to the generated target description and require a matching simulator
 attestation. Smoke results and target descriptions live under
-`$PROGRAM_BUILD_ROOT/<product>/isa-smoke/`, independently of the full single-core
+`$PROGRAM_BUILD_ROOT/<config>/isa-smoke/`, independently of the full single-core
 suites. The existing runner executes every selected test even after failures.
 ISA smoke still boots only hart 0. The separate tiled multihart selection builds
 each workload for eight workers and boots harts 0–7 for the workloads selected
@@ -690,7 +690,7 @@ CI installs a checksum-pinned GCC/Newlib release via
 `RISCV_CC=/path/to/riscv64-unknown-elf-gcc`.
 
 `PROGRAM_BUILD_ROOT` defaults to `/tmp/rhodium-program-tests`; each suite
-writes beneath the complete product key, keeping execution results separate.
+writes beneath the complete config key, keeping execution results separate.
 Each suite writes
 a manifest, build log, per-test execution logs, `results.json`, and `junit.xml`.
 Benchmark builds also write `instruction-report.json`, with executable
@@ -730,11 +730,11 @@ Platform tests use this same artifact flow. `litmus-smoke-run` executes
 a bound litmus archive without litmus7 or a compiler. `opensbi-smoke-run`
 executes a bound firmware/payload archive; OpenSBI binding additionally requires
 `--fdt /absolute/path/to/execution-platform.dtb`, generated for that exact
-product with `sims/opensbi/write-device-tree.rhm`. Incompatible device trees or
+config with `sims/opensbi/write-device-tree.rhm`. Incompatible device trees or
 boot layouts cannot share firmware. Both commands accept `PROGRAM_MANIFEST`
 and `PREBUILT_SIMULATOR` as above, retain their suite-specific checks, and do
 not compile software. Their corresponding `*-test` commands build and run locally.
-Mini/Tiled ISA-smoke archives remain attached to their per-product results. The
+Mini/Tiled ISA-smoke archives remain attached to their per-config results. The
 simulation job separately publishes its hand-written smoke ELFs, and ACT
 publishes its generated ELF archive.
 
@@ -793,12 +793,12 @@ On Apple Silicon it also installs native Z3 5.0.0 in the local UDB cache,
 working around the pinned UDB installer's Linux-only library download.
 
 `arch-test-config` only prepares and validates the Sail/platform files.
-The selected product supplies its core-specific UDB and a generated
+The selected config supplies its core-specific UDB and a generated
 `platform.json`; RAM bounds and the entry point come from the shared SoC
 description, not per-core Make files. Both cores use the same platform policy
 for a given shape and ISA, while reference expectations retain implementation
 choices such as writable CSRs and ASID width. ACT currently supports the
-Simple shape. Configuration and ELF outputs remain keyed by the full product.
+Simple shape. Configuration and ELF outputs remain keyed by the full config.
 `arch-test-source` copies the clean pinned ACT checkout into the build root and
 applies Rhodium's adjacent
 [`riscv-arch-test-patches`](../sw/riscv-arch-test-patches/) series there.

@@ -1,5 +1,5 @@
 #lang racket/base
-#| Encodes sorted, string-keyed product metadata and computes its portable SHA-256 identity. |#
+#| Encodes sorted, string-keyed config metadata and computes its portable SHA-256 identity. |#
 ;; SPDX-License-Identifier: Apache-2.0
 (require json racket/list racket/port racket/treelist file/sha1)
 (provide metadata_json metadata_fingerprint)

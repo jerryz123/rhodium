@@ -1,13 +1,14 @@
 #lang rhodium
-// Wraps bootable MiniRV5StageSoC with FESVR and a serial-pin PTY UART model.
+/* Wraps bootable MiniRV5StageSoC with FESVR and a serial-pin PTY UART model. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("riscv/isa/xlen.rhm").XLen
-  lib("socs/products/mini-rv5stage-soc.rhdl") as mini_rv5stage
+  lib("socs/configs/mini-rv5stage-soc.rhdl") as mini_rv5stage
   lib("devices/uart/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
+/* Connects the compact SoC's host memory and UART to simulator-owned endpoints. */
 sync_circuit SoCHarness(uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   output exit: Bits(32)
 

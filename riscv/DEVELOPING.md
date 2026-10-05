@@ -128,7 +128,7 @@ former standalone patches are retired. The three remaining patches provide
 default-disabled host memory/interrupt hooks, host time, and exact subpage device
 PMAs. Keep the executable and embedded library in one identity-scoped package.
 Validate `arch-test-sail-test`, `sail-cosim-test`, representative
-`sail-cosim-config-test` products, both supported scalar `cosim-smoke` products,
+`sail-cosim-config-test` configs, both supported scalar `cosim-smoke` configs,
 and freshly generated full ACT inventories after changing the pin or patch stack.
 
 ## Focused validation

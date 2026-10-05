@@ -24,7 +24,7 @@ def program_matrices(matrix, targets, fdts=None):
         # Options are uniform within a CI suite. Builders record their actual
         # options in the archive; consumers compare that complete specification.
         if suite == 'opensbi' and (not fdts or soc not in fdts):
-            raise ValueError('OpenSBI grouping requires each product generated device tree')
+            raise ValueError("OpenSBI grouping requires each config's generated device tree")
         options = dict(fdt_sha256=hashlib.sha256(fdts[soc]).hexdigest()) if suite == 'opensbi' else {}
         spec = elf_build_spec(target, suite, options)
         build_id = suite + '-' + target_fingerprint(spec)
@@ -38,7 +38,7 @@ def main():
     parser.add_argument('--matrix', required=True, help='selected SoC/suite matrix JSON')
     parser.add_argument('--targets', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
-    parser.add_argument('--fdts', type=Path, help='generated per-product OpenSBI device trees')
+    parser.add_argument('--fdts', type=Path, help='generated per-config OpenSBI device trees')
     args = parser.parse_args()
     try:
         matrix = json.loads(args.matrix)

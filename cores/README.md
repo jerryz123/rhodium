@@ -169,7 +169,7 @@ and deliberate limits.
 core. It projects the shared architectural hart description, runs Spike through
 a typed DPI transaction boundary, keeps PMA classification in RTL, and exposes
 independent instruction, coherent-data, and uncached CHI ports.
-[`SingleCoreSpikeSoC`](../socs/products/single-core-spike-soc.rhdl) composes that boundary
+[`SingleCoreSpikeSoC`](../socs/configs/single-core-spike-soc.rhdl) composes that boundary
 with the shared coherent single-core platform. See
 [`spike/README.md`](spike/README.md) for the adapter, private-cache, and
 simulation contracts.

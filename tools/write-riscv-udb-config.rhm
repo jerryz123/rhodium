@@ -1,10 +1,10 @@
 #lang rhombus
-// Writes one concrete RISC-V UDB configuration selected from the repository catalog.
+/* Writes one concrete RISC-V UDB configuration selected from the repository catalog. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
-  "../socs/products/udb.rhm".riscv_udb_configuration
+  "../socs/configs/udb.rhm".riscv_udb_configuration
 
 def arguments = current_command_line()
 unless arguments.length() == 2

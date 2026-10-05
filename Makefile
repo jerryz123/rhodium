@@ -205,7 +205,7 @@ chi-test: check-boundaries
 	bash chi/tests/run-negative.sh
 
 soc-test: check-boundaries
-	tools/run-racket-tests.sh $(SOC_TESTS) $(COSIM_TESTS) sims/tests/product-test.rhm
+	tools/run-racket-tests.sh $(SOC_TESTS) $(COSIM_TESTS) sims/tests/config-test.rhm
 	bash socs/tests/run-device-tree.sh
 
 hardfloat-host-test: check-boundaries

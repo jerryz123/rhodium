@@ -631,7 +631,7 @@ class ArchTestConfigTest(unittest.TestCase):
 
 
 class ArchTestGenerationTest(unittest.TestCase):
-    def test_make_rejects_cross_product_configuration_before_generation(self):
+    def test_make_rejects_mismatched_config_before_generation(self):
         result = subprocess.run(
             ["make", "arch-test-config", "SOC=simple-spike-rv32max",
              "ACT_CONFIGURATION=simple-rv5stage-rv32max"],
@@ -696,7 +696,7 @@ class ArchTestGenerationTest(unittest.TestCase):
             build_root = root / "build"
             config_dir = build_root / "configs/simple-rv5stage-rva23"
             config_dir.mkdir(parents=True)
-            (config_dir / "configuration.json").write_text('{"schema":1,"product":"simple-rv5stage-rva23"}')
+            (config_dir / "configuration.json").write_text('{"schema":1,"config":"simple-rv5stage-rva23"}')
             elf_dir = build_root / "work/simple-rv5stage-rva23/simple-rv5stage-rva23/elfs"
             elf_dir.mkdir(parents=True)
             (elf_dir / "old.elf").touch()
@@ -759,7 +759,7 @@ class ArchTestPayloadTest(unittest.TestCase):
         (self.elfs / "nested/second.elf").symlink_to(target)
         (self.elfs / "first.log").write_text("generation diagnostic")
         self.configuration = self.root / "configuration.json"
-        self.configuration.write_text('{"product":"simple-rv5stage-rva23"}\n')
+        self.configuration.write_text('{"config":"simple-rv5stage-rva23"}\n')
         self.bundle = self.root / "bundle"
         self.identity = "input-content-key"
 
@@ -834,7 +834,7 @@ class ArchTestPayloadTest(unittest.TestCase):
         self.package()
         with self.assertRaisesRegex(ValueError, "identity mismatch"):
             self.payload["verify"](self.bundle, self.configuration, "changed-input-content-key")
-        self.configuration.write_text('{"product":"simple-spike-rva23"}\n')
+        self.configuration.write_text('{"config":"simple-spike-rva23"}\n')
         with self.assertRaisesRegex(ValueError, "configuration mismatch"):
             self.verify()
 

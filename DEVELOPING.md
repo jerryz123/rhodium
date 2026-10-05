@@ -161,7 +161,7 @@ guides. Link between the pair instead of duplicating their content.
 ## Maintain compatibility and generated artifacts
 
 Generated Verilog references are version-specific reviewed artifacts, not a
-general build product. Follow
+general build artifact. Follow
 [`tools/testing/circt/DEVELOPING.md`](tools/testing/circt/DEVELOPING.md) before changing
 them. Other generated Racket, CIRCT, Verilator, simulation, and physical-flow
 outputs remain untracked.

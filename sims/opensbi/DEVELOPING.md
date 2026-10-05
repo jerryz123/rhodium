@@ -15,7 +15,7 @@ The [`../../sw/build/opensbi.py`](../../sw/build/opensbi.py) adapter derives its
 from the selected SoC target descriptor. The firmware ELF remains linked at
 zero so FESVR's standard DRAM load offset relocates it to the SoC boot address.
 [`write-device-tree.rhm`](write-device-tree.rhm) resolves the selected shape
-and core with a required ISA (or complete product key) through the shared
+and core with a required ISA (or complete config key) through the shared
 [`program-test/targets.rhm`](../program-test/targets.rhm) resolver,
 derives an OpenSBI execution DTB from the canonical SoC description, and
 appends only the simulator-owned `ucb,htif0` reset endpoint. FW_JUMP embeds
@@ -51,7 +51,7 @@ fit the selected architectural RAM without overlap.
 shared manifest. CI supplies `PREBUILT_PROGRAM_TARGET` and
 `PREBUILT_OPENSBI_FDT` from its planning artifact, so firmware compilation does
 not elaborate Rhodium. The common archive includes both ELFs and the DTB;
-the common binder requires the execution product's DTB and checks relocated
+the common binder requires the execution config's DTB and checks relocated
 firmware and payload ranges without compiler tools.
 `opensbi-smoke-run` runs that bound manifest through the ordinary workload
 runner with bounded process-group execution and JSON/JUnit diagnostics.

@@ -4,10 +4,10 @@
 
 import:
   "../../chi/main.rhdl" open
-  "../products/single-core-rv5stage-soc.rhdl" as single_core
-  "../products/mini-rv5stage-soc.rhdl" as mini_rv5stage
+  "../configs/single-core-rv5stage-soc.rhdl" as single_core
+  "../configs/mini-rv5stage-soc.rhdl" as mini_rv5stage
   "../tiled-soc/main.rhdl" as tiled_rv5stage
-  "../products/tiled-rv5stage.rhdl" as tiled_default
+  "../configs/tiled-rv5stage.rhdl" as tiled_default
   "../tiled-soc/compile.rhdl" as compiler
 
 def compiled = compiler.compile_tiled_soc(tiled_default.default_tiled_soc_config)

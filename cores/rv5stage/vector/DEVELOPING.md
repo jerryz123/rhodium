@@ -29,7 +29,7 @@ and authorization range arithmetic at their independently defined widths.
 
 For physical-width changes, run the RV32 and RV64 sequencer and packed-memory
 fixtures, plus overlap, reduction, and shared mul/div fixtures. Check layout,
-profile, and product host tests with the repository Racket wrappers. The
+profile, and config host tests with the repository Racket wrappers. The
 integrated minimum-geometry check is `make -C sims smoke
 SOC=mini-rv5stage-rv32int`: it executes integer-vector load/store, arithmetic,
 reduction, Zvbb, mul/div, and widening multiply through the normal FESVR flow

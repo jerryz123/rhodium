@@ -17,7 +17,7 @@ config-test:
 	  socs/tests/single-core-rv5stage-soc-test.rhm \
 	  socs/tests/single-core-spike-soc-test.rhm \
 	  socs/tests/soc-selection-test.rhm \
-	  socs/tests/product-test.rhm \
+	  socs/tests/config-test.rhm \
 	  socs/tests/udb-test.rhm \
 	  socs/tests/mini-rv5stage-soc-test.rhm \
 	  socs/tests/main-memory-test.rhm \

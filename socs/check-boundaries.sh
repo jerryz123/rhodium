@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Keeps platform contracts, hart adapters, and SoC shapes below product selection.
+# Keeps platform contracts, hart adapters, and SoC shapes below config selection.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
@@ -12,16 +12,16 @@ sources="$(find socs -type d -name tests -prune -o -type f \
 while IFS= read -r source; do
   [[ -n "$source" ]] || continue
   case "$source" in
-    socs/products/*) continue ;;
+    socs/configs/*) continue ;;
   esac
-  if matches="$(grep -nE '^[[:space:]]+.*products/[^" ]+\.(rhdl|rhm)' "$source")"; then
-    echo "$source: shared components and SoC shapes must not import product modules" >&2
+  if matches="$(grep -nE '^[[:space:]]+.*configs/[^" ]+\.(rhdl|rhm)' "$source")"; then
+    echo "$source: shared components and SoC shapes must not import config modules" >&2
     echo "$matches" >&2
     exit 1
   else
     status=$?
     if [[ "$status" != 1 ]]; then
-      echo "$source: product boundary search failed" >&2
+      echo "$source: config boundary search failed" >&2
       exit "$status"
     fi
   fi
@@ -44,7 +44,7 @@ while IFS= read -r source; do
 done <<< "$sources"
 
 # Shape composition and the shared hart contract must not load a named core.
-# Product defaults and per-core adapters are the only owners of that choice.
+# Config defaults and per-core adapters are the only owners of that choice.
 while IFS= read -r source; do
   [[ -n "$source" ]] || continue
   case "$source" in

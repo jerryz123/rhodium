@@ -41,8 +41,8 @@ def main():
         target = load_target(args.target)
         configuration = target['resolved_configuration']
         fingerprint = configuration_fingerprint(configuration)
-        if configuration['product'] != args.soc or target['soc'] != args.soc:
-            raise ValueError('target configuration describes a different product')
+        if configuration['config'] != args.soc or target['soc'] != args.soc:
+            raise ValueError('target configuration describes a different config')
         if target['configuration_fingerprint'] != fingerprint:
             raise ValueError('resolved configuration fingerprint mismatch')
         if args.configuration and configuration_fingerprint(json.loads(args.configuration.read_text())) != fingerprint:

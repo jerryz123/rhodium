@@ -38,18 +38,20 @@ cacheable coherent RAM.
 
 ## Choose a system
 
-### Typed product selection
+### Typed config selection
 
-[`products/selection.rhm`](products/selection.rhm) defines `SoCShape`
+[`configs/selection.rhm`](configs/selection.rhm) defines `SoCShape`
 (`Mini`, `Simple`, `Tiled`), `CoreKind` (`RV5Stage`, `Spike`), and `IsaPreset`.
-[`products/resolve.rhm`](products/resolve.rhm) resolves a `SoCSelection` into
-one hart binding, shape configuration, architectural description, and UDB
-projection. Canonical identities are `<shape>-<core>-<isa>`.
+[`configs/resolve.rhm`](configs/resolve.rhm) provides `resolve_soc_config`, which
+resolves a `SoCSelection` into a `ResolvedSoCConfig` containing one hart binding,
+shape configuration, architectural description, and UDB projection.
+Canonical identities are `<shape>-<core>-<isa>`; exported metadata records
+that identity under the `config` key.
 
 `RVA23` publishes the mandatory RVA23U64/S64 architectural capabilities with
 RV64D, VLEN=128, and Sv39 on both core implementations. The independent
 [mandatory-requirement gate](tests/udb-test.rhm) checks versioned UDB declarations
-and required architectural parameters for all six shape/core products. This
+and required architectural parameters for all six shape/core configs. This
 includes Ssccptr, Sstvecd, Sstvala, Sscounterenw, and Ssu64xl in the hart's
 published capabilities. Declaration completeness
 is not an external certification or an exhaustive system validation;
@@ -64,7 +66,7 @@ register stays 64 bits and the CHI fabric retains its existing widths.
 Mini RAM and reset-program addresses must fit the hart's
 address range. Simple retains its 1-GiB external RAM window at `0x80000000`
 and its inclusive LLC with either RV32 hart. All Mini RV32 bindings
-participate in simulation CI; all Simple RV32 products select platform,
+participate in simulation CI; all Simple RV32 configs select platform,
 native ISA, and ACT lanes. See the [ACT guide](../sims/README.md#architectural-certification-tests)
 for reference-model restrictions and validation status.
 Spike executes `RVA23` with explicit VLEN=128/ELEN=64. Its ACT/UDB projection
@@ -86,13 +88,13 @@ Zic64b/Zicclsm, B constituents, and the validated Sv39 supervisor guarantees.
 Their names describe the scalar baseline, not an exhaustive extension string.
 
 The presets are `RV32Int`, `RV32Max`, `RV64IMACB`, `RV64IMAFDCB`, `RV64Max`,
-and `RVA23`. Product selection requires an
+and `RVA23`. Config selection requires an
 explicit ISA, either in a complete key or as a typed selector; there is no
 shape/core-only architectural fallback. Concrete source specializations author
 their preset explicitly. Cache geometry,
 multiplier choice, and queue depths remain shape-specific implementation
-policy. See the [simulation inventory](../sims/test-products.txt) for the
-explicitly selected test products; selection is not a passing-suite claim.
+policy. See the [simulation inventory](../sims/test-configs.txt) for the
+explicitly selected test configs; selection is not a passing-suite claim.
 
 The `RV32Int`, `RV32Max`, `RV64Max`, and `RVA23` presets enable Sscofpmf with one implemented HPM counter on both
 cores. Counter 3 supports mode filtering and overflow interrupts; the
@@ -110,7 +112,7 @@ required architectural preset. A
 architectural description, 64-byte CHI cache-line contract, attachment
 factory, and circuit factory. Each shape derives its device tree and
 hardware from that same binding. See the [simulator selector](../sims/README.md#choose-a-harness)
-for the product selectors. Spike products are simulation-only; their execution
+for the config selectors. Spike configs are simulation-only; their execution
 configuration and architectural description come from the same selected preset.
 
 | Shape | Harts | Normal-memory termination | Coherence structure |
@@ -121,7 +123,7 @@ configuration and architectural description come from the same selected preset.
 
 Each shape accepts either an RV5Stage or a Spike hart binding. The selected
 profile determines its ISA, caches, MMU, and device-tree properties; the shape
-determines the fabric and memory topology. All six products expose the same
+determines the fabric and memory topology. All six configs expose the same
 [`SoCHostInterface`](platform/host-interface.rhdl): a
 non-caching RN-F port for coherent RAM and non-snooping MMIO access.
 Each author-facing SoC parameter object owns one hart binding, which projects the same implementation-neutral
@@ -196,10 +198,10 @@ or connect a simulation PTY.
 
 ## RISC-V UDB configuration catalog
 
-[`udb.rhm`](products/udb.rhm) catalogs concrete RISC-V Unified Database configurations
+[`udb.rhm`](configs/udb.rhm) catalogs concrete RISC-V Unified Database configurations
 for repository SoC and processor combinations. It joins a named core's UDB
-projection with platform facts. Both core bindings disable PMP in SoC products.
-RV32 Bare products use 32-bit physical addresses; RV64 RV5Stage projects the
+projection with platform facts. Both core bindings disable PMP in SoC configs.
+RV32 Bare configs use 32-bit physical addresses; RV64 RV5Stage projects the
 CHI fabric width and Spike projects its model's 56-bit physical limit, even
 though its SoC fabric has a narrower mapped address range. The
 generic writer and Make target know only the catalog key, so a
@@ -285,7 +287,7 @@ interrupt lines.
 
 ## SingleCoreRV5StageSoC
 
-[`single-core-rv5stage-soc.rhdl`](products/single-core-rv5stage-soc.rhdl) selects RV5Stage for the core-neutral
+[`single-core-rv5stage-soc.rhdl`](configs/single-core-rv5stage-soc.rhdl) selects RV5Stage for the core-neutral
 [`SingleCoreSoC`](single-core-soc/main.rhdl). Its hardware composition is:
 
 ```mermaid
@@ -350,7 +352,7 @@ binding; an external subordinate owns memory contents and response timing.
 
 ## SingleCoreSpikeSoC
 
-[`single-core-spike-soc.rhdl`](products/single-core-spike-soc.rhdl) reuses the shared
+[`single-core-spike-soc.rhdl`](configs/single-core-spike-soc.rhdl) reuses the shared
 single-core composition with `SpikeCore` in place of RV5Stage. The coherent
 fabric, inclusive LLC, external SN-F memory boundary, BootROM, ACLINT, PLIC,
 UART, host interface, address map, and NodeIDs are the same concrete platform
@@ -359,7 +361,7 @@ contracts as `SingleCoreRV5StageSoC`. A hart-neutral
 core's endpoint capabilities and Home-facing contracts without moving
 transaction policy into the SoC helper.
 
-The selected core profile is `RVA23`, shared with the RV5Stage products.
+The selected core profile is `RVA23`, shared with the RV5Stage configs.
 The runtime preserves its complete ISA string and exact VLEN=128/ELEN=64;
 its ACT/UDB projection preserves that architecture without a scalar substitute.
 Scalar and production projections remain covered by Spike-owned unit tests.
@@ -372,7 +374,7 @@ and the ordinary coherent FESVR host; it does not bypass the SoC memory system.
 
 ## MiniRV5StageSoC
 
-[`mini-rv5stage-soc.rhdl`](products/mini-rv5stage-soc.rhdl) selects RV5Stage for the small,
+[`mini-rv5stage-soc.rhdl`](configs/mini-rv5stage-soc.rhdl) selects RV5Stage for the small,
 self-contained [`MiniSoC`](mini-soc/main.rhdl) used for compact RTL and physical-design experiments. It
 uses a 64 KiB range, replaces the inclusive LLC with the forwarding `CHIHNF`,
 and terminates the native memory boundary directly in an on-chip, line-capable
@@ -425,7 +427,7 @@ compiler derives mesh coordinates, occurrence ordering, endpoint IDs, CHI
 relationships, routes, the shared physical-link manifest, and all component
 parameters in one pass. There is no public intermediate TiledSoC plan or
 second compiled configuration for authors to manage. The default
-[`products/tiled-rv5stage.rhdl`](products/tiled-rv5stage.rhdl) supplies the repository's
+[`configs/tiled-rv5stage.rhdl`](configs/tiled-rv5stage.rhdl) supplies the repository's
 default 5x4 RV5Stage config; other
 rectangular layouts use the same entrypoint when they satisfy the tile-count
 invariants. Exactly one `memory` tile owns the external memory channel.

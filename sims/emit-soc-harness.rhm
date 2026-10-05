@@ -1,5 +1,5 @@
 #lang rhombus
-/* Compiles an explicit SoC product with independently selected passive RTL instrumentation. */
+/* Compiles an explicit SoC config with independently selected passive RTL instrumentation. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -11,9 +11,9 @@ import:
   "../rhodium/compile/program.rhm".compile_program
   "../rhodium/compile/pipeline.rhm".rtl_pipeline_target
   "../rhodium/frontend/foundation.rhm".elaborate_with_top
-  "../socs/products/selection.rhm" open
-  "../socs/products/resolve.rhm" open
-  "../socs/products/metadata.rhm" open
+  "../socs/configs/selection.rhm" open
+  "../socs/configs/resolve.rhm" open
+  "../socs/configs/metadata.rhm" open
 
 def arguments = current_command_line()
 def backend_option = arguments.length() > 0 && arguments[0] == "--backend"
@@ -29,21 +29,21 @@ unless remaining.length() == 1 || remaining.length() == 3 || instrumented
 | error(~who: #'emit_soc_harness, "expected [--backend circt|verilog] followed by shape core ISA, a fixture path, or --trace/--cosim/--trace-cosim output-directory shape core ISA")
 when tracing && backend != "circt" | error(~who: #'emit_soc_harness, "tracing currently requires the CIRCT backend")
 def selectors = if instrumented | remaining.drop(2) | remaining
-def product = if selectors.length() == 1
+def resolved = if selectors.length() == 1
 | #false
-| resolve_soc_product(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
-when tracing && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Simple, SoCShape.Tiled].contains(product.selection.shape))
+| resolve_soc_config(SoCSelection(parse_soc_shape(selectors[0]), parse_core_kind(selectors[1]), parse_isa_preset(selectors[2])))
+when tracing && (resolved.selection.core != CoreKind.RV5Stage || ![SoCShape.Simple, SoCShape.Tiled].contains(resolved.selection.shape))
 | error(~who: #'emit_soc_harness, "tracing supports simple or tiled RV5Stage only")
-when cosim && (product.selection.core != CoreKind.RV5Stage || ![SoCShape.Mini, SoCShape.Simple].contains(product.selection.shape))
+when cosim && (resolved.selection.core != CoreKind.RV5Stage || ![SoCShape.Mini, SoCShape.Simple].contains(resolved.selection.shape))
 | error(~who: #'emit_soc_harness, "cosimulation supports Mini/Simple RV5Stage only")
 
-def resolved_config = if product | product.configuration() | #false
+def resolved_config = if resolved | resolved.configuration() | #false
 
 /* Build the selected harness from the same resolved configuration used for attestation.
    Preserve an explicit top so compilation never infers scope from module inventory order. */
-fun selected_elaboration(product :: ResolvedSoCProduct):
+fun selected_elaboration(resolved :: ResolvedSoCConfig):
   def config = resolved_config
-  match product.selection.shape
+  match resolved.selection.shape
   | SoCShape.Simple:
       def harness = dynamic_require("sims/single-core-soc-harness.rhdl", #'SoCHarness)
       def soc = dynamic_require("socs/single-core-soc/main.rhdl", #'SingleCoreSoC)
@@ -55,12 +55,12 @@ fun selected_elaboration(product :: ResolvedSoCProduct):
       def harness = dynamic_require("sims/tiled-soc-harness.rhdl", #'SoCHarness)
       elaborate_with_top(harness(config))
 
-def elaboration = if product | selected_elaboration(product) | #false
-def design = if product | elaboration.design | dynamic_require(selectors[0], #'design)
-def top = if product | elaboration.top | design.find_module_named("SoCHarness")
+def elaboration = if resolved | selected_elaboration(resolved) | #false
+def design = if resolved | elaboration.design | dynamic_require(selectors[0], #'design)
+def top = if resolved | elaboration.top | design.find_module_named("SoCHarness")
 unless top | error(~who: #'emit_soc_harness, "fixture must supply the SoCHarness top")
 // Load only the selected backend. Both receive the same explicit top and
-// preserve the product's configuration and harness identity comments.
+// preserve the selected config and harness identity comments.
 def rtl_target = if backend == "verilog"
 | dynamic_require("rhodium/backend/verilog-target.rhm", #'verilog_target)
 | dynamic_require("rhodium/backend/circt-target.rhm", #'circt_target)
@@ -77,7 +77,7 @@ def compiled = compile_program(ElaboratedProgram(design, top), target)
 // simulator configuration, not an event compiler policy or architectural profile.
 when instrumented
 | block:
-    def frequency = product.description.clocks.clock_frequency_hz
+    def frequency = resolved.description.clocks.clock_frequency_hz
     unless frequency is_a PosInt && frequency < 2 ** 64
     | error(~who: #'emit_soc_harness, "clock frequency must fit a positive uint64")
     for (artifact in compiled.artifacts):
@@ -87,9 +87,9 @@ when instrumented
           | artifact.content ++ "\nnamespace rheg_generated {\ninline constexpr std::uint64_t clock_frequency_hz = " ++ to_string(frequency) ++ "ULL;\n}\n"
           | artifact.content
           write_file(content, build_path(remaining[1], "soc_" ++ artifact.name), ~exists: #'#{truncate/replace})
-when product
+when resolved
 | block:
-    println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(product_metadata(product, resolved_config)))
+    println("// rhodium-configuration-sha256: " ++ metadata_fingerprint(config_metadata(resolved, resolved_config)))
     println("// rhodium-rtl-backend: " ++ backend)
     println("// rhodium-harness-variant: " ++ (if cosim | (if tracing | "trace-cosim" | "cosim") | (if tracing | "trace" | "normal")))
 print(compiled.artifacts.find(fun (artifact): artifact.media_type == (if backend == "circt" | "text/x-mlir" | "text/x-systemverilog")).content)

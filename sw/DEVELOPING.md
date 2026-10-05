@@ -98,14 +98,14 @@ do not infer suite selection from prior pass status.
 ## Shared software builds
 
 `build/program_target.py` projects a suite's ELF build specification from the
-generated SoC descriptor. Keep product names and resolved microarchitecture
+generated SoC descriptor. Keep config names and resolved microarchitecture
 metadata in the full target fingerprint, outside the compilation identity.
 ISA inventory includes extensions, MMU, and privilege modes; compiled benchmarks
 include compiler ISA/ABI and RAM layout. CoreMark also embeds clock frequency.
 Each builder adds its actual selection and scale options to the specification,
 then includes source revisions, compiler identity, adapter/port bytes, and patches
 in its content-addressed cache key. Add any new target-dependent compiler input
-to this projection before allowing cross-product reuse.
+to this projection before allowing cross-config reuse.
 
 `build/bind.py` consumes a complete shared build manifest and validates its
 specification against the destination SoC. It checks ELF hashes, XLEN, physical
@@ -126,7 +126,7 @@ the checksum of the actual generated platform DTB. `opensbi.py manifest` records
 the relocatable firmware, S-mode validation payload, and DTB as one archive.
 Binding requires the destination's generated DTB, checks both image hashes and
 their relocated RAM ranges, and retains build provenance. Do not replace that
-DTB comparison with equality of ISA or product names. Image symbol ownership is
+DTB comparison with equality of ISA or config names. Image symbol ownership is
 checked during compilation; execution checks the unchanged published images.
 
 ## Change an architectural-test pin

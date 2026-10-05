@@ -1,18 +1,18 @@
 #!/usr/bin/env bash
-# Exercises product, peer-shape, and core-neutral import boundaries without ripgrep.
+# Exercises config, peer-shape, and core-neutral import boundaries without ripgrep.
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 repo_dir="$(cd "$(dirname "$0")/../.." && pwd)"
 fixture="$(mktemp -d /tmp/rhodium-soc-boundaries.XXXXXX)"
 trap 'rm -rf "$fixture"' EXIT
-mkdir -p "$fixture/socs/tests" "$fixture/socs/products" "$fixture/socs/mini-soc" "$fixture/bin" "$fixture/fail-bin"
+mkdir -p "$fixture/socs/tests" "$fixture/socs/configs" "$fixture/socs/mini-soc" "$fixture/bin" "$fixture/fail-bin"
 cp "$repo_dir/socs/check-boundaries.sh" "$fixture/socs/check-boundaries.sh"
 # Deliberately provide only the audit's portable dependencies, never rg.
 for tool in bash dirname find grep; do
   ln -s "$(command -v "$tool")" "$fixture/bin/$tool"
 done
 printf '  "../mini-soc/main.rhdl"\n' > "$fixture/socs/tests/integration.rhm"
-printf '  "../mini-soc/main.rhdl"\n' > "$fixture/socs/products/mini-rv5stage-soc.rhdl"
+printf '  "../mini-soc/main.rhdl"\n' > "$fixture/socs/configs/mini-rv5stage-soc.rhdl"
 printf '  "../shared.rhm"\n' > "$fixture/socs/mini-soc/main.rhdl"
 printf '  "shared.rhm"\n' > "$fixture/socs/shared.rhm"
 audit() {
@@ -28,8 +28,8 @@ expect_failure() {
   grep -q "$expected" "$fixture/output"
 }
 audit
-printf '  "products/mini-rv5stage-soc.rhdl"\n' > "$fixture/socs/shared.rhm"
-expect_failure 'must not import product modules' audit
+printf '  "configs/mini-rv5stage-soc.rhdl"\n' > "$fixture/socs/shared.rhm"
+expect_failure 'must not import config modules' audit
 printf '  "shared.rhm"\n' > "$fixture/socs/shared.rhm"
 printf '  "../tiled-soc/main.rhdl"\n' > "$fixture/socs/mini-soc/main.rhdl"
 expect_failure 'must not import tiled-soc' audit

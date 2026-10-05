@@ -131,7 +131,7 @@ jobs:
       matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}
     uses: ./.github/workflows/ci-simulator.yml
     with:
-      product: ${{ toJSON(matrix) }}
+      config: ${{ toJSON(matrix) }}
       run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}
       racket-version: ${{ needs.plan.outputs.racket_version }}
       rhombus-checksum: ${{ needs.plan.outputs.rhombus_checksum }}

@@ -1,4 +1,4 @@
-# Builds embedded Sail validation and exact-product reference configurations.
+# Builds embedded Sail validation and exact-config reference configurations.
 # SPDX-License-Identifier: Apache-2.0
 COSIM_SAIL_PREFIX ?= $(REPO_DIR)/.tools/sail-riscv-0.14.1-sail-0.20.3-$(SAIL_IDENTITY)
 COSIM_BUILD_DIR ?= $(REPO_DIR)/.rhodium-cache/sail-cosim/sail-0.20.3-$(SAIL_IDENTITY)
@@ -22,17 +22,17 @@ sail-cosim-test: sail-cosim-build
 sail-cosim-config:
 	mkdir -p "$(COSIM_CONFIG_DIR)"
 	cd "$(REPO_DIR)" && RACKET="$(RACKET)" tools/run-racket.sh -S "$(REPO_DIR)" \
-	  sims/cosim/write-product.rhm "$(SOC_ID)" "$(abspath $(COSIM_CONFIG_DIR))/product.json"
-	$(COSIM_PYTHON) cosim/configure.py --product "$(COSIM_CONFIG_DIR)/product.json" \
+	  sims/cosim/write-config.rhm "$(SOC_ID)" "$(abspath $(COSIM_CONFIG_DIR))/config.json"
+	$(COSIM_PYTHON) cosim/configure.py --config "$(COSIM_CONFIG_DIR)/config.json" \
 	  --name "$(SOC_ID)" --sail "$(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim" --output "$(COSIM_CONFIG_DIR)"
 
 ifeq ($(COSIM),1)
 $(SOC_BUILD_DIR)/soc_cosim.json: $(SOC_EMITTED)
 	@test -f "$@" || (echo "cosim descriptor missing; rebuild $(SOC_EMITTED)" >&2; exit 1)
 
-$(COSIM_CONFIG_DIR)/runtime-config.h: $(SOC_BUILD_DIR)/soc_cosim.json $(SIMULATOR_SOURCES) $(CURDIR)/cosim/configure.py $(CURDIR)/sail/configuration.py $(CURDIR)/sail/product.py $(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim
+$(COSIM_CONFIG_DIR)/runtime-config.h: $(SOC_BUILD_DIR)/soc_cosim.json $(SIMULATOR_SOURCES) $(CURDIR)/cosim/configure.py $(CURDIR)/sail/configuration.py $(CURDIR)/sail/soc_config.py $(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim
 	$(MAKE) sail-cosim-config SOC=$(SOC_ID) COSIM=1
-	$(COSIM_PYTHON) cosim/configure.py --product "$(COSIM_CONFIG_DIR)/product.json" \
+	$(COSIM_PYTHON) cosim/configure.py --config "$(COSIM_CONFIG_DIR)/config.json" \
 	  --name "$(SOC_ID)" --sail "$(COSIM_SAIL_PREFIX)/bin/sail_riscv_sim" --output "$(COSIM_CONFIG_DIR)" \
 	  --observations "$(SOC_BUILD_DIR)/soc_cosim.json"
 
@@ -56,7 +56,7 @@ $(SOC_BUILD_DIR)/cosim-smoke.elf: $(CURDIR)/cosim/tests/scalar.S $(CURDIR)/tests
 	  -Wl,--build-id=none -Wl,-T,tests/programs/smoke.ld $< -o $@
 
 sail-cosim-config-test: sail-cosim-config sail-cosim-build
-	"$(COSIM_BUILD_DIR)/sail_product_config_test" "$(COSIM_CONFIG_DIR)/sail.json" "$(COSIM_CONFIG_DIR)/manifest.json"
+	"$(COSIM_BUILD_DIR)/sail_soc_config_test" "$(COSIM_CONFIG_DIR)/sail.json" "$(COSIM_CONFIG_DIR)/manifest.json"
 
 sail-config-adapter-test:
 	$(PYTHON) -m unittest discover -s tests -p 'test_sail_config.py'

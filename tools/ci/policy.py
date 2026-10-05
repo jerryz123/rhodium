@@ -6,7 +6,7 @@ from pathlib import Path
 import sys
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(ROOT / "socs/products"))
+sys.path.insert(0, str(ROOT / "socs/configs"))
 from selection import selections
 
 
@@ -84,32 +84,32 @@ SOFTWARE_TESTS = {
 NATIVE_SOFTWARE = {("simple", "rva23"): NATIVE_SUITES,
                    ("simple", "rv32int"): ("isa",), ("simple", "rv32max"): ("isa",)}
 SELECTIONS = selections()
-TEST_PRODUCTS = tuple(line for line in (ROOT / "sims/test-products.txt").read_text().splitlines()
+TEST_CONFIGS = tuple(line for line in (ROOT / "sims/test-configs.txt").read_text().splitlines()
                       if line and not line.startswith("#"))
-if len(TEST_PRODUCTS) != len(set(TEST_PRODUCTS)):
-    raise ValueError("duplicate CI product")
-SIMULATOR_PRODUCTS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_PRODUCTS)
-SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
+if len(TEST_CONFIGS) != len(set(TEST_CONFIGS)):
+    raise ValueError("duplicate CI config")
+SIMULATOR_CONFIGS = tuple((key, *SELECTIONS[key][:2]) for key in TEST_CONFIGS)
+SINGLE_CORE_SOCS = tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
                          if (shape, SELECTIONS[soc][2]) in NATIVE_SOFTWARE)
 
 
-def platform_products():
+def platform_configs():
     """Select OpenSBI and litmus tests by shape and ISA, never core identity."""
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled': ('litmus', 'litmus-smoke-run', 90)}
     return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2])
-            for soc, shape, _core in SIMULATOR_PRODUCTS
+            for soc, shape, _core in SIMULATOR_CONFIGS
             if shape in suites and SELECTIONS[soc][2] == 'rva23']
 
 
-def native_products(suite):
-    return tuple(soc for soc, shape, _core in SIMULATOR_PRODUCTS
+def native_configs(suite):
+    return tuple(soc for soc, shape, _core in SIMULATOR_CONFIGS
                  if suite in NATIVE_SOFTWARE.get((shape, SELECTIONS[soc][2]), ()))
 
 
-# Backend variants reuse the architectural product and software target descriptor.
+# Backend variants reuse the architectural config and software target descriptor.
 # Only simulator build/run matrices include this additional backend test.
-DIRECT_SMOKE_PRODUCT = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
+DIRECT_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
 DIRECT_SMOKE_TESTS = ('smoke', 'host-mmio-test', 'uart-pty-test')
 
 
@@ -125,8 +125,8 @@ def simulation_entry(soc, shape, core, backend='circt'):
                 software_tests=" ".join(tests))
 
 
-def arch_products():
-    return tuple(dict(configuration=key, core=core) for key, shape, core in SIMULATOR_PRODUCTS
+def arch_configs():
+    return tuple(dict(configuration=key, core=core) for key, shape, core in SIMULATOR_CONFIGS
                  if shape == 'simple' and SELECTIONS[key][2] in ('rv32int', 'rv32max', 'rva23'))
 
 
@@ -142,7 +142,7 @@ ARCH_SHARD_COUNTS = {
 
 
 def arch_shards():
-    return tuple(dict(**product, shard=shard, shard_count=count)
-                 for product in arch_products()
-                 for count in (ARCH_SHARD_COUNTS[product['configuration']],)
+    return tuple(dict(**config, shard=shard, shard_count=count)
+                 for config in arch_configs()
+                 for count in (ARCH_SHARD_COUNTS[config['configuration']],)
                  for shard in range(count))

@@ -1,16 +1,17 @@
 #lang rhodium
-// Wraps a selected tiled SoC with FESVR, external memory, and a serial-pin PTY UART.
+/* Wraps a selected tiled SoC with FESVR, external memory, and a serial-pin PTY UART. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   lib("chi/subordinate/memory-controller.rhdl") open
   lib("chi/subordinate/dpi-memory.rhdl").CHIDPIMemory
   lib("socs/tiled-soc/main.rhdl") as tiled
-  lib("socs/products/tiled-rv5stage.rhdl").default_tiled_soc_config
+  lib("socs/configs/tiled-rv5stage.rhdl").default_tiled_soc_config
   lib("socs/tiled-soc/compile.rhdl") as compiler
   lib("devices/uart/uart-dpi.rhdl").UartDPI
   "fesvr/direct-memory-htif.rhdl".FesvrRequester
 
+/* Binds a selected tiled fabric to FESVR, CHI simulation memory, and serial-pin UART. */
 sync_circuit SoCHarness(soc_config :: tiled.TiledSoCConfig = default_tiled_soc_config,
                         uart_oversample_divisor :: Int.in(1 ..= 0xffff) = 1):
   def implementation = compiler.compile_tiled_soc(soc_config)

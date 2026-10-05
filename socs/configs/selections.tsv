@@ -1,4 +1,4 @@
-# Defines canonical public product keys and selector values independently of CI enrollment.
+# Defines canonical public config keys and selector values independently of CI enrollment.
 # SPDX-License-Identifier: Apache-2.0
 mini-rv5stage-rv32int mini rv5stage rv32int
 mini-spike-rv32int mini spike rv32int

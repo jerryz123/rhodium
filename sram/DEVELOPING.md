@@ -73,7 +73,7 @@ SoCs, the generic pass, or the generic adapter renderer.
 ## Generated artifacts
 
 MLIR, occurrence inventories, wrappers, manifests, lowered RTL, plugin builds,
-and simulator products are generated and remain untracked. Checked-in inputs
+and simulator artifacts are generated and remain untracked. Checked-in inputs
 are policies, catalogs, functional models, mapper/pass sources, and focused
 fixtures. Consumer flows own their artifact directories and cleanup targets.
 

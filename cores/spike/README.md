@@ -23,7 +23,7 @@ NUL-terminated and bounded to 512 bytes for ISA and four bytes for privilege;
 oversized strings are rejected, not truncated. It separately owns the maximum retired instructions per
 simulated cycle and PMP implementation parameters.
 `max_retired_instructions_per_cycle` defaults to 64 in both the authored profile
-and native model, including every Mini, Simple, and Tiled Spike product.
+and native model, including every Mini, Simple, and Tiled Spike config.
 This is an upper bound: memory and coherence transactions can yield the model
 before that maximum is reached. Callers can explicitly override the budget.
 
@@ -118,7 +118,7 @@ a region permitting neither raises a store access fault.
 
 ## SoC integration and limits
 
-[`SingleCoreSpikeSoC`](../../socs/products/single-core-spike-soc.rhdl) attaches this core
+[`SingleCoreSpikeSoC`](../../socs/configs/single-core-spike-soc.rhdl) attaches this core
 to the same coherent single-core fabric, LLC, BootROM, ACLINT, PLIC, UART, and
 host interface used by the hardware implementation. The shared
 [`simulation harness`](../../sims/single-core-soc-harness.rhdl) supplies external

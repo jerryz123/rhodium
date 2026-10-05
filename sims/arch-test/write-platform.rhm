@@ -1,24 +1,24 @@
 #lang rhombus
-// Writes platform settings and the implementation-specific UDB for one ACT product.
+/* Writes platform settings and the implementation-specific UDB for one ACT config. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
-  lib("socs/products/selection.rhm") open
-  lib("socs/products/resolve.rhm").resolve_soc_product
-  lib("socs/products/metadata.rhm") open
+  lib("socs/configs/selection.rhm") open
+  lib("socs/configs/resolve.rhm").resolve_soc_config
+  lib("socs/configs/metadata.rhm") open
   "platform.rhm".ActPlatform
 
 def arguments = current_command_line()
 unless arguments.length() == 2
-| error(~who: #'write_act_platform, "expected a shape-core-isa product key and output directory")
+| error(~who: #'write_act_platform, "expected a shape-core-isa config key and output directory")
 def selection = named_soc_selection(arguments[0])
 unless selection.shape == SoCShape.Simple
 | error(~who: #'write_act_platform, "ACT currently supports the Simple SoC shape")
-def product = resolve_soc_product(selection)
-def platform = ActPlatform(product.description)
-def configuration = product_metadata(product)
+def config = resolve_soc_config(selection)
+def platform = ActPlatform(config.description)
+def configuration = config_metadata(config)
 def fingerprint = metadata_fingerprint(configuration)
 filesystem.write_string(arguments[1] ++ "/configuration.json", metadata_json(configuration), ~exists: #'truncate)
-filesystem.write_string(arguments[1] ++ "/platform.json", platform.to_json(product.key), ~exists: #'truncate)
-filesystem.write_string(arguments[1] ++ "/udb.yaml", "# Rhodium configuration SHA-256: " ++ fingerprint ++ "\n" ++ product.udb().to_yaml(), ~exists: #'truncate)
+filesystem.write_string(arguments[1] ++ "/platform.json", platform.to_json(config.key), ~exists: #'truncate)
+filesystem.write_string(arguments[1] ++ "/udb.yaml", "# Rhodium configuration SHA-256: " ++ fingerprint ++ "\n" ++ config.udb().to_yaml(), ~exists: #'truncate)

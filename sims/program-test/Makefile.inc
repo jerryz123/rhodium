@@ -43,12 +43,12 @@ LITMUS_FULL_TIMEOUT ?= 600
 LITMUS_PROFILE_MAX_CYCLES ?= 2000000
 LITMUS_FULL_SHARD_INDEX ?= 0
 LITMUS_FULL_SHARD_COUNT ?= 1
-PROGRAM_PRODUCT_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
-ISA_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/isa-smoke
-TILED_MT_BENCHMARK_DIR := $(PROGRAM_PRODUCT_ROOT)/mt-benchmark
-LITMUS_BUILD_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus
-LITMUS_SMOKE_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-smoke
-LITMUS_FULL_DIR := $(PROGRAM_PRODUCT_ROOT)/litmus-full
+PROGRAM_CONFIG_ROOT := $(PROGRAM_BUILD_ROOT)/$(SOC_ID)
+ISA_SMOKE_DIR := $(PROGRAM_CONFIG_ROOT)/isa-smoke
+TILED_MT_BENCHMARK_DIR := $(PROGRAM_CONFIG_ROOT)/mt-benchmark
+LITMUS_BUILD_DIR := $(PROGRAM_CONFIG_ROOT)/litmus
+LITMUS_SMOKE_DIR := $(PROGRAM_CONFIG_ROOT)/litmus-smoke
+LITMUS_FULL_DIR := $(PROGRAM_CONFIG_ROOT)/litmus-full
 LITMUS_GENERATOR_ARGS := --litmus7 "$(LITMUS7)" $(if $(LITMUS7_LIBDIR),--litmus7-libdir "$(LITMUS7_LIBDIR)")
 TILED_MT_HART_COUNTS := 8
 PROGRAM_TARGET_SELECTION := $(SOC_ID)
@@ -124,13 +124,13 @@ litmus-adapter-test:
 isa-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full ISA suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite $(@:-elfs=) --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/$(@:-elfs=)" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --isa-selection full
 
 benchmark-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'The full benchmark suite supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build.py --suite benchmark --source "$(RISCV_TESTS_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/benchmark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --benchmark-mode "$(BENCHMARK_MODE)"
 
 tiled-mt-benchmark-elfs: program-target
@@ -172,19 +172,19 @@ litmus-smoke-elfs litmus-full-elfs: program-target
 coremark-elf: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/coremark" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)"
 
 coremark_scalar-elf: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'CoreMark scalar supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-coremark.py --source "$(COREMARK_DIR)" --port "$(COREMARK_PORT_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/coremark_scalar" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/coremark_scalar" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --iterations "$(COREMARK_ITERATIONS)" --variant coremark_scalar
 
 embench-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Embench-IoT supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-embench.py --source "$(EMBENCH_DIR)" --port "$(EMBENCH_PORT_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/embench" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/embench" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" --scale "$(EMBENCH_SCALE)" \
 	  --local-scale "$(EMBENCH_LOCAL_SCALE)" --warmup-heat "$(EMBENCH_WARMUP_HEAT)"
 
@@ -192,7 +192,7 @@ bringup-elfs: program-target
 	@test -n "$(filter $(SOC_SHAPE),$(NATIVE_SOFTWARE_SOCS))" || (echo 'Bringup-Bench supports SOC=$(NATIVE_SOFTWARE_SOCS)' >&2; exit 2)
 	$(PYTHON) $(REPO_DIR)/sw/build/build-bringup-bench.py --source "$(BRINGUP_DIR)" \
 	  --patch-series "$(BRINGUP_PATCH_SERIES)" --port "$(BRINGUP_PORT_DIR)" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/bringup" --compiler "$(RISCV_CC)" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/bringup" --compiler "$(RISCV_CC)" \
 	  --target "$(PROGRAM_TARGET)" $(if $(BRINGUP_BENCHMARKS),--benchmarks "$(BRINGUP_BENCHMARKS)",)
 
 simulator-attestation: simulator
@@ -205,9 +205,9 @@ embench-test: embench-elfs
 bringup-test: bringup-elfs
 
 isa-test benchmark-test coremark-test coremark_scalar-test embench-test bringup-test isa-run benchmark-run coremark-run coremark_scalar-run embench-run bringup-run: simulator-attestation
-	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(PROGRAM_PRODUCT_ROOT)/$(NATIVE_RUN_SUITE)/manifest.json)" \
+	$(PYTHON) program-test/run.py --manifest "$(if $(PROGRAM_MANIFEST),$(PROGRAM_MANIFEST),$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/manifest.json)" \
 	  --simulator "$(SIMULATOR_BINARY)" --simulator-metadata "$(SIMULATOR_BINARY).json" \
-	  --output "$(PROGRAM_PRODUCT_ROOT)/$(NATIVE_RUN_SUITE)/results" \
+	  --output "$(PROGRAM_CONFIG_ROOT)/$(NATIVE_RUN_SUITE)/results" \
 	  --jobs $(PROGRAM_JOBS) --timeout $(if $(filter bringup,$(NATIVE_RUN_SUITE)),$(BRINGUP_TIMEOUT),$(PROGRAM_TIMEOUT)) --max-cycles $(NATIVE_RUN_CYCLES_$(NATIVE_RUN_SUITE))
 
 tiled-mt-benchmark-test: tiled-mt-benchmark-elfs simulator-attestation

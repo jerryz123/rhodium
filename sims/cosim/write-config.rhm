@@ -1,12 +1,12 @@
 #lang rhombus
-/* Exports one resolved Mini/Simple product and its real physical reference environment. */
+/* Exports one resolved Mini/Simple config and its real physical reference environment. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   rhombus/cmdline open
-  lib("socs/products/selection.rhm") open
-  lib("socs/products/resolve.rhm").resolve_soc_product
-  lib("socs/products/metadata.rhm") open
+  lib("socs/configs/selection.rhm") open
+  lib("socs/configs/resolve.rhm").resolve_soc_config
+  lib("socs/configs/metadata.rhm") open
   lib("socs/mini-soc/main.rhdl").MiniSoCConfig
   lib("socs/single-core-soc/main.rhdl").SingleCoreSoCConfig
   lib("socs/platform/description.rhm") open
@@ -31,15 +31,15 @@ fun physical_region(region :: RiscvPhysicalMemoryRegion) :: Map:
 
 def arguments = current_command_line()
 unless arguments.length() == 2
-| error(~who: #'write_cosim_product, "expected a shape-core-isa product key and output path")
+| error(~who: #'write_cosim_config, "expected a shape-core-isa config key and output path")
 def selection = named_soc_selection(arguments[0])
 unless selection.shape == SoCShape.Mini || selection.shape == SoCShape.Simple
-| error(~who: #'write_cosim_product, "embedded Sail currently supports Mini and Simple")
-def product = resolve_soc_product(selection)
-def config = product.configuration()
+| error(~who: #'write_cosim_config, "embedded Sail currently supports Mini and Simple")
+def resolved = resolve_soc_config(selection)
+def config = resolved.configuration()
 def fabric = if config is_a MiniSoCConfig | config.fabric | (config :: SingleCoreSoCConfig).params.fabric
 def description = config.description
-def configuration = product_metadata(product, config)
+def configuration = config_metadata(resolved, config)
 def environment = {
   "schema": 1,
   "reset_pc": description.boot.reset_address,

@@ -39,18 +39,18 @@ Mini, Single, and Tiled are independent host-selected SoC shapes. Each circuit
 accepts one immutable config that owns its hart binding. The contract in
 `harts/implementation.rhdl` contains no named-core import; adapters in
 `harts/rv5stage.rhdl` and `harts/spike.rhdl` supply their implementations.
-`products/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
-and conversion from complete CLI keys. `products/selections.tsv` is the shared
+`configs/selection.rhm` owns typed shape/core/ISA selectors, canonical keys,
+and conversion from complete CLI keys. `configs/selections.tsv` is the shared
 key-to-axis contract consumed by the typed selector and dependency-light Python
-CLI. Make delegates validation to that CLI; it does not parse combined names. `products/isa-profiles.rhm` authors pure
+CLI. Make delegates validation to that CLI; it does not parse combined names. `configs/isa-profiles.rhm` authors pure
 architectural presets without importing a named core. The core-profile
 factories apply independent implementation policy and reject a request they
-cannot implement exactly. `products/resolve.rhm` supplies the selected hart,
+cannot implement exactly. `configs/resolve.rhm` supplies the selected hart,
 shape configuration, software-visible description, and UDB projection.
-`products/hart-selection.rhm` requires an explicit typed ISA alongside shape/core
+`configs/hart-selection.rhm` requires an explicit typed ISA alongside shape/core
 when entering that resolver; concrete source specializations explicitly select
 their preset through the same profile factories. No shape
-imports a product or a named core. The shared `one-hart/system.rhdl` owns the
+imports a config or a named core. The shared `one-hart/system.rhdl` owns the
 single-router memory map, NodeIDs, external service, CHI derivation, and
 `populate_single_core` helper used by Mini and Single. That helper emits the
 selected hart with its Home, routers, and platform devices into the caller;
@@ -61,14 +61,14 @@ detects XLEN at runtime and selects its entry load. Image finalization validates
 boot addresses against the hart description and embeds its device tree.
 The boot-entry register remains 64 bits, with RV32 reading its low word. Preserve
 the full physical-address CHI interfaces rather than narrowing the fabric to
-the scalar register width. Both cores' `rv32int` and `rv32max` products exercise
+the scalar register width. Both cores' `rv32int` and `rv32max` configs exercise
 this platform path with the same capability-selected smoke payload and
 participate in the same shape/ISA-selected software policy. Keep their common
 integer/system architecture shared; only RV32Max adds F and Zve32f.
 Simple accepts the same RV32 hart bindings without narrowing its CHI fabric,
 boot-entry register, LLC, or external-memory service. Its default RAM window
 is `0x80000000..0xbfffffff`; target addresses are zero-extended at the hart's
-existing CHI boundary. Keep the product contract tests and executable FESVR
+existing CHI boundary. Keep the config contract tests and executable FESVR
 checks for both core bindings when changing this shared composition.
 The maximal RV64 presets share one scalar/vector/supervisor definition: `RVA23` enables H
 and its dependent guarantees, while `RV64Max` disables hypervisor support.
@@ -78,10 +78,10 @@ core's implementation configuration. Mini retains its compact
 resources. Spike's executable binding preserves the same selected architecture
 and exact vector geometry. Its ACT/UDB projection retains implementation-owned
 CSR and vector choices. All SoC Spike profiles explicitly disable PMP, matching
-the RV5Stage products; standalone Spike configurations retain their own PMP policy.
+the RV5Stage configs; standalone Spike configurations retain their own PMP policy.
 Reference-model limitations are documented by the
 [Spike package](../cores/spike/README.md). Do not substitute a scalar profile. The intended
-paired-product test inventory belongs in `sims/test-products.txt`, not in
+paired-config test inventory belongs in `sims/test-configs.txt`, not in
 hardware selection or in a Cartesian product of axes. New ISA enablement and
 CI rollout are separate from adding an authored requested architecture.
 The lean `RV64IMACB` and `RV64IMAFDCB` presets author only fixed core capabilities,
@@ -96,9 +96,9 @@ it also narrows hart uncached endpoints to nonsnooping opcodes for the device
 Home. The memory Home includes the complete uncached endpoint so coherent
 nonallocating accesses can reach normal memory without bypassing coherence.
 Exact ICN peers are derived through CHI's `node.icn_peer()` method. Home
-parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects product imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
+parameters obtain subordinate endpoints from their services. `make check-boundaries` rejects config imports from shared code, imports between peer shapes, and named-core imports from neutral modules.
 
-Resolved snapshots belong in `products/metadata.rhm`: serialize architecture,
+Resolved snapshots belong in `configs/metadata.rhm`: serialize architecture,
 the complete implementation profile, platform parameters, device-tree source,
 and UDB projection. Public immutable host parameters use Rhombus expression notation inside a
 versioned JSON envelope; XLEN and the architectural projections preserve the
@@ -113,20 +113,20 @@ description; the simulator attestation adds the normal/trace variant.
 | Concern | Owner |
 |---|---|
 | Architectural host description and device-tree projection | [`description.rhm`](platform/description.rhm) |
-| RV5Stage processor profiles | [`core-profiles.rhm`](products/core-profiles.rhm) |
-| Typed product selection, architectural presets, and shared resolution | [`selection.rhm`](products/selection.rhm), [`isa-profiles.rhm`](products/isa-profiles.rhm), [`resolve.rhm`](products/resolve.rhm) |
-| Spike processor profile | [`spike-core-profile.rhm`](products/spike-core-profile.rhm) |
+| RV5Stage processor profiles | [`core-profiles.rhm`](configs/core-profiles.rhm) |
+| Typed config selection, architectural presets, and shared resolution | [`selection.rhm`](configs/selection.rhm), [`isa-profiles.rhm`](configs/isa-profiles.rhm), [`resolve.rhm`](configs/resolve.rhm) |
+| Spike processor profile | [`spike-core-profile.rhm`](configs/spike-core-profile.rhm) |
 | Shared CHI flit profile | [`fabric-profiles.rhm`](platform/fabric-profiles.rhm) |
-| Concrete RISC-V UDB product configurations | [`udb.rhm`](products/udb.rhm) |
+| Concrete RISC-V UDB configurations | [`udb.rhm`](configs/udb.rhm) |
 | Common RAM/MMIO host boundary | [`host-interface.rhdl`](platform/host-interface.rhdl) |
 | One-hart fabric derivation and direct composition | [`one-hart/system.rhdl`](one-hart/system.rhdl) |
-| Neutral hart contract, concrete adapters, and product selection | [`harts/implementation.rhdl`](harts/implementation.rhdl), [`harts/rv5stage.rhdl`](harts/rv5stage.rhdl), [`harts/spike.rhdl`](harts/spike.rhdl), [`products/hart-selection.rhm`](products/hart-selection.rhm) |
+| Neutral hart contract, concrete adapters, and config selection | [`harts/implementation.rhdl`](harts/implementation.rhdl), [`harts/rv5stage.rhdl`](harts/rv5stage.rhdl), [`harts/spike.rhdl`](harts/spike.rhdl), [`configs/hart-selection.rhm`](configs/hart-selection.rhm) |
 | Core-neutral Mini and Single SoC shapes | [`mini-soc/main.rhdl`](mini-soc/main.rhdl), [`single-core-soc/main.rhdl`](single-core-soc/main.rhdl) |
 | Shared host endpoint descriptions | [`endpoint-params.rhdl`](platform/endpoint-params.rhdl) |
 | Shared boot-address register, BootROM, ACLINT, PLIC, and UART windows, PMA, Home map, and UART boundary | [`peripherals.rhdl`](platform/peripherals.rhdl) |
-| RV5Stage binding for the shared single-core platform | [`single-core-rv5stage-soc.rhdl`](products/single-core-rv5stage-soc.rhdl) |
-| Spike binding for the shared single-core platform | [`single-core-spike-soc.rhdl`](products/single-core-spike-soc.rhdl) |
-| Named compact RV5Stage product | [`mini-rv5stage-soc.rhdl`](products/mini-rv5stage-soc.rhdl) |
+| RV5Stage binding for the shared single-core platform | [`single-core-rv5stage-soc.rhdl`](configs/single-core-rv5stage-soc.rhdl) |
+| Spike binding for the shared single-core platform | [`single-core-spike-soc.rhdl`](configs/single-core-spike-soc.rhdl) |
+| Named compact RV5Stage config | [`mini-rv5stage-soc.rhdl`](configs/mini-rv5stage-soc.rhdl) |
 | Tiled public entrypoint | [`tiled-soc/main.rhdl`](tiled-soc/main.rhdl) |
 | Tiled layout and authoring form | [`tiled-soc/layout.rhm`](tiled-soc/layout.rhm) |
 | Private tiled placement model and configuration compiler | [`tiled-soc/compiled.rhdl`](tiled-soc/compiled.rhdl), [`tiled-soc/compile.rhdl`](tiled-soc/compile.rhdl) |
@@ -162,9 +162,9 @@ description; the simulator attestation adds the normal/trace variant.
 ## Focused validation
 
 `tests/udb-test.rhm` owns the independent ratified RVA23 mandatory-declaration
-oracle. Keep it independent of product construction and core projection lists:
+oracle. Keep it independent of config construction and core projection lists:
 it must detect a consistently omitted requirement, not only differences between
-two generated views. It checks every RVA23 shape/core product, required versions
+two generated views. It checks every RVA23 shape/core config, required versions
 and parameters, and mutation cases that remove each mandatory declaration.
 Opcode-free supervisor guarantees belong in hart/device-tree and UDB capabilities,
 not assembler flags; the pinned Spike parser must accept their published names.
