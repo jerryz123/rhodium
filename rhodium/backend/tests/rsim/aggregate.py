@@ -3,6 +3,8 @@
 
 PACKETS = ('echo', 'built', 'picked', 'first_left', 'first_right', 'second_left', 'second_right',
            'mux_record', 'mux_other', 'mux_vector', 'mux_constant', 'mux_chain', 'mux_captured')
+ARRAYS = (('gather', 8), ('reverse_gather', 8), ('stride_gather', 4),
+          ('mixed_gather', 9), ('fill', 8), ('saved_gather', 8))
 
 
 def encoded(name):
@@ -31,6 +33,13 @@ def ports(width):
                 [(f'[{index}]{path}', bits, index*size+low)
                  for index in range(3) for path, bits, low in packet_fields(width)])
                for name in ('constructed', 'saved_vector')]
+    result += [(name, count*(width+5),
+                [(f'[{index}]{path}', bits, index*(width+5)+low)
+                 for index in range(count) for path, bits, low in
+                 [('.pclass', width, 5), ('.p_u_uclass_u_u', 5, 0)]])
+               for name, count in ARRAYS]
+    result += [('scalar_gather', 8*width, [(f'[{i}]', width, i*width) for i in range(8)])]
+    result += [('scalar_stride', 4*width, [(f'[{i}]', width, i*width) for i in range(4)])]
     result += [('mux_whole', 2*size,
                 [(f'.pa{path}', bits, low+size) for path, bits, low in packet_fields(width)] +
                 [(f'.pb{path}', bits, low) for path, bits, low in packet_fields(width)])]
@@ -77,7 +86,7 @@ def native_setup(width):
                          f'agg.outputs().{encoded(port)}{path}) return 5;')
             lines.append(f'if (moved.outputs().{encoded(port)}{path} != '
                          f'advanced.outputs().{encoded(port)}{path}) return 6;')
-        if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured', 'saved_vector'):
+        if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured', 'saved_vector', 'saved_gather'):
             for path, _, _ in fields:
                 lines.append(f'if (idle_agg.outputs().{encoded(port)}{path} != 0) return 4;')
     lines += ['moved.tick(); advanced.tick();']
@@ -139,6 +148,7 @@ class Oracle:
         self.left = self.right = self.other_left = self.other_right = zero
         self.captured = zero
         self.saved_vector = [zero, zero, zero]
+        self.saved_gather = [(0, 0)] * 8
         self.sample = zero[0]
 
     def observe(self, tick, reset, enable, load, a, b, packed):
@@ -160,6 +170,9 @@ class Oracle:
         constant_mux = initial(width, 11) if enable else pa
         chain = (constant_mux, pb, initial(width, 19), built)[2 * enable + load]
         if tick:
+            self.saved_gather = ([initial(width, i)[0][0] for i in range(8)] if reset else
+                                 [initial(width, 21+i)[0][0] if load else (pa[0][0] if i % 2 == 0 else self.captured[0][0])
+                                  for i in range(8)])
             self.saved_vector = ([initial(width, seed) for seed in (3, 7, 11)] if reset
                                  else [chain, self.captured, chain])
             self.captured = initial(width, 3) if reset else chain
@@ -169,6 +182,13 @@ class Oracle:
         result = [value for packet in packets for value in flatten(packet)]
         result += [value for packet in [chain, self.captured, chain] + self.saved_vector
                    for value in flatten(packet)]
+        gather = [initial(width, 21+i)[0][0] if load else (pa[0][0] if i % 2 == 0 else self.captured[0][0])
+                  for i in range(8)]
+        arrays = [gather, gather[::-1], gather[::2],
+                  [gather[i] for i in (3, 4, 5, 6, 0, 6, 6, 6, 6)], [chain[0][0]]*8, self.saved_gather]
+        result += [value for array in arrays for pair in array for value in pair]
+        result += [((a & mask) + i) & mask for i in range(8)]
+        result += [((a & mask) + 2*i) & mask for i in range(4)]
         result += flatten(pb if enable else pa) + flatten(pa)
         result += [value for pair in self.sample for value in pair]
         # Decode with integer division, independently of emitted C++ shifts.

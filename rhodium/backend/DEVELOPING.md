@@ -153,8 +153,17 @@ directly into its indexed element before binding the result alias. The destinati
 is unique and cannot alias any earlier operand, including a borrowed mux result;
 this avoids the temporary required by general C++ aggregate assignment. Keep this
 optimization confined to those slots, not arbitrary frame or state destinations.
-Local-only constructors retain ordinary initializers, and constants retain their
-immutable materialization. Region order and costs remain unchanged.
+The layout also records each physical scratch group, index, and whether its slot
+holds a value or a borrowed pointer. Vector construction uses that metadata to
+emit counted gather loops for affine runs in one group, including descending
+indices and strides. Repeated operands become fill loops. Runs of at least four
+elements use loops; irregular elements retain assignments. Never infer storage
+from generated C++ strings or move an operand's computation into these loops.
+Local constructors may use fresh local array storage for such kernels; other
+locals retain ordinary initializers, and constants retain their immutable
+materialization. Every element is assigned before the const result alias is
+bound. Region order and costs remain unchanged: this is compact rendering of an
+existing operation, not fusion, rescheduling, or a new public array IR.
 Other intermediates remain function locals, while constants reference the shared
 immutable pool. Each phase has its own model-owned scratch, initialized once and
 overwritten before every use. This physical reuse provides no cross-invocation
@@ -651,8 +660,12 @@ construction into distinct boundary slots, deterministic helper order, and
 effect-free helper bodies. The aggregate native/direct-SV scoreboard
 checks chained and multi-arm selections with constants, nested records/vectors,
 dirty padding, repeated constructor operands, and pre-edge register capture;
-its native build uses ASan and UBSan. Force small boundaries through the existing
-native Builder scoreboards and sanitizers with:
+it also checks forward/reverse/strided gathers, mixed loop/scalar runs, fills,
+and gathered state before and after an edge. The wide scoreboard repeats fills
+and direct gathers through wide carriers. Structural checks ensure the split
+aggregate fixture actually emits both direct and indirect loops; behavioral
+oracles check their values under ASan and UBSan. Force small boundaries through
+the existing native Builder scoreboards and sanitizers with:
 
 ```sh
 python3 rhodium/backend/tests/rsim/run.py --region-budget 24

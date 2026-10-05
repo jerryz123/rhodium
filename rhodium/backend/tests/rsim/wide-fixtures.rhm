@@ -200,6 +200,12 @@ fun make_wide_aggregate(width :: PosInt):
   def unpacked = b.cast(top, bits, packet)
   def reversed = b.vector_create(top, vector, for List (index in 0..3): b.vector_get(top, items, 2 - index))
   def rebuilt = b.record_create(top, packet, [["head", b.record_get(top, value, "head")], ["items", reversed]])
+  // Copy whole wide elements and separately computed wide scalars through
+  // compact fills/gathers; compare their typed leaves with packed SV bits.
+  def filled = b.vector_create(top, VectorType(4, element), [read, read, read, read])
+  def gathered_values = for List (index in 0..4):
+    b.add(top, b.record_get(top, replacement, "data"), b.constant(top, Bits(width), index))
+  def gathered = b.vector_create(top, VectorType(4, Bits(width)), gathered_values)
   def care = 2 ** (total - 1) + 2 ** (width - 1) + 1
   def full = 2 ** total - 1
   def outputs = [["echo", value], ["packed_bits", b.cast(top, value, Bits(total))], ["unpacked", unpacked],
@@ -207,7 +213,7 @@ fun make_wide_aggregate(width :: PosInt):
                  ["rebuilt", rebuilt], ["read", read], ["injected", injected],
                  ["written", writes(items, #false)], ["reversed_writes", writes(items, #true)],
                  ["state", state.current], ["captured", captured.current],
-                 ["onehot", b.onehot_mux(top, enables, [value, unpacked])],
+                 ["onehot", b.onehot_mux(top, enables, [value, unpacked])], ["fill", filled], ["gather", gathered],
                  ["decoded", b.decode(top, value, packet, packet, [[0, care, full, full], [1, care, initial, full]], 2 ** (total - 1) + 7, full)]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   b.finish(top)

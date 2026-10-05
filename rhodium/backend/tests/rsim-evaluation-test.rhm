@@ -350,6 +350,13 @@ def aggregate_emission = emit_rsim(aggregate_schedule, ~region_budget: 24)
 check:
   aggregate_emission ~is emit_rsim(aggregate_schedule, ~region_budget: 24)
   aggregate_emission[1].contains(" = &(") ~is #true
+  // Kernels must cover direct values and pointer-backed aggregates, both index
+  // directions and strides, while leaving regions and state timing unchanged.
+  aggregate_emission[1].contains(" + i * 2]") ~is #true
+  aggregate_emission[1].contains(" - i * 1]") ~is #true
+  (for any (line in aggregate_emission[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = *scratch.")) ~is #true
+  (for any (line in aggregate_emission[1].split("\n")): line.contains("for (std::size_t i") && line.contains(" = scratch.")) ~is #true
+  emit_rsim(aggregate_schedule, ~region_budget: 1000000)[1].contains("for (std::size_t i = 0; i < 8;") ~is #true
 
 // Aggregate register and synchronous-read roots bind the current model directly
 // in both producers and consumers. The same roots remain local references when

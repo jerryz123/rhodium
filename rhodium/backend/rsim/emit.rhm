@@ -182,21 +182,24 @@ fun backed_reference(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
 /* Render one original schedule index with its usual leaf normalization.
    Constant aliases bind namespace storage, never another evaluator's locals;
    callers choose the dependency-ordered indices without renumbering operands. */
-fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes, constants :: Map, ~destination: destination :: maybe(String) = #false) :: String:
+fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes, constants :: Map, ~destination: destination :: maybe(String) = #false, ~slots: slots :: Map = {}) :: String:
   if constants.has_key(index)
   | "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ constants[index] ++ ";"
   | def step = steps[index]
-    def rendered = expression(step, steps, types)
-    // External aggregates need leaf masking. Internal aggregate operations use
-    // normalized members; scalar expressions are masked at every boundary.
-    def value:
-      if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
-      | types.normalize(step.type, rendered)
-      | rendered
-    cond
-    | aggregate_state_read(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
-    | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
-    | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
+    def array = if step.opcode == "rtl.vector_create" | array_construction(index, step, types, slots, destination) | #false
+    if array
+    | array
+    | def rendered = expression(step, steps, types)
+      // External aggregates need leaf masking. Internal aggregate operations use
+      // normalized members; scalar expressions are masked at every boundary.
+      def value:
+        if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
+        | types.normalize(step.type, rendered)
+        | rendered
+      cond
+      | aggregate_state_read(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
+      | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
+      | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
 /* Render one planned final consumer without executing effects or committing
    storage. The planner owns its value/storage uses and sampling order; this
@@ -247,7 +250,56 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
 
 /* Value expressions, borrowed-result pointer slots, and typed arrays for one
    evaluation phase. Logical regions remain independent of C++ storage policy. */
-class BoundaryStorage(bindings :: Map, borrowed :: Map, declarations :: List.of(String))
+class BoundaryStorage(bindings :: Map, borrowed :: Map, slots :: Map, declarations :: List.of(String))
+
+/* Keep the physical array location alongside its rendered binding. Indirect
+   slots hold aggregate pointers refreshed during this evaluation. This metadata
+   supports indexed kernels without recovering addresses from generated C++. */
+class ScratchSlot(group :: String, index :: Nat, indirect :: Boolean)
+
+/* Fill a fresh vector destination from normalized operands in logical order.
+   Repeated values and affine runs in one scratch group become counted loops;
+   all other elements retain scalar assignments. Slots never overlap operands
+   or get recycled, so an indirect gather cannot overwrite its own backing.
+   Local constructors use this path only when a loop replaces at least four
+   assignments; otherwise keep their compact aggregate initializer. */
+fun array_construction(index :: Nat, step :: RsimStep, types :: CppTypes, slots :: Map, destination :: maybe(String)) :: maybe(String):
+  def operands = step.operands
+  def target = destination || ("array" ++ to_string(index))
+  def lines = MutableList[]
+  def mutable looped = #false
+  def mutable start = 0
+  while start < operands.length():
+    def first = operands[start]
+    def mutable end = start + 1
+    while end < operands.length() && operands[end] == first:
+      end := end + 1
+    def mutable value = ref(first)
+    when end == start + 1 && end < operands.length() && slots.has_key(first) && slots.has_key(operands[end])
+    | def a = slots[first] :: ScratchSlot
+      def b = slots[operands[end]] :: ScratchSlot
+      def stride = b.index - a.index
+      when a.group == b.group && a.indirect == b.indirect
+      | end := end + 1
+        def mutable matching = #true
+        while end < operands.length() && matching:
+          def next = slots.get(operands[end], #false)
+          if next && next.group == a.group && next.indirect == a.indirect && next.index == a.index + (end - start) * stride
+          | end := end + 1
+          | matching := #false
+        def offset = to_string(a.index) ++ (if stride < 0 | " - i * " ++ to_string(-stride) | " + i * " ++ to_string(stride))
+        value := (if a.indirect | "*" | "") ++ "scratch." ++ a.group ++ "[" ++ offset ++ "]"
+    if end - start >= 4
+    | looped := #true
+      lines.add("  for (std::size_t i = 0; i < " ++ to_string(end - start) ++ "; ++i) " ++ target ++ "[" ++ to_string(start) ++ " + i] = " ++ value ++ ";")
+    | lines.add("  " ++ target ++ "[" ++ to_string(start) ++ "] = " ++ ref(first) ++ ";")
+      end := start + 1
+    start := end
+  if destination || looped
+  | (if destination | "" | "  " ++ types.name(step.type) ++ " " ++ target ++ ";\n")
+      ++ String.join(lines.snapshot(), "\n")
+      ++ "\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ target ++ ";"
+  | #false
 
 /* Bind aggregate state roots and backed projections directly; allocate other values,
    grouping slots by C++ carrier rather than generating one member per value.
@@ -258,6 +310,7 @@ class BoundaryStorage(bindings :: Map, borrowed :: Map, declarations :: List.of(
 fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
   def bindings = MutableMap{}
   def borrowed = MutableMap{}
+  def slots = MutableMap{}
   def carriers = MutableList[]
   def groups = MutableMap{}
   def counts = MutableMap{}
@@ -278,12 +331,13 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
           counts[carrier] := 0
           carriers.add(carrier)
         def slot = "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
+        slots[index] := ScratchSlot(groups[carrier], counts[carrier], borrow)
         bindings[index] := (if borrow | "*" | "") ++ slot
         when borrow | borrowed[index] := slot
         counts[carrier] := counts[carrier] + 1
   def declarations = for List (carrier in carriers):
     "    std::array<" ++ carrier ++ ", " ++ to_string(counts[carrier]) ++ "> " ++ groups[carrier] ++ ";"
-  BoundaryStorage(bindings.snapshot(), borrowed.snapshot(), declarations)
+  BoundaryStorage(bindings.snapshot(), borrowed.snapshot(), slots.snapshot(), declarations)
 
 /* Declare phase-local reusable buffers and bounded sampling helpers. Scratch is
    overwritten before every read, never a cache; initialization happens once per
@@ -312,21 +366,12 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
           // invocation. Taking the selected lvalue's address performs no copy.
           | layout.borrowed.has_key(step):
               source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.bindings[step] ++ ";")
-          | plan.steps[step].opcode == "rtl.vector_create" && layout.bindings.has_key(step):
-              // This unique result slot cannot overlap earlier operands, even
-              // borrowed ones: slots are never recycled within an evaluation.
-              // Fill it directly instead of constructing and copying an array
-              // temporary. Every element is already a normalized value.
-              def slot = layout.bindings[step]
-              for (operand in plan.steps[step].operands, element in 0..plan.steps[step].operands.length()):
-                source.add("  " ++ slot ++ "[" ++ to_string(element) ++ "] = " ++ ref(operand) ++ ";")
-              source.add("  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ slot ++ ";")
           | ~else:
               // Local subobjects outlive local consumers. Crossing projections
               // may omit the copy only when their parent has stable backing.
               def projection = aggregate_projection(plan.steps[step]) && backed_reference(plan.steps[step].operands[0], plan.steps, types, constants, layout.bindings) != #false
               def destination = if projection | #false | layout.bindings.get(step, #false)
-              source.add(step_declaration(step, plan.steps, types, constants, ~destination: destination))
+              source.add(step_declaration(step, plan.steps, types, constants, ~destination: destination, ~slots: layout.slots))
       for (sink in region.sinks): emit_sink(sink, plan, types, source)
       source.add("}")
 

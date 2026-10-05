@@ -225,7 +225,11 @@ def aggregate_ports(width):
             ('relayout', total, [('.pfirst', width + 3, total - width - 3), ('.prest', total - width - 3, 0)]),
             ('rebuilt', total, packet), ('read', width + 5, element),
             *[(name, 3 * (width + 5), vector) for name in ('injected', 'written', 'reversed_writes', 'state')],
-            ('captured', width + 5, element), ('onehot', total, packet), ('decoded', total, packet)]
+            ('captured', width + 5, element), ('onehot', total, packet),
+            ('fill', 4*(width+5), [(f'[{i}]'+path, bits, i*(width+5)+low)
+                                  for i in range(4) for path, bits, low in element]),
+            ('gather', 4*width, [(f'[{i}]', width, i*width) for i in range(4)]),
+            ('decoded', total, packet)]
 
 
 def aggregate_stimuli(width):
@@ -269,7 +273,9 @@ def aggregate_stimuli(width):
         decoded = {0: mask, 1: initial}.get(code, (1 << (total - 1)) + 7)
         results = [value, value, packed, packed, value, rebuilt, items[selector] if selector < 3 else 0,
                    injected, written, written, state, captured,
-                   value if enables == 1 else packed if enables == 2 else None, decoded]
+                   value if enables == 1 else packed if enables == 2 else None,
+                   sum((items[selector] if selector < 3 else 0) << (i*(width+5)) for i in range(4)),
+                   sum(((replacement+i) & ((1 << width)-1)) << (i*width) for i in range(4)), decoded]
         flat = []
         for v, (_, _, fields) in zip(results, aggregate_ports(width)):
             for _, bits, low in fields:

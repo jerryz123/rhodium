@@ -110,6 +110,35 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   b.drive(saved.next, constructed)
   b.drive(b.output(top, "constructed", triple), constructed)
   b.drive(b.output(top, "saved_vector", triple), saved.current)
+  // Whole-value gathers keep their normalized sources alive across boundaries.
+  // Include descending/strided runs, a scalar tail between two compact runs,
+  // repeated borrowed values, and pre-edge capture of old aggregate state.
+  def first_input = b.vector_get(top, payload, 0)
+  def first_captured = b.vector_get(top, b.record_get(top, captured.current, "payload"), 0)
+  fun first_initial(seed :: Nat):
+    b.vector_get(top, b.record_get(top, initial(top, seed), "payload"), 0)
+  def gathered = for List (index in 0..8):
+    b.mux_lookup(top, tl, if index mod 2 == 0 | first_input | first_captured, [[1, first_initial(21 + index)]])
+  def gathered_vector = b.vector_create(top, VectorType(8, element), gathered)
+  b.drive(b.output(top, "gather", gathered_vector.type), gathered_vector)
+  for (entry in [["reverse_gather", [7, 6, 5, 4, 3, 2, 1, 0]],
+                 ["stride_gather", [0, 2, 4, 6]],
+                 ["mixed_gather", [3, 4, 5, 6, 0, 6, 6, 6, 6]]]):
+    def value = b.vector_create(top, VectorType(entry[1].length(), element), entry[1].map(fun (index): gathered[index]))
+    b.drive(b.output(top, entry[0], value.type), value)
+  def first_chain = b.vector_get(top, b.record_get(top, chain, "payload"), 0)
+  def filled = b.vector_create(top, VectorType(8, element), for List (_ in 0..8): first_chain)
+  b.drive(b.output(top, "fill", filled.type), filled)
+  def gathered_state = b.register(top, "gathered_state", VectorType(8, element), tc, tr,
+                                  b.vector_create(top, VectorType(8, element), for List (index in 0..8): first_initial(index)))
+  b.drive(gathered_state.next, gathered_vector)
+  b.drive(b.output(top, "saved_gather", gathered_state.current.type), gathered_state.current)
+  def scalar_entries = for List (index in 0..8):
+    b.add(top, b.record_get(top, b.vector_get(top, payload, 0), "class"), b.constant(top, Bits(width), index mod (2 ** width)))
+  def scalar_gather = b.vector_create(top, VectorType(8, Bits(width)), scalar_entries)
+  b.drive(b.output(top, "scalar_gather", scalar_gather.type), scalar_gather)
+  def scalar_stride = b.vector_create(top, VectorType(4, Bits(width)), for List (index in 0..4): scalar_entries[2 * index])
+  b.drive(b.output(top, "scalar_stride", scalar_stride.type), scalar_stride)
   for (name in ["first", "second"]):
     def child = b.instance(top, leaf, name)
     for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
