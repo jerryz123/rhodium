@@ -125,7 +125,61 @@ fun expression(step :: RsimStep, steps :: List.of(RsimStep), types :: CppTypes) 
       String.join(cases, "") ++ args[1]
   | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
 
-/* Produce model sources and optional wide support, with private storage per model object.
+/* Fold constant casts once and emit canonical immutable objects in the model
+   namespace. Return step-to-symbol bindings independent of evaluator locals,
+   so any dependency-closed subset can refer to the same constant storage. */
+fun emit_constants(steps :: List.of(RsimStep), types :: CppTypes, source :: MutableList) :: Map:
+  def constant_values = MutableMap{}
+  def storage = MutableMap{}
+  def bindings = MutableMap{}
+  for (step in steps, index in 0..steps.length()):
+    def constant:
+      cond
+      | step.opcode == "rtl.constant": step.attributes["value"]
+      | step.opcode == "rtl.cast": constant_values.get(step.operands[0], #false)
+      | ~else: #false
+    when constant != #false
+    | constant_values[index] := constant
+      def rendered = types.constant(step.type, constant)
+      def key = [types.name(step.type), rendered]
+      unless storage.has_key(key)
+      | def name = "constant" ++ to_string(storage.length())
+        storage[key] := name
+        // Internal linkage and constant initialization share immutable tables
+        // across evaluator bodies and model instances without runtime guards.
+        source.add("[[maybe_unused]] static constexpr " ++ types.name(step.type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
+      bindings[index] := storage[key]
+  bindings.snapshot()
+
+/* Render one original schedule index with its usual leaf normalization.
+   Constant aliases bind namespace storage, never another evaluator's locals;
+   callers choose the dependency-ordered indices without renumbering operands. */
+fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes, constants :: Map) :: String:
+  if constants.has_key(index)
+  | "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ constants[index] ++ ";"
+  | def step = steps[index]
+    def rendered = expression(step, steps, types)
+    // External aggregates need leaf masking. Other aggregate operations copy
+    // normalized members; scalar expressions are masked at every boundary.
+    def value:
+      if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
+      | types.normalize(step.type, rendered)
+      | rendered
+    "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
+
+/* Mark the output dependency closure without revisiting the source graph.
+   Operands precede consumers, so one reverse scan reaches every dependency;
+   state roots stop here rather than pulling in their update/effect sinks. */
+fun output_dependencies(plan :: RsimSchedule) :: Set:
+  def needed = MutableSet{}
+  for (port in plan.outputs): needed.add(port.value)
+  for (offset in 0..plan.steps.length()):
+    def index = plan.steps.length() - 1 - offset
+    when index in needed
+    | for (operand in plan.steps[index].operands): needed.add(operand)
+  needed.snapshot()
+
+/* Produce model sources and optional wide support, with private state per model object.
    The evaluator is pure with respect to state; tick commits only after every
    next-state expression and pending write has sampled the old state. Memory
    arrays live outside the frame, so evaluation never copies whole memories. */
@@ -162,7 +216,7 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   header.add("  } state_;")
   for (memory in plan.memories, index in 0..plan.memories.length()):
     header.add("  std::array<" ++ types.name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
-  header.add("  struct Frame {\n    Outputs outputs;\n    State next;")
+  header.add("  struct Frame {\n    State next;")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def prefix = "call" ++ to_string(index)
     header.add("    bool " ++ prefix ++ "_enable{};")
@@ -220,37 +274,10 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
     | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
+  def constants = emit_constants(plan.steps, types, source)
   source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
-  // Casts preserve canonical bits. Track only known constants, leaving dynamic
-  // expressions and schedule identities intact. Intern their rendered typed
-  // values so different layouts or scalar widths cannot alias unequal leaves.
-  def constants = MutableMap{}
-  def constant_storage = MutableMap{}
-  for (step in plan.steps, index in 0..plan.steps.length()):
-    def constant:
-      cond
-      | step.opcode == "rtl.constant": step.attributes["value"]
-      | step.opcode == "rtl.cast": constants.get(step.operands[0], #false)
-      | ~else: #false
-    if constant != #false
-    | constants[index] := constant
-      def rendered = types.constant(step.type, constant)
-      def key = [types.name(step.type), rendered]
-      if constant_storage.has_key(key)
-      | source.add("  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ ref(constant_storage[key]) ++ ";")
-      | constant_storage[key] := index
-        // Constant initialization requires no per-evaluation slicing, copies,
-        // or initialization guards, even at -O0 or across model instances.
-        source.add("  [[maybe_unused]] static constexpr " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ rendered ++ ";")
-    | def rendered = expression(step, plan.steps, types)
-      // External aggregates need leaf masking. All other aggregate operations
-      // copy normalized members; scalar expressions are masked at every boundary.
-      def value:
-        if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
-        | types.normalize(step.type, rendered)
-        | rendered
-      source.add("  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";")
-  for (port in plan.outputs): source.add("  frame.outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
+  for (index in 0..plan.steps.length()):
+    source.add(step_declaration(index, plan.steps, types, constants))
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def slot = to_string(index)
     source.add("  frame.call" ++ slot ++ "_enable = " ++ ref(call.enable) ++ " != 0;")
@@ -284,7 +311,15 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
         types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
       | ref(write.data)
     source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ data ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
-  source.add("  return frame;\n}\nvoid Model::eval() { outputs_ = evaluate().outputs; }\nvoid Model::tick() {\n  auto before = evaluate();")
+  source.add("  return frame;\n}\nvoid Model::eval() {\n  Outputs next_outputs{};")
+  def output_steps = output_dependencies(plan)
+  for (index in 0..plan.steps.length()):
+    when index in output_steps
+    | source.add(step_declaration(index, plan.steps, types, constants))
+  for (port in plan.outputs): source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
+  // Publish only after every output has sampled the current inputs/storage.
+  // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
+  source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  auto before = evaluate();")
   for (assertion in plan.assertions, index in 0..plan.assertions.length()):
     def message = "assertion failed: " ++ (assertion.label || "<unlabeled>") ++ " [" ++ String.join([plan.name] ++ assertion.path, "/") ++ "] " ++ assertion.location
     source.add("  if (before.assertion" ++ to_string(index) ++ "_failed) throw std::runtime_error(" ++ cpp_string(message) ++ ");")

@@ -81,9 +81,18 @@ ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
 
-The baseline evaluator returns outputs, register and synchronous-read next-state
-values, pending memory writes, checks, and foreign-call arguments in a private
-frame without modifying state. Persistent memory arrays live outside that frame: evaluation copies no complete memory. Register
+The pre-edge evaluator returns register and synchronous-read next-state values,
+pending memory writes, checks, and foreign-call arguments in a private frame
+without modifying state. It retains the full scheduled step sequence.
+`eval()` instead emits only the output dependency closure: seed output step
+indices, mark operands in one reverse schedule scan, and render marked indices
+in their original forward order. State roots stop the walk; asynchronous reads
+include their addresses but not their writers. Both bodies use the same step
+renderer and immutable constant pool. `eval()` computes a local `Outputs` and
+publishes it after all output expressions finish, without constructing a frame,
+checking assertions, or invoking foreign calls. Empty output lists have no
+evaluation steps; their checks and effects remain live in `tick()`.
+Persistent memory arrays live outside the frame: evaluation copies no complete memory. Register
 reads and asynchronous memory contents both come from old storage; a memory
 read schedules its address but never its writers. Collect all memory declarations,
 including unused/read-only/write-only resources, and intern their element types.
@@ -94,7 +103,7 @@ feedback through a stored read result without inventing a combinational cycle.
 writes test opposite values of the same mode. Root-clock verification covers
 every memory write and synchronous-memory declaration through occurrence aliases.
 `tick()` samples the complete frame, commits registers, synchronous read results,
-and guarded memory writes, then evaluates again for post-edge outputs. A consuming
+and guarded memory writes, then calls output-only `eval()` for post-edge outputs. A consuming
 register therefore captures the preceding read result. Register reset does not
 gate reads or writes. Disabled/shared-write read results use zero as this backend's
 choice for unspecified data; tests must not make that choice a portable guarantee.
@@ -190,9 +199,12 @@ outputs with `CppTypes.constant`. Host-side slicing of arbitrary-width constants
 keeps every emitted integer literal within a scalar carrier; wide scalar masks
 and lookup keys use the same limb constants as ordinary data. The rsim emitter
 propagates canonical constant bits through casts and renders their destination
-leaves directly. Equal rendered values of the same C++ type share function-local
-`static constexpr` storage, with reference aliases for duplicate steps. This
-avoids per-evaluation ROM unpacking and array copies without changing schedule
+leaves directly. Equal rendered values of the same C++ type share namespace-level
+`static constexpr` storage with internal linkage. Each constant step aliases its
+canonical object directly, so rendering a step does not require another step's
+local alias. `emit_constants` owns the per-emission pool; `step_declaration`
+renders an original schedule index with the same expressions and normalization.
+This avoids per-evaluation ROM unpacking and array copies without changing schedule
 identities, dynamic casts, or per-occurrence state. The constant maps belong to
 one emission; they are not elaboration caches. One-hot selection
 tests a bit in its containing limb, retaining machine-word masks for narrow
@@ -512,6 +524,10 @@ initialize through writes and never assume portable zero contents.
 native run without HDL tools; the existing backend differential lane also runs
 the rsim/direct-SV comparison. Host tests additionally cover source preservation,
 deterministic naming independent of global IDs, and prepared/provider reuse.
+Structural emission checks protect output-only evaluation at state roots and
+empty output dependency sets while retaining pre-edge updates and foreign
+effects. Behavioral scoreboards cover the resulting output and edge semantics;
+CI does not impose runtime thresholds for this optimization.
 
 ### Behavioral coverage
 
