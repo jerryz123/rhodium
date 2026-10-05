@@ -269,11 +269,21 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
         source.add(step_declaration(constant, plan.steps, types, constants))
       for (step in region.steps):
         unless constants.has_key(step)
-        | if layout.borrowed.has_key(step)
+        | cond
           // All branches are normalized aggregate lvalues backed for this whole
           // invocation. Taking the selected lvalue's address performs no copy.
-          | source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.slots[step] ++ ";")
-          | source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
+          | layout.borrowed.has_key(step):
+              source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.slots[step] ++ ";")
+          | plan.steps[step].opcode == "rtl.vector_create" && layout.slots.has_key(step):
+              // This unique result slot cannot overlap earlier operands, even
+              // borrowed ones: slots are never recycled within an evaluation.
+              // Fill it directly instead of constructing and copying an array
+              // temporary. Every element is already a normalized value.
+              def slot = layout.slots[step]
+              for (operand in plan.steps[step].operands, element in 0..plan.steps[step].operands.length()):
+                source.add("  " ++ slot ++ "[" ++ to_string(element) ++ "] = " ++ ref(operand) ++ ";")
+              source.add("  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ slot ++ ";")
+          | ~else: source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
       for (sink in region.sinks): emit_sink(sink, plan, types, source)
       source.add("}")
 

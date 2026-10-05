@@ -126,6 +126,13 @@ without copying its aggregate. Helper-local branches retain materialized results
 do not promote extra values merely to enable borrowing. Scalar results keep their
 ordinary normalization and materialization. Boundary slots are never recycled
 within an evaluation, so later consumers can safely follow borrowed chains.
+Nonconstant vector constructors with boundary slots write each normalized operand
+directly into its indexed element before binding the result alias. The destination
+is unique and cannot alias any earlier operand, including a borrowed mux result;
+this avoids the temporary required by general C++ aggregate assignment. Keep this
+optimization confined to those slots, not arbitrary frame or state destinations.
+Local-only constructors retain ordinary initializers, and constants retain their
+immutable materialization. Region order and costs remain unchanged.
 Other intermediates remain function locals, while constants reference the shared
 immutable pool. Each phase has its own model-owned scratch, initialized once and
 overwritten before every use. This physical reuse provides no cross-invocation
@@ -598,12 +605,13 @@ Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Emission checks additionally protect local-only intermediates, crossing-value
-slots, aggregate borrowing and its local-operand fallback, deterministic helper
-order, and effect-free helper bodies. The aggregate native/direct-SV scoreboard
+slots, aggregate borrowing and its local-operand fallback, direct vector
+construction into distinct boundary slots, deterministic helper order, and
+effect-free helper bodies. The aggregate native/direct-SV scoreboard
 checks chained and multi-arm selections with constants, nested records/vectors,
-dirty padding, and register capture; its native build uses ASan and UBSan.
-Force small
-boundaries through the existing native Builder scoreboards and sanitizers with:
+dirty padding, repeated constructor operands, and pre-edge register capture;
+its native build uses ASan and UBSan. Force small boundaries through the existing
+native Builder scoreboards and sanitizers with:
 
 ```sh
 python3 rhodium/backend/tests/rsim/run.py --region-budget 24

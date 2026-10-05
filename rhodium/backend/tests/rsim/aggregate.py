@@ -27,6 +27,10 @@ def packet_fields(width):
 def ports(width):
     size = length(width) * (width + 5) + 1 + width
     result = [(name, size, packet_fields(width)) for name in PACKETS]
+    result += [(name, 3*size,
+                [(f'[{index}]{path}', bits, index*size+low)
+                 for index in range(3) for path, bits, low in packet_fields(width)])
+               for name in ('constructed', 'saved_vector')]
     result += [('mux_whole', 2*size,
                 [(f'.pa{path}', bits, low+size) for path, bits, low in packet_fields(width)] +
                 [(f'.pb{path}', bits, low) for path, bits, low in packet_fields(width)])]
@@ -64,7 +68,7 @@ def native_setup(width):
         for path, _, _ in fields:
             lines.append(f'if (copied.outputs().{encoded(port)}{path} != '
                          f'agg.outputs().{encoded(port)}{path}) return 5;')
-        if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured'):
+        if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured', 'saved_vector'):
             for path, _, _ in fields:
                 lines.append(f'if (idle_agg.outputs().{encoded(port)}{path} != 0) return 4;')
     return '\n'.join(lines)
@@ -120,6 +124,7 @@ class Oracle:
         zero = (tuple((0, 0) for _ in range(length(width))), 0, 0)
         self.left = self.right = self.other_left = self.other_right = zero
         self.captured = zero
+        self.saved_vector = [zero, zero, zero]
         self.sample = zero[0]
 
     def observe(self, tick, reset, enable, load, a, b, packed):
@@ -141,11 +146,15 @@ class Oracle:
         constant_mux = initial(width, 11) if enable else pa
         chain = (constant_mux, pb, initial(width, 19), built)[2 * enable + load]
         if tick:
+            self.saved_vector = ([initial(width, seed) for seed in (3, 7, 11)] if reset
+                                 else [chain, self.captured, chain])
             self.captured = initial(width, 3) if reset else chain
         packets = [pa, built, pb if load else pa, self.left, self.right, self.other_left, self.other_right,
                    pb if enable else pa, pa if enable else pb, pb if load and enable else pa,
                    constant_mux, chain, self.captured]
         result = [value for packet in packets for value in flatten(packet)]
+        result += [value for packet in [chain, self.captured, chain] + self.saved_vector
+                   for value in flatten(packet)]
         result += flatten(pb if enable else pa) + flatten(pa)
         result += [value for pair in self.sample for value in pair]
         # Decode with integer division, independently of emitted C++ shifts.

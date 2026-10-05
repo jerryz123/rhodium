@@ -300,6 +300,25 @@ check:
   emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains(" = &(") ~is #false
   emit_rsim(borrow_schedule, ~region_budget: 22)[0].contains("std::array<std::array<std::uint64_t, 2>, 1>") ~is #true
 
+// A boundary vector fills its unique slot before binding the result. The same
+// constructor remains an ordinary initializer when it is helper-local.
+def vector_step = borrow_schedule.steps.index(borrow_schedule.steps.find(fun (step): step.opcode == "rtl.vector_create"))
+def vector_name = "v" ++ to_string(vector_step)
+def vector_source = emit_rsim(borrow_schedule, ~region_budget: 1)[1]
+for (body in [borrow_evaluation.pre_edge, borrow_evaluation.outputs], phase in ["pre", "output"]):
+  def regions = build_regions(borrow_schedule, borrow_evaluation, body, ~budget: 1)
+  def producer = regions.index(regions.find(fun (region): vector_step in region.steps))
+  def helper = vector_source.split("void Model::" ++ phase ++ "_region" ++ to_string(producer) ++ "(")[1].split("\n}")[0]
+  def alias = "  [[maybe_unused]] const auto& " ++ vector_name ++ " = "
+  def slot = helper.split(alias)[1].split(";")[0]
+  def writes = for List (operand in borrow_schedule.steps[vector_step].operands, index in 0..2):
+    "  " ++ slot ++ "[" ++ to_string(index) ++ "] = v" ++ to_string(operand) ++ ";"
+  check:
+    helper.contains(String.join(writes ++ [alias ++ slot ++ ";"], "\n")) ~is #true
+    helper.contains("  " ++ slot ++ " = std::array") ~is #false
+check:
+  emit_rsim(borrow_schedule, ~region_budget: 22)[1].contains("const std::array<std::uint64_t, 2> " ++ vector_name ++ " = ") ~is #true
+
 // Native aggregate scoreboards include constants, chained/multi-arm lookup
 // muxes, nested records/vectors, state capture, and dirty input padding. Protect
 // that their forced-boundary run actually exercises pointer-backed results.

@@ -101,6 +101,15 @@ fun make_aggregate(width :: PosInt, consumed_ids :: Nat = 0):
   def captured = b.register(top, "captured", packet, tc, tr, initial(top, 3))
   b.drive(captured.next, chain)
   b.drive(b.output(top, "mux_captured", packet), captured.current)
+  // Borrowed/repeated elements must be copied in index order into a distinct
+  // constructed vector. The saved vector samples the preceding packet state.
+  def triple = VectorType(3, packet)
+  def constructed = b.vector_create(top, triple, [chain, captured.current, chain])
+  def saved = b.register(top, "qsaved_vector", triple, tc, tr,
+                         b.vector_create(top, triple, [initial(top, 3), initial(top, 7), initial(top, 11)]))
+  b.drive(saved.next, constructed)
+  b.drive(b.output(top, "constructed", triple), constructed)
+  b.drive(b.output(top, "saved_vector", triple), saved.current)
   for (name in ["first", "second"]):
     def child = b.instance(top, leaf, name)
     for (pair in [["clock", tc], ["reset", tr], ["enable", te], ["load", tl],
