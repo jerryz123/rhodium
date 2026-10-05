@@ -43,7 +43,8 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
-| `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, value and storage dependencies, and ordered final consumers |
+| `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
+| `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
 | `rsim/emit.rhm` | Typed expressions, evaluation frames, and simultaneous commits |
 | `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
@@ -95,16 +96,36 @@ or skipping an effect. Both bodies sample afresh and can observe different state
 When adding a storage-reading step or a frame consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
+`build_regions` partitions each body's unchanged step-then-consumer sequence.
+The private default budget of 4096 estimates expanded carrier work: aggregate
+leaves, wide limbs, selection/decode arms, and frame/output copies. Masked writes
+also charge merge granules. It is a starting heuristic, not a compiler resource
+limit. An oversized step or consumer occupies a region alone; an empty body has
+no regions. Keep the cost model aligned with emitted work without materializing
+large host lists for vector shapes.
+
+Regions retain original step IDs and consumer descriptors. Inputs name values
+consumed in the region but defined earlier; outputs name values defined in the
+region and consumed later, including by frame/output consumers. A value that
+passes across an unrelated region is not an input or output of that region.
+Boundary lists use ascending value IDs; current-storage reads are deduplicated in
+encounter order. Constants have a separate inventory and never require boundary
+temporary storage. Constant casts refer directly to their materialization rather
+than another step's alias. Planning rejects missing producers and reordered
+steps before emission. Boundary values describe one evaluation invocation, not a
+cache across edges. The emitter currently walks regions without adding C++ scopes,
+functions, or scratch storage, preserving the existing monolithic bodies.
+
 The pre-edge evaluator returns register and synchronous-read next-state values,
 pending memory writes, checks, and foreign-call arguments in a private frame
 without modifying state. It retains the full scheduled step sequence.
 `eval()` instead emits only the planner's output dependency closure: seed output
 step indices, mark operands in one reverse schedule scan, and render marked indices
-in their original forward order. The emitter consumes these step lists and sink
-inventories while keeping both C++ bodies monolithic. State roots stop the walk;
-asynchronous reads include their addresses but not their writers. Both bodies use
-the same step renderer and immutable constant pool. `eval()` computes a local `Outputs` and
-publishes it after all output expressions finish, without constructing a frame,
+in their original forward order. Region traversal preserves this sequence.
+State roots stop the walk; asynchronous reads include their addresses but not
+their writers. Both bodies use the same step renderer and immutable constant
+pool. `eval()` computes a local `Outputs` and publishes it after all output
+expressions finish, without constructing a frame,
 checking assertions, or invoking foreign calls. Empty output lists have no
 evaluation steps; their checks and effects remain live in `tick()`.
 Persistent memory arrays live outside the frame: evaluation copies no complete memory. Register
@@ -212,9 +233,10 @@ packaging must detect wide cast temporaries even when every stored leaf is narro
 Decode compares cared bits leaf by leaf using `CppTypes.cube_match` and builds
 outputs with `CppTypes.constant`. Host-side slicing of arbitrary-width constants
 keeps every emitted integer literal within a scalar carrier; wide scalar masks
-and lookup keys use the same limb constants as ordinary data. The rsim emitter
-propagates canonical constant bits through casts and renders their destination
-leaves directly. Equal rendered values of the same C++ type share namespace-level
+and lookup keys use the same limb constants as ordinary data. Evaluation planning
+propagates canonical constant bits through casts; the emitter renders their
+destination leaves directly. Equal rendered values of the same C++ type share
+namespace-level
 `static constexpr` storage with internal linkage. Each constant step aliases its
 canonical object directly, so rendering a step does not require another step's
 local alias. `emit_constants` owns the per-emission pool; `step_declaration`
@@ -545,8 +567,11 @@ effects. Behavioral scoreboards cover the resulting output and edge semantics;
 CI does not impose runtime thresholds for this optimization.
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
 storage dependencies, shared output computation, and occurrence identity with
-Builder fixtures. Keep these dependency contracts alongside behavioral tests
-when changing evaluation planning or frame construction.
+Builder fixtures. Small forced budgets check region boundaries against an
+independent backward liveness walk, including shared constants and final consumers.
+Wide/aggregate copies check the cost heuristic and oversized-item handling.
+Keep these dependency contracts alongside behavioral tests when changing
+evaluation planning or frame construction.
 
 ### Behavioral coverage
 

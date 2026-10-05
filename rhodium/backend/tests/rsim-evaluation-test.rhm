@@ -7,6 +7,9 @@ import:
   "../../compile/contracts.rhm".CompileOptions
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
+  "../rsim/regions.rhm" open
+  "rsim/fixtures.rhm".make_scalar
+  "rsim/wide-fixtures.rhm".make_constant_rom
   "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
   "rsim/memory-fixtures.rhm".make_memory
 
@@ -127,3 +130,120 @@ def sampled_paths = sampled_slots.map(fun (slot): repeated.memories[slot].path)
 check:
   ids(sampled_slots).length() ~is 2
   sampled_paths ~is [["side0"], ["side1"]]
+
+// Check forward partitioning against an independent backward liveness walk.
+// Only direct region consumers are inputs; passing across an unrelated region
+// must not create a redundant argument or a new producer for a live value.
+fun check_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan, body :: RsimEvaluation, budget :: PosInt):
+  def regions = build_regions(schedule, evaluation, body, ~budget: budget)
+  def steps = MutableList[]
+  def sinks = MutableList[]
+  for (region in regions):
+    for (index in region.steps): steps.add(index)
+    for (sink in region.sinks): sinks.add(sink)
+    check:
+      region.steps.length() + region.sinks.length() > 0 ~is #true
+      region.cost <= budget || region.steps.length() + region.sinks.length() == 1 ~is #true
+  check:
+    steps.snapshot() ~is body.steps
+    sinks.snapshot() ~is body.sinks
+    regions ~is build_regions(schedule, evaluation, body, ~budget: budget)
+  def future = MutableSet{}
+  for (offset in 0..regions.length()):
+    def region = regions[regions.length() - 1 - offset]
+    def defined = ids(region.steps.filter(~keep: fun (index): !evaluation.constants.has_key(index)))
+    def uses = MutableSet{}
+    def resources = MutableSet{}
+    def constant_uses = MutableSet{}
+    for (index in region.steps):
+      if evaluation.constants.has_key(index)
+      | constant_uses.add(index)
+      | for (operand in evaluation.dependencies[index].values): uses.add(operand)
+        for (read in evaluation.dependencies[index].storage): resources.add(read)
+    for (sink in region.sinks):
+      for (value in sink.dependencies.values): uses.add(value)
+      for (read in sink.dependencies.storage): resources.add(read)
+    for (value in uses):
+      when evaluation.constants.has_key(value) | constant_uses.add(value)
+    def incoming = MutableSet{}
+    for (value in uses):
+      unless value in defined || evaluation.constants.has_key(value) | incoming.add(value)
+    def outgoing = MutableSet{}
+    for (value in defined):
+      when value in future | outgoing.add(value)
+    check:
+      ids(region.inputs) ~is incoming.snapshot()
+      ids(region.outputs) ~is outgoing.snapshot()
+      ids(region.constants) ~is constant_uses.snapshot()
+      (for Set (read in region.storage): read) ~is resources.snapshot()
+    for (value in defined): future.remove(value)
+    for (value in incoming): future.add(value)
+  check: future.snapshot() ~is Set{}
+
+def scalar = build_schedule(prepare_rtl(make_scalar(5), CompileOptions(), "scalar regions").rtl)
+def rom = build_schedule(prepare_rtl(make_constant_rom(65), CompileOptions(), "constant regions").rtl)
+for (scheduled in [schedule, repeated, unused, scalar, rom]):
+  def planned = build_evaluation_plan(scheduled)
+  for (body in [planned.pre_edge, planned.outputs]):
+    for (budget in [1, 24, 4096]): check_regions(scheduled, planned, body, budget)
+
+// A single region keeps every intermediate local, including values needed by
+// its final frame consumers. An outputless body produces no empty helper region.
+def together = build_regions(schedule, evaluation, evaluation.pre_edge, ~budget: 1000000)
+check:
+  together.length() ~is 1
+  together[0].inputs ~is []
+  together[0].outputs ~is []
+  build_regions(unused, unused_plan, unused_plan.outputs) ~is []
+
+// With one item per region, reset remains live directly from its producer to
+// the assertion and register consumers, through unrelated intervening regions.
+def single = build_regions(schedule, evaluation, evaluation.pre_edge, ~budget: 1)
+def reset_sinks = single.filter(~keep: fun (region): region.sinks.length() > 0 && region.sinks[0].kind in ["assertion", "register"])
+check:
+  single.length() ~is evaluation.pre_edge.steps.length() + evaluation.pre_edge.sinks.length()
+  single[0].steps ~is [input("reset")]
+  single[0].outputs ~is [input("reset")]
+  single[1].inputs ~is []
+  reset_sinks.length() ~is 2
+  (for all (region in reset_sinks): input("reset") in region.inputs) ~is #true
+
+// Materialized constant casts bind immutable objects in every consumer region.
+// Their source aliases need no scratch storage even when separated by a cut.
+def rom_plan = build_evaluation_plan(rom)
+def rom_regions = build_regions(rom, rom_plan, rom_plan.pre_edge, ~budget: 1)
+def constant_regions = rom_regions.filter(~keep: fun (region): region.steps.length() == 1 && rom_plan.constants.has_key(region.steps[0]))
+check:
+  constant_regions.length() > 0 ~is #true
+  (for any (region in constant_regions): rom.steps[region.steps[0]].opcode == "rtl.cast") ~is #true
+  (for all (region in constant_regions): region.cost == 1 && region.inputs == [] && region.outputs == []) ~is #true
+
+// The budget reflects carrier work, not just the number of RTL nodes. A large
+// aggregate input or result copy may exceed it alone and must still make progress.
+fun copy_regions(type :: HardwareType):
+  def d = Design()
+  def builder = Builder(d)
+  def module = builder.module("CopyCost")
+  def input = builder.input(module, "value", type)
+  builder.drive(builder.output(module, "result", type), input)
+  builder.finish(module)
+  def schedule = build_schedule(prepare_rtl(ElaboratedProgram(d, module), CompileOptions(), "copy cost").rtl)
+  def evaluation = build_evaluation_plan(schedule)
+  build_regions(schedule, evaluation, evaluation.outputs, ~budget: 8)
+
+def narrow_copy = copy_regions(Bits(5))
+def wide_copy = copy_regions(Bits(512))
+def aggregate_copy = copy_regions(RecordType([RecordField("tag", Bits(5)), RecordField("words", VectorType(4, Bits(512)))]))
+check:
+  narrow_copy.length() ~is 1
+  wide_copy.length() ~is 2
+  aggregate_copy.length() ~is 2
+  wide_copy[0].cost > narrow_copy[0].cost ~is #true
+  aggregate_copy[0].cost > wide_copy[0].cost ~is #true
+  aggregate_copy[1].cost > 8 ~is #true // Output/frame copies count too.
+
+// Reject broken bodies at planning, before generated helpers could read an
+// uninitialized boundary value. These IDs come from the valid Builder fixture.
+check:
+  build_regions(schedule, evaluation, RsimEvaluation([schedule.outputs[0].value], [])) ~throws "before its definition"
+  build_regions(schedule, evaluation, RsimEvaluation([input("data"), input("reset")], [])) ~throws "retain schedule order"

@@ -1,0 +1,139 @@
+#lang rhombus
+/* Partitions rsim evaluation into ordered regions with exact value boundaries and storage reads. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/types.rhm" open
+  "plan.rhm" open
+  "evaluation.rhm" open
+
+export RsimRegion build_regions
+
+/* Inputs are values consumed here but defined earlier; outputs are values
+   defined here and consumed later. Neither includes shared constants or values
+   merely passing across an unused region. Storage reads sample this invocation.
+   Cost is an estimate, not a native compiler resource bound. */
+class RsimRegion(steps :: List.of(Nat), sinks :: List.of(RsimSink),
+                 inputs :: List.of(Nat), outputs :: List.of(Nat), constants :: List.of(Nat),
+                 storage :: List.of(RsimStorageRead), cost :: PosInt)
+
+/* Estimate expanded carrier work, counting aggregate leaves and wide limbs.
+   Vector size multiplies its element cost without expanding a host-side list. */
+fun type_cost(type :: HardwareType) :: Nat:
+  cond
+  | record_type(type):
+      def mutable cost = 0
+      for (field in type.fields): cost := cost + type_cost(field.type)
+      cost
+  | vector_type(type): type.length * type_cost(type.element_type)
+  | ~else:
+      def width = if reset_type(type) | 1 | scalar_width(type)
+      if width <= 64 | 1 | (width + 31 - (width + 31) mod 32) / 32
+
+/* Account for emitted aggregate copies, wide operations, and expanded choices.
+   Reads/projections charge the selected result, not a copy of their container;
+   materialized constants cost only a local alias regardless of ROM size. */
+fun step_cost(index :: Nat, schedule :: RsimSchedule, constants :: Map) :: PosInt:
+  if constants.has_key(index)
+  | 1
+  | def step = schedule.steps[index]
+    def result = type_cost(step.type)
+    def mutable cost = 1 + result
+    unless step.opcode in ["memory_read", "rtl.record_get", "rtl.vector_get", "rtl.vector_index"]
+    | for (operand in step.operands): cost := cost + type_cost(schedule.steps[operand].type)
+    match step.opcode
+    | "rtl.mul": cost + result * result
+    | "rtl.mux_lookup": cost + step.attributes["keys"].length() * (1 + type_cost(schedule.steps[step.operands[0]].type))
+    | "rtl.onehot_mux": cost + step.operands.length()
+    | "rtl.decode": cost + step.attributes["cases"].length() * (1 + result + type_cost(schedule.steps[step.operands[0]].type))
+    | ~else: cost
+
+/* Charge copies from current storage without charging entire memory arrays. */
+fun storage_cost(read :: RsimStorageRead, schedule :: RsimSchedule) :: Nat:
+  match read.kind
+  | "register": type_cost(schedule.registers[read.slot].type)
+  | "sync_read": type_cost(schedule.memories[schedule.reads[read.slot].memory].type)
+  | "foreign": type_cost(schedule.foreign_calls[read.slot].import_decl.results[read.result].type)
+  | "memory": type_cost(schedule.memories[read.slot].type)
+  | ~else: error(~who: #'rsim, "unknown storage read: " ++ read.kind)
+
+/* Include final frame/output work in the same budget as value computations.
+   Mask granules account for the merge expansion beyond copying its operands. */
+fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
+  def mutable cost = 1
+  for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
+  for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
+  when sink.kind == "write"
+  | def write = schedule.writes[sink.index]
+    when write.mask_value != #false
+    | cost := cost + schedule.steps[write.mask_value].type.packed_width()
+  cost
+
+/* Partition the unchanged step-then-sink order, then resolve actual value uses.
+   Oversized items occupy one region alone; empty bodies have no regions. The
+   private budget is a deterministic heuristic and a fixture control, not a
+   target option. No storage allocation, inlining policy, or caching occurs here. */
+fun build_regions(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
+                  body :: RsimEvaluation, ~budget: budget :: PosInt = 4096) :: List.of(RsimRegion):
+  def chunks = MutableList[]
+  def costs = MutableList[]
+  def mutable steps = MutableList[]
+  def mutable sinks = MutableList[]
+  def mutable cost = 0
+  /* Close a nonempty contiguous chunk and start fresh accumulation. */
+  fun finish():
+    when cost > 0
+    | chunks.add(RsimEvaluation(steps.snapshot(), sinks.snapshot()))
+      costs.add(cost)
+      steps := MutableList[]
+      sinks := MutableList[]
+      cost := 0
+  /* Flush before adding an item that would exceed the soft budget. */
+  fun reserve(amount :: PosInt):
+    when cost + amount > budget | finish()
+    cost := cost + amount
+  for (index in body.steps):
+    unless index < schedule.steps.length() | error(~who: #'rsim, "region step is outside the schedule")
+    reserve(step_cost(index, schedule, evaluation.constants))
+    steps.add(index)
+  for (sink in body.sinks):
+    reserve(sink_cost(sink, schedule))
+    sinks.add(sink)
+  finish()
+
+  def producer = MutableMap{}
+  def inputs = for List (chunk in chunks): MutableMap{}
+  def outputs = for List (chunk in chunks): MutableMap{}
+  def constants = for List (chunk in chunks): MutableMap{}
+  def storage = for List (chunk in chunks): MutableList[]
+  def seen_storage = for List (chunk in chunks): MutableSet{}
+  /* A value crosses a boundary only when a later region actually consumes it.
+     Constants are independently available; all other values require a producer. */
+  fun use_value(value :: Nat, region :: Nat):
+    if evaluation.constants.has_key(value)
+    | constants[region][value] := #true
+    | unless producer.has_key(value)
+      | error(~who: #'rsim, "region reads value before its definition: " ++ to_string(value))
+      def owner = producer[value]
+      unless owner == region
+      | inputs[region][value] := #true
+        outputs[owner][value] := #true
+  /* Record conservative storage reads in encounter order, once per resource. */
+  fun use_dependencies(dependencies :: RsimDependencies, region :: Nat):
+    for (value in dependencies.values): use_value(value, region)
+    for (read in dependencies.storage):
+      unless read in seen_storage[region]
+      | seen_storage[region].add(read)
+        storage[region].add(read)
+  def mutable previous = -1
+  for (chunk in chunks, region in 0..chunks.length()):
+    for (index in chunk.steps):
+      unless index > previous | error(~who: #'rsim, "region steps must retain schedule order")
+      previous := index
+      if evaluation.constants.has_key(index)
+      | constants[region][index] := #true
+      | use_dependencies(evaluation.dependencies[index], region)
+        producer[index] := region
+    for (sink in chunk.sinks): use_dependencies(sink.dependencies, region)
+  for List (chunk in chunks, region in 0..chunks.length()):
+    RsimRegion(chunk.steps, chunk.sinks, inputs[region].keys().sort(), outputs[region].keys().sort(),
+               constants[region].keys().sort(), storage[region].snapshot(), costs[region])

@@ -1,5 +1,5 @@
 #lang rhombus
-/* Plans rsim evaluation bodies and their value/storage uses independently of C++ rendering. */
+/* Plans rsim evaluation bodies, materialized constants, and value/storage uses independently of C++ rendering. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "plan.rhm" open
@@ -30,8 +30,22 @@ class RsimEvaluation(steps :: List.of(Nat), sinks :: List.of(RsimSink))
 
 /* Shares one dependency inventory between full pre-edge sampling and output
    refresh. The two bodies can observe different storage snapshots. */
-class RsimEvaluationPlan(dependencies :: List.of(RsimDependencies),
+class RsimEvaluationPlan(dependencies :: List.of(RsimDependencies), constants :: Map,
                          pre_edge :: RsimEvaluation, outputs :: RsimEvaluation)
+
+/* Retain canonical bits for exactly the constants emitted as immutable objects.
+   Constant casts alias their own materialization rather than evaluator locals;
+   sharing this inventory keeps region liveness and C++ emission consistent. */
+fun materialized_constants(steps :: List.of(RsimStep)) :: Map:
+  def constants = MutableMap{}
+  for (step in steps, index in 0..steps.length()):
+    def value:
+      cond
+      | step.opcode == "rtl.constant": step.attributes["value"]
+      | step.opcode == "rtl.cast": constants.get(step.operands[0], #false)
+      | ~else: #false
+    when value != #false | constants[index] := value
+  constants.snapshot()
 
 /* Preserve optional references, including step zero, without manufacturing uses. */
 fun optional_value(value :: maybe(Nat)) :: List.of(Nat):
@@ -87,5 +101,5 @@ fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
   def outputs = for List (port in schedule.outputs, index in 0..schedule.outputs.length()):
     RsimSink("output", index, RsimDependencies([port.value], []))
   def all_steps = for List (index in 0..schedule.steps.length()): index
-  RsimEvaluationPlan(dependencies, RsimEvaluation(all_steps, sinks.snapshot()),
+  RsimEvaluationPlan(dependencies, materialized_constants(schedule.steps), RsimEvaluation(all_steps, sinks.snapshot()),
                      RsimEvaluation(dependency_closure(dependencies, outputs), outputs))

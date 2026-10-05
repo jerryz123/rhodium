@@ -134,7 +134,9 @@ The `backend/rsim-target.rhm` adapter imports compile contracts, RTL preparation
 and its local scheduler/emitter. `backend/rsim/plan.rhm` imports core IR/types
 and dependency identity lookup. `backend/rsim/evaluation.rhm` imports only the
 local schedule descriptors for value/storage dependencies and evaluation planning.
-`backend/rsim/emit.rhm` imports core types, local schedule/evaluation descriptors,
+`backend/rsim/regions.rhm` imports core types and local schedule/evaluation
+descriptors for cost-based partitioning and boundary liveness.
+`backend/rsim/emit.rhm` imports core types, local schedule/evaluation/region modules,
 and `backend/rsim/types.rhm`. It also uses Rhombus runtime
 paths and Racket file/base primitives to read its local C++ support header at
 emission time. The type helper imports core types

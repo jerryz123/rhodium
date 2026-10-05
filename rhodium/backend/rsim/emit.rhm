@@ -1,10 +1,11 @@
 #lang rhombus
-/* Renders planned rsim evaluation bodies as standalone C++ with explicit sampling and commit phases. */
+/* Renders rsim regions in their original order as monolithic C++ sampling and commit bodies. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/types.rhm" open
   "plan.rhm" open
   "evaluation.rhm" open
+  "regions.rhm".build_regions
   "types.rhm" open
   rhombus/meta open
   rhombus/runtime_path
@@ -126,21 +127,15 @@ fun expression(step :: RsimStep, steps :: List.of(RsimStep), types :: CppTypes) 
       String.join(cases, "") ++ args[1]
   | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
 
-/* Fold constant casts once and emit canonical immutable objects in the model
+/* Emit planned constant values as canonical immutable objects in the model
    namespace. Return step-to-symbol bindings independent of evaluator locals,
    so any dependency-closed subset can refer to the same constant storage. */
-fun emit_constants(steps :: List.of(RsimStep), types :: CppTypes, source :: MutableList) :: Map:
-  def constant_values = MutableMap{}
+fun emit_constants(steps :: List.of(RsimStep), constant_values :: Map, types :: CppTypes, source :: MutableList) :: Map:
   def storage = MutableMap{}
   def bindings = MutableMap{}
   for (step in steps, index in 0..steps.length()):
-    def constant:
-      cond
-      | step.opcode == "rtl.constant": step.attributes["value"]
-      | step.opcode == "rtl.cast": constant_values.get(step.operands[0], #false)
-      | ~else: #false
-    when constant != #false
-    | constant_values[index] := constant
+    when constant_values.has_key(index)
+    | def constant = constant_values[index]
       def rendered = types.constant(step.type, constant)
       def key = [types.name(step.type), rendered]
       unless storage.has_key(key)
@@ -311,15 +306,15 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
     | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
-  def constants = emit_constants(plan.steps, types, source)
+  def constants = emit_constants(plan.steps, evaluation.constants, types, source)
   source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
-  for (index in evaluation.pre_edge.steps):
-    source.add(step_declaration(index, plan.steps, types, constants))
-  for (sink in evaluation.pre_edge.sinks): emit_sink(sink, plan, types, source)
+  for (region in build_regions(plan, evaluation, evaluation.pre_edge)):
+    for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
+    for (sink in region.sinks): emit_sink(sink, plan, types, source)
   source.add("  return frame;\n}\nvoid Model::eval() {\n  Outputs next_outputs{};")
-  for (index in evaluation.outputs.steps):
-    source.add(step_declaration(index, plan.steps, types, constants))
-  for (sink in evaluation.outputs.sinks): emit_sink(sink, plan, types, source)
+  for (region in build_regions(plan, evaluation, evaluation.outputs)):
+    for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
+    for (sink in region.sinks): emit_sink(sink, plan, types, source)
   // Publish only after every output has sampled the current inputs/storage.
   // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
   source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  auto before = evaluate();")
