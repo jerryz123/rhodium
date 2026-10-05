@@ -449,6 +449,16 @@ class ConfigSelectionTest(unittest.TestCase):
             self.assertNotEqual(traced.returncode, 0)
             self.assertIn('TRACE=1 currently requires RTL_BACKEND=circt', traced.stderr)
 
+    def test_rsim_native_optimization_default_and_override(self):
+        for override, expected in ((None, '-O1'), ('-O0', '-O0'), ('-O0 -g', '-O0 -g')):
+            with self.subTest(override=override):
+                arguments = ['SOC=simple-rv5stage-rva23', 'RTL_BACKEND=rsim']
+                if override is not None:
+                    arguments.append(f'OPT_FAST={override}')
+                result = self.dry_run(*arguments, target='simulator')
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"OPT_FAST='{expected}'", result.stdout)
+
     def test_trace_emission_writes_compilation_sidecars(self):
         with tempfile.TemporaryDirectory() as directory:
             root = f'{directory}/simple-rv5stage-rva23-trace'

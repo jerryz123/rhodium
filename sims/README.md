@@ -127,23 +127,28 @@ under the same `TestDriver.v`. Its artifacts live in `<config>-rsim/`; it
 accepts `TRACE=0` and records `rsim` in backend provenance. Production CHI memory
 has focused differential coverage. Simple RV5Stage RVA23 passes the existing
 smoke workload, including boot, UART/PLIC, and integer/floating-point vector
-checks, with an unoptimized model build:
+checks. Local rsim builds default to `OPT_FAST=-O1`:
 
 ```sh
 make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=rsim \
-  OPT_FAST=-O0 HTIF_ARGS=+max-cycles=100000
+  HTIF_ARGS=+max-cycles=100000
 ```
 
 CI selects `simple-rv5stage-rva23-rsim` as an additional simulator variant of
-`simple-rv5stage-rva23`, using `OPT_FAST=-O0`, `TRACE=0`, and `COSIM=0`. It runs
+`simple-rv5stage-rva23`, using `OPT_FAST=-O1`, `TRACE=0`, and `COSIM=0`. It runs
 only `smoke`, bounded to 100,000 cycles and five minutes. The suffixed name is
 the CI/artifact identity; local commands use the base `SOC` and `RTL_BACKEND`
-shown above.
+shown above. Override `OPT_FAST=-O0` for a faster debug build; use a fresh build
+root or object directory when changing flags, because object timestamps do not
+encode them.
 
 This checks compilation, linking, loader startup, and that bounded workload.
-The generated model is one large C++ translation unit; the default optimized
-build has not completed qualification. This result does not establish broader
-ISA/workload parity or simulator performance. See the
+The generated model uses bounded evaluation helpers within one C++ translation
+unit. The native model also passes this smoke at `-O1` with Apple Clang 17 on
+arm64 macOS. Linux/GCC execution of this default is covered by the smoke CI lane; local
+qualification here used Apple Clang. Other optimization settings need separate
+validation. These results do not establish broader ISA/workload parity or a
+general performance advantage. See the
 [rsim contract](../rhodium/backend/README.md#systemverilog-hosted-rsim).
 
 The host emitters require an explicit third architectural selector:

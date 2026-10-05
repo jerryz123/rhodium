@@ -112,7 +112,7 @@ def native_configs(suite):
 BACKEND_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
 BACKEND_SMOKE_VARIANTS = {
     'verilog': dict(software_tests=('smoke', 'host-mmio-test', 'uart-pty-test')),
-    'rsim': dict(software_tests=('smoke',), opt_fast='-O0',
+    'rsim': dict(software_tests=('smoke',), opt_fast='-O1',
                  smoke_max_cycles=100000, harness_timeout_minutes=5),
 }
 

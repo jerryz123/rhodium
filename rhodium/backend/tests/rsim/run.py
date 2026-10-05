@@ -224,7 +224,13 @@ def compare(text, expected, label):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--differential", action="store_true")
+    parser.add_argument("--region-budget", type=int,
+                        help="force private rsim region boundaries in Builder fixtures")
     args = parser.parse_args()
+    if args.region_budget is not None:
+        if args.region_budget <= 0:
+            parser.error("--region-budget must be positive")
+        os.environ["RHODIUM_RSIM_TEST_REGION_BUDGET"] = str(args.region_budget)
     work = Path(tempfile.mkdtemp(prefix="rhodium-rsim-"))
     try:
         emit = [str(ROOT / "tools/run-racket.sh"), str(HERE / "emit-fixtures.rhm"), str(work)]

@@ -98,11 +98,19 @@ adapter tests cover backend directories, source arguments, and provenance.
 The backend's [CHI differential fixture](../rhodium/backend/DEVELOPING.md)
 qualifies one real native memory. Simple RV5Stage RVA23 also passes the existing
 smoke ELF through the real FESVR loader and unchanged `TestDriver.v` with
-`OPT_FAST=-O0` and `+max-cycles=100000`. The default `-Os` build of the monolithic
-model was stopped after roughly eight minutes of compilation; it has no execution
-result. Use a fresh build root or object directory when changing optimization
-flags, since object timestamps do not encode those flags. Broader workloads and
-optimized builds require separate execution validation.
+`OPT_FAST=-O1` and `+max-cycles=100000`. For rsim helper/layout changes, qualify
+optimized native model compilation separately, then link the matching model and
+bridge into the unchanged driver and run that same ELF. Keep native compile time,
+Racket elaboration/emission time, and simulator runtime separate. Compare identical
+compiler flags when attributing a change to partitioning; a comparison between an
+optimized region model and an unoptimized monolithic model includes both effects.
+The [simulator guide](README.md#select-rtl-emission) records qualified settings.
+Use a fresh build root or object directory when changing optimization flags,
+since object timestamps do not encode those flags. Broader workloads and other
+compiler/optimization configurations require separate execution validation.
+The local rsim default and CI policy both select `-O1`. Pass the local default
+explicitly to Verilator's generated Makefile, which otherwise sets its own
+`OPT_FAST`; retain command-line overrides for debug builds.
 
 `tools/ci/policy.py` owns backend smoke variants, including rsim's `opt_fast`,
 `smoke_max_cycles`, and `harness_timeout_minutes`. The simulator workflow passes

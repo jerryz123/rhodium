@@ -1,0 +1,29 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("racket/base.rkt") as rkt
+  "../../../compile/contracts.rhm" open
+  "../../../compile/rtl.rhm" open
+  "../../rsim-target.rhm" as production
+  "../../rsim/plan.rhm" open
+  "../../rsim/emit.rhm".emit_rsim
+
+export rsim_target
+
+// Only fixture emitters read this control. Production target configuration and
+// simulator identity remain independent of the private partition heuristic.
+class RegionTestPlan(prepared :: PreparedRTL, budget :: PosInt):
+  implements TargetPlan
+  override method manifest(): prepared.manifest
+  override method emit():
+    def schedule = build_schedule(prepared.rtl)
+    def contents = emit_rsim(schedule, ~region_budget: budget)
+    [Artifact(schedule.name ++ ".hpp", "text/x-c++hdr", contents[0]),
+     Artifact(schedule.name ++ ".cpp", "text/x-c++src", contents[1])] ++ (if contents.length() == 3 | [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])] | [])
+
+def setting = rkt.getenv("RHODIUM_RSIM_TEST_REGION_BUDGET")
+def rsim_target:
+  if setting
+  | def budget :: PosInt = rkt.#{string->number}(setting)
+    RTLTarget("rsim-regions-test", "fixture RTL", fun (prepared): RegionTestPlan(prepared, budget))
+  | production.rsim_target

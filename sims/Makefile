@@ -19,6 +19,11 @@ $(error RTL_BACKEND must be circt, verilog, or rsim)
 endif
 endif
 endif
+# Bound rsim helpers make optimized native builds practical. Pass this default
+# to Verilator's generated Makefile explicitly; its own OPT_FAST otherwise wins.
+ifeq ($(RTL_BACKEND),rsim)
+OPT_FAST ?= -O1
+endif
 TRACE ?= 0
 COSIM ?= 0
 TRACE_FILE ?=
@@ -405,7 +410,7 @@ $(SIMULATOR_BINARY): $(CURDIR)/Makefile $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(SOC
 	# Statistics can be written before Verilator creates its output directory.
 	mkdir -p $(SOC_OBJECT_DIR)
 	$(VERILATOR) --binary --timing --vpi --assert --Wno-UNOPTFLAT --Wno-SYMRSVDWORD $(if $(filter verilog,$(RTL_BACKEND)),--Wno-UNSIGNED --Wno-CMPCONST) --build-jobs $(BUILD_JOBS) \
-	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk" \
+	  -MAKEFLAGS "-f $(VERILATOR_DIR)/relink.mk $(if $(filter rsim,$(RTL_BACKEND)),OPT_FAST='$(OPT_FAST)')" \
 	  --top-module TestDriver --Mdir $(SOC_OBJECT_DIR) \
 	  $(SOC_VERILOG) $(SOC_RSIM_SOURCES) $(CURDIR)/TestDriver.v \
 	  $(FESVR_DIR)/direct_mem_htif.cc $(VERILATOR_DIR)/direct_mem_htif_dpi.cc \

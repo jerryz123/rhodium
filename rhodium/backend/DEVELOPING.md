@@ -46,7 +46,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
-| `rsim/emit.rhm` | Typed expressions, evaluation frames, and simultaneous commits |
+| `rsim/emit.rhm` | Typed expressions, bounded C++ helpers, boundary storage, evaluation frames, and simultaneous commits |
 | `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
 | `rsim/sv-binding.rhm` | Scalar boundary validation, state-only output dependencies, SV wrapper, and C++ DPI bridge |
 | `tests/rsim/` | Builder fixtures, standalone native harness, integer/state oracles, and optional direct-SV comparison |
@@ -113,8 +113,26 @@ encounter order. Constants have a separate inventory and never require boundary
 temporary storage. Constant casts refer directly to their materialization rather
 than another step's alias. Planning rejects missing producers and reordered
 steps before emission. Boundary values describe one evaluation invocation, not a
-cache across edges. The emitter currently walks regions without adding C++ scopes,
-functions, or scratch storage, preserving the existing monolithic bodies.
+cache across edges.
+
+The emitter renders multi-region bodies as private C++ helpers and leaves
+single-region bodies inline in their coordinator. Only nonconstant values consumed
+in later regions receive scratch slots. Slots are grouped in typed arrays by C++
+carrier; a producer writes its slot directly, and consumers bind const references.
+Other intermediates remain function locals, while constants reference the shared
+immutable pool. Each phase has its own model-owned scratch, initialized once and
+overwritten before every use. This physical reuse provides no cross-invocation
+validity: do not skip a helper based on old scratch contents. Helpers cannot retain
+references in the sampled frame or outputs. No evaluation allocates or clears a
+scratch buffer, and separate models have independent buffers.
+
+Region helpers use a local no-inline annotation for Clang/GCC and MSVC so native
+optimization cannot reconstruct the monolithic evaluator; other compilers may
+ignore this performance boundary. Expression/runtime helpers retain ordinary
+optimization. All regions execute in order, including regions containing only
+frame consumers. Scratch layout and function policy belong to C++ emission, not
+the schedule or public target options. The budget remains a soft work estimate:
+a single oversized expression or consumer can still produce a large function.
 
 The pre-edge evaluator returns register and synchronous-read next-state values,
 pending memory writes, checks, and foreign-call arguments in a private frame
@@ -570,8 +588,23 @@ storage dependencies, shared output computation, and occurrence identity with
 Builder fixtures. Small forced budgets check region boundaries against an
 independent backward liveness walk, including shared constants and final consumers.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
-Keep these dependency contracts alongside behavioral tests when changing
-evaluation planning or frame construction.
+Emission checks additionally protect local-only intermediates, crossing-value
+slots, deterministic helper order, and effect-free helper bodies. Force small
+boundaries through the existing native Builder scoreboards and sanitizers with:
+
+```sh
+python3 rhodium/backend/tests/rsim/run.py --region-budget 24
+```
+
+This fixture-only control covers scalar/aggregate/wide evaluation, reset and
+simultaneous updates, asynchronous/synchronous/masked memory, assertion failure
+and retry, DPI arguments/results, independent models, and repeated `eval()`.
+Add `--differential` for the same direct-SV comparisons. Production integration
+fixtures (UART, CHI, and the SV bridge) keep the ordinary target and default
+budget. Keep these dependency contracts alongside behavioral tests when changing
+evaluation planning or frame construction. For helper/layout changes, run both
+the default differential suite and the forced-boundary native command, then
+qualify optimized SoC compilation and smoke execution separately.
 
 ### Behavioral coverage
 

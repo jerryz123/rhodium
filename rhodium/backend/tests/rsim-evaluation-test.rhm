@@ -8,6 +8,7 @@ import:
   "../rsim/plan.rhm" open
   "../rsim/evaluation.rhm" open
   "../rsim/regions.rhm" open
+  "../rsim/emit.rhm".emit_rsim
   "rsim/fixtures.rhm".make_scalar
   "rsim/wide-fixtures.rhm".make_constant_rom
   "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
@@ -247,3 +248,27 @@ check:
 check:
   build_regions(schedule, evaluation, RsimEvaluation([schedule.outputs[0].value], [])) ~throws "before its definition"
   build_regions(schedule, evaluation, RsimEvaluation([input("data"), input("reset")], [])) ~throws "retain schedule order"
+
+// Protect the emitted compilation boundary and storage contract in addition to
+// the planner's liveness checks. Native fixtures test the resulting semantics.
+for (budget in [1, 24, 4096]):
+  def contents = emit_rsim(schedule, ~region_budget: budget)
+  check: contents ~is emit_rsim(schedule, ~region_budget: budget)
+  for (body in [evaluation.pre_edge, evaluation.outputs], phase in ["pre", "output"]):
+    def regions = build_regions(schedule, evaluation, body, ~budget: budget)
+    def split = regions.length() > 1
+    check:
+      contents[0].contains("struct " ++ phase ++ "Scratch") ~is split
+      contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region").length() - 1 ~is (if split | regions.length() | 0)
+    when split
+    | for (region in regions, number in 0..regions.length()):
+        def helper = contents[1].split("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
+        for (value in region.outputs):
+          check: helper.contains("const auto& v" ++ to_string(value) ++ " = scratch.") ~is #true
+        for (value in region.steps):
+          unless value in region.outputs || evaluation.constants.has_key(value)
+          | check: helper.contains(" v" ++ to_string(value) ++ " = scratch.") ~is #false
+        check:
+          helper.contains("foreign::") ~is #false
+          helper.contains("throw ") ~is #false
+          helper.contains("state_ =") ~is #false

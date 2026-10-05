@@ -6,7 +6,7 @@ import:
   lib("racket/file.rkt") as file
   "wide-foreign-fixtures.rhm" open
   "../../../compile/program.rhm".compile_program
-  "../../rsim-target.rhm".rsim_target
+  "region-target.rhm".rsim_target
   "../../verilog-target.rhm".verilog_target
 
 def arguments = current_command_line()

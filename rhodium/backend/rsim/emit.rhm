@@ -1,11 +1,11 @@
 #lang rhombus
-/* Renders rsim regions in their original order as monolithic C++ sampling and commit bodies. */
+/* Renders bounded rsim C++ evaluators with typed boundary storage and simultaneous commits. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/types.rhm" open
   "plan.rhm" open
   "evaluation.rhm" open
-  "regions.rhm".build_regions
+  "regions.rhm" open
   "types.rhm" open
   rhombus/meta open
   rhombus/runtime_path
@@ -150,7 +150,7 @@ fun emit_constants(steps :: List.of(RsimStep), constant_values :: Map, types :: 
 /* Render one original schedule index with its usual leaf normalization.
    Constant aliases bind namespace storage, never another evaluator's locals;
    callers choose the dependency-ordered indices without renumbering operands. */
-fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes, constants :: Map) :: String:
+fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes, constants :: Map, ~destination: destination :: maybe(String) = #false) :: String:
   if constants.has_key(index)
   | "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ constants[index] ++ ";"
   | def step = steps[index]
@@ -161,7 +161,9 @@ fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes
       if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
       | types.normalize(step.type, rendered)
       | rendered
-    "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
+    if destination
+    | "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
+    | "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
 /* Render one planned final consumer without executing effects or committing
    storage. The planner owns its value/storage uses and sampling order; this
@@ -210,12 +212,76 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
 
+/* C++ slots and array declarations for one evaluation phase. The logical
+   region plan stays independent of this concrete storage representation. */
+class BoundaryStorage(slots :: Map, declarations :: List.of(String))
+
+/* Allocate only produced boundary values, grouping slots by C++ carrier rather
+   than generating one struct member per value. Stable region/value order gives
+   deterministic names; each phase owns independent scratch and slot bindings. */
+fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes) :: BoundaryStorage:
+  def bindings = MutableMap{}
+  def carriers = MutableList[]
+  def groups = MutableMap{}
+  def counts = MutableMap{}
+  for (region in regions):
+    for (index in region.outputs):
+      def carrier = types.name(plan.steps[index].type)
+      unless groups.has_key(carrier)
+      | groups[carrier] := "g" ++ to_string(carriers.length())
+        counts[carrier] := 0
+        carriers.add(carrier)
+      bindings[index] := "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
+      counts[carrier] := counts[carrier] + 1
+  def declarations = for List (carrier in carriers):
+    "    std::array<" ++ carrier ++ ", " ++ to_string(counts[carrier]) ++ "> " ++ groups[carrier] ++ ";"
+  BoundaryStorage(bindings.snapshot(), declarations)
+
+/* Declare phase-local reusable buffers and bounded sampling helpers. Scratch is
+   overwritten before every read, never a cache; initialization happens once per
+   model, not per evaluation. No scratch reference escapes into the frame. */
+fun declare_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, header :: MutableList):
+  when regions.length() > 1
+  | header.add("  struct " ++ phase ++ "Scratch {\n" ++ String.join(layout.declarations, "\n") ++ "\n  };\n  mutable " ++ phase ++ "Scratch " ++ phase ++ "_scratch_{};")
+    for (index in 0..regions.length()):
+      header.add("  void " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "Scratch& scratch, " ++ destination ++ ") const;")
+
+/* Emit helpers in schedule order, importing only direct boundary operands and
+   shared constants. Store crossing results directly in their slots; local-only
+   computations keep ordinary locals. Effects and publication stay outside. */
+fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phase :: String, destination :: String, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+  when regions.length() > 1
+  | for (region in regions, index in 0..regions.length()):
+      source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ phase ++ "Scratch& scratch, [[maybe_unused]] " ++ destination ++ ") const {")
+      for (input in region.inputs):
+        source.add("  [[maybe_unused]] const auto& " ++ ref(input) ++ " = " ++ layout.slots[input] ++ ";")
+      for (constant in region.constants):
+        source.add(step_declaration(constant, plan.steps, types, constants))
+      for (step in region.steps):
+        unless constants.has_key(step)
+        | source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
+      for (sink in region.sinks): emit_sink(sink, plan, types, source)
+      source.add("}")
+
+/* Small bodies stay inline in their coordinator. Larger bodies execute every
+   helper exactly once, passing buffers by reference without copying or clearing. */
+fun emit_region_calls(regions :: List.of(RsimRegion), phase :: String, destination :: String, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
+  if regions.length() > 1
+  | for (index in 0..regions.length()):
+      source.add("  " ++ phase ++ "_region" ++ to_string(index) ++ "(" ++ phase ++ "_scratch_, " ++ destination ++ ");")
+  | for (region in regions):
+      for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
+      for (sink in region.sinks): emit_sink(sink, plan, types, source)
+
 /* Produce model sources and optional wide support, with private state per model object.
    The evaluator is pure with respect to state; tick commits only after every
    next-state expression and pending write has sampled the old state. Memory
-   arrays live outside the frame, so evaluation never copies whole memories. */
-fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
+   arrays live outside the frame, so evaluation never copies whole memories.
+   The private budget permits boundary stress tests without a target option. */
+fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 4096) :: List.of(String):
   def evaluation = build_evaluation_plan(plan)
+  def pre_regions = build_regions(plan, evaluation, evaluation.pre_edge, ~budget: region_budget)
+  def output_regions = build_regions(plan, evaluation, evaluation.outputs, ~budget: region_budget)
   def namespace = "rsim_" ++ cpp_name(plan.name)
   def types = CppTypes()
   for (step in plan.steps):
@@ -230,6 +296,8 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   for (call in plan.foreign_calls):
     for (type in call.import_decl.input_types ++ call.import_decl.results.map(fun (result): result.type)):
       types.name(type)
+  def pre_layout = boundary_layout(pre_regions, plan, types)
+  def output_layout = boundary_layout(output_regions, plan, types)
   def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
                            "// SPDX-License-Identifier: Apache-2.0", "#pragma once", "#include <cstdint>", "#include <array>" ++ (if types.wide | "\n#include \"rsim-bits.hpp\"" | ""),
                            "namespace " ++ namespace ++ " {", String.join(types.declarations.snapshot(), "\n"), "class Model {", "public:",
@@ -259,7 +327,10 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "write" ++ to_string(index)
     header.add("    std::uint64_t " ++ prefix ++ "_address{};\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data{};\n    bool " ++ prefix ++ "_enable{};")
-  header.add("  };\n  Outputs outputs_;\n  Frame evaluate() const;\n};\n}")
+  header.add("  };\n  Outputs outputs_;\n  Frame evaluate() const;")
+  declare_regions(pre_regions, pre_layout, "pre", "Frame& frame", header)
+  declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", header)
+  header.add("};\n}")
   def source = MutableList["// Evaluates " ++ plan.name ++ " with simultaneous state commits.",
                            "// SPDX-License-Identifier: Apache-2.0", "#include \"" ++ plan.name ++ ".hpp\"", "#include <cstddef>"]
   when plan.assertions.length() > 0
@@ -307,14 +378,17 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
   def constants = emit_constants(plan.steps, evaluation.constants, types, source)
+  when pre_regions.length() > 1 || output_regions.length() > 1
+  | // Preserve the compilation boundary even under optimization/LTO. Applying
+    // this only to region helpers leaves expression/runtime helpers optimizable.
+    source.add("#if defined(_MSC_VER)\n#define RHODIUM_RSIM_NOINLINE __declspec(noinline)\n#elif defined(__GNUC__) || defined(__clang__)\n#define RHODIUM_RSIM_NOINLINE __attribute__((noinline))\n#else\n#define RHODIUM_RSIM_NOINLINE\n#endif")
+    emit_regions(pre_regions, pre_layout, "pre", "Frame& frame", plan, types, constants, source)
+    emit_regions(output_regions, output_layout, "output", "Outputs& next_outputs", plan, types, constants, source)
+    source.add("#undef RHODIUM_RSIM_NOINLINE")
   source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
-  for (region in build_regions(plan, evaluation, evaluation.pre_edge)):
-    for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
-    for (sink in region.sinks): emit_sink(sink, plan, types, source)
+  emit_region_calls(pre_regions, "pre", "frame", plan, types, constants, source)
   source.add("  return frame;\n}\nvoid Model::eval() {\n  Outputs next_outputs{};")
-  for (region in build_regions(plan, evaluation, evaluation.outputs)):
-    for (index in region.steps): source.add(step_declaration(index, plan.steps, types, constants))
-    for (sink in region.sinks): emit_sink(sink, plan, types, source)
+  emit_region_calls(output_regions, "output", "next_outputs", plan, types, constants, source)
   // Publish only after every output has sampled the current inputs/storage.
   // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
   source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  auto before = evaluate();")

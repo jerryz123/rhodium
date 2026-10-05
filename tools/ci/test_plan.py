@@ -211,7 +211,7 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(rsim[0]['simulator_id'], 'simple-rv5stage-rva23-rsim')
                 self.assertEqual(rsim[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(rsim[0]['software_tests'], 'smoke')
-                self.assertEqual(rsim[0]['opt_fast'], '-O0')
+                self.assertEqual(rsim[0]['opt_fast'], '-O1')
                 self.assertEqual(rsim[0]['smoke_max_cycles'], 100000)
                 self.assertEqual(rsim[0]['harness_timeout_minutes'], 5)
                 self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
@@ -256,7 +256,7 @@ class PlanTest(unittest.TestCase):
                        CALL_LOG=str(calls), RUNNER_TEMP=str(root), SOC='simple-rv5stage-rva23',
                        RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
                        SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000')
-            for opt in ('-O0', ''):
+            for opt in ('-O1', '-O0', ''):
                 calls.write_text('')
                 result = subprocess.run(['bash', '-eo', 'pipefail', '-c', build], env=dict(env, OPT_FAST=opt),
                                         text=True, capture_output=True)
@@ -264,7 +264,7 @@ class PlanTest(unittest.TestCase):
                 commands = [json.loads(line) for line in calls.read_text().splitlines()]
                 self.assertEqual([c[0] for c in commands], ['make', 'ldd'])
                 self.assertEqual([arg for arg in commands[0] if arg.startswith('OPT_FAST=')],
-                                 ['OPT_FAST=-O0'] if opt else [])
+                                 [f'OPT_FAST={opt}'] if opt else [])
             calls.write_text('')
             result = subprocess.run(['bash', '-eo', 'pipefail', '-c', run],
                                     env=dict(env, SMOKE_MAX_CYCLES='0',

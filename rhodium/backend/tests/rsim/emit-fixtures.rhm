@@ -12,7 +12,7 @@ import:
   "memory-fixtures.rhm".make_memory
   "sync-memory-fixtures.rhm".make_sync_memory
   "../../../compile/program.rhm".compile_program
-  "../../rsim-target.rhm".rsim_target
+  "region-target.rhm".rsim_target
   "../../verilog-target.rhm".verilog_target
 
 def args = rkt.#{current-command-line-arguments}()
