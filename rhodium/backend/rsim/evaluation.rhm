@@ -21,7 +21,7 @@ class RsimStorageRead(kind :: String, slot :: Nat, result :: maybe(Nat) = #false
 class RsimDependencies(values :: List.of(Nat), storage :: List.of(RsimStorageRead))
 
 /* Identifies a final consumer in the schedule's corresponding descriptor list.
-   Dependencies include frame-building reads that have no standalone value step. */
+   Dependencies include pending-state and frame reads without a standalone value step. */
 class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies)
 
 /* Selects original step IDs in dependency order, then ordered final consumers.
@@ -79,8 +79,8 @@ fun dependency_closure(dependencies :: List.of(RsimDependencies), sinks :: List.
   ordered.snapshot()
 
 /* Plan existing bodies without preparing RTL again or pruning pre-edge work.
-   Sink order matches frame assembly; callback execution and commits remain
-   outside these side-effect-free evaluation bodies. */
+   Sink order matches pending-state and frame assembly; callback execution and
+   committed-state publication remain outside these sampling bodies. */
 fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
   def dependencies = schedule.steps.map(step_dependencies)
   def sinks = MutableList[]

@@ -97,6 +97,16 @@ def driver(native):
     require(snapshot() == before, "failed tick changed cached outputs");
     dut.eval();
     require(snapshot() == before, "failed tick changed state or asynchronous memory");
+    // Dirty the same inactive bank again with different pending values.
+    I(first_next_state) = 91; I(second_next_state) = 93;
+    I(first_write_data) = 95; I(second_write_data) = 97;
+    bool rejected_again = false;
+    try { step(); } catch (const std::runtime_error&) { rejected_again = true; }
+    require(rejected_again && snapshot() == before, "repeated failure published staged state");
+    dut.eval();
+    require(snapshot() == before, "eval observed a rejected bank");
+    I(first_next_state) = 5; I(second_next_state) = 6;
+    I(first_write_data) = 41; I(second_write_data) = 43;
     // Read the location the rejected edge would have written. This distinguishes
     // rollback of synchronous storage from rollback of its read-result register.
     I(first_guard) = I(second_guard) = 0;
@@ -108,7 +118,21 @@ def driver(native):
     step();
     require(O(first_sync_data) == 11 && O(second_sync_data) == 17, "failed tick wrote synchronous memory");
     require(O(first_async_data) == 31 && O(second_async_data) == 37, "failed tick wrote asynchronous memory");
+    // One successful tick changes bank parity; failure must still preserve
+    // both memories and stored read results before a second successful retry.
+    I(top_guard) = 1;
+    I(first_next_state) = 101; I(second_next_state) = 103;
     I(first_write_enable) = I(second_write_enable) = 1;
+    I(first_write_data) = 107; I(second_write_data) = 109;
+    const auto odd_before = snapshot();
+    bool odd_rejected = false;
+    try { step(); } catch (const std::runtime_error&) { odd_rejected = true; }
+    require(odd_rejected && snapshot() == odd_before, "odd-parity failure changed outputs");
+    dut.eval();
+    require(snapshot() == odd_before, "odd-parity failure changed storage");
+    I(top_guard) = 0;
+    I(first_next_state) = 5; I(second_next_state) = 6;
+    I(first_write_data) = 41; I(second_write_data) = 43;
     I(first_read_address) = I(second_read_address) = 1;
     step();
     require(O(first_state) == 5 && O(second_state) == 6, "recovery registers");

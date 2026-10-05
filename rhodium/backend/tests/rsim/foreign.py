@@ -213,20 +213,25 @@ def driver(native):
   // A failed check suppresses every effect, including outputless children,
   // and preserves both ordinary registers and held foreign results.
   dut.inputs.preset = 0;
-  dut.inputs.pfail_uguard = 1;
-  dut.inputs.pfirst_uenable = dut.inputs.psecond_uenable = dut.inputs.pmonitor_uenable = 1;
-  dut.inputs.pfirst_ugroup_uenable = dut.inputs.psecond_ugroup_uenable = 1;
-  dut.eval();
-  const auto before = snapshot();
-  events.clear();
-  bool caught = false;
-  try { dut.tick(); } catch (const std::runtime_error&) { caught = true; }
-  if (!caught || !events.empty() || snapshot() != before) return 4;
-  dut.eval();
-  if (!events.empty() || snapshot() != before) return 5;
-  dut.inputs.pfail_uguard = 0;
-  dut.tick();
-  if (events.size() != 77) return 6;
+  for (unsigned parity = 0; parity < 2; ++parity) {
+    dut.inputs.pfail_uguard = 1;
+    dut.inputs.pfirst_uenable = dut.inputs.psecond_uenable = dut.inputs.pmonitor_uenable = 1;
+    dut.inputs.pfirst_ugroup_uenable = dut.inputs.psecond_ugroup_uenable = 1;
+    dut.eval();
+    const auto before = snapshot();
+    events.clear();
+    for (unsigned attempt = 0; attempt < 2; ++attempt) {
+      ++dut.inputs.pfirst_udata64;
+      bool caught = false;
+      try { dut.tick(); } catch (const std::runtime_error&) { caught = true; }
+      if (!caught || !events.empty() || snapshot() != before) return 4;
+      dut.eval();
+      if (!events.empty() || snapshot() != before) return 5;
+    }
+    dut.inputs.pfail_uguard = 0;
+    dut.tick();
+    if (events.size() != 77) return 6;
+  }
   other.eval();
   if (other_snapshot() != other_before) return 8;
 '''

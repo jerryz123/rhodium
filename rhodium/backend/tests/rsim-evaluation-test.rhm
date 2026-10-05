@@ -92,27 +92,30 @@ check:
   writes[1].dependencies.values ~is [input("address"), input("data"), input("enable"), input("mode"), input("mask")]
   storage(writes[1].dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
 
-// Frame storage is fully assigned by sinks in both split and inline bodies.
-// Preserve cold model initialization at the persistent member while omitting
-// redundant scalar/vector defaults from the temporary carriers.
+// Next-state and frame storage are fully assigned in split and inline bodies.
+// Both banks initialize once; only the active index changes at publication.
+// Omit redundant scalar/vector defaults from temporary frame carriers.
 for (budget in [1, 1000000]):
   def emitted = emit_rsim(schedule, ~region_budget: budget)
-  def state_fields = emitted[0].split("struct State {")[1].split("} state_")[0]
+  def state_fields = emitted[0].split("struct State {")[1].split("};")[0]
   def frame_fields = emitted[0].split("struct Frame {")[1].split("\n  };")[0]
   def sampling = emitted[1].split("void Model::tick()")[0]
   check:
-    emitted[0].contains("} state_{};") ~is #true
+    emitted[0].contains("State states_[2]{};") ~is #true
     state_fields.contains("{}") ~is #false
     frame_fields.contains("{}") ~is #false
     sampling.contains("Frame frame;") ~is #true
-  for (field in ["next.s0", "next.r0", "next.f0_0", "next.f0_1",
-                 "call0_enable", "call0_arg0", "assertion0_failed",
+  for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
                  "write0_address", "write0_data", "write0_enable",
                  "write1_address", "write1_data", "write1_enable"]):
     check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is 1
+  for (field in ["s0", "r0", "f0_0", "f0_1"]):
+    check: sampling.split("next." ++ field ++ " = ").length() - 1 ~is 1
   check:
-    sampling.contains("frame.next.f0_0 = state_.f0_0;") ~is #true
-    sampling.contains("frame.next.f0_1 = state_.f0_1;") ~is #true
+    frame_fields.contains("State next") ~is #false
+    emitted[1].split("  active_state_ = next_index;").length() ~is 2
+    sampling.contains("next.f0_0 = current.f0_0;") ~is #true
+    sampling.contains("next.f0_1 = current.f0_1;") ~is #true
 
 // Only the address input contributes to outputs; the state roots must not
 // recursively pull in resets, updates, call arguments, or memory writers.
@@ -298,7 +301,7 @@ for (budget in [1, 24, 4096]):
         check:
           helper.contains("foreign::") ~is #false
           helper.contains("throw ") ~is #false
-          helper.contains("state_ =") ~is #false
+          helper.contains("active_state_ =") ~is #false
 
 // A crossing mux can borrow only storage that outlives its producer. With a
 // one-step budget both branches cross; at 22 both branches are helper locals
@@ -383,7 +386,7 @@ for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
   def roots = MutableMap{}
   for (step in planned.steps, index in 0..planned.steps.length()):
     when step.opcode in ["state", "sync_read"] && (record_type(step.type) || vector_type(step.type))
-    | roots[index] := "state_." ++ (if step.opcode == "state" | "s" | "r") ++ to_string(step.attributes["slot"])
+    | roots[index] := "current." ++ (if step.opcode == "state" | "s" | "r") ++ to_string(step.attributes["slot"])
   check: roots.length() > 0 ~is #true
   for (budget in [1, 1000000]):
     def emitted = emit_rsim(planned, ~region_budget: budget)
@@ -393,7 +396,7 @@ for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
         def scope:
           if regions.length() > 1
           | emitted[1].split("void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
-          | emitted[1].split(if phase == "pre" | "Model::Frame Model::evaluate()" | "void Model::eval()")[1].split("\n}")[0]
+          | emitted[1].split(if phase == "pre" | "Model::Frame Model::evaluate(" | "void Model::eval()")[1].split("\n}")[0]
         for (index in region.steps ++ region.inputs):
           when roots.has_key(index)
           | check: scope.contains("const auto& v" ++ to_string(index) ++ " = " ++ roots[index] ++ ";") ~is #true
@@ -415,7 +418,7 @@ def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
 check:
   root_emission[0].contains("struct preScratch {\n\n  };") ~is #true
   root_emission[0].contains("struct outputScratch {\n\n  };") ~is #true
-  root_emission[1].contains("frame.next.s0 = v0;") ~is #true
+  root_emission[1].contains("next.s0 = v0;") ~is #true
   root_emission[1].contains("next_outputs.presult = v0;") ~is #true
 
 // Casts retain a whole computed parent, unlike constructor projection forwarding.
@@ -463,7 +466,7 @@ for (mode in ["constant", "state", "input"]):
   | mode == "constant":
       check: emitted[1].contains("((constant") && emitted[1].contains(").pentries)[1]") ~is #true
   | mode == "state":
-      check: emitted[1].contains("((state_.s0).pentries)[1]") ~is #true
+      check: emitted[1].contains("((current.s0).pentries)[1]") ~is #true
   | ~else:
       check: emitted[1].contains(".pentries)[1]") ~is #true
       def cast = planned.steps.index(planned.steps.find(fun (step): step.opcode == "rtl.cast"))

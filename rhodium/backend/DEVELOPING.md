@@ -118,11 +118,11 @@ indices and ordered final consumers. The dependency inventory separates value
 operands from current-storage reads: registers, synchronous-read results, held
 foreign results, and asynchronous memory contents. Input steps remain explicit
 value roots. Memory resources never pull in writers. Final consumers also record
-frame-only uses, including reset operands, read/write controls, masked-write old
+sink-only uses, including reset operands, read/write controls, masked-write old
 words, assertion predicates, call arguments, and every held foreign result even
 when unused. Storage dependencies are conservative; they do not permit caching
 or skipping an effect. Both bodies sample afresh and can observe different state.
-When adding a storage-reading step or a frame consumer, update the planner's
+When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
 `build_regions` partitions each body's unchanged step-then-consumer sequence.
@@ -155,11 +155,12 @@ rendering; this is private backend storage policy, not a new RTL representation.
 
 The emitter renders multi-region bodies as private C++ helpers and leaves
 single-region bodies inline in their coordinator. Aggregate current-state roots
-bind directly to their model's `state_` members by const reference, including
+bind directly to their model's active `State` bank by const reference, including
 registers and synchronous-read results with nested/wide payloads. Crossing roots
 need no scratch payload or pointer slot; each consumer helper resolves its binding
 afresh. Local roots use the same reference policy. State stays unchanged until
-all frame consumers finish, and frame/output sinks still copy their values.
+all pre-edge consumers finish; next-state, frame, and output sinks still copy
+their values.
 Static aggregate record-field and vector-index projections also borrow subobjects
 when their parent has evaluation-long backing in state, constants, scratch, or a
 borrowed binding. Follow only static projection chains when finding that backing;
@@ -214,16 +215,33 @@ frame consumers. Scratch layout and function policy belong to C++ emission, not
 the schedule or public target options. The budget remains a soft work estimate:
 a single oversized expression or consumer can still produce a large function.
 
-The pre-edge evaluator returns register and synchronous-read next-state values,
-pending memory writes, checks, and foreign-call arguments in a private frame
-without modifying state. It retains the full scheduled step sequence. Every frame
-field is assigned unconditionally by its sink before the evaluator returns,
-including disabled-call holds, inactive read/write controls and data, and check
-flags. `State` and `Frame` omit member defaults, and `Frame frame;` avoids clearing
-scalar/array carriers before overwriting them. Persistent `state_{}` still zeros
-cold state; memory, record, and wide-carrier defaults retain their existing
-semantics. Adding a frame field requires adding its assignment on every path;
-never rely on zero-filled stack storage or a preceding evaluation.
+The model owns two initialized `State` banks and an active-bank index. Banks
+contain registers, synchronous-read results, and held foreign results; memories
+remain separate. The pre-edge evaluator receives explicit `const State& current`
+and `State& next` references to distinct banks. It reads only current state and
+writes every next-state field before returning a frame of pending memory writes,
+assertion flags, and foreign-call arguments/enables. Both inline bodies and
+bounded helpers follow this protocol; helpers receive the bank references rather
+than resolving the index at each state access. Logical dependency and backing
+plans remain independent of physical bank identity.
+
+Every next-state and frame field is assigned on every attempt, including
+register holds, disabled-call holds, and inactive read/write/check controls.
+`Frame frame;` omits redundant clearing; persistent banks are zeroed once.
+Never use the inactive bank's old contents as a hold value. A failed assertion
+can dirty that bank and scratch, but changes neither active storage nor cached
+outputs. Retry recomputes all pending fields. After assertions and foreign calls,
+`tick()` switches the active index, commits the sampled memory writes, and
+refreshes outputs. Publication performs no whole-state assignment, bank swap,
+allocation, or clearing. The extra persistent bank replaces state formerly held
+in the stack frame; model copying now copies both banks.
+
+An index rather than persistent self-pointers preserves model copy/move ownership.
+Borrowed state references belong to one evaluation phase; output evaluation binds
+the newly active bank. Scratch pointers are refreshed before use after bank
+switches, failed attempts, and model copy/move construction or assignment.
+Adding a next-state or frame field requires an unconditional sink assignment;
+never rely on initial zeros or a preceding successful evaluation.
 `eval()` instead emits only the planner's output dependency closure: seed output
 step indices, mark operands in one reverse schedule scan, and render marked indices
 in their original forward order. Region traversal preserves this sequence.
@@ -277,7 +295,7 @@ sampled arguments, then commits all results and ordinary state together. Native
 `out` parameters point to temporary objects of their exact ABI types, never
 directly to model state. Collect their values and the return value from a single
 invocation, normalize each result by its own width,
-and store them in the pending frame. Allocate and pass every declared out
+and store them in the inactive state bank. Allocate and pass every declared out
 parameter even when its RTL result is unused.
 Declare C symbols once in a private namespace; use width-selected native types
 and bit-preserving argument conversion rather than implementation-defined signed
@@ -499,8 +517,9 @@ for these constant casts.
 Rsim's native fixtures exercise widths 1/5/63/64, overflow, forward connections,
 reset sampling, repeated evaluation, simultaneous swaps, holds, priority, constant-input
 feedback, resetless sampling, keyword/underscore names, and independent child/model
-state. Aggregate copy/move checks destroy the source after populating evaluation
-bindings, then evaluate and tick the destination against an independent copy.
+state. Aggregate copy/move construction and assignment checks destroy the source
+after populating evaluation bindings, then evaluate and tick the destination
+against an independent copy at both bank parities.
 The native driver default-constructs models over nonzero byte patterns
 and checks inputs, cached outputs, and evaluated cold state, so static-storage
 zeroing cannot mask a missing persistent initializer. To expose missing frame
@@ -565,8 +584,9 @@ still checked. The native family uses address/undefined-behavior sanitizers.
 on native C++ and assertion-enabled direct SV. It checks reset/guard suppression,
 pre-edge state and reset sampling, repeated instances, outputless verification
 children, top-level/unlabeled checks, and repeated `eval()` calls. Native failures
-also verify unchanged cached outputs, registers, asynchronous/synchronous memory,
-and read-result state, then retry successfully. Native builds use `NDEBUG` plus
+also exercise repeated rejection and retry at both bank parities, verifying
+unchanged cached outputs, registers, asynchronous/synchronous memory, and
+read-result state. Native builds use `NDEBUG` plus
 address/undefined-behavior sanitizers, and check quoted/multiline source diagnostics.
 `tests/rsim/foreign.py` links the same host implementation into native and
 Verilator models, compiling it against Verilator's generated DPI declarations.
@@ -583,7 +603,8 @@ sets high padding bits in results; the oracle checks they cannot reach held stat
 or later procedure arguments. Boundary and asymmetric-word inputs distinguish
 word order and correct input padding. The native sanitizer build additionally
 checks independent model objects
-and that assertion failure suppresses all calls and preserves state before retry.
+and that repeated assertion failure suppresses all calls and preserves state before
+retry at both bank parities.
 `tests/rsim/wide_foreign.py` extends that ABI proof to 65/129/512/513-bit
 inputs and outs, mixed native/wide results, and signed bit patterns. It compares
 all argument words, effect counts, held results, and pre-edge consumers with a

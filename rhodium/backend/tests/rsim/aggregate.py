@@ -71,13 +71,17 @@ def native_setup(width):
     lines += ['agg.inputs.preset = reset; agg.inputs.penable = enable; agg.inputs.pload = load;',
               'agg.inputs.ppacked = amount;', 'if (tick) agg.tick(); else agg.eval();', 'idle_agg.eval();']
     # Scratch pointers are not model state: copies must refresh them before use,
-    # even when the source of the copy has already been destroyed.
+    # even when the source of the copy has already been destroyed. Alternate
+    # construction and assignment using the load stimulus; both paths recur at
+    # both state-bank parities without adding another set of large model locals.
     lines += [f'auto copied = [&]() {{ auto temporary = agg; temporary.eval(); '
+              f'if (load) {{ rsim_pAggregate{width}::Model result; result = temporary; return result; }} '
               f'return rsim_pAggregate{width}::Model(temporary); }}();', 'copied.eval();']
     # Populate pre-edge borrowed bindings before moving out of a destroyed
     # source. Re-evaluation and another edge must read the destination's state.
     lines += ['auto advanced = agg; advanced.tick();',
               f'auto moved = [&]() {{ auto temporary = agg; temporary.tick(); '
+              f'if (load) {{ rsim_pAggregate{width}::Model result; result = static_cast<rsim_pAggregate{width}::Model&&>(temporary); return result; }} '
               f'return rsim_pAggregate{width}::Model(static_cast<rsim_pAggregate{width}::Model&&>(temporary)); }}();',
               'moved.eval();']
     for port, _, fields in ports(width):

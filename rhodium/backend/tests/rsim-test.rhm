@@ -58,7 +58,7 @@ for (width in [5, 65]):
   def before = dump_ir(program.design)
   def artifacts = compile_program(program, rsim_target).artifacts
   def source = artifacts[1].content
-  def bodies = source.split("Model::Frame Model::evaluate() const {")
+  def bodies = source.split("Model::Frame Model::evaluate(")
   check:
     source.split("static constexpr std::array<").length() - 1 ~is 1
     bodies[0].split("static constexpr std::array<").length() - 1 ~is 1
@@ -72,11 +72,11 @@ for (width in [5, 65]):
 def swap_artifacts = compile_program(make_swap(5), rsim_target).artifacts
 def swap_eval = swap_artifacts[1].content.split("void Model::eval() {")[1].split("void Model::tick() {")[0]
 check:
-  swap_eval.contains("state_.") ~is #true
+  swap_eval.contains("current.") ~is #true
   swap_eval.contains("inputs.") ~is #false
   swap_eval.contains("Frame") ~is #false
   swap_eval.contains("evaluate()") ~is #false
-  swap_artifacts[1].content.contains("frame.next.") ~is #true
+  swap_artifacts[1].content.contains("next.") ~is #true
   swap_artifacts[0].content.contains("Outputs outputs;") ~is #false
 
 // An outputless model has no eval dependencies, but its foreign effects stay
@@ -85,7 +85,7 @@ def empty_source = compile_program(make_unused_wide_foreign(), rsim_target).arti
 def empty_eval = empty_source.split("void Model::eval() {")[1].split("void Model::tick() {")[0]
 check:
   empty_eval.contains("inputs.") ~is #false
-  empty_eval.contains("state_.") ~is #false
+  empty_eval.contains("current.") ~is #false
   empty_eval.contains("foreign::") ~is #false
   empty_source.contains("foreign::rsim_wide_unused(") ~is #true
 
