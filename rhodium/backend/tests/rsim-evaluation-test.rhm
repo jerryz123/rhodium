@@ -88,6 +88,28 @@ check:
   writes[1].dependencies.values ~is [input("address"), input("data"), input("enable"), input("mode"), input("mask")]
   storage(writes[1].dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
 
+// Frame storage is fully assigned by sinks in both split and inline bodies.
+// Preserve cold model initialization at the persistent member while omitting
+// redundant scalar/vector defaults from the temporary carriers.
+for (budget in [1, 1000000]):
+  def emitted = emit_rsim(schedule, ~region_budget: budget)
+  def state_fields = emitted[0].split("struct State {")[1].split("} state_")[0]
+  def frame_fields = emitted[0].split("struct Frame {")[1].split("\n  };")[0]
+  def sampling = emitted[1].split("void Model::tick()")[0]
+  check:
+    emitted[0].contains("} state_{};") ~is #true
+    state_fields.contains("{}") ~is #false
+    frame_fields.contains("{}") ~is #false
+    sampling.contains("Frame frame;") ~is #true
+  for (field in ["next.s0", "next.r0", "next.f0_0", "next.f0_1",
+                 "call0_enable", "call0_arg0", "assertion0_failed",
+                 "write0_address", "write0_data", "write0_enable",
+                 "write1_address", "write1_data", "write1_enable"]):
+    check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is 1
+  check:
+    sampling.contains("frame.next.f0_0 = state_.f0_0;") ~is #true
+    sampling.contains("frame.next.f0_1 = state_.f0_1;") ~is #true
+
 // Only the address input contributes to outputs; the state roots must not
 // recursively pull in resets, updates, call arguments, or memory writers.
 def output_inputs = evaluation.outputs.steps.filter(~keep: fun (index): schedule.steps[index].opcode == "input")

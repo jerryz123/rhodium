@@ -330,27 +330,29 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   header.add("  } inputs;\n  struct Outputs {")
   for (port in plan.outputs): header.add("    " ++ types.name(port.type) ++ " " ++ cpp_name(port.name) ++ "{};")
   header.add("  };\n  void eval();\n  void tick();\n  const Outputs& outputs() const { return outputs_; }\nprivate:\n  struct State {")
+  // State is a carrier shared with the temporary frame. Initialize persistent
+  // storage at state_, not on its fields, so frame creation need not clear it.
   for (reg in plan.registers, index in 0..plan.registers.length()):
-    header.add("    " ++ types.name(reg.type) ++ " s" ++ to_string(index) ++ "{}; // " ++ String.join(reg.path ++ [reg.name], "/"))
+    header.add("    " ++ types.name(reg.type) ++ " s" ++ to_string(index) ++ "; // " ++ String.join(reg.path ++ [reg.name], "/"))
   for (read in plan.reads, index in 0..plan.reads.length()):
-    header.add("    " ++ types.name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "{}; // synchronous read result")
+    header.add("    " ++ types.name(plan.memories[read.memory].type) ++ " r" ++ to_string(index) ++ "; // synchronous read result")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     for (result_index in 0..call.import_decl.results.length()):
-      header.add("    " ++ types.name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "{}; // held foreign result")
-  header.add("  } state_;")
+      header.add("    " ++ types.name(call.import_decl.results[result_index].type) ++ " " ++ foreign_slot(index, result_index) ++ "; // held foreign result")
+  header.add("  } state_{};")
   for (memory in plan.memories, index in 0..plan.memories.length()):
     header.add("  std::array<" ++ types.name(memory.type) ++ ", " ++ to_string(memory.depth) ++ "> memory" ++ to_string(index) ++ "_{}; // " ++ String.join(memory.path ++ [memory.name], "/"))
   header.add("  struct Frame {\n    State next;")
   for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
     def prefix = "call" ++ to_string(index)
-    header.add("    bool " ++ prefix ++ "_enable{};")
+    header.add("    bool " ++ prefix ++ "_enable;")
     for (arg in 0..call.arguments.length()):
-      header.add("    " ++ types.name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ "{};")
+      header.add("    " ++ types.name(call.import_decl.input_types[arg]) ++ " " ++ prefix ++ "_arg" ++ to_string(arg) ++ ";")
   for (index in 0..plan.assertions.length()):
-    header.add("    bool assertion" ++ to_string(index) ++ "_failed{};")
+    header.add("    bool assertion" ++ to_string(index) ++ "_failed;")
   for (write in plan.writes, index in 0..plan.writes.length()):
     def prefix = "write" ++ to_string(index)
-    header.add("    std::uint64_t " ++ prefix ++ "_address{};\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data{};\n    bool " ++ prefix ++ "_enable{};")
+    header.add("    std::uint64_t " ++ prefix ++ "_address;\n    " ++ types.name(plan.memories[write.memory].type) ++ " " ++ prefix ++ "_data;\n    bool " ++ prefix ++ "_enable;")
   header.add("  };\n  Outputs outputs_;\n  Frame evaluate() const;")
   declare_regions(pre_regions, pre_layout, "pre", "Frame& frame", header)
   declare_regions(output_regions, output_layout, "output", "Outputs& next_outputs", header)
@@ -409,7 +411,10 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     emit_regions(pre_regions, pre_layout, "pre", "Frame& frame", plan, types, constants, source)
     emit_regions(output_regions, output_layout, "output", "Outputs& next_outputs", plan, types, constants, source)
     source.add("#undef RHODIUM_RSIM_NOINLINE")
-  source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
+  // Every frame field is assigned unconditionally by emit_sink before return,
+  // including disabled-call holds and inactive read/write/check controls. Keep
+  // carrier defaults (records and WideBits) intact for their other callers.
+  source.add("Model::Frame Model::evaluate() const {\n  Frame frame;")
   emit_region_calls(pre_regions, "pre", "frame", plan, types, constants, source)
   source.add("  return frame;\n}\nvoid Model::eval() {\n  Outputs next_outputs{};")
   emit_region_calls(output_regions, "output", "next_outputs", plan, types, constants, source)

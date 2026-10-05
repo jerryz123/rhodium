@@ -101,12 +101,29 @@ def stimuli():
 
 def native_driver():
     includes = "\n".join(f'#include "{kind}{w}.hpp"' for w in WIDTHS for kind in ("Scalar", "Swap", "Arithmetic", "Aggregate"))
-    cases = []
+    cases, startup = [], []
     for width in WIDTHS:
         scalar = " << ' ' << ".join(f"comb.outputs().p{name.replace('_', '_u')}" for name in SCALAR)
         state = " << ' ' << ".join(f"dut.outputs().p{name.replace('_', '_u')}" for name in STATE)
         bits = " << ' ' << ".join(f"bits.outputs().{encoded(name)}" for name in ARITHMETIC)
         aggregate_values = " << ' ' << ".join(aggregate.native_outputs(width))
+        # Default-initialize over dirty storage: static objects would hide a
+        # missing initializer because the loader has already zeroed their bytes.
+        zero_state = " || ".join(f"model->outputs().{encoded(name)} != 0" for name in STATE)
+        zero_inputs = " || ".join(f"model->inputs.{encoded(name)} != 0"
+                                 for name in ("reset", "enable", "load", "a", "b"))
+        startup.append(f"""{{
+  using Model = rsim_pSwap{width}::Model;
+  alignas(Model) unsigned char storage[sizeof(Model)];
+  for (int pattern : {{0x55, 0xaa}}) {{
+    std::memset(storage, pattern, sizeof(storage));
+    auto* model = ::new (static_cast<void*>(storage)) Model;
+    if ({zero_inputs} || {zero_state}) return 4;
+    model->eval();
+    if ({zero_state}) return 5;
+    model->~Model();
+  }}
+}}""")
         cases.append(f"""case {width}: {{
   {aggregate.native_setup(width)}
   static rsim_pScalar{width}::Model comb;
@@ -130,8 +147,11 @@ def native_driver():
     return f"""// SPDX-License-Identifier: Apache-2.0
 #include <iostream>
 #include <cstdint>
+#include <cstring>
+#include <new>
 {includes}
 int main() {{
+  {" ".join(startup)}
   std::uint64_t width, tick, reset, enable, load, a, b, amount;
   std::cin >> std::hex; std::cout << std::hex;
   while (std::cin >> width >> tick >> reset >> enable >> load >> a >> b >> amount) {{

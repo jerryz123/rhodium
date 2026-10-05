@@ -152,7 +152,14 @@ a single oversized expression or consumer can still produce a large function.
 
 The pre-edge evaluator returns register and synchronous-read next-state values,
 pending memory writes, checks, and foreign-call arguments in a private frame
-without modifying state. It retains the full scheduled step sequence.
+without modifying state. It retains the full scheduled step sequence. Every frame
+field is assigned unconditionally by its sink before the evaluator returns,
+including disabled-call holds, inactive read/write controls and data, and check
+flags. `State` and `Frame` omit member defaults, and `Frame frame;` avoids clearing
+scalar/array carriers before overwriting them. Persistent `state_{}` still zeros
+cold state; memory, record, and wide-carrier defaults retain their existing
+semantics. Adding a frame field requires adding its assignment on every path;
+never rely on zero-filled stack storage or a preceding evaluation.
 `eval()` instead emits only the planner's output dependency closure: seed output
 step indices, mark operands in one reverse schedule scan, and render marked indices
 in their original forward order. Region traversal preserves this sequence.
@@ -428,7 +435,15 @@ for these constant casts.
 Rsim's native fixtures exercise widths 1/5/63/64, overflow, forward connections,
 reset sampling, repeated evaluation, simultaneous swaps, holds, priority, constant-input
 feedback, resetless sampling, keyword/underscore names, and independent child/model
-state. `tests/rsim/arithmetic.py` supplies independent integer expectations for
+state. The native driver default-constructs models over nonzero byte patterns
+and checks inputs, cached outputs, and evaluated cold state, so static-storage
+zeroing cannot mask a missing persistent initializer. To expose missing frame
+assignments as well, run the native suite with a compiler supporting automatic
+variable pattern initialization, for example
+`CXX="clang++ -ftrivial-auto-var-init=pattern" python3 rhodium/backend/tests/rsim/run.py --region-budget 24`.
+The same suite's ordinary default budget covers inline evaluation of small models;
+forcing 24 exercises region boundaries. `tests/rsim/arithmetic.py` supplies
+independent integer expectations for
 signed extrema, shift counts at and beyond width/64 (including large 64-bit counts),
 concatenation and cross-boundary slices, and modular results before widening.
 `tests/rsim/aggregate.py` adds field-level oracles for nested records/vectors,
