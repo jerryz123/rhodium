@@ -83,6 +83,13 @@ ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
 
+`RsimSchedule` checks its immutable step list at construction; `emit_rsim` checks
+the incoming schedule. Private renderer helpers receive that same list and use
+the static-only `:~ List.of(RsimStep)` annotation. A checked `:: List.of(...)`
+parameter would traverse the whole schedule on every per-step call, making
+emission quadratic. Preserve the checked entry boundary when adding callers;
+do not extend this trust to unrelated lists or externally supplied values.
+
 `build_evaluation_plan` derives the two evaluation bodies from the existing
 schedule without preparing or copying RTL. Each body references original step
 indices and ordered final consumers. The dependency inventory separates value

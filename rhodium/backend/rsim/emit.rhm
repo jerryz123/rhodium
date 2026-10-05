@@ -14,6 +14,11 @@ import:
 
 export emit_rsim
 
+/* RsimSchedule checks its immutable steps list at construction, and emit_rsim
+   checks the schedule at entry. Private helpers only receive that same list:
+   use :~ to retain element type information without rescanning every step on
+   each call. Keep this checked boundary if a helper gains another caller. */
+
 // Resolve support relative to the installed emitter, independent of the caller's cwd.
 runtime_path.def bits_header: "rsim-bits.hpp"
 
@@ -46,7 +51,7 @@ fun foreign_slot(call_index :: Nat, result_index :: Nat) :: String:
 
 /* Emit one operation; normalization at the caller preserves each intermediate
    hardware width before any later comparison or conversion. */
-fun expression(step :: RsimStep, steps :: List.of(RsimStep), types :: CppTypes) :: String:
+fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) :: String:
   def args = step.operands.map(ref)
   def binary = {"rtl.and": "&", "rtl.or": "|", "rtl.xor": "^", "rtl.add": "+",
                 "rtl.sub": "-", "rtl.mul": "*", "rtl.eq": "==", "rtl.ult": "<"}
@@ -130,7 +135,7 @@ fun expression(step :: RsimStep, steps :: List.of(RsimStep), types :: CppTypes) 
 /* Emit planned constant values as canonical immutable objects in the model
    namespace. Return step-to-symbol bindings independent of evaluator locals,
    so any dependency-closed subset can refer to the same constant storage. */
-fun emit_constants(steps :: List.of(RsimStep), constant_values :: Map, types :: CppTypes, source :: MutableList) :: Map:
+fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: CppTypes, source :: MutableList) :: Map:
   def storage = MutableMap{}
   def bindings = MutableMap{}
   for (step in steps, index in 0..steps.length()):
@@ -161,7 +166,7 @@ fun aggregate_projection(step :: RsimStep) :: Boolean:
 /* Find evaluation-long backing, following only static aggregate subobjects.
    A helper-local computed parent has no backing here and must be copied when
    its projection crosses a region. Existing slots are never recycled. */
-fun backed_reference(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes, constants :: Map, bindings :: ReadableMap) :: maybe(String):
+fun backed_reference(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes, constants :: Map, bindings :: ReadableMap) :: maybe(String):
   cond
   | constants.has_key(index): constants[index]
   | bindings.has_key(index): bindings[index]
@@ -177,7 +182,7 @@ fun backed_reference(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes
 /* Render one original schedule index with its usual leaf normalization.
    Constant aliases bind namespace storage, never another evaluator's locals;
    callers choose the dependency-ordered indices without renumbering operands. */
-fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes, constants :: Map, ~destination: destination :: maybe(String) = #false) :: String:
+fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes, constants :: Map, ~destination: destination :: maybe(String) = #false) :: String:
   if constants.has_key(index)
   | "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ constants[index] ++ ";"
   | def step = steps[index]
