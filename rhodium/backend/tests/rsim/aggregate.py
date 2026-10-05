@@ -64,13 +64,26 @@ def native_setup(width):
     # even when the source of the copy has already been destroyed.
     lines += [f'auto copied = [&]() {{ auto temporary = agg; temporary.eval(); '
               f'return rsim_pAggregate{width}::Model(temporary); }}();', 'copied.eval();']
+    # Populate pre-edge borrowed bindings before moving out of a destroyed
+    # source. Re-evaluation and another edge must read the destination's state.
+    lines += ['auto advanced = agg; advanced.tick();',
+              f'auto moved = [&]() {{ auto temporary = agg; temporary.tick(); '
+              f'return rsim_pAggregate{width}::Model(static_cast<rsim_pAggregate{width}::Model&&>(temporary)); }}();',
+              'moved.eval();']
     for port, _, fields in ports(width):
         for path, _, _ in fields:
             lines.append(f'if (copied.outputs().{encoded(port)}{path} != '
                          f'agg.outputs().{encoded(port)}{path}) return 5;')
+            lines.append(f'if (moved.outputs().{encoded(port)}{path} != '
+                         f'advanced.outputs().{encoded(port)}{path}) return 6;')
         if port.startswith(('first_', 'second_')) or port in ('sample', 'mux_captured', 'saved_vector'):
             for path, _, _ in fields:
                 lines.append(f'if (idle_agg.outputs().{encoded(port)}{path} != 0) return 4;')
+    lines += ['moved.tick(); advanced.tick();']
+    for port, _, fields in ports(width):
+        for path, _, _ in fields:
+            lines.append(f'if (moved.outputs().{encoded(port)}{path} != '
+                         f'advanced.outputs().{encoded(port)}{path}) return 7;')
     return '\n'.join(lines)
 
 

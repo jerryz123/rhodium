@@ -116,12 +116,19 @@ steps before emission. Boundary values describe one evaluation invocation, not a
 cache across edges.
 
 The emitter renders multi-region bodies as private C++ helpers and leaves
-single-region bodies inline in their coordinator. Only nonconstant values consumed
-in later regions receive scratch slots. Slots are grouped in typed arrays by C++
+single-region bodies inline in their coordinator. Aggregate current-state roots
+bind directly to their model's `state_` members by const reference, including
+registers and synchronous-read results with nested/wide payloads. Crossing roots
+need no scratch payload or pointer slot; each consumer helper resolves its binding
+afresh. Local roots use the same reference policy. State stays unchanged until
+all frame consumers finish, and frame/output sinks still copy their values.
+External input normalization, computed asynchronous reads, and scalar roots keep
+their existing materialization. Other nonconstant values consumed in later regions
+receive scratch slots. Slots are grouped in typed arrays by C++
 carrier; a producer writes its slot directly, and consumers bind const references.
 Aggregate lookup-mux results use const-pointer slots when every branch already
 has evaluation-long backing storage: an immutable constant or an earlier boundary
-value, including another borrowed mux. Selection takes the chosen lvalue's address
+value, including a direct state binding or another borrowed mux. Selection takes the chosen lvalue's address
 without copying its aggregate. Helper-local branches retain materialized results;
 do not promote extra values merely to enable borrowing. Scalar results keep their
 ordinary normalization and materialization. Boundary slots are never recycled
@@ -435,7 +442,9 @@ for these constant casts.
 Rsim's native fixtures exercise widths 1/5/63/64, overflow, forward connections,
 reset sampling, repeated evaluation, simultaneous swaps, holds, priority, constant-input
 feedback, resetless sampling, keyword/underscore names, and independent child/model
-state. The native driver default-constructs models over nonzero byte patterns
+state. Aggregate copy/move checks destroy the source after populating evaluation
+bindings, then evaluate and tick the destination against an independent copy.
+The native driver default-constructs models over nonzero byte patterns
 and checks inputs, cached outputs, and evaluated cold state, so static-storage
 zeroing cannot mask a missing persistent initializer. To expose missing frame
 assignments as well, run the native suite with a compiler supporting automatic

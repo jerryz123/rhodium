@@ -14,6 +14,7 @@ import:
   "rsim/wide-fixtures.rhm".make_constant_rom
   "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
   "rsim/memory-fixtures.rhm".make_memory
+  "rsim/sync-memory-fixtures.rhm".make_sync_memory
 
 // Mix storage roots with frame-only consumers. Reset deliberately occupies
 // step zero, while write controls/data must not enter the output closure.
@@ -349,3 +350,47 @@ def aggregate_emission = emit_rsim(aggregate_schedule, ~region_budget: 24)
 check:
   aggregate_emission ~is emit_rsim(aggregate_schedule, ~region_budget: 24)
   aggregate_emission[1].contains(" = &(") ~is #true
+
+// Aggregate register and synchronous-read roots bind the current model directly
+// in both producers and consumers. The same roots remain local references when
+// the whole body fits in one region, including nested records with wide leaves.
+for (program in [make_aggregate(5), make_sync_memory(3, #true, #false, 65)]):
+  def planned = build_schedule(prepare_rtl(program, CompileOptions(), "state bindings").rtl)
+  def evaluated = build_evaluation_plan(planned)
+  def roots = MutableMap{}
+  for (step in planned.steps, index in 0..planned.steps.length()):
+    when step.opcode in ["state", "sync_read"] && (record_type(step.type) || vector_type(step.type))
+    | roots[index] := "state_." ++ (if step.opcode == "state" | "s" | "r") ++ to_string(step.attributes["slot"])
+  check: roots.length() > 0 ~is #true
+  for (budget in [1, 1000000]):
+    def emitted = emit_rsim(planned, ~region_budget: budget)
+    for (body in [evaluated.pre_edge, evaluated.outputs], phase in ["pre", "output"]):
+      def regions = build_regions(planned, evaluated, body, ~budget: budget)
+      for (region in regions, number in 0..regions.length()):
+        def scope:
+          if regions.length() > 1
+          | emitted[1].split("void Model::" ++ phase ++ "_region" ++ to_string(number) ++ "(")[1].split("\n}")[0]
+          | emitted[1].split(if phase == "pre" | "Model::Frame Model::evaluate()" | "void Model::eval()")[1].split("\n}")[0]
+        for (index in region.steps ++ region.inputs):
+          when roots.has_key(index)
+          | check: scope.contains("const auto& v" ++ to_string(index) ++ " = " ++ roots[index] ++ ";") ~is #true
+    for ((index, binding) in roots):
+      check: emitted[1].contains(" = " ++ binding ++ ";\n  [[maybe_unused]] const auto& v" ++ to_string(index) ++ " = scratch.") ~is #false
+
+// A state-only boundary needs no payload or pointer slot at all. Its frame and
+// output consumers still own snapshots instead of references into live state.
+def root_design = Design()
+def root_builder = Builder(root_design)
+def root_top = root_builder.module("StateOnly")
+def root_clock = root_builder.input(root_top, "clock", Clock)
+def root_reg = root_builder.register(root_top, "value", borrow_type, root_clock)
+root_builder.drive(root_reg.next, root_reg.current)
+root_builder.drive(root_builder.output(root_top, "result", borrow_type), root_reg.current)
+root_builder.finish(root_top)
+def root_schedule = build_schedule(prepare_rtl(ElaboratedProgram(root_design, root_top), CompileOptions(), "state only").rtl)
+def root_emission = emit_rsim(root_schedule, ~region_budget: 1)
+check:
+  root_emission[0].contains("struct preScratch {\n\n  };") ~is #true
+  root_emission[0].contains("struct outputScratch {\n\n  };") ~is #true
+  root_emission[1].contains("frame.next.s0 = v0;") ~is #true
+  root_emission[1].contains("next_outputs.presult = v0;") ~is #true

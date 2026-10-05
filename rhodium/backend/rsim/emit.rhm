@@ -147,6 +147,12 @@ fun emit_constants(steps :: List.of(RsimStep), constant_values :: Map, types :: 
       bindings[index] := storage[key]
   bindings.snapshot()
 
+/* Aggregate current-state roots are normalized lvalues that remain stable until
+   all frame/output consumers finish. Bind them afresh in each evaluation; never
+   borrow inputs needing normalization or computed asynchronous memory results. */
+fun aggregate_state_read(step :: RsimStep) :: Boolean:
+  step.opcode in ["state", "sync_read", "foreign_result"] && (record_type(step.type) || vector_type(step.type))
+
 /* Render one original schedule index with its usual leaf normalization.
    Constant aliases bind namespace storage, never another evaluator's locals;
    callers choose the dependency-ordered indices without renumbering operands. */
@@ -161,9 +167,10 @@ fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes
       if step.opcode == "input" || (!record_type(step.type) && !vector_type(step.type))
       | types.normalize(step.type, rendered)
       | rendered
-    if destination
-    | "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
-    | "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
+    cond
+    | aggregate_state_read(step): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
+    | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
+    | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
 /* Render one planned final consumer without executing effects or committing
    storage. The planner owns its value/storage uses and sampling order; this
@@ -214,14 +221,14 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
 
 /* Value expressions, borrowed-result pointer slots, and typed arrays for one
    evaluation phase. Logical regions remain independent of C++ storage policy. */
-class BoundaryStorage(slots :: Map, borrowed :: Map, declarations :: List.of(String))
+class BoundaryStorage(bindings :: Map, borrowed :: Map, declarations :: List.of(String))
 
-/* Allocate only produced boundary values, grouping slots by C++ carrier rather
-   than generating one struct member per value. Stable region/value order gives
-   deterministic names; each phase owns independent scratch and slot bindings.
+/* Bind aggregate state roots directly and allocate other boundary values,
+   grouping slots by C++ carrier rather than generating one member per value.
+   Stable region/value order gives deterministic names; each phase owns independent scratch and slot bindings.
    Aggregate lookup muxes may borrow already-backed operands: constants or earlier
-   boundary values, including borrowed muxes. Never borrow a helper-local value
-   or recycle a backing slot within the evaluation. */
+   boundary values (including state roots and borrowed muxes). Never borrow a
+   helper-local value or recycle a backing slot within the evaluation. */
 fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
   def bindings = MutableMap{}
   def borrowed = MutableMap{}
@@ -231,18 +238,22 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
   for (region in regions):
     for (index in region.outputs):
       def step = plan.steps[index]
-      def borrow:
-        step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
-          && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
-      def carrier = (if borrow | "const " | "") ++ types.name(step.type) ++ (if borrow | "*" | "")
-      unless groups.has_key(carrier)
-      | groups[carrier] := "g" ++ to_string(carriers.length())
-        counts[carrier] := 0
-        carriers.add(carrier)
-      def slot = "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
-      bindings[index] := (if borrow | "*" | "") ++ slot
-      when borrow | borrowed[index] := slot
-      counts[carrier] := counts[carrier] + 1
+      if aggregate_state_read(step)
+      | // A direct state binding needs neither a payload slot nor a cached
+        // pointer. Consumer helpers resolve it on their own model each time.
+        bindings[index] := expression(step, plan.steps, types)
+      | def borrow:
+          step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
+            && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
+        def carrier = (if borrow | "const " | "") ++ types.name(step.type) ++ (if borrow | "*" | "")
+        unless groups.has_key(carrier)
+        | groups[carrier] := "g" ++ to_string(carriers.length())
+          counts[carrier] := 0
+          carriers.add(carrier)
+        def slot = "scratch." ++ groups[carrier] ++ "[" ++ to_string(counts[carrier]) ++ "]"
+        bindings[index] := (if borrow | "*" | "") ++ slot
+        when borrow | borrowed[index] := slot
+        counts[carrier] := counts[carrier] + 1
   def declarations = for List (carrier in carriers):
     "    std::array<" ++ carrier ++ ", " ++ to_string(counts[carrier]) ++ "> " ++ groups[carrier] ++ ";"
   BoundaryStorage(bindings.snapshot(), borrowed.snapshot(), declarations)
@@ -264,7 +275,7 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
   | for (region in regions, index in 0..regions.length()):
       source.add("RHODIUM_RSIM_NOINLINE void Model::" ++ phase ++ "_region" ++ to_string(index) ++ "([[maybe_unused]] " ++ phase ++ "Scratch& scratch, [[maybe_unused]] " ++ destination ++ ") const {")
       for (input in region.inputs):
-        source.add("  [[maybe_unused]] const auto& " ++ ref(input) ++ " = " ++ layout.slots[input] ++ ";")
+        source.add("  [[maybe_unused]] const auto& " ++ ref(input) ++ " = " ++ layout.bindings[input] ++ ";")
       for (constant in region.constants):
         source.add(step_declaration(constant, plan.steps, types, constants))
       for (step in region.steps):
@@ -273,17 +284,17 @@ fun emit_regions(regions :: List.of(RsimRegion), layout :: BoundaryStorage, phas
           // All branches are normalized aggregate lvalues backed for this whole
           // invocation. Taking the selected lvalue's address performs no copy.
           | layout.borrowed.has_key(step):
-              source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.slots[step] ++ ";")
-          | plan.steps[step].opcode == "rtl.vector_create" && layout.slots.has_key(step):
+              source.add("  " ++ layout.borrowed[step] ++ " = &(" ++ expression(plan.steps[step], plan.steps, types) ++ ");\n  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ layout.bindings[step] ++ ";")
+          | plan.steps[step].opcode == "rtl.vector_create" && layout.bindings.has_key(step):
               // This unique result slot cannot overlap earlier operands, even
               // borrowed ones: slots are never recycled within an evaluation.
               // Fill it directly instead of constructing and copying an array
               // temporary. Every element is already a normalized value.
-              def slot = layout.slots[step]
+              def slot = layout.bindings[step]
               for (operand in plan.steps[step].operands, element in 0..plan.steps[step].operands.length()):
                 source.add("  " ++ slot ++ "[" ++ to_string(element) ++ "] = " ++ ref(operand) ++ ";")
               source.add("  [[maybe_unused]] const auto& " ++ ref(step) ++ " = " ++ slot ++ ";")
-          | ~else: source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.slots.get(step, #false)))
+          | ~else: source.add(step_declaration(step, plan.steps, types, constants, ~destination: layout.bindings.get(step, #false)))
       for (sink in region.sinks): emit_sink(sink, plan, types, source)
       source.add("}")
 
