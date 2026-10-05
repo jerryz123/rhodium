@@ -1,0 +1,91 @@
+#lang rhombus
+/* Plans rsim evaluation bodies and their value/storage uses independently of C++ rendering. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "plan.rhm" open
+
+export:
+  RsimStorageRead
+  RsimDependencies
+  RsimSink
+  RsimEvaluation
+  RsimEvaluationPlan
+  build_evaluation_plan
+
+/* Identifies current storage without following its future updates. Slots are
+   occurrence-specific; foreign results additionally retain their result index. */
+class RsimStorageRead(kind :: String, slot :: Nat, result :: maybe(Nat) = #false)
+
+/* Separates scheduled value edges from reads of mutable storage. These are
+   conservative evaluation dependencies, not permissions to cache or skip work. */
+class RsimDependencies(values :: List.of(Nat), storage :: List.of(RsimStorageRead))
+
+/* Identifies a final consumer in the schedule's corresponding descriptor list.
+   Dependencies include frame-building reads that have no standalone value step. */
+class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies)
+
+/* Selects original step IDs in dependency order, then ordered final consumers.
+   Values and storage are sampled afresh on each invocation of this body. */
+class RsimEvaluation(steps :: List.of(Nat), sinks :: List.of(RsimSink))
+
+/* Shares one dependency inventory between full pre-edge sampling and output
+   refresh. The two bodies can observe different storage snapshots. */
+class RsimEvaluationPlan(dependencies :: List.of(RsimDependencies),
+                         pre_edge :: RsimEvaluation, outputs :: RsimEvaluation)
+
+/* Preserve optional references, including step zero, without manufacturing uses. */
+fun optional_value(value :: maybe(Nat)) :: List.of(Nat):
+  if value == #false | [] | [value]
+
+/* Enumerate a step's current-storage reads separately from ordinary operands.
+   Inputs remain explicit value roots; memory reads never depend on writers. */
+fun step_dependencies(step :: RsimStep) :: RsimDependencies:
+  def storage:
+    match step.opcode
+    | "state": [RsimStorageRead("register", step.attributes["slot"])]
+    | "sync_read": [RsimStorageRead("sync_read", step.attributes["slot"])]
+    | "foreign_result": [RsimStorageRead("foreign", step.attributes["slot"], step.attributes["result"])]
+    | "memory_read": [RsimStorageRead("memory", step.attributes["slot"])]
+    | ~else: []
+  RsimDependencies(step.operands, storage)
+
+/* Mark value edges only. A reverse scan suffices because operands precede
+   consumers; storage roots terminate traversal at this evaluation's snapshot. */
+fun dependency_closure(dependencies :: List.of(RsimDependencies), sinks :: List.of(RsimSink)) :: List.of(Nat):
+  def needed = MutableSet{}
+  for (sink in sinks):
+    for (value in sink.dependencies.values): needed.add(value)
+  for (offset in 0..dependencies.length()):
+    def index = dependencies.length() - 1 - offset
+    when index in needed
+    | for (operand in dependencies[index].values): needed.add(operand)
+  def ordered = MutableList[]
+  for (index in 0..dependencies.length()):
+    when index in needed | ordered.add(index)
+  ordered.snapshot()
+
+/* Plan existing bodies without preparing RTL again or pruning pre-edge work.
+   Sink order matches frame assembly; callback execution and commits remain
+   outside these side-effect-free evaluation bodies. */
+fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
+  def dependencies = schedule.steps.map(step_dependencies)
+  def sinks = MutableList[]
+  for (call in schedule.foreign_calls, index in 0..schedule.foreign_calls.length()):
+    // Disabled calls preserve every held result, even results with no value use.
+    def held = for List (result in 0..call.import_decl.results.length()):
+      RsimStorageRead("foreign", index, result)
+    sinks.add(RsimSink("foreign", index, RsimDependencies([call.enable] ++ call.arguments, held)))
+  for (assertion in schedule.assertions, index in 0..schedule.assertions.length()):
+    sinks.add(RsimSink("assertion", index, RsimDependencies([assertion.guard, assertion.reset, assertion.condition], [])))
+  for (reg in schedule.registers, index in 0..schedule.registers.length()):
+    sinks.add(RsimSink("register", index, RsimDependencies([reg.next_value] ++ optional_value(reg.reset) ++ optional_value(reg.reset_value), [])))
+  for (read in schedule.reads, index in 0..schedule.reads.length()):
+    sinks.add(RsimSink("sync_read", index, RsimDependencies([read.address, read.enable] ++ optional_value(read.write_mode), [RsimStorageRead("memory", read.memory)])))
+  for (write in schedule.writes, index in 0..schedule.writes.length()):
+    def old_word = if write.mask_value == #false | [] | [RsimStorageRead("memory", write.memory)]
+    sinks.add(RsimSink("write", index, RsimDependencies([write.address, write.data, write.enable] ++ optional_value(write.write_mode) ++ optional_value(write.mask_value), old_word)))
+  def outputs = for List (port in schedule.outputs, index in 0..schedule.outputs.length()):
+    RsimSink("output", index, RsimDependencies([port.value], []))
+  def all_steps = for List (index in 0..schedule.steps.length()): index
+  RsimEvaluationPlan(dependencies, RsimEvaluation(all_steps, sinks.snapshot()),
+                     RsimEvaluation(dependency_closure(dependencies, outputs), outputs))

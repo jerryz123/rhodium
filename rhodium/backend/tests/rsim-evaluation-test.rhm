@@ -1,0 +1,129 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../../lowering/program.rhm".ElaboratedProgram
+  "../../compile/rtl.rhm".prepare_rtl
+  "../../compile/contracts.rhm".CompileOptions
+  "../rsim/plan.rhm" open
+  "../rsim/evaluation.rhm" open
+  "rsim/wide-foreign-fixtures.rhm".make_unused_wide_foreign
+  "rsim/memory-fixtures.rhm".make_memory
+
+// Mix storage roots with frame-only consumers. Reset deliberately occupies
+// step zero, while write controls/data must not enter the output closure.
+def design = Design()
+def b = Builder(design)
+def top = b.module("Evaluation")
+def clock = b.input(top, "clock", Clock)
+def reset = b.input(top, "reset", Reset)
+def address = b.input(top, "address", Bits(2))
+def data = b.input(top, "data", Bits(8))
+def enable = b.input(top, "enable", Bits(1))
+def mode = b.input(top, "mode", Bits(1))
+def mask = b.input(top, "mask", Bits(8))
+def reset_data = b.input(top, "reset_data", Bits(8))
+def reg = b.register(top, "q", Bits(8), clock, reset, reset_data)
+b.drive(reg.next, b.add(top, reg.current, data))
+def memory = b.memory(top, "async", 4, Bits(8))
+def word = b.memory_read_async(top, memory, address)
+b.memory_write(top, memory, address, data, clock, enable)
+def sync = b.sync_memory(top, "sync", 4, Bits(8), clock, #false, #false, #true, 1)
+def port = sync.read_write_ports[0]
+b.drive(port.address, address)
+b.drive(port.enable, enable)
+b.drive(port.write, mode)
+b.drive(port.write_data, data)
+b.drive(port.write_mask, mask)
+def imp = b.dpi_import_results("evaluation_foreign", ["data"], [Bits(8)],
+                               [DpiResult("unused", Bits(8), "out"), DpiResult("used", Bits(8), "return")])
+def foreign = b.dpi_register_results(top, ["unused", "used"], imp, [data], clock, enable)
+def shared = b.add(top, reg.current, foreign[1])
+for (name in ["shared", "shared_again"]):
+  b.drive(b.output(top, name, Bits(8)), shared)
+b.drive(b.output(top, "word", Bits(8)), word)
+b.drive(b.output(top, "sync_word", Bits(8)), port.read_data)
+b.assert(top, b.eq(top, reg.current, data), clock, reset, enable, "sampled")
+b.finish(top)
+def prepared = prepare_rtl(ElaboratedProgram(design, top), CompileOptions(), "evaluation test")
+def schedule = build_schedule(prepared.rtl)
+def evaluation = build_evaluation_plan(schedule)
+
+fun input(name :: String):
+  schedule.inputs.filter(~keep: fun (port): port.name == name)[0].value
+
+fun sink(kind :: String):
+  evaluation.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == kind)[0]
+
+fun storage(reads :: List.of(RsimStorageRead)):
+  reads.map(fun (read): [read.kind, read.slot, read.result])
+
+fun ids(indices :: List.of(Nat)):
+  for Set (index in indices): index
+
+check:
+  evaluation ~is build_evaluation_plan(schedule)
+  evaluation.pre_edge.steps ~is for List (index in 0..schedule.steps.length()): index
+  evaluation.pre_edge.sinks.map(fun (sink): sink.kind) ~is ["foreign", "assertion", "register", "sync_read", "write", "write"]
+  input("reset") ~is 0
+  sink("register").dependencies.values ~is [schedule.registers[0].next_value, 0, input("reset_data")]
+  sink("register").dependencies.storage ~is []
+  sink("assertion").dependencies.values ~is [input("enable"), 0, schedule.assertions[0].condition]
+  sink("foreign").dependencies.values ~is [input("enable"), input("data")]
+  storage(sink("foreign").dependencies.storage) ~is [["foreign", 0, 0], ["foreign", 0, 1]]
+  sink("sync_read").dependencies.values ~is [input("address"), input("enable"), input("mode")]
+
+def memory_slots = for Map (memory in schedule.memories, index in 0..schedule.memories.length()):
+  values(memory.name, index)
+def writes = evaluation.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "write")
+check:
+  storage(sink("sync_read").dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
+  writes[0].dependencies.values ~is [input("address"), input("data"), input("enable")]
+  writes[0].dependencies.storage ~is []
+  writes[1].dependencies.values ~is [input("address"), input("data"), input("enable"), input("mode"), input("mask")]
+  storage(writes[1].dependencies.storage) ~is [["memory", memory_slots["sync"], #false]]
+
+// Only the address input contributes to outputs; the state roots must not
+// recursively pull in resets, updates, call arguments, or memory writers.
+def output_inputs = evaluation.outputs.steps.filter(~keep: fun (index): schedule.steps[index].opcode == "input")
+def roots = evaluation.outputs.steps.filter(~keep: fun (index): schedule.steps[index].opcode in ["state", "foreign_result", "sync_read", "memory_read"])
+def root_storage = for Map (index in roots):
+  values(schedule.steps[index].opcode, storage(evaluation.dependencies[index].storage))
+check:
+  output_inputs ~is [input("address")]
+  ids(evaluation.outputs.steps).length() ~is evaluation.outputs.steps.length()
+  evaluation.outputs.sinks.map(fun (sink): sink.kind) ~is ["output", "output", "output", "output"]
+  evaluation.outputs.sinks.map(fun (sink): sink.dependencies.values) ~is schedule.outputs.map(fun (port): [port.value])
+  root_storage ~is {"state": [["register", 0, #false]], "foreign_result": [["foreign", 0, 1]], "memory_read": [["memory", memory_slots["async"], #false]], "sync_read": [["sync_read", 0, #false]]}
+
+// Every scheduled operand and final consumer remains available in its body.
+// This also protects shared output computations without renumbering value IDs.
+for (body in [evaluation.pre_edge, evaluation.outputs]):
+  def available = MutableSet{}
+  for (index in body.steps):
+    for (operand in evaluation.dependencies[index].values):
+      check: operand in available ~is #true
+    available.add(index)
+  for (sink in body.sinks):
+    for (value in sink.dependencies.values):
+      check: value in available ~is #true
+
+// No output traversal is needed to retain calls and their unconsumed results.
+def unused = build_schedule(prepare_rtl(make_unused_wide_foreign(), CompileOptions(), "unused test").rtl)
+def unused_plan = build_evaluation_plan(unused)
+check:
+  unused_plan.outputs ~is RsimEvaluation([], [])
+  unused_plan.pre_edge.sinks.length() ~is unused.foreign_calls.length()
+  unused_plan.pre_edge.sinks[0].dependencies.storage.length() ~is unused.foreign_calls[0].import_decl.results.length()
+
+// Shared definitions must still identify different storage at each occurrence.
+def repeated = build_schedule(prepare_rtl(make_memory(3, #false), CompileOptions(), "occurrences").rtl)
+def repeated_plan = build_evaluation_plan(repeated)
+def sampled = for List (sink in repeated_plan.pre_edge.sinks.filter(~keep: fun (sink): sink.kind == "register")):
+  def read = repeated_plan.dependencies[repeated.registers[sink.index].next_value]
+  if read.storage.length() == 0 | #false | read.storage[0].slot
+def sampled_slots = sampled.filter(~keep: fun (slot): slot != #false)
+def sampled_paths = sampled_slots.map(fun (slot): repeated.memories[slot].path)
+check:
+  ids(sampled_slots).length() ~is 2
+  sampled_paths ~is [["side0"], ["side1"]]

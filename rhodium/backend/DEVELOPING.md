@@ -43,6 +43,7 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
+| `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, value and storage dependencies, and ordered final consumers |
 | `rsim/types.rhm` | C++ structs/arrays, per-artifact type interning, leaf normalization, canonical packing casts, typed masked merges, and decode comparisons/constants |
 | `rsim/emit.rhm` | Typed expressions, evaluation frames, and simultaneous commits |
 | `rsim/rsim-bits.hpp` | Portable wide scalar carrier and explicit bit conversions |
@@ -81,14 +82,28 @@ ordinary register stages and apply the same root-clock checks to them.
 Steps, ports, and state descriptors retain hardware types; only scalar operations
 query a scalar width.
 
+`build_evaluation_plan` derives the two evaluation bodies from the existing
+schedule without preparing or copying RTL. Each body references original step
+indices and ordered final consumers. The dependency inventory separates value
+operands from current-storage reads: registers, synchronous-read results, held
+foreign results, and asynchronous memory contents. Input steps remain explicit
+value roots. Memory resources never pull in writers. Final consumers also record
+frame-only uses, including reset operands, read/write controls, masked-write old
+words, assertion predicates, call arguments, and every held foreign result even
+when unused. Storage dependencies are conservative; they do not permit caching
+or skipping an effect. Both bodies sample afresh and can observe different state.
+When adding a storage-reading step or a frame consumer, update the planner's
+dependency inventory together with its renderer and dependency tests.
+
 The pre-edge evaluator returns register and synchronous-read next-state values,
 pending memory writes, checks, and foreign-call arguments in a private frame
 without modifying state. It retains the full scheduled step sequence.
-`eval()` instead emits only the output dependency closure: seed output step
-indices, mark operands in one reverse schedule scan, and render marked indices
-in their original forward order. State roots stop the walk; asynchronous reads
-include their addresses but not their writers. Both bodies use the same step
-renderer and immutable constant pool. `eval()` computes a local `Outputs` and
+`eval()` instead emits only the planner's output dependency closure: seed output
+step indices, mark operands in one reverse schedule scan, and render marked indices
+in their original forward order. The emitter consumes these step lists and sink
+inventories while keeping both C++ bodies monolithic. State roots stop the walk;
+asynchronous reads include their addresses but not their writers. Both bodies use
+the same step renderer and immutable constant pool. `eval()` computes a local `Outputs` and
 publishes it after all output expressions finish, without constructing a frame,
 checking assertions, or invoking foreign calls. Empty output lists have no
 evaluation steps; their checks and effects remain live in `tick()`.
@@ -528,6 +543,10 @@ Structural emission checks protect output-only evaluation at state roots and
 empty output dependency sets while retaining pre-edge updates and foreign
 effects. Behavioral scoreboards cover the resulting output and edge semantics;
 CI does not impose runtime thresholds for this optimization.
+`tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
+storage dependencies, shared output computation, and occurrence identity with
+Builder fixtures. Keep these dependency contracts alongside behavioral tests
+when changing evaluation planning or frame construction.
 
 ### Behavioral coverage
 

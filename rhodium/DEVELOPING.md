@@ -132,8 +132,10 @@ the [clocking plan](CLOCKING_PLAN.md).
 
 The `backend/rsim-target.rhm` adapter imports compile contracts, RTL preparation,
 and its local scheduler/emitter. `backend/rsim/plan.rhm` imports core IR/types
-and dependency identity lookup. `backend/rsim/emit.rhm` imports core types, local
-schedule descriptors, and `backend/rsim/types.rhm`. It also uses Rhombus runtime
+and dependency identity lookup. `backend/rsim/evaluation.rhm` imports only the
+local schedule descriptors for value/storage dependencies and evaluation planning.
+`backend/rsim/emit.rhm` imports core types, local schedule/evaluation descriptors,
+and `backend/rsim/types.rhm`. It also uses Rhombus runtime
 paths and Racket file/base primitives to read its local C++ support header at
 emission time. The type helper imports core types
 for C++ representation and packing. `backend/rsim/sv-binding.rhm` imports core

@@ -1,9 +1,10 @@
 #lang rhombus
-/* Renders a scheduled typed circuit as standalone C++ with explicit evaluate and commit phases. */
+/* Renders planned rsim evaluation bodies as standalone C++ with explicit sampling and commit phases. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/types.rhm" open
   "plan.rhm" open
+  "evaluation.rhm" open
   "types.rhm" open
   rhombus/meta open
   rhombus/runtime_path
@@ -167,23 +168,59 @@ fun step_declaration(index :: Nat, steps :: List.of(RsimStep), types :: CppTypes
       | rendered
     "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
-/* Mark the output dependency closure without revisiting the source graph.
-   Operands precede consumers, so one reverse scan reaches every dependency;
-   state roots stop here rather than pulling in their update/effect sinks. */
-fun output_dependencies(plan :: RsimSchedule) :: Set:
-  def needed = MutableSet{}
-  for (port in plan.outputs): needed.add(port.value)
-  for (offset in 0..plan.steps.length()):
-    def index = plan.steps.length() - 1 - offset
-    when index in needed
-    | for (operand in plan.steps[index].operands): needed.add(operand)
-  needed.snapshot()
+/* Render one planned final consumer without executing effects or committing
+   storage. The planner owns its value/storage uses and sampling order; this
+   renderer owns C++ expressions and the frame/output representation. */
+fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source :: MutableList):
+  def index = sink.index
+  match sink.kind
+  | "foreign":
+      def call = plan.foreign_calls[index]
+      def slot = to_string(index)
+      source.add("  frame.call" ++ slot ++ "_enable = " ++ ref(call.enable) ++ " != 0;")
+      for (argument in call.arguments, arg in 0..call.arguments.length()):
+        source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
+      for (result_index in 0..call.import_decl.results.length()):
+        def name = foreign_slot(index, result_index)
+        source.add("  frame.next." ++ name ++ " = state_." ++ name ++ ";")
+  | "assertion":
+      // Only sample predicates here; tick reports failures before any effects.
+      def assertion = plan.assertions[index]
+      source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0 && " ++ ref(assertion.condition) ++ " == 0;")
+  | "register":
+      def reg = plan.registers[index]
+      def value = if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
+      source.add("  frame.next.s" ++ to_string(index) ++ " = " ++ value ++ ";")
+  | "sync_read":
+      // Ports and consumers sample old storage; disabled results are unspecified.
+      def read = plan.reads[index]
+      def enabled = ref(read.enable) ++ " != 0" ++ (if read.write_mode | " && " ++ ref(read.write_mode) ++ " == 0" | "")
+      def value = "vector_index(memory" ++ to_string(read.memory) ++ "_, " ++ ref(read.address) ++ ")"
+      source.add("  frame.next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
+  | "write":
+      def write = plan.writes[index]
+      def prefix = "frame.write" ++ to_string(index)
+      def enabled = ref(write.enable) ++ " != 0" ++ (if write.write_mode | " && " ++ ref(write.write_mode) ++ " != 0" | "")
+      // Merge before committing any state, including a mask fed by an old read
+      // result. Guard the old-word load even for disabled or invalid writes.
+      def data:
+        if write.mask_value
+        | def old = "write" ++ to_string(index) ++ "_old"
+          source.add("  const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");")
+          types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
+        | ref(write.data)
+      source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ data ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
+  | "output":
+      def port = plan.outputs[index]
+      source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
+  | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
 
 /* Produce model sources and optional wide support, with private state per model object.
    The evaluator is pure with respect to state; tick commits only after every
    next-state expression and pending write has sampled the old state. Memory
    arrays live outside the frame, so evaluation never copies whole memories. */
 fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
+  def evaluation = build_evaluation_plan(plan)
   def namespace = "rsim_" ++ cpp_name(plan.name)
   def types = CppTypes()
   for (step in plan.steps):
@@ -276,47 +313,13 @@ fun emit_rsim(plan :: RsimSchedule) :: List.of(String):
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
   def constants = emit_constants(plan.steps, types, source)
   source.add("Model::Frame Model::evaluate() const {\n  Frame frame{};")
-  for (index in 0..plan.steps.length()):
+  for (index in evaluation.pre_edge.steps):
     source.add(step_declaration(index, plan.steps, types, constants))
-  for (call in plan.foreign_calls, index in 0..plan.foreign_calls.length()):
-    def slot = to_string(index)
-    source.add("  frame.call" ++ slot ++ "_enable = " ++ ref(call.enable) ++ " != 0;")
-    for (argument in call.arguments, arg in 0..call.arguments.length()):
-      source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
-    for (result_index in 0..call.import_decl.results.length()):
-      def name = foreign_slot(index, result_index)
-      source.add("  frame.next." ++ name ++ " = state_." ++ name ++ ";")
-  // Evaluation only computes sampled predicates; checks remain tick-only and
-  // cannot mutate state or outputs, even when the caller catches a failure.
-  for (assertion in plan.assertions, index in 0..plan.assertions.length()):
-    source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0 && " ++ ref(assertion.condition) ++ " == 0;")
-  for (reg in plan.registers, index in 0..plan.registers.length()):
-    def value = if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
-    source.add("  frame.next.s" ++ to_string(index) ++ " = " ++ value ++ ";")
-  // Read ports and consumers sample old storage on the same edge. Zero is only
-  // this backend's choice for disabled/shared-write results, which are unspecified.
-  for (read in plan.reads, index in 0..plan.reads.length()):
-    def enabled = ref(read.enable) ++ " != 0" ++ (if read.write_mode | " && " ++ ref(read.write_mode) ++ " == 0" | "")
-    def value = "vector_index(memory" ++ to_string(read.memory) ++ "_, " ++ ref(read.address) ++ ")"
-    source.add("  frame.next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
-  for (write in plan.writes, index in 0..plan.writes.length()):
-    def prefix = "frame.write" ++ to_string(index)
-    def enabled = ref(write.enable) ++ " != 0" ++ (if write.write_mode | " && " ++ ref(write.write_mode) ++ " != 0" | "")
-    // Merge before committing any state, including a mask fed by an old read
-    // result. Guard the old-word load even for disabled or invalid writes.
-    def data:
-      if write.mask_value
-      | def old = "write" ++ to_string(index) ++ "_old"
-        source.add("  const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");")
-        types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
-      | ref(write.data)
-    source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ data ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
+  for (sink in evaluation.pre_edge.sinks): emit_sink(sink, plan, types, source)
   source.add("  return frame;\n}\nvoid Model::eval() {\n  Outputs next_outputs{};")
-  def output_steps = output_dependencies(plan)
-  for (index in 0..plan.steps.length()):
-    when index in output_steps
-    | source.add(step_declaration(index, plan.steps, types, constants))
-  for (port in plan.outputs): source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
+  for (index in evaluation.outputs.steps):
+    source.add(step_declaration(index, plan.steps, types, constants))
+  for (sink in evaluation.outputs.sinks): emit_sink(sink, plan, types, source)
   // Publish only after every output has sampled the current inputs/storage.
   // The pre-edge frame and all assertion/foreign/commit sequencing stay in tick.
   source.add("  outputs_ = next_outputs;\n}\nvoid Model::tick() {\n  auto before = evaluate();")
