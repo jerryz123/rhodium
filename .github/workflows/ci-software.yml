@@ -239,50 +239,9 @@ jobs:
           if-no-files-found: warn
           retention-days: 7
 
-  arch-sail:
-    name: Build Sail
-    if: inputs.run-arch
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-    steps:
-      - name: Check out Rhodium
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Initialize pinned Sail source
-        id: source
-        run: |
-          git submodule update --init riscv/sail-riscv
-          echo "revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
-      - name: Install Sail model build dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install --yes build-essential cmake libgmp-dev z3 zlib1g-dev
-      - name: Cache patched Sail model and compiler
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            .tools/sail-compiler-0.20.3
-            .tools/sail-riscv-0.14.1-sail-0.20.3-*
-          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
-      - name: Build patched Sail model
-        run: make -C sims arch-test-sail-setup
-      - name: Package patched Sail model
-        run: |
-          identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
-          mkdir -p "$RUNNER_TEMP/sail-riscv"
-          tar -czf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools "sail-riscv-0.14.1-sail-0.20.3-$identity"
-      - name: Publish exact-commit Sail model
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: sail-riscv-${{ github.sha }}
-          path: ${{ runner.temp }}/sail-riscv/model.tar.gz
-          if-no-files-found: error
-          retention-days: 3
-          compression-level: 0
-
   arch-build:
     name: Generate ACT / ${{ matrix.configuration }}
     if: inputs.run-arch
-    needs: arch-sail
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     strategy:

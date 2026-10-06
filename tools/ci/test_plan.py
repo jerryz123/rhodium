@@ -8,8 +8,10 @@ import tempfile
 import textwrap
 import shlex
 import subprocess
+import shutil
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from .gate import failures
 from .plan import Selection, plan_for_paths
@@ -535,6 +537,7 @@ class PlanTest(unittest.TestCase):
         for path in ("README.md", "examples/rtl/alu.rhdl", "sims/Makefile", "sw/build/build-coremark.py", "sram/map-memories.py"):
             plan = self.plan(path)
             selected = dict(compile=plan["run_compile"], checks=plan["run_checks"],
+                            sail=plan["run_sail"],
                             simulator=plan["run_simulator"], simulation=plan["run_simulation"],
                             software=plan["run_program_native"] or plan["run_program_arch"])
             results = {job: "success" if required else "skipped" for job, required in selected.items()}
@@ -568,6 +571,67 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(entry['cosim'], entry['soc'] in expected)
         direct, = [row for row in builds if row['backend'] == 'verilog']
         self.assertTrue(direct['cosim'])
+
+    def test_shared_sail_is_selected_for_act_or_cosim_consumers(self):
+        for path in ("README.md", "examples/rtl/alu.rhdl", "sims/Makefile",
+                     "sw/build/build-coremark.py", "sims/arch-test/setup.sh"):
+            with self.subTest(path=path):
+                plan = self.plan(path)
+                self.assertEqual(plan["run_sail"], plan["run_program_arch"] or any(
+                    row["cosim"] for row in plan["simulator_matrix"]["include"]))
+        self.assertFalse(self.plan("examples/rtl/alu.rhdl")["run_sail"])
+        self.assertTrue(self.plan("sw/build/build-coremark.py")["run_sail"])
+        self.assertTrue(self.plan("sims/arch-test/setup.sh")["run_sail"])
+        with patch("tools.ci.policy.COSIM_CONFIGS", set()):
+            self.assertFalse(Selection(native_suites={"coremark"}).result()["run_sail"])
+            self.assertTrue(Selection(arch=True).result()["run_sail"])
+
+    def test_sail_archive_handoff_preserves_libraries_and_completion_marker(self):
+        def script(workflow, name):
+            text = (REPO / ".github/workflows" / workflow).read_text()
+            step = text.split(f"      - name: {name}\n", 1)[1].split("      - name:", 1)[0]
+            return textwrap.dedent(step.split("        run: |\n", 1)[1])
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            producer = root / "producer"
+            producer.mkdir()
+            subprocess.run(["git", "init", "-q", str(producer)], check=True)
+            revision = subprocess.check_output(["git", "rev-parse", "HEAD:riscv/sail-riscv"],
+                                               cwd=REPO, text=True).strip()
+            subprocess.run(["git", "update-index", "--add", "--cacheinfo",
+                            f"160000,{revision},riscv/sail-riscv"], cwd=producer, check=True)
+            (producer / "riscv").mkdir()
+            shutil.copy(REPO / "riscv/patched_submodule.py", producer / "riscv")
+            shutil.copytree(REPO / "riscv/sail-riscv-patches", producer / "riscv/sail-riscv-patches")
+            identity = subprocess.check_output([
+                "python3", "riscv/patched_submodule.py", "identity", "--repository", ".",
+                "--submodule", "riscv/sail-riscv", "--series", "riscv/sail-riscv-patches/series"],
+                cwd=producer, text=True).strip()
+            prefix = f"sail-riscv-0.14.1-sail-0.20.3-{identity}"
+            model = producer / ".tools" / prefix
+            (model / "bin").mkdir(parents=True)
+            (model / "lib").mkdir()
+            (model / ".complete").write_text(identity + "\n")
+            (model / "lib/libsail_riscv_model.a").write_bytes(b"model library")
+            executable = model / "bin/sail_riscv_sim"
+            executable.write_text("#!/bin/sh\necho 0.14.1\n")
+            executable.chmod(0o755)
+            env = {**os.environ, "RUNNER_TEMP": str(root / "artifacts")}
+            subprocess.run(["bash", "-euo", "pipefail", "-c",
+                            script("ci.yml", "Package patched Sail model")],
+                           cwd=producer, env=env, check=True)
+            for workflow in ("ci-simulator.yml", "ci-software.yml"):
+                consumer = root / workflow
+                consumer.mkdir()
+                subprocess.run(["bash", "-euo", "pipefail", "-c",
+                                script(workflow, "Install patched Sail model")],
+                               cwd=consumer, env=env, check=True)
+                installed = consumer / ".tools" / prefix
+                self.assertEqual((installed / ".complete").read_text(), identity + "\n")
+                self.assertEqual((installed / "lib/libsail_riscv_model.a").read_bytes(), b"model library")
+                self.assertEqual(subprocess.check_output([str(installed / "bin/sail_riscv_sim"),
+                                                         "--version"], text=True), "0.14.1\n")
 
     def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
         plan = self.plan("sims/Makefile")

@@ -9,6 +9,7 @@ import json
 def failures(plan, results):
     required = {
         "compile": plan["run_compile"],
+        "sail": plan["run_sail"],
         "checks": plan["run_checks"],
         "simulator": plan["run_simulator"],
         "simulation": plan["run_simulation"],

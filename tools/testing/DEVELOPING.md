@@ -117,6 +117,17 @@ compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects
 every matrix shard.
 
+When any selected simulator enables cosim or ACT generation is selected, one
+shared Sail producer runs alongside Racket compilation. It restores an exact-input
+cross-run cache, builds or verifies the installed model, and saves the completed
+cache before packaging or downstream tests can fail. The cache includes the
+pinned compiler and installed model, keyed by the runner platform, Sail revisions,
+ordered patches, installer, and CMake package definition. Simulator and ACT
+generation jobs download the same exact-commit model artifact; they do not build
+Sail or save competing caches. SoC-specific runtime configuration and checker
+compilation remain in the simulator jobs. The stable gate requires the selected
+Sail producer to succeed.
+
 Local runner scripts preserve the same freshness boundary with a persistent
 compiled root owned by each worktree under `.rhodium-cache/`. The cache is keyed
 by the Racket version, installed package metadata and checksums, operating
@@ -172,8 +183,10 @@ flowchart TD
     Docs -->|no| Selected["Dependency-aware selection"]
     All --> Selected
     Selected --> Compile["Compile positive Racket entrypoint manifest once"]
+    Selected --> Sail["Build or restore shared Sail model once<br/>when cosim or ACT is selected"]
     Compile --> Checks["Capability matrix<br/>host and CIRCT;<br/>auxiliary examples run only on host"]
     Compile --> Simulators["Per-config reusable workflows<br/>twenty exact configs for simulation;<br/>six full-suite Single configs for software only"]
+    Sail --> Simulators
     Simulators --> Simulation["Each config's build-to-harness chain<br/>no unrelated simulator barrier;<br/>shape/ISA software and Tiled multihart suites"]
     Compile --> PlatformTargets["Generate platform targets and DTBs<br/>group compatible builds"]
     PlatformTargets --> PlatformBuilds["Shared litmus / OpenSBI build artifacts"]
@@ -185,9 +198,11 @@ flowchart TD
     ProgramBuilds --> Programs["Bind shared ELFs to each exact target<br/>sixteen SoC/suite execution jobs"]
     Simulators --> Programs
     Compile --> ActBuild["Generate ACT ELFs per single-core profile"]
+    Sail --> ActBuild
     Simulators --> ActRun["Six-profile ACT execution<br/>16 RV5Stage RVA23; 8 RV5Stage RV32 / Spike RVA23;<br/>4 Spike RV32"]
     ActBuild --> ActRun
     Checks --> Gate["Stable CI gate"]
+    Sail --> Gate
     Simulators --> Gate
     Simulation --> Gate
     Platform --> Gate
@@ -307,7 +322,7 @@ functional CI lane; Rhodium sources there still receive source hygiene, while
 `vlsi/sim/` and the mapped MiniRV5StageSoC flow select simulation. Unrecognized
 paths fail closed by selecting every lane, and the planner tests reject tracked
 executable source that selects no lane. The root workflow owns only triggers,
-planning, the shared Racket artifact, reusable-workflow calls, and the stable
+planning, the shared Racket and Sail artifacts, reusable-workflow calls, and the stable
 `CI` gate. The reusable workflows separately own capability checks, simulator
 construction, simulation, and bare-metal software. Composite actions own only
 repeated toolchain setup, so test steps and their failures remain visible as

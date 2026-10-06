@@ -1,4 +1,4 @@
-# Orchestrates focused Rhodium CI with reusable, completed bytecode snapshots.
+# Orchestrates focused Rhodium CI with shared bytecode and Sail model artifacts.
 # SPDX-License-Identifier: Apache-2.0
 
 name: CI
@@ -109,6 +109,54 @@ jobs:
           retention-days: 3
           compression-level: 0
 
+  sail:
+    name: Build Sail
+    needs: plan
+    if: ${{ fromJSON(needs.plan.outputs.plan).run_sail }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out Rhodium
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Record pinned Sail source
+        id: source
+        run: echo "revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
+      - name: Install Sail model build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes build-essential cmake libgmp-dev z3 zlib1g-dev
+      - name: Restore patched Sail model and compiler
+        id: sail-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/sail-compiler-0.20.3
+            .tools/sail-riscv-0.14.1-sail-0.20.3-*
+          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
+      - name: Build or verify patched Sail model
+        run: make -C sims arch-test-sail-setup
+      - name: Save completed Sail model and compiler
+        if: steps.sail-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/sail-compiler-0.20.3
+            .tools/sail-riscv-0.14.1-sail-0.20.3-*
+          key: ${{ steps.sail-cache.outputs.cache-primary-key }}
+      - name: Package patched Sail model
+        run: |
+          identity=$(python3 riscv/patched_submodule.py identity --repository . --submodule riscv/sail-riscv --series riscv/sail-riscv-patches/series)
+          mkdir -p "$RUNNER_TEMP/sail-riscv"
+          tar -czf "$RUNNER_TEMP/sail-riscv/model.tar.gz" -C .tools "sail-riscv-0.14.1-sail-0.20.3-$identity"
+      - name: Publish exact-commit Sail model
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: sail-riscv-${{ github.sha }}
+          path: ${{ runner.temp }}/sail-riscv/model.tar.gz
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+
   checks:
     name: Checks
     needs: [plan, compile-racket]
@@ -121,8 +169,8 @@ jobs:
 
   simulator:
     name: SoC / ${{ matrix.simulator_id }}
-    needs: [plan, compile-racket]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && fromJSON(needs.plan.outputs.plan).run_simulator }}
+    needs: [plan, compile-racket, sail]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && fromJSON(needs.plan.outputs.plan).run_simulator }}
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}
@@ -144,8 +192,8 @@ jobs:
 
   software:
     name: Software
-    needs: [plan, compile-racket, simulator]
-    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && needs.simulator.result == 'success' && (fromJSON(needs.plan.outputs.plan).run_program_native || fromJSON(needs.plan.outputs.plan).run_program_arch) }}
+    needs: [plan, compile-racket, sail, simulator]
+    if: ${{ always() && !cancelled() && needs.compile-racket.result == 'success' && (!fromJSON(needs.plan.outputs.plan).run_sail || needs.sail.result == 'success') && needs.simulator.result == 'success' && (fromJSON(needs.plan.outputs.plan).run_program_native || fromJSON(needs.plan.outputs.plan).run_program_arch) }}
     uses: ./.github/workflows/ci-software.yml
     with:
       run-programs: ${{ fromJSON(needs.plan.outputs.plan).run_program_native }}
@@ -158,7 +206,7 @@ jobs:
 
   gate:
     name: CI
-    needs: [plan, compile-racket, checks, simulator, simulation, software]
+    needs: [plan, compile-racket, sail, checks, simulator, simulation, software]
     if: always()
     runs-on: ubuntu-slim
     timeout-minutes: 5
@@ -169,6 +217,7 @@ jobs:
         env:
           PLAN: ${{ needs.plan.outputs.plan }}
           COMPILE_RESULT: ${{ needs.compile-racket.result }}
+          SAIL_RESULT: ${{ needs.sail.result }}
           CHECKS_RESULT: ${{ needs.checks.result }}
           SIMULATOR_RESULT: ${{ needs.simulator.result }}
           SIMULATION_RESULT: ${{ needs.simulation.result }}
@@ -177,6 +226,7 @@ jobs:
           test "${{ needs.plan.result }}" = success
           python3 -m tools.ci.gate "$PLAN" \
             "compile=$COMPILE_RESULT" \
+            "sail=$SAIL_RESULT" \
             "checks=$CHECKS_RESULT" \
             "simulator=$SIMULATOR_RESULT" \
             "simulation=$SIMULATION_RESULT" \

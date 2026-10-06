@@ -244,6 +244,7 @@ class Selection:
                           for backend in BACKEND_SMOKE_VARIANTS)
         return {
             "run_compile": run_checks or run_simulator,
+            "run_sail": self.arch or any(build["cosim"] for build in builds),
             "run_checks": run_checks,
             "checks_matrix": matrix,
             "run_simulator": run_simulator,
