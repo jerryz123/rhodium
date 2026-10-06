@@ -11,9 +11,10 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Retains the original PC and physical admission fault alongside the fixed-latency lookup. */
+/* Retains the original PC, translation replay, and admission fault alongside the array lookup. */
 bundle RV2WideFetchAttempt():
   pc: Bits(64)
+  replay: Bool
   fault: RV2WideFetchFault()
 
 /* Issues one block per cycle on hits, reserving entries in the sole downstream instruction buffer.
@@ -25,6 +26,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   interface flush(Pulse(), ~role: consumer)
   interface memory(InstructionCacheLookup(64, 64), ~role: requester)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
+  interface translation(RV2WideInstructionTranslation(), ~role: requester)
   interface instructions(Decoupled(RV2WidePacket()), ~role: producer)
   input instruction_capacity: Bits(4)
 
@@ -33,8 +35,8 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   inst s1(ValidPipeAlwaysCapture(Bits(64), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(), 1, ~flushable: #true))
   def command = start.valid ||| redirect.valid ||| flush.valid
-  def result_fault = s2.egress.bits.fault.valid ||| memory.response.bits.access_fault
-  def replay = s2.egress.valid & !s2.egress.bits.fault.valid & memory.response.valid & memory.response.bits.replay & !command
+  def result_fault = s2.egress.bits.fault.valid ||| (memory.response.valid & memory.response.bits.access_fault)
+  def replay = s2.egress.valid & !s2.egress.bits.fault.valid & (s2.egress.bits.replay ||| (memory.response.valid & memory.response.bits.replay)) & !command
   def fault = s2.egress.valid & !replay & result_fault & !command
   def stop = replay ||| fault
   def reserved = (s1.egress.valid.as_bits().zext(4) + s2.egress.valid.as_bits().zext(4)) << 1
@@ -64,23 +66,27 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   elsewhen (attempt.fire()):
     pc <== pc.align_down(8) + bits(8, 64)
 
-  // S1 resolves physical permissions independently for each block. A bad
+  // S1 translates while array outputs arrive, then resolves physical permissions. A bad
   // instruction PC becomes a fault token, never an aliased aligned fetch.
-  def s1_base = s1.egress.bits.align_down(8)
+  def s1_base = translation.address.align_down(8)
   def physical = config.physical_map.lookup(s1_base, s1_base +& bits(7, 64))
   def permitted = physical.mapped & physical.executable & physical.instruction_cacheable & physical.read_idempotent & !physical.device
   def misaligned = !s1.egress.bits.is_aligned(4)
-  def denied = !permitted ||| misaligned
+  s1.egress |> filter_valid(pc => !command & !stop & pc.is_aligned(4)) |> translation.request
+  def translation_replay = translation.resolution.disposition === RV2WideDisposition.Replay
+  def translation_fault = translation.resolution.disposition === RV2WideDisposition.Fault
+  def denied = misaligned ||| (!translation_replay & (translation_fault ||| !permitted))
   def Array(resolutions, contexts) = s1.egress |> filter_valid(_pc => !command & !stop) |> fork_valid(2)
-  (resolutions |> filter_valid(_pc => !denied) |> map_valid(address => InstructionCacheReq(64)):
-    address: address.align_down(8)
+  (resolutions |> filter_valid(_pc => !denied & !translation_replay) |> map_valid(_address => InstructionCacheReq(64)):
+    address: s1_base
   ) |> memory.request
   (contexts |> map_valid(address):
     wire attempt: RV2WideFetchAttempt()
     attempt.pc <== address
+    attempt.replay <== translation_replay & !misaligned
     attempt.fault <== RV2WideFetchFault():
       valid: denied
-      cause: mux(misaligned, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), exception_cause_bits(ExceptionCause.InstructionAccessFault, 64))
+      cause: mux(misaligned, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(translation_fault, translation.resolution.cause, exception_cause_bits(ExceptionCause.InstructionAccessFault, 64)))
       value: address
     attempt
   ) |> s2.ingress
@@ -109,7 +115,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
          )
          packet
   ) |> to_decoupled() |> instructions
-  when (s2.egress.valid & !s2.egress.bits.fault.valid & !command):
+  when (s2.egress.valid & !s2.egress.bits.fault.valid & !s2.egress.bits.replay & !command):
     assert(memory.response.valid, "rv2wide_fetch_has_outcome")
   when (instructions.valid):
     assert(instructions.ready, "rv2wide_fetch_reserved_response")

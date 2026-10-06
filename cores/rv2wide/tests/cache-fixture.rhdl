@@ -4,6 +4,7 @@
 import:
   "../core.rhdl" open
   "../cache.rhdl" open
+  "../mmu.rhdl" open
   "../bundles.rhdl" open
   "../../cache/config.rhm" open
   "../../riscv/chi-hart.rhdl" open
@@ -22,6 +23,10 @@ def test_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, [
   RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0, 4095),
                                                RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)), test_home)
 ])
+def test_fetch_chi = RiscvHartCHIConfig(test_flit, CacheLineBytes, test_chi.regions ++ [
+  RiscvHartCHIRegion(RiscvPhysicalMemoryRegion(AddressSet(0x10000, 0xffff),
+                                               RiscvPhysicalMemoryAttributes(#true, #true, #true, #true, #true, #false, #true)), test_home)
+])
 
 sync_circuit RV2WideCacheFixture():
   input node_id: Bits(test_flit.node_id_width)
@@ -36,12 +41,20 @@ sync_circuit RV2WideCacheFixture():
   core.hart_id <== bits(0, 64)
   core.time_counter <== bits(0, 64)
   inst data(RV2WideL1D(test_cache, ~chi: test_chi))
+  inst mmu(RV2WideMmu(test_chi))
+  mmu.state <== core.translation_state
+  mmu.invalidate <== core.translation_flush
+  mmu.instruction.request.valid <== Bool(#false)
+  mmu.instruction.request.bits <== bits(0, 64)
   instructions |> core.instructions
   core.retired <=> retired
   core.completed |> completed
   core.redirect |> redirect
-  core.memory <=> data.memory
-  core.pipeline <=> data.pipeline
+  core.memory <=> mmu.memory
+  core.pipeline <=> mmu.pipeline
+  mmu.physical_memory <=> data.memory
+  mmu.physical_pipeline <=> data.pipeline
+  mmu.pipeline_lookup |> data.pipeline_lookup
   data.chi <=> chi
   data.node_id <== node_id
   issued <== core.issued
@@ -54,3 +67,4 @@ export:
   RV2WideCacheFixture
   test_cache
   test_chi
+  test_fetch_chi

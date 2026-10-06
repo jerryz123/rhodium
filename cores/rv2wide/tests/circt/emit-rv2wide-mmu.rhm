@@ -4,8 +4,7 @@
 import:
   lib("rhodium/backend/circt.rhm") open
   lib("rhodium/frontend/kernel.rhm") as embedded
-  "../../rv2wide.rhdl" open
-  "../cache-fixture.rhdl" open
+  "../mmu-fixture.rhdl" open
 
-def design = embedded.run_elaboration(fun (): RV2Wide(test_cache, ~chi: test_fetch_chi))
+def design = embedded.run_elaboration(fun (): RV2WideMmuFixture())
 print(emit_circt(design))

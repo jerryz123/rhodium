@@ -21,7 +21,7 @@ bundle RV2WideSystemControl():
   method serializing(control) :: Bool:
     (control.csr =/= RiscvCsrOperation.None) ||| (control.action =/= RiscvCsrAction.None)
 
-def RV2WidePrivilegedInstructions = [MRET, SRET, WFI]
+def RV2WidePrivilegedInstructions = [MRET, SRET, WFI, SFENCE_VMA]
 def RV2WideSystemInstructions = [ECALL, EBREAK] ++ ZicsrInstructions ++ RV2WidePrivilegedInstructions
 def RV2WideSystemCases = decode_groups(RV2WideSystemControl(), ~input: instruction_pattern):
   group excluding_instructions(RV64IInstructions, [ECALL, EBREAK]):
@@ -66,6 +66,9 @@ def RV2WideSystemCases = decode_groups(RV2WideSystemControl(), ~input: instructi
   [WFI]:
     csr: RiscvCsrOperation.None
     action: RiscvCsrAction.Wfi
+  [SFENCE_VMA]:
+    csr: RiscvCsrOperation.None
+    action: RiscvCsrAction.SfenceVma
 
 export:
   RV2WideSystemControl

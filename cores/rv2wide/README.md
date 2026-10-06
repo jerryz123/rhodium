@@ -1,15 +1,15 @@
-<!-- Documents RV2Wide's physical fetch frontend, dual-issue execution, and precise retirement interfaces. -->
+<!-- Documents RV2Wide's translated fetch frontend, dual-issue execution, and precise retirement interfaces. -->
 <!-- SPDX-License-Identifier: Apache-2.0 -->
 
 # RV2Wide
 
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
-it is physical-addressed, with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
+it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
 independently usable RR-through-WB execution slice. It executes RV64I
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
-It also executes Zicsr, ECALL/EBREAK, MRET/SRET, and WFI at WB.
+It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, and SFENCE.VMA at WB.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
 
 ## Entry point
@@ -56,7 +56,7 @@ restart supplies the next PC; a simultaneous redirect takes priority.
 The current frontend/caches implement this pipeline:
 
 ```text
-IF1: PC / L1I array admission -> IF2: physical permission / tag resolution
+IF1: PC / L1I array admission -> IF2: ITLB / physical permission / tag resolution
   -> ID: 64-bit result / ordered packet assembly -> issue window -> RR -> EX -> MEM -> WB
 ```
 
@@ -78,7 +78,7 @@ token at the first requested instruction PC, not an illegal instruction derived
 from undefined data. WB preserves age ordering and drains older accepted data
 transactions before reporting the fault.
 
-Physical permission and address-width checks happen before cache resolution.
+Translation, physical permission, and address-width checks happen before cache resolution.
 Only executable, instruction-cacheable, idempotent memory is fetched: coherent
 RAM uses `ReadOnce`, immutable ROM uses `ReadNoSnp`. Other regions report an
 instruction access fault without CHI traffic. Non-four-byte-aligned starts
@@ -134,6 +134,28 @@ Every redirect rejects instruction admission on that edge. A not-taken branch
 does not redirect, and a redirected branch does not redirect again at WB.
 
 ## Pipelined memory and deferred completion
+
+The integrating MMU uses separate ITLB and DTLB banks and one shared walker.
+For data, EX launches the virtual page-offset SRAM lookup. MEM translates the
+registered VA and combines its physical tag and permissions with the SRAM result;
+translation never gates EX array admission. WB authorizes stores and slow
+transactions. A speculative DTLB miss reports Slow without launching a walk;
+its WB retry requests the translation. An older WB request takes priority over
+a concurrent speculative MEM lookup, which replays.
+`RV2WideL1D` exposes `pipeline_lookup: Valid(CachePipelineReq(XLen.X64))`
+for the early index and `pipeline: CachePipelineAccess(XLen.X64)` for next-cycle
+physical resolution and following-cycle store authorization. The MMU provides
+the fixed-latency `RV2WidePipelineAccess` boundary used by the execution core.
+
+The CSR bank supplies satp, current privilege, and mstatus (including MPRV,
+SUM, and MXR). SFENCE.VMA serializes at WB, invalidates both banks, cancels stale
+walk publication, and refetches younger instructions. It conservatively flushes
+all entries even for address/ASID-selective encodings. Accepted PTE replies
+continue draining across cancellation. Ordinary branch/fetch/WB replays do not
+cancel walks; pending WB translations take priority over further fetch walks,
+and a fetch walk never owns the physical data port for its entire lifetime.
+Faults retain the original virtual address through retirement in either slot.
+Sv39 uses software-managed A/D bits; absent A/D permission produces a page fault.
 
 One load/store may issue per group, in either age slot. The memory service has
 the same lookup-versus-authorization split as RV5Stage:
@@ -262,7 +284,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no C expansion, MMU, M/A/B decode, or SoC binding yet. Naturally misaligned
+There is no C expansion, M/A/B decode, guest translation, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.
@@ -271,8 +293,9 @@ The intended initial integration target is the existing lean RV64IMACB preset,
 with all of that preset's system properties, once implemented. Shared ISA
 descriptors remain in `riscv/`; named-core execution policy remains here.
 
-The data-cache adapter uses physical addresses and checks its CHI physical map before
-lookup or authorized admission. Only coherent, cacheable, idempotent RAM is
+The MMU checks the CHI physical map before physical tag resolution; the data-cache
+adapter rechecks authorized admission. Early array indexing uses only page-offset
+bits and causes no allocation or mutation. Only coherent, cacheable, idempotent RAM is
 supported; unmapped, non-cacheable, or disallowed accesses report access faults
 without CHI traffic. There is no MMIO fallback. The adapter requests aligned
 full-width beats while preserving positioned byte masks; the core retains

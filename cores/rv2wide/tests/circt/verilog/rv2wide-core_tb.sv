@@ -66,6 +66,7 @@ module rv2wide_core_tb;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
 
   RV2WideCore dut(
+    .translation_state(), .translation_flush(),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),

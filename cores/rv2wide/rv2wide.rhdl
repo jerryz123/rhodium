@@ -1,11 +1,12 @@
 #lang rhodium
-/* Composes physical instruction fetching, dual-issue execution, and shared instruction/data caches. */
+/* Composes translated instruction fetching, dual-issue execution, and shared TLB/PTW and caches. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "core.rhdl" open
   "frontend.rhdl" open
   "cache.rhdl" open
+  "mmu.rhdl" open
   "bundles.rhdl" open
   "../cache/config.rhm" open
   "../cache/l1i/cache.rhdl" open
@@ -39,6 +40,10 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   inst frontend(RV2WideFrontend(config))
   inst instruction(L1ICache(XLen.X64, instruction_cache, ~chi: config, ~fetch_bits: 64))
   inst data(RV2WideL1D(cache, ~chi: config))
+  inst mmu(RV2WideMmu(config))
+  mmu.state <== core.translation_state
+  mmu.invalidate <== core.translation_flush
+  frontend.translation <=> mmu.instruction
   start |> frontend.start
   frontend.instructions |> core.instructions
   frontend.instruction_capacity <== core.instruction_capacity
@@ -54,8 +59,11 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   def Array(fetch_redirect, reported_redirect) = core.redirect |> fork_valid(2)
   fetch_redirect |> frontend.redirect
   reported_redirect |> redirect
-  core.memory <=> data.memory
-  core.pipeline <=> data.pipeline
+  core.memory <=> mmu.memory
+  core.pipeline <=> mmu.pipeline
+  mmu.physical_memory <=> data.memory
+  mmu.physical_pipeline <=> data.pipeline
+  mmu.pipeline_lookup |> data.pipeline_lookup
   data.chi <=> data_chi
   data.node_id <== data_node_id
   reg stopped(~init: Bool(#true))

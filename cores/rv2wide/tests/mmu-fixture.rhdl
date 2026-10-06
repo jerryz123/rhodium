@@ -1,0 +1,87 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "../mmu.rhdl" open
+  "../bundles.rhdl" open
+  "cache-fixture.rhdl" open
+  "../../cache/protocol.rhdl" open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+
+sync_circuit RV2WideMmuFixture():
+  input privilege: Bits(2)
+  input(satp, mstatus): Bits(64)
+  input invalidate: Bool
+  input fetch_valid: Bool
+  input fetch_address: Bits(64)
+  output fetch_resolution: RV2WideResolution()
+  output fetch_physical: Bits(64)
+  input(ex_valid, wb_valid, write, commit): Bool
+  input address: Bits(64)
+  output(index_valid, resolve_valid, result_valid): Bool
+  output(index_address, resolve_address): Bits(64)
+  output outcome: RV2WideCacheOutcome
+  output wb_fault: Bool
+  output wb_fault_bits: RV2WideResolution()
+  output wb_ready: Bool
+  input(physical_ready, physical_fault, response_valid): Bool
+  input response_data: Bits(64)
+  output physical_valid: Bool
+  output physical_address: Bits(64)
+  output response_ready: Bool
+  output completed: Bool
+  output completed_data: Bits(64)
+  inst mmu(RV2WideMmu(test_fetch_chi))
+  mmu.state <== RV2WideTranslationState():
+    privilege: privilege.into(PrivilegeMode)
+    satp: satp
+    mstatus: mstatus
+  mmu.invalidate <== invalidate
+  mmu.instruction.request.valid <== fetch_valid
+  mmu.instruction.request.bits <== fetch_address
+  fetch_resolution <== mmu.instruction.resolution
+  fetch_physical <== mmu.instruction.address
+  def request = RV2WideMemoryReq():
+    address: address
+    write: write
+    data: bits(0, 64)
+    mask: bits(0xff, 8)
+  mmu.pipeline.request.valid <== ex_valid
+  mmu.pipeline.request.bits <== request
+  mmu.pipeline.commit <== commit
+  mmu.physical_pipeline.commit_ready <== Bool(#true)
+  mmu.physical_pipeline.response.valid <== mmu.physical_pipeline.request.valid
+  mmu.physical_pipeline.response.bits <== CachePipelineResult(XLen.X64):
+    outcome: CachePipelineOutcome.LoadHit
+    reason: CachePipelineReason.None
+    data: bits(0xabcd, 64)
+  index_valid <== mmu.pipeline_lookup.valid
+  index_address <== mmu.pipeline_lookup.bits.address
+  resolve_valid <== mmu.physical_pipeline.request.valid
+  resolve_address <== mmu.physical_pipeline.request.bits.address
+  result_valid <== mmu.pipeline.response.valid
+  outcome <== mmu.pipeline.response.bits.outcome
+  mmu.memory.request.valid <== wb_valid
+  mmu.memory.request.bits <== request
+  wb_ready <== mmu.memory.request.ready
+  wb_fault <== mmu.memory.fault.valid
+  wb_fault_bits <== mmu.memory.fault.bits
+  mmu.memory.response.ready <== Bool(#true)
+  completed <== mmu.memory.response.valid
+  completed_data <== mmu.memory.response.bits
+  mmu.physical_memory.request.ready <== physical_ready & !physical_fault
+  mmu.physical_memory.fault.valid <== mmu.physical_memory.request.valid & physical_fault
+  mmu.physical_memory.fault.bits <== RV2WideResolution():
+    disposition: RV2WideDisposition.Fault
+    cause: bits(5, 64)
+    value: mmu.physical_memory.request.bits.address
+  mmu.physical_memory.response.valid <== response_valid
+  mmu.physical_memory.response.bits <== response_data
+  mmu.physical_memory.drained <== Bool(#true)
+  physical_valid <== mmu.physical_memory.request.valid
+  physical_address <== mmu.physical_memory.request.bits.address
+  response_ready <== mmu.physical_memory.response.ready
+
+export:
+  RV2WideMmuFixture

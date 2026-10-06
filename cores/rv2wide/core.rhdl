@@ -16,6 +16,7 @@ import:
   lib("cores/branch-resolver.rhdl") open
   lib("cores/load-store.rhdl") open
   lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/hart.rhm").RiscvMmuType
   lib("riscv/isa/profile.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/model/formats.rhm") as fields
@@ -70,6 +71,8 @@ sync_circuit RV2WideCore():
   output retired_count: Bits(2)
   output instruction_capacity: Bits(4)
   output sleeping: Bool
+  output translation_state: RV2WideTranslationState()
+  output translation_flush: Bool
 
   inst rr_window(RV2WideIssueWindow())
   inst ex_older(ValidPipe(RV2WideExecute(), 1, ~flushable: #true))
@@ -91,7 +94,12 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "zicsr", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.S, MisaExtension.U]))))
+  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "zicsr", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39)))
+  translation_state <== RV2WideTranslationState():
+    privilege: wb_csrs.privilege
+    mstatus: wb_csrs.mstatus
+    satp: wb_csrs.satp
+  translation_flush <== wb_csrs.translation_flush
   wb_csrs.interrupts <== interrupts
   wb_csrs.hart_id <== hart_id
   wb_csrs.time_counter <== time_counter

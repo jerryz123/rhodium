@@ -39,7 +39,7 @@ module rv2wide_fetch_tb;
     .data_chi_in(data_chi_in), .data_chi_out(data_chi_out));
   always #5 clock=~clock;
 
-  byte unsigned backing[4096], model_bytes[4096];
+  byte unsigned backing[131072], model_bytes[131072];
   logic [63:0] registers[32];
   retirement_t completions[$];
   int cycles=0, reference_pc=0, commits=0, dual_run=0, longest_dual=0;
@@ -66,6 +66,7 @@ module rv2wide_fetch_tb;
   endtask
   function automatic logic [31:0] instruction_at(int pc);
     logic [31:0] word;
+    if (pc >= 'h400000 && pc < 'h401000) pc = 'h14000 + (pc & 'hfff);
     for (int b=0;b<4;b++) word[b*8+:8]=backing[pc+b];
     return word;
   endfunction
@@ -123,14 +124,18 @@ module rv2wide_fetch_tb;
     retirement_t expected;
     bit write_rd;
     int rd, rs1, rs2;
-    assert((phase==0 || phase==4 || phase==5) && got.fetched.pc==64'(reference_pc) && !got.fetched.fault.valid)
+    assert((phase==0 || phase>=4) && got.fetched.pc==64'(reference_pc) && !got.fetched.fault.valid)
       else $fatal(1,"retired wrong path/fault pc=%h expected=%h phase=%0d",got.fetched.pc,reference_pc,phase);
     word=instruction_at(reference_pc);
     assert(got.fetched.instruction==word) else $fatal(1,"fetch payload at %h",got.fetched.pc);
     rd=int'(word[11:7]); rs1=int'(word[19:15]); rs2=int'(word[24:20]);
     value=0; write_rd=0; reference_pc+=4;
     case(word[6:0])
-      7'h13: begin value=registers[rs1]+64'($signed(word[31:20])); write_rd=rd!=0; end
+      7'h13: begin
+        value=word[14:12]==1 ? registers[rs1]<<word[25:20] : registers[rs1]+64'($signed(word[31:20]));
+        write_rd=rd!=0;
+      end
+      7'h37: begin value=64'($signed({word[31:12],12'b0})); write_rd=rd!=0; end
       7'h6f: begin
         value=64'(reference_pc); write_rd=rd!=0;
         imm=64'($signed({word[31],word[19:12],word[20],word[30:21],1'b0}));
@@ -142,15 +147,28 @@ module rv2wide_fetch_tb;
       end
       7'h03: begin
         address=registers[rs1]+64'($signed(word[31:20])); write_rd=rd!=0;
+        if(phase>=6 && address >= 'h500000 && address < 'h501000) address='h15000+(address & 'hfff);
         for(int b=0;b<8;b++) value[b*8+:8]=model_bytes[int'(address)+b];
       end
       7'h23: begin
         imm=64'($signed({word[31:25],word[11:7]})); address=registers[rs1]+imm;
+        if(phase>=6 && address >= 'h500000 && address < 'h501000) address='h15000+(address & 'hfff);
         for(int b=0;b<8;b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
       end
       7'h73: begin
-        assert(phase==5) else $fatal(1,"unexpected system instruction");
-        case(got.fetched.pc)
+        assert(phase>=5) else $fatal(1,"unexpected system instruction");
+        if(phase>=6) begin
+          if(word==32'h30200073) reference_pc='h400000;
+          else if(word[14:12]==2) begin
+            write_rd=rd!=0;
+            case(word[31:20])
+              12'h342: value=64'(expected_fault_cause);
+              12'h343: value=expected_fault_value;
+              12'h341: value=64'(expected_fault_pc);
+              default: $fatal(1,"unexpected paged CSR read");
+            endcase
+          end
+        end else case(got.fetched.pc)
           'h304, 'h38c, 'h310: begin end // CSRRW x0 and WFI
           'h380: begin value=11; write_rd=1; end // mcause
           'h384: begin value='h308; write_rd=1; end // mepc
@@ -193,17 +211,17 @@ module rv2wide_fetch_tb;
           assert(redirect.bits.pc==64'(expected_fault_pc) && redirect.bits.resolution.cause==64'(expected_fault_cause) && redirect.bits.resolution.value==expected_fault_value)
             else $fatal(1,"fault phase=%0d pc=%h cause=%h value=%h",phase,redirect.bits.pc,redirect.bits.resolution.cause,redirect.bits.resolution.value);
           assert(completions.size()==0) else $fatal(1,"fault before accepted work drains");
-          assert(redirect.bits.target==(phase==5 ? 'h380 : 0) && !halted) else $fatal(1,"trap did not target mtvec");
+          assert(redirect.bits.target==(phase>=5 ? 'h380 : 0) && !halted) else $fatal(1,"trap did not target mtvec");
           if(phase==0) assert(reference_pc==4096 && registers[30]==77) else $fatal(1,"lost page-end instruction");
           if(phase==4) assert(reference_pc==652) else $fatal(1,"lost older load or retired after illegal instruction");
-          if(phase==5) reference_pc=int'(redirect.bits.target);
+          if(phase>=5) reference_pc=int'(redirect.bits.target);
           faults++;
         end
-        3: assert(phase==5) else $fatal(1,"unexpected system recovery");
+        3: assert(phase>=5) else $fatal(1,"unexpected system recovery");
       endcase
     end
     if(instruction_chi_out.req.valid && instruction_chi_in.req.ready) begin
-      assert(instruction_chi_out.req.bits.opcode==7'h03 && instruction_chi_out.req.bits.address<4096 && instruction_chi_out.req.bits.address[5:0]==0)
+      assert(instruction_chi_out.req.bits.opcode==7'h03 && (instruction_chi_out.req.bits.address<4096 || (instruction_chi_out.req.bits.address>='h10000 && instruction_chi_out.req.bits.address<'h20000)) && instruction_chi_out.req.bits.address[5:0]==0)
         else $fatal(1,"invalid instruction transaction");
       irequest<=instruction_chi_out.req.bits; iactive<=1; ipacket<=0; idue<=cycles+15; ireads++;
       if(instruction_chi_out.req.bits.address==192) wrong_path_reads++;
@@ -214,7 +232,7 @@ module rv2wide_fetch_tb;
     end
     if(instruction_chi_out.rsp.requester.valid && instruction_chi_in.rsp.requester.ready) acks++;
     if(data_chi_out.requests.valid && data_chi_in.requests.ready) begin
-      assert(data_chi_out.requests.bits.address<4096) else $fatal(1,"unmapped data transaction");
+      assert(data_chi_out.requests.bits.address<4096 || (data_chi_out.requests.bits.address>='h10000 && data_chi_out.requests.bits.address<'h20000)) else $fatal(1,"unmapped data transaction");
       case(data_chi_out.requests.bits.opcode)
         7'h02,7'h07: begin drequest<=data_chi_out.requests.bits; dactive<=1; dpacket<=0; ddue<=cycles+70; dreads++; end
         7'h1b: begin wrequest<=data_chi_out.requests.bits; wactive<=1; end
@@ -299,6 +317,63 @@ module rv2wide_fetch_tb;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(reference_pc=='h314 && registers[10]==11 && registers[11]=='h30c && registers[12]==99 && faults==6)
       else $fatal(1,"trap handler/return execution failed");
+    // Real M-mode setup and MRET into translated S-mode. The same three-level
+    // tables serve independent I/D TLBs through the coherent data cache.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    for(int p='h10000;p<'h20000;p++) begin backing[p]=0; model_bytes[p]=0; end
+    begin
+      logic [63:0] pte;
+      pte=('h11<<10)|1; for(int b=0;b<8;b++) backing['h10000+b]=pte[b*8+:8];
+      pte=('h12<<10)|1; for(int b=0;b<8;b++) backing['h11010+b]=pte[b*8+:8];
+      pte=('h14<<10)|'hcb; for(int b=0;b<8;b++) backing['h12000+b]=pte[b*8+:8];
+      pte=('h15<<10)|'hc7; for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
+      for(int b=0;b<16;b++) begin backing['h15000+b]=8'(b+1); model_bytes['h15000+b]=8'(b+1); end
+    end
+    insn('h300,addi(1,0,'h380)); insn('h304,{12'h305,5'd1,3'b001,5'd0,7'h73});
+    insn('h308,addi(1,0,8)); insn('h30c,{6'd0,6'd60,5'd1,3'b001,5'd1,7'h13});
+    insn('h310,addi(1,1,16)); insn('h314,{12'h180,5'd1,3'b001,5'd0,7'h73});
+    insn('h318,32'h12000073); // SFENCE.VMA
+    insn('h31c,addi(1,0,2047)); insn('h320,addi(1,1,1));
+    insn('h324,{12'h300,5'd1,3'b001,5'd0,7'h73}); // MPP=S
+    insn('h328,{20'h400,5'd1,7'h37}); insn('h32c,{12'h341,5'd1,3'b001,5'd0,7'h73});
+    insn('h330,32'h30200073);
+    insn('h14000,{20'h500,5'd1,7'h37});
+    insn('h14004,{12'd0,5'd1,3'b011,5'd5,7'h03});
+    insn('h14008,addi(6,5,1)); insn('h1400c,{7'd0,5'd6,5'd1,3'b011,5'd8,7'h23});
+    insn('h14010,{12'd8,5'd1,3'b011,5'd7,7'h03}); insn('h14014,32'h12000073);
+    insn('h14018,{12'd8,5'd1,3'b011,5'd8,7'h03}); insn('h1401c,{20'h501,5'd1,7'h37});
+    insn('h14020,addi(12,0,77)); insn('h14024,{12'd0,5'd1,3'b011,5'd9,7'h03});
+    insn('h380,{12'h342,5'd0,3'b010,5'd10,7'h73});
+    insn('h384,{12'h343,5'd0,3'b010,5'd11,7'h73});
+    insn('h388,{12'h341,5'd0,3'b010,5'd13,7'h73}); insn('h38c,32'h10500073);
+    phase=6; reference_pc='h300; expected_fault_pc='h400024; expected_fault_cause=13; expected_fault_value='h501000;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[5]==64'h0807060504030201 && registers[7]==registers[6] && registers[8]==registers[6] && registers[12]==77 && registers[10]==13 && registers[11]=='h501000 && registers[13]=='h400024 && faults==7)
+      else $fatal(1,"Sv39 execution, SFENCE, or precise page fault failed");
+    for(int scenario=7;scenario<=8;scenario++) begin
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      for(int b=0;b<16;b++) begin backing['h15000+b]=8'(b+1); model_bytes['h15000+b]=8'(b+1); end
+      if(scenario==7) begin
+        insn('h14020,{7'd0,5'd6,5'd1,3'b011,5'd0,7'h23});
+        insn('h14024,addi(12,0,88)); // younger result must not retire
+        expected_fault_pc='h400020; expected_fault_cause=15; expected_fault_value='h501000;
+      end else begin
+        insn('h14020,addi(12,0,77)); insn('h14024,jal(0,'h1000-'h24));
+        expected_fault_pc='h401000; expected_fault_cause=12; expected_fault_value='h401000;
+      end
+      phase=scenario; reference_pc='h300;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(registers[10]==64'(expected_fault_cause) && registers[11]==expected_fault_value && registers[13]==64'(expected_fault_pc) && registers[12]==(scenario==7 ? 0 : 77) && faults==scenario+1)
+        else $fatal(1,"Sv39 store/fetch trap provenance or younger squash failed");
+    end
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults",commits,longest_dual,ireads,dreads,faults);
     $finish;
   end

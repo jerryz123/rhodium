@@ -254,7 +254,7 @@ fixture_in_group() {
   done
 
   case "$group:$wanted" in
-    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch)
+    cores-execution-datapath:rv2wide-core|cores-execution-datapath:rv2wide-cache|cores-execution-datapath:rv2wide-fetch|cores-execution-datapath:rv2wide-mmu)
       return 0
       ;;
     cores-execution-datapath:rv5stage-cosim*)
@@ -958,6 +958,7 @@ direct_fixture_specs=(
   'rv2wide-core|rv2wide_core_tb'
   'rv2wide-cache|rv2wide_cache_tb'
   'rv2wide-fetch|rv2wide_fetch_tb'
+  'rv2wide-mmu|rv2wide_mmu_tb'
   'rv5stage-zcb|rv5stage_zcb_tb'
   'rv5stage-mop|rv5stage_mop_tb'
   'rv5stage-zkt-rv32|rv5stage_zkt_rv32_tb'

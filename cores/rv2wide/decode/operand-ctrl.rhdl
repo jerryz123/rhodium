@@ -44,7 +44,7 @@ def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruc
   [CSRRW, CSRRS, CSRRC]:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#false)
-  [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI]:
+  [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA]:
     uses_rs1: Bool(#false)
     uses_rs2: Bool(#false)
   [LUI]:

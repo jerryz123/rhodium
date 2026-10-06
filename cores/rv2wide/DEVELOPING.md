@@ -35,10 +35,11 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
-| `frontend.rhdl` | Reserved-capacity block fetch, physical permissions, local replay, and fault packet assembly |
+| `frontend.rhdl` | Reserved-capacity block fetch, S1 translation/permissions, local replay, and fault packet assembly |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
 | `cache.rhdl` | Physical RAM permission checks and raw-beat adaptation to the shared L1D |
+| `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
 
@@ -105,6 +106,24 @@ fault, before its drained public redirect. A simultaneous redirect supplies the
 new cursor; otherwise fetch remains stopped. Buffer credits alone cannot express
 this cancellation because a cleared buffer can still be rejecting admission.
 
+The data adapter exposes the shared cache's `pipeline_lookup` (EX virtual index)
+and `CachePipelineAccess` (MEM physical resolution, following WB store commit).
+The MMU owns exactly one request-context register between these phases; do not
+put another register in the adapter or make EX admission depend on a TLB result.
+WB data demand wins DTLB contention over MEM, whose token receives Replay.
+Only WB data misses enter the retained pending-walk slot. An instruction walk
+already in progress finishes first, and the pending WB lookup wins next admission.
+The walker captures its request context, independent of subsequent live CSRs.
+
+Architectural invalidation clears TLBs and retained faults at the retirement edge.
+Registered walker cancellation breaks the retirement/readiness feedback path;
+the invalidation edge suppresses completion publication and new walk admission.
+Core/PTE physical requests use fixed core-first arbitration and an atomic request/
+owner fork. The owner FIFO is never flushed: it routes each accepted response
+even when the walker is draining a canceled epoch. A PTE admission fault consumes
+the walker offer without allocating a physical response owner. No whole-walk
+cache lock may block a translated older WB access behind younger fetch traffic.
+
 Keep `start` reset-only, with the data service drained. It is not an asynchronous
 core flush input. The integrated top follows CSR trap/return redirects as well
 as branches/replays; WFI has a separate sleep indication.
@@ -143,6 +162,7 @@ Run the focused production-core fixture:
 FIXTURE=rv2wide-core bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-cache bash tools/testing/circt/run.sh --simulate-only
 FIXTURE=rv2wide-fetch bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=rv2wide-mmu bash tools/testing/circt/run.sh --simulate-only
 make check-boundaries
 ```
 
@@ -183,6 +203,13 @@ scenario programs mtvec, executes ECALL, reads mepc/mcause, returns with MRET,
 and reaches WFI through real instruction-cache fetching. The existing cache-only
 fixture composes the same production core and L1D adapter with packet stimulus;
 it does not add a second public cached-core wrapper.
+
+The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
+loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks
+load, store, and instruction page faults through architectural mcause/mepc/mtval reads.
+`rv2wide-mmu` controls the physical service boundary to check EX/MEM timing,
+speculative miss nonallocation, current permissions, remapping after invalidation,
+WB priority, canceled accepted-PTE draining, and exact physical-fault VA reporting.
 
 The fixture runner invokes the repository-managed Racket wrapper. Run host
 checks through `tools/run-racket-tests.sh` and other elaboration through

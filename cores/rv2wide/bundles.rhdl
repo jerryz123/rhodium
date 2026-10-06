@@ -7,6 +7,24 @@ import:
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   lib("flow/main.rhdl") open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+
+/* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
+bundle RV2WideTranslationState():
+  privilege: PrivilegeMode
+  mstatus: Bits(64)
+  satp: Bits(64)
+
+/* Resolves an S1 virtual PC combinationally; a miss requests local fetch replay. */
+interface RV2WideInstructionTranslation():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Valid(Bits(64))
+  responder -> requester:
+    address: Bits(64)
+    resolution: RV2WideResolution()
 
 /* Retains the architectural cause and faulting address independently of instruction data. */
 bundle RV2WideFetchFault():
@@ -132,6 +150,8 @@ bundle RV2WideOperand():
   data: Bits(64)
 
 export:
+  RV2WideTranslationState
+  RV2WideInstructionTranslation
   RV2WideFetchFault
   RV2WideInstruction
   RV2WidePacket

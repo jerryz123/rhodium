@@ -1,0 +1,211 @@
+#lang rhodium
+/* Adapts separate instruction/data TLBs and a shared walker to RV2Wide's fixed-latency and WB ports. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  "../cache/protocol.rhdl" open
+  "../cache/operation.rhdl" open
+  "../riscv/chi-hart.rhdl" open
+  "../load-store.rhdl" open
+  "../riscv/mmu/protocol.rhdl" open
+  "../riscv/mmu/translation.rhdl" open
+  "../riscv/mmu/tlb.rhdl" open
+  "../riscv/mmu/walker.rhdl" open
+  lib("riscv/isa/xlen.rhm") open
+  lib("riscv/isa/csr.rhm") open
+  lib("riscv/isa/sv39.rhm").Sv39Mode
+  lib("riscv/rtl/csr.rhdl") open
+  lib("riscv/rtl/privilege.rhdl") open
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("flow/main.rhdl") open
+  lib("rhodium/std/bits.rhdl") open
+
+/* Keeps response routing independent of addresses, speculative redirects, and canceled walks. */
+bundle RV2WidePhysicalResponse():
+  data: Bits(64)
+  pte: Bool
+
+/* Resolves speculative hits without allocation; only WB data misses request walks.
+   Instruction walks survive replay, pending WB walks have priority, and physical
+   requests arbitrate core-first without locking the cache for a walk's lifetime. */
+sync_circuit RV2WideMmu(config :: RiscvHartCHIConfig):
+  input state: RV2WideTranslationState()
+  input invalidate: Bool
+  interface instruction(RV2WideInstructionTranslation(), ~role: responder)
+  interface pipeline(RV2WidePipelineAccess(), ~role: responder)
+  interface memory(RV2WideMemory(), ~role: responder)
+  interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: producer)
+  interface physical_pipeline(CachePipelineAccess(XLen.X64), ~role: requester)
+  interface physical_memory(RV2WideMemory(), ~role: requester)
+
+  inst itlb(RiscvTranslationTlb())
+  inst dtlb(RiscvTranslationTlb())
+  inst walker(RiscvTranslationWalker())
+  reg cancel(~init: Bool(#false))
+  cancel <== invalidate
+  walker.cancel <== cancel
+  itlb.invalidate_all <== invalidate
+  dtlb.invalidate_all <== invalidate
+
+  /* Captures effective privilege and permission controls in the shared host lookup shape. */
+  fun lookup(address :: Bits(64), access :: Sv39Access, privilege :: PrivilegeMode) :~ RiscvTlbLookup():
+    def request = RiscvTranslationRequest():
+      virtual_address: address
+      root_ppn: csr_field(state.satp, Satp64PPN)
+      access: access
+      privilege: privilege
+      sum: csr_flag(state.mstatus, MstatusSUM)
+      mxr: csr_flag(state.mstatus, MstatusMXR)
+      pbmte: Bool(#false)
+    riscv_host_lookup(request, ~enabled: (privilege =/= PrivilegeMode.Machine) & (csr_field(state.satp, Satp64Mode) === bits(Sv39Mode, 4)))
+
+  def instruction_lookup = lookup(instruction.request.bits, Sv39Access.Fetch, state.privilege)
+  def Array(early_index, retained_request) = pipeline.request |> fork_valid(2)
+  /* Positions a raw beat without changing the original VA retained by the core. */
+  fun cache_request(request :: RV2WideMemoryReq()) :~ CachePipelineReq(XLen.X64):
+    CachePipelineReq(XLen.X64):
+      byte_mask: request.mask
+      address: request.address.align_down(8)
+      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
+      width: MemoryWidth.Double
+      unsigned: Bool(#true)
+      data: request.data
+  early_index |> map_valid(request => cache_request(request)) |> pipeline_lookup
+  def mem_request = retained_request |> valid_pipe(1)
+  def data_request = mux(memory.request.valid, memory.request.bits, mem_request.bits)
+  def data_lookup = lookup(data_request.address, mux(data_request.write, Sv39Access.Store, Sv39Access.Load), effective_data_privilege(XLen.X64, state.privilege, state.mstatus))
+  itlb.lookup <== instruction_lookup
+  itlb.probe <== instruction_lookup
+  dtlb.lookup <== data_lookup
+  dtlb.probe <== data_lookup
+
+  // Faults are not TLB entries. Retain each port's exact failed request until
+  // its replay observes it; context matching prevents reuse after CSR changes.
+  reg instruction_fault_valid(~init: Bool(#false))
+  reg data_fault_valid(~init: Bool(#false))
+  reg instruction_fault(RiscvTlbFill())
+  reg data_fault(RiscvTlbFill())
+  def instruction_failed = instruction_fault_valid & (instruction_fault.request.as_bits() === instruction_lookup.as_bits())
+  def data_failed = data_fault_valid & (data_fault.request.as_bits() === data_lookup.as_bits())
+  def instruction_known = itlb.hit ||| instruction_failed
+  def data_known = dtlb.hit ||| data_failed
+  def instruction_result = mux(instruction_failed, instruction_fault.result, itlb.translation)
+  def data_result = mux(data_failed, data_fault.result, dtlb.translation)
+  def data_ok = data_known & (data_result.fault === RiscvTranslationFault.None)
+  instruction.address <== instruction_result.physical_address.zext(64)
+  instruction.resolution <== RV2WideResolution():
+    disposition: mux(!instruction_known, RV2WideDisposition.Replay, mux(instruction_result.fault === RiscvTranslationFault.None, RV2WideDisposition.Continue, RV2WideDisposition.Fault))
+    cause: riscv_translation_fault_cause(instruction_result)
+    value: instruction.request.bits
+
+  // WB takes the demand lookup port. A simultaneous MEM request replays rather
+  // than mistaking WB's translation or cache result for its own.
+  def mem_address = data_result.physical_address.zext(64)
+  def region = config.physical_map.lookup(mem_address.align_down(8), mem_address.align_down(8) +& bits(7, 64))
+  def permitted = region.mapped & region.cacheable & !region.device & region.read_idempotent & mux(mem_request.bits.write, region.writable, region.readable)
+  def speculative_ok = !memory.request.valid & data_ok & permitted
+  (mem_request |> filter_valid(_request => speculative_ok)
+    |> map_valid(request => cache_request(request).updated(~address: mem_address.align_down(8)))
+  ) |> physical_pipeline.request
+  def cache_outcome = mux_lookup(physical_pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay):
+    CachePipelineOutcome.Slow: RV2WideCacheOutcome.Slow
+    CachePipelineOutcome.LoadHit: RV2WideCacheOutcome.LoadHit
+    CachePipelineOutcome.StoreHit: RV2WideCacheOutcome.StoreHit
+  wire outcome: RV2WideCacheOutcome
+  when (memory.request.valid):
+    outcome <== RV2WideCacheOutcome.Replay
+  elsewhen (!data_known):
+    outcome <== RV2WideCacheOutcome.Slow
+  elsewhen (data_result.fault === RiscvTranslationFault.PageFault):
+    outcome <== RV2WideCacheOutcome.PageFault
+  elsewhen ((data_result.fault =/= RiscvTranslationFault.None) ||| !permitted):
+    outcome <== RV2WideCacheOutcome.AccessFault
+  otherwise:
+    outcome <== mux(physical_pipeline.response.valid, cache_outcome, RV2WideCacheOutcome.Replay)
+  pipeline.response.valid <== mem_request.valid
+  pipeline.response.bits <== RV2WideLookupResult():
+    outcome: outcome
+    data: physical_pipeline.response.bits.data
+  physical_pipeline.commit <== pipeline.commit
+  pipeline.commit_ready <== physical_pipeline.commit_ready
+
+  reg pending_data(~init: Bool(#false))
+  reg pending_lookup(RiscvTlbLookup())
+  reg walk_live(~init: Bool(#false))
+  reg walk_data(Bool)
+  reg walk_lookup(RiscvTlbLookup())
+  def data_miss = memory.request.valid & !data_known
+  def same_active_data = walk_live & walk_data & (walk_lookup.as_bits() === data_lookup.as_bits())
+  def instruction_miss = instruction.request.valid & !instruction_known
+  def choose_data = pending_data ||| data_miss
+  walker.request.valid <== !walk_live & !cancel & !invalidate & (choose_data ||| instruction_miss)
+  walker.request.bits <== mux(choose_data, mux(pending_data, pending_lookup, data_lookup), instruction_lookup)
+  walker.completion.ready <== Bool(#true)
+  def fill = RiscvTlbFill():
+    request: walk_lookup
+    result: walker.completion.bits
+  itlb.fill.valid <== walker.completion.valid & walk_live & !walk_data & !invalidate
+  dtlb.fill.valid <== walker.completion.valid & walk_live & walk_data & !invalidate
+  itlb.fill.bits <== fill
+  dtlb.fill.bits <== fill
+  when invalidate:
+    walk_live <== Bool(#false)
+  elsewhen (walker.request.fire()):
+    walk_live <== Bool(#true)
+    walk_data <== choose_data
+    walk_lookup <== walker.request.bits
+  elsewhen (walker.completion.valid):
+    walk_live <== Bool(#false)
+  when (invalidate ||| (walker.request.fire() & choose_data)):
+    pending_data <== Bool(#false)
+  elsewhen (data_miss & !same_active_data & !pending_data):
+    pending_data <== Bool(#true)
+    pending_lookup <== data_lookup
+  when invalidate:
+    instruction_fault_valid <== Bool(#false)
+  elsewhen (walker.completion.valid & walk_live & !walk_data):
+    instruction_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
+    instruction_fault <== fill
+  when invalidate:
+    data_fault_valid <== Bool(#false)
+  elsewhen (walker.completion.valid & walk_live & walk_data):
+    data_fault_valid <== walker.completion.bits.fault =/= RiscvTranslationFault.None
+    data_fault <== fill
+
+  // The owner FIFO tracks accepted physical transactions, not live walks.
+  // Cancellation suppresses translation publication, never response draining.
+  inst requests(Arbiter(RV2WideMemoryReq(), 2))
+  inst owners(Queue(Bool, 8))
+  (memory.request |> gate_flow(data_ok)
+    |> map_flow(request => request.updated(~address: data_result.physical_address.zext(64)))
+  ) |> requests.ingress[0]
+  requests.ingress[1].valid <== walker.memory.request.valid
+  requests.ingress[1].bits <== RV2WideMemoryReq():
+    address: walker.memory.request.bits.address
+    write: Bool(#false)
+    data: bits(0, 64)
+    mask: bits(0xff, 8)
+  def pte_selected = requests.chosen.into(Bool)
+  def Array(physical_request, owner) = requests.egress |> atomic_fork(2)
+  physical_request |> physical_memory.request
+  owner |> map_flow(_request => pte_selected) |> owners.ingress
+  def pte_fault = physical_memory.fault.valid & pte_selected
+  walker.memory.request.ready <== requests.ingress[1].ready ||| pte_fault
+  walker.memory.request_access_fault <== pte_fault
+  memory.fault.valid <== memory.request.valid & ((data_known & !data_ok) ||| (physical_memory.fault.valid & !pte_selected))
+  memory.fault.bits <== RV2WideResolution():
+    disposition: RV2WideDisposition.Fault
+    cause: mux(!data_ok, riscv_translation_fault_cause(data_result), physical_memory.fault.bits.cause)
+    value: memory.request.bits.address
+  memory.drained <== physical_memory.drained & (owners.count === bits(0, owners.count.type.width))
+  def responses = Array(physical_memory.response, owners.egress) |> zip_flow(data, pte):
+    RV2WidePhysicalResponse():
+      data: data
+      pte: pte
+  def Array(core_response, pte_response) = responses |> demux_flow(2, response => response.pte.as_bits())
+  core_response |> map_flow(response => response.data) |> memory.response
+  pte_response |> map_flow(response => response.data) |> to_valid() |> walker.memory.response
+
+export:
+  RV2WideMmu

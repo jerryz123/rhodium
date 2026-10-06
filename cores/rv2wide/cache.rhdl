@@ -1,5 +1,5 @@
 #lang rhodium
-/* Connects RV2Wide's fixed-stage physical LSU to the shared coherent L1D. */
+/* Connects RV2Wide's split virtual-index/physical-resolution LSU to the shared coherent L1D. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -24,7 +24,8 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
                         ~service_queue_depth: service_queue_depth :: PosInt = 2):
   input node_id: Bits(config.flit.node_id_width)
   interface memory(RV2WideMemory(), ~role: responder)
-  interface pipeline(RV2WidePipelineAccess(), ~role: responder)
+  interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: consumer)
+  interface pipeline(CachePipelineAccess(XLen.X64), ~role: responder)
   interface chi(CHIRNChannels(config.flit), ~role: node)
   inst storage(L1DCache(XLen.X64, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
   storage.node_id <== node_id
@@ -38,31 +39,10 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
     def physical = config.physical_map.lookup(first, first +& bits(7, 64))
     physical.mapped & physical.cacheable & !physical.device & physical.read_idempotent & mux(request.write, physical.writable, physical.readable)
 
-  /* Converts positioned physical bytes into an aligned cache beat without reshifting them. */
-  fun lookup_request(request :: RV2WideMemoryReq()) :~ CachePipelineReq(XLen.X64):
-    CachePipelineReq(XLen.X64):
-      byte_mask: request.mask
-      address: request.address.align_down(8)
-      access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
-      width: MemoryWidth.Double
-      unsigned: Bool(#true)
-      data: request.data
-
-  def Array(read_index, delayed_request) = pipeline.request |> fork_valid(2)
-  read_index |> filter_valid(request => permitted(request)) |> map_valid(request => lookup_request(request)) |> storage.pipeline_lookup
-  def resolved = delayed_request |> valid_pipe(1)
-  resolved |> filter_valid(request => permitted(request)) |> map_valid(request => lookup_request(request)) |> storage.pipeline.request
-  (
-    resolved |> map_valid(request => RV2WideLookupResult()):
-      outcome: mux(!permitted(request), RV2WideCacheOutcome.AccessFault,
-                   mux_lookup(storage.pipeline.response.bits.outcome, ~default: RV2WideCacheOutcome.Replay,
-                              [[CachePipelineOutcome.Slow, RV2WideCacheOutcome.Slow],
-                               [CachePipelineOutcome.LoadHit, RV2WideCacheOutcome.LoadHit],
-                               [CachePipelineOutcome.StoreHit, RV2WideCacheOutcome.StoreHit]]))
-      data: storage.pipeline.response.bits.data
-  ) |> pipeline.response
-  storage.pipeline.commit <== pipeline.commit
-  pipeline.commit_ready <== storage.pipeline.commit_ready
+  // The MMU owns MEM translation/PMA checks. EX indexing must not depend on
+  // a TLB hit; the physical tag arrives alongside the following SRAM result.
+  pipeline_lookup |> storage.pipeline_lookup
+  pipeline <=> storage.pipeline
 
   def Array(authorized, authorized_index) = memory.request |> gate_flow(permitted(memory.request.bits)) |> atomic_fork(2)
   authorized_index |> to_valid() |> map_valid(request => request.address.align_down(8)) |> storage.virtual_lookup
