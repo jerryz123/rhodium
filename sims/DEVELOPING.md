@@ -884,7 +884,12 @@ on all three SoCs. Keep the UART C++ source/header in both ordinary and mapped
 simulator link prerequisites when changing this shared harness dependency.
 
 `transport-test` exercises the pinned FESVR `memif_t` path, exact-width and zero
-writes, backpressure, and target errors. The backend `fesvr-mmio` fixture tests
+writes, backpressure, idle yields, and target errors. `DirectMemoryHtif::tick`
+advances request/response handshakes every cycle, but resumes the host context
+only when no request remains pending. A pending host transaction is suspended
+in `transact()` until completion; startup and idle yields still resume on each
+tick. Completion resumes the host on the same tick, including error propagation
+and successful-write observers. The backend `fesvr-mmio` fixture tests
 the DPI-independent `FesvrCHIAccess` engine with coherent RAM fragmentation,
 exact MMIO, response validation, and backpressure. `host-mmio-test` loads ELF
 data into the UART scratch register, verifies the published ELF entry and

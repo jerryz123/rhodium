@@ -148,7 +148,10 @@ void DirectMemoryHtif::tick(bool request_ready,
     }
   }
 
-  host_context_.switch_to();
+  // A pending transaction leaves the host suspended in transact(), where it
+  // cannot advance until tick() captures the response. Startup and idle yields
+  // have no pending request and still need a host turn on each tick.
+  if (!request_pending_) host_context_.switch_to();
 }
 
 bool DirectMemoryHtif::request_valid() const {

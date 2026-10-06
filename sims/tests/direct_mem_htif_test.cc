@@ -313,6 +313,80 @@ void check_transfers() {
   std::puts("FESVR exact-width transport and error checks passed");
 }
 
+class YieldingHtif final : public DirectMemoryHtif {
+ public:
+  YieldingHtif(int argc, char** argv, WriteObserver observer)
+      : DirectMemoryHtif(argc, argv, 64, 0x3000, {0}, {}, std::move(observer)) {}
+  unsigned progress = 0;
+ protected:
+  std::map<std::string, std::uint64_t> load_payload(const std::string&, reg_t*, reg_t) override {
+    progress = 1;
+    idle();
+    progress = 2;
+    idle();
+    progress = 3;
+    const std::uint8_t byte = 0xa5;
+    memif().write(0x1000, 1, &byte);
+    progress = 4;
+    idle();
+    progress = 5;
+    std::uint8_t read = 0;
+    memif().read(0x1001, 1, &read);
+    assert(read == 0x5a);
+    progress = 6;
+    return {{"tohost", 0x80001000}, {"fromhost", 0x80001008}};
+  }
+  void reset() override { htif_exit(1); }
+};
+
+void check_host_progress(bool fail) {
+  char executable[] = "host-progress-test", program[] = "scripted";
+  char* argv[] = {executable, program};
+  unsigned writes = 0;
+  YieldingHtif transport(2, argv, [&](auto address, auto bytes) {
+    assert(address == 0x1000 && bytes.size() == 1 && bytes[0] == 0xa5);
+    ++writes;
+  });
+  for (unsigned progress = 1; progress <= 3; ++progress) {
+    transport.tick(false, false, 0, 0);
+    assert(transport.progress == progress && transport.exit_word() == 0);
+    assert(!transport.request_valid() && !transport.response_ready());
+  }
+  // Publishing a newly created request takes one tick even when ready is high.
+  transport.tick(true, false, 0, 0);
+  for (int stall = 0; stall < 8; ++stall) {
+    assert(transport.request_valid() && !transport.response_ready());
+    const auto& request = transport.request();
+    assert(request.write && request.address == 0x1000 && request.data == 0xa5 && request.length == 1);
+    transport.tick(false, false, 0, 0);
+    assert(transport.progress == 3 && writes == 0);
+  }
+  transport.tick(true, false, 0, 0);
+  for (int stall = 0; stall < 8; ++stall) {
+    assert(!transport.request_valid() && transport.response_ready());
+    transport.tick(false, false, 0, 0);
+    assert(transport.progress == 3 && writes == 0);
+  }
+  transport.tick(false, true, 0, fail ? 1 : 0);
+  assert(!transport.request_valid() && !transport.response_ready());
+  assert(writes == (fail ? 0U : 1U));
+  assert(transport.progress == (fail ? 3U : 4U));
+  assert(transport.exit_word() == (fail ? 3U : 0U));
+  if (fail) return;
+
+  // The completion's idle yield resumes next tick, then read completion may
+  // coincide with acceptance without delaying data delivery or host exit.
+  transport.tick(false, false, 0, 0);
+  assert(transport.progress == 5 && !transport.request_valid());
+  transport.tick(true, false, 0, 0);
+  assert(transport.request_valid() && !transport.response_ready());
+  const auto& request = transport.request();
+  assert(!request.write && request.address == 0x1001 && request.length == 1);
+  transport.tick(true, true, 0x5a, 0);
+  assert(transport.progress == 6 && transport.exit_word() == 1 && writes == 1);
+  assert(!transport.request_valid() && !transport.response_ready());
+}
+
 // The simulator owns one process-lifetime HTIF. Give each startup scenario its
 // own process too, isolating FESVR global state and suspended host contexts.
 template <typename Test>
@@ -359,6 +433,8 @@ int main() {
   run_boot(64, 0x3000, 0x180002000ULL);
   isolated([] { check_boot(64, 0x3000, 0x80002000, -1, 99, false, {0, 2, 4, 5, 6, 7}); });
   isolated(check_transfers);
+  isolated([] { check_host_progress(false); });
+  isolated([] { check_host_progress(true); });
   char executable[] = "boot-config-test";
   char program[] = "scripted";
   char* argv[] = {executable, program};
