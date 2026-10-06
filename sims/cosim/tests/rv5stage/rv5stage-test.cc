@@ -11,14 +11,20 @@ using namespace rhodium::cosim::observation;
 using namespace rhodium::cosim::rv5stage;
 void require(bool ok) { if (!ok) throw std::runtime_error("hart adapter test failed"); }
 struct Sample {
-  ScalarCycle cycle{.xlen=64,.flen=64};
-  HeaderSample header{.pc=0x8000,.instruction=0x13};
-  BoundarySample boundary{.privilege=3,.next_pc=0x8004,.next_privilege=3};
+  ScalarCycle cycle{};
+  HeaderSample header{};
+  BoundarySample boundary{};
   ResponseSample response{};
   PhysicalSample physical{};
-  std::array<RequestSample,2> request{{{.index=0},{.index=1}}};
-  std::array<ArithmeticSample,2> arithmetic{{{.index=0},{.index=1}}};
+  std::array<RequestSample,2> request{};
+  std::array<ArithmeticSample,2> arithmetic{};
   FpSample fp{};
+  Sample() {
+    cycle.xlen=64; cycle.flen=64;
+    header.pc=0x8000; header.instruction=0x13;
+    boundary.privilege=3; boundary.next_pc=0x8004; boundary.next_privilege=3;
+    request[1].index=1; arithmetic[1].index=1;
+  }
 };
 void capture(std::vector<std::function<void()>>& calls, const Sample& s, Word instance, Word epoch, Word cycle) {
   auto add = [&](auto value) {
