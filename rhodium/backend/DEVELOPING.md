@@ -293,7 +293,10 @@ register therefore captures the preceding read result. Register reset does not
 gate reads or writes. Disabled/shared-write read results use zero as this backend's
 choice for unspecified data; tests must not make that choice a portable guarantee.
 Masked writes retain their mask value and granularity in `RsimWrite`. During
-evaluation, a guarded old-word load and the sampled mask/data produce the complete
+evaluation, the effective write enable guards both the old-word load and the
+merge, including the write-mode check for shared ports. Disabled writes initialize
+their pending data to zero; all operand producers remain scheduled normally.
+Enabled writes use the sampled mask/data and old storage to produce the complete
 pending word. `CppTypes.masked_merge` maps canonical granules onto individual
 scalar leaves and constructs a typed result without packing the aggregate.
 Narrow leaves and masks retain constant intersections. When either is wide,

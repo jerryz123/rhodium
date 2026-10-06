@@ -233,15 +233,15 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       def write = plan.writes[index]
       def prefix = "frame.write" ++ to_string(index)
       def enabled = ref(write.enable) ++ " != 0" ++ (if write.write_mode | " && " ++ ref(write.write_mode) ++ " != 0" | "")
-      // Merge before committing any state, including a mask fed by an old read
-      // result. Guard the old-word load even for disabled or invalid writes.
-      def data:
-        if write.mask_value
-        | def old = "write" ++ to_string(index) ++ "_old"
-          source.add("  const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");")
-          types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
-        | ref(write.data)
-      source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ data ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
+      if write.mask_value
+      | // Skip old-word loads and merges for disabled ports, including shared
+        // ports in read mode. Still initialize every frame field on each attempt.
+        // Enabled merges sample old storage before any commit, even when the
+        // mask comes from a stored read result; vector_index handles bad addresses.
+        def old = "write" ++ to_string(index) ++ "_old"
+        def data = types.masked_merge(plan.memories[write.memory].type, old, ref(write.data), ref(write.mask_value), scalar_carrier_width(plan.steps[write.mask_value].type), write.mask_granularity)
+        source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {\n    const auto " ++ old ++ " = vector_index(memory" ++ to_string(write.memory) ++ "_, " ++ ref(write.address) ++ ");\n    " ++ prefix ++ "_data = " ++ data ++ ";\n  }")
+      | source.add("  " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";\n  " ++ prefix ++ "_data = " ++ ref(write.data) ++ ";\n  " ++ prefix ++ "_enable = " ++ enabled ++ ";")
   | "output":
       def port = plan.outputs[index]
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")

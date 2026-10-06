@@ -99,6 +99,19 @@ def stimuli(configs=CONFIGS, width=64):
             add(reset=1, write_address=address, shared_address=address,
                 write_enable=3, shared_enable=3, write_mode=3,
                 a=(address + 1) % depth, b=(address + 2) % depth)
+        if granule:
+            # Alternate disabled writes and shared read mode with partial writes.
+            # Each re-enabled merge must preserve the current word's unselected
+            # granules, never reuse a preceding frame's pending data.
+            for index in range(4):
+                add(write_enable=0, shared_enable=0, write_mode=3,
+                    a=data_full, b=data_full)
+                add(read_enable=3, shared_enable=3, write_mode=0,
+                    a=0, b=0)
+                add(write_enable=3, shared_enable=3, write_mode=3,
+                    mask_a=1 << (index % mask_width),
+                    mask_b=1 << ((mask_width - 1 - index) % mask_width))
+                add(read_enable=3, shared_enable=3)
         for address in range(depth):
             add(read_address=address, shared_address=address, read_enable=3, shared_enable=3)
             # Changing controls, including reset, between edges cannot advance

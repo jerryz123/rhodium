@@ -107,8 +107,18 @@ for (budget in [1, 1000000]):
     sampling.contains("Frame frame;") ~is #true
   for (field in ["call0_enable", "call0_arg0", "assertion0_failed",
                  "write0_address", "write0_data", "write0_enable",
-                 "write1_address", "write1_data", "write1_enable"]):
+                 "write1_address", "write1_enable"]):
     check: sampling.split("frame." ++ field ++ " = ").length() - 1 ~is 1
+  // Masked writes initialize disabled data and guard both the old-word load
+  // and merge with the effective enable, including shared-port write mode.
+  def guarded_write = sampling.split("  if (frame.write1_enable) {")[1].split("\n  }")[0]
+  check:
+    sampling.contains("frame.write1_enable = v" ++ to_string(input("enable")) ++ " != 0 && v" ++ to_string(input("mode")) ++ " != 0;") ~is #true
+    sampling.contains("frame.write1_data = {};\n  if (frame.write1_enable) {") ~is #true
+    sampling.split("const auto write1_old = ").length() - 1 ~is 1
+    guarded_write.contains("const auto write1_old = vector_index(") ~is #true
+    guarded_write.contains("frame.write1_data = ") ~is #true
+    sampling.split("frame.write1_data = ").length() - 1 ~is 2
   for (field in ["s0", "r0", "f0_0", "f0_1"]):
     check: sampling.split("next." ++ field ++ " = ").length() - 1 ~is 1
   check:
