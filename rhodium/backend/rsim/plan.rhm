@@ -15,7 +15,7 @@ export:
   RsimAssertion
   RsimForeign
   RsimSchedule
-  build_schedule
+  build_schedule remap_schedule
 
 /* Describes one typed value in dependency order; operand indices
    refer only to earlier steps. Input and state steps are evaluation roots. */
@@ -56,6 +56,30 @@ class RsimSchedule(name :: String, inputs :: List.of(RsimPort), outputs :: List.
                    steps :: List.of(RsimStep), registers :: List.of(RsimRegister),
                    memories :: List.of(RsimMemory), writes :: List.of(RsimWrite),
                    reads :: List.of(RsimRead), assertions :: List.of(RsimAssertion), foreign_calls :: List.of(RsimForeign))
+
+/* Replace scheduled values through one mapping while preserving every resource,
+   occurrence, port, and effect in order. Rewrites provide dependency-ordered steps;
+   optional value zero is live, and resource slots are never value indices. */
+fun remap_schedule(schedule :: RsimSchedule, steps :: List.of(RsimStep), remap :: Function.of_arity(1)) :: RsimSchedule:
+  /* Preserve absence independently of the mapped value's numeric index. */
+  fun optional(value :: maybe(Nat)) :: maybe(Nat):
+    if value == #false | #false | remap(value)
+  /* Preserve the public port inventory and types while replacing only values. */
+  fun port(old :: RsimPort) :: RsimPort:
+    RsimPort(old.name, old.type, remap(old.value))
+  def registers = for List (reg in schedule.registers):
+    RsimRegister(reg.path, reg.name, reg.type, remap(reg.next_value), optional(reg.reset), optional(reg.reset_value))
+  def writes = for List (write in schedule.writes):
+    RsimWrite(write.memory, remap(write.address), remap(write.data), remap(write.enable),
+              optional(write.write_mode), optional(write.mask_value), write.mask_granularity)
+  def reads = for List (read in schedule.reads):
+    RsimRead(read.memory, remap(read.address), remap(read.enable), optional(read.write_mode))
+  def assertions = for List (assertion in schedule.assertions):
+    RsimAssertion(assertion.path, assertion.label, assertion.location, remap(assertion.condition), remap(assertion.reset), remap(assertion.guard))
+  def calls = for List (call in schedule.foreign_calls):
+    RsimForeign(call.import_decl, remap(call.enable), call.arguments.map(remap))
+  RsimSchedule(schedule.name, schedule.inputs.map(port), schedule.outputs.map(port), steps,
+               registers, schedule.memories, writes, reads, assertions, calls)
 
 /* Binds a shared definition to one hierarchy path and parent-owned input values. */
 class Occurrence(module_def :: Module, path :: List.of(String), bindings :: Map,

@@ -43,6 +43,7 @@ a shared semantic responsibility actually belongs in core.
 | `verilog.rhm` | Opcode inventory, packed types, names, nets, state, and SV rendering |
 | `rsim-target.rhm` | Standalone and SV-binding targets sharing one prepared model plan |
 | `rsim/plan.rhm` | Recursive type capability checks, occurrence bindings, dependency schedule, register/memory sinks, per-occurrence assertions, and scalar foreign calls |
+| `rsim/array-updates.rhm` | Exact recovery of single-index array updates and unused-value pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
@@ -97,13 +98,29 @@ may share their aggregate source; other admitted expressions require scalar
 operands. Mutable roots, aggregate computations, and partial operations remain
 distinct. This pass performs no algebraic rewriting or cross-evaluation caching.
 
+After scalar CSE, `compact_array_updates` recognizes a complete vector whose
+lanes are `index == lane ? replacement : base[lane]`. All lanes must use the
+same base, index, and replacement, with exact lane constants and original types.
+Wrapped constants or mismatched lanes remain ordinary computations. Equality may
+place the constant on either side; indices remain at most 64 bits. The pass uses
+the existing `rtl.vector_inject` schedule operation, then removes unused value
+producers in dependency order. Inputs, outputs, state sinks, every assertion, and
+foreign/memory operands remain roots; shared lane consumers and all resources
+survive. No high-level library or core IR changes are required.
+
+Region and storage planning run only after this rewrite. Array injection copies
+the base once into a fresh local or unique scratch destination, then conditionally
+replaces the selected lane. The destination cannot alias an earlier operand;
+out-of-range indices retain the original array as before. Current state and
+constants remain immutable, and sinks still copy into the inactive bank/frame.
+
 The returned schedule remaps ports, register next/reset values, memory read/write
 controls and data, assertions, and foreign arguments/enables. Resource indices,
 occurrence paths, labels, locations, and effect ordering do not change. Derive
 evaluation bodies, dependencies, regions, and storage from this returned schedule;
 never carry old step indices across the rewrite. The emitter renders its supplied
 schedule without another optimization pass. The forced-region fixture target
-uses the same CSE pass before applying its smaller partition budget.
+uses the same two passes before applying its smaller partition budget.
 
 `RsimSchedule` checks its immutable step list at construction; `emit_rsim` checks
 the incoming schedule. Private renderer helpers receive that same list and use
@@ -713,6 +730,11 @@ consumer remapping (including optional value zero), and preserved effect/resourc
 identity. Native and direct-SV scoreboards exercise the optimized target with
 independently authored duplicate arithmetic and existing state, memory, assertion,
 and DPI fixtures at ordinary and forced-small region budgets.
+`tests/rsim-array-updates-test.rhm` checks exact lane matching, wrapped-index
+non-matches, retained shared consumers, deterministic pruning, and effect/resource
+remapping. Dynamic native/direct-SV scoreboards observe expanded updates, shared
+lanes, and old-state capture across reset, eval-only calls, and out-of-range
+indices. Constant-ROM fixtures cover aggregate updates containing wide leaves.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Planner checks validate structured backing, borrowing and helper-local fallback,
 deterministic slot allocation, and array-run expansion against the original

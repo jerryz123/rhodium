@@ -90,8 +90,8 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
   | step.opcode in ["rtl.record_create", "rtl.vector_create"]: types.construct(step.type, args)
   | step.opcode == "rtl.record_get": args[0] ++ "." ++ cpp_name(step.attributes["field"])
   | step.opcode == "rtl.vector_get": args[0] ++ "[" ++ to_string(step.attributes["index"]) ++ "]"
-  | step.opcode in ["rtl.vector_index", "rtl.vector_inject", "rtl.vector_write_set"]:
-      def name = {"rtl.vector_index": "vector_index", "rtl.vector_inject": "vector_inject", "rtl.vector_write_set": "vector_write_set"}[step.opcode]
+  | step.opcode in ["rtl.vector_index", "rtl.vector_write_set"]:
+      def name = {"rtl.vector_index": "vector_index", "rtl.vector_write_set": "vector_write_set"}[step.opcode]
       name ++ "(" ++ String.join(args, ", ") ++ ")"
   | step.opcode in ["rtl.zext", "rtl.trunc", "rtl.extract", "rtl.sext"] && (scalar_carrier_width(step.type) > 64 || scalar_carrier_width(steps[step.operands[0]].type) > 64):
       def target_width = scalar_carrier_width(step.type)
@@ -183,7 +183,10 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
   if constants.has_key(index)
   | "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ constants[index] ++ ";"
   | def step = steps[index]
-    def array = if step.opcode == "rtl.vector_create" | array_construction(index, step, types, bindings, destination) | #false
+    def array = match step.opcode
+    | "rtl.vector_create": array_construction(index, step, types, bindings, destination)
+    | "rtl.vector_inject": array_update(index, step, types, destination)
+    | ~else: #false
     if array
     | array
     | def rendered = expression(step, steps, types)
@@ -244,6 +247,16 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       def port = plan.outputs[index]
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
+
+/* Copy an update's base once into fresh local or uniquely owned scratch storage,
+   then replace its selected lane. Sources cannot alias this new destination;
+   the bounds guard preserves the backend's out-of-range hold choice. */
+fun array_update(index :: Nat, step :: RsimStep, types :: CppTypes, destination :: maybe(String)) :: String:
+  def target = destination || ("array" ++ to_string(index))
+  def address = ref(step.operands[1])
+  "  " ++ (if destination | "" | types.name(step.type) ++ " ") ++ target ++ " = " ++ ref(step.operands[0]) ++ ";\n"
+    ++ "  if (" ++ address ++ " < " ++ to_string(step.type.length) ++ ") " ++ target ++ "[" ++ address ++ "] = " ++ ref(step.operands[2]) ++ ";\n"
+    ++ "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ target ++ ";"
 
 /* Render a constructor's planned runs into a fresh local or boundary array.
    Recognition and source addressing live in the planners; this function owns
@@ -417,8 +430,6 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
   def masked_writes = plan.writes.filter(~keep: fun (write): write.mask_value != #false)
   when "rtl.vector_index" in opcodes || "memory_read" in opcodes || plan.reads.length() > 0 || masked_writes.length() > 0
   | source.add("template <typename T, std::size_t N>\nstatic T vector_index(const std::array<T, N>& value, std::uint64_t index) {\n  return index < N ? value[index] : T{};\n}")
-  when "rtl.vector_inject" in opcodes
-  | source.add("template <typename T, std::size_t N>\nstatic std::array<T, N> vector_inject(std::array<T, N> value, std::uint64_t index, const T& element) {\n  if (index < N) value[index] = element;\n  return value;\n}")
   when "rtl.vector_write_set" in opcodes
   | source.add("template <typename T, std::size_t N, std::size_t P>\nstatic std::array<T, N> vector_write_set(std::array<T, N> value, const std::array<std::uint64_t, P>& enables, const std::array<std::uint64_t, P>& indices, const std::array<T, P>& elements) {\n  for (std::size_t port = 0; port < P; ++port) {\n    if (enables[port] != 0 && indices[port] < N) value[indices[port]] = elements[port];\n  }\n  return value;\n}")
   // Emit narrow helpers only when called; models with exclusively wide shift

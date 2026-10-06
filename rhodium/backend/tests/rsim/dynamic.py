@@ -24,7 +24,9 @@ def ports(length, record):
               for index in range(length) for path, width, low in element]
     return [('read', bits, element), ('injected', length*bits, vector),
             ('written', length*bits, vector), ('reversed', length*bits, vector),
-            ('state', length*bits, vector), ('captured', bits, element)]
+            ('state', length*bits, vector), ('captured', bits, element),
+            ('expanded', length*bits, vector), ('expandedlane', bits, element),
+            ('updatedstate', length*bits, vector)]
 
 
 OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
@@ -49,7 +51,7 @@ def stimuli():
                       rng.getrandbits(64), rng.getrandbits(64), rng.getrandbits(64),
                       rng.getrandbits(64), rng.getrandbits(64)) for _ in range(100)]
         zero = (0, 0, 0) if record else (0,)
-        state, captured = [zero] * length, zero
+        state, captured, updated_state = [zero] * length, zero, [zero] * length
         for tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, a, b in commands:
             selector, i0, i1 = (x & (encodings - 1) for x in (raw_selector, raw_i0, raw_i1))
             enables = raw_enables & 3
@@ -60,13 +62,15 @@ def stimuli():
             writes = {index: replacements[port] for port, index in enumerate((i0, i1))
                       if enables & (1 << port)} if valid else {}
             if tick:
+                updated_state = [zero] * length if reset else [element(a, b, 11, record) if i == selector else old for i, old in enumerate(state)]
                 captured = zero if reset or selector >= length else state[selector]
                 state = [zero] * length if reset else [writes.get(index, old) for index, old in enumerate(state)]
             base = [element(a, b, index, record) for index in range(length)]
             read = base[selector] if selector < length else zero
             injected = [element(a, b, 11, record) if index == selector else old for index, old in enumerate(base)]
             written = [writes.get(index, old) for index, old in enumerate(base)]
-            results = [read] + injected + written + written + state + [captured]
+            expanded = [element(a, b, 11, record) if i == selector else old for i, old in enumerate(state)]
+            results = [read] + injected + written + written + state + [captured] + expanded + [expanded[0]] + updated_state
             flat = [value for result in results for value in result]
             expected.append(flat + [0] * (OUTPUT_COUNT - len(flat)))
             rows.append([config, tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, int(valid), a, b])

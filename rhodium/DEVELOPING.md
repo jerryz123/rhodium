@@ -131,10 +131,12 @@ the [clocking plan](CLOCKING_PLAN.md).
 | [`../vlsi/`](../vlsi/README.md) | Physical-design integration, design/technology policy, and mapped simulation | Public authoring/compilation surfaces; `sram/`; `sims/`; external VLSI tools and harnesses |
 
 The `backend/rsim-target.rhm` adapter imports compile contracts, RTL preparation,
-and its local scheduler, scalar CSE pass, and emitter. `backend/rsim/plan.rhm`
-imports core IR/types and dependency identity lookup. `backend/rsim/cse.rhm`
+and its local scheduler, scalar CSE and array-update passes, and emitter.
+`backend/rsim/plan.rhm` imports core IR/types and dependency identity lookup. `backend/rsim/cse.rhm`
 imports core types and local schedule descriptors for exact expression sharing
-and value remapping. `backend/rsim/evaluation.rhm` imports only the
+and value remapping. `backend/rsim/array-updates.rhm` imports core types, local
+schedule descriptors, and evaluation dependencies for exact update recognition
+and removal of unused value cones. `backend/rsim/evaluation.rhm` imports only the
 local schedule descriptors for value/storage dependencies and evaluation planning.
 `backend/rsim/regions.rhm` imports core types and local schedule/evaluation
 descriptors for cost-based partitioning and boundary liveness.

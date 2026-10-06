@@ -1,0 +1,93 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../rsim/plan.rhm" open
+  "../rsim/array-updates.rhm".compact_array_updates
+  "../rsim/cse.rhm".share_scalar_expressions
+  "../../compile/contracts.rhm".CompileOptions
+  "../../compile/rtl.rhm".prepare_rtl
+  "../rsim-target.rhm".rsim_target
+  "rsim/dynamic-fixtures.rhm".make_dynamic
+
+fun fixture(length :: PosInt, width :: PosInt, kind :: String = "update", shared :: Boolean = #false):
+  def element = RecordType([RecordField("data", Bits(129)), RecordField("tag", Bits(3))])
+  def vector = VectorType(length, element)
+  def steps = MutableList[
+    RsimStep("input", vector, [], {"name": "base"}),
+    RsimStep("input", Bits(width), [], {"name": "index"}),
+    RsimStep("input", element, [], {"name": "replacement"}),
+    RsimStep("input", vector, [], {"name": "other"}),
+    RsimStep("input", Bits(width), [], {"name": "other_index"}),
+    RsimStep("input", element, [], {"name": "other_replacement"})
+  ]
+  fun add(opcode :: String, type :: HardwareType, operands :: List, attributes :: Map = {}):
+    def id = steps.length()
+    steps.add(RsimStep(opcode, type, operands, attributes))
+    id
+  def lanes = for List (lane in 0..length):
+    def constant = add("rtl.constant", Bits(width), [], {"value": lane mod (2 ** width)})
+    def selector = if kind == "index" && lane == 1 | 4 | 1
+    def equal = add("rtl.eq", Bits(1), if lane mod 2 == 0 | [constant, selector] | [selector, constant])
+    def base = if kind == "base" && lane == 1 | 3 | 0
+    def old = add("rtl.vector_get", element, [base], {"index": if kind == "lane" && lane == 1 | 0 | lane})
+    def replacement = if kind == "replacement" && lane == 1 | 5 | 2
+    add("rtl.mux_lookup", element, [equal, old, replacement], {"keys": [1]})
+  def constructed = add("rtl.vector_create", vector, lanes, {"name": "updated"})
+  // Effect-only uses and shared lane projections must survive value pruning.
+  def enable = add("rtl.constant", Bits(1), [], {"value": 1})
+  def imp = Builder(Design()).dpi_import_results("consume_update", ["flag"], [Bits(1)], [])
+  RsimSchedule("ArrayUpdates", for List (step in steps.snapshot().take(6), index in 0..6): RsimPort(step.attributes["name"], step.type, index),
+               [RsimPort("updated", vector, constructed)] ++ (if shared | [RsimPort("shared", element, lanes[0])] | []),
+               steps.snapshot(), [RsimRegister([], "q", vector, constructed, enable, 0)],
+               [RsimMemory([], "ram", 8, element)], [RsimWrite(0, 1, 2, enable, #false, enable, 132)],
+               [RsimRead(0, 1, enable, #false)], [RsimAssertion([], "alive", "fixture:1", enable, enable, enable)],
+               [RsimForeign(imp, enable, [enable])])
+
+for (length in [1, 3, 8], width in [1, 2, 64]):
+  for (shared in [#false, #true]):
+    def original = fixture(length, width, "update", shared)
+    def optimized = compact_array_updates(original)
+    def result = optimized.steps[optimized.outputs[0].value]
+    check:
+      result.opcode ~is "rtl.vector_inject"
+      result.operands ~is [0, 1, 2]
+      result.attributes ~is {"name": "updated"}
+      optimized.inputs ~is original.inputs
+      optimized.steps.length() <= original.steps.length() ~is #true
+      optimized ~is compact_array_updates(optimized)
+      optimized ~is compact_array_updates(original)
+      original.steps[original.outputs[0].value].opcode ~is "rtl.vector_create"
+      optimized.registers[0].next_value ~is optimized.outputs[0].value
+      optimized.registers[0].reset_value ~is 0
+      optimized.memories === original.memories ~is #true
+      optimized.writes[0].memory ~is 0
+      optimized.writes[0].mask_granularity ~is 132
+      optimized.reads[0].memory ~is 0
+      optimized.assertions[0].label ~is "alive"
+      optimized.foreign_calls[0].import_decl === original.foreign_calls[0].import_decl ~is #true
+    for (value in [optimized.registers[0].reset, optimized.writes[0].enable, optimized.writes[0].mask_value,
+                   optimized.reads[0].enable, optimized.assertions[0].condition, optimized.foreign_calls[0].arguments[0]]):
+      check: optimized.steps[value].attributes["value"] ~is 1
+    when shared
+    | check: optimized.steps[optimized.outputs[1].value].opcode ~is "rtl.mux_lookup"
+    for (step in optimized.steps, index in 0..optimized.steps.length()):
+      check: (for all (operand in step.operands): operand < index) ~is #true
+
+// These legal computations change different bases/values/lanes or update multiple
+// lanes after index wrapping. They cannot become a single-index update.
+for (kind in ["index", "base", "replacement", "lane"]):
+  def original = fixture(3, 2, kind)
+  check: compact_array_updates(original) === original ~is #true
+def wrapped = fixture(3, 1)
+check: compact_array_updates(wrapped) === wrapped ~is #true
+
+// Exercise the production preparation/scheduling path, including a shared lane
+// consumer and old-state sampling; native/differential fixtures check behavior.
+def prepared = prepare_rtl(make_dynamic(3, #true), CompileOptions(), "array updates")
+def original = share_scalar_expressions(build_schedule(prepared.rtl))
+def plan = rsim_target.plan(prepared)
+check:
+  plan.schedule ~is compact_array_updates(original)
+  plan.schedule.steps.length() < original.steps.length() ~is #true
+  plan.manifest() === prepared.manifest ~is #true

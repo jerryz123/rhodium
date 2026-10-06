@@ -46,6 +46,18 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
                        b.vector_create(top, VectorType(2, element_type), if reverse | elements.reverse() | elements))
   def state = b.register(top, "stored", vector, clock, reset, zero_vector)
   def captured = b.register(top, "old_read", element_type, clock, reset, zero_element)
+  // Expanded updates exercise recovery from lane muxes over stable storage.
+  // A separate lane observer keeps one old mux live after the vector is folded.
+  def replacement = element(11)
+  def expanded_lanes = for List (lane in 0..length):
+    def equals = b.eq(top, b.constant(top, Bits(index_width), lane), selector)
+    b.mux_lookup(top, equals, b.vector_get(top, state.current, lane), [[1, replacement]])
+  def expanded = b.vector_create(top, vector, expanded_lanes)
+  def updated_state = b.register(top, "q_updated_state", vector, clock, reset, zero_vector)
+  b.drive(updated_state.next, expanded)
+  b.drive(b.output(top, "expanded", vector), expanded)
+  b.drive(b.output(top, "expandedlane", element_type), expanded_lanes[0])
+  b.drive(b.output(top, "updatedstate", vector), updated_state.current)
   b.drive(state.next, b.mux_lookup(top, valid_write, state.current, [[1, writes(state.current, #false)]]))
   b.drive(captured.next, b.mux_lookup(top, read_ok, zero_element, [[1, b.vector_index(top, state.current, selector)]]))
   b.drive(b.output(top, "read", element_type), b.mux_lookup(top, read_ok, zero_element, [[1, read]]))

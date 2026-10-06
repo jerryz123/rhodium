@@ -27,7 +27,10 @@ fun make_constant_rom(width :: PosInt):
   def valid = b.ult(leaf, address, b.constant(leaf, Bits(2), 3))
   def selected = b.mux_lookup(leaf, valid, zero, [[1, b.vector_index(leaf, contents, address)]])
   def replacement = b.record_create(leaf, element, [["mark", b.constant(leaf, Bits(5), 0)], ["data", data]])
-  def modified = b.mux_lookup(leaf, valid, contents, [[1, b.vector_inject(leaf, contents, address, replacement)]])
+  def updated_lanes = for List (index in 0..3):
+    b.mux_lookup(leaf, b.eq(leaf, address, b.constant(leaf, Bits(2), index)), b.vector_get(leaf, contents, index), [[1, replacement]])
+  def updated = b.vector_create(leaf, vector, updated_lanes)
+  def modified = b.mux_lookup(leaf, valid, contents, [[1, updated]])
   for (entry in [["selected", selected], ["original", contents], ["modified", modified]]):
     b.drive(b.output(leaf, entry[0], Bits(entry[1].type.packed_width())), b.cast(leaf, entry[1], Bits(entry[1].type.packed_width())))
   b.finish(leaf)

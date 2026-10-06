@@ -45,9 +45,6 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
   /* Resolve one original value, including index zero, after its producer. */
   fun remap(value :: Nat) :: Nat:
     refs[value]
-  /* Absence is distinct from original or rewritten value zero. */
-  fun optional(value :: maybe(Nat)) :: maybe(Nat):
-    if value == #false | #false | remap(value)
   for (step in schedule.steps, index in 0..schedule.steps.length()):
     def operands = step.operands.map(remap)
     def key = if shareable(step, schedule.steps) | [step.opcode, scalar_width(step.type), operands, expression_attributes(step.attributes)] | #false
@@ -58,19 +55,4 @@ fun share_scalar_expressions(schedule :: RsimSchedule) :: RsimSchedule:
     | refs[index] := steps.length()
       when key | expressions[key] := candidates ++ [steps.length()]
       steps.add(RsimStep(step.opcode, step.type, operands, step.attributes))
-  /* Preserve the public port inventory and types while replacing only values. */
-  fun port(old :: RsimPort) :: RsimPort:
-    RsimPort(old.name, old.type, remap(old.value))
-  def registers = for List (reg in schedule.registers):
-    RsimRegister(reg.path, reg.name, reg.type, remap(reg.next_value), optional(reg.reset), optional(reg.reset_value))
-  def writes = for List (write in schedule.writes):
-    RsimWrite(write.memory, remap(write.address), remap(write.data), remap(write.enable),
-              optional(write.write_mode), optional(write.mask_value), write.mask_granularity)
-  def reads = for List (read in schedule.reads):
-    RsimRead(read.memory, remap(read.address), remap(read.enable), optional(read.write_mode))
-  def assertions = for List (assertion in schedule.assertions):
-    RsimAssertion(assertion.path, assertion.label, assertion.location, remap(assertion.condition), remap(assertion.reset), remap(assertion.guard))
-  def calls = for List (call in schedule.foreign_calls):
-    RsimForeign(call.import_decl, remap(call.enable), call.arguments.map(remap))
-  RsimSchedule(schedule.name, schedule.inputs.map(port), schedule.outputs.map(port), steps.snapshot(),
-               registers, schedule.memories, writes, reads, assertions, calls)
+  remap_schedule(schedule, steps.snapshot(), remap)
