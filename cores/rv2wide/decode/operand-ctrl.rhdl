@@ -4,6 +4,7 @@
 
 import:
   lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/isa/m.rhm") open
   lib("riscv/isa/zicsr.rhm") open
   lib("riscv/isa/zifencei.rhm") open
   lib("riscv/isa/privileged.rhm") open
@@ -42,6 +43,9 @@ bundle RV2WideOperandControl():
   immediate: RV2WideImmediate
 
 def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruction_pattern):
+  group RV64MInstructions:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#true)
   [CSRRW, CSRRS, CSRRC]:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#false)

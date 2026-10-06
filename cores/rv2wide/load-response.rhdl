@@ -12,7 +12,7 @@ import:
 sync_circuit RV2WideLoadResponse():
   interface allocate(Valid(RV2WideResult()), ~role: consumer)
   interface response(Decoupled(Bits(64)), ~role: consumer)
-  interface completed(Valid(RV2WideRetirement()), ~role: producer)
+  interface completed(Decoupled(RV2WideRetirement()), ~role: producer)
   output available: Bool
   output drained: Bool
 
@@ -34,7 +34,7 @@ sync_circuit RV2WideLoadResponse():
     write: owner.write
     data: load.value
     deferred: Bool(#false)
-  completion |> to_valid() |> completed
+  completion |> completed
 
 export:
   RV2WideLoadResponse

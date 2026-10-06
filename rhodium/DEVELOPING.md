@@ -256,6 +256,11 @@ load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
 pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`, and
 `load-response.rhdl` import the same Flow facade for stream contracts, owner
 storage, and atomic response/context joining.
+RV2Wide's `decode/long-ctrl.rhdl` consumes the reusable RISC-V multiply/divide
+relations and pure M/Zmmul catalogs; the composed decoder retains unused-field
+care masks. `long-execution.rhdl` directly instantiates the shared pipelined
+multiplier and iterative divider with Flow owner storage. Its core consumes
+the shared request types and arbitrates all deferred results through Flow.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus

@@ -210,7 +210,17 @@ module rv2wide_fetch_tb;
         write_rd=rd!=0;
       end
       7'h37: begin value=64'($signed({word[31:12],12'b0})); write_rd=rd!=0; end
-      7'h33: begin value=registers[rs1]+registers[rs2]; write_rd=rd!=0; end
+      7'h33,7'h3b: begin
+        if(word[31:25]==1) case(word[14:12])
+          0: value=registers[rs1]*registers[rs2];
+          4: value=registers[rs2]==0 ? '1 : $unsigned($signed(registers[rs1])/$signed(registers[rs2]));
+          5: value=registers[rs2]==0 ? '1 : registers[rs1]/registers[rs2];
+          default: $fatal(1,"unmodeled fetching M instruction");
+        endcase
+        else value=registers[rs1]+registers[rs2];
+        if(word[6:0]==7'h3b) value={{32{value[31]}},value[31:0]};
+        write_rd=rd!=0;
+      end
       7'h67: begin
         value=64'(reference_pc); write_rd=rd!=0;
         reference_pc=int'((registers[rs1]+64'($signed(word[31:20])))&~64'd1);
@@ -287,8 +297,11 @@ module rv2wide_fetch_tb;
     for(int lane=0;lane<2;lane++) if(retired[lane].valid) retire(retired[lane].bits);
     if(completed.valid) begin
       retirement_t expected;
+      int index=-1;
       assert(completions.size()>0) else $fatal(1,"orphan completion");
-      expected=completions.pop_front();
+      foreach(completions[i]) if(completions[i].fetched.pc==completed.bits.fetched.pc) index=i;
+      assert(index>=0) else $fatal(1,"completion instruction identity");
+      expected=completions[index]; completions.delete(index);
       assert(completed.bits.fetched==expected.fetched && completed.bits.write==expected.write && completed.bits.rd==expected.rd)
         else $fatal(1,"completion owner");
       if(expected.write) assert(completed.bits.data==expected.data) else $fatal(1,"completion data");
@@ -658,6 +671,21 @@ module rv2wide_fetch_tb;
     @(negedge clock); start_in='0;
     wait(sleeping); repeat(3) @(negedge clock);
     assert(registers[10]==3 && registers[11]==0 && registers[13]=='h40e && registers[12]==0 && reference_pc=='h412) else $fatal(1,"C.EBREAK/halfword MRET");
+    // Fetch mixed compressed sources and full-width M operations through the
+    // production caches; WFI waits for every accepted deferred write.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    parcel('h600,c_imm(2,8,-17)); parcel('h602,c_imm(2,9,7));
+    insn('h604,{7'd1,5'd9,5'd8,3'd0,5'd10,7'h33}); parcel('h608,c_imm(2,11,3));
+    insn('h60a,{7'd1,5'd9,5'd10,3'd4,5'd12,7'h33}); parcel('h60e,16'h86b2);
+    insn('h610,{7'd1,5'd9,5'd8,3'd0,5'd14,7'h3b});
+    insn('h614,{7'd1,5'd9,5'd10,3'd5,5'd15,7'h33}); insn('h618,32'h10500073);
+    phase=20; reference_pc='h600;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h600};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[10]==-64'd119 && registers[12]==-64'd17 && registers[13]==-64'd17 && registers[14]==-64'd119 && completions.size()==0 && reference_pc=='h61c) else $fatal(1,"fetching M service/drain");
     $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
     $finish;
   end

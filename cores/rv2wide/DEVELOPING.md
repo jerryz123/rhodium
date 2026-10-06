@@ -15,7 +15,7 @@ Keep stage logic in one pipeline-ordered `core.rhdl`. Flow owns feed-forward
 storage; the issue window owns prefix admission, retention, and coalescing.
 No independent lane handshake may allow a younger instruction to pass an
 older blocked instruction. WB is the only transaction and retirement authority;
-its accepted load owners later write through the shared younger-slot port.
+its accepted deferred owners later write through the shared younger-slot port.
 Redirect qualification gates new transfers as well as flushing pipe state.
 
 Reuse ALU, branch, load/store shaping, and shared scoreboard components and the `cores/riscv/` instruction
@@ -32,6 +32,7 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `decode/operand-ctrl.rhdl` | Source-use bits, ALU operands, canonical immediate selection |
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
 | `decode/system-ctrl.rhdl` | Architectural CSR operation/source, trap/return/wait, and serialized fence columns |
+| `decode/long-ctrl.rhdl` | Shared multiply/divide relations, service selection, inactive care masks |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
@@ -39,6 +40,7 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 | `instruction-assembler.rhdl` | Flow block storage, mixed-width parcel consumption, shared C expansion, and continuation faults |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
+| `long-execution.rhdl` | EX multiply reservations and WB owner validation, retained divider ownership |
 | `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
@@ -79,16 +81,40 @@ outstanding. Gating only slow requests misses that race. Neither the core nor
 speculative flush cancels an accepted IO owner. The physical response paths are
 mutually ordered and merge using Flow arbitration, preserving the MMU owner FIFO.
 
-Keep accepted ownership independent of speculative flush. The completion FIFO
+Keep accepted ownership independent of speculative flush. The memory owner FIFO
 joins ordered responses through `zip_flow`, normalizes returned data with
-`LoadGen`, and reserves the younger RR slot for responses requiring a GPR write.
+`LoadGen`, and backpressures at the common completion arbiter. Round-robin Flow
+arbitration merges load, multiply, and divide results and reserves the younger RR
+slot for responses requiring a GPR write.
 An unflushable three-stage Valid pipe aligns those responses with the vacant WB
 slot. Mux the completion and younger instruction before the second register-file
 write connection; do not add a third write port or backpressure WB. The
 completion-pipeline occupancy participates in precise fault drain.
 Pre-WB producer checks bridge the interval before the scoreboard is set.
 RAW interlocks select the youngest older producer; WAW interlocks cover all
-older deferred producers. A completion may forward to RR on its write edge.
+older deferred producers. A completion forwards at arbitration and from each
+return-pipeline stage through its RF write edge. Keep source readiness separate
+from destination readiness: a returned value permits RAW consumers immediately,
+but its scoreboard reservation blocks WAW until the actual RF update.
+
+M instructions use the shared physical control relations in the same composed
+decoder. Only one memory-or-M deferred destination may issue per group, matching
+the one scoreboard set port. Long operations disable ALU forwarding until their
+completion enters the RR return path. x0 M results need no service owner.
+
+EX launches the five-stage multiplier. An unflushable two-stage owner path reaches
+WB at the same time as its instruction; WB retirement authorizes a three-stage
+continuation to the product. A killed/replayed/faulted owner releases its reserved
+result slot at WB and does not publish the speculative product. Keep the physical
+multiplier feed-forward. Eight result reservations include launch, authorization,
+return, and arbitration retention. RR leaves one reservation of headroom for the
+instruction already entering EX. No calendar or third write port is required.
+
+Division captures its operands and owner only after WB acceptance. A busy service
+causes preacceptance replay, while an accepted operation survives all speculative
+flushes. Word operations normalize both inputs before division and sign-extend the
+selected low word afterward. Precise drain includes multiplier reservations,
+divider ownership, load owners, current accepted requests, and completion writes.
 
 A MEM branch flush clears the instruction buffer, RR, and EX, including EX
 lookup admission, while preserving its own MEM-to-WB transfer and older WB work.
@@ -200,6 +226,12 @@ retirement, packet coalescing, RAW/WAW and x0, youngest-producer forwarding,
 RV64/word ALU operations, seeded dependency-heavy arithmetic, signed/unsigned
 branches and jumps in either slot, JALR masking, misalignment/illegal faults,
 MEM qualification, replay/restart, older-fault priority, and reset cancellation.
+M scenarios exercise every RV64M encoding and result projection, signed/mixed/unsigned
+high products, zero-divisor and overflow rules, overlapping pipelined multiplies
+and loads, cross-service completion ownership, RAW/WAW interlocks, x0, and rejected
+versus accepted operations across branch/trap recovery. A dependent multiply
+consumer must reach MEM within six cycles of its producer's MEM token; repeated
+consumers cover forwarding through every return-pipeline stage.
 It also checks all six CSR forms, source-index write intent, counter counts and
 write priority, M/S trap state and returns, younger-fault older retirement,
 WB-over-MEM CSR recovery, accepted-load drain before CSR/interrupt entry, live

@@ -600,7 +600,9 @@ verify_fixture() {
     # remains enabled, as do simulation assertions and convergence checks.
     # RV2Wide's cache response similarly packs MEM data/hazards with independent
     # WB commit readiness; MEM/WB recovery only gates the younger EX lookup.
-    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
+    # The core fixture's memory bus also packs WB admission with an independent
+    # response offer and the completion arbiter's response readiness.
+    if [[ "$fixture" == event-frontend || "$fixture" == rv2wide-core || "$fixture" == rv2wide-cache || "$fixture" == rv2wide-fetch || "$fixture" == rv5stage-load-hit || "$fixture" == rv5stage-retirement-trace || "$fixture" == rv5stage-fetch-throughput || "$fixture" == rv5stage-fetch-prediction || "$fixture" == rv5stage-vector-config || "$fixture" == rv5stage-multiply || "$fixture" == rv5stage-io-mshr || "$fixture" == rv5stage-memory-router ]] || grep -Eq '^module RV5Stage(Frontend|VectorExecution)[ (_]' "$verilog"; then
       verilator_args+=(--Wno-UNOPTFLAT)
     fi
     if [[ "$fixture" == formal-differential && -n "${FORMAL_REPLAY_FILE:-}" ]]; then

@@ -6,6 +6,7 @@ import:
   "decode/core-ctrl.rhdl" open
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
+  "decode/long-ctrl.rhdl" open
   lib("flow/main.rhdl") open
   lib("cores/load-store.rhdl").MemoryWidth
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
@@ -93,6 +94,9 @@ bundle RV2WideResult():
   cache_outcome: RV2WideCacheOutcome
   system: RV2WideSystemControl()
   csr_source: Bits(64)
+  muldiv: RV2WideLongControl()
+  left: Bits(64)
+  right: Bits(64)
   resolution: RV2WideResolution()
 
 /* Carries exact byte address/width with positioned store data and mask in its aligned beat. */

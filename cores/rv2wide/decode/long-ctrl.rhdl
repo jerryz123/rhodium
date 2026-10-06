@@ -1,0 +1,42 @@
+#lang rhodium
+/* Composes RV64M service selection with the shared physical multiply/divide control relations. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/riscv/multiply-decode.rhdl") open
+  lib("cores/riscv/divide-decode.rhdl") open
+  lib("riscv/isa/m.rhm") open
+  lib("riscv/isa/zmmul.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Selects a shared execution service independently of its unobserved physical controls. */
+hardware_enum RV2WideLongOperation:
+  None
+  Multiply
+  Divide
+
+/* Keeps signedness and result projection with each service while inactive fields remain don't-cares. */
+bundle RV2WideLongControl():
+  service: RV2WideLongOperation
+  multiply: RiscvMultiplyControl()
+  divide: RiscvDivideControl()
+
+/* Adds one service column to each canonical instruction using the existing exact-pattern mappings. */
+fun long_cases(instructions :: List.of(InstructionSpec)):
+  def multiply = for List (row in RV64ZmmulControlCases):
+    def output = partial_pattern(RV2WideLongControl()):
+      service: RV2WideLongOperation.Multiply
+      multiply: row.output
+    DecodeCase(row.input, output)
+  def divide = for List (row in RV64MDivideControlCases):
+    def output = partial_pattern(RV2WideLongControl()):
+      service: RV2WideLongOperation.Divide
+      divide: row.output
+    DecodeCase(row.input, output)
+  multiply ++ divide ++ instruction_cases(excluding_instructions(instructions, RV64MInstructions), partial_pattern(RV2WideLongControl()): service: RV2WideLongOperation.None)
+
+export:
+  RV2WideLongOperation
+  RV2WideLongControl
+  long_cases

@@ -6,7 +6,7 @@
 RV2Wide is an in-order dual-issue processor under construction. `RV2Wide`
 fetches instructions through a shared L1I and executes through the shared L1D;
 it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore()` remains the
-independently usable RR-through-WB execution slice. It executes RV64I and integer C
+independently usable RR-through-WB execution slice. It executes RV64IM and integer C:
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
 It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
@@ -123,21 +123,47 @@ EX, MEM, and WB use feed-forward Flow `ValidPipe` registers. Forwarding searches
 both lanes, preferring the youngest older producer. A matching unavailable
 result blocks instead of exposing stale register data. There are four GPR reads
 and two GPR write ports. A shared scoreboard
-reserves accepted slow-load destinations at WB. RAW and WAW interlocks cover
-both older pipeline lanes and outstanding destinations; completion forwards
-on its write edge. Independent work continues while loads are outstanding.
+reserves accepted slow-load and multiply/divide destinations at WB. RAW and WAW interlocks cover
+both older pipeline lanes and outstanding destinations. Returned values forward
+from completion arbitration through the reserved write edge. Independent work
+continues while results are outstanding.
 Register state resets to zero; x0 ignores writes but does not suppress memory
 accesses or their faults. Same-cycle writes have distinct nonzero destinations.
 
 `retired[2]: Valid(RV2WideRetirement())` reports the successful ordered prefix
 at WB, including PC, encoding, destination, write enable, and value. `issued`
 and `retired_count` report counts of zero, one, or two for the current edge.
-Outputs have no backpressure. `deferred` means the memory transaction was
+Outputs have no backpressure. `deferred` means a memory or multiply/divide operation was
 accepted at WB and its response will arrive on `completed`, rather than being
-reissued or retired again. For a deferred load, `write` describes the eventual
+reissued or retired again. For a deferred GPR result, `write` describes the eventual
 GPR write and retirement `data` is unspecified. `completed` preserves the
 instruction identity and reports the returned value; store acknowledgements
 have `write` false. Non-writing data is unspecified on either interface.
+
+## Multiply and divide
+
+All RV64M operations, including MULW, DIVW/DIVUW, and REMW/REMUW, use the
+shared physical control relations. One M instruction may issue per group and
+may pair with independent ALU or branch work. Memory and M instructions split
+the group so WB allocates at most one deferred destination per cycle.
+
+The five-stage shared multiplier launches from EX at one operation per cycle.
+Its owner reaches WB with the instruction, where retirement authorizes the
+result. Rejected owners release their reservation; the physical product continues
+without an architectural write. Eight reserved result slots absorb completion
+arbitration, with admission headroom for RR-to-EX work. The iterative divider
+accepts only at WB; a busy divider causes replay before acceptance. Word divide
+operands are sign- or zero-extended independently of final word sign extension.
+
+Load, multiply, and divide completions use one round-robin Flow arbiter and the
+existing younger-slot reservation pipeline. Completion order may differ from
+retirement order; each result carries its original instruction identity. The
+scoreboard blocks reads until the result returns and younger writes until the
+reserved second-port write. Independent instructions continue. Accepted work survives redirects, and precise
+trap/interrupt entry drains all accepted results and completion-pipeline writes.
+Division by zero and signed overflow return the architectural M results.
+
+## Branch recovery
 
 Branches resolve in EX and redirect from MEM. A taken older branch suppresses
 the younger slot; a taken younger branch preserves the older peer. Both the
@@ -245,7 +271,7 @@ transactions block younger memory operations only.
 
 The shared `cores/riscv/csr` bank owns architectural state and permission checks;
 RV2Wide owns precise ordering. System instructions issue alone only after older
-pipeline work and accepted memory transactions (including GPR completion writes)
+pipeline work and accepted deferred operations (including GPR completion writes)
 drain. They execute once at WB. Younger instructions may execute speculatively,
 but WB system recovery squashes them and overrides same-cycle MEM branch recovery.
 A successful CSR instruction refetches its successor; returns select mepc/sepc.
@@ -255,7 +281,7 @@ a write, while a zero source index suppresses it.
 
 WB retires only the successful prefix: an older instruction still retires if its
 younger peer faults. `minstret` receives an explicit count of zero, one, or two;
-delayed load completion is not a second retirement. Counter writes take priority
+delayed completion is not a second retirement. Counter writes take priority
 over that instruction's count. Interrupts enter before the oldest unretired WB
 instruction, or at the saved next PC when the pipeline is empty. Synchronous
 faults already selected at WB take priority. Entry waits for accepted work to
@@ -317,7 +343,7 @@ must not return pre-reset responses afterward.
 
 ## Deliberate limits
 
-There is no M/A/B decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
+There is no A/B decode, floating-point execution, guest translation, or SoC binding yet. Naturally misaligned
 loads/stores fault before lookup; split accesses are not implemented.
 This execution slice makes no full RV64I or RV64IMACB architectural profile
 claim. It is not selectable through the SoC configuration resolver.

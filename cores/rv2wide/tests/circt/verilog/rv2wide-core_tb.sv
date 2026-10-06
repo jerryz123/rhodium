@@ -66,6 +66,7 @@ module rv2wide_core_tb;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
   logic instruction_invalidate;
   int invalidations=0;
+  int multiply_mem_cycle=-1, dependent_mem_cycle=-1;
 
   RV2WideCore dut(
     .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
@@ -89,8 +90,6 @@ module rv2wide_core_tb;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
     memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.write ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
-    memory_in.response.valid = response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
-    memory_in.response.bits = response_data[response_read];
     memory_in.drained = response_count == 0 && !memory_out.request.valid;
     pipeline_in.response = lookup_response;
     pipeline_in.commit_ready = store_candidate_valid && !block_stores;
@@ -101,6 +100,11 @@ module rv2wide_core_tb;
         resolution[lane].bits = inject_result;
       end
     end
+  end
+
+  always_comb begin
+    memory_in.response.valid = response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
+    memory_in.response.bits = response_data[response_read];
   end
 
   always @(posedge clock) begin
@@ -147,6 +151,10 @@ module rv2wide_core_tb;
   always @(posedge clock) begin
     if (!reset) begin
       cycles++;
+      for(int lane=0;lane<2;lane++) if(memory_stage[lane].valid) begin
+        if(memory_stage[lane].bits.pc=='hab08) multiply_mem_cycle=cycles;
+        if(memory_stage[lane].bits.pc=='hab10) dependent_mem_cycle=cycles;
+      end
       if (cycles > 10000) $fatal(1, "watchdog");
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       if (int'(instruction_capacity) < minimum_instruction_capacity) minimum_instruction_capacity = int'(instruction_capacity);
@@ -180,7 +188,7 @@ module rv2wide_core_tb;
             else $fatal(1, "retirement order/control pc=%h expected=%h", retired[lane].bits.fetched.pc, want.fetched.pc);
           if (retired[lane].bits.deferred) begin
             expected_completions.push_back(want);
-            response_owners.push_back(want);
+            if(want.fetched.instruction[6:0]==7'h03 || want.fetched.instruction[6:0]==7'h23) response_owners.push_back(want);
           end
           if (want.write && !retired[lane].bits.deferred)
             assert (retired[lane].bits.rd == want.rd && retired[lane].bits.data == want.data)
@@ -199,8 +207,11 @@ module rv2wide_core_tb;
       end
       if (completed.valid) begin
         retirement_t want;
+        int index=-1;
         assert (expected_completions.size() > 0) else $fatal(1, "unowned memory completion");
-        want = expected_completions.pop_front();
+        foreach(expected_completions[i]) if(expected_completions[i].fetched.pc==completed.bits.fetched.pc) index=i;
+        assert(index>=0) else $fatal(1,"completion has no accepted owner pc=%h",completed.bits.fetched.pc);
+        want = expected_completions[index]; expected_completions.delete(index);
         assert (completed.bits.fetched == want.fetched && completed.bits.write == want.write && !completed.bits.deferred) else $fatal(1, "completion owner mismatch");
         if (want.write) assert (completed.bits.rd == want.rd && completed.bits.data == want.data) else $fatal(1, "load completion mismatch pc=%h got=%h want=%h", want.fetched.pc, completed.bits.data, want.data);
       end
@@ -333,7 +344,24 @@ module rv2wide_core_tb;
         endcase
       end
       'h33, 'h3b: begin
-        case (f3)
+        if(f7==1) begin
+          logic signed [127:0] left_wide, right_wide, product;
+          if(op=='h3b) begin
+            a=(f3==5 || f3==7) ? {32'd0,a[31:0]} : {{32{a[31]}},a[31:0]};
+            b=(f3==5 || f3==7) ? {32'd0,b[31:0]} : {{32{b[31]}},b[31:0]};
+          end
+          left_wide=f3==3 ? $signed({64'd0,a}) : $signed({{64{a[63]}},a});
+          right_wide=(f3==2 || f3==3) ? $signed({64'd0,b}) : $signed({{64{b[63]}},b});
+          product=left_wide*right_wide;
+          case(f3)
+            0: value=product[63:0];
+            1,2,3: value=product[127:64];
+            4: value=b==0 ? '1 : (a==64'h8000000000000000 && b=='1 ? a : $unsigned($signed(a)/$signed(b)));
+            5: value=b==0 ? '1 : a/b;
+            6: value=b==0 ? a : (a==64'h8000000000000000 && b=='1 ? 0 : $unsigned($signed(a)%$signed(b)));
+            7: value=b==0 ? a : a%b;
+          endcase
+        end else case (f3)
           0: value = f7 == 32 ? a - b : a + b;
           1: value = a << (op == 'h3b ? int'(b[4:0]) : int'(b[5:0]));
           2: value = 64'($signed(a) < $signed(b));
@@ -357,6 +385,17 @@ module rv2wide_core_tb;
     item.rd = word[11:7]; item.write = writes && word[11:7] != 0; item.data = value;
     if (item.write) model[item.rd] = value;
     expected.push_back(item);
+  endtask
+
+  function automatic logic [31:0] m_insn(int rd, rs1, rs2, funct3, bit word=0);
+    return {7'd1,5'(rs2),5'(rs1),3'(funct3),5'(rd),word ? 7'h3b : 7'h33};
+  endfunction
+  // Construct arbitrary architectural operands through real instructions.
+  task automatic constant64(ref logic [63:0] pc, input int rd, input logic [63:0] value);
+    send(pc,imm(rd,0,0),0,1); pc+=4;
+    for(int byte_index=7;byte_index>=0;byte_index--) begin
+      send(pc,imm(rd,rd,8,1),imm(rd,rd,int'(value[byte_index*8+:8]))); pc+=8;
+    end
   endtask
 
   task automatic tick;
@@ -940,6 +979,79 @@ module rv2wide_core_tb;
       hold_responses=0; drain();
       assert(invalidations==instruction_fence) else $fatal(1,"FENCE.I invalidation count");
     end
+    // Every M operation, including word projection, signed high products,
+    // divide-by-zero, signed overflow, and independently varying operand signs.
+    for(int scenario=0;scenario<6;scenario++) begin
+      logic [63:0] pc='h8000;
+      logic [63:0] a,b;
+      reset_core();
+      case(scenario)
+        0: begin a=64'hfedcba9876543210; b=64'h0123456789abcdef; end
+        1: begin a=64'h8000000000000000; b='1; end
+        2: begin a=64'hffffffff80000000; b=64'hffffffffffffffff; end
+        3: begin a=64'h8000000080000001; b=0; end
+        4: begin a=64'hffffffffffffffff; b=64'h8000000000000001; end
+        5: begin a=64'h7fffffff7fffffff; b=7; end
+      endcase
+      constant64(pc,1,a); constant64(pc,2,b); drain();
+      for(int word=0;word<2;word++) for(int funct3=0;funct3<8;funct3++) if(word==0 || funct3==0 || funct3>=4) begin
+        send(pc,m_insn(3,1,2,funct3,word!=0),imm(4,0,funct3)); pc+=8;
+        send(pc,imm(5,3,1),imm(6,4,1)); pc+=8;
+        drain();
+      end
+      send(pc,m_insn(0,1,2,4),m_insn(0,1,2,0)); drain();
+    end
+    // Pipelined requests overlap each other and slow loads; response order is
+    // allowed to differ from retirement. The second GPR port remains reserved.
+    reset_core(); configured_delay=50;
+    send('h9000,imm(1,0,-17),imm(2,0,7)); drain();
+    send('h9008,imm(20,0,0,3,'h03),imm(21,0,21));
+    for(int i=0;i<12;i++) send(64'('h9010+i*8),m_insn(3+i,1,2,i%4),imm(22,0,i));
+    send('h9070,m_insn(17,1,2,4),imm(18,0,18));
+    send('h9078,imm(19,3,1),imm(2,0,3)); drain(); configured_delay=8;
+    // Accepted multiply/divide owners survive a younger trap and drain before
+    // trap entry. A rejected owner must never complete or set the scoreboard.
+    for(int funct3=0;funct3<=4;funct3+=4) begin
+      reset_core(); send('h9200,imm(1,0,-101),imm(2,0,3)); drain();
+      stop_at('h920c,'h920c,1,2,64'hffffffff);
+      send('h9208,m_insn(3,1,2,funct3),32'hffffffff,2,1,0); drain();
+      send('h9300,imm(4,3,0),imm(3,0,9)); drain();
+      reset_core(); send('h9400,imm(1,0,101),imm(2,0,3)); drain();
+      stop_at('h9408,'h9408,1,13,'hdead);
+      inject_enable=1; inject_pc='h9408; inject_result='{disposition:2'd1,cause:64'd13,value:64'hdead};
+      send('h9408,imm(7,0,7),m_insn(3,1,2,funct3),2,0,0); drain(); inject_enable=0;
+      send('h9500,imm(3,0,5),imm(4,3,1)); drain();
+    end
+    // The busy divider replays before acceptance; the accepted owner survives.
+    reset_core();
+    begin
+      logic [63:0] pc='ha000;
+      constant64(pc,1,64'h7fffffffffffffff); constant64(pc,2,3); drain();
+    end
+    send('ha100,m_insn(3,1,2,4),imm(8,0,8));
+    stop_at('ha108,'ha108,2);
+    send('ha108,m_insn(4,1,2,5),imm(9,0,9),2,0,0); drain();
+    send('ha108,m_insn(4,1,2,5),imm(9,0,9)); drain();
+    send('ha110,imm(5,3,1),imm(6,4,1)); drain();
+    // Same-group older preacceptance replay rejects an EX-launched multiply.
+    reset_core(); send('ha200,imm(1,0,17),imm(2,0,3)); drain();
+    stop_at('ha208,'ha208,2);
+    inject_enable=1; inject_pc='ha208; inject_result='{disposition:2'd2,cause:64'd0,value:64'd0};
+    send('ha208,imm(7,0,7),m_insn(3,1,2,0),2,0,0); drain(); inject_enable=0;
+    send('ha208,imm(7,0,7),m_insn(3,1,2,0)); drain();
+    // RAW consumers use the returned product without waiting three more cycles
+    // for its RF write; forwarding persists through every return-pipeline stage.
+    reset_core(); send('hab00,imm(1,0,17),imm(2,0,3)); drain();
+    send('hab08,m_insn(3,1,2,0),imm(8,0,8));
+    send('hab10,imm(4,3,1),imm(5,3,2));
+    send('hab18,imm(6,3,3),imm(7,3,4)); drain();
+    assert(multiply_mem_cycle>=0 && dependent_mem_cycle-multiply_mem_cycle<=6)
+      else $fatal(1,"multiply consumer waited beyond return: producer=%0d consumer=%0d",multiply_mem_cycle,dependent_mem_cycle);
+    // A MEM branch kills a younger EX launch but accepted older work survives.
+    reset_core(); send('h9600,imm(1,0,17),imm(2,0,3)); drain();
+    stop_at('h9608,'h9700); send('h9608,jump(0,'hf8),m_insn(3,1,2,0),2,1,0); drain();
+    send('h9700,imm(3,0,5),imm(4,3,1)); drain();
+    csr_access('h9708,2,5,0,'h301,64'h8000000000141104);
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
     $finish;
