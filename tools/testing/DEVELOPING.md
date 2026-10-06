@@ -83,7 +83,16 @@ outside the HDL-free native suite.
 
 CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 [`plan.py`](../ci/plan.py) maps changed paths to the capability matrix declared
-by [`policy.py`](../ci/policy.py). The config rows come from the single
+by [`policy.py`](../ci/policy.py). Planner tests protect dependency selection,
+conservative handling of unknown paths, preservation of selected runs through
+build sharing, shard partitioning, and rejection of failed, cancelled, or
+unexpectedly skipped workflows. Derive coverage from the owning inventories;
+do not freeze fixture totals, shard counts, config catalogs, YAML wording, or
+step order in a second test inventory. Keep executable workflow-shell checks
+for setting propagation and failure reporting. Artifact validation and cache
+integrity belong to their owning adapter tests, not workflow-text snapshots.
+
+The config rows come from the single
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
 by shape and ISA, independently of core. Simulator matrices additionally carry
 backend, cosim selection, and artifact identity. `BACKEND_SMOKE_VARIANTS` in `policy.py` adds

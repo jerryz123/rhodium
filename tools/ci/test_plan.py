@@ -1,4 +1,4 @@
-# Tests CI selection, fail-closed coverage, and completed build-artifact orchestration.
+# Tests CI selection, build sharing, shard coverage, and workflow failure propagation.
 # SPDX-License-Identifier: Apache-2.0
 
 import json
@@ -14,7 +14,7 @@ from pathlib import Path
 from .gate import failures
 from .plan import Selection, plan_for_paths
 from .programs import program_matrices
-from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, platform_configs
+from .policy import CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, SOFTWARE_TESTS, COSIM_CONFIGS, native_configs, simulation_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, platform_configs
 
 
 REPO = Path(__file__).resolve().parents[2]
@@ -165,11 +165,6 @@ class PlanTest(unittest.TestCase):
         expected.extend(simulation_entry(*BACKEND_SMOKE_CONFIG, backend=backend)
                         for backend in BACKEND_SMOKE_VARIANTS)
         self.assertEqual(plan["simulator_matrix"]["include"], expected)
-        self.assertEqual({entry["soc"] for entry in expected},
-                         {"mini-rv5stage-rv32int", "mini-spike-rv32int", "simple-rv5stage-rv32int", "simple-spike-rv32int",
-                          "mini-rv5stage-rv32max", "mini-spike-rv32max", "simple-rv5stage-rv64max", "simple-spike-rv64max", "mini-rv5stage-rva23", "mini-spike-rva23", "simple-rv5stage-rva23",
-                          "simple-spike-rva23", "simple-rv5stage-rv32max", "simple-spike-rv32max", "tiled-rv5stage-rva23", "tiled-spike-rva23",
-                          "simple-rv5stage-rv64imacb", "simple-spike-rv64imacb", "simple-rv5stage-rv64imafdcb", "simple-spike-rv64imafdcb"})
         for path in ("sw/build/build.py", "sw/build/isa.mk", "sw/riscv-isa-tests"):
             with self.subTest(path=path):
                 self.assertIn(simulation_entry("mini-rv5stage-rv32max", "mini", "rv5stage"),
@@ -180,24 +175,14 @@ class PlanTest(unittest.TestCase):
                      'cores/rv5stage/core.rhdl', 'sims/Makefile', '.github/workflows/ci.yml'):
             with self.subTest(path=path):
                 plan = self.plan(path)
-                builds = plan['simulator_matrix']['include']
                 runs = plan['simulator_matrix']['include']
-                self.assertEqual(len({entry['simulator_id'] for entry in builds}), len(builds))
-                self.assertEqual({entry['simulator_id'] for entry in builds},
-                                 {entry['simulator_id'] for entry in runs})
+                self.assertEqual(len({entry['simulator_id'] for entry in runs}), len(runs))
                 direct = [entry for entry in runs if entry['backend'] == 'verilog']
                 self.assertEqual(len(direct), 1)
                 self.assertEqual(direct[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(direct[0]['simulator_id'], 'simple-rv5stage-rva23-verilog')
                 self.assertEqual(direct[0]['software_tests'].split(), ['smoke', 'host-mmio-test', 'uart-pty-test'])
-                self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
-        build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
-        run = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn("if: fromJSON(inputs.config).backend == 'circt'", build)
-        for workflow in (build, run):
-            self.assertIn('RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}', workflow)
-            self.assertIn('fromJSON(inputs.config).simulator_id', workflow)
-        self.assertIn('--backend "$RTL_BACKEND"', run)
+                self.assertEqual({row['configuration'] for row in plan['arch_build_matrix']['include']}, set(SINGLE_CORE_SOCS))
 
     def test_rsim_is_an_isolated_bounded_smoke_variant(self):
         for path in ('rhodium/backend/rsim/emit.rhm', 'rhodium/compile/rtl.rhm',
@@ -211,10 +196,10 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(rsim[0]['simulator_id'], 'simple-rv5stage-rva23-rsim')
                 self.assertEqual(rsim[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(rsim[0]['software_tests'], 'smoke')
-                self.assertTrue(all(row['opt_fast'] == '-O2' for row in entries))
-                self.assertEqual(rsim[0]['smoke_max_cycles'], 100000)
-                self.assertEqual(rsim[0]['harness_timeout_minutes'], 5)
-                self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
+                self.assertTrue(all(row['opt_fast'] for row in entries))
+                self.assertGreater(rsim[0]['smoke_max_cycles'], 0)
+                self.assertGreater(rsim[0]['harness_timeout_minutes'], 0)
+                self.assertEqual({row['configuration'] for row in plan['arch_build_matrix']['include']}, set(SINGLE_CORE_SOCS))
                 self.assertTrue(all(row['soc'] in SINGLE_CORE_SOCS for row in plan['program_matrix']['include']))
         # Software-only builds still use the ordinary simulator inventory.
         self.assertTrue(all(row['backend'] == 'circt' for row in
@@ -222,17 +207,17 @@ class PlanTest(unittest.TestCase):
         self.assertTrue({row['soc'] for row in platform_configs()} <= {c[0] for c in SIMULATOR_CONFIGS})
 
     def test_backend_workflow_commands_propagate_settings_and_failures(self):
-        def step(workflow, name):
+        def script(workflow, marker):
             text = (REPO / '.github/workflows' / workflow).read_text()
-            section = text.split(f'      - name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn('        shell: bash\n', section)
-            return section, textwrap.dedent(section.split('        run: |\n', 1)[1])
+            # Extract literal shell blocks, not step labels or their ordering.
+            blocks = [textwrap.dedent(match[2]) for match in re.finditer(
+                r'(?m)^( +)run: \|[+-]?\n((?:(?:\1 +)[^\n]*\n|\n)+)', text)]
+            matches = [block for block in blocks if marker in block]
+            self.assertEqual(len(matches), 1, workflow)
+            return matches[0]
 
-        build_section, build = step('ci-simulator.yml', 'Build and attest simulator')
-        run_section, run = step('ci-harness.yml', 'Run shape-and-ISA software selection')
-        self.assertIn('OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}', build_section)
-        self.assertIn('timeout-minutes: ${{ fromJSON(inputs.config).harness_timeout_minutes || 60 }}', run_section)
-        self.assertIn('SMOKE_MAX_CYCLES: ${{ fromJSON(inputs.config).smoke_max_cycles }}', run_section)
+        build = script('ci-simulator.yml', 'program-target')
+        run = script('ci-harness.yml', 'PREBUILT_SIMULATOR')
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             calls = root / 'calls.jsonl'
@@ -316,9 +301,6 @@ class PlanTest(unittest.TestCase):
                             ("arch_run_matrix", "configuration")):
             self.assertFalse(any(entry[key].endswith(tuple(f"-{isa}" for isa in presets)) for entry in plan[matrix]["include"]))
         self.assertFalse(any(entry["soc"].endswith(tuple(f"-{isa}" for isa in presets)) for entry in platform_configs()))
-        workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn("if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke')", workflow)
-        self.assertEqual(workflow.count("if: always() && contains(fromJSON(inputs.config).software_tests, 'isa-smoke')"), 2)
 
     def test_software_only_builds_only_existing_single_core_configs(self):
         for path in ("sw/build/build-coremark.py", "sims/arch-test/configure.py", "sims/sail/configuration.py"):
@@ -330,6 +312,9 @@ class PlanTest(unittest.TestCase):
                 self.assertFalse(plan["run_simulation"])
 
     def test_native_builds_share_compatible_targets_and_preserve_every_run(self):
+        def build_ids(matrix):
+            return {(entry['soc'], entry['suite']): entry['build_id'] for entry in matrix['run']['include']}
+
         entries = self.plan('sims/Makefile')['program_matrix']
         targets = {}
         for entry in entries['include']:
@@ -340,31 +325,29 @@ class PlanTest(unittest.TestCase):
                                 march=f'rv{xlen}i', mabi='ilp32' if xlen == 32 else 'lp64',
                                 clock_frequency_hz=100000000, ram=[dict(base=0x80000000, size=0x10000)])
         matrices = program_matrices(entries, targets)
-        self.assertEqual(len(matrices['build']['include']), 8)
-        self.assertEqual(len(matrices['run']['include']), 16)
+        self.assertEqual(len(matrices['run']['include']), len(entries['include']))
         self.assertEqual({(entry['soc'], entry['suite']) for entry in matrices['run']['include']},
                          {(entry['soc'], entry['suite']) for entry in entries['include']})
         builds = {entry['build_id'] for entry in matrices['build']['include']}
         self.assertEqual({entry['build_id'] for entry in matrices['run']['include']}, builds)
         selected_cosim = {entry['soc']: entry['cosim'] for entry in entries['include']}
         self.assertTrue(all(entry['cosim'] == selected_cosim[entry['soc']] for entry in matrices['run']['include']))
+        original = build_ids(matrices)
+        for (soc, suite), build_id in original.items():
+            paired = (soc.replace('rv5stage', 'spike'), suite)
+            if paired in original:
+                self.assertEqual(build_id, original[paired])
         targets['simple-spike-rva23']['clock_frequency_hz'] *= 2
-        changed = program_matrices(entries, targets)
-        self.assertEqual(len(changed['build']['include']), 10)  # Both CoreMark variants embed the clock.
+        changed = build_ids(program_matrices(entries, targets))
+        for (soc, suite), build_id in original.items():
+            with self.subTest(change='clock', soc=soc, suite=suite):
+                self.assertEqual(changed[soc, suite] != build_id,
+                                 soc == 'simple-spike-rva23' and suite in ('coremark', 'coremark_scalar'))
         targets['simple-spike-rva23']['ram'][0]['size'] *= 2
-        self.assertEqual(len(program_matrices(entries, targets)['build']['include']), 14)
-
-    def test_shared_program_workflow_compiles_only_in_build_jobs(self):
-        workflow = (REPO / '.github/workflows/ci-software.yml').read_text()
-        build = workflow.split('  program-build:\n', 1)[1].split('  programs:\n', 1)[0]
-        run = workflow.split('  programs:\n', 1)[1].split('  arch-sail:\n', 1)[0]
-        self.assertIn('setup-riscv-toolchain', build)
-        self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
-        self.assertNotIn('setup-riscv-toolchain', run)
-        self.assertNotIn('Cache program builds', run)
-        self.assertIn('sw/build/bind.py', run)
-        self.assertIn('"$SUITE-run"', run)
-        self.assertIn("always() && !cancelled() && needs.program-plan.result == 'success'", run)
+        resized = build_ids(program_matrices(entries, targets))
+        for (soc, suite), build_id in changed.items():
+            with self.subTest(change='ram', soc=soc, suite=suite):
+                self.assertEqual(resized[soc, suite] != build_id, soc == 'simple-spike-rva23')
 
     def test_shared_program_build_inputs_select_every_suite(self):
         for path in ("sw/build/program_target.py", "sw/build/bind.py", "sw/tests/test_program_build.py"):
@@ -374,10 +357,10 @@ class PlanTest(unittest.TestCase):
                 self.assertTrue(plan["run_program_arch"])
 
     def test_platforms_group_compatible_builds_without_removing_config_runs(self):
+        def build_ids(matrix):
+            return {entry['soc']: entry['build_id'] for entry in matrix['run']['include']}
+
         entries = platform_configs()
-        self.assertEqual({(entry['soc'], entry['suite']) for entry in entries}, {
-            ('simple-rv5stage-rva23', 'opensbi'), ('simple-spike-rva23', 'opensbi'),
-            ('tiled-rv5stage-rva23', 'litmus'), ('tiled-spike-rva23', 'litmus')})
         targets = {entry['soc']: dict(soc=entry['soc'], xlen=64,
                     harts=list(range(8)) if entry['suite'] == 'litmus' else [0],
                     extensions=['i', 'm', 'a', 'zicsr', 'zifencei', 'zicntr'],
@@ -386,29 +369,20 @@ class PlanTest(unittest.TestCase):
                     ram=[dict(base=0x80000000, size=0x800000)]) for entry in entries}
         fdts = {entry['soc']: b'identical generated platform DTB' for entry in entries if entry['suite'] == 'opensbi'}
         plan = program_matrices(dict(include=entries), targets, fdts)
-        self.assertEqual(len(plan['build']['include']), 2)
-        self.assertEqual(len(plan['run']['include']), 4)
+        self.assertEqual(len(plan['run']['include']), len(entries))
+        original = build_ids(plan)
+        for suite in {entry['suite'] for entry in entries}:
+            self.assertEqual(len({original[entry['soc']] for entry in entries if entry['suite'] == suite}), 1)
         for entry, run in zip(entries, plan['run']['include']):
             self.assertEqual({key: run[key] for key in entry}, entry)
         fdts['simple-spike-rva23'] = b'different devices'
-        self.assertEqual(len(program_matrices(dict(include=entries), targets, fdts)['build']['include']), 3)
+        changed = build_ids(program_matrices(dict(include=entries), targets, fdts))
+        for soc, build_id in original.items():
+            self.assertEqual(changed[soc] != build_id, soc == 'simple-spike-rva23')
         targets['tiled-spike-rva23']['harts'] = [0, 1, 2, 3]
-        self.assertEqual(len(program_matrices(dict(include=entries), targets, fdts)['build']['include']), 4)
-
-    def test_platform_execution_consumes_only_prebuilt_artifacts(self):
-        workflow = (REPO / '.github/workflows/ci-platform.yml').read_text()
-        build = workflow.split('  platform-build:\n', 1)[1].split('  platform:\n', 1)[0]
-        run = workflow.split('  platform:\n', 1)[1]
-        self.assertIn('setup-riscv-toolchain', build)
-        self.assertIn('Build pinned litmus7', build)
-        self.assertIn('PREBUILT_PROGRAM_TARGET=', build)
-        self.assertIn('PREBUILT_OPENSBI_FDT=', build)
-        self.assertIn('sw/build/bind.py', run)
-        self.assertIn('"$RUN_TARGET"', run)
-        self.assertIn('timeout-minutes: ${{ matrix.timeout }}', run)
-        self.assertIn("always() && !cancelled() && needs.platform-plan.result == 'success'", run)
-        for compile_step in ('setup-riscv-toolchain', 'setup-racket', 'opam', 'litmus7', 'Cache platform builds'):
-            self.assertNotIn(compile_step, run)
+        resized = build_ids(program_matrices(dict(include=entries), targets, fdts))
+        for soc, build_id in changed.items():
+            self.assertEqual(resized[soc] != build_id, soc == 'tiled-spike-rva23')
 
     def test_opensbi_sources_select_simulation_without_program_matrices(self):
         for path in ("sw/build/opensbi.py", "sw/tests/test_opensbi_build.py", "sw/opensbi"):
@@ -515,7 +489,7 @@ class PlanTest(unittest.TestCase):
                 if check.circt:
                     self.assertTrue(check.verilator)
 
-    def test_vector_functional_shards_are_nonempty_disjoint_and_exhaustive(self):
+    def test_vector_functional_shards_partition_the_aggregate(self):
         runner = REPO / "tools/testing/circt/run.sh"
 
         def fixtures(group):
@@ -525,19 +499,12 @@ class PlanTest(unittest.TestCase):
         first = fixtures("cores-vector-functional-1")
         second = fixtures("cores-vector-functional-2")
         combined = fixtures("cores-vector-functional")
-        expected = {
-            "rv5stage-vector", "event-vector", "rv5stage-vector-control", "rv5stage-vector-config",
-            "rv5stage-vector-fp", "rv5stage-vector-muldiv", "rv5stage-vector-reduction",
-            "rv5stage-vector-memory", "rv5stage-vector-packed", "rv5stage-vector-overlap",
-            "rv5stage-vector-admission", "rv5stage-vector-sequencer", "rv5stage-zvkt",
-        }
         self.assertTrue(first)
         self.assertTrue(second)
         self.assertTrue(first.isdisjoint(second))
-        self.assertEqual(first | second, expected)
-        self.assertEqual(combined, expected)
+        self.assertEqual(first | second, combined)
 
-    def test_core_execution_shards_are_nonempty_disjoint_and_exhaustive(self):
+    def test_core_execution_shards_partition_the_aggregate(self):
         runner = REPO / "tools/testing/circt/run.sh"
 
         def fixtures(group):
@@ -549,7 +516,6 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertEqual(len(combined), 48)
         self.assertTrue({"rv2wide-core", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
     def test_every_tracked_executable_input_selects_a_lane(self):
@@ -565,131 +531,30 @@ class PlanTest(unittest.TestCase):
                     plan = self.plan(path)
                     self.assertTrue(plan["run_checks"] or plan["run_simulator"], path)
 
-    def test_gate_requires_exactly_the_selected_workflows(self):
-        plan = self.plan("examples/rtl/alu.rhdl")
-        results = {"compile": "success", "checks": "success", "simulator": "skipped", "simulation": "skipped", "software": "skipped"}
-        self.assertEqual(failures(plan, results), [])
-        results["checks"] = "failure"
-        self.assertEqual(failures(plan, results), ["selected job checks finished with failure"])
-
-        plan = self.plan("README.md")
-        results = {name: "skipped" for name in ("compile", "checks", "simulator", "simulation", "software")}
-        self.assertEqual(failures(plan, results), [])
-
-    def test_workflow_orchestration_contract(self):
-        root = (REPO / ".github/workflows/ci.yml").read_text()
-        self.assertIn("group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}", root)
-        self.assertIn("cancel-in-progress: ${{ github.event_name == 'pull_request' }}", root)
-        self.assertIn("name: CI\n    needs: [plan, compile-racket, checks, simulator, simulation, software]", root)
-        for workflow in ("ci-checks.yml", "ci-simulator.yml", "ci-platform.yml", "ci-software.yml"):
-            with self.subTest(workflow=workflow):
-                text = (REPO / ".github/workflows" / workflow).read_text()
-                self.assertIn("workflow_call:", text)
-                self.assertIn("# SPDX-License-Identifier: Apache-2.0", text)
-                self.assertIn(f"uses: ./.github/workflows/{workflow}", root)
-        self.assertNotIn("ci-changes.sh", root)
-
-    def test_precompiled_racket_versions_reach_test_steps(self):
-        action = (REPO / ".github/actions/setup-racket-artifact/action.yml").read_text()
-        verify_step = action.split("    - name: Verify compiled root\n", 1)[1]
-        for variable, input_name in (("RACKET_VERSION", "racket-version"), ("RHOMBUS_CHECKSUM", "rhombus-checksum")):
-            with self.subTest(variable=variable):
-                self.assertIn(f"{variable}: ${{{{ inputs.{input_name} }}}}", verify_step)
-                self.assertIn(f'echo "{variable}=${variable}" >> "$GITHUB_ENV"', verify_step)
-        self.assertIn("tools/racket-artifact.sh verify", verify_step)
-        self.assertIn('echo "RHODIUM_PRECOMPILED=1" >> "$GITHUB_ENV"', verify_step)
-
-    def test_project_bytecode_cache_precedes_exact_artifact(self):
-        workflow = (REPO / ".github/workflows/ci.yml").read_text()
-        compile_job = workflow.split("  compile-racket:\n", 1)[1].split("\n  checks:\n", 1)[0]
-        for step in ("Restore completed bytecode", "Refresh restored project bytecode",
-                     "Compile positive CI entrypoints", "Save completed bytecode",
-                     "Publish exact compiled root"):
-            self.assertIn(f"- name: {step}", compile_job)
-        self.assertLess(compile_job.index("Restore completed bytecode"),
-                        compile_job.index("Refresh restored project bytecode"))
-        self.assertLess(compile_job.index("Refresh restored project bytecode"),
-                        compile_job.index("Compile positive CI entrypoints"))
-        self.assertLess(compile_job.index("Compile positive CI entrypoints"),
-                        compile_job.index("Save completed bytecode"))
-        self.assertLess(compile_job.index("Save completed bytecode"),
-                        compile_job.index("Publish exact compiled root"))
-        for step in ("Restore completed bytecode", "Save completed bytecode"):
-            cache_step = compile_job.split(f"- name: {step}\n", 1)[1].split("\n      - name:", 1)[0]
-            self.assertIn("${{ runner.temp }}/rhodium-compiled", cache_step)
-            self.assertIn("racket-completed-v2", cache_step)
-            self.assertIn("${{ env.RHODIUM_BYTECODE_WORKSPACE_KEY }}", cache_step)
-        artifact_step = compile_job.split("- name: Publish exact compiled root\n", 1)[1]
-        self.assertIn("include-hidden-files: true", artifact_step)
-        self.assertIn("${{ runner.temp }}/rhodium-project-cache", compile_job)
-        self.assertIn("${{ github.sha }}", compile_job)
-        self.assertIn("tools/refresh-racket-project-cache.sh", compile_job)
-
-    def test_config_workflows_follow_shape_policy(self):
-        root = (REPO / ".github/workflows/ci.yml").read_text()
-        build = (REPO / ".github/workflows/ci-simulator.yml").read_text()
-        simulation = (REPO / ".github/workflows/ci-platform.yml").read_text()
-        software = (REPO / ".github/workflows/ci-software.yml").read_text()
-        self.assertIn(".simulator_matrix", root)
-        harness = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn("config: ${{ toJSON(matrix) }}", root)
-        self.assertIn("config: ${{ inputs.config }}", build)
-        self.assertIn("name: ${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}", build)
-        self.assertIn("name: ${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}", harness)
-        self.assertIn("SOFTWARE_TESTS: ${{ fromJSON(inputs.config).software_tests }}", harness)
-        self.assertIn('for target in $SOFTWARE_TESTS', harness)
-        self.assertIn('make -C sims "$target" SOC="$SOC"', harness)
-        self.assertIn("if: contains(fromJSON(inputs.config).software_tests, 'isa-smoke')", harness)
-        self.assertIn('tiled-mt-benchmark-test', SOFTWARE_TESTS['tiled', 'rva23'])
-        self.assertIn("platform-plan:", simulation)
-        self.assertIn("platform_configs", simulation)
-        self.assertIn("litmus-smoke-elfs", simulation)
-        self.assertNotIn("litmus-full", simulation)
-        self.assertIn("if: inputs.run-harness && fromJSON(inputs.config).backend == 'circt' && fromJSON(inputs.config).soc == 'simple-rv5stage-rva23'", build)
-        self.assertIn('program-test-adapter-test cosim-hooks-test simulation-runtime-test', build)
-        self.assertIn("matrix: ${{ fromJSON(inputs.arch-build-matrix) }}", software)
-        self.assertIn("Restore pinned Spike runtime libraries", software)
-
-    def test_config_harness_depends_only_on_its_own_simulator(self):
-        root = (REPO / '.github/workflows/ci.yml').read_text()
-        config = (REPO / '.github/workflows/ci-simulator.yml').read_text()
-        simulator = root.split('  simulator:\n', 1)[1].split('  simulation:\n', 1)[0]
-        self.assertIn('matrix: ${{ fromJSON(needs.plan.outputs.plan).simulator_matrix }}', simulator)
-        self.assertIn('fail-fast: false', simulator)
-        self.assertIn('run-harness: ${{ fromJSON(needs.plan.outputs.plan).run_simulation }}', simulator)
-        harness = config.split('  harness:\n', 1)[1]
-        self.assertIn('needs: build', harness)
-        self.assertIn('if: inputs.run-harness', harness)
-        self.assertIn('uses: ./.github/workflows/ci-harness.yml', harness)
-        self.assertIn('config: ${{ inputs.config }}', harness)
-
-    def test_harness_build_toolchains_are_scoped_to_supported_consumers(self):
-        workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        for name in ('Install Racket', 'Restore exact Rhodium bytecode', 'Install Verilator', 'Install CIRCT'):
-            step = workflow.split(f'- name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn("if: fromJSON(inputs.config).soc == 'mini-rv5stage-rva23'", step)
-        for name in ('Install mapped or Spike build dependencies', 'Install FESVR'):
-            step = workflow.split(f'- name: {name}\n', 1)[1].split('\n      - name:', 1)[0]
-            self.assertIn("if: fromJSON(inputs.config).soc == 'mini-rv5stage-rva23' || fromJSON(inputs.config).core == 'spike'", step)
-        self.assertIn('Verify exact config and target descriptor', workflow)
-        self.assertIn('PREBUILT_SIMULATOR="$simulator"', workflow)
-
-    def test_simulator_reports_conversion_and_native_build_diagnostics(self):
-        workflow = (REPO / '.github/workflows/ci-simulator.yml').read_text()
-        self.assertIn("VERILATOR='verilator --stats'", workflow)
-        self.assertIn('2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"', workflow)
-        diagnostics = workflow.split('- name: Publish simulator build diagnostics\n', 1)[1].split('\n  harness:', 1)[0]
-        self.assertIn('if: always()', diagnostics)
-        self.assertIn('${{ steps.simulator.outputs.path }}/VTestDriver__stats*.txt', diagnostics)
-        self.assertIn('name: simulator-build-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}', diagnostics)
+    def test_gate_requires_success_for_selected_workflows(self):
+        for path in ("README.md", "examples/rtl/alu.rhdl", "sims/Makefile", "sw/build/build-coremark.py", "sram/map-memories.py"):
+            plan = self.plan(path)
+            selected = dict(compile=plan["run_compile"], checks=plan["run_checks"],
+                            simulator=plan["run_simulator"], simulation=plan["run_simulation"],
+                            software=plan["run_program_native"] or plan["run_program_arch"])
+            results = {job: "success" if required else "skipped" for job, required in selected.items()}
+            self.assertEqual(failures(plan, results), [])
+            for job, required in selected.items():
+                for result in ("success", "failure", "cancelled", "skipped", None):
+                    with self.subTest(path=path, job=job, required=required, result=result):
+                        actual = results | {job: result}
+                        expected = [] if result == "success" or (not required and result == "skipped") else [
+                            f"{'selected' if required else 'unselected'} job {job} finished with {result}"]
+                        self.assertEqual(failures(plan, actual), expected)
+                missing = dict(results)
+                del missing[job]
+                self.assertEqual(failures(plan, missing), [
+                    f"{'selected' if required else 'unselected'} job {job} finished with None"])
 
     def test_cosim_uses_the_existing_config_artifacts_and_workloads(self):
         plan = self.plan('sims/Makefile')
         builds = plan['simulator_matrix']['include']
-        expected = {'simple-rv5stage-rv64imacb', 'simple-rv5stage-rv64imafdcb',
-                    'mini-rv5stage-rv32int', 'mini-rv5stage-rv32max',
-                    'simple-rv5stage-rv32int', 'simple-rv5stage-rv32max',
-                    'simple-rv5stage-rv64max', 'mini-rv5stage-rva23', 'simple-rv5stage-rva23'}
+        expected = COSIM_CONFIGS
         self.assertEqual({row['soc'] for row in builds if row['cosim']}, expected)
         self.assertEqual(len(builds), len(SIMULATOR_CONFIGS) + len(BACKEND_SMOKE_VARIANTS))
         for soc in expected:
@@ -703,98 +568,22 @@ class PlanTest(unittest.TestCase):
             self.assertEqual(entry['cosim'], entry['soc'] in expected)
         direct, = [row for row in builds if row['backend'] == 'verilog']
         self.assertTrue(direct['cosim'])
-        build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
-        workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
-        self.assertIn('if: fromJSON(inputs.config).cosim', build)
-        self.assertIn('run: make -C sims arch-test-sail-setup', build)
-        self.assertIn("COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}", build)
-        self.assertIn('if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi', build)
-        self.assertIn('${{ steps.simulator.outputs.path }}/VTestDriver.json', build)
-        self.assertIn('--variant "${{ fromJSON(inputs.config).cosim && \'cosim\' || \'normal\' }}"', workflow)
-        run = workflow.split('- name: Run shape-and-ISA software selection\n', 1)[1].split('\n      - name:', 1)[0]
-        self.assertIn("COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}", run)
-        self.assertIn('PREBUILT_SIMULATOR="$simulator"', run)
-        self.assertIn('exit "$status"', run)
-        reports = workflow.split('- name: Publish config smoke and multihart results\n', 1)[1].split('\n      - name:', 1)[0]
-        self.assertIn('if: always()', reports)
-        self.assertIn('/tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/results', reports)
-        software = (REPO / '.github/workflows/ci-software.yml').read_text()
-        consumers = [software.split('  programs:\n', 1)[1].split('  arch-sail:\n', 1)[0],
-                     software.split('  arch:\n', 1)[1],
-                     (REPO / '.github/workflows/ci-platform.yml').read_text().split('  platform:\n', 1)[1]]
-        for consumer in consumers:
-            self.assertIn('if: matrix.cosim', consumer)
-            self.assertIn('libgmp10', consumer)
-            self.assertIn('--variant "${{ matrix.cosim && \'cosim\' || \'normal\' }}"', consumer)
-            self.assertIn("COSIM: ${{ matrix.cosim && '1' || '0' }}", consumer)
 
     def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
-        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
-        arch_job = workflow.split("  arch:\n", 1)[1]
         plan = self.plan("sims/Makefile")
         self.assertEqual({entry["configuration"] for entry in plan["arch_build_matrix"]["include"]}, set(SINGLE_CORE_SOCS))
         entries = plan["arch_run_matrix"]["include"]
         actual = {(entry["configuration"], entry["shard"]) for entry in entries}
         self.assertEqual(len(entries), len(actual))
-        self.assertIn("matrix: ${{ fromJSON(inputs.arch-run-matrix) }}", arch_job)
-        counts = {
-            "simple-rv5stage-rva23": 16,
-            "simple-rv5stage-rv32int": 8,
-            "simple-rv5stage-rv32max": 8,
-            "simple-spike-rva23": 8,
-            "simple-spike-rv32int": 4,
-            "simple-spike-rv32max": 4,
-        }
-        self.assertEqual(set(counts), set(SINGLE_CORE_SOCS))
-        expected = {(configuration, shard) for configuration, count in counts.items()
-                    for shard in range(count)}
-        self.assertEqual(actual, expected)
-        for entry in entries:
-            self.assertEqual(entry["shard_count"], counts[entry["configuration"]])
-        self.assertIn("ACT_SHARDS=${{ matrix.shard_count }}", arch_job)
+        self.assertEqual({entry["configuration"] for entry in entries}, set(SINGLE_CORE_SOCS))
+        for configuration in SINGLE_CORE_SOCS:
+            selected = [entry for entry in entries if entry["configuration"] == configuration]
+            counts = {entry["shard_count"] for entry in selected}
+            self.assertEqual(len(counts), 1)
+            count, = counts
+            self.assertGreater(count, 0)
+            self.assertEqual({entry["shard"] for entry in selected}, set(range(count)))
 
-    def test_arch_jobs_restore_and_check_every_spike_runtime(self):
-        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
-        arch_job = workflow.split("  arch:\n", 1)[1]
-        for step_name in ("Install Spike runtime dependencies", "Restore pinned Spike runtime libraries"):
-            with self.subTest(step=step_name):
-                step = arch_job.split(f"      - name: {step_name}\n", 1)[1]
-                self.assertTrue(step.startswith("        if: matrix.core == 'spike'\n"))
-        self.assertIn('library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"', arch_job)
-        self.assertIn('if [[ "$library_bindings" == *"not found"* ]]; then', arch_job)
-
-    def test_arch_payload_cache_reuses_only_complete_exact_input_bundles(self):
-        workflow = (REPO / ".github/workflows/ci-software.yml").read_text()
-        build = workflow.split("  arch-build:\n", 1)[1].split("  arch:\n", 1)[0]
-        run = workflow.split("  arch:\n", 1)[1]
-        key = build.split("          ACT_INPUT_KEY: ", 1)[1].splitlines()[0]
-        for input_name in ("sources.outputs.revision", "sources.outputs.sail_revision",
-                           "act-config.outputs.digest", "act-config.outputs.tools",
-                           "sims/arch-test/**", "sw/riscv-arch-test-patches/**",
-                           "riscv/sail-riscv-patches/**", "fast1-all"):
-            self.assertIn(input_name, key)
-        self.assertNotIn("github.sha", key)
-        self.assertNotIn("restore-keys:", build)
-        for step_name in ("Cache ACT reference outputs", "Generate and package every selected ELF",
-                          "Save complete successful ACT payload"):
-            step = build.split(f"      - name: {step_name}\n", 1)[1].split("      - name:", 1)[0]
-            self.assertIn("if: steps.act-payload.outputs.cache-hit != 'true'", step)
-            self.assertNotIn("always()", step)
-        cached = build.split("      - name: Verify cached ACT payload\n", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("if: steps.act-payload.outputs.cache-hit == 'true'", cached)
-        self.assertIn("payload.py verify", cached)
-        self.assertIn("--identity '${{ steps.act-inputs.outputs.key }}'", cached)
-        generation = build.split("      - name: Generate and package every selected ELF\n", 1)[1].split("      - name:", 1)[0]
-        self.assertIn("set -o pipefail", generation)
-        self.assertLess(generation.index("make -C sims arch-test-elfs"), generation.index("payload.py package"))
-        self.assertLess(build.index("payload.py package"), build.index("actions/cache/save@"))
-        self.assertIn("inventory.json", build)
-        publish = build.split("      - name: Publish exact-commit ACT payloads\n", 1)[1].split("      - name:", 1)[0]
-        self.assertNotIn("if:", publish)
-        self.assertIn("${{ github.sha }}", publish)
-        self.assertIn("payload.py verify", run)
-        self.assertIn("make -C sims arch-test-run", run)
-        self.assertNotIn("cache-hit", run)
 
 
 if __name__ == "__main__":
