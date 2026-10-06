@@ -38,6 +38,7 @@ module rv5stage_pointer_masking_tb;
   prefetch_t prefetch_out;
   instruction_resp_t instruction_response;
   data_resp_t data_response;
+  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
   int stores, loads, faults, prefetches, flushes;
   bit rejected;
   localparam logic [63:0] LOAD_VALUE = 64'h123456789abcdef0;
@@ -108,13 +109,14 @@ module rv5stage_pointer_masking_tb;
     data_access_in.request.ready = rejected || !data_access_out.request.valid || data_access_out.request.bits.address != 'h108;
     data_access_in.request_access_fault = data_access_out.request.valid && data_access_out.request.bits.address == 'h189;
     data_access_in.response = data_response;
-    data_access_in.drained = !data_response.valid;
+    data_access_in.drained = !data_response.valid && !split_completion_in.valid;
   end
 
   always @(posedge clock) begin
     if (reset) begin
       instruction_response <= '0;
       data_response <= '0;
+      split_completion_in <= '0;
       stores <= 0;
       loads <= 0;
       faults <= 0;
@@ -122,6 +124,7 @@ module rv5stage_pointer_masking_tb;
       flushes <= 0;
       rejected <= 0;
     end else begin
+      split_completion_in.valid <= 0;
       assert (!translation_flush && !instruction_access_out.invalidate_all)
         else $fatal(1, "PMM change incorrectly invalidated translations or I-cache");
       if (instruction_access_out.flush) begin
@@ -150,10 +153,18 @@ module rv5stage_pointer_masking_tb;
                   (data_access_out.request.bits.address == 'h181 && loads == 1))
             else $fatal(1, "load replay or misaligned load address");
           loads <= loads + 1;
-          data_response.valid <= 1;
-          data_response.bits <= '{access_fault: 1'b0, data: LOAD_VALUE,
-                                  writeback: data_access_out.request.bits.writeback,
-                                  origin: data_access_out.request.bits.origin};
+          if ((data_access_out.request.bits.address & ((64'd1 << data_access_out.request.bits.width)-1)) != 0) begin
+            split_completion_in.valid <= 1;
+            split_completion_in.bits <= '{response: '{access_fault: 1'b0, data: LOAD_VALUE,
+                                                       context_0: '{writeback: data_access_out.request.bits.writeback,
+                                                                    origin: data_access_out.request.bits.origin}},
+                                           page_fault: 1'b0, fault_address: 64'b0, guest: '0};
+          end else begin
+            data_response.valid <= 1;
+            data_response.bits <= '{access_fault: 1'b0, data: LOAD_VALUE,
+                                    writeback: data_access_out.request.bits.writeback,
+                                    origin: data_access_out.request.bits.origin};
+          end
         end else begin
           assert (data_access_out.request.bits.access == 2) else $fatal(1, "unexpected memory operation");
           case (stores)

@@ -33,13 +33,13 @@ sync_circuit RV5StageVectorAdmission():
   interface accesses(Valid(CachePipelineReq(xlen)), ~role: producer)
   interface memory_requests(Valid(PhysicalMemoryReq(xlen, RV5StageMemoryContext(8))), ~role: producer)
   interface memory_responses(Valid(PhysicalMemoryResp(xlen, RV5StageMemoryContext(8))), ~role: consumer)
+  interface split_completion(Valid(RV5StageSplitResult(xlen, 8)), ~role: consumer)
   output(request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending, retired, outcome_valid, fp_offered): Bool
   output outcome_pc: Bits(64)
   output pipeline_physical: Bool
   inst decode(RV5StageInstructionDecoder(xlen, FloatingPointProfile.D, ~vector: VectorProfile.V))
   inst vector(RV5StageVectorPipeline(xlen, 128))
-  vector.split_completion.valid <== Bool(#false)
-  vector.split_completion.bits <== literal(RV5StageSplitResult(xlen, 8), 0)
+  split_completion |> vector.split_completion
   vector.request_fault_address <== vector.memory.request.bits.address
   vector.scalar_writeback.ready <== Bool(#true)
   decode.instruction <== instruction

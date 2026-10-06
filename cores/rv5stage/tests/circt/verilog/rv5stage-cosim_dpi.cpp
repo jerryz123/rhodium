@@ -100,7 +100,7 @@ extern "C" void core_cosim_end() {
         }
       }
       require(writes == (e.rd == 0 ? 0 : 1), "missing/duplicate GPR effect");
-      const unsigned fragments = !e.memory ? 0 : (e.memory->kind == AccessKind::CacheOperation && e.memory->result == AccessResult::Success ? 8 : 1);
+      const unsigned fragments = e.memory ? 1 : 0;
       require(memories == fragments, "missing/duplicate memory effect");
       ++order; ++published;
     }

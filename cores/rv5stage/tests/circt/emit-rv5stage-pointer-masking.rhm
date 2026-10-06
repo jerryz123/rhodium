@@ -11,6 +11,6 @@ import:
 
 def design = embedded.run_elaboration(fun (): core.RV5StageCoreFixture(
   RV5StageConfig(~xlen: XLen.X64, ~extensions: RV5StageExtensions(~ssnpm: #true, ~zicbop: #true)),
-  ~reset_address: 0x1000
+  ~reset_address: 0x1000, ~split_memory: #true
 ))
 print(emit_circt(design))

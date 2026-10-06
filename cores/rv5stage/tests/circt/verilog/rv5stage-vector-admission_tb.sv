@@ -18,6 +18,7 @@ module rv5stage_vector_admission_tb;
   struct packed { logic valid; CachePipelineReq bits; } accesses_out;
   struct packed { logic valid; PhysicalMemoryReq bits; } memory_requests_out;
   struct packed { logic valid; PhysicalMemoryResp bits; } memory_responses_in;
+  struct packed { logic valid; RV5StageSplitResult bits; } split_completion_in;
   wire request_ready, active, sequencing, certification_pending, loads_pending, stores_pending, fp_pending;
   wire retired, outcome_valid, fp_offered;
   wire [63:0] outcome_pc;
@@ -75,7 +76,7 @@ module rv5stage_vector_admission_tb;
     assert(cycle<4000) else $fatal(1,"admission timeout: accepted=%0d completed=%0d checks=%0d outcomes=%0d",launches,completions,checks,outcomes);
   endtask
   task automatic clear;
-    reset=1; request_valid=0; fast_valid=0; retry_last=0; retry_address=0; slow_access=0; watch_window=0; precheck_in='0; memory_responses_in='0; tick(); reset=0;
+    reset=1; request_valid=0; fast_valid=0; retry_last=0; retry_address=0; slow_access=0; watch_window=0; precheck_in='0; memory_responses_in='0; split_completion_in='0; tick(); reset=0;
     launches=0; completions=0; outcomes=0; checks=0; releases=0; accesses=0; memory_requests=0;
     #1;
     assert(!active && !loads_pending && !stores_pending && !fp_pending && !certification_pending)
@@ -112,11 +113,18 @@ module rv5stage_vector_admission_tb;
     tick(); precheck_in.response='0;
   endtask
   task automatic return_memory(input int index);
-    memory_responses_in.valid=1;
-    memory_responses_in.bits.access_fault=0;
-    memory_responses_in.bits.data=pending_memory[index].address;
-    memory_responses_in.bits.context_0.writeback=pending_memory[index].context_0.writeback;
-    tick(); memory_responses_in='0;
+    if ((pending_memory[index].address & ((64'd1 << pending_memory[index].width)-1)) != 0) begin
+      split_completion_in='0;
+      split_completion_in.valid=1;
+      split_completion_in.bits.response.data=pending_memory[index].address;
+      split_completion_in.bits.response.context_0=pending_memory[index].context_0;
+    end else begin
+      memory_responses_in='0;
+      memory_responses_in.valid=1;
+      memory_responses_in.bits.data=pending_memory[index].address;
+      memory_responses_in.bits.context_0=pending_memory[index].context_0;
+    end
+    tick(); memory_responses_in='0; split_completion_in='0;
   endtask
   initial begin
     precheck_in='0;
@@ -290,11 +298,15 @@ module rv5stage_vector_admission_tb;
     while(memory_requests<1) tick();
     assert(checks==0 && accesses==0 && pending_memory[0].address==64'h1003 && pending_memory[0].access==1)
       else $fatal(1,"misaligned vector load did not use the faultable slow path");
+    repeat(3) tick();
+    assert(active && completions==0 && outcomes==0) else $fatal(1,"misaligned load completed before its split result");
     return_memory(0); drain();
     launch(memory_insn(8,1),64'h2005,1,24);
     while(memory_requests<2) tick();
     assert(checks==0 && accesses==0 && pending_memory[1].address==64'h2005 && pending_memory[1].access==2 && pending_memory[1].data==64'h1003)
       else $fatal(1,"misaligned vector store lost the loaded element or slow owner");
+    repeat(3) tick();
+    assert(active && completions==1 && outcomes==1) else $fatal(1,"misaligned store completed before its split result");
     return_memory(1); drain();
     $display("Vector admission passed: queue ownership, certification, delayed responses, final replay, and descriptor snapshots");
     $finish;

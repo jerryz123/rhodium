@@ -180,7 +180,8 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
     | #void
     result
   def wb_context = Array(arrival |> filter_valid(_operation => !split_pending), returned_split |> to_valid()) |> valid_arbiter()
-  wb_context |> filter_valid(_operation => split_capture) |> split_owner.update
+  def Array(split_retention, response_context) = wb_context |> fork_valid(2)
+  split_retention |> filter_valid(_operation => split_capture) |> split_owner.update
   def operation = wb_context.bits
   def token = operation.request_context.token
   request_physical <== token.precertified
@@ -220,7 +221,7 @@ sync_circuit RV5StageVectorMemory(xlen :: XLen, slots :: Pow2Int, ~hypervisor: h
                        mux(store, exception_cause_bits(ExceptionCause.StoreGuestPageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadGuestPageFault, xlen.width)),
                        mux(store, exception_cause_bits(ExceptionCause.StorePageFault, xlen.width), exception_cause_bits(ExceptionCause.LoadPageFault, xlen.width)))
   def access_cause = mux(store, exception_cause_bits(ExceptionCause.StoreAccessFault, xlen.width), exception_cause_bits(ExceptionCause.LoadAccessFault, xlen.width))
-  def response_capture = wb_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
+  def response_capture = response_context |> trace_valid_event("vector/memory.result", ~when: token.memory & token.enabled, ~fields: decision):
     pc: decision.request_context.token.context
     address: decision.request_context.request.address
     slot(~format: "unsigned"): decision.request_context.token.completion_tag
