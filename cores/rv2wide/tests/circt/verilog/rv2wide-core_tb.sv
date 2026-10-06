@@ -12,10 +12,10 @@ module rv2wide_core_tb;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
-  typedef struct packed { logic [63:0] address; logic write; logic [63:0] data; logic [7:0] mask; } memory_req_t;
+  typedef struct packed { logic [63:0] address; logic write; logic [1:0] width; logic [63:0] data; logic [7:0] mask; } memory_req_t;
   typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
   typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
-  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained; } memory_in_t;
+  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained, ordered_busy; } memory_in_t;
   typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
   typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
   typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
@@ -64,20 +64,28 @@ module rv2wide_core_tb;
   int configured_delay = 8, lookup_mode = 0;
   int requests = 0, responses = 0, canceled = 0, stores = 0, stall_cycles = 0, hits = 0, lookups = 0;
   int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
+  logic instruction_invalidate;
+  int invalidations=0;
 
   RV2WideCore dut(
-    .translation_state(), .translation_flush(),
+    .translation_state(), .translation_flush(), .instruction_invalidate_out(instruction_invalidate),
     .interrupts(interrupts), .hart_id(64'd7), .time_counter(64'd123), .sleeping(sleeping),
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]),
     .redirect_out(redirect), .fetch_flush_out(fetch_flush), .issued(issued), .retired_count(retired_count), .instruction_capacity(instruction_capacity),
-    .memory_in(memory_in), .memory_out(memory_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
+    .memory_in({memory_in.request_ready, memory_in.fault, memory_in.response, memory_in.drained, 1'b0}),
+    .memory_out(memory_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
+  always @(posedge clock) if(!reset && instruction_invalidate) begin
+    invalidations++;
+    assert(retired[0].valid && retired[0].bits.fetched.instruction==32'h0000100f && redirect.valid && redirect.bits.resolution.disposition==3)
+      else $fatal(1,"invalidation must be a retiring WB FENCE.I event");
+  end
+  assign memory_in.ordered_busy = 1'b0;
   always_comb begin
-    memory_in = '0;
     memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
     memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.write ? 64'd7 : 64'd5, value: fault_address};
     memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
@@ -250,6 +258,7 @@ module rv2wide_core_tb;
     item = '0;
     item.address = address;
     item.write = write_access;
+    item.width = 2'($clog2(bytes));
     for (int b = 0; b < bytes; b++) begin
       item.mask[int'(address[2:0]) + b] = 1;
       item.data[(int'(address[2:0]) + b)*8 +: 8] = value[b*8 +: 8];
@@ -261,7 +270,7 @@ module rv2wide_core_tb;
     memory_req_t want;
     assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
     want = expected_requests.pop_front();
-    assert (actual.address == want.address && actual.write == want.write && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    assert (actual.address == want.address && actual.write == want.write && actual.width == want.width && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
     if (want.write) begin
       for (int b = 0; b < 8; b++) begin
         if (want.mask[b]) begin
@@ -917,6 +926,20 @@ module rv2wide_core_tb;
     csr_access('h700,2,13,0,'h341,'h6620);
     assert(!sleeping) else $fatal(1,"interrupt left core asleep");
 
+    // Fences retain no WB bubble: they wait in RR for the accepted owner and
+    // its deferred GPR write, issue alone, then flush younger branch recovery.
+    for(int instruction_fence=0;instruction_fence<2;instruction_fence++) begin
+      logic [31:0] word;
+      reset_core(); hold_responses=1;
+      word=instruction_fence!=0 ? 32'h0000100f : 32'h0ff0000f;
+      send('h6800,imm(5,0,0,3,'h03),0,1); repeat(8) tick();
+      expect_system('h6804,word); stop_at('h6804,'h6808,3);
+      send('h6804,word,jump(0,64),2,0,0);
+      repeat(12) tick();
+      assert(response_count==1 && expected_redirects.size()==1 && invalidations==0) else $fatal(1,"fence escaped older drain");
+      hold_responses=0; drain();
+      assert(invalidations==instruction_fence) else $fatal(1,"FENCE.I invalidation count");
+    end
     $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
     $finish;

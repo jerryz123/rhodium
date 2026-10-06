@@ -11,6 +11,7 @@ import:
   lib("cores/riscv/branch-decode.rhdl") open
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/zicsr.rhm") open
+  lib("riscv/isa/zifencei.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("rhodium/std/decode.rhdl") open
 
@@ -28,21 +29,21 @@ bundle RV2WideControl():
   writeback: RV2WideWritebackControl()
   system: RV2WideSystemControl()
 
-def RV2WideInstructions = excluding_instructions(RV64IInstructions, [FENCE]) ++ ZicsrInstructions ++ RV2WidePrivilegedInstructions
-def system_alu_cases = instruction_cases(ZicsrInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
-def system_memory_cases = instruction_cases(ZicsrInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
+def RV2WideInstructions = RV64IInstructions ++ ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions
+def system_alu_cases = instruction_cases(ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, unused_alu)
+def system_memory_cases = instruction_cases(ZicsrInstructions ++ ZifenceiInstructions ++ RV2WidePrivilegedInstructions, partial_pattern(RV2WideMemoryControl()): enable: Bool(#false))
 def core_branch_cases = branch_cases(RV2WideInstructions)
 def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
 def jumps = [JAL, JALR]
 def RV2WideWritebackCases = decode_groups(RV2WideWritebackControl(), ~input: instruction_pattern):
-  group branches ++ RV2WideStores ++ [ECALL, EBREAK] ++ RV2WidePrivilegedInstructions:
+  group branches ++ RV2WideStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ RV2WidePrivilegedInstructions:
     enable: Bool(#false)
   group jumps:
     enable: Bool(#true)
     link: Bool(#true)
   group ZicsrInstructions:
     enable: Bool(#true)
-  group excluding_instructions(RV2WideInstructions, branches ++ jumps ++ RV2WideStores ++ [ECALL, EBREAK] ++ RV2WidePrivilegedInstructions ++ ZicsrInstructions):
+  group excluding_instructions(RV2WideInstructions, branches ++ jumps ++ RV2WideStores ++ [ECALL, EBREAK, FENCE, FENCE_I] ++ RV2WidePrivilegedInstructions ++ ZicsrInstructions):
     enable: Bool(#true)
     link: Bool(#false)
 

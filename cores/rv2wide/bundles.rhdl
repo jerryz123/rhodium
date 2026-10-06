@@ -7,6 +7,7 @@ import:
   "decode/mem-ctrl.rhdl" open
   "decode/system-ctrl.rhdl" open
   lib("flow/main.rhdl") open
+  lib("cores/load-store.rhdl").MemoryWidth
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
 
 /* Exposes WB-owned architectural translation controls without pipeline payload coupling. */
@@ -91,10 +92,11 @@ bundle RV2WideResult():
   csr_source: Bits(64)
   resolution: RV2WideResolution()
 
-/* Carries a byte address with positioned store data and accessed-byte mask in its aligned beat. */
+/* Carries exact byte address/width with positioned store data and mask in its aligned beat. */
 bundle RV2WideMemoryReq():
   address: Bits(64)
   write: Bool
+  width: MemoryWidth
   data: Bits(64)
   mask: Bits(8)
 
@@ -117,7 +119,8 @@ interface RV2WidePipelineAccess():
 
 /* Authorizes slow transactions at WB. Admission resolves all synchronous faults;
    accepted responses are successful, ordered raw beats, including store acknowledgements.
-   A fault prevents request acceptance. Drained also covers committed hit stores.
+   A fault prevents request acceptance. Drained also covers committed hit stores;
+   registered ordered_busy prevents younger memory effects, including earlier lookup hits.
    Reset must reset both participants together. */
 interface RV2WideMemory():
   role requester
@@ -129,6 +132,7 @@ interface RV2WideMemory():
     fault: Valid(RV2WideResolution())
     response: Decoupled(Bits(64))
     drained: Bool
+    ordered_busy: Bool
 
 /* Reports one successfully retired instruction and its optional architectural GPR write. */
 bundle RV2WideRetirement():

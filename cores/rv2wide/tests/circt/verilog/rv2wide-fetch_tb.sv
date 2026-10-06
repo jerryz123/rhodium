@@ -29,14 +29,16 @@ module rv2wide_fetch_tb;
   logic [1:0] issued, retired_count;
   ichi_in_t instruction_chi_in;
   ichi_out_t instruction_chi_out;
+  ichi_in_t uncached_chi_in;
+  ichi_out_t uncached_chi_out;
   dchi_in_t data_chi_in;
   dchi_out_t data_chi_out;
-  RV2Wide dut(.clock(clock), .reset(reset), .instruction_node_id(7'd2), .data_node_id(7'd3),
+  RV2Wide dut(.clock(clock), .reset(reset), .instruction_node_id(7'd2), .data_node_id(7'd3), .uncached_node_id(7'd4),
     .interrupts('0), .hart_id(64'd0), .time_counter(64'd0), .sleeping(sleeping),
     .start_in(start_in), .halted(halted), .retired_0_out(retired[0]), .retired_1_out(retired[1]),
     .completed_out(completed), .redirect_out(redirect), .issued(issued), .retired_count(retired_count),
     .instruction_chi_in(instruction_chi_in), .instruction_chi_out(instruction_chi_out),
-    .data_chi_in(data_chi_in), .data_chi_out(data_chi_out));
+    .data_chi_in(data_chi_in), .data_chi_out(data_chi_out), .uncached_chi_in(uncached_chi_in), .uncached_chi_out(uncached_chi_out));
   always #5 clock=~clock;
 
   byte unsigned backing[131072], model_bytes[131072];
@@ -51,6 +53,8 @@ module rv2wide_fetch_tb;
   int idue, ipacket, ddue, dpacket;
   int expected_fault_pc, expected_fault_cause;
   logic [63:0] expected_fault_value;
+  int ustate=0, udue=0, ureads=0, uwrites=0, fences=0, instruction_fences=0;
+  CHIReqFlit urequest;
 
   function automatic logic [31:0] addi(int rd, rs, imm);
     return {12'(imm),5'(rs),3'b000,5'(rd),7'h13};
@@ -60,6 +64,12 @@ module rv2wide_fetch_tb;
   endfunction
   function automatic logic [31:0] bne(int rs1, rs2, imm);
     return {1'(imm>>12),6'(imm>>5),5'(rs2),5'(rs1),3'b001,4'(imm>>1),1'(imm>>11),7'h63};
+  endfunction
+  function automatic logic [31:0] load(int rd, rs1, offset, width);
+    return {12'(offset),5'(rs1),3'(width),5'(rd),7'h03};
+  endfunction
+  function automatic logic [31:0] store(int rs2, rs1, offset, width);
+    return {7'(offset>>5),5'(rs2),5'(rs1),3'(width),5'(offset),7'h23};
   endfunction
   task automatic insn(int pc, logic [31:0] word);
     for (int b=0;b<4;b++) backing[pc+b]=word[b*8+:8];
@@ -74,6 +84,28 @@ module rv2wide_fetch_tb;
   // Public CHI transactions alone drive the byte-addressed backing store.
   // Instruction and data identities have independent retained transactions.
   always_comb begin
+    uncached_chi_in='0;
+    uncached_chi_in.req.ready=ustate==0 && cycles%7!=0;
+    uncached_chi_in.rsp.requester.ready=1;
+    uncached_chi_in.dat.request.ready=ustate==3 && cycles%3!=0;
+    if(ustate==1 && cycles>=udue) begin
+      uncached_chi_in.dat.response.valid=1;
+      uncached_chi_in.dat.response.bits.opcode=4'h4;
+      uncached_chi_in.dat.response.bits.src_id=7'd5;
+      uncached_chi_in.dat.response.bits.home_nid_or_pbha_or_mismatched_mecid=7'd5;
+      uncached_chi_in.dat.response.bits.tgt_id=7'd4;
+      uncached_chi_in.dat.response.bits.txn_id=urequest.txn_id;
+      uncached_chi_in.dat.response.bits.byte_enable='1;
+      for(int b=0;b<16;b++) uncached_chi_in.dat.response.bits.data[b*8+:8]=backing[(int'(urequest.address)&~15)+b];
+    end
+    if((ustate==2 || ustate==4) && cycles>=udue) begin
+      uncached_chi_in.rsp.response.valid=1;
+      uncached_chi_in.rsp.response.bits.opcode=ustate==2 ? 5'h06 : 5'h04;
+      uncached_chi_in.rsp.response.bits.src_id=7'd5;
+      uncached_chi_in.rsp.response.bits.tgt_id=7'd4;
+      uncached_chi_in.rsp.response.bits.txn_id=urequest.txn_id;
+      uncached_chi_in.rsp.response.bits.dbid_or_group_id=12'd11;
+    end
     instruction_chi_in='0;
     instruction_chi_in.req.ready=!iactive && cycles%5!=0;
     instruction_chi_in.rsp.requester.ready=cycles%4!=0;
@@ -123,7 +155,7 @@ module rv2wide_fetch_tb;
     logic signed [63:0] imm;
     retirement_t expected;
     bit write_rd;
-    int rd, rs1, rs2;
+    int rd, rs1, rs2, bytes;
     assert((phase==0 || phase>=4) && got.fetched.pc==64'(reference_pc) && !got.fetched.fault.valid)
       else $fatal(1,"retired wrong path/fault pc=%h expected=%h phase=%0d",got.fetched.pc,reference_pc,phase);
     word=instruction_at(reference_pc);
@@ -147,13 +179,22 @@ module rv2wide_fetch_tb;
       end
       7'h03: begin
         address=registers[rs1]+64'($signed(word[31:20])); write_rd=rd!=0;
-        if(phase>=6 && address >= 'h500000 && address < 'h501000) address='h15000+(address & 'hfff);
-        for(int b=0;b<8;b++) value[b*8+:8]=model_bytes[int'(address)+b];
+        assert(ustate==0) else $fatal(1,"younger load bypassed ordered IO");
+        if(phase>=6 && address >= 'h500000 && address < 'h501000) address=(phase==13 ? 'h2000 : 'h15000)+(address & 'hfff);
+        bytes=1<<word[13:12];
+        for(int b=0;b<bytes;b++) value[b*8+:8]=model_bytes[int'(address)+b];
+        if(!word[14] && value[bytes*8-1]) value|='1 << (bytes*8);
       end
       7'h23: begin
         imm=64'($signed({word[31:25],word[11:7]})); address=registers[rs1]+imm;
-        if(phase>=6 && address >= 'h500000 && address < 'h501000) address='h15000+(address & 'hfff);
-        for(int b=0;b<8;b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
+        assert(ustate==0) else $fatal(1,"younger store bypassed ordered IO");
+        if(phase>=6 && address >= 'h500000 && address < 'h501000) address=(phase==13 ? 'h2000 : 'h15000)+(address & 'hfff);
+        for(int b=0;b<(1<<word[13:12]);b++) model_bytes[int'(address)+b]=registers[rs2][b*8+:8];
+      end
+      7'h0f: begin
+        assert(ustate==0 && !dactive && completions.size()==0) else $fatal(1,"fence before memory drain");
+        fences++;
+        if(word[14:12]==1) instruction_fences++;
       end
       7'h73: begin
         assert(phase>=5) else $fatal(1,"unexpected system instruction");
@@ -232,6 +273,7 @@ module rv2wide_fetch_tb;
     end
     if(instruction_chi_out.rsp.requester.valid && instruction_chi_in.rsp.requester.ready) acks++;
     if(data_chi_out.requests.valid && data_chi_in.requests.ready) begin
+      assert(ustate==0) else $fatal(1,"cache request bypassed IO");
       assert(data_chi_out.requests.bits.address<4096 || (data_chi_out.requests.bits.address>='h10000 && data_chi_out.requests.bits.address<'h20000)) else $fatal(1,"unmapped data transaction");
       case(data_chi_out.requests.bits.opcode)
         7'h02,7'h07: begin drequest<=data_chi_out.requests.bits; dactive<=1; dpacket<=0; ddue<=cycles+70; dreads++; end
@@ -247,6 +289,39 @@ module rv2wide_fetch_tb;
     if(data_chi_out.request_data.valid && data_chi_in.request_data.ready)
       for(int b=0;b<16;b++) if(data_chi_out.request_data.bits.byte_enable[b])
         backing[int'(wrequest.address)+16*int'(data_chi_out.request_data.bits.data_id)+b]=data_chi_out.request_data.bits.data[b*8+:8];
+    if(uncached_chi_out.req.valid && uncached_chi_in.req.ready) begin
+      assert(!dactive && !wactive && (uncached_chi_out.req.bits.opcode==7'h04 || uncached_chi_out.req.bits.opcode==7'h1c)) else $fatal(1,"IO failed to drain cached predecessors");
+      assert(uncached_chi_out.req.bits.address>='h2000 && uncached_chi_out.req.bits.address<'h2400) else $fatal(1,"wrong IO address");
+      assert(uncached_chi_out.req.bits.size_or_num_req<=3) else $fatal(1,"IO widened beyond XLEN");
+      case(uncached_chi_out.req.bits.address)
+        'h2008, 'h2009, 'h2203: assert(uncached_chi_out.req.bits.size_or_num_req==0) else $fatal(1,"byte IO widened");
+        'h200a: assert(uncached_chi_out.req.bits.size_or_num_req==1) else $fatal(1,"halfword IO width");
+        'h200c, 'h2300: assert(uncached_chi_out.req.bits.size_or_num_req==2) else $fatal(1,"word IO width");
+        'h2010, 'h20f0: assert(uncached_chi_out.req.bits.size_or_num_req==3) else $fatal(1,"doubleword IO width");
+        default: $fatal(1,"unexpected or wrong-path IO transaction");
+      endcase
+      assert(uncached_chi_out.req.bits.mem_attr[1]==(uncached_chi_out.req.bits.address<'h2300)) else $fatal(1,"wrong Device attribute");
+      urequest<=uncached_chi_out.req.bits;
+      if(uncached_chi_out.req.bits.opcode==7'h04) begin ustate<=1; ureads++; end
+      else begin ustate<=2; uwrites++; end
+      udue<=cycles+40;
+    end
+    if(uncached_chi_in.dat.response.valid && uncached_chi_out.dat.response.ready) ustate<=0;
+    if(uncached_chi_in.rsp.response.valid && uncached_chi_out.rsp.response.ready) ustate<=ustate==2 ? 3 : 0;
+    if(uncached_chi_out.dat.request.valid && uncached_chi_in.dat.request.ready) begin
+      logic [15:0] expected_mask;
+      expected_mask=16'((1<<(1<<urequest.size_or_num_req))-1)<<urequest.address[3:0];
+      assert(uncached_chi_out.dat.request.bits.byte_enable==expected_mask) else $fatal(1,"IO byte enables do not match exact request width/address");
+      for(int b=0;b<16;b++) if(expected_mask[b]) begin
+        int address=(int'(urequest.address)&~15)+b;
+        assert(uncached_chi_out.dat.request.bits.data[b*8+:8]==model_bytes[address]) else $fatal(1,"IO store lane mismatch");
+        backing[address]=uncached_chi_out.dat.request.bits.data[b*8+:8];
+      end
+      // A device command publishes externally written code before its completion.
+      // The old instruction line is already resident; FENCE.I must discard it.
+      if(phase==12 && urequest.address=='h20f0) insn('h700,addi(20,0,77));
+      ustate<=4; udue<=cycles+40;
+    end
   end
 
   task automatic launch(int address, cause, fault_pc, logic [63:0] fault_value='1);
@@ -262,7 +337,7 @@ module rv2wide_fetch_tb;
     // reset before executing the handler, including the external CHI epoch.
     @(negedge clock); reset=1;
     reset_canceled_refills=ireads-acks;
-    iactive=0; dactive=0; wactive=0;
+    iactive=0; dactive=0; wactive=0; ustate=0;
     for(int r=0;r<32;r++) registers[r]=0;
     repeat(3) @(negedge clock);
     reset=0;
@@ -374,7 +449,80 @@ module rv2wide_fetch_tb;
       assert(registers[10]==64'(expected_fault_cause) && registers[11]==expected_fault_value && registers[13]==64'(expected_fault_pc) && registers[12]==(scenario==7 ? 0 : 77) && faults==scenario+1)
         else $fatal(1,"Sv39 store/fetch trap provenance or younger squash failed");
     end
-    $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults",commits,longest_dual,ireads,dreads,faults);
+    // Exact-width MMIO, ordinary uncached RAM, and cache-hit ordering. A taken
+    // branch skips a device store; a byte-only mapping must not become an 8B read.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    for(int b='h2000;b<'h2400;b++) begin backing[b]=8'(b); model_bytes[b]=8'(b); end
+    insn('h400,{20'h2,5'd1,7'h37}); insn('h404,addi(2,0,-2));
+    insn('h408,addi(3,0,2047)); insn('h40c,addi(3,3,1));
+    insn('h410,load(4,3,0,3)); // older cold cached read
+    for(int width=0;width<4;width++) begin
+      int pc='h414+width*16;
+      insn(pc,store(2,1,8+(1<<width),width));
+      insn(pc+4,load(5+width,1,8+(1<<width),width));
+      insn(pc+8,load(9+width,3,0,3)); // younger warm cache hit
+      insn(pc+12,32'h0ff0000f);
+    end
+    insn('h454,load(13,1,'h203,4));
+    insn('h458,store(2,1,'h300,2)); insn('h45c,load(14,1,'h300,6));
+    insn('h460,jal(0,8)); insn('h464,store(2,1,0,3));
+    insn('h468,32'h10500073);
+    phase=9; reference_pc='h400;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h400};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(ureads==6 && uwrites==5 && fences==4 && registers[13]==3 && registers[14]==64'hfffffffe) else $fatal(1,"IO/uncached/fence coverage");
+    for(int r=5;r<=8;r++) assert(registers[r]==64'hfffffffffffffffe) else $fatal(1,"IO signed load lane");
+    // Permission and missing-mapping faults have no device-side effects.
+    for(int scenario=10;scenario<=11;scenario++) begin
+      @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+      for(int r=0;r<32;r++) registers[r]=0;
+      insn('h400,addi(1,0,'h380)); insn('h404,{12'h305,5'd1,3'b001,5'd0,7'h73});
+      insn('h408,{20'h2,5'd1,7'h37});
+      insn('h40c,scenario==10 ? store(0,1,'h100,3) : load(5,1,'h204,4));
+      expected_fault_pc='h40c; expected_fault_cause=scenario==10 ? 7 : 5;
+      expected_fault_value=scenario==10 ? 'h2100 : 'h2204;
+      phase=scenario; reference_pc='h400;
+      repeat(3) @(negedge clock); reset=0;
+      @(negedge clock); start_in='{valid:1'b1,bits:64'h400};
+      @(negedge clock); start_in='0;
+      wait(sleeping); repeat(3) @(negedge clock);
+      assert(ureads==6 && uwrites==5 && registers[10]==64'(expected_fault_cause) && registers[11]==expected_fault_value) else $fatal(1,"MMIO fault leaked request or lost provenance");
+    end
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    insn('h400,addi(10,0,0)); insn('h404,jal(0,'h700-'h404));
+    insn('h700,addi(20,0,1)); insn('h704,bne(10,0,12));
+    insn('h708,jal(0,'h440-'h708)); insn('h710,32'h10500073);
+    insn('h440,{20'h2,5'd1,7'h37}); insn('h444,addi(2,0,1));
+    insn('h448,store(2,1,'hf0,3)); insn('h44c,addi(10,0,1));
+    insn('h450,32'h0000100f); insn('h454,jal(0,'h700-'h454));
+    phase=12; reference_pc='h400;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h400};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[20]==77 && instruction_fences==1 && uwrites==6) else $fatal(1,"FENCE.I did not observe published code");
+    // Route translated S-mode accesses by PA, but preserve the VA on PMA faults.
+    @(negedge clock); reset=1; iactive=0; dactive=0; wactive=0;
+    for(int r=0;r<32;r++) registers[r]=0;
+    begin
+      logic [63:0] pte=('h2<<10)|'hc7;
+      for(int b=0;b<8;b++) backing['h12800+b]=pte[b*8+:8];
+    end
+    insn('h14000,{20'h500,5'd1,7'h37}); insn('h14004,addi(6,0,-2));
+    insn('h14008,store(6,1,8,0)); insn('h1400c,load(7,1,8,0));
+    insn('h14010,store(6,1,'h100,0)); insn('h14014,addi(12,0,88));
+    expected_fault_pc='h400010; expected_fault_cause=7; expected_fault_value='h500100;
+    phase=13; reference_pc='h300;
+    repeat(3) @(negedge clock); reset=0;
+    @(negedge clock); start_in='{valid:1'b1,bits:64'h300};
+    @(negedge clock); start_in='0;
+    wait(sleeping); repeat(3) @(negedge clock);
+    assert(registers[7]==64'hfffffffffffffffe && registers[11]=='h500100 && registers[12]==0 && ureads==7 && uwrites==7) else $fatal(1,"translated IO/VA fault ordering");
+    $display("RV2Wide fetching core passed: %0d retirements, %0d-cycle dual run, %0d I refills, %0d D refills, %0d faults, %0d IO reads/%0d writes, %0d fences",commits,longest_dual,ireads,dreads,faults,ureads,uwrites,fences);
     $finish;
   end
 endmodule

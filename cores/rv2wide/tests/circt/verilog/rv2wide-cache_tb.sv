@@ -28,7 +28,8 @@ module rv2wide_cache_tb;
   RV2WideCacheFixture dut(.clock(clock), .reset(reset), .node_id(7'd3),
     .instructions_in(instructions), .instructions_out(instructions_ready),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]), .completed_out(completed),
-    .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out));
+    .redirect_out(redirect), .issued(issued), .retired_count(retired_count), .chi_in(chi_in), .chi_out(chi_out),
+    .uncached_chi_in('0), .uncached_chi_out());
   always #5 clock = ~clock;
   logic [31:0] program_words[128];
   byte unsigned backing[4096], reference_bytes[4096];

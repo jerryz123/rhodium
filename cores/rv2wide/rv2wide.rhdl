@@ -18,9 +18,9 @@ import:
 
 /* Starts from a physical PC and reports ordered retirement and architectural redirects.
    Faults enter the programmed trap vector; only reset permits a new start pulse.
-   Distinct RN-I and RN-F identities separate retained I/D transactions. */
+   Distinct instruction, data, and uncached identities separate retained transactions. */
 sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~instruction_cache: instruction_cache :: CacheConfig = cache):
-  input(instruction_node_id, data_node_id): Bits(config.flit.node_id_width)
+  input(instruction_node_id, data_node_id, uncached_node_id): Bits(config.flit.node_id_width)
   input interrupts: RiscvInterrupts()
   input(hart_id, time_counter): Bits(64)
   interface start(Valid(Bits(64)), ~role: consumer)
@@ -29,6 +29,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
   interface instruction_chi(CHIRNIChannels(config.flit), ~role: node)
   interface data_chi(CHIRNChannels(config.flit), ~role: node)
+  interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
   output halted: Bool
   output sleeping: Bool
   output(issued, retired_count): Bits(2)
@@ -48,6 +49,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   frontend.instructions |> core.instructions
   frontend.instruction_capacity <== core.instruction_capacity
   core.fetch_flush |> frontend.flush
+  core.instruction_invalidate |> frontend.invalidate
   frontend.memory <=> instruction.core
   frontend.virtual_lookup |> instruction.virtual_lookup
   instruction.prefetch.valid <== Bool(#false)
@@ -66,6 +68,8 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   mmu.pipeline_lookup |> data.pipeline_lookup
   data.chi <=> data_chi
   data.node_id <== data_node_id
+  data.uncached_node_id <== uncached_node_id
+  data.uncached_chi <=> uncached_chi
   reg stopped(~init: Bool(#true))
   when (start.valid):
     stopped <== Bool(#false)
@@ -73,6 +77,7 @@ sync_circuit RV2Wide(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig, ~
   when (start.valid):
     assert(stopped & data.memory.drained, "rv2wide_start_at_quiescent_boundary")
   assert(instruction_node_id =/= data_node_id, "rv2wide_distinct_cache_identities")
+  assert((instruction_node_id =/= uncached_node_id) & (data_node_id =/= uncached_node_id), "rv2wide_distinct_uncached_identity")
   issued <== core.issued
   retired_count <== core.retired_count
   for (slot in 0..2):

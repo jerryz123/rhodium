@@ -106,6 +106,13 @@ module rv2wide_mmu_tb;
     offer_wb('h501038); wait_request('h10000); physical_fault=1;
     tick(); falling(); physical_fault=0; repeat(5) tick(); falling(); wb_valid=1; #1;
     assert(wb_fault && !wb_ready && wb_fault_bits.cause==5 && wb_fault_bits.value=='h501038) else $fatal(1,"PTE access-fault provenance");
+    // An architecturally invalid page table in a device region faults locally;
+    // admitting ordinary MMIO must not accidentally admit speculative PTE reads.
+    falling(); wb_valid=0; fence(); satp=64'h8000000000000002;
+    offer_wb('h500008);
+    repeat(12) begin tick(); assert(!physical_valid) else $fatal(1,"PTE reached a device"); end
+    falling(); wb_valid=1; #1;
+    assert(wb_fault && !wb_ready && wb_fault_bits.cause==5 && wb_fault_bits.value=='h500008) else $fatal(1,"device PTE fault provenance");
     $display("RV2Wide MMU timing, permissions, invalidation, arbitration, and cancel/drain passed");
     $finish;
   end

@@ -19,12 +19,14 @@ bundle RV2WideFetchAttempt():
 
 /* Issues one block per cycle on hits, reserving entries in the sole downstream instruction buffer.
    Replay kills younger attempts but not older packets. Faults stop fetch until WB recovery.
+   Invalidation stops old attempts until a restart; simultaneous redirect supplies the new PC.
    Physical PMA checks precede cache resolution; no rejected address reaches CHI. */
 sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   interface start(Valid(Bits(64)), ~role: consumer)
   interface redirect(Valid(RV2WideRedirect()), ~role: consumer)
   interface flush(Pulse(), ~role: consumer)
   interface memory(InstructionCacheLookup(64, 64), ~role: requester)
+  interface invalidate(Pulse(), ~role: consumer)
   interface virtual_lookup(Decoupled(Bits(64)), ~role: producer)
   interface translation(RV2WideInstructionTranslation(), ~role: requester)
   interface instructions(Decoupled(RV2WidePacket()), ~role: producer)
@@ -34,7 +36,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   reg pc(Bits(64))
   inst s1(ValidPipeAlwaysCapture(Bits(64), 1, ~flushable: #true))
   inst s2(ValidPipeAlwaysCapture(RV2WideFetchAttempt(), 1, ~flushable: #true))
-  def command = start.valid ||| redirect.valid ||| flush.valid
+  def command = start.valid ||| redirect.valid ||| flush.valid ||| invalidate.valid
   def result_fault = s2.egress.bits.fault.valid ||| (memory.response.valid & memory.response.bits.access_fault)
   def replay = s2.egress.valid & !s2.egress.bits.fault.valid & (s2.egress.bits.replay ||| (memory.response.valid & memory.response.bits.replay)) & !command
   def fault = s2.egress.valid & !replay & result_fault & !command
@@ -57,7 +59,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   elsewhen (redirect.valid):
     active <== Bool(#true)
     pc <== redirect.bits.target
-  elsewhen (flush.valid):
+  elsewhen (flush.valid ||| invalidate.valid):
     active <== Bool(#false)
   elsewhen fault:
     active <== Bool(#false)
@@ -93,7 +95,7 @@ sync_circuit RV2WideFrontend(config :: RiscvHartCHIConfig):
   s1.flush <== command ||| stop
   s2.flush <== command ||| stop
   memory.flush <== command
-  memory.invalidate_all <== Bool(#false)
+  memory.invalidate_all <== invalidate.valid
   memory.s1_kill <== command ||| stop
 
   // ID packet assembly retains the upper-only restart offset. Only the first

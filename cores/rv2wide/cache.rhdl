@@ -1,5 +1,5 @@
 #lang rhodium
-/* Connects RV2Wide's split virtual-index/physical-resolution LSU to the shared coherent L1D. */
+/* Routes RV2Wide physical accesses through shared coherent L1D or ordered nonallocating CHI service. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -8,6 +8,8 @@ import:
   "../cache/protocol.rhdl" open
   "../cache/operation.rhdl" open
   "../cache/l1d/cache.rhdl" open
+  "../cache/io-mshr.rhdl" open
+  "../cache/chi/uncached.rhdl" open
   "../riscv/chi-hart.rhdl" open
   "../load-store.rhdl" open
   "../../riscv/isa/xlen.rhm" open
@@ -15,36 +17,47 @@ import:
   "../../riscv/rtl/zihintntl.rhdl" open
   lib("flow/main.rhdl") open
   lib("rhodium/std/bits.rhdl") open
-  lib("chi/protocol/channels.rhdl").CHIRNChannels
+  lib("chi/protocol/channels.rhdl") open
 
-/* Admits only mapped coherent RAM; translation and uncached routing belong outside this cut.
-   Beat alignment preserves byte masks and positioned stores, while the core owns load shaping.
+/* Admits coherent RAM to L1D and exact-width device/noncacheable accesses to a committed IOMSHR.
+   IO drains older cache work and blocks younger accesses through final response consumption.
    Accepted operations retain ordered, nonfaulting completion ownership through all redirects. */
 sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig,
                         ~service_queue_depth: service_queue_depth :: PosInt = 2):
   input node_id: Bits(config.flit.node_id_width)
+  input uncached_node_id: Bits(config.flit.node_id_width)
   interface memory(RV2WideMemory(), ~role: responder)
   interface pipeline_lookup(Valid(CachePipelineReq(XLen.X64)), ~role: consumer)
   interface pipeline(CachePipelineAccess(XLen.X64), ~role: responder)
   interface chi(CHIRNChannels(config.flit), ~role: node)
+  interface uncached_chi(CHIRNIChannels(config.flit), ~role: node)
   inst storage(L1DCache(XLen.X64, cache, ~chi: config, ~context: Bool, ~service_queue_depth: service_queue_depth))
   storage.node_id <== node_id
   chi <=> storage.chi
   storage.prefetch.valid <== Bool(#false)
   storage.prefetch.bits <== dont_care(storage.prefetch.bits.type)
-
-  /* Certifies complete beat mapping and read/write permission before any cache effect. */
-  fun permitted(request :: RV2WideMemoryReq()) :: Bool:
-    def first = request.address.align_down(8)
-    def physical = config.physical_map.lookup(first, first +& bits(7, 64))
-    physical.mapped & physical.cacheable & !physical.device & physical.read_idempotent & mux(request.write, physical.writable, physical.readable)
+  inst io(IOMSHR(XLen.X64, Bits(3)))
+  inst transport(CHIUncachedMemory(XLen.X64, config, Bits(3)))
+  io.memory <=> transport.core
+  transport.node_id <== uncached_node_id
+  transport.cancel <== Bool(#false)
+  transport.chi <=> uncached_chi
+  def ordered_busy = !io.core.request.ready
+  def request :: RV2WideMemoryReq() = memory.request.bits
+  def physical = config.physical_map.lookup(request.address, request.address +& (memory_access_bytes(XLen.X64, request.width) - bits(1, 64)))
+  def permitted = physical.mapped & request.width.is_aligned(request.address) & mux(request.write, physical.writable, physical.readable)
+  def cacheable = physical.cacheable & !physical.device & physical.read_idempotent
 
   // The MMU owns MEM translation/PMA checks. EX indexing must not depend on
   // a TLB hit; the physical tag arrives alongside the following SRAM result.
   pipeline_lookup |> storage.pipeline_lookup
-  pipeline <=> storage.pipeline
+  pipeline.request |> filter_valid(_request => !ordered_busy) |> storage.pipeline.request
+  storage.pipeline.response |> pipeline.response
+  storage.pipeline.commit <== pipeline.commit & !ordered_busy
+  pipeline.commit_ready <== storage.pipeline.commit_ready & !ordered_busy
 
-  def Array(authorized, authorized_index) = memory.request |> gate_flow(permitted(memory.request.bits)) |> atomic_fork(2)
+  def Array(cached, uncached) = memory.request |> gate_flow(permitted) |> demux_flow(2, _request => !cacheable)
+  def Array(authorized, authorized_index) = cached |> gate_flow(!ordered_busy) |> atomic_fork(2)
   authorized_index |> to_valid() |> map_valid(request => request.address.align_down(8)) |> storage.virtual_lookup
   (
     authorized |> map_flow(request => PhysicalMemoryReq(XLen.X64, Bool)):
@@ -58,13 +71,32 @@ sync_circuit RV2WideL1D(cache :: CacheConfig, ~chi: config :: RiscvHartCHIConfig
       context: Bool(#false)
       locality: RiscvMemoryLocality.Default
   ) |> storage.core.request
-  memory.fault.valid <== memory.request.valid & !permitted(memory.request.bits)
+  (
+    uncached |> gate_flow(storage.core.drained) |> map_flow(request => UncachedMemoryReq(XLen.X64, Bits(3))):
+      device: physical.device
+      request:
+        PhysicalMemoryReq(XLen.X64, Bits(3)):
+          byte_mask: request.mask
+          address: request.address
+          access: mux(request.write, CacheOperation.Store, CacheOperation.Load)
+          atomic: RiscvAtomicOperation.Swap
+          width: request.width
+          unsigned: Bool(#true)
+          data: request.data >> (request.address[0..3] ++ bits(0, 3))
+          context: request.address[0..3]
+          locality: RiscvMemoryLocality.Default
+  ) |> io.core.request
+  memory.fault.valid <== memory.request.valid & !permitted
   memory.fault.bits <== RV2WideResolution():
     disposition: RV2WideDisposition.Fault
     cause: mux(memory.request.bits.write, bits(7, 64), bits(5, 64))
     value: memory.request.bits.address
-  storage.core.response |> map_flow(response => response.data) |> memory.response
-  memory.drained <== storage.core.drained
+  Array(
+    storage.core.response |> map_flow(response => response.data),
+    io.core.response |> map_flow(response => response.data << (response.context ++ bits(0, 3)))
+  ) |> arbiter() |> memory.response
+  memory.drained <== storage.core.drained & io.core.drained
+  memory.ordered_busy <== ordered_busy
   when (storage.core.response.valid):
     assert(!storage.core.response.bits.access_fault, "rv2wide_l1d_accepted_response_nonfaulting")
 

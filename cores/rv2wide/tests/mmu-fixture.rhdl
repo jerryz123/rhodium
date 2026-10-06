@@ -6,6 +6,7 @@ import:
   "../bundles.rhdl" open
   "cache-fixture.rhdl" open
   "../../cache/protocol.rhdl" open
+  "../../load-store.rhdl" open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/isa/xlen.rhm") open
 
@@ -45,6 +46,7 @@ sync_circuit RV2WideMmuFixture():
   def request = RV2WideMemoryReq():
     address: address
     write: write
+    width: MemoryWidth.Double
     data: bits(0, 64)
     mask: bits(0xff, 8)
   mmu.pipeline.request.valid <== ex_valid
@@ -79,6 +81,7 @@ sync_circuit RV2WideMmuFixture():
   mmu.physical_memory.response.valid <== response_valid
   mmu.physical_memory.response.bits <== response_data
   mmu.physical_memory.drained <== Bool(#true)
+  mmu.physical_memory.ordered_busy <== Bool(#false)
   physical_valid <== mmu.physical_memory.request.valid
   physical_address <== mmu.physical_memory.request.bits.address
   response_ready <== mmu.physical_memory.response.ready

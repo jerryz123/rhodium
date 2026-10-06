@@ -31,14 +31,14 @@ payload controls stay don't-cares behind cared enables/source-use bits.
 |---|---|
 | `decode/operand-ctrl.rhdl` | Source-use bits, ALU operands, canonical immediate selection |
 | `decode/mem-ctrl.rhdl` | Load/store enable, direction, width, signedness, inactive care masks |
-| `decode/system-ctrl.rhdl` | Architectural CSR operation/source and trap/return/wait columns |
+| `decode/system-ctrl.rhdl` | Architectural CSR operation/source, trap/return/wait, and serialized fence columns |
 | `decode/core-ctrl.rhdl` | Selected instruction domain, writeback column, one combined relation |
 | `bundles.rhdl` | Instruction, lookup/admission/response, stage, and retirement contracts |
 | `issue-window.rhdl` | Sole eight-entry compacting instruction buffer, free-entry count, prefix consumption |
 | `frontend.rhdl` | Reserved-capacity block fetch, S1 translation/permissions, local replay, and fault packet assembly |
 | `core.rhdl` | RR/EX/MEM/WB, forwarding, shared component/CSR instances, register state, precise traps |
 | `load-response.rhdl` | Four accepted contexts, atomic response/owner joining, shared load extraction |
-| `cache.rhdl` | Physical RAM permission checks and raw-beat adaptation to the shared L1D |
+| `cache.rhdl` | Physical permissions, shared L1D adaptation, and ordered IOMSHR/uncached routing |
 | `mmu.rhdl` | EX indexing, MEM translation, separate TLBs/shared walker, WB miss priority, physical-response ownership |
 | `rv2wide.rhdl` | Frontend/core/shared L1I/L1D composition, distinct CHI identities, start/halt boundary |
 | `tests/circt/` | Production-core emitter and independent sequential-result/ordering oracle |
@@ -63,6 +63,20 @@ Neither EX nor MEM waits for readiness. Missing or rejected service replays at
 WB; accepted transactions allocate an owner and cannot replay. Admission must
 certify synchronous fault freedom, as for RV5Stage's aligned ordinary service.
 Do not introduce late fault responses without retaining retirement ownership.
+
+Preserve natural access width through MMU translation. Cache service aligns its
+own beats; uncached service keeps the exact address/size and unpositions store
+data for the shared StoreGen. Its opaque three-bit context restores a returned
+scalar to its raw-beat lane for the core's existing LoadGen. Do not issue
+speculative physical requests to devices or use widened PMA checks that reject
+legitimate sub-beat regions. Page-table traffic still requires cacheable RAM.
+
+The IOMSHR admits only after L1D drains; its registered busy state gates cached
+admission and speculative physical resolution. Carry that state back through
+the MMU as `ordered_busy`: WB must replay even an earlier MEM hit while IO is
+outstanding. Gating only slow requests misses that race. Neither the core nor
+speculative flush cancels an accepted IO owner. The physical response paths are
+mutually ordered and merge using Flow arbitration, preserving the MMU owner FIFO.
 
 Keep accepted ownership independent of speculative flush. The completion FIFO
 joins ordered responses through `zip_flow`, normalizes returned data with
@@ -138,6 +152,12 @@ their effects and refetches from the architectural successor or trap/return PC.
 This cut gives WB CSR recovery priority over a younger MEM branch without
 making feed-forward stage registers elastic.
 
+FENCE and FENCE.I share this drain/serialization path, with no CSR action or
+writeback. Successful WB FENCE.I drives a separate `instruction_invalidate`
+Pulse alongside the successor redirect. The frontend forwards it to the shared
+L1I invalidate input; L1I owns suppressing installation by old retained refills.
+Do not emulate instruction invalidation with speculative flush alone.
+
 The WB retention register holds a faulting token or interrupt boundary independently
 of the speculative pipes. An older accepted load paired with a younger fault
 retires once, preserves its completion owner, and delays trap entry until the
@@ -207,6 +227,14 @@ it does not add a second public cached-core wrapper.
 The fetching fixture also boots through satp/MRET into Sv39 supervisor code,
 loads/stores through a separately filled DTLB, executes SFENCE.VMA, and checks
 load, store, and instruction page faults through architectural mcause/mepc/mtval reads.
+It also drives an independent HN-I responder for exact-width device and ordinary
+uncached transactions, checks younger cache-hit ordering and wrong-path suppression,
+and verifies PMA faults without bus effects. A completed device command publishes
+new code into a resident instruction line; FENCE.I must observe it after draining
+the delayed write acknowledgement. The fixture does not model late synchronous
+CHI errors on the admission-certified data path.
+Sv39 IO tests check PA routing and original-VA trap reporting; the MMU fixture
+also rejects a device-backed page table before any physical request is admitted.
 `rv2wide-mmu` controls the physical service boundary to check EX/MEM timing,
 speculative miss nonallocation, current permissions, remapping after invalidation,
 WB priority, canceled accepted-PTE draining, and exact physical-fault VA reporting.

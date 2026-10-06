@@ -230,7 +230,11 @@ payload and uninterpreted context. RV5Stage defines only destination/origin in
 `memory-context.rhdl` and directly specializes these shared services. Its
 uncached attachment uses Flow arbitration/mapping for fetch/data ownership;
 fetch cancellation and cached/IO ordering stay named-core policy. RV2Wide's cache
-adapter imports the same cache, physical-map contract, Flow, and Bits helpers;
+adapter imports the same cache, physical-map contract, Flow, and Bits helpers,
+plus shared `cache/io-mshr.rhdl` and `cache/chi/uncached.rhdl` for ordered physical
+IO. It owns PMA routing and cached/uncached exclusion; the shared engines remain
+independent of RV2Wide retirement. Its request bundles additionally import the
+shared `MemoryWidth`, and its decode imports the pure Zifencei catalog;
 its `rv2wide.rhdl` composition uses Flow to connect the frontend, execution slice,
 and shared L1I/L1D. `frontend.rhdl` consumes the neutral L1I protocol and hart
 physical map, RISC-V trap causes, `std/bits.rhdl` alignment helpers, and Flow

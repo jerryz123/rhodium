@@ -5,6 +5,7 @@
 import:
   lib("riscv/isa/rv64i.rhm") open
   lib("riscv/isa/zicsr.rhm") open
+  lib("riscv/isa/zifencei.rhm") open
   lib("riscv/isa/privileged.rhm") open
   lib("riscv/rtl/decode.rhdl") open
   lib("riscv/model/formats.rhm") as fields
@@ -44,7 +45,7 @@ def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruc
   [CSRRW, CSRRS, CSRRC]:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#false)
-  [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA]:
+  [CSRRWI, CSRRSI, CSRRCI, ECALL, EBREAK, MRET, SRET, WFI, SFENCE_VMA, FENCE, FENCE_I]:
     uses_rs1: Bool(#false)
     uses_rs2: Bool(#false)
   [LUI]:

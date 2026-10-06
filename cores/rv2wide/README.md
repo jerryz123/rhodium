@@ -9,7 +9,7 @@ it supports Bare/Sv39 addressing with shared M/S/U CSR/trap state. `RV2WideCore(
 independently usable RR-through-WB execution slice. It executes RV64I
 integer arithmetic, word arithmetic, LUI/AUIPC, branches, JAL/JALR, and naturally
 aligned scalar loads/stores through a pipelined memory-service boundary.
-It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, and SFENCE.VMA at WB.
+It also executes Zicsr, ECALL/EBREAK, MRET/SRET, WFI, SFENCE.VMA, FENCE, and FENCE.I at WB.
 See [DEVELOPING.md](DEVELOPING.md) for ownership and validation.
 
 ## Entry point
@@ -26,8 +26,9 @@ For the fetching core with both shared caches, import
 `cores/rv2wide/rv2wide.rhdl` and `cores/cache/config.rhm`, then instantiate
 `RV2Wide(CacheConfig(64, 2), ~chi: config)`. Optional `~instruction_cache`
 selects different L1I geometry; otherwise both use the supplied geometry.
-Connect separate `instruction_chi` RN-I and `data_chi` RN-F endpoints and
-distinct `instruction_node_id` / `data_node_id` inputs. Pulse
+Connect separate `instruction_chi` RN-I, `data_chi` RN-F, and `uncached_chi` RN-I
+endpoints with distinct `instruction_node_id`, `data_node_id`, and
+`uncached_node_id` inputs. Pulse
 `start: Valid(Bits(64))` with the initial physical PC after reset. `halted`
 is initially true and clears at start; starting again requires reset. Connect
 architectural `interrupts: RiscvInterrupts()`, `hart_id`, and `time_counter` inputs.
@@ -50,6 +51,9 @@ the standalone slice does not fetch instructions itself. `fetch_flush: Pulse()`
 immediately cancels younger fetch work, even while a fault is waiting for older
 memory work to drain. Stop fetching on that pulse until a redirect or explicit
 restart supplies the next PC; a simultaneous redirect takes priority.
+Connect `instruction_invalidate: Pulse()` to instruction-cache invalidation;
+it accompanies the successful WB FENCE.I successor redirect and is distinct
+from a speculative fetch flush.
 
 ## Instruction fetch
 
@@ -195,6 +199,12 @@ Both loads and stores return one ordered raw beat; store response data is ignore
 The service must preserve architectural memory ordering and prevent stale hit
 results from bypassing older overlapping writes, using forwarding or replay.
 Device accesses must use Slow, never a speculative hit.
+Requests retain the natural `MemoryWidth` as well as positioned data/masks;
+uncached transport must not widen a byte access into a full-beat device read.
+`memory.ordered_busy` blocks younger memory retirement, including already
+resolved cache hits, while an ordered transaction awaits completion. Independent
+integer instructions may continue. This signal must describe retained service
+state, not depend on the current request valid or pipeline commit.
 
 Four transaction contexts can await responses. The response unit joins each
 response with its retained owner using Flow, independently of speculative flushes.
@@ -215,8 +225,9 @@ includes completions already in this pipeline.
 Fault entry waits for accepted memory work to drain. The core immediately
 squashes younger instructions and retains the fault report, then emits it after
 all older effects and deferred GPR writes complete. This also covers an accepted
-older load paired with a faulting younger instruction. No global memory-busy
-interlock serializes independent ALUs or cache hits.
+older load paired with a faulting younger instruction. Ordinary cached misses
+do not globally serialize independent ALUs or cache hits; ordered uncached
+transactions block younger memory operations only.
 
 ## CSR, traps, and interrupts
 
@@ -243,7 +254,16 @@ WFI retires once and flushes younger work, then sleeps until a locally enabled
 interrupt is pending. A globally enabled interrupt takes the normal trap path;
 otherwise fetch resumes at WFI's successor without an interrupt trap. Trap entry,
 return legality, delegation, and direct-vector semantics come from the shared
-bank. Translation remains Bare; this is not a supervisor virtual-memory system.
+bank. The integrated top connects the bank's privilege and translation state to
+the shared Bare/Sv39 MMU.
+
+FENCE conservatively orders all predecessor/successor classes: it issues alone
+after older cache stores, accepted transactions, and deferred GPR writes drain.
+FENCE.I additionally invalidates instruction-cache residency and prevents old
+refills from installing, flushes younger fetch/pipeline work, and refetches its
+successor. Both actions occur once at nonspeculative WB. Instruction snapshots
+are replenished through coherent `ReadOnce`; system integration must supply the
+latest coherent data, including dirty data held by L1D.
 
 The boundary requires admission-certified aligned transactions, not an arbitrary
 bus that may raise a late synchronous exception. A future fault-capable service
@@ -295,9 +315,17 @@ descriptors remain in `riscv/`; named-core execution policy remains here.
 
 The MMU checks the CHI physical map before physical tag resolution; the data-cache
 adapter rechecks authorized admission. Early array indexing uses only page-offset
-bits and causes no allocation or mutation. Only coherent, cacheable, idempotent RAM is
-supported; unmapped, non-cacheable, or disallowed accesses report access faults
-without CHI traffic. There is no MMIO fallback. The adapter requests aligned
-full-width beats while preserving positioned byte masks; the core retains
-load extension and completion ownership. Accepted traffic drains across
-redirects, and the two-port writeback policy is unchanged.
+bits and causes no allocation or mutation. Coherent, cacheable, idempotent RAM
+uses aligned full-width cache beats. Mapped noncacheable RAM and devices instead
+use exact-address, exact-width `ReadNoSnp`/`WriteNoSnpPtl` transactions through
+the shared IOMSHR and uncached CHI engine. They drain older cached work before
+admission, permit only one ordered transaction, and block younger memory effects
+until its response is consumed. Speculation never issues a device transaction.
+PMA permission/mapping failures trap without CHI traffic, with the original VA;
+page-table reads remain restricted to readable, cacheable, idempotent RAM.
+
+The core retains load extension and completion ownership. Accepted traffic drains
+across redirects, and the two-port writeback policy is unchanged. As with the
+existing shared ordinary-memory path, admitted transactions must complete
+successfully; late CHI errors are protocol assertions, not implemented precise
+bus-error traps.

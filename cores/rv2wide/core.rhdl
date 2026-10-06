@@ -64,6 +64,7 @@ sync_circuit RV2WideCore():
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
   interface fetch_flush(Pulse(), ~role: producer)
+  interface instruction_invalidate(Pulse(), ~role: producer)
   interface memory(RV2WideMemory(), ~role: requester)
   interface pipeline(RV2WidePipelineAccess(), ~role: requester)
   interface completed(Valid(RV2WideRetirement()), ~role: producer)
@@ -94,7 +95,7 @@ sync_circuit RV2WideCore():
   wire rr_squash: Bool
   wire mem_branch_redirect: Bool
   wire wb_drained: Bool
-  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "zicsr", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39)))
+  inst wb_csrs(RiscvCsrFile(RiscvCsrConfig(RiscvIsaProfile(XLen.X64, ["i", "zicsr", "zifencei", "zicntr", "zihpm"], [MisaExtension.I, MisaExtension.S, MisaExtension.U]), ~mmu_type: RiscvMmuType.Sv39)))
   translation_state <== RV2WideTranslationState():
     privilege: wb_csrs.privilege
     mstatus: wb_csrs.mstatus
@@ -252,6 +253,7 @@ sync_circuit RV2WideCore():
   pipeline.request.bits <== RV2WideMemoryReq():
     address: ex_lookup.address
     write: ex_lookup.memory.write
+    width: ex_lookup.memory.width
     data: ex_store.data
     mask: ex_store.mask.as_bits()
 
@@ -324,16 +326,17 @@ sync_circuit RV2WideCore():
   wb_store.address <== wb_memory.address
   wb_store.value <== wb_memory.store_data
   wb_store.width <== wb_memory.memory.width
-  memory.request.valid <== wb_slow & wb_load_response.available
+  memory.request.valid <== wb_slow & wb_load_response.available & !memory.ordered_busy
   memory.request.bits <== RV2WideMemoryReq():
     address: wb_memory.address
     write: wb_memory.memory.write
+    width: wb_memory.memory.width
     data: wb_store.data
     mask: wb_store.mask.as_bits()
-  pipeline.commit <== wb_store_hit
+  pipeline.commit <== wb_store_hit & !memory.ordered_busy
   def wb_admission_fault = memory.request.valid & memory.fault.valid
   def wb_accepted = memory.request.fire() & !wb_admission_fault
-  def wb_memory_replay = (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
+  def wb_memory_replay = (wb_memory_active & memory.ordered_busy) ||| (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
   wb_load_response.allocate.valid <== wb_accepted
   wb_load_response.allocate.bits <== wb_memory
   wb_scoreboard.set.valid <== wb_accepted & wb_memory.write
@@ -387,6 +390,7 @@ sync_circuit RV2WideCore():
   def wb_replay = wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Replay)
   def wb_wake = wb_sleeping & wb_csrs.wfi_wake
   def wb_system_resume = wb_system & wb_csrs.command_success & !wb_csrs.wfi
+  instruction_invalidate.valid <== wb_system_resume & (wb_system_control.fence === RV2WideFence.Instruction)
   wb_redirect_link.left.valid <== wb_csrs.redirect.valid ||| wb_replay ||| wb_system_resume ||| wb_interrupt_boundary ||| wb_wake
   wb_redirect_link.left.bits <== RV2WideRedirect():
     pc:
