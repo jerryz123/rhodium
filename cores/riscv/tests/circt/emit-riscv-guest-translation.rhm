@@ -5,6 +5,6 @@
 import:
   lib("rhodium/backend/circt.rhm") open
   lib("rhodium/frontend/kernel.rhm") as embedded
-  "../guest-translation-fixture.rhdl".RV5StageGuestTranslationFixture
+  "../guest-translation-fixture.rhdl".RiscvGuestTranslationFixture
 
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageGuestTranslationFixture())))
+print(emit_circt(embedded.run_elaboration(fun (): RiscvGuestTranslationFixture())))

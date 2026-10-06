@@ -1,6 +1,6 @@
 // Checks nested VS/G walks, stage permissions, precise faults, and canceled-response ownership.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_nested_walker_tb;
+module riscv_nested_walker_tb;
   reg clock = 0;
   always #5 clock = ~clock;
   reg reset = 1, virtualized = 1;
@@ -16,7 +16,7 @@ module rv5stage_nested_walker_tb;
   wire [55:0] result_address;
   wire [1:0] fault, result_access;
   wire [1:0] memory_pbmt;
-  RV5StageNestedWalkerFixture dut(.*);
+  RiscvNestedWalkerFixture dut(.*);
   localparam NONE = 0, PAGE = 1, GUEST = 2, PHYSICAL = 3;
   localparam FETCH = 0, LOAD = 1, STORE = 2;
   localparam [63:0] VR = 'h43, VW = 'hc7, GX = 'h59, GR = 'h53, GW = 'hd7;

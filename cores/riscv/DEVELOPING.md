@@ -20,6 +20,10 @@ microarchitectural policy in the named core.
 
 ## Implementation map
 
+[`mmu/`](mmu/DEVELOPING.md) owns reusable TLB banks, host/nested page-table
+walking, and translation contracts. Named cores own their ITLB/DTLB composition,
+miss arbitration, replay, vector certificates, and physical-memory dispatch.
+
 [`csr/`](csr/DEVELOPING.md) owns reusable CSR storage, privilege transitions,
 and trap/interrupt machinery. Its command and configuration use architectural
 types, not named-core configuration or pipeline bundles. Retirement events,

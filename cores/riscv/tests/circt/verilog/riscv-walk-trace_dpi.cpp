@@ -1,7 +1,7 @@
 // Reconstructs exact walk nodes, lifetime ends, and PTE/completion parents from public transfers.
 // SPDX-License-Identifier: Apache-2.0
 #include "../../../../../rheg/runtime/rheg.h"
-#include "rv5stage-walk-trace_manifest.h"
+#include "riscv-walk-trace_manifest.h"
 #include <cstdio>
 #include <cstdlib>
 

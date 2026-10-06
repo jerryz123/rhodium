@@ -16,6 +16,10 @@ separate translated-core and walker physical requests. The parent core owns CSR
 sequencing, trap priority, atomic/LRSC alignment, and final exception causes;
 the physical router and cache own admitted transaction behavior.
 
+Reusable banks, walk sequencing, and translation contracts live in
+[`cores/riscv/mmu`](../../riscv/mmu/DEVELOPING.md). This directory owns their
+RV5Stage composition, not a separate TLB or walker implementation.
+
 Reuse the public RISC-V Sv39 adapter for PTE layout, canonicality, permissions,
 superpages, and physical-address construction. Keep translation state in the
 MMU and core-first physical arbitration in the parent
@@ -44,11 +48,8 @@ with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
 
 | File | Ownership |
 |---|---|
-| [`protocol.rhdl`](protocol.rhdl) | Translation request/result bundles, fetch-fault metadata, and walker memory interface |
-| [`tlb.rhdl`](tlb.rhdl) | One host/guest entry bank, combinational demand/probe matching, separate stage permissions, refill, and host-port adapter |
-| [`walker.rhdl`](walker.rhdl) | One host/nested walk FSM, saved VS continuation, PTE checks, cancellation/drain, and host-port adapter |
-| [`translation.rhdl`](translation.rhdl) | Shared host/guest lookup, mapping, fill, PTE-memory contracts, and host-port value projections |
-| [`../tests/translation-service.rhdl`](../tests/translation-service.rhdl) | Test-only serialized command driver for the shared TLB/walker |
+| [`protocol.rhdl`](protocol.rhdl) | Guest-aware virtual requests, split outcomes, vector certificates and page probes |
+| [`../../riscv/mmu/`](../../riscv/mmu/DEVELOPING.md) | Shared TLB/walker implementation, host/guest contracts, and direct fixture ownership |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
 | [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |
 | [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word virtual fragment sequencing, original-owner retention, load assembly, and precise final split outcome |
@@ -68,8 +69,8 @@ Pointer normalization itself is upstream in EX, not a second MMU transform.
 PMM writes restart fetch and therefore clear pending prefetch stages, but do not
 invalidate translations or cancel accepted page-table response ownership.
 
-1. Decide whether the change is reusable Sv39 representation/policy or
-   RV5Stage state and arbitration. Put only the former in `riscv/rtl`.
+1. Put pure Sv39 representation/policy in `riscv/rtl`, reusable TLB/walker
+   state in `cores/riscv/mmu`, and RV5Stage arbitration and integration here.
 2. Preserve address correlation for walk completions and faults. The instruction
    attempt is captured into S1 after S0 admission; the frontend may change its
    payload immediately. An unresolved attempt produces S2 replay, never a
@@ -194,15 +195,15 @@ recovery distinct from `walker.cancel` when extending this instrumentation.
 
 ## Focused validation
 
-Select `rv5stage-guest-translation` for the test-only composed translation service. Its public
+Select `riscv-guest-translation` for the test-only composed translation service. Its public
 memory/completion scoreboard checks cold walks, warm hits without PTE traffic,
 host/guest coexistence at the same VA, host superpage reach, guest 4 KiB slicing, replacement, current permissions, byte-exact GPA
 faults, root/mode/environment changes, captured caller context, physical faults,
 held completion, cancellation, and invalidation during accepted reads and
-completion. Pair it with `rv5stage-nested-walker` when shared walk/result
+completion. Pair it with `riscv-nested-walker` when shared walk/result
 contracts change. The precise cause helper consumes the original access class;
 its test covers fetch/load/store/cache-management implicit-PTE faults.
-Keep this command sequencer under tests; production ITLB/DTLB hits remain combinational.
+Keep this command sequencer under `cores/riscv/tests`; production ITLB/DTLB hits remain combinational.
 The production MMU uses the shared ports directly. The optional guest context
 comes from the CSR owner; current privilege/MPRV/MPV chooses fetch/data stage
 contexts separately. The core retains the paired request/MEM fault metadata,
@@ -223,7 +224,7 @@ TLB invalidation and walk-owner removal happen at the invalidation edge;
 the walker's cancel notification is registered to avoid a WB-to-arbiter ready
 loop. Reads accepted on that edge remain real transactions and must drain.
 
-For nested translation, select `rv5stage-nested-walker`. Its public-interface
+For nested translation, select `riscv-nested-walker`. Its public-interface
 fixture checks all Bare/paged combinations, the 15-read cold nested walk,
 Sv39x4 root geometry, mixed superpages, captured context, per-stage privilege,
 MXR/SUM/PBMTE and A/D checks, exact guest-fault provenance, physical rejection,
@@ -231,8 +232,9 @@ backpressure, zero-latency responses, and cancellation/draining. The saved VS
 frame owns the continuation while the active frame runs G translation; no
 second walker or nested memory requester is instantiated. Keep memory-response
 ownership in the shared walker; the MMU must not filter replies on invalidation.
-Shared PTE/address helpers remain in `riscv/rtl`; retained frames and arbitration
-remain here. Keep H profile publication separate from component validation.
+Shared PTE/address helpers remain in `riscv/rtl`, retained frames in
+`cores/riscv/mmu`, and named-core arbitration here. Keep H profile publication
+separate from component validation.
 
 Mapping geometry belongs in the public Sv39 adapter. Keep walker `level`
 separate from result/entry `page_size`, and normalize `base_ppn` at leaf
@@ -240,8 +242,8 @@ construction. A 64 KiB NAPOT entry has one permission/A/D snapshot from its
 source PTE; do not scan aliases or add hardware A/D updates. Vector certificates
 remain 4 KiB physical-page certificates, not mapping-base PPNs.
 
-For Svnapot, run `rv5stage-svnapot`, `rv5stage-mmu-replay`, and
-`rv5stage-walk-trace`, plus the profile, MMU, and `rv5stage-test.rhm` composition
+For Svnapot, run `riscv-svnapot`, `rv5stage-mmu-replay`, and
+`riscv-walk-trace`, plus the profile, MMU, and `rv5stage-test.rhm` composition
 host checks. The direct fixture covers every subpage, malformed encodings,
 current permissions, PBMT, compact
 replacement, held results, and invalidation. The integrated replay fixture
@@ -251,7 +253,7 @@ Svnapot/Svpbmt flags; the shared RVA23 preset selects both. Keep component
 validation and exact-profile ACT projection distinct from full RVA23
 conformance, which enabling these extensions alone does not establish.
 
-For the Svpbmt translation foundation, run `rv5stage-svpbmt`, `riscv-csr`,
+For the Svpbmt translation foundation, run `riscv-svpbmt`, `riscv-csr`,
 and `rv5stage-mmu-replay`. PBMTE is captured at walk admission; do not sample
 the caller's next request while validating later PTE replies. PBMT travels
 with translation results and TLB entries, including the prefetch probe.
@@ -269,7 +271,7 @@ Run the MMU-owned host check from the repository root:
 ```sh
 tools/run-racket-tests.sh cores/rv5stage/tests/mmu-test.rhm
 FIXTURE=rv5stage-mmu-replay bash tools/testing/circt/run.sh --simulate-only
-FIXTURE=rv5stage-walk-trace bash tools/testing/circt/run.sh --simulate-only
+FIXTURE=riscv-walk-trace bash tools/testing/circt/run.sh --simulate-only
 ```
 
 The instrumented walker fixture checks exact residency nodes, end cycles, and

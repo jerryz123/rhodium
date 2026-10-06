@@ -1,5 +1,5 @@
 #lang rhodium
-/* Shares one associative entry bank between host and composed guest mappings, with a
+/* Provides a reusable associative entry bank for host and composed guest mappings, with a
    combinational hit path. */
 // SPDX-License-Identifier: Apache-2.0
 
@@ -15,7 +15,7 @@ import:
 
 /* Stores a mapping's address identity, translation roots, and independently checked stage
    leaves. */
-bundle RV5StageTlbEntry():
+bundle RiscvTlbEntry():
   valid: Bool
   virtualized: Bool
   page_size: Sv39PageSize
@@ -28,7 +28,7 @@ bundle RV5StageTlbEntry():
 
 /* Matches page and captured translation identity; current privilege, SUM, and VS MXR are
    rechecked. */
-fun rv5stage_tlb_matches(entry :: RV5StageTlbEntry(), request :: RV5StageTlbLookup()) :~ Bool:
+fun riscv_tlb_matches(entry :: RiscvTlbEntry(), request :: RiscvTlbLookup()) :~ Bool:
   def left = entry.context
   def right = request.context
   // SUM, VS MXR, and privilege are rechecked at lookup. HS MXR additionally
@@ -44,25 +44,25 @@ fun rv5stage_tlb_matches(entry :: RV5StageTlbEntry(), request :: RV5StageTlbLook
 
 /* Provides combinational demand and nonfaulting probe lookups over one associative bank.
    Successful fills replace round-robin; invalidation wins over a simultaneous fill. */
-sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
-  input lookup: RV5StageTlbLookup()
-  input probe: RV5StageTlbLookup()
+sync_circuit RiscvTranslationTlb(entry_count :: Pow2Int = 8):
+  input lookup: RiscvTlbLookup()
+  input probe: RiscvTlbLookup()
   input invalidate_all: Bool
-  interface fill(Valid(RV5StageTlbFill()), ~role: consumer)
+  interface fill(Valid(RiscvTlbFill()), ~role: consumer)
   output hit: Bool
-  output translation: RV5StageTlbMapping()
+  output translation: RiscvTlbMapping()
   output probe_raw_hit: Bool
   output probe_hit: Bool
   output probe_fault: Bool
   output probe_demand_fault: Bool
-  output probe_translation: RV5StageTlbMapping()
+  output probe_translation: RiscvTlbMapping()
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
   def index_bits = index_width(entry_count)
-  reg entries(Vec(entry_count, RV5StageTlbEntry()), ~init: literal(Vec(entry_count, RV5StageTlbEntry()), 0))
+  reg entries(Vec(entry_count, RiscvTlbEntry()), ~init: literal(Vec(entry_count, RiscvTlbEntry()), 0))
   reg replacement(~init: bits(0, index_bits))
-  def matches = vec(for List (index in 0..entry_count): rv5stage_tlb_matches(entries[index], lookup))
+  def matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], lookup))
   def selected = entries[priority_encoder(matches)]
   def vs_enabled = lookup.context.vs_mode === RiscvVSMode.Sv39
   def g_enabled = lookup.virtualized & (lookup.context.g_mode === RiscvGMode.Sv39x4)
@@ -78,7 +78,7 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
   // Invalidation wins at the state-update edge. Do not feed a WB-owned fence
   // back through hit/readiness into the retirement decision that creates it.
   hit <== bare ||| matches.or_reduce()
-  translation <== RV5StageTlbMapping():
+  translation <== RiscvTlbMapping():
     virtual_address: lookup.virtual_address
     access: lookup.access
     physical_address: mux(bare, lookup.virtual_address[0..56], translated)
@@ -86,11 +86,11 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
     guest_physical_address: mux(bare, lookup.virtual_address, guest_address)
     vs_leaf: mux(vs_enabled, selected.vs_leaf, literal(Sv39Pte(), 0))
     g_leaf: mux(g_enabled, selected.g_leaf, literal(Sv39Pte(), 0))
-    fault: mux(bare & lookup.virtual_address[56..64].or_reduce(), RV5StageTranslationFault.AccessFault, mux(vs_fault, RV5StageTranslationFault.PageFault, mux(g_fault, RV5StageTranslationFault.GuestPageFault, RV5StageTranslationFault.None)))
+    fault: mux(bare & lookup.virtual_address[56..64].or_reduce(), RiscvTranslationFault.AccessFault, mux(vs_fault, RiscvTranslationFault.PageFault, mux(g_fault, RiscvTranslationFault.GuestPageFault, RiscvTranslationFault.None)))
     fault_details: details
 
   // Prefetch shares the bank but deliberately does not require A/D bits.
-  def probe_matches = vec(for List (index in 0..entry_count): rv5stage_tlb_matches(entries[index], probe))
+  def probe_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], probe))
   def probe_entry = entries[priority_encoder(probe_matches)]
   def probe_vs = probe.context.vs_mode === RiscvVSMode.Sv39
   def probe_g = probe.virtualized & (probe.context.g_mode === RiscvGMode.Sv39x4)
@@ -117,7 +117,7 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
     guest_virtual_address: probe.virtualized
     guest_physical_address: mux(probe_vs_demand_fault, bits(0, 64), probe_guest_address)
     access: RiscvGuestFaultAccess.Explicit
-  probe_translation <== RV5StageTlbMapping():
+  probe_translation <== RiscvTlbMapping():
     virtual_address: probe.virtual_address
     access: probe.access
     physical_address: probe_physical
@@ -125,16 +125,16 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
     guest_physical_address: mux(probe_bare, probe.virtual_address, probe_guest_address)
     vs_leaf: mux(probe_vs, probe_entry.vs_leaf, literal(Sv39Pte(), 0))
     g_leaf: mux(probe_g, probe_entry.g_leaf, literal(Sv39Pte(), 0))
-    fault: mux(probe_bare & probe.virtual_address[56..64].or_reduce(), RV5StageTranslationFault.AccessFault, mux(probe_vs_demand_fault, RV5StageTranslationFault.PageFault, mux(probe_g_demand_fault, RV5StageTranslationFault.GuestPageFault, RV5StageTranslationFault.None)))
+    fault: mux(probe_bare & probe.virtual_address[56..64].or_reduce(), RiscvTranslationFault.AccessFault, mux(probe_vs_demand_fault, RiscvTranslationFault.PageFault, mux(probe_g_demand_fault, RiscvTranslationFault.GuestPageFault, RiscvTranslationFault.None)))
     fault_details: probe_fault_details
   probe_physical_address <== probe_physical
   // Svpbmt applies the G override first, then a non-PMA stage-one override.
   def probe_intermediate_pbmt = mux(probe_g, probe_entry.g_leaf.pbmt, PageMemoryType.PMA)
   probe_pbmt <== compose_page_memory_type(mux(probe_vs, probe_entry.vs_leaf.pbmt, PageMemoryType.PMA), probe_intermediate_pbmt)
 
-  def fill_matches = vec(for List (index in 0..entry_count): rv5stage_tlb_matches(entries[index], fill.bits.request))
+  def fill_matches = vec(for List (index in 0..entry_count): riscv_tlb_matches(entries[index], fill.bits.request))
   def fill_index = mux(fill_matches.or_reduce(), priority_encoder(fill_matches), replacement)
-  def next_entry = RV5StageTlbEntry():
+  def next_entry = RiscvTlbEntry():
     valid: Bool(#true)
     virtualized: fill.bits.request.virtualized
     page_size: fill.bits.result.page_size
@@ -145,14 +145,14 @@ sync_circuit RV5StageTranslationTlb(entry_count :: Pow2Int = 8):
     vs_leaf: fill.bits.result.vs_leaf
     g_leaf: fill.bits.result.g_leaf
   when invalidate_all:
-    entries <== literal(Vec(entry_count, RV5StageTlbEntry()), 0)
+    entries <== literal(Vec(entry_count, RiscvTlbEntry()), 0)
     replacement <== bits(0, index_bits)
-  elsewhen (fill.valid & (fill.bits.result.fault === RV5StageTranslationFault.None)):
+  elsewhen (fill.valid & (fill.bits.result.fault === RiscvTranslationFault.None)):
     entries <== entries.updated(fill_index, next_entry)
     replacement <== mux(fill_matches.or_reduce(), replacement, (replacement + bits(1, index_bits)) & bits(entry_count - 1, index_bits))
 
 /* Projects the shared bank onto host-only ports without introducing a second entry store. */
-sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
+sync_circuit RiscvTlb(entry_count :: Pow2Int = 8):
   input virtual_address: Bits(64)
   input access: Sv39Access
   input privilege: PrivilegeMode
@@ -166,21 +166,21 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   input probe_mxr: Bool
   input probe_enabled: Bool
   input probe_access: Sv39Access
-  interface fill(Valid(RV5StageTranslationResult()), ~role: consumer)
+  interface fill(Valid(RiscvTranslationResult()), ~role: consumer)
   output hit: Bool
   output fault: Bool
   output physical_address: Bits(56)
-  output translation: RV5StageTranslationResult()
+  output translation: RiscvTranslationResult()
   output probe_hit: Bool
   output probe_fault: Bool
   output probe_demand_fault: Bool
   output probe_physical_address: Bits(56)
   output probe_pbmt: PageMemoryType
 
-  inst bank(RV5StageTranslationTlb(entry_count))
+  inst bank(RiscvTranslationTlb(entry_count))
   /* Builds the host adapter's lookup context with zero root identity and PBMT disabled. */
-  fun host_lookup(address :: Bits(64), kind :: Sv39Access, mode :: PrivilegeMode, allow_user :: Bool, allow_execute :: Bool, paged :: Bool) :~ RV5StageTlbLookup():
-    def request = RV5StageTranslationRequest():
+  fun host_lookup(address :: Bits(64), kind :: Sv39Access, mode :: PrivilegeMode, allow_user :: Bool, allow_execute :: Bool, paged :: Bool) :~ RiscvTlbLookup():
+    def request = RiscvTranslationRequest():
       virtual_address: address
       root_ppn: bits(0, 44)
       access: kind
@@ -188,19 +188,19 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
       sum: allow_user
       mxr: allow_execute
       pbmte: Bool(#false)
-    rv5stage_host_lookup(request, ~enabled: paged)
+    riscv_host_lookup(request, ~enabled: paged)
   bank.lookup <== host_lookup(virtual_address, access, privilege, sum, mxr, enabled)
   bank.probe <== host_lookup(probe_virtual_address, probe_access, probe_privilege, probe_sum, probe_mxr, probe_enabled)
   bank.invalidate_all <== invalidate_all
   (
-    fill |> map_valid(result => RV5StageTlbFill()):
+    fill |> map_valid(result => RiscvTlbFill()):
       request: host_lookup(result.virtual_address, Sv39Access.Load, PrivilegeMode.Supervisor, Bool(#false), Bool(#false), Bool(#true))
-      result: rv5stage_host_mapping(result)
+      result: riscv_host_mapping(result)
   ) |> bank.fill
   hit <== bank.hit
-  fault <== bank.hit & (bank.translation.fault === RV5StageTranslationFault.PageFault)
+  fault <== bank.hit & (bank.translation.fault === RiscvTranslationFault.PageFault)
   physical_address <== bank.translation.physical_address
-  translation <== rv5stage_host_result(bank.translation).updated(~fault: fault, ~pbmt: mux(enabled, bank.translation.vs_leaf.pbmt, PageMemoryType.PMA))
+  translation <== riscv_host_result(bank.translation).updated(~fault: fault, ~pbmt: mux(enabled, bank.translation.vs_leaf.pbmt, PageMemoryType.PMA))
   probe_hit <== bank.probe_hit
   probe_fault <== bank.probe_fault
   probe_demand_fault <== bank.probe_demand_fault
@@ -208,6 +208,6 @@ sync_circuit RV5StageTlb(entry_count :: Pow2Int = 8):
   probe_pbmt <== bank.probe_pbmt
 
 export:
-  RV5StageTlb
-  RV5StageTranslationTlb
-  RV5StageTlbEntry
+  RiscvTlb
+  RiscvTranslationTlb
+  RiscvTlbEntry

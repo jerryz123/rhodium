@@ -13,6 +13,10 @@ The shared [CSR/trap service](csr/README.md) implements architectural state
 behind a core-neutral authorized-command interface. Each core retains its own
 retirement, interrupt-boundary, and pipeline-drain policy.
 
+The shared [translation machinery](mmu/README.md) supplies host/guest TLB banks
+and a serialized page-table walker. Cores retain miss arbitration, replay,
+physical routing, and architectural invalidation policy.
+
 Named cores import these mappings and compose them with their own complete
 decode relation.
 

@@ -3,13 +3,13 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
-  "../mmu/walker.rhdl" open
-  "../mmu/translation.rhdl" open
+  lib("cores/riscv/mmu/walker.rhdl") open
+  lib("cores/riscv/mmu/translation.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
 
-sync_circuit RV5StageNestedWalkerFixture():
+sync_circuit RiscvNestedWalkerFixture():
   input command_valid: Bool
   output command_ready: Bool
   input virtualized: Bool
@@ -35,7 +35,7 @@ sync_circuit RV5StageNestedWalkerFixture():
   output memory_pbmt: PageMemoryType
   input completion_ready: Bool
   output completed: Bool
-  output fault: RV5StageTranslationFault
+  output fault: RiscvTranslationFault
   output result_address: Bits(56)
   output result_virtual: Bits(64)
   output result_guest: Bits(64)
@@ -46,7 +46,7 @@ sync_circuit RV5StageNestedWalkerFixture():
   output vs_leaf: Bits(64)
   output g_leaf: Bits(64)
 
-  inst walker(RV5StageTranslationWalker(~svnapot: #true))
+  inst walker(RiscvTranslationWalker(~svnapot: #true))
   walker.cancel <== cancel
   walker.request.valid <== command_valid
   def context = RiscvGuestTranslationContext():
@@ -60,7 +60,7 @@ sync_circuit RV5StageNestedWalkerFixture():
     hs_mxr: hs_mxr
     vs_pbmte: vs_pbmte
     g_pbmte: g_pbmte
-  walker.request.bits <== RV5StageTlbLookup():
+  walker.request.bits <== RiscvTlbLookup():
     execute_read: Bool(#false)
     virtualized: virtualized
     virtual_address: address
@@ -87,4 +87,4 @@ sync_circuit RV5StageNestedWalkerFixture():
   vs_leaf <== walker.completion.bits.vs_leaf.into(Bits(64))
   g_leaf <== walker.completion.bits.g_leaf.into(Bits(64))
 
-export RV5StageNestedWalkerFixture
+export RiscvNestedWalkerFixture

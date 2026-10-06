@@ -42,6 +42,11 @@ Shared `riscv-csr`, `riscv-hypervisor-csr`, `riscv-sstc-rv32`, `riscv-zihpm-*`,
 and `riscv-sscofpmf-*` fixtures belong to `cores-components`; named-core
 retirement and interrupt integration remain in `cores-execution-control`.
 
+Shared `riscv-guest-translation`, `riscv-nested-walker`, `riscv-svnapot`,
+`riscv-svpbmt`, and `riscv-walk-trace` fixtures also belong to `cores-components`
+and live under `cores/riscv/tests/`. Production RV5Stage MMU replay and
+physical-port arbitration remain in `cores-memory`.
+
 RV5Stage vector fixtures belong to `cores-vector-functional-1` or
 `cores-vector-functional-2` for the default functional configurations, or
 `cores-vector-configurations` for alternate XLEN, VLEN, queue depth, and slot
@@ -235,7 +240,7 @@ noncoherent instruction ROM reads interleaved with coherent requests.
 It also compares exact refill start/end cycles against command/completion transfers.
 `cache-copyback` retains its packet and coherence checks while validating
 15 residency intervals across all three DAT widths and retries.
-`rv5stage-walk-trace` checks the production walker's exact residency graph,
+`riscv-walk-trace` checks the production walker's exact residency graph,
 PTE/completion parents, held completion, faults, cancellation, and pending reset
 using only public handshakes.
 `event-crossbar` links RHEG and checks direct/configured grant-controlled

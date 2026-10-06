@@ -15,7 +15,7 @@ Before adding a component, decide who owns its policy:
   interface is useful to more than one processor and it does not depend on an
   instruction catalog, named core, backend, example, or test.
 - Put reusable mappings from RISC-V instruction catalogs onto those shared
-  components, reusable CSR/trap state, and implementation-neutral protocol attachments under
+  components, reusable CSR/trap and TLB/PTW state, and implementation-neutral protocol attachments under
   `cores/riscv/`. These definitions may depend on `riscv/`, root `cores/`
   components, and shared protocol libraries, but not on any named core.
 - Put reusable cache geometry, physical protocols, L1I/L1D state, and cache-side

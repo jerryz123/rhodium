@@ -1,0 +1,51 @@
+#lang rhodium
+/* Defines host Sv39 requests, leaf results, and physical PTE read ownership for shared MMU adapters. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/rtl/sv39.rhdl") open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("rhodium/std/ready-valid.rhdl") open
+
+/* Captures the host translation root, access class, and current permission controls. */
+bundle RiscvTranslationRequest():
+  virtual_address: Bits(64)
+  root_ppn: Bits(44)
+  access: Sv39Access
+  privilege: PrivilegeMode
+  sum: Bool
+  mxr: Bool
+  pbmte: Bool
+
+/* Returns host leaf geometry, permissions, PBMT, and distinct page/access failures. */
+bundle RiscvTranslationResult():
+  virtual_address: Bits(64)
+  physical_address: Bits(56)
+  base_ppn: Bits(44)
+  page_size: Sv39PageSize
+  user: Bool
+  read: Bool
+  write: Bool
+  execute: Bool
+  global_mapping: Bool
+  accessed: Bool
+  dirty: Bool
+  fault: Bool
+  access_fault: Bool
+  pbmt: PageMemoryType
+
+/* Transfers one physical PTE read; acceptance either faults or owns one unbackpressured reply. */
+interface RiscvPageTableMemory():
+  role requester
+  role responder
+  provider requester
+  requester -> responder:
+    request: Decoupled(Bits(64))
+  responder -> requester:
+    request_access_fault: Bool
+    response: Valid(Bits(64))
+
+export:
+  RiscvTranslationRequest
+  RiscvTranslationResult
+  RiscvPageTableMemory

@@ -349,15 +349,21 @@ These edges stay within the
 existing core-to-architecture dependency direction.
 The CSR specialization reads MISA from the existing RV5Stage profile projection,
 which owns the pure `riscv/isa/profile.rhm` catalog dependency.
-RV5Stage's `mmu/translation.rhdl` imports the host protocol, public hypervisor,
+Shared `cores/riscv/mmu/protocol.rhdl` imports the public Sv39/privilege adapters
+and `std/ready-valid.rhdl`, without named-core or cache payloads.
+`cores/riscv/mmu/translation.rhdl` imports that host protocol, public hypervisor,
 privilege, Sv39 and trap adapters, pure exception descriptors, and
-`std/ready-valid.rhdl`. Shared `mmu/tlb.rhdl` and `mmu/walker.rhdl`
+`std/ready-valid.rhdl`. Shared `cores/riscv/mmu/tlb.rhdl` and `walker.rhdl`
 consume these contracts and `std/bits.rhdl` / `flow/main.rhdl`.
 Both host adapters are wiring-only; entry storage, permission checking, and
 walker continuation/response ownership belong to those shared implementations.
-The serialized composition lives under `tests/translation-service.rhdl`;
+The serialized composition lives under `cores/riscv/tests/translation-service.rhdl`;
 production never imports it. PTE reads retain the G-stage memory attribute for
 implicit VS reads. No implementation state moves into the RISC-V architecture package.
+RV5Stage's MMU imports the shared protocol, translation projections, TLB, and
+walker directly. Its local protocol imports only the shared host result shape
+for vector page probes; virtual request wrappers and completion ownership remain
+named-core policy. No compatibility module or reverse dependency is introduced.
 The translation projection, TLB probes, MMU and physical router also import
 the public Svpbmt adapter for one attribute composition/resolution policy.
 `mmu/vector-window.rhdl` uses its enum to exclude overridden pages from fast

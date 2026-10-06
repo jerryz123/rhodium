@@ -83,16 +83,16 @@ Keep opcode/CSR catalogs pure, substitution/delegation helpers here, and
 commit-owned state in the core. Add nested-translation request ownership and
 continuation types with the walker consumer; do not infer fault provenance
 from live CSR values after a request has been issued.
-`rv5stage-nested-walker` exercises the captured guest context and Sv39x4
+`riscv-nested-walker` exercises the captured guest context and Sv39x4
 address helpers with the production standalone walker. Keep stage mode/root
 geometry and permission representations here, but saved frames, serialized
-memory ownership, and canceled-response draining in `cores/rv5stage/mmu/`.
+memory ownership, and canceled-response draining in `cores/riscv/mmu/`.
 
-For Svnapot and mapping geometry, run `rv5stage-svnapot` and
+For Svnapot and mapping geometry, run `riscv-svnapot` and
 `rv5stage-mmu-replay`. They cover compact 64 KiB mappings, reserved encodings,
 permissions, ordinary superpages, prefetch probes, and vector-window reuse.
 
-The `rv5stage-svpbmt` fixture combines the reusable Svpbmt helpers with the
+The `riscv-svpbmt` fixture combines the reusable Svpbmt helpers with the
 production walker/TLB and checks all PBMT encodings, PMA overrides, reserved
 bits, held results, superpages, Bare bypass, and invalidation. Pair it with
 `riscv-csr` for profile-controlled PBMTE writes and flush notification.

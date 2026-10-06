@@ -2,11 +2,11 @@
 // Emits the production walker with residency and caller-owned PTE/completion checkpoints.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../../../../cores/rv5stage/tests/walk-trace-fixture.rhdl".RV5StageWalkTrace
+  "../walk-trace-fixture.rhdl".RiscvWalkTrace
   "../../../../rhodium/frontend/kernel.rhm" as embedded
   "../../../../rhodium/backend/circt.rhm".emit_circt
   "../../../../rhodium/event/main.rhm" open
-def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RV5StageWalkTrace()), EventInstrumentationConfig(~partial: #true))
+def traced = instrument_events(embedded.run_elaboration_with_top(fun (): RiscvWalkTrace()), EventInstrumentationConfig(~partial: #true))
 def constants = for List (site in traced.manifest.sites, index in 0..traced.manifest.sites.length()):
   "constexpr unsigned " ++ site.label.replace("/", "_") ++ " = " ++ to_string(index) ++ ";\n"
 def event_manifest_cpp = event_manifest_to_cpp(traced.manifest) ++ "\nnamespace test_sites {\n" ++ String.join(constants, "") ++ "}\n"

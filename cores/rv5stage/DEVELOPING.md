@@ -578,7 +578,7 @@ The `riscv-hypervisor-csr` fixture sweeps all five operations across
 M/HS/U/VS/VU and independent TVM/VTVM settings. `rv5stage-hypervisor-core`
 checks paged VS/G remapping after delayed PTE stores, batched invalidations,
 and precise guest denial without younger stores. Pair with
-`rv5stage-guest-translation` for invalidation on refill and accepted-response
+`riscv-guest-translation` for invalidation on refill and accepted-response
 edges and orphan-response draining, and `riscv-csr` for ordinary privilege
 regressions. Svinval selection does not itself advertise H, Sha, or RVA23.
 

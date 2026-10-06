@@ -1,5 +1,5 @@
 #lang rhodium
-/* Defines shared host/guest TLB and walker mappings, stage permissions, and host-port adapters. */
+/* Defines core-neutral host/guest TLB and walker mappings, faults, and host-port projections. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
@@ -13,14 +13,14 @@ import:
   lib("rhodium/std/ready-valid.rhdl") open
 
 /* Separates first-stage, guest-stage, and physical failures for precise trap selection. */
-hardware_enum RV5StageTranslationFault:
+hardware_enum RiscvTranslationFault:
   None
   PageFault
   GuestPageFault
   AccessFault
 
 /* Captures the access and both translation contexts used to match and recheck a mapping. */
-bundle RV5StageTlbLookup():
+bundle RiscvTlbLookup():
   virtualized: Bool
   execute_read: Bool
   virtual_address: Bits(64)
@@ -29,7 +29,7 @@ bundle RV5StageTlbLookup():
 
 /* Retains independent stage permissions, PBMT, and fault provenance. Bare stages have
    zero leaves; the captured context identifies which stages apply. */
-bundle RV5StageTlbMapping():
+bundle RiscvTlbMapping():
   virtual_address: Bits(64)
   access: Sv39Access
   physical_address: Bits(56)
@@ -37,17 +37,17 @@ bundle RV5StageTlbMapping():
   guest_physical_address: Bits(64)
   vs_leaf: Sv39Pte()
   g_leaf: Sv39Pte()
-  fault: RV5StageTranslationFault
+  fault: RiscvTranslationFault
   fault_details: RiscvGuestFault()
 
 /* Pairs a completed mapping with the original lookup context for associative installation. */
-bundle RV5StageTlbFill():
-  request: RV5StageTlbLookup()
-  result: RV5StageTlbMapping()
+bundle RiscvTlbFill():
+  request: RiscvTlbLookup()
+  result: RiscvTlbMapping()
 
 /* For a faulting completion, selects the exception class from the original access,
    not an implicit page-table read. */
-fun rv5stage_translation_fault_cause(result :: RV5StageTlbMapping()) :~ Bits(64):
+fun riscv_translation_fault_cause(result :: RiscvTlbMapping()) :~ Bits(64):
   def page = mux_lookup(result.access, ~default: exception_cause_bits(ExceptionCause.StorePageFault, 64)):
     Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionPageFault, 64)
     Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadPageFault, 64)
@@ -58,27 +58,27 @@ fun rv5stage_translation_fault_cause(result :: RV5StageTlbMapping()) :~ Bits(64)
     Sv39Access.Fetch: exception_cause_bits(ExceptionCause.InstructionAccessFault, 64)
     Sv39Access.Load: exception_cause_bits(ExceptionCause.LoadAccessFault, 64)
   mux_lookup(result.fault, ~default: physical):
-    RV5StageTranslationFault.PageFault: page
-    RV5StageTranslationFault.GuestPageFault: guest
+    RiscvTranslationFault.PageFault: page
+    RiscvTranslationFault.GuestPageFault: guest
 
 /* Carries the physical PTE address and G-stage memory-type override for an implicit read. */
-bundle RV5StagePteRead():
+bundle RiscvPteRead():
   address: Bits(64)
   pbmt: PageMemoryType
 
 /* Transfers one PTE read with admission-time access faults and an unbackpressured result. */
-interface RV5StageTranslationMemory():
+interface RiscvTranslationMemory():
   role requester
   role responder
   provider requester
   requester -> responder:
-    request: Decoupled(RV5StagePteRead())
+    request: Decoupled(RiscvPteRead())
   responder -> requester:
     request_access_fault: Bool
     response: Valid(Bits(64))
 
 /* Projects a host Sv39 request into the shared lookup with G-stage translation disabled. */
-fun rv5stage_host_lookup(request :: RV5StageTranslationRequest(), ~enabled: enabled :: Bool = Bool(#true)) :~ RV5StageTlbLookup():
+fun riscv_host_lookup(request :: RiscvTranslationRequest(), ~enabled: enabled :: Bool = Bool(#true)) :~ RiscvTlbLookup():
   def context = RiscvGuestTranslationContext():
     vs_mode: mux(enabled, RiscvVSMode.Sv39, RiscvVSMode.Bare)
     g_mode: RiscvGMode.Bare
@@ -90,7 +90,7 @@ fun rv5stage_host_lookup(request :: RV5StageTranslationRequest(), ~enabled: enab
     hs_mxr: Bool(#false)
     vs_pbmte: request.pbmte
     g_pbmte: Bool(#false)
-  RV5StageTlbLookup():
+  RiscvTlbLookup():
     virtualized: Bool(#false)
     execute_read: Bool(#false)
     virtual_address: request.virtual_address
@@ -98,7 +98,7 @@ fun rv5stage_host_lookup(request :: RV5StageTranslationRequest(), ~enabled: enab
     context: context
 
 /* Reconstructs a first-stage leaf and shared mapping from the host-only result shape. */
-fun rv5stage_host_mapping(result :: RV5StageTranslationResult()) :~ RV5StageTlbMapping():
+fun riscv_host_mapping(result :: RiscvTranslationResult()) :~ RiscvTlbMapping():
   def leaf = Sv39Pte():
     ppn: result.base_ppn
     napot: Bool(#false)
@@ -113,7 +113,7 @@ fun rv5stage_host_mapping(result :: RV5StageTranslationResult()) :~ RV5StageTlbM
     write: result.write
     read: result.read
     valid: Bool(#true)
-  RV5StageTlbMapping():
+  RiscvTlbMapping():
     virtual_address: result.virtual_address
     access: Sv39Access.Load
     physical_address: sv39_physical_address(result.virtual_address, result.base_ppn, result.page_size)
@@ -121,12 +121,12 @@ fun rv5stage_host_mapping(result :: RV5StageTranslationResult()) :~ RV5StageTlbM
     guest_physical_address: result.physical_address.zext(64)
     vs_leaf: leaf
     g_leaf: literal(Sv39Pte(), 0)
-    fault: mux(result.access_fault, RV5StageTranslationFault.AccessFault, mux(result.fault, RV5StageTranslationFault.PageFault, RV5StageTranslationFault.None))
+    fault: mux(result.access_fault, RiscvTranslationFault.AccessFault, mux(result.fault, RiscvTranslationFault.PageFault, RiscvTranslationFault.None))
     fault_details: literal(RiscvGuestFault(), 0)
 
 /* Projects a shared mapping into host result fields, composing the two stages' PBMT. */
-fun rv5stage_host_result(result :: RV5StageTlbMapping()) :~ RV5StageTranslationResult():
-  RV5StageTranslationResult():
+fun riscv_host_result(result :: RiscvTlbMapping()) :~ RiscvTranslationResult():
+  RiscvTranslationResult():
     virtual_address: result.virtual_address
     physical_address: result.physical_address
     base_ppn: sv39_base_ppn(result.physical_address[12..56], result.page_size)
@@ -138,18 +138,18 @@ fun rv5stage_host_result(result :: RV5StageTlbMapping()) :~ RV5StageTranslationR
     global_mapping: result.vs_leaf.global_mapping
     accessed: result.vs_leaf.accessed
     dirty: result.vs_leaf.dirty
-    fault: result.fault.is_one_of(RV5StageTranslationFault.PageFault, RV5StageTranslationFault.GuestPageFault)
-    access_fault: result.fault === RV5StageTranslationFault.AccessFault
-    pbmt: mux(result.fault === RV5StageTranslationFault.None, compose_page_memory_type(result.vs_leaf.pbmt, result.g_leaf.pbmt), PageMemoryType.PMA)
+    fault: result.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
+    access_fault: result.fault === RiscvTranslationFault.AccessFault
+    pbmt: mux(result.fault === RiscvTranslationFault.None, compose_page_memory_type(result.vs_leaf.pbmt, result.g_leaf.pbmt), PageMemoryType.PMA)
 
 export:
-  rv5stage_host_lookup
-  rv5stage_host_mapping
-  rv5stage_host_result
-  RV5StageTranslationFault
-  RV5StageTlbLookup
-  RV5StageTlbMapping
-  RV5StageTlbFill
-  rv5stage_translation_fault_cause
-  RV5StagePteRead
-  RV5StageTranslationMemory
+  riscv_host_lookup
+  riscv_host_mapping
+  riscv_host_result
+  RiscvTranslationFault
+  RiscvTlbLookup
+  RiscvTlbMapping
+  RiscvTlbFill
+  riscv_translation_fault_cause
+  RiscvPteRead
+  RiscvTranslationMemory

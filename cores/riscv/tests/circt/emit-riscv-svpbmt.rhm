@@ -5,6 +5,6 @@
 import:
   lib("rhodium/backend/circt.rhm") open
   lib("rhodium/frontend/kernel.rhm") as embedded
-  "../svpbmt-fixture.rhdl".RV5StageSvpbmtFixture
+  "../svpbmt-fixture.rhdl".RiscvSvpbmtFixture
 
-print(emit_circt(embedded.run_elaboration(fun (): RV5StageSvpbmtFixture())))
+print(emit_circt(embedded.run_elaboration(fun (): RiscvSvpbmtFixture())))

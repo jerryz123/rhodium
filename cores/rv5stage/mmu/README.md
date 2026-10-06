@@ -297,63 +297,14 @@ with its address until consumed or invalidated. This lets WB take an interrupt
 or trap without waiting for a speculative retry. L1D's own blocking-miss and
 response rules remain in the [L1D guide](../../cache/l1d/README.md#core-facing-protocol).
 
-## TLB contract
+## Shared TLB and walker
 
-[`tlb.rhdl`](tlb.rhdl) implements the same combinational lookup and synchronous
-fill policy for the ITLB and DTLB:
-
-- entries retain VPN, normalized base PPN, `Sv39PageSize`, PBMT,
-  `U/R/W/X/G/A/D`, and validity;
-- a 4 KiB entry matches all 27 VPN bits; 64 KiB, 2 MiB, and 1 GiB entries
-  ignore respectively the lowest 4, 9, and 18 VPN bits;
-- the page size reconstructs the correct offset in the 56-bit physical address
-  independently of the walker's page-table level;
-- a hit re-evaluates permissions using the current access kind, privilege,
-  `SUM`, and `MXR` rather than caching a prior permission decision;
-- a successful walk updates a matching entry or fills the next entry in a cyclic replacement sequence;
-  page-fault and access-fault completions do not allocate; and
-- `invalidate_all` clears every entry and resets replacement state, including
-  entries whose accumulated `G` bit is set.
-
-When translation is disabled, the TLB reports a bypass hit and the composition
-uses the original XLEN address. Canonicality is checked only for enabled Sv39
-lookups.
-
-## Page-table-walker contract
-
-[`walker.rhdl`](walker.rhdl) accepts one
-[`RV5StageTranslationRequest`](protocol.rhdl) only while idle. It captures the
-virtual address, root PPN, access kind, effective privilege, `SUM`, and `MXR`,
-then visits Sv39 levels 2, 1, and 0. At each level it issues the physical
-64-bit PTE address `table_ppn * 4096 + vpn[level] * 8` and waits for exactly one
-non-backpressured `Valid(Bits(64))` response before continuing. The response
-may arrive on acceptance or in a later cycle while the walker owns it; there is no
-response `ready` signal or buffering at this boundary. Cancellation may discard
-a response arriving on the cancellation edge. Walk completions remain
-irrevocable and may be backpressured.
-
-A walk succeeds at the first structurally valid, aligned leaf whose permission
-check passes. Non-leaf `G` bits are accumulated into the result. The completion
-retains the original virtual address so the composition can refill only the
-owning TLB or correlate the fault with a later replayed request for that address.
-
-The walk completes with a page fault for any of these conditions:
-
-- a noncanonical virtual address;
-- `V=0`, `W=1 && R=0`, or any nonzero reserved PTE bit;
-- a leaf whose lower PPN fields are not aligned for its superpage level;
-- a non-leaf at level 0, or a non-leaf with `D`, `A`, or `U` set;
-- a privilege failure, including Supervisor fetch from a user page or a
-  Supervisor data access to a user page without `SUM`;
-- a fetch without `X`, a load without `R` or the `MXR && X` alternative, or a
-  store-like access without `W`; or
-- `A=0`, or `D=0` for a store-like access.
-
-If the physical hierarchy rejects the PTE load at request acceptance, the
-walker instead completes with an access fault. It does not reinterpret that
-failure as an invalid PTE and does not wait for a memory response. `cancel`
-suppresses completion and returns the walker to Idle after any accepted PTE
-response drains. Repeated cancellation does not forget that response owner.
+The production MMU instantiates the reusable
+[translation banks and walker](../../riscv/mmu/README.md) from
+`cores/riscv/mmu/`. That package owns mapping geometry, permission rechecks,
+PBMT, nested traversal, and cancellation/drain semantics. RV5Stage owns miss
+selection, useful fills across fetch recovery, fault correlation, and routing
+PTE traffic through its physical data arbiter.
 
 ## Fault ownership and classification
 
@@ -445,52 +396,10 @@ The production MMU supplies host context by default and selects guest context
 when the core profile enables H. The standalone MMU retains an explicit
 `~hypervisor: #true` parameter; the RVA23 SoC composition derives it from its profile.
 
-[`tlb.rhdl`](tlb.rhdl) provides `RV5StageTranslationTlb`. Lookup is
-combinational, with one power-of-two associative entry bank shared by host and
-guest mappings. Host entries retain Sv39 superpage and Svnapot reach. Guest
-entries cache composed GVA-to-physical mappings at 4 KiB granularity, retaining
-the guest physical page and independent VS/G leaf permissions and PBMT.
-The same virtual address can coexist in host and guest contexts. Tags include
-virtualization, both modes/roots, PBMTE, and HS MXR. Current privilege, VS SUM/MXR,
-access class, and A/D permissions are rechecked at lookup; VS denial takes
-priority over final G denial. HS MXR changes conservatively rewalk because an
-entry does not retain the leaves authorizing implicit VS PTE reads.
-Probes ignore A/D but require at least one access class allowed by both stages.
-Their PBMT applies the G override followed by a non-PMA stage-one override,
-as specified by [Svpbmt](https://docs.riscv.org/reference/isa/v20240411/priv/svpbmt.html).
-
-[`walker.rhdl`](walker.rhdl) provides `RV5StageTranslationWalker`.
-One state machine and PTE datapath handle ordinary Sv39 and nested VS Sv39 /
-G Sv39x4 walks. Host walks read their PTEs directly. Guest walks retain a VS
-continuation while the same datapath translates each VS PTE address through
-G-stage, then translate the final GPA. Sv39x4 uses a 16 KiB root and 41-bit GPA.
-Both stages can be Bare. G permission checks use U-mode semantics; HS MXR
-applies at both stages, VS MXR/SUM only to stage one. A/D handling remains
-Svade. `~svnapot` enables the existing 64 KiB leaf rules.
-
-Shared contracts live in [`translation.rhdl`](translation.rhdl):
-`RV5StageTlbLookup`, `RV5StageTlbMapping`, and `RV5StageTlbFill`.
-The context's `vs_*` fields describe stage one: SATP/S-mode controls for host
-requests, VSATP/VS controls for guest requests. Host requests disable G-stage.
-Results distinguish page, guest-page, and physical access faults and retain
-original VA/access, precise GPA, and implicit-PTE-read provenance.
-`rv5stage_translation_fault_cause` converts a faulting result to its
-architectural instruction/load/store cause; cache management uses store causes.
-Consumers resolve effective memory attributes and final PMA/PMP authorization.
-
-`RV5StageTlb` and `RV5StagePageTableWalker` are host-port adapters for standalone
-host consumers and fixtures; they contain no independent translation storage
-or sequencing. The production MMU uses the shared components directly.
-ITLB/DTLB hit, probe, and replay paths remain direct.
-There is no serialized translation service on the hit path.
-
-The memory interface accepts at most one PTE read. Its service checks address
-and PBMT; translated VS PTE reads carry the G leaf's PBMT, and G PTE reads use
-PMA. Rejection returns `request_access_fault` on acceptance and owes no reply.
-Accepted reads return one Valid response on that edge or later. Cancellation
-suppresses architectural results, but the walker retains and drains an accepted
-read before admitting another walk. The MMU must forward replies even after
-invalidation. Reset requires the memory service to discard pre-reset responses.
+The [shared translation contract](../../riscv/mmu/README.md#translation-contract)
+describes the host/guest entry bank, lookup context, fault provenance, and
+PTE-memory ownership. RV5Stage uses `RiscvTranslationTlb` and
+`RiscvTranslationWalker` directly, not the host-only projection adapters.
 
 Whole-bank invalidation discards all entries, including global mappings, and
 wins over refill. The integrating MMU must also cancel outstanding walks and
@@ -518,7 +427,7 @@ at that edge and registers the walker cancellation notification. A PTE read
 accepted on that edge is still drained, and cannot refill after invalidation.
 This keeps architectural cancellation out of WB's physical-arbiter ready loop.
 
-The test-only [translation service](../tests/translation-service.rhdl)
+The test-only [translation service](../../riscv/tests/translation-service.rhdl)
 serializes commands for behavioral validation of the shared components;
 it is not a production MMU path. See the
 [core implementation guide](../DEVELOPING.md) for integration and validation.

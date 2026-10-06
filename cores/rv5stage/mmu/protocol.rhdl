@@ -1,13 +1,12 @@
 #lang rhodium
-/* Defines RV5Stage's internal Sv39 lookup and page-table-memory protocols. */
+/* Defines RV5Stage's guest-aware pipeline requests, split completions, and vector translation interfaces. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "../../cache/protocol.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
-  "../../../riscv/rtl/sv39.rhdl" open
   "../../../riscv/rtl/hypervisor.rhdl" open
-  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+  lib("cores/riscv/mmu/protocol.rhdl").RiscvTranslationResult
   "../memory-context.rhdl" open
   lib("rhodium/std/bits.rhdl").Pow2Int
   lib("rhodium/std/ready-valid.rhdl") open
@@ -51,33 +50,6 @@ interface RV5StageGuestPipelineAccess(xlen :: XLen):
   responder -> requester:
     response: Valid(CachePipelineResult(xlen))
     commit_ready: Bool
-
-/* Defines a host Sv39 lookup with captured root and permission controls. */
-bundle RV5StageTranslationRequest():
-  virtual_address: Bits(64)
-  root_ppn: Bits(44)
-  access: Sv39Access
-  privilege: PrivilegeMode
-  sum: Bool
-  mxr: Bool
-  pbmte: Bool
-
-/* Returns host leaf permissions, page geometry, PBMT, and distinct page/access failures. */
-bundle RV5StageTranslationResult():
-  virtual_address: Bits(64)
-  physical_address: Bits(56)
-  base_ppn: Bits(44)
-  page_size: Sv39PageSize
-  user: Bool
-  read: Bool
-  write: Bool
-  execute: Bool
-  global_mapping: Bool
-  accessed: Bool
-  dirty: Bool
-  fault: Bool
-  access_fault: Bool
-  pbmt: PageMemoryType
 
 /* Bounds one nonspeculative vector macro's virtual byte range and required permission.
    A false check selects exact element execution, never an architectural fault. */
@@ -123,7 +95,7 @@ interface RV5StagePageProbe():
   requester -> responder:
     request: Decoupled(RV5StagePageProbeRequest())
   responder -> requester:
-    response: Valid(RV5StageTranslationResult())
+    response: Valid(RiscvTranslationResult())
 
 /* Retains a macro's range check until its decision transfers, then owns the window until
    release. */
@@ -137,27 +109,11 @@ interface RV5StageVectorPrecheck():
   responder -> requester:
     response: Irrevocable(Bool)
 
-/* Defines the host adapter's physical PTE read, admission fault, and fixed-owner reply. */
-interface RV5StagePageTableMemory():
-  role requester
-  role responder
-  provider requester
-
-  requester -> responder:
-    request: Decoupled(Bits(64))
-
-  responder -> requester:
-    request_access_fault: Bool
-    response: Valid(Bits(64))
-
 export:
   RV5StageSplitResult
   RV5StageGuestMemoryReq
   RV5StageGuestDataAccess
   RV5StageGuestPipelineAccess
-  RV5StageTranslationRequest
-  RV5StageTranslationResult
-  RV5StagePageTableMemory
   RV5StageVectorRange
   RV5StageVectorFastCertificate
   RV5StageVectorFastCheck

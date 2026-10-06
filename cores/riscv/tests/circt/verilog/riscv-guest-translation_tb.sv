@@ -1,6 +1,6 @@
 // Checks composed guest TLB reuse, current permissions, precise faults, fences, and canceled walk ownership.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_guest_translation_tb;
+module riscv_guest_translation_tb;
   reg clock = 0;
   always #5 clock = ~clock;
   reg reset = 1, virtualized = 1;
@@ -18,7 +18,7 @@ module rv5stage_guest_translation_tb;
   wire [1:0] fault, result_access, memory_pbmt;
   wire probe_hit, probe_fault;
   wire [1:0] probe_pbmt;
-  RV5StageGuestTranslationFixture dut(.*);
+  RiscvGuestTranslationFixture dut(.*);
   localparam logic [1:0] NONE = 0, PAGE = 1, GUEST = 2, PHYSICAL = 3;
   localparam logic [1:0] FETCH = 0, LOAD = 1, STORE = 2;
   localparam [63:0] VR = 'h43, VW = 'hc7, GR = 'h53, GW = 'hd7;

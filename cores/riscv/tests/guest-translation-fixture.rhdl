@@ -4,12 +4,12 @@
 
 import:
   "translation-service.rhdl" open
-  "../mmu/translation.rhdl" open
+  lib("cores/riscv/mmu/translation.rhdl") open
   lib("riscv/rtl/hypervisor.rhdl") open
   lib("riscv/rtl/privilege.rhdl") open
   lib("riscv/rtl/sv39.rhdl") open
 
-sync_circuit RV5StageGuestTranslationFixture():
+sync_circuit RiscvGuestTranslationFixture():
   input command_valid: Bool
   output command_ready: Bool
   input virtualized: Bool
@@ -36,7 +36,7 @@ sync_circuit RV5StageGuestTranslationFixture():
   output memory_pbmt: PageMemoryType
   input completion_ready: Bool
   output completed: Bool
-  output fault: RV5StageTranslationFault
+  output fault: RiscvTranslationFault
   output result_address: Bits(56)
   output result_virtual: Bits(64)
   output result_guest: Bits(64)
@@ -51,7 +51,7 @@ sync_circuit RV5StageGuestTranslationFixture():
   output vs_leaf: Bits(64)
   output g_leaf: Bits(64)
 
-  inst translation(RV5StageTranslationTestService(2, ~svnapot: #true))
+  inst translation(RiscvTranslationTestService(2, ~svnapot: #true))
   translation.cancel <== cancel
   translation.invalidate_all <== invalidate_all
   probe_hit <== translation.probe_hit
@@ -69,7 +69,7 @@ sync_circuit RV5StageGuestTranslationFixture():
     hs_mxr: hs_mxr
     vs_pbmte: vs_pbmte
     g_pbmte: g_pbmte
-  translation.request.bits <== RV5StageTlbLookup():
+  translation.request.bits <== RiscvTlbLookup():
     execute_read: Bool(#false)
     virtualized: virtualized
     virtual_address: address
@@ -92,9 +92,9 @@ sync_circuit RV5StageGuestTranslationFixture():
   result_access <== translation.completion.bits.access
   fault_guest <== translation.completion.bits.fault_details.guest_physical_address
   implicit_read <== translation.completion.bits.fault_details.access
-  cause <== rv5stage_translation_fault_cause(translation.completion.bits)
+  cause <== riscv_translation_fault_cause(translation.completion.bits)
   tinst <== guest_fault_instruction(translation.completion.bits.fault_details)
   vs_leaf <== translation.completion.bits.vs_leaf.into(Bits(64))
   g_leaf <== translation.completion.bits.g_leaf.into(Bits(64))
 
-export RV5StageGuestTranslationFixture
+export RiscvGuestTranslationFixture

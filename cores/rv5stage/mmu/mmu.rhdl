@@ -10,11 +10,12 @@ import:
   "../fp/types.rhdl" open
   "../profile.rhm".RV5StageMmuMode
   "protocol.rhdl" open
-  "translation.rhdl" open
+  lib("cores/riscv/mmu/protocol.rhdl") open
+  lib("cores/riscv/mmu/translation.rhdl") open
   "../../../riscv/rtl/hypervisor.rhdl" open
   "misaligned-access.rhdl" open
-  "tlb.rhdl" open
-  "walker.rhdl" open
+  lib("cores/riscv/mmu/tlb.rhdl") open
+  lib("cores/riscv/mmu/walker.rhdl") open
   "vector-window.rhdl" open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   "../../cache/operation.rhdl" open
@@ -80,17 +81,17 @@ sync_circuit RV5StageMmu(xlen :: XLen,
         input guest_translation: RiscvHypervisorTranslation()
         guest_translation
     | literal(RiscvHypervisorTranslation(), 0)
-  inst itlb(RV5StageTranslationTlb(tlb_entries))
-  inst dtlb(RV5StageTranslationTlb(tlb_entries))
-  inst walker(RV5StageTranslationWalker(~svnapot: svnapot))
-  def itlb_result = rv5stage_host_result(itlb.translation)
+  inst itlb(RiscvTranslationTlb(tlb_entries))
+  inst dtlb(RiscvTranslationTlb(tlb_entries))
+  inst walker(RiscvTranslationWalker(~svnapot: svnapot))
+  def itlb_result = riscv_host_result(itlb.translation)
   // A detached fetch must not trap, but a completed page fault is reusable
   // translation evidence until architectural invalidation. Keep its exact
   // guest-fault metadata separate from successful ITLB mappings and probes.
   reg instruction_fault_cached(~init: Bool(#false))
-  reg instruction_fault_lookup(RV5StageTlbLookup())
-  reg instruction_fault_mapping(RV5StageTlbMapping())
-  def dtlb_result = rv5stage_host_result(dtlb.translation)
+  reg instruction_fault_lookup(RiscvTlbLookup())
+  reg instruction_fault_mapping(RiscvTlbMapping())
+  def dtlb_result = riscv_host_result(dtlb.translation)
   inst vector_window(RV5StageVectorWindow(physical_map))
   inst misaligned(RV5StageMisalignedEngine(xlen, vector_completion_slots))
   reg split_mode(RiscvGuestMemoryAccess)
@@ -126,7 +127,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def sum = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusSUM)
   def mxr = if xlen == XLen.X32 | Bool(#false) | csr_flag(mstatus, MstatusMXR)
   /* Captures host or guest translation roots, privilege, permission controls, and PBMT enables. */
-  fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RV5StageTlbLookup():
+  fun lookup(address :: Bits(64), access :: Sv39Access, effective_privilege :: PrivilegeMode, enabled :: Bool, guest :: Bool) :~ RiscvTlbLookup():
     def stages = RiscvGuestTranslationContext():
       vs_mode: mux(mux(guest, csr_field(guest_state.vsatp, Satp64Mode) === bits(Sv39Mode, 4), enabled), RiscvVSMode.Sv39, RiscvVSMode.Bare)
       g_mode: mux(guest & (csr_field(guest_state.hgatp, Hgatp64Mode) === bits(Sv39Mode, 4)), RiscvGMode.Sv39x4, RiscvGMode.Bare)
@@ -138,7 +139,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
       hs_mxr: guest & mxr
       vs_pbmte: mux(guest, guest_state.vs_pbmte, pbmte)
       g_pbmte: guest & pbmte
-    RV5StageTlbLookup():
+    RiscvTlbLookup():
       virtualized: guest
       execute_read: Bool(#false)
       virtual_address: address
@@ -262,7 +263,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   reg fault_is_data(~init: Bool(#false))
   reg fault_is_access(~init: Bool(#false))
   reg fault_address(Bits(64))
-  reg fault_mapping(RV5StageTlbMapping())
+  reg fault_mapping(RiscvTlbMapping())
   reg walker_memory_pending(~init: Bool(#false))
 
   def load_address = if xlen == XLen.X32 | load_request.egress.bits.address | mux(physical_owner.bits, load_request.egress.bits.address, mux(load_window, vector_window.physical_addresses[1], mux(data_translation_enabled, dtlb.translation.physical_address.zext(64), load_request.egress.bits.address)))
@@ -331,12 +332,12 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def start_data_walk = can_start_walk & !start_probe_walk & !start_instruction_walk & data_miss
   walker.request.valid <== start_instruction_walk ||| start_data_walk ||| start_probe_walk
   walker.request.bits <== mux(start_data_walk ||| start_probe_walk, dtlb.lookup, itlb.lookup)
-  reg walk_lookup(RV5StageTlbLookup())
+  reg walk_lookup(RiscvTlbLookup())
   when (walker.request.fire()):
     walk_lookup <== walker.request.bits
   def walker_request_fire = walker.request.fire()
   page_probe.request.ready <== probe_selected & !invalidate_all & (dtlb.hit ||| (start_probe_walk & walker.request.ready))
-  def probe_hit_result = inject_interface(Valid(RV5StageTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb_result)
+  def probe_hit_result = inject_interface(Valid(RiscvTranslationResult()), ~valid: page_probe.request.fire() & dtlb.hit, ~bits: dtlb_result)
   // Fetch recovery discards the consumer, not an accepted translation. Let
   // the walk warm the ITLB and retain ownership of every accepted PTE reply.
   def discard_instruction_walk = instruction.flush & walk_active & !walk_is_data & !walk_is_probe
@@ -349,16 +350,16 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   def walker_completed = walker.completion |> gate_flow(!fault_valid) |> to_valid()
   def walker_completion_fire = walker_completed.valid
-  def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe) |> map_valid(result => rv5stage_host_result(result))
+  def probe_walk_result = walker_completed |> filter_valid(_result => walk_is_probe) |> map_valid(result => riscv_host_result(result))
   Array(probe_hit_result, probe_walk_result) |> valid_arbiter() |> page_probe.response
-  def walker_fault_completion = walker_completion_fire & (walker.completion.bits.fault =/= RV5StageTranslationFault.None)
-  def fills = walker_completed |> map_valid(result => RV5StageTlbFill()):
+  def walker_fault_completion = walker_completion_fire & (walker.completion.bits.fault =/= RiscvTranslationFault.None)
+  def fills = walker_completed |> map_valid(result => RiscvTlbFill()):
     request: walk_lookup
     result: result
   def Array(instruction_fill, data_fill) = fills |> fork_valid(2)
   instruction_fill |> filter_valid(_completion => !walk_is_data & !walk_is_probe) |> itlb.fill
   data_fill |> filter_valid(_completion => walk_is_data ||| walk_is_probe) |> dtlb.fill
-  def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_one_of(RV5StageTranslationFault.PageFault, RV5StageTranslationFault.GuestPageFault)
+  def cache_instruction_page_fault = walker_fault_completion & !walk_is_data & !walk_is_probe & !invalidate_all & walker.completion.bits.fault.is_one_of(RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)
   when invalidate_all:
     instruction_fault_cached <== Bool(#false)
   elsewhen cache_instruction_page_fault:
@@ -378,9 +379,9 @@ sync_circuit RV5StageMmu(xlen :: XLen,
   def data_walk_access_fault = !data_pinned & ((latched_data_fault & fault_is_access) ||| (dtlb.hit & dtlb_result.access_fault))
   def request_fault_mapping = mux(latched_data_fault, fault_mapping, dtlb.translation)
   /* Projects a selected fragment's mapping fault into guest trap metadata. */
-  fun guest_exception(mapping :: RV5StageTlbMapping(), guest :: Bool) :~ RiscvGuestException():
+  fun guest_exception(mapping :: RiscvTlbMapping(), guest :: Bool) :~ RiscvGuestException():
     RiscvGuestException():
-      page_fault: mapping.fault === RV5StageTranslationFault.GuestPageFault
+      page_fault: mapping.fault === RiscvTranslationFault.GuestPageFault
       details: mapping.fault_details.updated(~guest_virtual_address: guest)
   def instruction_guest_exception = guest_exception(mux(instruction_fault_cache_hit, instruction_fault_mapping, mux(latched_instruction_fault, fault_mapping, itlb.translation)), instruction_guest)
   if hypervisor
@@ -545,7 +546,7 @@ sync_circuit RV5StageMmu(xlen :: XLen,
 
   when capture_walker_fault:
     fault_is_data <== walk_is_data
-    fault_is_access <== walker.completion.bits.fault === RV5StageTranslationFault.AccessFault
+    fault_is_access <== walker.completion.bits.fault === RiscvTranslationFault.AccessFault
     fault_mapping <== walker.completion.bits
     fault_address <== walker.completion.bits.virtual_address
 

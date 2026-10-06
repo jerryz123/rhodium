@@ -1,11 +1,11 @@
 // Exercises page-walk intervals through PTE waits, completion stalls, faults, cancellation, and reset.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_walk_trace_tb;
+module riscv_walk_trace_tb;
   logic clock=0, reset=1, command_valid=0, command_ready, cancel=0;
   logic [63:0] address=64'h4000, pte=0, memory_address;
   logic memory_ready=0, memory_fault=0, response_valid=0, memory_valid;
   logic completion_ready=0, completed, fault, access_fault;
-  RV5StageWalkTrace dut(.*);
+  RiscvWalkTrace dut(.*);
   always #5 clock=~clock;
   import "DPI-C" function void walk_bind();
   import "DPI-C" function void walk_sample(int unsigned reset, int unsigned cancel, int unsigned start,

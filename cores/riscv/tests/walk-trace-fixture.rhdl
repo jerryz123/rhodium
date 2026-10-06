@@ -2,13 +2,13 @@
 // Exposes public walker transfers for exact residency, cancellation, and PTE ancestry checks.
 // SPDX-License-Identifier: Apache-2.0
 import:
-  "../mmu/walker.rhdl" open
-  "../mmu/protocol.rhdl" open
+  lib("cores/riscv/mmu/walker.rhdl") open
+  lib("cores/riscv/mmu/protocol.rhdl") open
   lib("riscv/rtl/privilege.rhdl").PrivilegeMode
   lib("riscv/rtl/sv39.rhdl").Sv39Access
   lib("flow/main.rhdl") open
 
-sync_circuit RV5StageWalkTrace():
+sync_circuit RiscvWalkTrace():
   input command_valid: Bool
   input address: Bits(64)
   output command_ready: Bool
@@ -23,9 +23,9 @@ sync_circuit RV5StageWalkTrace():
   output completed: Bool
   output fault: Bool
   output access_fault: Bool
-  inst walker(RV5StagePageTableWalker())
+  inst walker(RiscvPageTableWalker())
   walker.cancel <== cancel
-  def translation = RV5StageTranslationRequest():
+  def translation = RiscvTranslationRequest():
     pbmte: Bool(#false)
     virtual_address: address
     root_ppn: bits(1, 44)
@@ -33,7 +33,7 @@ sync_circuit RV5StageWalkTrace():
     privilege: PrivilegeMode.Supervisor
     sum: Bool(#false)
     mxr: Bool(#false)
-  def submitted = inject_interface(Decoupled(RV5StageTranslationRequest()), ~valid: command_valid, ~bits: translation, ~ready: command_ready) |> trace_event("translation", ~when: !cancel, ~fields: request):
+  def submitted = inject_interface(Decoupled(RiscvTranslationRequest()), ~valid: command_valid, ~bits: translation, ~ready: command_ready) |> trace_event("translation", ~when: !cancel, ~fields: request):
     address: request.virtual_address
   submitted |> walker.request
   def requested = walker.memory.request |> trace_event("pte", ~fields: location):
@@ -52,4 +52,4 @@ sync_circuit RV5StageWalkTrace():
   fault <== result.bits.fault
   access_fault <== result.bits.access_fault
 
-export RV5StageWalkTrace
+export RiscvWalkTrace

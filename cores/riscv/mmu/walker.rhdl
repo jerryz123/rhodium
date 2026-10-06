@@ -1,5 +1,5 @@
 #lang rhodium
-/* Shares one PTE datapath and walk state machine for host Sv39 and nested VS/Sv39x4
+/* Provides one reusable PTE datapath and walk state machine for host Sv39 and nested VS/Sv39x4
    translation. */
 // SPDX-License-Identifier: Apache-2.0
 
@@ -14,14 +14,14 @@ import:
 
 /* Distinguishes VS traversal, G translation of a VS PTE, and G translation of the final
    address. */
-hardware_enum RV5StagePageWalkPhase:
+hardware_enum RiscvPageWalkPhase:
   Virtual
   GuestPte
   GuestFinal
 
 /* Tracks one walk's address checks, PTE ownership, retained completion, and canceled-response
    drain. */
-hardware_enum RV5StagePageWalkState:
+hardware_enum RiscvPageWalkState:
   Idle
   CheckAddress
   PrepareRead
@@ -31,7 +31,7 @@ hardware_enum RV5StagePageWalkState:
   Drain
 
 /* Retains one traversal level, table root, address, and accumulated global-mapping bit. */
-bundle RV5StagePageWalkFrame():
+bundle RiscvPageWalkFrame():
   address: Bits(64)
   table_ppn: Bits(44)
   level: Bits(2)
@@ -39,40 +39,40 @@ bundle RV5StagePageWalkFrame():
 
 /* Walks host Sv39 or nested VS/Sv39x4 using one active frame and a saved VS continuation.
    Cancellation suppresses completion but drains an already accepted PTE read. */
-sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
-  interface request(Decoupled(RV5StageTlbLookup()), ~role: consumer)
-  interface completion(Irrevocable(RV5StageTlbMapping()), ~role: producer)
-  interface memory(RV5StageTranslationMemory(), ~role: requester)
+sync_circuit RiscvTranslationWalker(~svnapot: svnapot :: Boolean = #false):
+  interface request(Decoupled(RiscvTlbLookup()), ~role: consumer)
+  interface completion(Irrevocable(RiscvTlbMapping()), ~role: producer)
+  interface memory(RiscvTranslationMemory(), ~role: requester)
   input cancel: Bool
 
-  reg state(~init: RV5StagePageWalkState.Idle)
-  reg phase(RV5StagePageWalkPhase)
-  reg operation(RV5StageTlbLookup())
-  reg frame(RV5StagePageWalkFrame())
-  reg saved_vs(RV5StagePageWalkFrame())
+  reg state(~init: RiscvPageWalkState.Idle)
+  reg phase(RiscvPageWalkPhase)
+  reg operation(RiscvTlbLookup())
+  reg frame(RiscvPageWalkFrame())
+  reg saved_vs(RiscvPageWalkFrame())
   reg vs_leaf(Sv39Pte())
   reg memory_address(Bits(64))
   reg memory_pbmt(PageMemoryType)
-  reg result(RV5StageTlbMapping())
+  reg result(RiscvTlbMapping())
 
   def walking = request |> trace_event("mmu/walk", ~when: !cancel, ~residency: "walk", ~fields: translation):
     virtual_address: translation.virtual_address
     access(~format: "enum"): translation.access
     privilege(~format: "enum"): translation.context.privilege
-  walking.ready <== (state === RV5StagePageWalkState.Idle) & !cancel
-  completion.valid <== (state === RV5StagePageWalkState.Complete) & !cancel
+  walking.ready <== (state === RiscvPageWalkState.Idle) & !cancel
+  completion.valid <== (state === RiscvPageWalkState.Complete) & !cancel
   completion.bits <== result
-  memory.request.valid <== (state === RV5StagePageWalkState.Request) & !cancel
+  memory.request.valid <== (state === RiscvPageWalkState.Request) & !cancel
   def request_fire = request.fire()
   def memory_fire = memory.request.fire()
-  def owns_response = (state === RV5StagePageWalkState.Response) ||| (state === RV5StagePageWalkState.Drain)
+  def owns_response = (state === RiscvPageWalkState.Response) ||| (state === RiscvPageWalkState.Drain)
   // Also accept a zero-latency response on the request's transfer edge.
   def response_expected = owns_response ||| (memory_fire & !memory.request_access_fault)
   def response_received = memory.response.valid & response_expected
-  assert(!memory.response.valid ||| response_expected, "rv5stage_ptw_response_owned")
+  assert(!memory.response.valid ||| response_expected, "riscv_ptw_response_owned")
 
-  def virtual_stage = phase === RV5StagePageWalkPhase.Virtual
-  def implicit_access = phase === RV5StagePageWalkPhase.GuestPte
+  def virtual_stage = phase === RiscvPageWalkPhase.Virtual
+  def implicit_access = phase === RiscvPageWalkPhase.GuestPte
   def guest_bare = !operation.virtualized ||| (operation.context.g_mode === RiscvGMode.Bare)
   def pte = memory.response.bits.into(Sv39Pte())
   def leaf = pte.sv39_leaf()
@@ -93,26 +93,26 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
     virtual_stage, (frame.address.sv39_vpn(frame.level) ++ bits(0, 3)).zext(64),
     (sv39x4_vpn(frame.address, frame.level) ++ bits(0, 3)).zext(64)
   )
-  memory.request.bits <== RV5StagePteRead():
+  memory.request.bits <== RiscvPteRead():
     address: mux(operation.virtualized, memory_address, pte_address)
     pbmt: mux(operation.virtualized, memory_pbmt, PageMemoryType.PMA)
-  def occupied = (state =/= RV5StagePageWalkState.Idle) & (state =/= RV5StagePageWalkState.Drain)
+  def occupied = (state =/= RiscvPageWalkState.Idle) & (state =/= RiscvPageWalkState.Drain)
   describe_interface_retained_storage(request_fire & !cancel, occupied & (completion.fire() ||| cancel), occupied, ~name: "walk")
   describe_interface_contract(walking, Array(memory.request, completion), "walk-outputs", ~trace_model: interface_trace_retained(~name: "walk", ~outputs: 2))
 
   def bad_virtual_address = virtual_stage & !frame.address.sv39_canonical()
   def bad_guest_address = !virtual_stage & !guest_bare & (!sv39x4_address_valid(frame.address) ||| or_reduce(operation.context.g_root_ppn[0..2]))
   def bare_overflow = !virtual_stage & guest_bare & or_reduce(frame.address[56..64])
-  def checking_address = state === RV5StagePageWalkState.CheckAddress
-  def preparing_read = state === RV5StagePageWalkState.PrepareRead
+  def checking_address = state === RiscvPageWalkState.CheckAddress
+  def preparing_read = state === RiscvPageWalkState.PrepareRead
   def zero_leaf = bits(0, 64).into(Sv39Pte())
-  def empty_mapping :: RV5StageTlbMapping() = literal(RV5StageTlbMapping(), 0)
+  def empty_mapping :: RiscvTlbMapping() = literal(RiscvTlbMapping(), 0)
   def vs_pte = (memory.response.bits[6..64] ++ (frame.global_mapping ||| pte.global_mapping).into(Bits(1)) ++ memory.response.bits[0..5]).into(Sv39Pte())
   def g_pte = (memory.response.bits[6..64] ++ bits(0, 1) ++ memory.response.bits[0..5]).into(Sv39Pte())
 
   /* Starts a three-level traversal at the selected root without inherited global permissions. */
-  fun root_frame(address :: Bits(64), ppn :: Bits(44)) :~ RV5StagePageWalkFrame():
-    RV5StagePageWalkFrame():
+  fun root_frame(address :: Bits(64), ppn :: Bits(44)) :~ RiscvPageWalkFrame():
+    RiscvPageWalkFrame():
       address: address
       table_ppn: ppn
       level: bits(2, 2)
@@ -120,12 +120,12 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
   /* Captures the original access, stage leaves, and explicit or implicit guest-fault
      provenance. */
-  fun outcome(fault :: RV5StageTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RV5StageTlbMapping():
+  fun outcome(fault :: RiscvTranslationFault, physical :: Bits(56), guest_leaf :: Sv39Pte()) :~ RiscvTlbMapping():
     def details = RiscvGuestFault():
       guest_virtual_address: operation.virtualized
       guest_physical_address: mux(virtual_stage, bits(0, 64), frame.address)
       access: mux(implicit_access, RiscvGuestFaultAccess.PageTableRead, RiscvGuestFaultAccess.Explicit)
-    RV5StageTlbMapping():
+    RiscvTlbMapping():
       virtual_address: operation.virtual_address
       access: operation.access
       physical_address: physical
@@ -138,89 +138,89 @@ sync_circuit RV5StageTranslationWalker(~svnapot: svnapot :: Boolean = #false):
 
   when cancel:
     // Keep the memory owner even after its architectural consumer disappears.
-    state <== mux(owns_response & !memory.response.valid, RV5StagePageWalkState.Drain, RV5StagePageWalkState.Idle)
-  elsewhen ((state === RV5StagePageWalkState.Drain) & memory.response.valid):
-    state <== RV5StagePageWalkState.Idle
+    state <== mux(owns_response & !memory.response.valid, RiscvPageWalkState.Drain, RiscvPageWalkState.Idle)
+  elsewhen ((state === RiscvPageWalkState.Drain) & memory.response.valid):
+    state <== RiscvPageWalkState.Idle
   elsewhen request_fire:
     operation <== request.bits
     vs_leaf <== zero_leaf
-    result <== empty_mapping.updated(~virtual_address: request.bits.virtual_address, ~access: request.bits.access, ~fault: RV5StageTranslationFault.PageFault)
-    phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RV5StagePageWalkPhase.Virtual, RV5StagePageWalkPhase.GuestFinal)
+    result <== empty_mapping.updated(~virtual_address: request.bits.virtual_address, ~access: request.bits.access, ~fault: RiscvTranslationFault.PageFault)
+    phase <== mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, RiscvPageWalkPhase.Virtual, RiscvPageWalkPhase.GuestFinal)
     frame <== root_frame(request.bits.virtual_address, mux(request.bits.context.vs_mode === RiscvVSMode.Sv39, request.bits.context.vs_root_ppn, request.bits.context.g_root_ppn))
-    state <== mux(!request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39), mux(request.bits.virtual_address.sv39_canonical(), RV5StagePageWalkState.Request, RV5StagePageWalkState.Complete), RV5StagePageWalkState.CheckAddress)
+    state <== mux(!request.bits.virtualized & (request.bits.context.vs_mode === RiscvVSMode.Sv39), mux(request.bits.virtual_address.sv39_canonical(), RiscvPageWalkState.Request, RiscvPageWalkState.Complete), RiscvPageWalkState.CheckAddress)
   elsewhen (checking_address & (bad_virtual_address ||| bad_guest_address ||| bare_overflow)):
-    result <== outcome(mux(bare_overflow, RV5StageTranslationFault.AccessFault, mux(virtual_stage, RV5StageTranslationFault.PageFault, RV5StageTranslationFault.GuestPageFault)), bits(0, 56), zero_leaf)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(mux(bare_overflow, RiscvTranslationFault.AccessFault, mux(virtual_stage, RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault)), bits(0, 56), zero_leaf)
+    state <== RiscvPageWalkState.Complete
   elsewhen (checking_address & !virtual_stage & guest_bare & implicit_access):
     memory_address <== frame.address
     memory_pbmt <== PageMemoryType.PMA
     frame <== saved_vs
-    phase <== RV5StagePageWalkPhase.Virtual
-    state <== RV5StagePageWalkState.Request
+    phase <== RiscvPageWalkPhase.Virtual
+    state <== RiscvPageWalkState.Request
   elsewhen (checking_address & !virtual_stage & guest_bare):
-    result <== outcome(RV5StageTranslationFault.None, frame.address[0..56], zero_leaf)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(RiscvTranslationFault.None, frame.address[0..56], zero_leaf)
+    state <== RiscvPageWalkState.Complete
   elsewhen checking_address:
-    state <== RV5StagePageWalkState.PrepareRead
+    state <== RiscvPageWalkState.PrepareRead
   elsewhen (preparing_read & virtual_stage & operation.virtualized):
     saved_vs <== frame
     frame <== root_frame(pte_address, operation.context.g_root_ppn)
-    phase <== RV5StagePageWalkPhase.GuestPte
-    state <== RV5StagePageWalkState.CheckAddress
+    phase <== RiscvPageWalkPhase.GuestPte
+    state <== RiscvPageWalkState.CheckAddress
   elsewhen preparing_read:
     memory_address <== pte_address
     memory_pbmt <== PageMemoryType.PMA
-    state <== RV5StagePageWalkState.Request
+    state <== RiscvPageWalkState.Request
   elsewhen (memory_fire & memory.request_access_fault):
-    result <== outcome(RV5StageTranslationFault.AccessFault, bits(0, 56), zero_leaf)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(RiscvTranslationFault.AccessFault, bits(0, 56), zero_leaf)
+    state <== RiscvPageWalkState.Complete
   elsewhen (response_received & (structural_fault ||| permission_fault)):
-    result <== outcome(mux(virtual_stage, RV5StageTranslationFault.PageFault, RV5StageTranslationFault.GuestPageFault), bits(0, 56), zero_leaf)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(mux(virtual_stage, RiscvTranslationFault.PageFault, RiscvTranslationFault.GuestPageFault), bits(0, 56), zero_leaf)
+    state <== RiscvPageWalkState.Complete
   elsewhen (response_received & !leaf):
-    frame <== RV5StagePageWalkFrame():
+    frame <== RiscvPageWalkFrame():
       address: frame.address
       table_ppn: pte.ppn
       level: frame.level - bits(1, 2)
       global_mapping: frame.global_mapping ||| (virtual_stage & pte.global_mapping)
-    state <== mux(operation.virtualized, RV5StagePageWalkState.PrepareRead, RV5StagePageWalkState.Request)
+    state <== mux(operation.virtualized, RiscvPageWalkState.PrepareRead, RiscvPageWalkState.Request)
   elsewhen (response_received & virtual_stage & !operation.virtualized):
-    result <== outcome(RV5StageTranslationFault.None, translated_address, zero_leaf)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(RiscvTranslationFault.None, translated_address, zero_leaf)
+    state <== RiscvPageWalkState.Complete
   elsewhen (response_received & virtual_stage):
     vs_leaf <== vs_pte
     frame <== root_frame(translated_address.zext(64), operation.context.g_root_ppn)
-    phase <== RV5StagePageWalkPhase.GuestFinal
-    state <== RV5StagePageWalkState.CheckAddress
+    phase <== RiscvPageWalkPhase.GuestFinal
+    state <== RiscvPageWalkState.CheckAddress
   elsewhen (response_received & implicit_access):
     memory_address <== translated_address.zext(64)
     memory_pbmt <== pte.pbmt
     frame <== saved_vs
-    phase <== RV5StagePageWalkPhase.Virtual
-    state <== RV5StagePageWalkState.Request
+    phase <== RiscvPageWalkPhase.Virtual
+    state <== RiscvPageWalkState.Request
   elsewhen response_received:
-    result <== outcome(RV5StageTranslationFault.None, translated_address, g_pte)
-    state <== RV5StagePageWalkState.Complete
+    result <== outcome(RiscvTranslationFault.None, translated_address, g_pte)
+    state <== RiscvPageWalkState.Complete
   elsewhen memory_fire:
-    state <== RV5StagePageWalkState.Response
+    state <== RiscvPageWalkState.Response
   elsewhen (completion.fire()):
-    state <== RV5StagePageWalkState.Idle
+    state <== RiscvPageWalkState.Idle
 
 /* Adapts host-only request, completion, and PTE ports onto the shared translation walker. */
-sync_circuit RV5StagePageTableWalker(~svnapot: svnapot :: Boolean = #false):
-  interface request(Decoupled(RV5StageTranslationRequest()), ~role: consumer)
-  interface completion(Irrevocable(RV5StageTranslationResult()), ~role: producer)
-  interface memory(RV5StagePageTableMemory(), ~role: requester)
+sync_circuit RiscvPageTableWalker(~svnapot: svnapot :: Boolean = #false):
+  interface request(Decoupled(RiscvTranslationRequest()), ~role: consumer)
+  interface completion(Irrevocable(RiscvTranslationResult()), ~role: producer)
+  interface memory(RiscvPageTableMemory(), ~role: requester)
   input cancel: Bool
-  inst shared(RV5StageTranslationWalker(~svnapot: svnapot))
-  request |> map_flow(translation => rv5stage_host_lookup(translation)) |> shared.request
-  shared.completion |> map_flow(~stable: #true, mapping => rv5stage_host_result(mapping)) |> completion
+  inst shared(RiscvTranslationWalker(~svnapot: svnapot))
+  request |> map_flow(translation => riscv_host_lookup(translation)) |> shared.request
+  shared.completion |> map_flow(~stable: #true, mapping => riscv_host_result(mapping)) |> completion
   shared.memory.request |> map_flow(read => read.address) |> memory.request
   memory.response |> shared.memory.response
   shared.memory.request_access_fault <== memory.request_access_fault
   shared.cancel <== cancel
 
 export:
-  RV5StagePageWalkState
-  RV5StagePageTableWalker
-  RV5StageTranslationWalker
+  RiscvPageWalkState
+  RiscvPageTableWalker
+  RiscvTranslationWalker

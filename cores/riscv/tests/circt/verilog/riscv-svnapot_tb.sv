@@ -1,6 +1,6 @@
 // Checks compact 64-KiB translations, invalid N encodings, permissions, and TLB lifetime.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_svnapot_tb;
+module riscv_svnapot_tb;
   logic clock = 0, reset = 1;
   always #5 clock = ~clock;
   logic command_valid = 0, command_ready, cancel = 0, pbmte = 1;
@@ -20,7 +20,7 @@ module rv5stage_svnapot_tb;
   localparam logic [63:0] VA = 64'h12340000;
   localparam logic [55:0] PA = 56'h80000000;
   localparam logic [43:0] PPN = 44'h80000;
-  RV5StageSvnapotFixture dut (.*);
+  RiscvSvnapotFixture dut (.*);
   always @(posedge clock) if (!reset && memory_valid && memory_ready) request_count++;
 
   task automatic tick;

@@ -1,6 +1,6 @@
 // Checks Svpbmt encoding, walk capture, TLB lifetime, and PMA-independent attribute resolution.
 // SPDX-License-Identifier: Apache-2.0
-module rv5stage_svpbmt_tb;
+module riscv_svpbmt_tb;
   logic clock = 0, reset = 1;
   always #5 clock = ~clock;
   logic command_valid = 0, command_ready, pbmte = 0, cancel = 0;
@@ -26,7 +26,7 @@ module rv5stage_svpbmt_tb;
   logic pte_valid;
   logic [63:0] envcfg = 0, envcfg_fields, disabled_fields;
   logic [31:0] rv32_fields;
-  RV5StageSvpbmtFixture dut (.*);
+  RiscvSvpbmtFixture dut (.*);
 
   task automatic tick;
     @(posedge clock); #1;
