@@ -166,9 +166,10 @@ execution, memory hierarchy, CHI boundary, generator parameters, ports, tests,
 and deliberate limits.
 
 [`RV2Wide`](rv2wide/README.md) is an in-progress dual-issue in-order core. Its
-current RR-through-WB slice reuses the shared ALU and branch resolver, consumes
-ordered instruction prefixes, and supports precise retirement/replay outcomes.
-It has no fetch/memory/privileged subsystem or SoC selection yet.
+current RR-through-WB slice reuses the shared ALU, branch resolver, load/store
+datapaths, and scoreboard. It supports dual retirement, speculative hit lookup,
+WB-authorized memory, and separately owned deferred completions. It has no
+attached frontend/cache/MMU, privileged subsystem, or SoC selection yet.
 
 [`spike/spike.rhdl`](spike/spike.rhdl) is the standalone simulator-backed named
 core. It projects the shared architectural hart description, runs Spike through

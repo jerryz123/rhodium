@@ -21,12 +21,14 @@ hardware_enum RV2WideImmediate:
   B
   U
   J
+  S
   /* Extracts the selected architectural immediate as a sign-extended RV64 value. */
   method decode(select, instruction :: Bits(32)) :: Bits(64):
     mux_lookup(select, ~default: instruction_immediate(fields.IImmediate, instruction, 64)):
       RV2WideImmediate.B: instruction_immediate(fields.BImmediate, instruction, 64)
       RV2WideImmediate.U: instruction_immediate(fields.UImmediate, instruction, 64)
       RV2WideImmediate.J: instruction_immediate(fields.JImmediate, instruction, 64)
+      RV2WideImmediate.S: instruction_immediate(fields.SImmediate, instruction, 64)
 
 /* Separates source-use interlocks from datapath selection and immediate extraction. */
 bundle RV2WideOperandControl():
@@ -49,12 +51,18 @@ def RV2WideOperandCases = decode_groups(RV2WideOperandControl(), ~input: instruc
     left: RV2WideLeft.Pc
     right_immediate: Bool(#true)
     immediate: RV2WideImmediate.U
-  [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW]:
+  [ADDI, SLTI, SLTIU, XORI, ORI, ANDI, SLLI, SRLI, SRAI, ADDIW, SLLIW, SRLIW, SRAIW, LB, LH, LW, LD, LBU, LHU, LWU]:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#false)
     left: RV2WideLeft.Register
     right_immediate: Bool(#true)
     immediate: RV2WideImmediate.I
+  [SB, SH, SW, SD]:
+    uses_rs1: Bool(#true)
+    uses_rs2: Bool(#true)
+    left: RV2WideLeft.Register
+    right_immediate: Bool(#true)
+    immediate: RV2WideImmediate.S
   [ADD, SUB, SLL, SLT, SLTU, XOR, SRL, SRA, OR, AND, ADDW, SUBW, SLLW, SRLW, SRAW]:
     uses_rs1: Bool(#true)
     uses_rs2: Bool(#true)

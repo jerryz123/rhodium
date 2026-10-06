@@ -6,10 +6,19 @@ module rv2wide_core_tb;
   typedef struct packed { logic [1:0] disposition; logic [63:0] cause, value; } resolution_t;
   typedef struct packed { logic valid; resolution_t bits; } resolution_flow_t;
   typedef struct packed { logic valid; instruction_t bits; } instruction_flow_t;
-  typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; } retirement_t;
+  typedef struct packed { instruction_t fetched; logic [4:0] rd; logic write; logic [63:0] data; logic deferred; } retirement_t;
   typedef struct packed { logic valid; retirement_t bits; } retirement_flow_t;
   typedef struct packed { logic [63:0] pc, target; resolution_t resolution; } redirect_t;
   typedef struct packed { logic valid; redirect_t bits; } redirect_flow_t;
+  typedef struct packed { logic [63:0] address; logic write; logic [63:0] data; logic [7:0] mask; } memory_req_t;
+  typedef struct packed { logic valid; memory_req_t bits; } memory_req_flow_t;
+  typedef struct packed { logic valid; logic [63:0] bits; } memory_resp_flow_t;
+  typedef struct packed { logic request_ready; resolution_flow_t fault; memory_resp_flow_t response; logic drained; } memory_in_t;
+  typedef struct packed { memory_req_flow_t request; logic response_ready; } memory_out_t;
+  typedef struct packed { logic [2:0] outcome; logic [63:0] data; } lookup_t;
+  typedef struct packed { logic valid; lookup_t bits; } lookup_flow_t;
+  typedef struct packed { lookup_flow_t response; logic commit_ready; } pipeline_in_t;
+  typedef struct packed { memory_req_flow_t request; logic commit; } pipeline_out_t;
 
   logic clock = 0, reset = 1;
   packet_flow_t instructions;
@@ -28,16 +37,44 @@ module rv2wide_core_tb;
   integer cycles = 0, commits = 0, dual_commits = 0, single_issues = 0, stops = 0;
   integer dual_run = 0, longest_dual_run = 0;
   bit saw_repacked = 0;
+  memory_in_t memory_in;
+  memory_out_t memory_out;
+  pipeline_in_t pipeline_in;
+  pipeline_out_t pipeline_out;
+  retirement_flow_t completed;
+  lookup_flow_t lookup_response;
+  memory_req_t lookup_request, store_candidate;
+  memory_req_t expected_requests[$];
+  retirement_t expected_completions[$], response_owners[$];
+  logic [63:0] response_data[16];
+  int response_due[16], response_read = 0, response_write = 0, response_count = 0;
+  byte unsigned memory_bytes[4096], model_bytes[4096];
+  bit block_requests = 0, block_stores = 0, hold_responses = 0;
+  bit inject_memory_fault = 0, store_candidate_valid = 0;
+  logic [63:0] fault_address;
+  int configured_delay = 8, lookup_mode = 0;
+  int requests = 0, responses = 0, canceled = 0, stores = 0, stall_cycles = 0, hits = 0, lookups = 0;
+  int overlap_retirements = 0, max_outstanding = 0, shared_writes = 0, reserved_slots = 0;
 
   RV2WideCore dut(
     .clock(clock), .reset(reset), .instructions_in(instructions), .instructions_out(ready),
     .resolution_0_in(resolution[0]), .resolution_1_in(resolution[1]),
     .memory_stage_0_out(memory_stage[0]), .memory_stage_1_out(memory_stage[1]),
     .retired_0_out(retired[0]), .retired_1_out(retired[1]),
-    .redirect_out(redirect), .issued(issued), .retired_count(retired_count)
+    .redirect_out(redirect), .issued(issued), .retired_count(retired_count),
+    .memory_in(memory_in), .memory_out(memory_out), .pipeline_in(pipeline_in), .pipeline_out(pipeline_out), .completed_out(completed)
   );
   always #5 clock = ~clock;
   always_comb begin
+    memory_in = '0;
+    memory_in.fault.valid = memory_out.request.valid && inject_memory_fault && memory_out.request.bits.address == fault_address;
+    memory_in.fault.bits = '{disposition: 2'd1, cause: memory_out.request.bits.write ? 64'd7 : 64'd5, value: fault_address};
+    memory_in.request_ready = !block_requests && response_count < 16 && !memory_in.fault.valid;
+    memory_in.response.valid = response_count > 0 && cycles >= response_due[response_read] && !hold_responses;
+    memory_in.response.bits = response_data[response_read];
+    memory_in.drained = response_count == 0 && !memory_out.request.valid;
+    pipeline_in.response = lookup_response;
+    pipeline_in.commit_ready = store_candidate_valid && !block_stores;
     for (int lane = 0; lane < 2; lane++) begin
       resolution[lane] = '0;
       if (inject_enable && memory_stage[lane].valid && memory_stage[lane].bits.pc == inject_pc) begin
@@ -48,15 +85,61 @@ module rv2wide_core_tb;
   end
 
   always @(posedge clock) begin
+    if (reset) begin
+      response_count <= 0; response_read <= 0; response_write <= 0;
+      lookup_response <= '0; store_candidate_valid <= 0;
+    end else begin
+      logic push_response, pop_response;
+      push_response = memory_out.request.valid && memory_in.request_ready;
+      pop_response = memory_in.response.valid && memory_out.response_ready;
+      response_count <= response_count + int'(push_response) - int'(pop_response);
+      if (response_count > max_outstanding) max_outstanding = response_count;
+      lookup_response.valid <= pipeline_out.request.valid;
+      if (pipeline_out.request.valid) lookups++;
+      lookup_request <= pipeline_out.request.bits;
+      lookup_response.bits.outcome <= lookup_mode == 1 ? (pipeline_out.request.bits.write ? 3'd2 : 3'd1) : 3'(lookup_mode);
+      for (int b = 0; b < 8; b++)
+        lookup_response.bits.data[b*8 +: 8] <= memory_bytes[int'(pipeline_out.request.bits.address[11:3])*8 + b];
+      store_candidate <= lookup_request;
+      store_candidate_valid <= lookup_response.valid && lookup_response.bits.outcome == 2;
+      if (memory_out.request.valid && !memory_in.request_ready) begin
+        stall_cycles++;
+      end
+      if (push_response) begin
+        check_request(memory_out.request.bits);
+        for (int b = 0; b < 8; b++)
+          response_data[response_write][b*8 +: 8] <= memory_bytes[int'(memory_out.request.bits.address[11:3])*8 + b];
+        response_due[response_write] <= cycles + configured_delay;
+        response_write <= (response_write + 1) % 16;
+        requests++;
+      end
+      if (pipeline_out.commit && pipeline_in.commit_ready) begin
+        assert (store_candidate_valid) else $fatal(1, "store commit without live candidate");
+        check_request(store_candidate);
+        hits++;
+      end
+      if (pop_response) begin
+        response_read <= (response_read + 1) % 16;
+        responses++;
+      end
+    end
+  end
+
+  always @(posedge clock) begin
     if (!reset) begin
       cycles++;
-      if (cycles > 3000) $fatal(1, "watchdog");
+      if (cycles > 10000) $fatal(1, "watchdog");
       assert (issued <= 2 && retired_count <= 2) else $fatal(1, "non-prefix count");
       assert (!retired[1].valid || retired[0].valid) else $fatal(1, "younger retired alone");
       if (retired[0].valid && retired[1].valid && retired[0].bits.write && retired[1].bits.write)
         assert (retired[0].bits.rd != retired[1].bits.rd) else $fatal(1, "same-group WAW was not split");
       assert (int'(retired_count) == int'(retired[0].valid) + int'(retired[1].valid)) else $fatal(1, "retirement count mismatch");
       if (issued == 1) single_issues++;
+      if (response_count > 0 && retired_count != 0) overlap_retirements++;
+      if (completed.valid && completed.bits.write) begin
+        assert (!retired[1].valid) else $fatal(1, "completion collided with younger slot");
+        if (retired[0].valid && retired[0].bits.write && !retired[0].bits.deferred) shared_writes++;
+      end
       if (retired_count == 2) begin
         dual_commits++;
         dual_run++;
@@ -71,11 +154,31 @@ module rv2wide_core_tb;
           want = expected.pop_front();
           assert (retired[lane].bits.fetched == want.fetched && retired[lane].bits.write == want.write)
             else $fatal(1, "retirement order/control pc=%h expected=%h", retired[lane].bits.fetched.pc, want.fetched.pc);
-          if (want.write)
+          if (retired[lane].bits.deferred) begin
+            expected_completions.push_back(want);
+            response_owners.push_back(want);
+          end
+          if (want.write && !retired[lane].bits.deferred)
             assert (retired[lane].bits.rd == want.rd && retired[lane].bits.data == want.data)
               else $fatal(1, "result pc=%h rd=%d got=%h expected rd=%d data=%h", want.fetched.pc, retired[lane].bits.rd, retired[lane].bits.data, want.rd, want.data);
           commits++;
         end
+      end
+      if (memory_in.response.valid && memory_out.response_ready) begin
+        retirement_t owner;
+        assert (response_owners.size() > 0) else $fatal(1, "response has no accepted owner");
+        owner = response_owners.pop_front();
+        if (owner.write) begin
+          assert (issued <= 1) else $fatal(1, "load response did not reserve younger issue slot");
+          reserved_slots++;
+        end
+      end
+      if (completed.valid) begin
+        retirement_t want;
+        assert (expected_completions.size() > 0) else $fatal(1, "unowned memory completion");
+        want = expected_completions.pop_front();
+        assert (completed.bits.fetched == want.fetched && completed.bits.write == want.write && !completed.bits.deferred) else $fatal(1, "completion owner mismatch");
+        if (want.write) assert (completed.bits.rd == want.rd && completed.bits.data == want.data) else $fatal(1, "load completion mismatch pc=%h got=%h want=%h", want.fetched.pc, completed.bits.data, want.data);
       end
       if (redirect.valid) begin
         redirect_t want;
@@ -84,7 +187,7 @@ module rv2wide_core_tb;
         assert (redirect.bits.pc == want.pc && redirect.bits.target == want.target && redirect.bits.resolution.disposition == want.resolution.disposition)
           else $fatal(1, "redirect mismatch got=%h want=%h", redirect.bits, want);
         if (want.resolution.disposition == 1)
-          assert (redirect.bits.resolution.cause == want.resolution.cause && redirect.bits.resolution.value == want.resolution.value)
+          assert (redirect.bits.resolution.cause == want.resolution.cause && redirect.bits.resolution.value == want.resolution.value && response_count == 0 && expected_completions.size() == 0)
             else $fatal(1, "fault provenance mismatch");
         assert (!ready && issued == 0) else $fatal(1, "accepted younger work on redirect");
         stops++;
@@ -108,6 +211,39 @@ module rv2wide_core_tb;
     j = 21'(offset);
     return {j[20], j[10:1], j[11], j[19:12], 5'(rd), 7'h6f};
   endfunction
+  function automatic logic [31:0] store(int rs2, int rs1, int offset, int width);
+    logic [11:0] s;
+    s = 12'(offset);
+    return {s[11:5], 5'(rs2), 5'(rs1), 3'(width), s[4:0], 7'h23};
+  endfunction
+
+  task automatic expect_memory(logic [63:0] address, bit write_access, int bytes, logic [63:0] value);
+    memory_req_t item;
+    item = '0;
+    item.address = address;
+    item.write = write_access;
+    for (int b = 0; b < bytes; b++) begin
+      item.mask[int'(address[2:0]) + b] = 1;
+      item.data[(int'(address[2:0]) + b)*8 +: 8] = value[b*8 +: 8];
+    end
+    expected_requests.push_back(item);
+  endtask
+
+  task automatic check_request(memory_req_t actual);
+    memory_req_t want;
+    assert (expected_requests.size() > 0) else $fatal(1, "unowned or duplicate memory effect address=%h", actual.address);
+    want = expected_requests.pop_front();
+    assert (actual.address == want.address && actual.write == want.write && actual.mask == want.mask) else $fatal(1, "request mismatch got=%h expected=%h", actual, want);
+    if (want.write) begin
+      for (int b = 0; b < 8; b++) begin
+        if (want.mask[b]) begin
+          assert (actual.data[b*8 +: 8] == want.data[b*8 +: 8]) else $fatal(1, "store data mismatch");
+          memory_bytes[int'(actual.address[11:3])*8+b] <= actual.data[b*8 +: 8];
+        end
+      end
+      stores++;
+    end
+  endtask
 
   task automatic expect_instruction(logic [63:0] pc, logic [31:0] word);
     retirement_t item;
@@ -126,6 +262,22 @@ module rv2wide_core_tb;
       'h17: value = pc + {{32{word[31]}}, word[31:12], 12'b0};
       'h6f, 'h67: value = pc + 4;
       'h63: writes = 0;
+      'h03, 'h23: begin
+        logic [63:0] address;
+        int bytes;
+        if (op == 'h23) immediate = {{52{word[31]}}, word[31:25], word[11:7]};
+        address = a + immediate;
+        bytes = 1 << (f3 & 3);
+        assert (address < 4096 && (address % 64'(bytes)) == 0) else $fatal(1, "oracle expected unaligned/outside access");
+        if (lookup_mode != 1 || op == 'h23) expect_memory(address, op == 'h23, bytes, b);
+        if (op == 'h23) begin
+          writes = 0;
+          for (int i = 0; i < bytes; i++) model_bytes[int'(address) + i] = b[i*8 +: 8];
+        end else begin
+          for (int i = 0; i < bytes; i++) value[i*8 +: 8] = model_bytes[int'(address) + i];
+          if ((f3 & 4) == 0 && bytes < 8 && value[bytes*8-1]) value |= '1 << (bytes*8);
+        end
+      end
       'h13, 'h1b: begin
         case (f3)
           0: value = a + immediate;
@@ -187,7 +339,8 @@ module rv2wide_core_tb;
   endtask
   task automatic drain;
     instructions.valid = 0;
-    repeat (12) tick();
+    do tick(); while (expected.size() != 0 || expected_redirects.size() != 0 || expected_requests.size() != 0 || expected_completions.size() != 0 || response_count != 0);
+    repeat (8) tick();
     assert (expected.size() == 0 && expected_redirects.size() == 0) else $fatal(1, "missing ordered outcomes");
   endtask
   task automatic stop_at(logic [63:0] pc, logic [63:0] target, int disposition = 0, logic [63:0] cause = 0, logic [63:0] value = 0);
@@ -196,9 +349,15 @@ module rv2wide_core_tb;
     expected_redirects.push_back(item);
   endtask
   task automatic reset_core;
+    canceled += response_count;
     reset = 1; instructions = '0; inject_enable = 0; inject_pc = 0; inject_result = '0;
-    expected.delete(); expected_redirects.delete();
+    block_requests = 0; block_stores = 0; inject_memory_fault = 0; hold_responses = 0; lookup_mode = 0;
+    expected.delete(); expected_redirects.delete(); expected_requests.delete(); expected_completions.delete(); response_owners.delete();
     for (int i = 0; i < 32; i++) model[i] = 0;
+    for (int i = 0; i < 4096; i++) begin
+      memory_bytes[i] = 8'(i ^ 'h98);
+      model_bytes[i] = memory_bytes[i];
+    end
     repeat (2) tick();
     reset = 0;
   endtask
@@ -352,6 +511,173 @@ module rv2wide_core_tb;
     send('h3000, imm(22, 20, 0), imm(23, 21, 0));
     drain();
     assert (single_issues > 10 && stops == 20) else $fatal(1, "insufficient hazard/stop coverage: single=%0d stops=%0d", single_issues, stops);
+
+    // Warm loads use the normal MEM/WB path and sustain one LSU plus one ALU each cycle.
+    reset_core(); lookup_mode = 1;
+    send('h4000, imm(1, 0, 'h300), imm(2, 0, -128)); drain();
+    dual_run = 0; longest_dual_run = 0;
+    for (int i = 0; i < 20; i++) send(64'('h4010 + i*8), imm(10+i, 1, (i%8)*8, 3, 'h03), imm(30, 0, i));
+    drain();
+    assert (longest_dual_run >= 16) else $fatal(1, "warm memory serialized independent work");
+
+    // Every natural byte lane, store mask, signed/unsigned load width, and both age slots.
+    for (int width = 0; width < 4; width++) begin
+      for (int offset = 0; offset < 8; offset += 1 << width) begin
+        send(64'('h4200 + width*128 + offset*8), store(2, 1, offset, width), imm(3, 0, offset)); drain();
+        send(64'('h4500 + width*128 + offset*8), imm(4, 0, width), imm(5, 1, offset, width, 'h03)); drain();
+        send('h4780, imm(6, 1, offset, width, 'h03), imm(7, 6, 1)); drain();
+        if (width < 3) begin
+          send('h4790, imm(8, 1, offset, width+4, 'h03), '0, 1); drain();
+        end
+      end
+    end
+    send('h4800, imm(3, 0, 3), store(2, 1, -8, 3)); drain();
+    send('h4808, imm(4, 1, -8, 3, 'h03), imm(5, 1, 0, 3, 'h03)); drain();
+    send('h4810, imm(0, 1, 0, 3, 'h03), imm(6, 0, 7)); drain();
+
+    // Several accepted loads outlive WB; responses reserve younger issue while the older lane continues.
+    lookup_mode = 0; configured_delay = 4; hold_responses = 1;
+    for (int i = 0; i < 4; i++) send(64'('h4900+i*8), imm(10+i, 1, i*8, 3, 'h03), imm(20+i, 0, i));
+    repeat (8) tick();
+    assert (response_count == 4) else $fatal(1, "did not admit multiple misses");
+    for (int i = 0; i < 16; i++) begin
+      if (i == 8) hold_responses = 0;
+      send(64'('h4940+i*8), imm(25, 0, i), imm(26, 0, -i));
+    end
+    drain();
+    assert (max_outstanding == 4 && overlap_retirements > 8 && shared_writes > 0 && reserved_slots >= 4) else $fatal(1, "missing nonblocking/shared writeback coverage: outstanding=%0d overlap=%0d shared=%0d", max_outstanding, overlap_retirements, shared_writes);
+
+    // A hit may bypass an older outstanding miss; RAW and WAW must still wait for its owner.
+    hold_responses = 1;
+    send('h4a00, imm(10, 1, 0, 3, 'h03), imm(20, 0, 1));
+    repeat (6) tick(); lookup_mode = 1;
+    send('h4a08, imm(11, 1, 8, 3, 'h03), imm(21, 0, 2));
+    repeat (6) tick();
+    assert (expected.size() == 0 && response_count == 1) else $fatal(1, "hit did not pass miss");
+    send('h4a10, imm(12, 10, 1), imm(13, 0, 3));
+    repeat (6) begin tick(); assert (issued == 0) else $fatal(1, "RAW escaped scoreboard"); end
+    hold_responses = 0; drain();
+    lookup_mode = 0; hold_responses = 1;
+    send('h4a20, imm(10, 1, 0, 3, 'h03), imm(20, 0, 1));
+    repeat (6) tick();
+    send('h4a28, imm(10, 0, 91), imm(13, 0, 3));
+    repeat (6) begin tick(); assert (issued == 0) else $fatal(1, "WAW escaped scoreboard"); end
+    hold_responses = 0; drain();
+    send('h4a30, imm(14, 10, 0), '0, 1); drain();
+
+    // FIFO capacity failure replays only the unaccepted instruction; prior owners survive.
+    hold_responses = 1;
+    for (int i = 0; i < 4; i++) send(64'('h4b00+i*8), imm(10+i, 1, i*8, 3, 'h03), imm(20+i, 0, i));
+    repeat (8) tick();
+    stop_at('h4b44, 'h4b44, 2);
+    send('h4b40, imm(24, 0, 42), imm(14, 1, 32, 3, 'h03), 2, 1, 0);
+    repeat (8) tick();
+    assert (expected_redirects.size() == 0 && response_count == 4) else $fatal(1, "capacity replay lost older owners");
+    hold_responses = 0; drain();
+    send('h4b44, imm(14, 1, 32, 3, 'h03), '0, 1); drain();
+
+    // WB slow-request and hit-store rejection replay, with no accepted request or mutation.
+    for (int lane = 0; lane < 2; lane++) begin
+      logic [63:0] pc;
+      pc = 64'('h4c00 + lane*32);
+      block_requests = 1;
+      stop_at(pc+64'(lane*4), pc+64'(lane*4), 2);
+      if (lane == 0) send(pc, imm(15, 1, 0, 3, 'h03), imm(16, 0, 99), 2, 0, 0);
+      else send(pc, imm(16, 0, 8), store(2, 1, 0, 3), 2, 1, 0);
+      drain(); block_requests = 0;
+      if (lane == 0) send(pc, imm(15, 1, 0, 3, 'h03), imm(16, 0, 99));
+      else send(pc+4, store(2, 1, 0, 3), '0, 1);
+      drain();
+    end
+    lookup_mode = 1; block_stores = 1;
+    stop_at('h4c84, 'h4c84, 2);
+    send('h4c80, imm(16, 0, 8), store(2, 1, 0, 3), 2, 1, 0); drain();
+    block_stores = 0; send('h4c84, store(2, 1, 0, 3), '0, 1); drain();
+
+    // Lookup replay/translation faults and admission access faults never issue slow work.
+    for (int mode = 3; mode <= 5; mode++) begin
+      for (int lane = 0; lane < 2; lane++) begin
+        logic [63:0] pc;
+        int cause;
+        pc = 64'('h4d00+mode*32+lane*8);
+        lookup_mode = mode;
+        cause = mode == 4 ? (lane == 0 ? 13 : 15) : (lane == 0 ? 5 : 7);
+        stop_at(pc+64'(lane*4), pc+64'(lane*4), mode == 3 ? 2 : 1, 64'(cause), 'h300);
+        if (lane == 0) send(pc, imm(0, 1, 0, 3, 'h03), imm(16, 0, 99), 2, 0, 0);
+        else send(pc, imm(16, 0, 8), store(2, 1, 0, 3), 2, 1, 0);
+        drain();
+      end
+    end
+    lookup_mode = 0; inject_memory_fault = 1; fault_address = 'h300;
+    stop_at('h4e00, 'h4e00, 1, 5, 'h300);
+    send('h4e00, imm(0, 1, 0, 3, 'h03), imm(16, 0, 99), 2, 0, 0); drain();
+    stop_at('h4e14, 'h4e14, 1, 7, 'h300);
+    send('h4e10, imm(16, 0, 8), store(2, 1, 0, 3), 2, 1, 0); drain();
+    inject_memory_fault = 0;
+
+    // Deferred responses use the same lane extraction and sign extension as hits.
+    for (int f3 = 0; f3 < 7; f3++) begin
+      int offset;
+      offset = f3 == 0 || f3 == 4 ? 7 : f3 == 1 || f3 == 5 ? 6 : f3 == 3 ? 0 : 4;
+      send(64'('h4e20+f3*8), imm(15, 1, offset, f3, 'h03), imm(16, 15, 1)); drain();
+    end
+    send('h4e90, imm(0, 1, 0, 3, 'h03), store(2, 1, 7, 0)); drain();
+
+    // Natural alignment faults occur before lookup, including faults on x0 loads.
+    begin
+      int before_lookups;
+      before_lookups = lookups;
+      for (int width = 1; width < 4; width++) begin
+        stop_at('h4e40, 'h4e40, 1, 4, 'h301);
+        send('h4e40, imm(0, 1, 1, width, 'h03), imm(16, 0, 99), 2, 0, 0); drain();
+        stop_at('h4e54, 'h4e54, 1, 6, 'h301);
+        send('h4e50, imm(16, 0, 8), store(2, 1, 1, width), 2, 1, 0); drain();
+      end
+      assert (lookups == before_lookups) else $fatal(1, "misalignment issued speculative lookup");
+    end
+
+    // An older stop prevents a younger store, including a speculative owned-store candidate.
+    lookup_mode = 1;
+    stop_at('h4f00, 'h4f20);
+    send('h4f00, jump(16, 32), store(2, 1, 0, 3), 2, 1, 0); drain();
+    inject_enable = 1; inject_pc = 'h4f40; inject_result = '{disposition: 2'd1, cause: 64'd2, value: 64'hdead};
+    stop_at('h4f40, 'h4f40, 1, 2, 'hdead);
+    send('h4f40, imm(16, 0, 9), store(2, 1, 0, 3), 2, 0, 0); drain(); inject_enable = 0;
+
+    // A younger branch flush must not cancel its older accepted load.
+    lookup_mode = 0; hold_responses = 1;
+    stop_at('h5004, 'h5044);
+    send('h5000, imm(10, 1, 0, 3, 'h03), jump(17, 64));
+    repeat (10) tick();
+    assert (expected_redirects.size() == 0 && response_count == 1) else $fatal(1, "branch canceled committed load");
+    send('h5044, imm(18, 0, 5), imm(19, 0, 6));
+    repeat (6) tick(); hold_responses = 0; drain();
+
+    // Return and branch enter RR together: flush at WB must preserve the reserved completion.
+    hold_responses = 1;
+    send('h5080, imm(10, 1, 0, 3, 'h03), '0, 1);
+    repeat (8) tick();
+    stop_at('h5088, 'h50c8);
+    send('h5088, jump(17, 64), imm(20, 0, 99), 2, 1, 0);
+    hold_responses = 0; drain();
+
+    // A younger fault drains older accepted work, including same-group WB acceptance.
+    hold_responses = 1;
+    inject_enable = 1; inject_pc = 'h5104; inject_result = '{disposition: 2'd1, cause: 64'd2, value: 64'hbad};
+    stop_at('h5104, 'h5104, 1, 2, 'hbad);
+    send('h5100, imm(11, 1, 8, 3, 'h03), imm(20, 0, 7), 2, 1, 0);
+    repeat (10) tick();
+    assert (expected_redirects.size() == 1 && response_count == 1 && expected.size() == 0) else $fatal(1, "fault did not retain precise drain boundary");
+    hold_responses = 0; drain(); inject_enable = 0;
+
+    // Reset is an epoch boundary for both core owners and the memory service.
+    hold_responses = 1; send('h5200, imm(12, 1, 0, 3, 'h03), '0, 1);
+    repeat (8) tick(); assert (response_count == 1) else $fatal(1, "missing reset owner");
+    reset_core(); drain();
+    send('h5210, imm(13, 12, 1), imm(14, 0, 1)); drain();
+    assert (stores > 10 && hits > 10 && stall_cycles >= 2) else $fatal(1, "missing memory scenarios");
+    assert (requests == responses + canceled && canceled == 1) else $fatal(1, "lost/duplicate completion or reset ownership");
+    $display("Memory: %0d accepted, %0d responses, %0d reset-canceled, %0d stores, max %0d outstanding, %0d overlap retirements, %0d shared-write cycles", requests, responses, canceled, stores, max_outstanding, overlap_retirements, shared_writes);
     $display("RV2Wide passed: %0d retirements, %0d dual cycles, %0d stops", commits, dual_commits, stops);
     $finish;
   end

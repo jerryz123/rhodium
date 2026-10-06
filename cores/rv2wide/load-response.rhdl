@@ -1,0 +1,40 @@
+#lang rhodium
+/* Retains accepted memory owners and joins ordered responses for reserved-slot writeback. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  "bundles.rhdl" open
+  lib("cores/load-store.rhdl") open
+  lib("riscv/isa/xlen.rhm") open
+  lib("flow/main.rhdl") open
+
+/* Reserves one context per accepted request; pipeline flushes cannot discard committed owners. */
+sync_circuit RV2WideLoadResponse():
+  interface allocate(Valid(RV2WideResult()), ~role: consumer)
+  interface response(Decoupled(Bits(64)), ~role: consumer)
+  interface completed(Valid(RV2WideRetirement()), ~role: producer)
+  output available: Bool
+  output drained: Bool
+
+  inst owners(Queue(RV2WideResult(), 4))
+  allocate |> to_decoupled() |> owners.ingress
+  available <== owners.ingress.ready
+  drained <== !owners.count.or_reduce() & !allocate.valid
+  def joined :: Endpoint = Array(response, owners.egress) |> zip_flow(data, owner):
+    owner.updated(~data: data)
+  def result :: RV2WideResult() = joined.bits
+  inst load(LoadGen(XLen.X64))
+  load.address <== result.address
+  load.width <== result.memory.width
+  load.unsigned_load <== result.memory.unsigned
+  load.data <== result.data
+  def completion = joined |> map_flow(owner => RV2WideRetirement()):
+    fetched: owner.fetched
+    rd: owner.rd
+    write: owner.write
+    data: load.value
+    deferred: Bool(#false)
+  completion |> to_valid() |> completed
+
+export:
+  RV2WideLoadResponse

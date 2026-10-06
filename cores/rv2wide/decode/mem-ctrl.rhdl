@@ -1,0 +1,79 @@
+#lang rhodium
+/* Maps scalar loads and stores to RV2Wide transaction and shared load/store controls. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("cores/load-store.rhdl") open
+  lib("riscv/isa/rv64i.rhm") open
+  lib("riscv/rtl/decode.rhdl") open
+  lib("rhodium/std/decode.rhdl") open
+
+/* Enables one memory operation, its direction, byte size, and load extension. */
+bundle RV2WideMemoryControl():
+  enable: Bool
+  write: Bool
+  width: MemoryWidth
+  unsigned: Bool
+
+def RV2WideLoads = [LB, LH, LW, LD, LBU, LHU, LWU]
+def RV2WideStores = [SB, SH, SW, SD]
+def RV2WideMemoryCases = decode_groups(RV2WideMemoryControl(), ~input: instruction_pattern):
+  group excluding_instructions(RV64IInstructions, RV2WideLoads ++ RV2WideStores):
+    enable: Bool(#false)
+  [LB]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#false)
+    width: MemoryWidth.Byte
+  [LH]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#false)
+    width: MemoryWidth.Half
+  [LW]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#false)
+    width: MemoryWidth.Word
+  [LD]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#false)
+    width: MemoryWidth.Double
+  [LBU]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#true)
+    width: MemoryWidth.Byte
+  [LHU]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#true)
+    width: MemoryWidth.Half
+  [LWU]:
+    enable: Bool(#true)
+    write: Bool(#false)
+    unsigned: Bool(#true)
+    width: MemoryWidth.Word
+  [SB]:
+    enable: Bool(#true)
+    write: Bool(#true)
+    width: MemoryWidth.Byte
+  [SH]:
+    enable: Bool(#true)
+    write: Bool(#true)
+    width: MemoryWidth.Half
+  [SW]:
+    enable: Bool(#true)
+    write: Bool(#true)
+    width: MemoryWidth.Word
+  [SD]:
+    enable: Bool(#true)
+    write: Bool(#true)
+    width: MemoryWidth.Double
+
+export:
+  RV2WideMemoryControl
+  RV2WideMemoryCases
+  RV2WideLoads
+  RV2WideStores

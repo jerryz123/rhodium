@@ -1,9 +1,10 @@
 #lang rhodium
-/* Composes shared ALU/branch relations and RV2Wide operand/writeback columns into one decoder. */
+/* Composes shared ALU/branch relations and RV2Wide operand/memory/writeback columns. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "operand-ctrl.rhdl" open
+  "mem-ctrl.rhdl" open
   lib("cores/alu.rhdl") open
   lib("cores/riscv/alu-decode.rhdl") open
   lib("cores/riscv/branch-decode.rhdl") open
@@ -21,18 +22,19 @@ bundle RV2WideControl():
   alu: AluControl()
   operand: RV2WideOperandControl()
   branch: RiscvBranchControl()
+  memory: RV2WideMemoryControl()
   writeback: RV2WideWritebackControl()
 
-def RV2WideInstructions = excluding_instructions(RV64IInstructions, [LB, LH, LW, LBU, LHU, LWU, LD, SB, SH, SW, SD, FENCE, ECALL, EBREAK])
+def RV2WideInstructions = excluding_instructions(RV64IInstructions, [FENCE, ECALL, EBREAK])
 def branches = [BEQ, BNE, BLT, BGE, BLTU, BGEU]
 def jumps = [JAL, JALR]
 def RV2WideWritebackCases = decode_groups(RV2WideWritebackControl(), ~input: instruction_pattern):
-  group branches:
+  group branches ++ RV2WideStores:
     enable: Bool(#false)
   group jumps:
     enable: Bool(#true)
     link: Bool(#true)
-  group excluding_instructions(RV2WideInstructions, branches ++ jumps):
+  group excluding_instructions(RV2WideInstructions, branches ++ jumps ++ RV2WideStores):
     enable: Bool(#true)
     link: Bool(#false)
 
@@ -46,6 +48,7 @@ fun compose_control_cases(instructions :: List.of(InstructionSpec)):
         alu: component_output(RV64ICompleteAluCases, input)
         operand: component_output(RV2WideOperandCases, input)
         branch: component_output(RV64IBranchCases, input)
+        memory: component_output(RV2WideMemoryCases, input)
         writeback: component_output(RV2WideWritebackCases, input)
     )
 

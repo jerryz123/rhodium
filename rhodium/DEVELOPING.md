@@ -211,9 +211,11 @@ The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
 `cores/rv2wide/decode/` also imports `std/decode.rhdl` for exact-pattern column
 composition and one hardware decoder per issue slot. `cores/rv2wide/core.rhdl`
-imports it to consume the combined decoder, and imports `flow/main.rhdl` for
-typed endpoints and feed-forward pipeline storage. `bundles.rhdl` and
-`issue-window.rhdl` import the same Flow facade for their stream contracts.
+imports it to consume the combined decoder, `std/scoreboard.rhdl` for committed
+load destinations, and `flow/main.rhdl` for typed endpoints, feed-forward
+pipeline storage, and fault retention. `bundles.rhdl`, `issue-window.rhdl`, and
+`load-response.rhdl` import the same Flow facade for stream contracts, owner
+storage, and atomic response/context joining.
 The slice uses public language register/vector operations and shared execution
 components; it imports no named core or compiler implementation.
 `sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus

@@ -1,20 +1,23 @@
 #lang rhodium
-/* Implements ordered two-wide integer issue, shared execution, forwarding, and precise WB outcomes. */
+/* Implements two-wide execution with feed-forward stages and WB-owned scalar memory transactions. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
   "bundles.rhdl" open
   "issue-window.rhdl" open
+  "load-response.rhdl" open
   "decode/core-ctrl.rhdl" open
   "decode/operand-ctrl.rhdl" open
   lib("cores/alu.rhdl") open
   lib("cores/branch-resolver.rhdl") open
+  lib("cores/load-store.rhdl") open
   lib("riscv/isa/xlen.rhm") open
   lib("riscv/isa/trap.rhm").ExceptionCause
   lib("riscv/model/formats.rhm") as fields
   lib("riscv/rtl/instruction-fields.rhdl") open
   lib("riscv/rtl/trap.rhdl") open
   lib("rhodium/std/decode.rhdl") open
+  lib("rhodium/std/scoreboard.rhdl") open
   lib("flow/main.rhdl") open
 
 /* Resolves oldest-to-youngest candidates so a nearer unavailable producer blocks stale data. */
@@ -26,12 +29,21 @@ fun forwarded_operand(address :: Bits(5), stored :: Bits(64), producers :: List.
     def token :: RV2WideResult() = producer.bits
     def matched = producer.valid & token.write & (token.rd === address)
     value := mux(matched, token.data, value)
-    blocked := mux(matched, token.resolution.disposition =/= RV2WideDisposition.Continue, blocked)
+    blocked := mux(matched, (token.resolution.disposition =/= RV2WideDisposition.Continue) ||| !token.result_ready, blocked)
   RV2WideOperand():
     data: mux(address.or_reduce(), value, bits(0, 64))
     blocked: address.or_reduce() & blocked
 
-/* Executes an RV64I arithmetic/branch slice; no fetch, memory, privileged state, or ISA claim.
+/* Interlocks a younger write against every older result that may complete after WB. */
+fun pending_destination(address :: Bits(5), producers :: List.of(Endpoint)) :: Bool:
+  def mutable pending = Bool(#false)
+  for (endpoint in producers):
+    def producer :: Endpoint = endpoint
+    def token :: RV2WideResult() = producer.bits
+    pending := pending ||| (producer.valid & token.write & !token.result_ready & (token.rd === address))
+  address.or_reduce() & pending
+
+/* Executes an RV64I arithmetic/branch/load/store slice without fetch or privileged state.
    Resolution inputs qualify the corresponding live MEM token in the same cycle. */
 sync_circuit RV2WideCore():
   interface instructions(Decoupled(RV2WidePacket()), ~role: consumer)
@@ -39,6 +51,9 @@ sync_circuit RV2WideCore():
   interface memory_stage[2](Valid(RV2WideInstruction()), ~role: producer)
   interface retired[2](Valid(RV2WideRetirement()), ~role: producer)
   interface redirect(Valid(RV2WideRedirect()), ~role: producer)
+  interface memory(RV2WideMemory(), ~role: requester)
+  interface pipeline(RV2WidePipelineAccess(), ~role: requester)
+  interface completed(Valid(RV2WideRetirement()), ~role: producer)
   output issued: Bits(2)
   output retired_count: Bits(2)
 
@@ -58,9 +73,25 @@ sync_circuit RV2WideCore():
   def mem_results = for List (link in mem_links): link.right
   def wb_redirect_link :: Handle = interface_link(Valid(RV2WideRedirect()))
   def wb_redirect :: Endpoint = wb_redirect_link.right
+  wire wb_squash: Bool
+  inst wb_load_response(RV2WideLoadResponse())
+  inst wb_scoreboard(Scoreboard(32))
+  memory.response |> wb_load_response.response
+  // A returned load reserves the younger issue slot and travels alongside RR
+  // work to its WB write port. Committed responses never take speculative flush.
+  def rr_completion :: Endpoint = wb_load_response.completed
+  inst wb_completion_pipe(ValidPipe(RV2WideRetirement(), 3))
+  rr_completion |> wb_completion_pipe.ingress
+  def wb_completion :: Endpoint = wb_completion_pipe.egress
+  reg wb_completion_count(~init: bits(0, 2))
+  when (rr_completion.valid ^ wb_completion.valid):
+    wb_completion_count <== mux(rr_completion.valid, wb_completion_count + bits(1, 2), wb_completion_count - bits(1, 2))
+  wb_completion |> completed
+  wb_scoreboard.clear.valid <== wb_completion.valid & wb_completion.bits.write
+  wb_scoreboard.clear.bits <== wb_completion.bits.rd
   reg rr_registers(~init: vec(for List (_ in 0..32): bits(0, 64)))
   instructions |> rr_window.ingress
-  rr_window.clear.valid <== wb_redirect.valid
+  rr_window.clear.valid <== wb_squash
 
   // RR: the issue window, not independent lane readiness, owns instruction age.
   def rr_head :: RV2WidePacket() = rr_window.head
@@ -70,21 +101,28 @@ sync_circuit RV2WideCore():
   def rr_rs2 :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rs2, rr_head.entries[lane].instruction))
   def rr_rd :: Vec(2, Bits(5)) = vec(for List (lane in 0..2): instruction_field(fields.rd, rr_head.entries[lane].instruction))
   def rr_producers = [wb_pipe[0].egress, wb_pipe[1].egress, mem_results[0], mem_results[1], ex_results[0], ex_results[1]]
-  def rr_left :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs1[lane], rr_registers[rr_rs1[lane]], rr_producers))
-  def rr_right :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs2[lane], rr_registers[rr_rs2[lane]], rr_producers))
+  /* A deferred completion is older than all in-flight producers and forwards at its write edge. */
+  fun rr_stored(address :: Bits(5)) :: Bits(64):
+    mux(wb_completion.valid & wb_completion.bits.write & (wb_completion.bits.rd === address), wb_completion.bits.data, rr_registers[address])
+  /* Completion frees the registered reservation for same-cycle reads and younger writes. */
+  fun rr_busy(address :: Bits(5)) :: Bool:
+    address.or_reduce() & scoreboard_busy(32, wb_scoreboard.busy, address) & !(wb_completion.valid & wb_completion.bits.write & (wb_completion.bits.rd === address))
+  def rr_left :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs1[lane], rr_stored(rr_rs1[lane]), rr_producers))
+  def rr_right :: Vec(2, RV2WideOperand()) = vec(for List (lane in 0..2): forwarded_operand(rr_rs2[lane], rr_stored(rr_rs2[lane]), rr_producers))
   def rr_blocked = for List (lane in 0..2):
-    rr_decoded[lane].valid & ((rr_controls[lane].operand.uses_rs1 & rr_left[lane].blocked) ||| (rr_controls[lane].operand.uses_rs2 & rr_right[lane].blocked))
+    rr_decoded[lane].valid & ((rr_controls[lane].operand.uses_rs1 & (rr_left[lane].blocked ||| rr_busy(rr_rs1[lane]))) ||| (rr_controls[lane].operand.uses_rs2 & (rr_right[lane].blocked ||| rr_busy(rr_rs2[lane]))) ||| (rr_controls[lane].writeback.enable & (rr_busy(rr_rd[lane]) ||| pending_destination(rr_rd[lane], rr_producers))))
   def rr_older_write = rr_decoded[0].valid & rr_controls[0].writeback.enable & rr_rd[0].or_reduce()
   def rr_pair_raw = rr_older_write & ((rr_controls[1].operand.uses_rs1 & (rr_rd[0] === rr_rs1[1])) ||| (rr_controls[1].operand.uses_rs2 & (rr_rd[0] === rr_rs2[1])))
   def rr_pair_waw = rr_older_write & rr_controls[1].writeback.enable & (rr_rd[0] === rr_rd[1])
   def rr_pair_branch = rr_controls[0].branch.resolver.enable & rr_controls[1].branch.resolver.enable
-  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !wb_redirect.valid
-  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decoded[0].valid & rr_decoded[1].valid & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch
+  def rr_pair_memory = rr_controls[0].memory.enable & rr_controls[1].memory.enable
+  def rr_first = (rr_head.count =/= bits(0, 2)) & !rr_blocked[0] & !wb_squash
+  def rr_second = rr_first & (rr_head.count === bits(2, 2)) & !rr_blocked[1] & rr_decoded[0].valid & rr_decoded[1].valid & !rr_pair_raw & !rr_pair_waw & !rr_pair_branch & !rr_pair_memory & !(rr_completion.valid & rr_completion.bits.write)
   issued <== rr_first.as_bits().zext(2) + rr_second.as_bits().zext(2)
   rr_window.consume <== issued
   for (lane in 0..2):
     def ex_ingress :: Endpoint = ex_pipe[lane].ingress
-    ex_pipe[lane].flush <== wb_redirect.valid
+    ex_pipe[lane].flush <== wb_squash
     ex_ingress.valid <== if lane == 0 | rr_first | rr_second
     ex_ingress.bits <== RV2WideExecute():
       fetched: rr_head.entries[lane]
@@ -102,7 +140,7 @@ sync_circuit RV2WideCore():
   inst ex_alu_older(ALU(XLen.X64))
   inst ex_alu_younger(ALU(XLen.X64))
   def ex_alus = [ex_alu_older, ex_alu_younger]
-  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !wb_redirect.valid
+  ex_resolver.request.valid <== (ex_older.egress.valid ||| ex_younger.egress.valid) & !wb_squash
   ex_resolver.request.bits <== BranchResolverRequest(64):
     left: ex_branch.rs1
     right: ex_branch.rs2
@@ -123,60 +161,163 @@ sync_circuit RV2WideCore():
     def ex_taken = !ex.illegal & ex.control.branch.resolver.enable & (ex_branch_lane === bits(lane, 1)) & ex_resolver.result.bits.taken
     def ex_bad_pc = ex.fetched.pc[0..2].or_reduce()
     def ex_bad_target = ex_taken & ex_target[0..2].or_reduce()
-    def ex_fault = ex.illegal ||| ex_bad_pc ||| ex_bad_target
-    ex_output.valid <== ex_input.valid & !wb_redirect.valid
+    def ex_memory = !ex.illegal & ex.control.memory.enable
+    def ex_bad_address = ex_memory & !ex.control.memory.width.is_aligned(ex_alu.result)
+    def ex_fault = ex.illegal ||| ex_bad_pc ||| ex_bad_target ||| ex_bad_address
+    ex_output.valid <== ex_input.valid & !wb_squash
     ex_output.bits <== RV2WideResult():
       fetched: ex.fetched
       rd: ex.rd
       write: !ex.illegal & ex.control.writeback.enable & ex.rd.or_reduce()
       data: mux(ex.control.writeback.link, ex.fetched.pc + bits(4, 64), ex_alu.result)
+      result_ready: !(ex_memory & !ex.control.memory.write)
       taken: ex_taken
       target: ex_target
+      memory: ex.control.memory.updated(~enable: ex_memory)
+      address: ex_alu.result
+      store_data: ex.rs2
+      cache_outcome: RV2WideCacheOutcome.Slow
       resolution:
         RV2WideResolution():
           disposition: mux(ex_fault, RV2WideDisposition.Fault, RV2WideDisposition.Continue)
-          cause: mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), exception_cause_bits(ExceptionCause.IllegalInstruction, 64))
-          value: mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, ex.fetched.instruction.zext(64)))
+          cause: mux(ex_bad_pc ||| ex_bad_target, exception_cause_bits(ExceptionCause.InstructionAddressMisaligned, 64), mux(ex_bad_address, mux(ex.control.memory.write, exception_cause_bits(ExceptionCause.StoreAddressMisaligned, 64), exception_cause_bits(ExceptionCause.LoadAddressMisaligned, 64)), exception_cause_bits(ExceptionCause.IllegalInstruction, 64)))
+          value: mux(ex_bad_pc, ex.fetched.pc, mux(ex_bad_target, ex_target, mux(ex_bad_address, ex_alu.result, ex.fetched.instruction.zext(64))))
     ex_results[lane] |> mem_pipe[lane].ingress
-    mem_pipe[lane].flush <== wb_redirect.valid
+    mem_pipe[lane].flush <== wb_squash
+
+  def ex_memory_lane = mux(ex_older.egress.valid & ex_tokens[0].control.memory.enable, bits(0, 1), bits(1, 1))
+  def ex_result_tokens :: Vec(2, RV2WideResult()) = vec(
+    for List (lane in 0..2):
+      def result :: Endpoint = ex_results[lane]
+      result.bits
+  )
+  def ex_lookup :: RV2WideResult() = ex_result_tokens[ex_memory_lane]
+  inst ex_store(StoreGen(XLen.X64))
+  ex_store.address <== ex_lookup.address
+  ex_store.value <== ex_lookup.store_data
+  ex_store.width <== ex_lookup.memory.width
+  pipeline.request.valid <== (mux(ex_memory_lane === bits(0, 1), ex_older.egress.valid, ex_younger.egress.valid)) & ex_lookup.memory.enable & (ex_lookup.resolution.disposition === RV2WideDisposition.Continue) & !wb_squash
+  pipeline.request.bits <== RV2WideMemoryReq():
+    address: ex_lookup.address
+    write: ex_lookup.memory.write
+    data: ex_store.data
+    mask: ex_store.mask.as_bits()
 
   // MEM: retain the earlier fault ahead of an externally supplied resolution.
+  def mem_memory_lane = mux(mem_older.egress.valid & mem_older.egress.bits.memory.enable, bits(0, 1), bits(1, 1))
+  def mem_memory :: RV2WideResult() = mux(mem_memory_lane === bits(0, 1), mem_older.egress.bits, mem_younger.egress.bits)
+  inst mem_load(LoadGen(XLen.X64))
+  mem_load.address <== mem_memory.address
+  mem_load.width <== mem_memory.memory.width
+  mem_load.unsigned_load <== mem_memory.memory.unsigned
+  mem_load.data <== pipeline.response.bits.data
   for (lane in 0..2):
     def mem_input :: Endpoint = mem_pipe[lane].egress
     def mem_output :: Endpoint = mem_links[lane].left
     def mem :: RV2WideResult() = mem_pipe[lane].egress.bits
     (mem_pipe[lane].egress |> map_valid(token): token.into(RV2WideResult()).fetched) |> memory_stage[lane]
-    mem_output.valid <== mem_input.valid & !wb_redirect.valid
+    def mem_lookup = mem.memory.enable & (mem.resolution.disposition === RV2WideDisposition.Continue)
+    def mem_outcome = mux(pipeline.response.valid, pipeline.response.bits.outcome, RV2WideCacheOutcome.Replay)
+    def mem_hit = mem_lookup & (mem_outcome === RV2WideCacheOutcome.LoadHit)
+    def mem_page_fault = mem_outcome === RV2WideCacheOutcome.PageFault
+    def mem_fault = mem_outcome.is_one_of(RV2WideCacheOutcome.PageFault, RV2WideCacheOutcome.AccessFault)
+    def mem_lookup_resolution = RV2WideResolution():
+      disposition: mux(mem_fault, RV2WideDisposition.Fault, mux(mem_outcome === RV2WideCacheOutcome.Replay, RV2WideDisposition.Replay, RV2WideDisposition.Continue))
+      cause: mux(mem_page_fault, mux(mem.memory.write, exception_cause_bits(ExceptionCause.StorePageFault, 64), exception_cause_bits(ExceptionCause.LoadPageFault, 64)), mux(mem.memory.write, exception_cause_bits(ExceptionCause.StoreAccessFault, 64), exception_cause_bits(ExceptionCause.LoadAccessFault, 64)))
+      value: mem.address
+    mem_output.valid <== mem_input.valid & !wb_squash
     mem_output.bits <== mem.updated(
-      ~resolution: mux(resolution[lane].valid & (mem.resolution.disposition === RV2WideDisposition.Continue), resolution[lane].bits, mem.resolution)
+      ~resolution: mux(mem.resolution.disposition =/= RV2WideDisposition.Continue, mem.resolution, mux(resolution[lane].valid, resolution[lane].bits, mux(mem_lookup, mem_lookup_resolution, mem.resolution))),
+      ~data: mux(mem_hit, mem_load.value, mem.data),
+      ~result_ready: mem.result_ready ||| mem_hit,
+      ~cache_outcome: mem_outcome
     )
     mem_results[lane] |> wb_pipe[lane].ingress
-    wb_pipe[lane].flush <== wb_redirect.valid
+    wb_pipe[lane].flush <== wb_squash
 
-  // WB: authorize only the successful prefix, then flush every younger token.
-  def wb_tokens :: Vec(2, RV2WideResult()) = vec(for List (lane in 0..2): wb_pipe[lane].egress.bits)
+  // WB: successful hits retire normally. Store candidates and slow requests
+  // either authorize now, fault before acceptance, or replay without effects.
+  inst wb_fault_retention(OfferRegister(RV2WideRedirect()))
+  def wb_fault_pending = wb_fault_retention.egress.valid
+  def wb_valid :: Vec(2, Bool) = vec(wb_older.egress.valid, wb_younger.egress.valid)
+  def wb_group :: Vec(2, RV2WideResult()) = vec(for List (lane in 0..2): wb_pipe[lane].egress.bits)
+  def wb_older_stop = wb_valid[0] & ((wb_group[0].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_group[0].taken)
+  def wb_memory_lane = mux(wb_valid[0] & wb_group[0].memory.enable, bits(0, 1), bits(1, 1))
+  def wb_memory :: RV2WideResult() = wb_group[wb_memory_lane]
+  def wb_memory_active = wb_valid[wb_memory_lane] & wb_memory.memory.enable & (wb_memory.resolution.disposition === RV2WideDisposition.Continue) & ((wb_memory_lane === bits(0, 1)) ||| !wb_older_stop) & !wb_fault_pending
+  def wb_slow = wb_memory_active & (wb_memory.cache_outcome === RV2WideCacheOutcome.Slow)
+  def wb_store_hit = wb_memory_active & (wb_memory.cache_outcome === RV2WideCacheOutcome.StoreHit)
+  inst wb_store(StoreGen(XLen.X64))
+  wb_store.address <== wb_memory.address
+  wb_store.value <== wb_memory.store_data
+  wb_store.width <== wb_memory.memory.width
+  memory.request.valid <== wb_slow & wb_load_response.available
+  memory.request.bits <== RV2WideMemoryReq():
+    address: wb_memory.address
+    write: wb_memory.memory.write
+    data: wb_store.data
+    mask: wb_store.mask.as_bits()
+  pipeline.commit <== wb_store_hit
+  def wb_admission_fault = memory.request.valid & memory.fault.valid
+  def wb_accepted = memory.request.fire() & !wb_admission_fault
+  def wb_memory_replay = (wb_slow & !wb_accepted & !wb_admission_fault) ||| (wb_store_hit & !pipeline.commit_ready)
+  wb_load_response.allocate.valid <== wb_accepted
+  wb_load_response.allocate.bits <== wb_memory
+  wb_scoreboard.set.valid <== wb_accepted & wb_memory.write
+  wb_scoreboard.set.bits <== wb_memory.rd
+  assert(!(memory.request.fire() & wb_admission_fault), "rv2wide_fault_prevents_acceptance")
+  def wb_memory_resolution = RV2WideResolution():
+    disposition: RV2WideDisposition.Replay
+    cause: dont_care(Bits(64))
+    value: dont_care(Bits(64))
+  def wb_tokens :: Vec(2, RV2WideResult()) = vec(
+    for List (lane in 0..2):
+      def token :: RV2WideResult() = wb_group[lane]
+      def selected = wb_memory_active & (wb_memory_lane === bits(lane, 1))
+      token.updated(
+        ~resolution: mux(selected & wb_admission_fault, memory.fault.bits, mux(selected & wb_memory_replay, wb_memory_resolution, token.resolution))
+      )
+  )
   def wb_stop = for List (lane in 0..2):
-    def wb_input :: Endpoint = wb_pipe[lane].egress
-    wb_input.valid & ((wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_tokens[lane].taken)
+    !wb_fault_pending & wb_valid[lane] & ((wb_tokens[lane].resolution.disposition =/= RV2WideDisposition.Continue) ||| wb_tokens[lane].taken)
   def wb_selected :: RV2WideResult() = mux(wb_stop[0], wb_tokens[0], wb_tokens[1])
-  wb_redirect_link.left.valid <== wb_stop[0] ||| wb_stop[1]
-  wb_redirect_link.left.bits <== RV2WideRedirect():
+  def wb_stop_valid = wb_stop[0] ||| wb_stop[1]
+  def wb_stop_bits = RV2WideRedirect():
     pc: wb_selected.fetched.pc
     target: mux(wb_selected.resolution.disposition === RV2WideDisposition.Continue, wb_selected.target, wb_selected.fetched.pc)
     resolution: wb_selected.resolution
+  def wb_drained = wb_load_response.drained & memory.drained & !wb_completion_count.or_reduce() & !rr_completion.valid
+  def wb_hold_fault = wb_stop_valid & (wb_selected.resolution.disposition === RV2WideDisposition.Fault) & !wb_drained
+  wb_fault_retention.update.valid <== wb_hold_fault
+  wb_fault_retention.update.bits <== wb_stop_bits
+  wb_fault_retention.egress.ready <== wb_drained
+  wb_redirect_link.left.valid <== (wb_stop_valid & !wb_hold_fault) ||| (wb_fault_pending & wb_drained)
+  wb_redirect_link.left.bits <== mux(wb_fault_pending, wb_fault_retention.egress.bits, wb_stop_bits)
+  wb_squash <== wb_stop_valid ||| wb_fault_pending
   wb_redirect |> redirect
+  wire wb_writes: Vec(2, Bool)
   for (lane in 0..2):
     def wb :: RV2WideResult() = wb_tokens[lane]
-    def wb_input :: Endpoint = wb_pipe[lane].egress
-    def wb_eligible = wb_input.valid & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | Bool(#true) | !wb_stop[0])
+    def wb_eligible = !wb_fault_pending & wb_valid[lane] & (wb.resolution.disposition === RV2WideDisposition.Continue) & (if lane == 0 | Bool(#true) | !wb_stop[0])
+    def wb_deferred = wb_accepted & (wb_memory_lane === bits(lane, 1))
     retired[lane].valid <== wb_eligible
     retired[lane].bits <== RV2WideRetirement():
       fetched: wb.fetched
       rd: wb.rd
       write: wb.write
       data: wb.data
-    when (wb_eligible & wb.write):
-      rr_registers[wb.rd] <== wb.data
+      deferred: wb_deferred
+    wb_writes[lane] <== wb_eligible & wb.write & !wb_deferred
+  def wb_completion_write = wb_completion.valid & wb_completion.bits.write
+  def wb_second_address = mux(wb_completion_write, wb_completion.bits.rd, wb_tokens[1].rd)
+  def wb_second_data = mux(wb_completion_write, wb_completion.bits.data, wb_tokens[1].data)
+  def wb_second_write = wb_completion_write ||| wb_writes[1]
+  assert(!(wb_completion_write & wb_younger.egress.valid), "rv2wide_completion_reserved_younger_slot")
+  assert(!(wb_writes[0] & wb_second_write & (wb_tokens[0].rd === wb_second_address)), "rv2wide_two_write_ports_distinct")
+  when (wb_writes[0]):
+    rr_registers[wb_tokens[0].rd] <== wb_tokens[0].data
+  when wb_second_write:
+    rr_registers[wb_second_address] <== wb_second_data
   retired_count <== retired[0].valid.as_bits().zext(2) + retired[1].valid.as_bits().zext(2)
 
 export:
