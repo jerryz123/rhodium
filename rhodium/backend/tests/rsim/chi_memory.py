@@ -1,10 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Qualify one production CHI DPI memory through SV-hosted rsim and direct SV."""
+"""Compare one production CHI DPI memory through SV-hosted rsim and direct SV."""
 import os
 from pathlib import Path
 import shlex
 import shutil
 import tempfile
+from dpi_sources import dpi_checked_sources
 
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).resolve().parent
@@ -19,11 +20,12 @@ def run_suite(work, run):
     for mode in ('rsim', 'reference'):
         obj = work / mode
         sources = [work / (('reference-' if mode == 'reference' else '') + 'RsimCHIMemory.sv'),
-                   HERE / 'chi-memory-bench.sv', HERE / 'chi-memory-host.cpp',
-                   dpi / 'chi_dpi_memory_dpi.cc', dpi / 'chi_memory.cc']
+                   HERE / 'chi-memory-bench.sv']
+        native = [HERE / 'chi-memory-host.cpp', dpi / 'chi_dpi_memory_dpi.cc', dpi / 'chi_memory.cc']
         if mode == 'rsim':
-            sources += [work / 'RsimCHIMemory.cpp', work / 'RsimCHIMemory_bridge.cpp']
-        flags = f'-std=c++20 -I{shlex.quote(str(dpi))} -include VCHIMemoryBench__Dpi.h'
+            native += [work / 'RsimCHIMemory.cpp', work / 'RsimCHIMemory_bridge.cpp']
+        sources += dpi_checked_sources(work / (mode + '-sources'), 'VCHIMemoryBench__Dpi.h', native)
+        flags = f'-std=c++20 -I{shlex.quote(str(dpi))}'
         run([os.environ.get('VERILATOR', 'verilator'), '--binary', '--timing', '--assert',
              '-Wno-UNSIGNED', '-Wno-CMPCONST', '-Wno-UNOPTFLAT', '-j', '2',
              '--top-module', 'CHIMemoryBench', '--Mdir', str(obj), '-I' + str(work),

@@ -7,6 +7,7 @@ import shlex
 import shutil
 import subprocess
 import tempfile
+from dpi_sources import dpi_checked_sources
 
 ROOT = Path(__file__).resolve().parents[4]
 HERE = Path(__file__).resolve().parent
@@ -162,11 +163,12 @@ def run_wide_abi(work, run):
     source = work / 'wide-abi.cpp'
     source.write_text(wide_abi_driver())
     root = run([os.environ.get('VERILATOR', 'verilator'), '--getenv', 'VERILATOR_ROOT'], work, 'verilator-root').strip()
+    native = dpi_checked_sources(work / 'wide-abi-sources', 'VBridgeWideBench__Dpi.h',
+                                 [work / 'RsimBridgeWide.cpp', work / 'RsimBridgeWide_bridge.cpp'])
     run(shlex.split(os.environ.get('CXX', 'c++')) + [
         '-std=c++17', '-O0', '-Wall', '-Wextra', '-Werror', '-fsanitize=address,undefined',
         '-fno-sanitize-recover=all', '-I' + str(work / 'BridgeWideBench-rsim'),
-        '-I' + str(Path(root) / 'include/vltstd'), '-include', 'VBridgeWideBench__Dpi.h',
-        str(work / 'RsimBridgeWide.cpp'), str(work / 'RsimBridgeWide_bridge.cpp'), str(source),
+        '-I' + str(Path(root) / 'include/vltstd'), *map(str, native), str(source),
         '-o', str(work / 'wide-abi')], work, 'build-wide-abi')
     run([str(work / 'wide-abi')], work, 'wide-abi')
 
@@ -186,18 +188,21 @@ def run_suite(work, run):
             model = {'BridgePortsBench': 'RsimBridgePorts', 'BridgeWideBench': 'RsimBridgeWide'}.get(top, 'RsimBridgeCounter')
             rtl = work / (('' if mode == 'rsim' else 'reference-') + model + '.sv')
             sources = [str(rtl), str(work / 'wide-bench.sv' if top == 'BridgeWideBench' else HERE / 'sv-bridge-bench.sv')]
+            native = []
             if not port_bench:
-                sources += [str(HERE / 'sv-bridge-host.cpp')]
+                native += [HERE / 'sv-bridge-host.cpp']
             flags = ['-std=c++17', '-I' + shlex.quote(str(work))]
             if mode == 'rsim':
-                sources += [str(work / (model + '.cpp')), str(work / (model + '_bridge.cpp'))]
+                native += [work / (model + '.cpp'), work / (model + '_bridge.cpp')]
             if top == 'TestDriver':
                 sources += [str(ROOT / 'sims/TestDriver.v'), str(ROOT / 'sims/verilator/simulation_runtime.cc')]
                 flags += ['-std=c++20']
-            # Other benches force-include the generated ABI. The production runtime
-            # declares noexcept entrypoints separately from Verilator's declarations.
-            if top != 'TestDriver' and (mode == 'rsim' or not port_bench):
-                flags += ['-include', f'V{top}__Dpi.h']
+            # Keep generated ABI checks local to native sources, before their
+            # definitions; global forced includes prevent GCC from loading PCHs.
+            # TestDriver's production runtime declares noexcept entrypoints separately.
+            if top != 'TestDriver' and native:
+                native = dpi_checked_sources(work / (label + '-sources'), f'V{top}__Dpi.h', native)
+            sources += list(map(str, native))
             run([os.environ.get('VERILATOR', 'verilator'), '--binary', '--timing', '--vpi',
                  '--assert', '-Wno-SYMRSVDWORD', '-j', '2', '--top-module', top, '--Mdir', str(obj),
                  '-CFLAGS', ' '.join(flags), *sources], work, 'build-' + label)

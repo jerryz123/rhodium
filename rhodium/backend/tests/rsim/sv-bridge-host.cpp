@@ -2,7 +2,7 @@
 // This same callback is called by generated rsim C++ and by direct SV DPI.
 #include <svdpi.h>
 #include <vpi_user.h>
-// The runner force-includes this build's Verilator DPI header to check the ABI.
+// The runner includes this build's DPI declarations in the native source wrapper.
 #include <cstdio>
 #include <map>
 #include <stdexcept>
