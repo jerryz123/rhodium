@@ -4,12 +4,10 @@
 
 import:
   "../../../rhodium/core/main.rhm" open
+  "../../../rhodium/frontend/layers/bool.rhm" as bool
   "bundle-method-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
-def equalities = module_def.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.eq"
-)
 def ands = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.and"
 )
@@ -20,7 +18,8 @@ def ors = module_def.operations.filter(
 check:
   record_type(module_def.find_input("envelope").type) ~is #true
   vector_type(module_def.find_input("envelopes").type) ~is #true
-  equalities.length() ~is 34
+  (for all (port in module_def.outputs.filter(~keep: fun (port): port.name != "packed")):
+     bool.bool_type(port.type)) ~is #true
   ands.length() ~is 10
   ors.length() ~is 0
   verify_design(fixture.design) ~is #void

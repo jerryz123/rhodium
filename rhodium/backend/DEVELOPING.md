@@ -693,6 +693,16 @@ It checks each mask position during partial initialization and preserves the
 same definedness rules for old-read data/mask feedback, collisions, disabled
 reads, and invalid addresses. Native carriers receive dirty input padding;
 the direct-SV adapter masks every control and copies only declared input bits.
+
+`tests/rsim/membership.py` exercises authored `.is_one_of` through native C++
+and direct SV against a packed-integer oracle. It covers exact sparse/dense
+sets, duplicate and empty alternatives, signed/nominal types, dynamic mixtures,
+64/65-bit boundaries, dirty wide input padding, reset, hold, and repeated eval.
+The native build uses ASan/UBSan. Both ordinary and forced-region runners include
+it; run `python3 rhodium/backend/tests/rsim/membership.py --differential` for
+focused coverage. Exact Boolean decode relations with scalar selectors up to
+64 bits use a C++ switch; other decode shapes keep their existing typed lowering.
+
 `tests/rsim/selection.py` covers scalar widths 1/5/63/64, one-hot selectors of
 1/3/64 bits, unknown choices hidden by selection, and nested aggregate decode
 inputs/outputs through 139 bits. Its packed-integer oracle checks care masks,

@@ -273,9 +273,11 @@ first_mask <== priority_encoder_oh(value)
 and inequality work on exactly equal flat types and return `Bool`; `=/=` is
 the Boolean complement of `===` and lowers to equality followed by negation.
 `value.is_one_of(alternative, ...)` accepts alternatives of the same exact flat
-type either variadically or as one host list and lowers to typed equalities
-joined by hardware OR. Membership in an empty host list is false. Membership is
-receiver-only; there is no parallel free-function form.
+type either variadically or as one host list. It returns whether any alternative
+equals the receiver; duplicates do not change the result. Membership in an
+empty host list is false. Constant alternatives remain a compact decode relation
+for target-specific implementation; dynamic alternatives use typed comparisons.
+Membership is receiver-only; there is no parallel free-function form.
 `enum_valid(value)` derives the complete runtime membership test from a
 hardware enum's declared encodings. This matters at ports and cast boundaries:
 the enum type prevents unrelated typed operations, but its physical wire can

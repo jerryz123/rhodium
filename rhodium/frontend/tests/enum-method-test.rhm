@@ -12,12 +12,6 @@ import:
   "enum-method-fixture.rhdl" as fixture
 
 def module_def = fixture.design.modules[0]
-def equalities = module_def.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.eq"
-)
-def ors = module_def.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.or"
-)
 def onehot_muxes = module_def.operations.filter(
   ~keep: fun (operation): operation.opcode == "rtl.onehot_mux"
 )
@@ -41,8 +35,6 @@ check:
   enum_encoding(fixture.OneHotState, "Idle") ~is 1
   enum_encoding(fixture.OneHotState, "Read") ~is 2
   enum_encoding(fixture.OneHotState, "Write") ~is 4
-  equalities.length() ~is 43
-  ors.length() ~is 0
   onehot_muxes.length() ~is 1
   verify_design(fixture.design) ~is #void
 

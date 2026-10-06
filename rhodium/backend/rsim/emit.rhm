@@ -52,6 +52,16 @@ fun foreign_type(type :: HardwareType) :: String:
 fun foreign_slot(call_index :: Nat, result_index :: Nat) :: String:
   "f" ++ to_string(call_index) ++ "_" ++ to_string(result_index)
 
+/* Recognize exact scalar set membership from the existing decode relation.
+   Fully cared keys are unique after verification. Wide/aggregate selectors and
+   partial or non-Boolean results retain the general typed decode lowering. */
+fun membership_decode(step :: RsimStep, input_type :: HardwareType) :: Boolean:
+  def width = scalar_width(input_type)
+  width != #false && width <= 64 && scalar_width(step.type) == 1
+    && step.attributes["default_value"] == 0 && step.attributes["default_care"] == 1
+    && step.attributes["cases"].length() > 0
+    && (for all (row in step.attributes["cases"]): row[1] == 2 ** width - 1 && row[2] == 1 && row[3] == 1)
+
 /* Emit one operation; normalization at the caller preserves each intermediate
    hardware width before any later comparison or conversion. */
 fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) :: String:
@@ -73,6 +83,9 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       def cases = for List (value in args.drop(1), index in 0..(args.length() - 1)):
         types.bit_test(selector_type, args[0], index) ++ " ? " ++ value ++ " : "
       String.join(cases, "") ++ types.name(step.type) ++ "{}"
+  | step.opcode == "rtl.decode" && membership_decode(step, steps[step.operands[0]].type):
+      def keys = step.attributes["cases"].map(fun (row): "case " ++ literal(row[0]) ++ ":")
+      "([&]() -> std::uint64_t { switch (" ++ args[0] ++ ") { " ++ String.join(keys, " ") ++ " return UINT64_C(1); default: return UINT64_C(0); } }())"
   | step.opcode == "rtl.decode":
       def input_type = steps[step.operands[0]].type
       /* All aggregate arms, including the default, must be same-type lvalues

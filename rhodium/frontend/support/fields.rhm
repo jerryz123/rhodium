@@ -552,10 +552,18 @@ fun hardware_sign_extend(value :: HardwareEntity,
           location.describe() ++ ": .sext receiver must have a SignedArithmeticType")
   kernel.sext(source, target_width, name, location)
 
-/*
- * Implements receiver-owned membership without exposing a parallel free
- * function. Each alternative must retain the receiver's exact flat type.
- */
+/* Recover literal packed images through representation casts only. Other
+   computations and wire drivers stay dynamic; this is not constant folding. */
+fun membership_constant(value :: Value) :: maybe(Nat):
+  def operation = value.module_def.find_operation(value.defining_op_id)
+  cond
+  | operation.opcode == "rtl.constant": operation.attribute("value")
+  | operation.opcode == "rtl.cast": membership_constant(operation.operands[0])
+  | ~else: #false
+
+/* Validate exact scalar types before retaining constant membership as a decode
+   relation. Dynamic alternatives keep comparisons; empty and singleton lists
+   retain their original simple results. No backend policy belongs here. */
 fun build_membership_predicate(value :: HardwareEntity,
                                supplied :: List.of(HardwareEntity || List.of(HardwareEntity)),
                                location :: Location = Location()) :~ HardwareFields:
@@ -567,45 +575,38 @@ fun build_membership_predicate(value :: HardwareEntity,
     if supplied.length() == 1 && supplied[0] is_a List
     | supplied[0]
     | supplied
-  if candidates.length() == 0
-  | kernel.cast(kernel.literal(Bits(1), 0, #false, location),
-                Bool,
-                #false,
-                location)
+  def alternatives = candidates.map(fun (alternative): kernel.read(alternative, location))
+  for (alternative in alternatives):
+    unless scalar_data_type(alternative.type) && type_equal(value_read.type, alternative.type)
+    | error(~who: #'is_one_of,
+            location.describe() ++ ": .is_one_of operands must have exactly the same ScalarDataType")
+  if alternatives.length() == 0
+  | kernel.cast(kernel.literal(Bits(1), 0, #false, location), Bool, #false, location)
   | block:
-      def comparisons = candidates.map(
-        fun (alternative):
-          def alternative_read = kernel.read(alternative, location)
-          unless scalar_data_type(alternative_read.type) && type_equal(value_read.type, alternative_read.type)
-          | error(~who: #'is_one_of,
-                  location.describe() ++ ": .is_one_of operands must have exactly the same ScalarDataType")
-          kernel.hw_eq(hardware_as_bits(value_read,
-                                        #'is_one_of,
-                                        ".is_one_of operand",
-                                        #false,
-                                        location),
-                       hardware_as_bits(alternative_read,
-                                        #'is_one_of,
-                                        ".is_one_of operand",
-                                        #false,
-                                        location),
-                       #false,
-                       location)
-      )
-      if comparisons.length() == 1
-      | kernel.cast(comparisons[0], Bool, #false, location)
+      def packed_value = hardware_as_bits(value_read, #'is_one_of, ".is_one_of subject", #false, location)
+      def constants = alternatives.map(membership_constant)
+      if alternatives.length() > 1 && for all (constant in constants): constant != #false
+      | def keys = MutableMap{}
+        for (constant in constants): keys[constant] := #true
+        def mask = 2 ** value_read.type.packed_width() - 1
+        def rows = for List (key in keys.keys().sort()): [key, mask, 1, 1]
+        kernel.hw_decode(packed_value, packed_value.type, Bool, rows, 0, 1, #false, location, Origin("constant membership"))
       | block:
-          def packed = kernel.concat(comparisons, #false, location)
-          def equal_zero = kernel.cast(
-            kernel.hw_eq(packed,
-                         kernel.literal(Bits(comparisons.length()), 0, #false, location),
-                         #false,
-                         location),
-            Bool,
-            #false,
-            location
+          def comparisons = alternatives.map(
+            fun (alternative):
+              kernel.hw_eq(packed_value,
+                           hardware_as_bits(alternative, #'is_one_of, ".is_one_of operand", #false, location),
+                           #false, location)
           )
-          kernel.bit_not(equal_zero, #false, location)
+          if comparisons.length() == 1
+          | kernel.cast(comparisons[0], Bool, #false, location)
+          | block:
+              def packed = kernel.concat(comparisons, #false, location)
+              def equal_zero = kernel.cast(
+                kernel.hw_eq(packed, kernel.literal(Bits(comparisons.length()), 0, #false, location), #false, location),
+                Bool, #false, location
+              )
+              kernel.bit_not(equal_zero, #false, location)
 
 meta:
   /* Attaches the receiver's static information to the generated function's result. */

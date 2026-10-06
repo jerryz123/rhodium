@@ -1,0 +1,36 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+
+hardware_enum MembershipState:
+  Idle = 0
+  Busy = 2
+  Done = 3
+
+sync_circuit RsimMembership():
+  input value: Bits(64)
+  input other: Bits(64)
+  input wide: Bits(65)
+  input enable: Bool
+  output result: Bits(10)
+  output sampled: Bits(10)
+  def small = value[0..5]
+  def state = value[0..2].into(MembershipState)
+  def predicates = vec(
+    value.is_one_of([bits(0, 64), bits(1, 64), bits(7, 64), bits(63, 64), bits(2 ** 63, 64), bits(2 ** 64 - 1, 64), bits(7, 64)]),
+    small.is_one_of(bits(0, 5), bits(3, 5), bits(5, 5), bits(13, 5), bits(31, 5), bits(31, 5)),
+    small.is_one_of(for List (index in 8..24): bits(index, 5)),
+    wide.is_one_of(bits(0, 65), bits(1, 65), bits(2 ** 64, 65), bits(2 ** 65 - 1, 65)),
+    value.is_one_of(other, bits(7, 64)),
+    value.is_one_of([]),
+    value.is_one_of(bits(3, 64), bits(3, 64), bits(3, 64)),
+    value[0].into(Bool).is_one_of(Bool(#true), Bool(#true)),
+    value.into(SInt(64)).is_one_of(sint(-1, 64), sint(-2 ** 63, 64), sint(7, 64)),
+    state.is_one_of(MembershipState.Idle, MembershipState.Done)
+  ).as_bits()
+  reg held(~init: bits(0, 10))
+  when enable: held <== predicates
+  result <== predicates
+  sampled <== held
+
+def program = elaborate_program(RsimMembership())
+export program

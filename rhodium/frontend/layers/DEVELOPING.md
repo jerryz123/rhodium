@@ -59,6 +59,15 @@ The shared machinery is intentionally centralized:
 | [`../support/clocking.rhm`](../support/clocking.rhm) | Ambient sync context, reset scopes, sync-child instantiation, and crossing evidence |
 | [`../support/finite-enum.rhm`](../support/finite-enum.rhm), [`../support/mask-type.rhm`](../support/mask-type.rhm), [`../support/one-hot-selection.rhm`](../support/one-hot-selection.rhm) | Narrow cross-layer protocols that avoid importing their owning feature layers |
 
+Receiver membership in [`../support/fields.rhm`](../support/fields.rhm) validates exact scalar types before
+choosing a representation. Multiple alternatives backed by constants (including
+representation casts) become deduplicated exact-key `rtl.decode` rows with a
+fully cared Boolean result and false default. Dynamic lists keep equality/OR
+semantics; empty lists and single alternatives retain their simple forms.
+Backends choose implementations from that existing relation; frontend code
+contains no target selection. `is-one-of-test.rhm` checks relation preservation,
+and the backend's authored membership scoreboard checks native and SV behavior.
+
 Dot providers must decline syntax they do not own so the shared resolution
 chain can continue. Preserve the documented precedence: receiver-owned methods,
 then universal built-ins, then a visible receiver-first function. Field

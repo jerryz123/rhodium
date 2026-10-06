@@ -10,12 +10,8 @@ import:
   "is-one-of-surfaces-fixture.rhdl" as surfaces
 
 def module_def = fixture.membership_design.modules[0]
-def equalities = module_def.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.eq"
-)
-def disjunctions = module_def.operations.filter(
-  ~keep: fun (operation): operation.opcode == "rtl.or"
-)
+fun output_operation(module_def :: Module, name :: String):
+  module_def.find_operation(module_def.find_output(name).place.driver.defining_op_id)
 def surface_module = surfaces.design.modules[0]
 def base_module = base_fixture.design.modules[0]
 def surface_outputs_boolean = for all (name in ["bool_member",
@@ -33,8 +29,11 @@ check:
   bool.bool_type(module_def.find_output("exact").type) ~is #true
   bool.bool_type(module_def.find_output("listed").type) ~is #true
   bool.bool_type(module_def.find_output("never").type) ~is #true
-  equalities.length() ~is 11
-  disjunctions.length() ~is 0
+  output_operation(module_def, "small").opcode ~is "rtl.decode"
+  output_operation(module_def, "small").attribute("cases") ~is [[1, 15, 1, 1], [2, 15, 1, 1], [3, 15, 1, 1]]
+  output_operation(module_def, "listed").attribute("cases") ~is [[4, 15, 1, 1], [5, 15, 1, 1]]
+  output_operation(module_def, "active").attribute("default_value") ~is 0
+  output_operation(module_def, "active").attribute("default_care") ~is 1
   verify_design(fixture.membership_design) ~is #void
   bool.bool_type(base_module.find_output("member").type) ~is #true
   verify_design(base_fixture.design) ~is #void
