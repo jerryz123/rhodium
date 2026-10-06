@@ -19,10 +19,11 @@ fun make_branches():
   def z = b.input(top, "b", Bits(17))
   def zero = b.constant(top, Bits(17), 0)
   def q = b.register(top, "q_state", Bits(17), clock, reset, zero)
-  // Only this multiplication belongs exclusively to the enabled capture.
+  // Two consumers share this multiplication inside the same capture branch.
   // The native test counts actual executions of this one emitted operator.
   def product = b.mul(top, a, z)
-  def selected = b.mux_lookup(top, select, q.current, [[1, b.add(top, product, q.current)], [2, b.bit_not(top, z)]])
+  def adjusted = b.add(top, product, b.shru(top, product, b.constant(top, Bits(17), 3)))
+  def selected = b.mux_lookup(top, select, q.current, [[1, b.add(top, adjusted, q.current)], [2, b.bit_not(top, z)]])
   b.drive(q.next, b.mux_lookup(top, enable, q.current, [[1, selected]]))
   b.drive(b.output(top, "q", Bits(17)), q.current)
   def shared = b.add(top, a, z)
@@ -62,7 +63,8 @@ fun make_conditionals():
   def check_enable = b.input(top, "check_enable", Bits(1))
   def expected = b.input(top, "expected", Bits(32))
   def index = b.input(top, "index", Bits(2))
-  def products = for List (name in ["comb_data", "default_data", "shared_data", "write_data", "call_data", "check_data", "read_index"]):
+  def raw_call = b.input(top, "raw_call", Bits(32))
+  def products = for List (name in ["comb_data", "default_data", "shared_data", "write_data", "call_data", "check_data", "read_index", "sibling_data"]):
     b.mul(top, b.input(top, name, Bits(32)), b.constant(top, Bits(32), 3))
   // Both arms compute; default must also be lazy. Multiple uses of the mux
   // result must not duplicate or eagerly evaluate its exclusive producers.
@@ -70,6 +72,10 @@ fun make_conditionals():
   b.drive(b.output(top, "combined", Bits(32)), b.add(top, selected, products[2]))
   b.drive(b.output(top, "inverted", Bits(32)), b.bit_not(top, selected))
   b.drive(b.output(top, "shared", Bits(32)), products[2])
+  // Sharing across alternative paths must not create a reference to a local
+  // declared only in the other branch. This producer remains unconditional.
+  def sibling = b.mux_lookup(top, select, b.add(top, products[7], b.constant(top, Bits(32), 1)), [[1, b.bit_not(top, products[7])]])
+  b.drive(b.output(top, "sibling", Bits(32)), sibling)
   // Pure register inputs need no hold branch to skip work during reset.
   def captured = b.register(top, "capture_state", Bits(32), clock, reset, b.constant(top, Bits(32), 17))
   b.drive(captured.next, b.bit_not(top, selected))
@@ -83,8 +89,11 @@ fun make_conditionals():
   b.drive(write.enable, write_enable)
   b.drive(write.data, products[3])
   b.drive(b.output(top, "read_data", Bits(32)), read.data)
-  def imp = b.dpi_import("rsim_conditional_call", ["arg"], [Bits(32)], "result", Bits(32))
-  def result = b.dpi_register(top, "held_call", imp, [products[4]], clock, call_enable)
+  def imp = b.dpi_import("rsim_conditional_call", ["arg", "again"], [Bits(32), Bits(32)], "result", Bits(32))
+  // A shared mux result is declared once in the call guard, and its private
+  // branch work remains lazy inside that declaration.
+  def call_arg = b.mux_lookup(top, select, products[4], [[1, raw_call]])
+  def result = b.dpi_register(top, "held_call", imp, [call_arg, call_arg], clock, call_enable)
   b.drive(b.output(top, "call_result", Bits(32)), result)
   b.assert(top, b.eq(top, products[5], expected), clock, reset, check_enable, "conditional_check")
   b.finish(top)

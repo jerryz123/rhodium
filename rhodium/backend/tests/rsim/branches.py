@@ -28,7 +28,8 @@ def stimuli():
                 x, y = a, b
             elif enable:
                 if select == 1:
-                    q = (a * b + old_q) & mask
+                    product = a * b & mask
+                    q = (product + (product >> 3) + old_q) & mask
                 elif select == 2:
                     q = (~b) & mask
                 peer = (~shared) & mask
@@ -70,7 +71,7 @@ def driver(native):
     if (dut.outputs().pq != old) return 5;
     auto copied = dut;
     copied.inputs.penable = 1; copied.tick();
-    if (copied.outputs().pq != ((111 * 333 + old) & 131071) || dut.outputs().pq != old) return 6;
+    if (copied.outputs().pq != ((111 * 333 + ((111 * 333) >> 3) + old) & 131071) || dut.outputs().pq != old) return 6;
   }
 ''' if native else ''
     return f'''// SPDX-License-Identifier: Apache-2.0
@@ -134,13 +135,13 @@ def conditional_stimuli():
     captured = call_result = 0
     read_result = (0, 0)
     # Initialize all words before probing synchronous old-state reads.
-    cases = [(1, 0, 0, 1, 0, 0, 0, index, *([index + 10] * 7)) for index in range(4)]
-    cases += [(tick, reset, select, we, re, ce, ae, 0, *([0xffffffff] * 7))
+    cases = [(1, 0, 0, 1, 0, 0, 0, index, *([index + 10] * 8)) for index in range(4)]
+    cases += [(tick, reset, select, we, re, ce, ae, 0, *([0xffffffff] * 8))
               for tick in (0, 1) for reset in (0, 1) for select in range(4)
               for we, re, ce, ae in ((0, 0, 0, 0), (1, 1, 1, 1), (1, 0, 1, 0), (0, 1, 0, 1))]
     cases += [(rng.randrange(2), int(rng.randrange(9) == 0), rng.randrange(4),
                *(rng.randrange(2) for _ in range(4)), rng.randrange(4),
-               *(rng.getrandbits(32) for _ in range(7))) for _ in range(400)]
+               *(rng.getrandbits(32) for _ in range(8))) for _ in range(400)]
     for row in cases:
         tick, reset, select, we, re, ce, ae, index, *raw = row
         values = [(v * 3) & mask for v in raw]
@@ -148,22 +149,23 @@ def conditional_stimuli():
         if tick:
             captured = 17 if reset else (~selected & mask)
             if ce:
-                call_result = (values[4] + 5) & mask
+                argument = raw[4] if select == 1 else values[4]
+                call_result = (2 * argument + 5) & mask
             read_result = memory[values[6] & 3] if re else None
             if read_result is None:
                 read_result = (0, 0)
             if we:
                 memory[index] = values[3]
-        rows.append([*row, values[5]])
+        rows.append([*row, raw[4], values[5]])
         expected.append([(selected + values[2]) & mask, ~selected & mask, values[2],
-                         captured, read_result, call_result])
+                         captured, read_result, call_result, ~values[7] & mask if select == 1 else (values[7] + 1) & mask])
     return '\n'.join(' '.join(f'{v:x}' for v in row) for row in rows) + '\n', expected
 
 
 CONDITIONAL_INPUTS = ['reset', 'select', 'write_enable', 'read_enable', 'call_enable', 'check_enable',
                       'index', 'comb_data', 'default_data', 'shared_data', 'write_data',
-                      'call_data', 'check_data', 'read_index', 'expected']
-CONDITIONAL_PROBES = ['comb_data', 'default_data', 'shared_data', 'write_data', 'call_data', 'check_data', 'read_index']
+                      'call_data', 'check_data', 'read_index', 'sibling_data', 'raw_call', 'expected']
+CONDITIONAL_PROBES = ['comb_data', 'default_data', 'shared_data', 'write_data', 'call_data', 'check_data', 'read_index', 'sibling_data']
 
 
 def conditional_driver(native):
@@ -172,13 +174,13 @@ def conditional_driver(native):
     def out(name):
         return 'dut.outputs().p' + name.replace('_', '_u') if native else 'dut.' + name
     assignments = ' '.join(f'{inp(name)} = {name};' for name in CONDITIONAL_INPUTS)
-    outputs = ['combined', 'inverted', 'shared', 'captured', 'read_data', 'call_result']
+    outputs = ['combined', 'inverted', 'shared', 'captured', 'read_data', 'call_result', 'sibling']
     observes = " << ' ' << ".join(out(name) for name in outputs)
     checks = '''
     const unsigned evals = 2 + 2 * unsigned(tick);
-    const std::array<unsigned, 7> expected_counts = {evals * (select == 1), evals * (select != 1 && select != 2), evals,
-      unsigned(tick && write_enable), unsigned(tick && call_enable), unsigned(tick && check_enable && !reset),
-      unsigned(tick && read_enable)};
+    const std::array<unsigned, 8> expected_counts = {evals * (select == 1), evals * (select != 1 && select != 2), evals,
+      unsigned(tick && write_enable), unsigned(tick && call_enable && select != 1), unsigned(tick && check_enable && !reset),
+      unsigned(tick && read_enable), evals};
     if (rsim_conditional_evaluations != expected_counts) throw std::logic_error("conditional execution count");
     if (foreign_calls - calls_before != unsigned(tick && call_enable)) throw std::logic_error("DPI enable");
 ''' if native else ''
@@ -201,9 +203,9 @@ def conditional_driver(native):
 #include <iostream>
 #include <stdexcept>
 #include <cstdint>
-{'std::array<unsigned, 7> rsim_conditional_evaluations{};' if native else ''}
+{'std::array<unsigned, 8> rsim_conditional_evaluations{};' if native else ''}
 static unsigned foreign_calls = 0;
-extern "C" unsigned rsim_conditional_call(unsigned value) {{ ++foreign_calls; return value + 5; }}
+extern "C" unsigned rsim_conditional_call(unsigned value, unsigned again) {{ ++foreign_calls; return value + again + 5; }}
 int main() {{
   {'rsim_pRsimConditionals::Model' if native else 'VRsimConditionals'} dut;
   std::uint64_t tick, {', '.join(CONDITIONAL_INPUTS)};
@@ -238,7 +240,7 @@ def run_conditional_suite(work, run, compare, differential):
         if count == 0:
             raise AssertionError(f'no computation probe for {name}')
     source = work / 'conditionals-instrumented.cpp'
-    source.write_text('#include <array>\nextern std::array<unsigned, 7> rsim_conditional_evaluations;\n' + original)
+    source.write_text('#include <array>\nextern std::array<unsigned, 8> rsim_conditional_evaluations;\n' + original)
     main = work / 'conditionals-main.cpp'
     main.write_text(conditional_driver(True))
     run(shlex.split(os.environ.get('CXX', 'c++')) +

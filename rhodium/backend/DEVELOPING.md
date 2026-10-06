@@ -197,13 +197,19 @@ When adding a storage-reading step or a pre-edge consumer, update the planner's
 dependency inventory together with its renderer and dependency tests.
 
 After evaluation planning, `plan_conditionals` applies one ownership rule to
-both pre-edge and output bodies. A lookup mux owns its single-use pure branch
-producers; its result remains available to every consumer. Explicit register
-reset, memory-port, foreign-call, and assertion guards can also own exclusive
-data operands. Uses are counted independently in each body. Shared values,
-selectors, constants, input/storage roots, and existing fused array assignments
-retain their ordinary scheduling. This is conditional evaluation within one
-invocation, with no cached results or activity comparison across cycles.
+both pre-edge and output bodies. A lookup mux owns pure producers whose uses
+all belong to one branch path; its result remains available to every consumer.
+Explicit register reset, memory-port, foreign-call, and assertion guards can also
+own exclusive
+data operands. Uses are counted independently in each body, including repeated
+operands and arguments. Admission waits until every use edge requests the same
+lexical path from already admitted consumers. This allows shared computations
+within a branch; the renderer declares each producer once. Different mux arms
+have distinct paths, and sharing across paths or consumers outside the owner
+stays unconditional. Selectors, constants, input/storage roots, and existing
+fused array assignments retain their ordinary scheduling. This is conditional
+evaluation within one invocation, with no cached results or activity comparison
+across cycles.
 
 Moved work is bounded per owner by the same step-cost estimate as regions
 (default 4096), and at most 128 producers. A subtree beyond either limit stays
@@ -822,8 +828,10 @@ oracles and direct SV. Native-only execution counters verify skipped arithmetic
 under output muxes, register capture/reset, memory read/write enables, DPI
 enables, and assertion guards. Nested selections, aggregate captures, shared
 producers and mux results, datapath-derived enables, resetless state, model
-copying, and failed-edge retries retain their behavior. The ordinary and
-forced-region native runners both include these fixtures.
+copying, and failed-edge retries retain their behavior. Repeated arithmetic uses
+and DPI arguments check that shared branch producers execute once; a producer
+used in alternative mux arms checks that sharing cannot escape branch scope.
+The ordinary and forced-region native runners both include these fixtures.
 
 `tests/rsim-evaluation-test.rhm` checks planned consumers, value availability,
 storage dependencies, shared output computation, and occurrence identity with

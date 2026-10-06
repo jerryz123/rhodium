@@ -27,9 +27,9 @@ fun guarded_roots(sink :: RsimSink, schedule :: RsimSchedule) :: List.of(Nat):
   | ~else: []
 
 /* Plan one invocation independently: a value used by another phase need not
-   stay eager here. Shared producers within this body remain unconditional.
-   Each original value has one owner; processing outer muxes first prevents
-   nested conditional plans from claiming the same producers. */
+   stay eager here. A shared producer moves only when every use requests the
+   same lexical path. Each original value has one owner; processing outer muxes
+   first prevents nested conditional plans from claiming the same producers. */
 fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
                      body :: RsimEvaluation, budget :: PosInt) :: RsimEvaluation:
   def available = for Set (value in body.steps): value
@@ -41,28 +41,38 @@ fun conditional_body(schedule :: RsimSchedule, evaluation :: RsimEvaluationPlan,
     for (value in sink.dependencies.values): uses[value] := uses.get(value, 0) + 1
   def removed = MutableSet{}
   /* Scheduled rtl.* values are pure; storage roots and effects have separate
-     schedule descriptors. Grow a bounded tree without traversing those roots, constants,
-     selectors, or shared values. A retained mux may have multiple consumers:
-     its result remains scheduled once, while its exclusive arms become private.
-     Unabsorbed subtrees preserve ordinary splitting and normalization. */
+     descriptors. Admit a producer only when all its use edges arrive from one
+     branch path. This closes bounded dependency graphs without duplicating work
+     or inferring equivalence between separately authored guards. */
   fun plan(roots :: List.of(Nat), dependencies :: RsimDependencies,
            retained :: maybe(Nat) = #false) :: maybe(RsimConditional):
     def absorbed = MutableSet{}
+    def requests = MutableMap{}
     def mutable cost = 0
-    /* Single-use edges make recursion a tree and keep declarations scoped to
-       their only consumer. The node cap also bounds host/emitter recursion. */
-    fun absorb(value :: Nat):
+    def mutable next_path = 0
+    /* Count operand occurrences, including repeated operands/arguments. A mux
+       arm starts a distinct lexical path; selectors are never requested here.
+       Rejected nodes remain ordinary scheduled dependencies. Descendants are
+       requested only after admission, so budgets cannot strand private values. */
+    fun request(value :: Nat, path :: Nat):
       def step = schedule.steps[value]
-      when value in available && !(value in removed)
-            && (value == retained || uses[value] == 1) && step.opcode.starts_with("rtl.")
-            && !evaluation.constants.has_key(value) && absorbed.length() < 128
-      | def amount = step_cost(value, schedule, evaluation.constants)
-        when cost + amount <= budget
-        | absorbed.add(value)
-          cost := cost + amount
-          def operands = if step.opcode == "rtl.mux_lookup" | step.operands.drop(1) | step.operands
-          for (operand in operands): absorb(operand)
-    for (value in roots): absorb(value)
+      when value in available && !(value in removed) && !(value in absorbed)
+            && step.opcode.starts_with("rtl.") && !evaluation.constants.has_key(value)
+      | def previous = requests.get(value, [path, 0])
+        def scope = if previous[0] == path | path | #false
+        def count = previous[1] + 1
+        requests[value] := [scope, count]
+        when scope != #false && (value == retained || count == uses[value]) && absorbed.length() < 128
+        | def amount = step_cost(value, schedule, evaluation.constants)
+          when cost + amount <= budget
+          | absorbed.add(value)
+            cost := cost + amount
+            if step.opcode == "rtl.mux_lookup"
+            | for (operand in step.operands.drop(1)):
+                next_path := next_path + 1
+                request(operand, next_path)
+            | for (operand in step.operands): request(operand, path)
+    for (value in roots): request(value, 0)
     if absorbed.length() <= (if retained == #false | 0 | 1)
     | #false
     | def leaves = MutableSet{}

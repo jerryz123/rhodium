@@ -201,36 +201,38 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
       | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
       | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
-/* Materialize an exclusive producer at its sole use, retaining ordinary type
-   normalization. Nested selections assign a local on every selected path;
-   shared operands and selectors already have unconditional schedule bindings. */
+/* Emit each private producer once within its planned lexical branch path.
+   The planner admits sharing only within that path, so later uses see the first
+   declaration. Nested selections assign complete locals; external values and
+   selectors retain their unconditional bindings. */
 fun emit_branch_producer(value :: Nat, absorbed :: Set, steps :~ List.of(RsimStep), types :: CppTypes,
-                         constants :: Map, source :: MutableList, indent :: String):
-  when value in absorbed
+                         constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
+  when value in absorbed && !(value in emitted)
   | def step = steps[value]
     if step.opcode == "rtl.mux_lookup"
     | source.add(indent ++ types.name(step.type) ++ " " ++ ref(value) ++ ";")
-      emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent)
-    | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent)
+      emit_branch_assignment(value, absorbed, ref(value), steps, types, constants, source, indent, emitted)
+    | for (operand in step.operands): emit_branch_producer(operand, absorbed, steps, types, constants, source, indent, emitted)
       source.add(indent ++ step_declaration(value, steps, types, constants).trim())
+    emitted.add(value)
 
 /* Evaluate only the selected pure cone, assigning the complete destination on
    every path, including holds. Lookup order and the default match expression
    emission; current state remains immutable throughout all conditional work. */
 fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, steps :~ List.of(RsimStep),
-                           types :: CppTypes, constants :: Map, source :: MutableList, indent :: String):
+                           types :: CppTypes, constants :: Map, source :: MutableList, indent :: String, emitted :: MutableSet):
   def step = steps[value]
   if value in absorbed && step.opcode == "rtl.mux_lookup"
   | def selector = step.operands[0]
     for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
       source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
-      emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ")
+      emit_branch_assignment(step.operands[branch + 2], absorbed, target, steps, types, constants, source, indent ++ "  ", emitted)
       source.add(indent ++ "}")
     when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
     emit_branch_assignment(step.operands[1], absorbed, target, steps, types, constants, source,
-                           indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""))
+                           indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""), emitted)
     when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
-  | emit_branch_producer(value, absorbed, steps, types, constants, source, indent)
+  | emit_branch_producer(value, absorbed, steps, types, constants, source, indent, emitted)
     source.add(indent ++ target ++ " = " ++ ref(value) ++ ";")
 
 /* Materialize a scheduled conditional result in owned local or scratch storage.
@@ -239,7 +241,7 @@ fun emit_branch_assignment(value :: Nat, absorbed :: Set, target :: String, step
 fun emit_conditional_step(value :: Nat, conditional :: RsimConditional, destination :: maybe(String),
                           plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
   unless destination | source.add("  [[maybe_unused]] " ++ types.name(plan.steps[value].type) ++ " " ++ ref(value) ++ ";")
-  emit_branch_assignment(value, conditional.steps, destination || ref(value), plan.steps, types, constants, source, "  ")
+  emit_branch_assignment(value, conditional.steps, destination || ref(value), plan.steps, types, constants, source, "  ", MutableSet{})
   when destination | source.add("  [[maybe_unused]] const auto& " ++ ref(value) ++ " = " ++ destination ++ ";")
 
 /* Render one planned final consumer without executing effects or publishing
@@ -247,6 +249,7 @@ fun emit_conditional_step(value :: Nat, conditional :: RsimConditional, destinat
    renderer owns C++ expressions and the frame/output representation. */
 fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constants :: Map, source :: MutableList):
   def index = sink.index
+  def emitted = MutableSet{}
   match sink.kind
   | "foreign":
       def call = plan.foreign_calls[index]
@@ -256,7 +259,7 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       | for (arg in 0..call.arguments.length()): source.add("  frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = {};")
         source.add("  if (frame.call" ++ slot ++ "_enable) {")
         for (argument in call.arguments, arg in 0..call.arguments.length()):
-          emit_branch_producer(argument, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+          emit_branch_producer(argument, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
           source.add("    frame.call" ++ slot ++ "_arg" ++ to_string(arg) ++ " = " ++ ref(argument) ++ ";")
         source.add("  }")
       | for (argument in call.arguments, arg in 0..call.arguments.length()):
@@ -270,7 +273,7 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       def active = ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0"
       if sink.conditional
       | source.add("  frame.assertion" ++ to_string(index) ++ "_failed = false;\n  if (" ++ active ++ ") {")
-        emit_branch_producer(assertion.condition, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+        emit_branch_producer(assertion.condition, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
         source.add("    frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.condition) ++ " == 0;\n  }")
       | source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ active ++ " && " ++ ref(assertion.condition) ++ " == 0;")
   | "register":
@@ -281,7 +284,7 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
           when reg.reset != #false
           | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
           emit_branch_assignment(reg.next_value, sink.conditional.steps, target, plan.steps, types, constants, source,
-                                 if reg.reset != #false | "    " | "  ")
+                                 if reg.reset != #false | "    " | "  ", emitted)
           when reg.reset != #false | source.add("  }")
       | sink.array:
           when reg.reset != #false
@@ -299,7 +302,7 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       def value = "vector_index(memory" ++ to_string(read.memory) ++ "_, " ++ ref(read.address) ++ ")"
       if sink.conditional
       | source.add("  if (" ++ enabled ++ ") {")
-        emit_branch_producer(read.address, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+        emit_branch_producer(read.address, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
         source.add("    next.r" ++ to_string(index) ++ " = " ++ value ++ ";\n  } else {\n    next.r" ++ to_string(index) ++ " = {};\n  }")
       | source.add("  next.r" ++ to_string(index) ++ " = (" ++ enabled ++ ") ? " ++ value ++ " : " ++ types.name(plan.memories[read.memory].type) ++ "{};")
   | "write":
@@ -310,7 +313,7 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, constan
       | sink.conditional:
           source.add("  " ++ prefix ++ "_enable = " ++ enabled ++ ";\n  " ++ prefix ++ "_address = 0;\n  " ++ prefix ++ "_data = {};\n  if (" ++ prefix ++ "_enable) {")
           for (value in [write.address, write.data] ++ (if write.mask_value == #false | [] | [write.mask_value])):
-            emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ")
+            emit_branch_producer(value, sink.conditional.steps, plan.steps, types, constants, source, "    ", emitted)
           source.add("    " ++ prefix ++ "_address = " ++ ref(write.address) ++ ";")
           if write.mask_value
           | def old = "write" ++ to_string(index) ++ "_old"
