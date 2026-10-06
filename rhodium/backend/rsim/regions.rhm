@@ -36,7 +36,8 @@ fun step_cost(index :: Nat, schedule :: RsimSchedule, constants :: Map) :: PosIn
   if constants.has_key(index)
   | 1
   | def step = schedule.steps[index]
-    def result = type_cost(step.type)
+    // Aggregate decode selects one immutable row; it does not copy every leaf.
+    def result = if step.opcode == "rtl.decode" && (record_type(step.type) || vector_type(step.type)) | 1 | type_cost(step.type)
     def mutable cost = 1 + result
     unless step.opcode in ["memory_read", "rtl.record_get", "rtl.vector_get", "rtl.vector_index"]
     | for (operand in step.operands): cost := cost + type_cost(schedule.steps[operand].type)

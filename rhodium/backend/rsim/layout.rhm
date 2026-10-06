@@ -9,7 +9,7 @@ import:
 
 export:
   StateStorage ConstantStorage ScratchSlot StorageRef ScratchGroup BoundaryStorage
-  aggregate_state_read aggregate_projection backed_reference scratch_slot boundary_layout
+  aggregate_state_read aggregate_projection aggregate_decode backed_reference scratch_slot boundary_layout
 
 /* Identify a register, synchronous-read result, or foreign result on the current
    model. Only foreign results use the secondary result index. */
@@ -47,6 +47,11 @@ fun aggregate_state_read(step :: RsimStep) :: Boolean:
 fun aggregate_projection(step :: RsimStep) :: Boolean:
   step.opcode in ["rtl.record_get", "rtl.vector_get"] && (record_type(step.type) || vector_type(step.type))
 
+/* Aggregate decode arms and the default are pooled immutable rows, so selecting
+   any arm yields an lvalue that outlives every evaluation and model instance. */
+fun aggregate_decode(step :: RsimStep) :: Boolean:
+  step.opcode == "rtl.decode" && (record_type(step.type) || vector_type(step.type))
+
 /* Resolve evaluation-long backing through static subobjects only. The immutable
    steps list was checked by RsimSchedule; :~ avoids rescanning it on each walk.
    Constants take precedence so consumers need no local ancestor aliases. A
@@ -76,7 +81,7 @@ fun scratch_slot(binding :: maybe(StorageRef)) :: maybe(ScratchSlot):
 
 /* Allocate crossing values in deterministic region/value order, sharing groups
    only by physical carrier and indirection. Borrow mux branches only when they
-   already have stable backing; never promote locals or recycle slots. State and
+   already have stable backing; decode rows always do. Never recycle slots. State and
    backed projections keep their original roots without extra payload/pointers. */
 fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types :: CppTypes, constants :: Map) :: BoundaryStorage:
   def bindings = MutableMap{}
@@ -89,9 +94,10 @@ fun boundary_layout(regions :: List.of(RsimRegion), plan :: RsimSchedule, types 
       def direct = backed_reference(index, plan.steps, constants, bindings)
       if direct
       | bindings[index] := direct
-      | def borrow:
+      | def borrow_mux:
           step.opcode == "rtl.mux_lookup" && (record_type(step.type) || vector_type(step.type))
             && (for all (operand in step.operands.drop(1)): constants.has_key(operand) || bindings.has_key(operand))
+        def borrow = aggregate_decode(step) || borrow_mux
         def carrier = [types.name(step.type), borrow]
         unless groups.has_key(carrier)
         | groups[carrier] := carriers.length()

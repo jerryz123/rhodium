@@ -74,9 +74,15 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       String.join(cases, "") ++ types.name(step.type) ++ "{}"
   | step.opcode == "rtl.decode":
       def input_type = steps[step.operands[0]].type
+      /* All aggregate arms, including the default, must be same-type lvalues
+         so the conditional selects a row without constructing a temporary. */
+      fun row_value(value :: Nat) :: String:
+        if aggregate_decode(step)
+        | types.constant_reference(step.type, value)
+        | types.constant(step.type, value)
       def cases = for List (row in step.attributes["cases"]):
-        types.cube_match(input_type, args[0], row[0], row[1]) ++ " ? " ++ types.constant(step.type, row[2] bits.and row[3]) ++ " : "
-      String.join(cases, "") ++ types.constant(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])
+        types.cube_match(input_type, args[0], row[0], row[1]) ++ " ? " ++ row_value(row[2] bits.and row[3]) ++ " : "
+      String.join(cases, "") ++ row_value(step.attributes["default_value"] bits.and step.attributes["default_care"])
   | step.opcode == "rtl.not": "~" ++ args[0]
   | step.opcode == "rtl.cast":
       def source_type = steps[step.operands[0]].type
@@ -134,24 +140,17 @@ fun expression(step :: RsimStep, steps :~ List.of(RsimStep), types :: CppTypes) 
       String.join(cases, "") ++ args[1]
   | ~else: error(~who: #'rsim, "missing expression renderer for " ++ step.opcode)
 
-/* Emit planned constant values as canonical immutable objects in the model
-   namespace. Return step-to-symbol bindings independent of evaluator locals,
-   so any dependency-closed subset can refer to the same constant storage. */
-fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: CppTypes, source :: MutableList) :: Map:
-  def storage = MutableMap{}
+/* Collect planned constants and aggregate decode rows into one immutable pool.
+   Only unconditional constant steps receive step-to-symbol bindings: a decode
+   must still select its row on every evaluation. */
+fun emit_constants(steps :~ List.of(RsimStep), constant_values :: Map, types :: CppTypes) :: Map:
   def bindings = MutableMap{}
   for (step in steps, index in 0..steps.length()):
     when constant_values.has_key(index)
-    | def constant = constant_values[index]
-      def rendered = types.constant(step.type, constant)
-      def key = [types.name(step.type), rendered]
-      unless storage.has_key(key)
-      | def name = "constant" ++ to_string(storage.length())
-        storage[key] := name
-        // Internal linkage and constant initialization share immutable tables
-        // across evaluator bodies and model instances without runtime guards.
-        source.add("[[maybe_unused]] static constexpr " ++ types.name(step.type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
-      bindings[index] := storage[key]
+    | bindings[index] := types.constant_reference(step.type, constant_values[index])
+    when aggregate_decode(step)
+    | for (row in step.attributes["cases"]): types.constant_reference(step.type, row[2] bits.and row[3])
+      types.constant_reference(step.type, step.attributes["default_value"] bits.and step.attributes["default_care"])
   bindings.snapshot()
 
 /* Spell a physical slot without dereferencing it, for pointer assignment or
@@ -197,7 +196,7 @@ fun step_declaration(index :: Nat, steps :~ List.of(RsimStep), types :: CppTypes
         | types.normalize(step.type, rendered)
         | rendered
       cond
-      | aggregate_state_read(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
+      | aggregate_state_read(step) || aggregate_decode(step) || (aggregate_projection(step) && !destination): "  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ value ++ ";"
       | destination: "  " ++ destination ++ " = " ++ value ++ ";\n  [[maybe_unused]] const auto& " ++ ref(index) ++ " = " ++ destination ++ ";"
       | ~else: "  [[maybe_unused]] const " ++ types.name(step.type) ++ " " ++ ref(index) ++ " = " ++ value ++ ";"
 
@@ -357,8 +356,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
       types.name(type)
   // Resolve shared constant symbols before layout so projected bindings can
   // name them even in consumers whose original operands were only projections.
-  def constant_source = MutableList[]
-  def constants = emit_constants(plan.steps, evaluation.constants, types, constant_source)
+  def constants = emit_constants(plan.steps, evaluation.constants, types)
   def pre_layout = boundary_layout(pre_regions, plan, types, constants)
   def output_layout = boundary_layout(output_regions, plan, types, constants)
   def header = MutableList["// Declares the typed simulator for " ++ plan.name ++ ".",
@@ -440,7 +438,7 @@ fun emit_rsim(plan :: RsimSchedule, ~region_budget: region_budget :: PosInt = 40
     | source.add("static inline std::uint64_t " ++ entry[1] ++ "(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  return amount >= width ? UINT64_C(0) : value " ++ entry[2] ++ " amount;\n}")
   when "rtl.shrs" in narrow_shifts
   | source.add("static inline std::uint64_t shift_signed(std::uint64_t value, std::uint64_t amount, unsigned width) {\n  const bool negative = (value >> (width - 1)) != 0;\n  if (amount >= width) return negative ? ~UINT64_C(0) : UINT64_C(0);\n  if (amount == 0) return value;\n  return (value >> amount) | (negative ? (~UINT64_C(0) << (width - amount)) : UINT64_C(0));\n}")
-  for (line in constant_source): source.add(line)
+  for (line in types.constant_declarations): source.add(line)
   when pre_regions.length() > 1 || output_regions.length() > 1
   | // Preserve the compilation boundary even under optimization/LTO. Applying
     // this only to region helpers leaves expression/runtime helpers optimizable.

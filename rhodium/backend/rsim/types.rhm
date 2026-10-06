@@ -37,10 +37,22 @@ fun shape(type :: HardwareType) :: String:
   | vector_type(type): "array[" ++ to_string(type.length) ++ "]" ++ shape(type.element_type)
   | ~else: "scalar" ++ to_string(scalar_carrier_width(type))
 
-/* Own one artifact's dependency-ordered record declarations. Struct names are
-   private representation details; authored field names use the port encoding. */
+/* Own one artifact's record declarations and immutable constant pool. Struct
+   names are private; authored field names use the port encoding. */
 class CppTypes(names :: MutableMap = MutableMap{}, declarations :: MutableList = MutableList[],
+               constant_names :: MutableMap = MutableMap{}, constant_declarations :: MutableList = MutableList[],
                mutable wide :: Boolean = #false):
+  /* Intern canonical typed constants by physical representation. Collect all
+     references before emitting the pool; every object has static lifetime. */
+  method constant_reference(type :: HardwareType, value :: Nat) :: String:
+    def rendered = this.constant(type, value)
+    def key = [this.name(type), rendered]
+    unless constant_names.has_key(key)
+    | def name = "constant" ++ to_string(constant_names.length())
+      constant_names[key] := name
+      constant_declarations.add("[[maybe_unused]] static constexpr " ++ this.name(type) ++ " " ++ name ++ " = " ++ rendered ++ ";")
+    constant_names[key]
+
   /* Intern records after their children and render vectors with logical index order. */
   method name(type :: HardwareType) :: String:
     cond

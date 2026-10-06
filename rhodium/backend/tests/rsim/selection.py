@@ -6,10 +6,10 @@ import shlex
 
 WIDTHS = (1, 5, 63, 64)
 INPUTS = ('reset', 'a', 'b', 'c', 'd', 'tag', 'code', 'sel1', 'sel3', 'sel64', 'guard')
-NAMES = ('one', 'partial', 'free', 'forced', 'known', 'decoded', 'reordered', 'picked',
-         'widepick', 'guarded', 'wide_decode', 'empty', 'catchall', 'sample_decoded',
+NAMES = ('one', 'partial', 'free', 'forced', 'known', 'decoded', 'reordered', 'decoded_mux', 'decoded_leaf', 'decoded_vector', 'picked',
+         'widepick', 'guarded', 'wide_decode', 'empty', 'empty_packet', 'catchall', 'sample_decoded',
          'sample_picked', 'sample_wide_decode', 'sample_partial')
-AGGREGATES = {'decoded', 'reordered', 'picked', 'widepick', 'guarded', 'catchall',
+AGGREGATES = {'decoded', 'reordered', 'decoded_mux', 'decoded_vector', 'picked', 'widepick', 'guarded', 'empty_packet', 'catchall',
               'sample_decoded', 'sample_picked'}
 MASK64 = (1 << 64) - 1
 
@@ -53,6 +53,10 @@ def combinational(width, raw):
             (1, 3, (1 << (width+2))+5, packet_full),
             (2, 7, packet_full ^ (1 << (width+3)), low | (1 << (bits-1)))]
     decoded = decode(code, rows, ((1 << (bits-1))+9, packet_full ^ (1 << (bits-2))))
+    decoded_mux = decode(tag, rows, ((1 << (bits-1))+9, packet_full ^ (1 << (bits-2)))) if raw['guard'] & 1 else decoded
+    decoded_leaf = tuple((value >> (width+6)) & full for value in decoded_mux)
+    vector_mask = (1 << (2*(width+3))) - 1
+    decoded_vector = (decoded[0] & vector_mask, (decoded[1] & vector_mask) | (31 << (2*(width+3))))
     tag_bit = 1 << (2*(width+3))
     input_care = tag_bit | (1 << (2*width+5)) | 8
     wide = decode(packets[0], [(0, input_care, full, full),
@@ -65,9 +69,11 @@ def combinational(width, raw):
     return dict(one=(a, full) if raw['sel1'] & 1 else unknown,
                 partial=(a, full) if sel3 == 1 else ((b, full) if sel3 == 4 else unknown),
                 free=unknown, forced=(full, full), known=(a, full), decoded=decoded,
-                reordered=decoded, picked=picked, widepick=widepick,
+                reordered=decoded, decoded_mux=decoded_mux, decoded_leaf=decoded_leaf, decoded_vector=decoded_vector,
+                picked=picked, widepick=widepick,
                 guarded=widepick if raw['guard'] & 1 else (packets[2], packet_full),
-                wide_decode=wide, empty=(full, full-1), catchall=(17, packet_full))
+                wide_decode=wide, empty=(full, full-1),
+                empty_packet=((1 << (bits-1))+9, packet_full ^ (1 << (bits-2))), catchall=(17, packet_full))
 
 
 def stimuli():

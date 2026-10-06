@@ -197,6 +197,15 @@ without copying its aggregate. Helper-local branches retain materialized results
 do not promote extra values merely to enable borrowing. Scalar results keep their
 ordinary normalization and materialization. Boundary slots are never recycled
 within an evaluation, so later consumers can safely follow borrowed chains.
+Aggregate decode rows and their default share the immutable constant pool,
+with uncared bits still deterministically zero. Each decode selects a const
+reference locally or a const-pointer slot across regions; nested projections
+borrow the selected row through the ordinary backing map. Every arm has the
+same physical type and static lifetime, including empty-table defaults.
+Row selection runs anew in each evaluation; this is not a cache or conditional
+dependency scheduling. State/output consumers still copy values, and scalar
+decodes retain their existing expression form. Region costs charge selection
+instead of constructing each row's aggregate leaves.
 Nonconstant vector constructors with boundary slots write each normalized operand
 directly into its indexed element before binding the result alias. The destination
 is unique and cannot alias any earlier operand, including a borrowed mux result;

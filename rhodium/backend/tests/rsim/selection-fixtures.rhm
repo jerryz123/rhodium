@@ -45,6 +45,15 @@ fun make_selection(width :: PosInt):
   def default_care = full bits.xor (2 ** (packet_width - 2))
   def decoded = b.decode(top, code, Bits(5), packet_type, cases, default_value, default_care)
   def reordered = b.decode(top, code, Bits(5), packet_type, cases.reverse(), default_value, default_care)
+  // Share one decoded row between whole-value and nested-field consumers. A
+  // second selector forces borrowed mux branches to select independent rows.
+  def other_decoded = b.decode(top, tag, Bits(5), packet_type, cases, default_value, default_care)
+  def decoded_mux = b.mux_lookup(top, guard, decoded, [[1, other_decoded]])
+  def decoded_leaf = b.record_get(top, b.vector_get(top, b.record_get(top, decoded_mux, "data"), 1), "lo")
+  def vector_mask = 2 ** vector.packed_width() - 1
+  def vector_cases = for List (row in cases): [row[0], row[1], row[2] bits.and vector_mask, row[3] bits.and vector_mask]
+  def decoded_vector = b.decode(top, code, Bits(5), vector, vector_cases, default_value bits.and vector_mask, default_care bits.and vector_mask)
+  def vector_packet = b.record_create(top, packet_type, [["tag", b.constant(top, Bits(5), 0)], ["data", decoded_vector]])
   // These cared bits straddle the high tag, second vector element, and first
   // element. For width 64, comparison must span multiple C++ scalar carriers.
   def tag_bit = 2 ** (2 * (width + 3))
@@ -60,9 +69,10 @@ fun make_selection(width :: PosInt):
   def outputs = [["one", b.onehot_mux(top, sel1, [a])], ["partial", partial], ["free", free],
                  ["forced", b.bit_or(top, free, b.constant(top, Bits(width), scalar_mask))],
                  ["known", b.bit_or(top, b.bit_and(top, free, zero), a)],
-                 ["decoded", decoded], ["reordered", reordered], ["picked", picked], ["widepick", widepick],
+                 ["decoded", decoded], ["reordered", reordered], ["decoded_mux", decoded_mux], ["decoded_leaf", decoded_leaf], ["decoded_vector", vector_packet], ["picked", picked], ["widepick", widepick],
                  ["guarded", b.mux_lookup(top, guard, packets[2], [[1, widepick]])], ["wide_decode", wide_decode],
                  ["empty", b.decode(top, code, Bits(5), Bits(width), [], scalar_mask, scalar_mask - 1)],
+                 ["empty_packet", b.decode(top, code, Bits(5), packet_type, [], default_value, default_care)],
                  ["catchall", b.decode(top, packets[0], packet_type, packet_type, [[0, 0, 17, full]], 0, 0)]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])
   for (entry in [["decoded", decoded], ["picked", picked], ["wide_decode", wide_decode], ["partial", partial]]):

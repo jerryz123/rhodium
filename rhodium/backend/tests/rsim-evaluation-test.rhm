@@ -423,7 +423,7 @@ check:
 
 // Casts retain a whole computed parent, unlike constructor projection forwarding.
 // Exercise nested aggregate fields/indices with wide leaves, shared constants,
-// current state, crossing scratch parents, and a helper-local fallback.
+// current state, decoded rows, crossing scratch parents, and a local fallback.
 fun projection_program(mode :: String):
   def d = Design()
   def builder = Builder(d)
@@ -438,13 +438,15 @@ fun projection_program(mode :: String):
     | def reg = builder.register(module, "q", type, clock)
       builder.drive(reg.next, converted)
       reg.current
-    | converted
+    | if mode == "decode"
+      | builder.decode(module, packed, Bits(140), type, [[0, 1, 2 ** 139 + 37, 2 ** 140 - 1]], 19, 2 ** 140 - 1)
+      | converted
   def entries = builder.record_get(module, parent, "entries")
   builder.drive(builder.output(module, "result", element), builder.vector_get(module, entries, 1))
   builder.finish(module)
   ElaboratedProgram(d, module)
 
-for (mode in ["constant", "state", "input"]):
+for (mode in ["constant", "state", "input", "decode"]):
   def planned = build_schedule(prepare_rtl(projection_program(mode), CompileOptions(), "projection lifetime").rtl)
   def evaluated = build_evaluation_plan(planned)
   def result = planned.outputs[0].value
@@ -467,6 +469,13 @@ for (mode in ["constant", "state", "input"]):
       check: emitted[1].contains("((constant") && emitted[1].contains(").pentries)[1]") ~is #true
   | mode == "state":
       check: emitted[1].contains("((current.s0).pentries)[1]") ~is #true
+  | mode == "decode":
+      def parent = planned.steps.index(planned.steps.find(aggregate_decode))
+      check:
+        scratch_slot(layout.bindings[parent]).indirect ~is #true
+        backing.root ~is layout.bindings[parent].root
+        emitted[1].contains(" = &(") ~is #true
+        emit_rsim(planned, ~region_budget: 1000000)[1].contains("const auto& v" ++ to_string(parent) ++ " = ") ~is #true
   | ~else:
       check: emitted[1].contains(".pentries)[1]") ~is #true
       def cast = planned.steps.index(planned.steps.find(fun (step): step.opcode == "rtl.cast"))
