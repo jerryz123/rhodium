@@ -328,7 +328,7 @@ ci-host-cores-test: rv5stage-host-test
 ci-host-socs-test: soc-test
 
 ci-plan-test:
-	python3 -m unittest tools.ci.test_plan
+	python3 -m unittest tools.ci.test_plan tools.ci.test_install_racket
 
 ci-host-hygiene-test: ci-plan-test check-boundaries check-example-verilog check-license-headers check-parameter-annotations parameter-annotation-test racket-cache-test
 

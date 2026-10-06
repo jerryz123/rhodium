@@ -67,12 +67,9 @@ jobs:
       - name: Check out Rhodium
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - name: Install Racket
-        uses: Bogdanp/setup-racket@2466913449df77df2bad149d1f2fc4e1ea4795dd # v1.15
+        uses: ./.github/actions/setup-racket
         with:
-          architecture: x64
-          distribution: full
-          variant: CS
-          version: ${{ env.RACKET_VERSION }}
+          racket-version: ${{ env.RACKET_VERSION }}
       - name: Prepare cached Racket dependencies
         uses: ./.github/actions/setup-racket-cache
         with:

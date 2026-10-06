@@ -1,0 +1,31 @@
+# Restores a checksum-pinned Racket installer without changing installed bytecode paths.
+# SPDX-License-Identifier: Apache-2.0
+
+name: Set up Racket
+description: Cache and verify the full Linux Racket installer before installation.
+
+inputs:
+  racket-version:
+    description: Repository-pinned Racket version.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Restore Racket installer
+      id: installer
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/rhodium-racket-installer
+        key: ${{ runner.os }}-${{ runner.arch }}-racket-installer-${{ inputs.racket-version }}-${{ hashFiles('tools/ci/install-racket.sh') }}
+    - name: Verify and install Racket
+      shell: bash
+      env:
+        RACKET_VERSION: ${{ inputs.racket-version }}
+      run: bash tools/ci/install-racket.sh "$RACKET_VERSION" "$RUNNER_TEMP/rhodium-racket-installer"
+    - name: Save verified Racket installer
+      if: steps.installer.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ runner.temp }}/rhodium-racket-installer
+        key: ${{ steps.installer.outputs.cache-primary-key }}

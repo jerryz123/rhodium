@@ -141,6 +141,14 @@ it deletes only project bytecode, and does not recursively rescan external
 libraries for every source. Its summary reports cached, inspected, invalidated,
 retained, and unreadable module counts.
 
+CI first restores a checksum-pinned full Racket installer through the shared
+`setup-racket` action. The compile job saves a verified installer immediately,
+before downstream jobs start, so cold caches do not trigger parallel upstream
+downloads. Every job verifies the SHA-256 again before installing at the same
+Unix-style `/usr` paths; the runtime cache is separate from Rhombus packages and
+project bytecode. Update the version, official checksum, and installer script
+together when upgrading Racket; its content hash scopes the installer cache.
+
 CI caches the entire completed compiled root and source manifests across runs,
 including external bytecode updated by project compilation. The key scopes
 reuse to the Racket/Rhombus environment, absolute workspace path, and cache
