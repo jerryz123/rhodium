@@ -1,0 +1,83 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../../core/main.rhm" open
+  "../../compile/rtl.rhm".prepare_rtl
+  "../../compile/contracts.rhm".CompileOptions
+  "../rsim/plan.rhm" open
+  "../rsim/evaluation.rhm" open
+  "../rsim/regions.rhm".build_regions
+  "../rsim/emit.rhm".emit_rsim
+  "../rsim/array-updates.rhm".compact_array_updates
+  "../rsim/cse.rhm".share_scalar_expressions
+  "rsim/dynamic-fixtures.rhm".make_dynamic
+
+// Original value IDs remain usable by schedule rewrites. A private chain
+// disappears only from pre-edge sampling, with reset at step zero retained.
+def vector = VectorType(3, Bits(129))
+def steps = [RsimStep("input", Reset, [], {"name": "reset"}),
+             RsimStep("input", vector, [], {"name": "base"}),
+             RsimStep("input", Bits(2), [], {"name": "index"}),
+             RsimStep("input", Bits(129), [], {"name": "data"}),
+             RsimStep("rtl.vector_inject", vector, [1, 2, 3], {}),
+             RsimStep("rtl.vector_inject", vector, [4, 2, 3], {}),
+             RsimStep("rtl.mux_lookup", vector, [2, 1, 5], {"keys": [1]})]
+def inputs = for List (step in steps.take(4), index in 0..4): RsimPort(step.attributes["name"], step.type, index)
+fun fixture(shared :: maybe(Nat) = #false):
+  RsimSchedule("ArrayAssignment", inputs, if shared == #false | [] | [RsimPort("shared", vector, shared)],
+               steps, [RsimRegister([], "q", vector, 6, 0, 1)], [], [], [], [], [])
+def original = fixture()
+def evaluation = build_evaluation_plan(original)
+def sink = evaluation.pre_edge.sinks[0]
+check:
+  sink.array.steps ~is {4, 5, 6}
+  sink.array.values ~is [1, 2, 3]
+  sink.dependencies.values ~is [1, 2, 3, 0, 1]
+  evaluation.pre_edge.steps ~is [0, 1, 2, 3]
+  evaluation.outputs.steps ~is []
+  original.steps === steps ~is #true
+  original.registers[0].next_value ~is 6
+  pre_edge_sinks(original)[0].dependencies.values ~is [6, 0, 1]
+  compact_array_updates(original) === original ~is #true
+  build_evaluation_plan(original) ~is evaluation
+// Shared leaves, including the next-value itself, still serve output evaluation.
+for (shared in [4, 5, 6]):
+  def selected = build_evaluation_plan(fixture(shared))
+  check:
+    shared in selected.pre_edge.steps ~is #true
+    shared in selected.outputs.steps ~is #true
+  if shared >= 5
+  | check: selected.pre_edge.sinks[0].array ~is #false
+  | check:
+      selected.pre_edge.sinks[0].array.steps ~is {5, 6}
+      shared in selected.pre_edge.sinks[0].dependencies.values ~is #true
+
+// The production rewrite pipeline preserves external consumers and both
+// evaluation phases. Every helper receives all leaves used by its assignment.
+def schedule = compact_array_updates(share_scalar_expressions(build_schedule(prepare_rtl(make_dynamic(3, #true), CompileOptions(), "array assignments").rtl)))
+def planned = build_evaluation_plan(schedule)
+def assignments = planned.pre_edge.sinks.filter(~keep: fun (sink): sink.array != #false)
+check: assignments.length() >= 3 ~is #true
+for (body in [planned.pre_edge, planned.outputs]):
+  def available = MutableSet{}
+  for (step in body.steps):
+    for (operand in planned.dependencies[step].values):
+      check: operand in available ~is #true
+    available.add(step)
+  for (sink in body.sinks):
+    for (value in sink.dependencies.values):
+      check: value in available ~is #true
+  for (budget in [1, 24, 1000000]):
+    for (region in build_regions(schedule, planned, body, ~budget: budget)):
+      def visible = for Set (value in region.steps ++ region.inputs ++ region.constants): value
+      for (sink in region.sinks):
+        for (value in sink.dependencies.values):
+          check: value in visible ~is #true
+for (budget in [1, 1000000]):
+  def emitted = emit_rsim(original, ~region_budget: budget)[1]
+  check:
+    emitted.contains("next.s0[v2] = v3;") ~is #true
+    emitted.split("next.s0[v2] = v3;").length() ~is 3
+    emitted.contains("if (v0)") ~is #true
+    emitted.contains("array4") ~is #false
+    emitted.contains("array5") ~is #false

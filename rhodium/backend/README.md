@@ -333,7 +333,7 @@ internal children. The wrapper does not expose internal signals through VPI or
 HDL waveforms. This target adds no general combinational scheduling across the
 SV/C++ boundary. The simulator build offers an experimental
 [`RTL_BACKEND=rsim`](../../sims/README.md#select-rtl-emission) route. Simple
-RV5Stage RVA23 passes the existing smoke workload with `OPT_FAST=-O1`, the real
+RV5Stage RVA23 passes the existing smoke workload with `OPT_FAST=-O2`, the real
 FESVR loader, and unchanged `TestDriver.v`. The simulator guide records the
 qualified native compiler settings and workload limits. One production `CHIDPIMemory`
 with its 512-bit DPI ABI is qualified against direct SV for reset registration,

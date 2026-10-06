@@ -58,11 +58,20 @@ fun storage_cost(read :: RsimStorageRead, schedule :: RsimSchedule) :: Nat:
   | ~else: error(~who: #'rsim, "unknown storage read: " ++ read.kind)
 
 /* Include final frame/output work in the same budget as value computations.
-   Mask granules account for the merge expansion beyond copying its operands. */
+   Mask granules account for merge expansion. Fused array trees charge element
+   writes and comparisons in addition to copying their external leaf values. */
 fun sink_cost(sink :: RsimSink, schedule :: RsimSchedule) :: PosInt:
   def mutable cost = 1
   for (value in sink.dependencies.values): cost := cost + type_cost(schedule.steps[value].type)
   for (read in sink.dependencies.storage): cost := cost + storage_cost(read, schedule)
+  when sink.array
+  | for (index in sink.array.steps):
+      def step = schedule.steps[index]
+      def work:
+        if step.opcode == "rtl.vector_inject"
+        | 1 + type_cost(step.type.element_type)
+        | step.attributes["keys"].length() * (1 + type_cost(schedule.steps[step.operands[0]].type))
+      cost := cost + work
   when sink.kind == "write"
   | def write = schedule.writes[sink.index]
     when write.mask_value != #false

@@ -467,15 +467,23 @@ class ConfigSelectionTest(unittest.TestCase):
             self.assertNotEqual(traced.returncode, 0)
             self.assertIn('TRACE=1 currently requires RTL_BACKEND=circt', traced.stderr)
 
-    def test_rsim_native_optimization_default_and_override(self):
-        for override, expected in ((None, '-O1'), ('-O0', '-O0'), ('-O0 -g', '-O0 -g')):
-            with self.subTest(override=override):
-                arguments = ['SOC=simple-rv5stage-rva23', 'RTL_BACKEND=rsim']
-                if override is not None:
-                    arguments.append(f'OPT_FAST={override}')
-                result = self.dry_run(*arguments, target='simulator')
+    def test_native_optimization_default_and_override(self):
+        for backend in ('circt', 'verilog', 'rsim'):
+            for override, expected in ((None, '-O2'), ('-O0', '-O0'), ('-O0 -g', '-O0 -g')):
+                with self.subTest(backend=backend, override=override):
+                    arguments = ['SOC=simple-rv5stage-rva23', f'RTL_BACKEND={backend}']
+                    if override is not None:
+                        arguments.append(f'OPT_FAST={override}')
+                    result = self.dry_run(*arguments, target='simulator')
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    for category in ('OPT_FAST', 'OPT_SLOW', 'OPT_GLOBAL'):
+                        self.assertIn(f"{category}='{expected}'", result.stdout)
+            with self.subTest(backend=backend, independent_overrides=True):
+                result = self.dry_run('SOC=simple-rv5stage-rva23', f'RTL_BACKEND={backend}',
+                                      'OPT_SLOW=-O0', 'OPT_GLOBAL=-Os', target='simulator')
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn(f"OPT_FAST='{expected}'", result.stdout)
+                for category, expected in (('OPT_FAST', '-O2'), ('OPT_SLOW', '-O0'), ('OPT_GLOBAL', '-Os')):
+                    self.assertIn(f"{category}='{expected}'", result.stdout)
 
     def test_trace_emission_writes_compilation_sidecars(self):
         with tempfile.TemporaryDirectory() as directory:

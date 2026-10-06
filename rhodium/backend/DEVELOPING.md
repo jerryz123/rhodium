@@ -46,6 +46,7 @@ a shared semantic responsibility actually belongs in core.
 | `rsim/array-updates.rhm` | Exact recovery of single-index array updates and unused-value pruning |
 | `rsim/cse.rhm` | Exact scalar expression sharing and complete schedule-value remapping |
 | `rsim/evaluation.rhm` | Pre-edge/output evaluation bodies, materialized constants, value/storage dependencies, and ordered final consumers |
+| `rsim/register-arrays.rhm` | Exclusive array update/selection trees and their external leaves for direct next-state assignment |
 | `rsim/regions.rhm` | Contiguous cost-based regions, exact value boundaries, shared constant references, and current-storage reads |
 | `rsim/layout.rhm` | Structured backing references, aggregate borrowing, and typed scratch allocation for each evaluation body |
 | `rsim/arrays.rhm` | Element, fill, and affine-gather runs for existing vector constructors |
@@ -108,18 +109,32 @@ producers in dependency order. Inputs, outputs, state sinks, every assertion, an
 foreign/memory operands remain roots; shared lane consumers and all resources
 survive. No high-level library or core IR changes are required.
 
-Region and storage planning run only after this rewrite. Array injection copies
-the base once into a fresh local or unique scratch destination, then conditionally
-replaces the selected lane. The destination cannot alias an earlier operand;
-out-of-range indices retain the original array as before. Current state and
-constants remain immutable, and sinks still copy into the inactive bank/frame.
+Region and storage planning run only after this rewrite and evaluation planning.
+Ordinary array injection copies the base into fresh local or unique scratch
+storage, then conditionally replaces the selected lane. Evaluation planning folds
+exclusive register-bound injection/lookup-mux trees into one inactive-bank
+destination. Each selected path copies its leaf once, then applies writes from
+base to outermost update. Reset takes precedence; out-of-range indices retain
+the base. Current state and constants remain immutable.
+
+Use counts include every step operand, pre-edge sink, reset operand, and output.
+A shared value stops folding and keeps its ordinary materialization. Selectors,
+indices, and replacement values remain precomputed against current storage;
+they never read a partially updated destination. Only absorbed steps disappear
+from pre-edge evaluation, leaving original schedule IDs and output evaluation
+intact. Assignment leaves become sink dependencies before region/liveness
+planning. Failed ticks may dirty the inactive bank, so every retry must assign
+the complete destination again. No in-place mutation of current state or
+cross-evaluation reuse is permitted.
 
 The returned schedule remaps ports, register next/reset values, memory read/write
 controls and data, assertions, and foreign arguments/enables. Resource indices,
 occurrence paths, labels, locations, and effect ordering do not change. Derive
 evaluation bodies, dependencies, regions, and storage from this returned schedule;
-never carry old step indices across the rewrite. The emitter renders its supplied
-schedule without another optimization pass. The forced-region fixture target
+never carry old step indices across the rewrite. Schedule liveness uses the
+original `pre_edge_sinks` inventory, before array assignments absorb producers.
+The emitter renders evaluation/assignment plans derived from its supplied
+schedule. The forced-region fixture target
 uses the same two passes before applying its smaller partition budget.
 
 `RsimSchedule` checks its immutable step list at construction; `emit_rsim` checks
@@ -176,8 +191,8 @@ bind directly to their model's active `State` bank by const reference, including
 registers and synchronous-read results with nested/wide payloads. Crossing roots
 need no scratch payload or pointer slot; each consumer helper resolves its binding
 afresh. Local roots use the same reference policy. State stays unchanged until
-all pre-edge consumers finish; next-state, frame, and output sinks still copy
-their values.
+all pre-edge consumers finish; frame and output sinks copy their values, while
+next-state sinks either copy a value or construct an exclusive array assignment.
 Static aggregate record-field and vector-index projections also borrow subobjects
 when their parent has evaluation-long backing in state, constants, scratch, or a
 borrowed binding. Follow only static projection chains when finding that backing;
@@ -747,6 +762,12 @@ non-matches, retained shared consumers, deterministic pruning, and effect/resour
 remapping. Dynamic native/direct-SV scoreboards observe expanded updates, shared
 lanes, and old-state capture across reset, eval-only calls, and out-of-range
 indices. Constant-ROM fixtures cover aggregate updates containing wide leaves.
+`tests/rsim-register-arrays-test.rhm` checks exclusive destination assignments,
+retained shared versions, reset at step zero, unchanged schedule identities, and
+leaf availability across region boundaries. Dynamic scoreboards cover chained
+write priority, shared output/register consumers, old-state reads, reset and
+unreset destinations; wide fixtures add wide record leaves and mux keys.
+Assertion fixtures include partially updated arrays in failure/retry snapshots.
 Wide/aggregate copies check the cost heuristic and oversized-item handling.
 Planner checks validate structured backing, borrowing and helper-local fallback,
 deterministic slot allocation, and array-run expansion against the original

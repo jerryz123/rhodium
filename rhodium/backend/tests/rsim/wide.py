@@ -226,7 +226,7 @@ def aggregate_ports(width):
             ('relayout', total, [('.pfirst', width + 3, total - width - 3), ('.prest', total - width - 3, 0)]),
             ('rebuilt', total, packet), ('read', width + 5, element),
             *[(name, 3 * (width + 5), vector) for name in ('injected', 'written', 'reversed_writes', 'state')],
-            ('captured', width + 5, element), ('onehot', total, packet),
+            ('captured', width + 5, element), ('fused', 3 * (width + 5), vector), ('onehot', total, packet),
             ('fill', 4*(width+5), [(f'[{i}]'+path, bits, i*(width+5)+low)
                                   for i in range(4) for path, bits, low in element]),
             ('gather', 4*width, [(f'[{i}]', width, i*width) for i in range(4)]),
@@ -240,6 +240,7 @@ def aggregate_stimuli(width):
     initial = (1 << (3 * (width + 5) - 1)) + 0x12345
     state = initial
     captured = 0
+    fused = initial
     rows, expected = [], []
     commands = [(0, 0, 0, 0)] + [(s, i, j, e) for s in range(4) for i in range(4)
                                  for j in range(4) for e in range(4)]
@@ -267,13 +268,23 @@ def aggregate_stimuli(width):
         if tick:
             captured = 0 if reset or selector >= 3 else old[selector]
             state = initial if reset else sum(updates.get(i, v) << (i * (width + 5)) for i, v in enumerate(old))
+            if reset:
+                fused = initial
+            elif enables == 3:
+                fused = sum(v << (i * (width + 5)) for i, v in enumerate(items))
+            elif enables == 1 and selector < 3:
+                previous = [(fused >> (i * (width + 5))) & elem_mask for i in range(3)]
+                changed = list(previous)
+                changed[selector] = replacement
+                changed[0] = previous[2]
+                fused = sum(v << (i * (width + 5)) for i, v in enumerate(changed))
         written = sum(updates.get(i, v) << (i * (width + 5)) for i, v in enumerate(items))
         injected = sum((replacement if i == selector else v) << (i * (width + 5)) for i, v in enumerate(items))
         rebuilt = ((value >> (total - 7)) << (total - 7)) | sum(v << (i * (width + 5)) for i, v in enumerate(reversed(items)))
         code = value & ((1 << (total - 1)) | (1 << (width - 1)) | 1)
         decoded = {0: mask, 1: initial}.get(code, (1 << (total - 1)) + 7)
         results = [value, value, packed, packed, value, rebuilt, items[selector] if selector < 3 else 0,
-                   injected, written, written, state, captured,
+                   injected, written, written, state, captured, fused,
                    value if enables == 1 else packed if enables == 2 else None,
                    sum((items[selector] if selector < 3 else 0) << (i*(width+5)) for i in range(4)),
                    sum(((replacement+i) & ((1 << width)-1)) << (i*width) for i in range(4)), decoded]

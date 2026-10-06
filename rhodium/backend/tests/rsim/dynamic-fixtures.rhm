@@ -66,5 +66,34 @@ fun make_dynamic(length :: PosInt, aggregate :: Boolean):
   b.drive(b.output(top, "reversed", vector), b.mux_lookup(top, valid_write, base, [[1, writes(base, #true)]]))
   b.drive(b.output(top, "state", vector), state.current)
   b.drive(b.output(top, "captured", element_type), captured.current)
+  // Private update trees exercise direct next-bank construction. The outer
+  // guard masks partial indices; overlapping writes retain last-write priority.
+  def fused = b.register(top, "qfused", vector, clock, reset, zero_vector)
+  def first = b.vector_inject(top, fused.current, index0, element(37))
+  def chained = b.vector_inject(top, first, index1, element(41))
+  def alternatives = b.mux_lookup(top, enables, fused.current,
+                                  [[1, b.vector_inject(top, fused.current, index0, element(17))],
+                                   [2, b.vector_inject(top, fused.current, index1, element(29))], [3, chained]])
+  fun in_bounds(index :: Value): b.ult(top, b.zext(top, index, index_width + 1), b.constant(top, Bits(index_width + 1), length))
+  def valid_indices = b.bit_and(top, in_bounds(index0), in_bounds(index1))
+  b.drive(fused.next, b.mux_lookup(top, valid_indices, fused.current, [[1, alternatives]]))
+  def sampled = b.register(top, "fused_old", element_type, clock, reset, zero_element)
+  b.drive(sampled.next, b.vector_get(top, fused.current, 0))
+  b.drive(b.output(top, "fused", vector), fused.current)
+  b.drive(b.output(top, "fusedold", element_type), sampled.current)
+  // An output and another register observe this intermediate version. Its
+  // consumer may fold a subsequent update, but the shared version must survive.
+  def shared = b.mux_lookup(top, read_ok, fused.current, [[1, b.vector_inject(top, fused.current, selector, element(53))]])
+  def shared_copy = b.register(top, "shared_copy", vector, clock, reset, zero_vector)
+  def shared_update = b.register(top, "shared_update", vector, clock, reset, zero_vector)
+  b.drive(shared_copy.next, shared)
+  b.drive(shared_update.next, b.vector_inject(top, shared, b.constant(top, Bits(index_width), 0), element(59)))
+  b.drive(b.output(top, "shared", vector), shared)
+  b.drive(b.output(top, "sharedcopy", vector), shared_copy.current)
+  b.drive(b.output(top, "sharedupdate", vector), shared_update.current)
+  // With no reset, each successful tick still fully assigns the destination.
+  def unreset = b.register(top, "qunreset", vector, clock)
+  b.drive(unreset.next, b.vector_inject(top, zero_vector, b.constant(top, Bits(index_width), 0), element(61)))
+  b.drive(b.output(top, "unreset", vector), unreset.current)
   b.finish(top)
   ElaboratedProgram(design, top)

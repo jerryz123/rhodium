@@ -26,7 +26,10 @@ def ports(length, record):
             ('written', length*bits, vector), ('reversed', length*bits, vector),
             ('state', length*bits, vector), ('captured', bits, element),
             ('expanded', length*bits, vector), ('expandedlane', bits, element),
-            ('updatedstate', length*bits, vector)]
+            ('updatedstate', length*bits, vector), ('fused', length*bits, vector),
+            ('fusedold', bits, element), ('shared', length*bits, vector),
+            ('sharedcopy', length*bits, vector), ('sharedupdate', length*bits, vector),
+            ('unreset', length*bits, vector)]
 
 
 OUTPUT_COUNT = sum(len(fields) for _, _, fields in ports(4, True))
@@ -52,6 +55,8 @@ def stimuli():
                       rng.getrandbits(64), rng.getrandbits(64)) for _ in range(100)]
         zero = (0, 0, 0) if record else (0,)
         state, captured, updated_state = [zero] * length, zero, [zero] * length
+        fused, fused_old = [zero] * length, zero
+        shared_copy, shared_update, unreset = [zero] * length, [zero] * length, [zero] * length
         for tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, a, b in commands:
             selector, i0, i1 = (x & (encodings - 1) for x in (raw_selector, raw_i0, raw_i1))
             enables = raw_enables & 3
@@ -62,6 +67,19 @@ def stimuli():
             writes = {index: replacements[port] for port, index in enumerate((i0, i1))
                       if enables & (1 << port)} if valid else {}
             if tick:
+                old_shared = [element(a, b, 53, record) if i == selector else old for i, old in enumerate(fused)]
+                shared_copy = [zero] * length if reset else old_shared
+                shared_update = [zero] * length if reset else [element(a, b, 59, record)] + old_shared[1:]
+                unreset = [element(a, b, 61, record)] + [zero] * (length - 1)
+                fused_old = zero if reset else fused[0]
+                fused = list(fused)
+                if reset:
+                    fused = [zero] * length
+                elif i0 < length and i1 < length:
+                    if enables & 1:
+                        fused[i0] = element(a, b, 37 if enables == 3 else 17, record)
+                    if enables & 2:
+                        fused[i1] = element(a, b, 41 if enables == 3 else 29, record)
                 updated_state = [zero] * length if reset else [element(a, b, 11, record) if i == selector else old for i, old in enumerate(state)]
                 captured = zero if reset or selector >= length else state[selector]
                 state = [zero] * length if reset else [writes.get(index, old) for index, old in enumerate(state)]
@@ -71,6 +89,8 @@ def stimuli():
             written = [writes.get(index, old) for index, old in enumerate(base)]
             expanded = [element(a, b, 11, record) if i == selector else old for i, old in enumerate(state)]
             results = [read] + injected + written + written + state + [captured] + expanded + [expanded[0]] + updated_state
+            shared = [element(a, b, 53, record) if i == selector else old for i, old in enumerate(fused)]
+            results += fused + [fused_old] + shared + shared_copy + shared_update + unreset
             flat = [value for result in results for value in result]
             expected.append(flat + [0] * (OUTPUT_COUNT - len(flat)))
             rows.append([config, tick, reset, raw_selector, raw_i0, raw_i1, raw_enables, int(valid), a, b])

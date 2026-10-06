@@ -109,7 +109,7 @@ adapter tests cover backend directories, source arguments, and provenance.
 The backend's [CHI differential fixture](../rhodium/backend/DEVELOPING.md)
 qualifies one real native memory. Simple RV5Stage RVA23 also passes the existing
 smoke ELF through the real FESVR loader and unchanged `TestDriver.v` with
-`OPT_FAST=-O1` and `+max-cycles=100000`. For rsim helper/layout changes, qualify
+`OPT_FAST=-O2` and `+max-cycles=100000`. For rsim helper/layout changes, qualify
 optimized native model compilation separately, then link the matching model and
 bridge into the unchanged driver and run that same ELF. Keep native compile time,
 Racket elaboration/emission time, and simulator runtime separate. Compare identical
@@ -119,13 +119,15 @@ The [simulator guide](README.md#select-rtl-emission) records qualified settings.
 Use a fresh build root or object directory when changing optimization flags,
 since object timestamps do not encode those flags. Broader workloads and other
 compiler/optimization configurations require separate execution validation.
-The local rsim default and CI policy both select `-O1`. Pass the local default
-explicitly to Verilator's generated Makefile, which otherwise sets its own
-`OPT_FAST`; retain command-line overrides for debug builds.
+Local builds and CI select `OPT_FAST=-O2` for every backend. `OPT_SLOW` and
+`OPT_GLOBAL` inherit `OPT_FAST` unless explicitly overridden, matching optimization
+across model, initialization, adapter, and Verilator runtime compilation. Pass
+all three settings explicitly to Verilator's generated Makefile, which otherwise
+sets its own defaults. Preserve command-line overrides, including flags with spaces.
 
-`tools/ci/policy.py` owns backend smoke variants, including rsim's `opt_fast`,
-`smoke_max_cycles`, and `harness_timeout_minutes`. The simulator workflow passes
-the optimization override explicitly to Make; the harness workflow uses the
+`tools/ci/policy.py` owns the shared simulator `opt_fast` setting and backend smoke
+variants, including rsim's `smoke_max_cycles` and `harness_timeout_minutes`.
+The simulator workflow passes the optimization override explicitly to Make; the harness workflow uses the
 attested prebuilt binary, bounds execution, and uploads per-target logs even on
 failure. Keep these variants outside `test-configs.txt` and the ACT, benchmark,
 and platform-test inventories. Test changes with

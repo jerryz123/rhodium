@@ -113,7 +113,7 @@ def native_configs(suite):
 BACKEND_SMOKE_CONFIG = ('simple-rv5stage-rva23', 'simple', 'rv5stage')
 BACKEND_SMOKE_VARIANTS = {
     'verilog': dict(software_tests=('smoke', 'host-mmio-test', 'uart-pty-test')),
-    'rsim': dict(software_tests=('smoke',), opt_fast='-O1',
+    'rsim': dict(software_tests=('smoke',),
                  smoke_max_cycles=100000, harness_timeout_minutes=5),
 }
 
@@ -127,7 +127,7 @@ def simulator_entry(soc, shape, core, backend='circt'):
     return dict(soc=soc, shape=shape, core=core, backend=backend,
                 cosim=soc in COSIM_CONFIGS and backend != 'rsim',
                 simulator_id=soc + ('' if backend == 'circt' else '-' + backend),
-                opt_fast=BACKEND_SMOKE_VARIANTS.get(backend, {}).get('opt_fast', ''))
+                opt_fast='-O2')
 
 
 def simulation_entry(soc, shape, core, backend='circt'):

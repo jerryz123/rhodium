@@ -91,7 +91,7 @@ jobs:
         run: |
           build_args=()
           if [[ -n "$OPT_FAST" ]]; then build_args+=("OPT_FAST=$OPT_FAST"); fi
-          # An empty override must leave Verilator's normal compiler flags intact.
+          # An empty override must leave the simulator Makefile defaults intact.
           unset OPT_FAST
           build="/tmp/rhodium-sims/$SIMULATOR_ID"
           if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi

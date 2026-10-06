@@ -27,7 +27,8 @@ def driver(native):
     header = 'RsimAssertions.hpp' if native else 'VRsimAssertions.h'
     model = 'rsim_pRsimAssertions::Model' if native else 'VRsimAssertions'
     step = 'dut.tick();' if native else 'dut.clock = 0; dut.eval(); dut.clock = 1; dut.eval(); dut.clock = 0; dut.eval();'
-    snapshot = ', '.join(f'O({side}_{name})' for side in ('first', 'second') for name in ('state', 'async_data', 'sync_data'))
+    snapshot = ', '.join(f'O({side}_{name})' for side in ('first', 'second')
+                         for name in ('state', 'async_data', 'sync_data', 'array0', 'array1'))
     body = r'''
   I(first_reset) = I(second_reset) = 1;
   I(first_guard) = I(second_guard) = 1;
@@ -37,6 +38,7 @@ def driver(native):
   I(first_write_data) = 11; I(second_write_data) = 17;
   step();
   require(O(first_state) == 0 && O(second_state) == 0, "reset registers");
+  require(O(first_array0) == 0 && O(first_array1) == 0 && O(second_array0) == 0 && O(second_array1) == 0, "reset arrays");
   I(first_write_address) = I(second_write_address) = 1;
   I(first_write_data) = 23; I(second_write_data) = 29;
   I(first_read_enable) = I(second_read_enable) = 1;
@@ -61,6 +63,7 @@ def driver(native):
   I(first_write_data) = 31; I(second_write_data) = 37;
   step();
   require(O(first_state) == 3 && O(second_state) == 4, "pre-edge assertion sampling");
+  require(O(first_array0) == 0 && O(first_array1) == 3 && O(second_array0) == 0 && O(second_array1) == 4, "array update preserves other lane");
   require(O(first_sync_data) == 11 && O(second_sync_data) == 17, "read latency");
   I(first_condition) = I(second_condition) = 0;
   I(first_unnamed_condition) = I(second_unnamed_condition) = 0;
@@ -136,6 +139,7 @@ def driver(native):
     I(first_read_address) = I(second_read_address) = 1;
     step();
     require(O(first_state) == 5 && O(second_state) == 6, "recovery registers");
+    require(O(first_array0) == 5 && O(first_array1) == 3 && O(second_array0) == 6 && O(second_array1) == 4, "array recovery");
     require(O(first_async_data) == 41 && O(second_async_data) == 43, "recovery writes");
     require(O(first_sync_data) == 31 && O(second_sync_data) == 37, "recovery read results");
     std::cout << "ROLLBACK_AND_RECOVERY_OK\n" << error.what() << std::endl;
@@ -146,6 +150,7 @@ def driver(native):
         body += '  step();\n'
     body += r'''
   require(O(first_state) == 5 && O(second_state) == 6, "successful commit");
+  require(O(first_array0) == 5 && O(first_array1) == 3 && O(second_array0) == 6 && O(second_array1) == 4, "array commit");
   require(O(first_async_data) == 41 && O(second_async_data) == 43, "successful writes");
   require(O(first_sync_data) == 31 && O(second_sync_data) == 37, "successful read results");
   std::cout << "PASS " << scenario << std::endl;
@@ -161,7 +166,7 @@ def driver(native):
 
     body = re.sub(r'\b(I|O)\((\w+)\)', port, body)
     snapshot = re.sub(r'\b(I|O)\((\w+)\)', port, snapshot)
-    snapshot_function = f'auto snapshot = [&]() {{ return std::array<std::uint64_t, 6>{{{snapshot}}}; }};' if native else ''
+    snapshot_function = f'auto snapshot = [&]() {{ return std::array<std::uint64_t, 10>{{{snapshot}}}; }};' if native else ''
     return f'''// SPDX-License-Identifier: Apache-2.0
 #include "{header}"
 #include <array>

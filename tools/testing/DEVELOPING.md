@@ -90,7 +90,9 @@ backend, cosim selection, and artifact identity. `BACKEND_SMOKE_VARIANTS` in `po
 `simple-rv5stage-rva23-verilog` with three smoke tests and
 `simple-rv5stage-rva23-rsim` with only `smoke`. Both reuse the same architectural
 config/target without expanding the architectural or software test inventories.
-Rsim uses `OPT_FAST=-O1`, a 100,000-cycle limit, and a five-minute harness step.
+All simulator rows select `OPT_FAST=-O2`; initialization and Verilator runtime
+compilation inherit the same level through the simulator Makefile. Rsim retains
+a 100,000-cycle limit and a five-minute harness step.
 Both build jobs omit CIRCT, and prebuilt consumers verify backend provenance.
 Workflow tests exercise optimization propagation, bounded smoke arguments, and
 nonzero status through log capture. CI retains build and harness logs.

@@ -103,6 +103,13 @@ RV64-only benchmark ports are not selected for RV32.
 
 ### Select RTL emission
 
+All simulator backends default to native C++ `-O2`, locally and in CI.
+`OPT_FAST` selects optimization for model and adapter code; `OPT_SLOW` and
+`OPT_GLOBAL` inherit it for initialization and Verilator runtime code. Override
+`OPT_FAST=-O0` for a faster debug build, or set those categories independently.
+Use a fresh build root or object directory when changing flags, because object
+timestamps do not encode them.
+
 `RTL_BACKEND=circt` is the default simulator build route. Opt into direct
 SystemVerilog emission with:
 
@@ -127,7 +134,7 @@ under the same `TestDriver.v`. Its artifacts live in `<config>-rsim/`; it
 accepts `TRACE=0` and records `rsim` in backend provenance. Production CHI memory
 has focused differential coverage. Simple RV5Stage RVA23 passes the existing
 smoke workload, including boot, UART/PLIC, and integer/floating-point vector
-checks. Local rsim builds default to `OPT_FAST=-O1`:
+checks:
 
 ```sh
 make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=rsim \
@@ -135,20 +142,16 @@ make -C sims smoke SOC=simple-rv5stage-rva23 RTL_BACKEND=rsim \
 ```
 
 CI selects `simple-rv5stage-rva23-rsim` as an additional simulator variant of
-`simple-rv5stage-rva23`, using `OPT_FAST=-O1`, `TRACE=0`, and `COSIM=0`. It runs
-only `smoke`, bounded to 100,000 cycles and five minutes. The suffixed name is
+`simple-rv5stage-rva23`, using the shared `-O2` default, `TRACE=0`, and `COSIM=0`.
+It runs only `smoke`, bounded to 100,000 cycles and five minutes. The suffixed name is
 the CI/artifact identity; local commands use the base `SOC` and `RTL_BACKEND`
-shown above. Override `OPT_FAST=-O0` for a faster debug build; use a fresh build
-root or object directory when changing flags, because object timestamps do not
-encode them.
+shown above.
 
 This checks compilation, linking, loader startup, and that bounded workload.
 The generated model uses bounded evaluation helpers within one C++ translation
-unit. The native model also passes this smoke at `-O1` with Apple Clang 17 on
-arm64 macOS. Linux/GCC execution of this default is covered by the smoke CI lane; local
-qualification here used Apple Clang. Other optimization settings need separate
-validation. These results do not establish broader ISA/workload parity or a
-general performance advantage. See the
+unit. Both rsim and CIRCT/Verilator pass this smoke at `-O2` with Apple Clang 17 on
+arm64 macOS. The smoke CI lane owns Linux/GCC validation. These results do not
+establish broader ISA/workload parity or a general performance advantage. See the
 [rsim contract](../rhodium/backend/README.md#systemverilog-hosted-rsim).
 
 The host emitters require an explicit third architectural selector:

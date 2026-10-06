@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "plan.rhm" open
+  "register-arrays.rhm" open
 
 export:
   RsimStorageRead
@@ -10,6 +11,7 @@ export:
   RsimSink
   RsimEvaluation
   RsimEvaluationPlan
+  pre_edge_sinks
   build_evaluation_plan
 
 /* Identifies current storage without following its future updates. Slots are
@@ -21,8 +23,11 @@ class RsimStorageRead(kind :: String, slot :: Nat, result :: maybe(Nat) = #false
 class RsimDependencies(values :: List.of(Nat), storage :: List.of(RsimStorageRead))
 
 /* Identifies a final consumer in the schedule's corresponding descriptor list.
-   Dependencies include pending-state and frame reads without a standalone value step. */
-class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies)
+   Dependencies include pending-state and frame reads without a standalone value
+   step. An optional register-array tree replaces exclusive intermediate values
+   with a destination assignment; its external leaves are the sink's value uses. */
+class RsimSink(kind :: String, index :: Nat, dependencies :: RsimDependencies,
+               array :: maybe(RsimArrayAssignment) = #false)
 
 /* Selects original step IDs in dependency order, then ordered final consumers.
    Values and storage are sampled afresh on each invocation of this body. */
@@ -78,11 +83,10 @@ fun dependency_closure(dependencies :: List.of(RsimDependencies), sinks :: List.
     when index in needed | ordered.add(index)
   ordered.snapshot()
 
-/* Plan existing bodies without preparing RTL again or pruning pre-edge work.
-   Sink order matches pending-state and frame assembly; callback execution and
-   committed-state publication remain outside these sampling bodies. */
-fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
-  def dependencies = schedule.steps.map(step_dependencies)
+/* Describe original schedule consumers for liveness and evaluation planning.
+   Preserve full value roots here even when a later destination assignment can
+   absorb their producers; schedule rewrites still remap those original IDs. */
+fun pre_edge_sinks(schedule :: RsimSchedule) :: List.of(RsimSink):
   def sinks = MutableList[]
   for (call in schedule.foreign_calls, index in 0..schedule.foreign_calls.length()):
     // Disabled calls preserve every held result, even results with no value use.
@@ -98,8 +102,31 @@ fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
   for (write in schedule.writes, index in 0..schedule.writes.length()):
     def old_word = if write.mask_value == #false | [] | [RsimStorageRead("memory", write.memory)]
     sinks.add(RsimSink("write", index, RsimDependencies([write.address, write.data, write.enable] ++ optional_value(write.write_mode) ++ optional_value(write.mask_value), old_word)))
+  sinks.snapshot()
+
+/* Plan bodies without preparing RTL again. Exclusive register-array trees move
+   to their sink; other pre-edge computations and sink ordering stay unchanged.
+   Callback execution and committed-state publication remain outside sampling. */
+fun build_evaluation_plan(schedule :: RsimSchedule) :: RsimEvaluationPlan:
+  def dependencies = schedule.steps.map(step_dependencies)
+  def sinks = pre_edge_sinks(schedule)
   def outputs = for List (port in schedule.outputs, index in 0..schedule.outputs.length()):
     RsimSink("output", index, RsimDependencies([port.value], []))
-  def all_steps = for List (index in 0..schedule.steps.length()): index
-  RsimEvaluationPlan(dependencies, materialized_constants(schedule.steps), RsimEvaluation(all_steps, sinks.snapshot()),
+  def roots = MutableList[]
+  for (sink in sinks ++ outputs):
+    for (value in sink.dependencies.values): roots.add(value)
+  def assignments = plan_array_assignments(schedule, roots.snapshot())
+  def absorbed = MutableSet{}
+  def fused_sinks = for List (sink in sinks):
+    def assignment = if sink.kind == "register" | assignments.get(sink.index, #false) | #false
+    if assignment
+    | for (step in assignment.steps): absorbed.add(step)
+      def reg = schedule.registers[sink.index]
+      RsimSink(sink.kind, sink.index,
+               RsimDependencies(assignment.values ++ optional_value(reg.reset) ++ optional_value(reg.reset_value), []), assignment)
+    | sink
+  def remaining_steps = MutableList[]
+  for (index in 0..schedule.steps.length()):
+    when !(index in absorbed) | remaining_steps.add(index)
+  RsimEvaluationPlan(dependencies, materialized_constants(schedule.steps), RsimEvaluation(remaining_steps.snapshot(), fused_sinks),
                      RsimEvaluation(dependency_closure(dependencies, outputs), outputs))

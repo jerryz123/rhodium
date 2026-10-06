@@ -211,7 +211,7 @@ class PlanTest(unittest.TestCase):
                 self.assertEqual(rsim[0]['simulator_id'], 'simple-rv5stage-rva23-rsim')
                 self.assertEqual(rsim[0]['soc'], 'simple-rv5stage-rva23')
                 self.assertEqual(rsim[0]['software_tests'], 'smoke')
-                self.assertEqual(rsim[0]['opt_fast'], '-O1')
+                self.assertTrue(all(row['opt_fast'] == '-O2' for row in entries))
                 self.assertEqual(rsim[0]['smoke_max_cycles'], 100000)
                 self.assertEqual(rsim[0]['harness_timeout_minutes'], 5)
                 self.assertEqual(len(plan['arch_build_matrix']['include']), 6)
@@ -257,7 +257,7 @@ class PlanTest(unittest.TestCase):
                        RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
                        SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000',
                        COSIM='0', GITHUB_OUTPUT=str(root / 'github-output'))
-            for opt in ('-O1', '-O0', ''):
+            for opt in ('-O2', '-O0', ''):
                 calls.write_text('')
                 result = subprocess.run(['bash', '-eo', 'pipefail', '-c', build], env=dict(env, OPT_FAST=opt),
                                         text=True, capture_output=True)
@@ -549,8 +549,8 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertEqual(len(combined), 47)
-        self.assertTrue({"rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
+        self.assertEqual(len(combined), 48)
+        self.assertTrue({"rv2wide-core", "rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()

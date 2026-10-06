@@ -31,6 +31,14 @@ fun make_assertions():
   def late = b.register(leaf, "qlate", Bits(1), b.read(alias), reset, b.constant(leaf, Bits(1), 0))
   b.drive(state.next, next_state)
   b.drive(late.next, late_next)
+  // A failed tick may dirty this inactive-bank array. Retrying must rebuild it
+  // from current storage, preserving both the written and untouched element.
+  def array_type = VectorType(2, Bits(8))
+  def array_zero = b.vector_create(leaf, array_type, [b.constant(leaf, Bits(8), 0), b.constant(leaf, Bits(8), 0)])
+  def array = b.register(leaf, "qarray", array_type, b.read(alias), reset, array_zero)
+  b.drive(array.next, b.vector_inject(leaf, array.current, write_address, next_state))
+  for (index in 0..2):
+    b.drive(b.output(leaf, "array" ++ to_string(index), Bits(8)), b.vector_get(leaf, array.current, index))
   def reset_bits = b.mux_lookup(leaf, late_mode, b.cast(leaf, reset, Bits(1)), [[1, late.current], [2, b.bit_not(leaf, late.current)]])
   def assertion_reset = b.cast(leaf, reset_bits, Reset)
   b.assert(leaf, condition, b.read(alias), assertion_reset, guard, "named_check", Location("assert-fixture.rhdl", 30, 2))

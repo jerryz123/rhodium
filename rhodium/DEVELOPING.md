@@ -136,8 +136,11 @@ and its local scheduler, scalar CSE and array-update passes, and emitter.
 imports core types and local schedule descriptors for exact expression sharing
 and value remapping. `backend/rsim/array-updates.rhm` imports core types, local
 schedule descriptors, and evaluation dependencies for exact update recognition
-and removal of unused value cones. `backend/rsim/evaluation.rhm` imports only the
-local schedule descriptors for value/storage dependencies and evaluation planning.
+and removal of unused value cones. `backend/rsim/evaluation.rhm` imports the
+local schedule and register-array assignment descriptors for value/storage
+dependencies and evaluation planning. `backend/rsim/register-arrays.rhm` imports
+core types and local schedule descriptors to fold exclusive array update trees
+into register destinations.
 `backend/rsim/regions.rhm` imports core types and local schedule/evaluation
 descriptors for cost-based partitioning and boundary liveness.
 `backend/rsim/layout.rhm` imports core types, local schedule/region descriptors,

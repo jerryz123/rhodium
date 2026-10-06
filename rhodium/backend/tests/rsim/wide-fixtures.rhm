@@ -200,6 +200,14 @@ fun make_wide_aggregate(width :: PosInt):
   b.drive(state.next, writes(state.current, #false))
   def captured = b.register(top, "captured_q", element, clock, reset, zero)
   b.drive(captured.next, b.mux_lookup(top, read_ok, zero, [[1, b.vector_index(top, state.current, selector)]]))
+  // Fused next-state construction retains wide record leaves and wide mux keys.
+  // The final lane-zero write samples the old bank even when selector is two.
+  def fused = b.register(top, "qfused", vector, clock, reset, b.cast(top, b.constant(top, Bits(vector.packed_width()), initial), vector))
+  def candidate = b.vector_inject(top, fused.current, selector, replacement)
+  def chained = b.vector_inject(top, candidate, b.constant(top, Bits(2), 0), b.vector_get(top, fused.current, 2))
+  def guarded = b.mux_lookup(top, read_ok, fused.current, [[1, chained]])
+  def wide_selector = b.bit_or(top, b.zext(top, enables, 129), b.constant(top, Bits(129), 2 ** 128))
+  b.drive(fused.next, b.mux_lookup(top, wide_selector, fused.current, [[2 ** 128 + 1, guarded], [2 ** 128 + 3, items]]))
   def unpacked = b.cast(top, bits, packet)
   def reversed = b.vector_create(top, vector, for List (index in 0..3): b.vector_get(top, items, 2 - index))
   def rebuilt = b.record_create(top, packet, [["head", b.record_get(top, value, "head")], ["items", reversed]])
@@ -215,7 +223,7 @@ fun make_wide_aggregate(width :: PosInt):
                  ["roundtrip", b.cast(top, unpacked, Bits(total))], ["relayout", b.cast(top, value, other)],
                  ["rebuilt", rebuilt], ["read", read], ["injected", injected],
                  ["written", writes(items, #false)], ["reversed_writes", writes(items, #true)],
-                 ["state", state.current], ["captured", captured.current],
+                 ["state", state.current], ["captured", captured.current], ["fused", fused.current],
                  ["onehot", b.onehot_mux(top, enables, [value, unpacked])], ["fill", filled], ["gather", gathered],
                  ["decoded", b.decode(top, value, packet, packet, [[0, care, full, full], [1, care, initial, full]], 2 ** (total - 1) + 7, full)]]
   for (entry in outputs): b.drive(b.output(top, entry[0], entry[1].type), entry[1])

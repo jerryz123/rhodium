@@ -4,7 +4,7 @@
 import:
   "../../core/types.rhm" open
   "plan.rhm" open
-  "evaluation.rhm".build_evaluation_plan
+  "evaluation.rhm".pre_edge_sinks
 
 export compact_array_updates
 
@@ -51,12 +51,11 @@ fun compact_array_updates(schedule :: RsimSchedule) :: RsimSchedule:
   if !changed
   | schedule
   | def interim = remap_schedule(schedule, rewritten.snapshot(), fun (value): value)
-    def evaluation = build_evaluation_plan(interim)
     def needed = MutableSet{}
     // All interfaces and effect operands remain roots, including unused foreign
     // arguments and assertion predicates. Storage resources are never pruned.
     for (port in interim.inputs ++ interim.outputs): needed.add(port.value)
-    for (sink in evaluation.pre_edge.sinks):
+    for (sink in pre_edge_sinks(interim)):
       for (value in sink.dependencies.values): needed.add(value)
     for (offset in 0..interim.steps.length()):
       def index = interim.steps.length() - 1 - offset

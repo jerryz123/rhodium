@@ -221,8 +221,15 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       source.add("  frame.assertion" ++ to_string(index) ++ "_failed = " ++ ref(assertion.guard) ++ " != 0 && " ++ ref(assertion.reset) ++ " == 0 && " ++ ref(assertion.condition) ++ " == 0;")
   | "register":
       def reg = plan.registers[index]
-      def value = if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
-      source.add("  next.s" ++ to_string(index) ++ " = " ++ value ++ ";")
+      def target = "next.s" ++ to_string(index)
+      if sink.array
+      | when reg.reset != #false
+        | source.add("  if (" ++ ref(reg.reset) ++ ") {\n    " ++ target ++ " = " ++ ref(reg.reset_value) ++ ";\n  } else {")
+        emit_array_assignment(reg.next_value, sink.array.steps, target, plan.steps, types, source, if reg.reset != #false | "    " | "  ")
+        when reg.reset != #false | source.add("  }")
+      | def value:
+          if reg.reset | ref(reg.reset) ++ " ? " ++ ref(reg.reset_value) ++ " : " ++ ref(reg.next_value) | ref(reg.next_value)
+        source.add("  " ++ target ++ " = " ++ value ++ ";")
   | "sync_read":
       // Ports and consumers sample old storage; disabled results are unspecified.
       def read = plan.reads[index]
@@ -246,6 +253,29 @@ fun emit_sink(sink :: RsimSink, plan :: RsimSchedule, types :: CppTypes, source 
       def port = plan.outputs[index]
       source.add("  next_outputs." ++ cpp_name(port.name) ++ " = " ++ ref(port.value) ++ ";")
   | ~else: error(~who: #'rsim, "unknown evaluation sink: " ++ sink.kind)
+
+/* Assign one exclusive array tree into inactive state. Each selected path
+   copies one immutable leaf, then applies updates from base to outermost value.
+   Selection order matches mux_lookup; invalid indices preserve the base.
+   Precomputed replacements never alias this destination, including old-state
+   reads and shared intermediate versions sampled before any state publication. */
+fun emit_array_assignment(value :: Nat, absorbed :: Set, target :: String,
+                          steps :~ List.of(RsimStep), types :: CppTypes,
+                          source :: MutableList, indent :: String):
+  if !(value in absorbed)
+  | source.add(indent ++ target ++ " = " ++ ref(value) ++ ";")
+  | def step = steps[value]
+    if step.opcode == "rtl.vector_inject"
+    | emit_array_assignment(step.operands[0], absorbed, target, steps, types, source, indent)
+      source.add(indent ++ "if (" ++ ref(step.operands[1]) ++ " < " ++ to_string(step.type.length) ++ ") " ++ target ++ "[" ++ ref(step.operands[1]) ++ "] = " ++ ref(step.operands[2]) ++ ";")
+    | def selector = step.operands[0]
+      for (key in step.attributes["keys"], branch in 0..step.attributes["keys"].length()):
+        source.add(indent ++ (if branch == 0 | "if (" | "else if (") ++ ref(selector) ++ " == " ++ types.constant(steps[selector].type, key) ++ ") {")
+        emit_array_assignment(step.operands[branch + 2], absorbed, target, steps, types, source, indent ++ "  ")
+        source.add(indent ++ "}")
+      when step.attributes["keys"].length() > 0 | source.add(indent ++ "else {")
+      emit_array_assignment(step.operands[1], absorbed, target, steps, types, source, indent ++ (if step.attributes["keys"].length() > 0 | "  " | ""))
+      when step.attributes["keys"].length() > 0 | source.add(indent ++ "}")
 
 /* Copy an update's base once into fresh local or uniquely owned scratch storage,
    then replace its selected lane. Sources cannot alias this new destination;
