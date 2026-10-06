@@ -127,10 +127,11 @@ to the ACT flow under `sims/arch-test/`.
 At pin `5482c232c826131e88c047d373cd3e86a88d0f2b`, the model requires Sail
 compiler 0.20.3 but still reports release version 0.14.1. Upstream supplies the
 GEILEN=0 interrupt mask and explicit v2 memory-access classification, so their
-former standalone patches are retired. The four remaining patches provide
-default-disabled host memory/interrupt hooks, host time, and exact subpage device
-PMAs, and preserve effective fault addresses above the implemented physical
-width. Keep the executable and embedded library in one identity-scoped package.
+former standalone patches are retired. The remaining patches provide
+default-disabled host memory/interrupt hooks, host time, exact subpage device
+PMAs, effective fault addresses above the implemented physical width, explicit
+interrupt boundaries, and empty whole-register memory `vstart` cleanup.
+Keep the executable and embedded library in one identity-scoped package.
 The fault-address patch includes a Sail unit test for positive, negative, and
 XLEN-wrapped offsets; run the upstream `unit_tests` target when building the model.
 Validate `arch-test-sail-test`, `sail-cosim-test`, representative

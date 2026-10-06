@@ -4,7 +4,7 @@
 #include "direct_mem_htif_dpi.h"
 #include "simulation_runtime.h"
 #ifdef RHODIUM_COSIM
-#include "simulation.h"
+#include "runtime/session.h"
 #endif
 
 #include <cstdint>

@@ -8,7 +8,7 @@ import json
 import subprocess
 from dataclasses import dataclass, field
 
-from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
+from .policy import CHECKS, CIRCT_CHECKS, CIRCT_CORE_CHECKS, HOST_CHECKS, NATIVE_SUITES, SIMULATOR_CONFIGS, SINGLE_CORE_SOCS, COSIM_CONFIGS, native_configs, simulation_entry, simulator_entry, BACKEND_SMOKE_CONFIG, BACKEND_SMOKE_VARIANTS, arch_configs, arch_shards
 
 
 def matches(path, *patterns):
@@ -229,9 +229,9 @@ class Selection:
         for suite in NATIVE_SUITES:
             if suite not in self.native_suites:
                 continue
-            suites["include"].extend({"soc": soc, "suite": suite} for soc in native_configs(suite))
+            suites["include"].extend({"soc": soc, "suite": suite, "cosim": soc in COSIM_CONFIGS} for soc in native_configs(suite))
             if suite == "coremark":
-                suites["include"].extend({"soc": soc, "suite": "coremark_scalar"} for soc in native_configs(suite))
+                suites["include"].extend({"soc": soc, "suite": "coremark_scalar", "cosim": soc in COSIM_CONFIGS} for soc in native_configs(suite))
         run_checks = bool(self.checks)
         run_program_native = bool(self.native_suites)
         run_simulator = self.simulation or run_program_native or self.arch

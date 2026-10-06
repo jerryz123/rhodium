@@ -69,6 +69,7 @@ sync_circuit RV5StageHypervisorCoreFixture():
   frontend.memory |> mmu.instruction
   core.data_access |> mmu.data
   core.request_fault_address <== mmu.request_fault_address
+  mmu.split_completion |> core.split_completion
   core.pipeline_access |> mmu.pipeline
   core.vector_precheck |> mmu.vector_precheck
   core.vector_fast |> mmu.vector_fast

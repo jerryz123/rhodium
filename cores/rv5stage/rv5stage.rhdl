@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../riscv/cosim-source.rhm".describe_cosim_context
   "../cache-prefetch.rhdl" open
   "core.rhdl" open
   "fetch/frontend.rhdl" open
@@ -121,6 +122,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   inst core(RV5StageCore(profile, ~reset_address: reset_address))
   inst frontend(RV5StageFrontend(profile, ~btb_entries: btb_entries, ~ras_entries: ras_entries))
   inst mmu(RV5StageMmu(xlen, profile.mmu_mode, config.physical_map, ~svnapot: profile.extensions.svnapot, ~vector_completion_slots: vector_completion_slots, ~hypervisor: hypervisor))
+  describe_cosim_context(core, {"mmu": mmu})
   if hypervisor
   | block:
       mmu.guest_translation <== core.guest_translation
@@ -145,6 +147,7 @@ sync_circuit RV5Stage(profile :: RV5StageConfig,
   core.instruction_replay_owner |> mmu.instruction_replay_owner
   core.data_access |> mmu.data
   core.request_fault_address <== mmu.request_fault_address
+  mmu.split_completion |> core.split_completion
   core.pipeline_access |> mmu.pipeline
   mmu.pipeline_vector <== core.pipeline_vector
   core.vector_precheck |> mmu.vector_precheck

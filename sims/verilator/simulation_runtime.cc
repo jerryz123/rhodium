@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "simulation_runtime.h"
 #ifdef RHODIUM_COSIM
-#include "../cosim/simulation.h"
+#include "../cosim/runtime/session.h"
 #endif
 #ifdef RHEG_TRACE
 #include "event_trace.h"
@@ -116,6 +116,18 @@ extern "C" int rhodium_sim_end() noexcept {
     phase = Phase::Idle;
     require(status == 0, "instrumentation sample failed");
   });
+}
+
+extern "C" int rhodium_sim_drain() noexcept {
+  int ready = 1;
+  const int status = checked([&] {
+    require(phase == Phase::Idle, "drain outside settled sample");
+#ifdef RHODIUM_COSIM
+    ready = rhodium::cosim::drain_simulation();
+    require(ready >= 0, "cosimulation drain failed");
+#endif
+  });
+  return status ? -1 : ready;
 }
 
 extern "C" int rhodium_sim_finish() noexcept {

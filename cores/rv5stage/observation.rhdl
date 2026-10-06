@@ -1,0 +1,8 @@
+#lang rhodium
+/* Defines RV5Stage's passive observation identity. */
+// SPDX-License-Identifier: Apache-2.0
+
+def RV5StageObservationContract = "rv5stage.v1"
+
+export:
+  RV5StageObservationContract

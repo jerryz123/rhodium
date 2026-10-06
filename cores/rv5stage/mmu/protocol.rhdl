@@ -31,6 +31,14 @@ interface RV5StageGuestDataAccess(xlen :: XLen, slots :: Pow2Int):
     drained: Bool
     reservation_valid: Bool
 
+/* Completes a retained misaligned operation, including late translation faults.
+   Only the virtual owner consumes this outcome; physical cache responses stay unchanged. */
+bundle RV5StageSplitResult(xlen :: XLen, slots :: Pow2Int):
+  response: RV5StageDataResp(xlen, slots)
+  page_fault: Bool
+  fault_address: Bits(xlen.width)
+  guest: RiscvGuestException()
+
 /* Carries speculative guest-aware lookups with separate WB store authorization. */
 interface RV5StageGuestPipelineAccess(xlen :: XLen):
   role requester
@@ -142,6 +150,7 @@ interface RV5StagePageTableMemory():
     response: Valid(Bits(64))
 
 export:
+  RV5StageSplitResult
   RV5StageGuestMemoryReq
   RV5StageGuestDataAccess
   RV5StageGuestPipelineAccess

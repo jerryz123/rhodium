@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/cosim-source.rhm".describe_cosim_signals
   lib("cores/riscv/vector-layout.rhm") open
   "bundles.rhdl" open
   "dependencies.rhdl" open
@@ -147,6 +148,9 @@ sync_circuit RV5StageVectorInstructions(xlen :: XLen, vlen :: VectorLength, vect
   closed <== macro_issued
   serial <== macro_serial
   memory <== vec(for List (i in 0..vector_completion_slots): macro_load[i] ||| macro_store[i])
+  // Faulted instructions reclaim an owner without retiring. Observers must
+  // close both lifetimes at actual drain, not infer them from successful retire.
+  describe_cosim_signals({"drained": macro_complete, "owner": drain_owner})
 
 export:
   RV5StageVectorInstructions

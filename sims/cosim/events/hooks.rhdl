@@ -1,0 +1,387 @@
+#lang rhodium
+/* Defines passive, typed architectural observation hooks for any RISC-V hart. */
+// SPDX-License-Identifier: Apache-2.0
+
+import:
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+
+hardware_enum CosimRegisterBank:
+  Integer = 0
+  FloatingPoint = 1
+  Vector = 2
+hardware_enum CosimCsrOperation:
+  AssignMasked = 0
+  SetBits = 1
+  ClearBits = 2
+hardware_enum CosimAccessKind:
+  Load = 0
+  Store = 1
+  Amo = 2
+  Lr = 3
+  Sc = 4
+  CacheOperation = 5
+hardware_enum CosimAccessResult:
+  Success = 0
+  Fault = 1
+  ScFailure = 2
+
+bundle CosimInstructionId():
+  epoch: Bits(64)
+  order: Bits(64)
+bundle CosimEnvironment():
+  interrupts: Bits(64)
+  time: Bits(64)
+  cycle: Bits(64)
+  interrupt_boundary: Bool
+bundle CosimEffectId():
+  producer: Bits(6)
+  index: Bits(64)
+
+bundle CosimInstruction():
+  pc: Bits(64)
+  encoding: Bits(32)
+  encoding_valid_bytes: Bits(3)
+  instruction_bytes: Bits(3)
+  privilege: PrivilegeMode
+  virtualized: Bool
+  producers: Bits(64)
+
+bundle CosimRetirement():
+  next_pc: Bits(64)
+  privilege: PrivilegeMode
+  virtualized: Bool
+
+bundle CosimTrap():
+  cause: Bits(64)
+  epc: Bits(64)
+  tval: Bits(64)
+  target_pc: Bits(64)
+  privilege: PrivilegeMode
+  virtualized: Bool
+  guest_valid: Bool
+  htval: Bits(64)
+  htinst: Bits(64)
+
+bundle CosimRegisterWrite():
+  bank: CosimRegisterBank
+  register_index: Bits(5)
+  bit_offset: Bits(16)
+  mask: Bits(64)
+  value: Bits(64)
+
+bundle CosimCsrUpdate():
+  address: Bits(12)
+  operation: CosimCsrOperation
+  mask: Bits(64)
+  value: Bits(64)
+
+bundle CosimMemoryEffect():
+  access_id: Bits(64)
+  fragment_offset: Bits(64)
+  kind: CosimAccessKind
+  virtual_address: Bits(64)
+  physical_valid: Bool
+  physical_address: Bits(64)
+  byte_mask: Bits(8)
+  read_valid: Bool
+  write_valid: Bool
+  read_data: Bits(64)
+  write_data: Bits(64)
+  result: CosimAccessResult
+
+/* Reports instruction through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_instruction(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  pc: Bits(64),
+  encoding: Bits(64),
+  encoding_valid_bytes: Bits(64),
+  instruction_bytes: Bits(64),
+  privilege: Bits(64),
+  virtualized: Bits(64),
+  producers: Bits(64)
+)
+
+/* Samples actual external inputs at the same edge as the architectural hooks. */
+dpi_import procedure rhodium_cosim_environment(instance: Bits(64), interrupts: Bits(64), time: Bits(64), cycle: Bits(64), interrupt_boundary: Bits(64))
+
+/* Reports retire through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_retire(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  next_pc: Bits(64),
+  privilege: Bits(64),
+  virtualized: Bits(64)
+)
+
+/* Reports exception through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_exception(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  cause: Bits(64),
+  epc: Bits(64),
+  tval: Bits(64),
+  target_pc: Bits(64),
+  privilege: Bits(64),
+  virtualized: Bits(64),
+  guest_valid: Bits(64),
+  htval: Bits(64),
+  htinst: Bits(64)
+)
+
+/* Reports interrupt through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_interrupt(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  cause: Bits(64),
+  epc: Bits(64),
+  tval: Bits(64),
+  target_pc: Bits(64),
+  privilege: Bits(64),
+  virtualized: Bits(64),
+  guest_valid: Bits(64),
+  htval: Bits(64),
+  htinst: Bits(64),
+  producers: Bits(64)
+)
+
+/* Reports reg write through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_reg_write(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  producer: Bits(64),
+  effect_index: Bits(64),
+  bank: Bits(64),
+  register_index: Bits(64),
+  bit_offset: Bits(64),
+  mask: Bits(64),
+  value: Bits(64)
+)
+
+/* Reports csr update through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_csr_update(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  producer: Bits(64),
+  effect_index: Bits(64),
+  address: Bits(64),
+  operation: Bits(64),
+  mask: Bits(64),
+  value: Bits(64)
+)
+
+/* Reports memory through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_memory(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  producer: Bits(64),
+  effect_index: Bits(64),
+  access_id: Bits(64),
+  fragment_offset: Bits(64),
+  kind: Bits(64),
+  virtual_address: Bits(64),
+  physical_valid: Bits(64),
+  physical_address: Bits(64),
+  byte_mask: Bits(64),
+  read_valid: Bits(64),
+  write_valid: Bits(64),
+  read_data: Bits(64),
+  write_data: Bits(64),
+  result: Bits(64)
+)
+
+/* Reports seal through fixed 64-bit transport lanes. */
+dpi_import procedure rhodium_cosim_seal(
+  instance: Bits(64),
+  epoch: Bits(64),
+  order: Bits(64),
+  producer: Bits(64),
+  count: Bits(64)
+)
+
+/* Captures an explicit clock, or #false for the ambient synchronous domain.
+   Disabled specialization emits no DPI effects; callers own IDs and reset/valid gating. */
+class CosimHart(clock :: maybe(Clock), instance :: Bits(64), enabled :: Boolean = #true):
+
+  /* Reports pre-edge environment independently of callback and completion order. */
+  method environment(valid :: Bool, value :: CosimEnvironment()):
+    if enabled
+    | rhodium_cosim_environment.call(instance, value.interrupts, value.time, value.cycle, value.interrupt_boundary.as_bits().zext(64), ~clock: clock, ~enable: valid)
+    | #void
+
+  /* Emits one instruction observation without backpressure. */
+  method instruction(valid :: Bool, id :: CosimInstructionId(), value :: CosimInstruction()):
+    if enabled
+    | rhodium_cosim_instruction.call(
+        instance,
+        id.epoch,
+        id.order,
+        value.pc,
+        value.encoding.zext(64),
+        value.encoding_valid_bytes.zext(64),
+        value.instruction_bytes.zext(64),
+        value.privilege.into(Bits(2)).zext(64),
+        value.virtualized.into(Bits(1)).zext(64),
+        value.producers,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one retire observation without backpressure. */
+  method retire(valid :: Bool, id :: CosimInstructionId(), value :: CosimRetirement()):
+    if enabled
+    | rhodium_cosim_retire.call(
+        instance,
+        id.epoch,
+        id.order,
+        value.next_pc,
+        value.privilege.into(Bits(2)).zext(64),
+        value.virtualized.into(Bits(1)).zext(64),
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one exception observation without backpressure. */
+  method exception(valid :: Bool, id :: CosimInstructionId(), value :: CosimTrap()):
+    if enabled
+    | rhodium_cosim_exception.call(
+        instance,
+        id.epoch,
+        id.order,
+        value.cause,
+        value.epc,
+        value.tval,
+        value.target_pc,
+        value.privilege.into(Bits(2)).zext(64),
+        value.virtualized.into(Bits(1)).zext(64),
+        value.guest_valid.into(Bits(1)).zext(64),
+        value.htval,
+        value.htinst,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one interrupt observation without backpressure. */
+  method interrupt(valid :: Bool, id :: CosimInstructionId(), value :: CosimTrap(), producers :: Bits(64)):
+    if enabled
+    | rhodium_cosim_interrupt.call(
+        instance,
+        id.epoch,
+        id.order,
+        value.cause,
+        value.epc,
+        value.tval,
+        value.target_pc,
+        value.privilege.into(Bits(2)).zext(64),
+        value.virtualized.into(Bits(1)).zext(64),
+        value.guest_valid.into(Bits(1)).zext(64),
+        value.htval,
+        value.htinst,
+        producers,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one reg write observation without backpressure. */
+  method reg_write(valid :: Bool, id :: CosimInstructionId(), effect_id :: CosimEffectId(), value :: CosimRegisterWrite()):
+    if enabled
+    | rhodium_cosim_reg_write.call(
+        instance,
+        id.epoch,
+        id.order,
+        effect_id.producer.zext(64),
+        effect_id.index,
+        value.bank.into(Bits(2)).zext(64),
+        value.register_index.zext(64),
+        value.bit_offset.zext(64),
+        value.mask,
+        value.value,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one csr update observation without backpressure. */
+  method csr_update(valid :: Bool, id :: CosimInstructionId(), effect_id :: CosimEffectId(), value :: CosimCsrUpdate()):
+    if enabled
+    | rhodium_cosim_csr_update.call(
+        instance,
+        id.epoch,
+        id.order,
+        effect_id.producer.zext(64),
+        effect_id.index,
+        value.address.zext(64),
+        value.operation.into(Bits(2)).zext(64),
+        value.mask,
+        value.value,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one memory observation without backpressure. */
+  method memory(valid :: Bool, id :: CosimInstructionId(), effect_id :: CosimEffectId(), value :: CosimMemoryEffect()):
+    if enabled
+    | rhodium_cosim_memory.call(
+        instance,
+        id.epoch,
+        id.order,
+        effect_id.producer.zext(64),
+        effect_id.index,
+        value.access_id,
+        value.fragment_offset,
+        value.kind.into(Bits(3)).zext(64),
+        value.virtual_address,
+        value.physical_valid.into(Bits(1)).zext(64),
+        value.physical_address,
+        value.byte_mask.zext(64),
+        value.read_valid.into(Bits(1)).zext(64),
+        value.write_valid.into(Bits(1)).zext(64),
+        value.read_data,
+        value.write_data,
+        value.result.into(Bits(2)).zext(64),
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+  /* Emits one seal observation without backpressure. */
+  method seal(valid :: Bool, id :: CosimInstructionId(), producer :: Bits(6), count :: Bits(64)):
+    if enabled
+    | rhodium_cosim_seal.call(
+        instance,
+        id.epoch,
+        id.order,
+        producer.zext(64),
+        count,
+        ~clock: clock,
+        ~enable: valid
+      )
+    | #void
+
+export:
+  CosimHart
+  CosimInstructionId
+  CosimEnvironment
+  CosimEffectId
+  CosimRegisterBank
+  CosimCsrOperation
+  CosimAccessKind
+  CosimAccessResult
+  CosimInstruction
+  CosimRetirement
+  CosimTrap
+  CosimRegisterWrite
+  CosimCsrUpdate
+  CosimMemoryEffect

@@ -60,7 +60,7 @@ def check_litmus_states(test, lines):
     return None
 
 
-def execute(test, simulator, root, output, timeout, cycles):
+def execute(test, simulator, root, output, timeout, cycles, cosim=False):
     started = time.monotonic()
     elf = (root / test['elf']).resolve()
     log_path = output / (test['name'] + '.log')
@@ -70,6 +70,7 @@ def execute(test, simulator, root, output, timeout, cycles):
     command += ['+permissive', f'+max-cycles={cycles}', '+permissive-off', str(elf)]
     status = 'error'
     reason = None
+    checked_records = None
     try:
         if hashlib.sha256(elf.read_bytes()).hexdigest() != test['sha256']:
             raise ValueError(f'ELF checksum mismatch: {elf}')
@@ -104,6 +105,10 @@ def execute(test, simulator, root, output, timeout, cycles):
                     status = 'timeout'
                     reason = 'cycle-timeout'
                 elif code == 0 and 'SoC harness simulation passed' in text:
+                    if cosim:
+                        completions = re.findall(r'^Sail cosim: checked ([0-9]+) scalar records$', text, re.MULTILINE)
+                        if len(completions) == 1 and int(completions[0]) > 0:
+                            checked_records = int(completions[0])
                     required = test.get('required_output', [])
                     forbidden = test.get('forbidden_output', [])
                     if (not isinstance(required, list) or not isinstance(forbidden, list)
@@ -111,7 +116,10 @@ def execute(test, simulator, root, output, timeout, cycles):
                         raise ValueError(f'{test["name"]}: invalid output contract')
                     missing = [marker for marker in required if marker not in text]
                     present = [marker for marker in forbidden if marker in text]
-                    if missing or present:
+                    if cosim and checked_records is None:
+                        status = 'failed'
+                        reason = 'missing, duplicate, or empty cosim completion'
+                    elif missing or present:
                         status = 'failed'
                         reason = f'missing output {missing}; forbidden output {present}'
                     elif 'litmus_allowed_states' in test:
@@ -130,6 +138,8 @@ def execute(test, simulator, root, output, timeout, cycles):
                   log=str(log_path), command=command)
     if reason:
         result['reason'] = reason
+    if checked_records is not None:
+        result['cosim_checked_records'] = checked_records
     print(f'{status}: {test["name"]}', flush=True)
     return result
 
@@ -155,6 +165,7 @@ def main():
     manifest_bytes = args.manifest.read_bytes()
     manifest = json.loads(manifest_bytes)
     target = None
+    cosim = False
     if 'target' in manifest:
         try:
             target = validate_target(manifest['target'])
@@ -166,6 +177,7 @@ def main():
         if not args.simulator_metadata:
             parser.error('a target-bound manifest requires --simulator-metadata')
         simulator_metadata = json.loads(args.simulator_metadata.read_text())
+        cosim = simulator_metadata.get('variant') in ('cosim', 'trace-cosim')
         if (simulator_metadata.get('target_fingerprint') != expected_fingerprint
                 or simulator_metadata.get('soc') != target['soc']
                 or simulator_metadata.get('sha256') != hashlib.sha256(args.simulator.read_bytes()).hexdigest()):
@@ -191,7 +203,7 @@ def main():
     run_fingerprint = hashlib.sha256(json.dumps(dict(
         manifest_sha256=manifest_sha256,
         simulator_sha256=hashlib.sha256(args.simulator.read_bytes()).hexdigest(),
-        timeout=args.timeout, max_cycles=args.max_cycles),
+        timeout=args.timeout, max_cycles=args.max_cycles, cosim=cosim),
         sort_keys=True).encode()).hexdigest()
     identity = hashlib.sha256(json.dumps(dict(
         run_fingerprint=run_fingerprint,
@@ -248,7 +260,7 @@ def main():
 
             def submit(test):
                 future = executor.submit(execute, test, args.simulator.resolve(), args.manifest.parent,
-                                         args.output, args.timeout, args.max_cycles)
+                                         args.output, args.timeout, args.max_cycles, cosim)
                 futures[future] = test['name']
 
             for _ in range(min(args.jobs, len(pending_tests))):

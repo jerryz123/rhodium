@@ -46,6 +46,7 @@ sync_circuit RV5StageLoadHit(~vector: vector_profile :: VectorProfile = DefaultV
   // The bench rejects the first WB offer to exercise replay without admission.
   core.data_access.request |> gate_flow(permit_demand) |> mmu.data.request
   mmu.data.response |> core.data_access.response
+  mmu.split_completion |> core.split_completion
   core.data_access.request_fault <== mmu.data.request_fault
   core.data_access.request_access_fault <== mmu.data.request_access_fault
   core.data_access.drained <== mmu.data.drained

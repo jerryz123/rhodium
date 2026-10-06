@@ -1,25 +1,27 @@
 #lang rhodium
-/* Compares observed and unobserved scalar cores while exposing controlled architectural events. */
+/* Compares observed and unobserved cores with controlled scalar/vector memory events. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../core.rhdl" open
-  "../cosim-support.rhdl".rv5stage_cosim_lane
+  "../../../sims/cosim/events/transport.rhdl".capture_lane
   "../profile.rhm" open
   "../fetch/packet.rhdl" open
   "../fetch/bpd/protocol.rhdl" open
   "../dcache/protocol.rhdl" open
+  "../memory.rhdl".RV5StageMemoryOperation
   "../mmu/protocol.rhdl" open
   "../../../riscv/rtl/interrupt.rhdl" open
   "../../../riscv/isa/xlen.rhm" open
   "../../../riscv/isa/fp-profile.rhm" open
   "../../../riscv/isa/c.rhm" open
+  "../../../riscv/isa/vector-profile.rhm".VectorProfile
   lib("flow/main.rhdl") open
 
 /* Uses real decode, pipeline, register file, CSR state and arithmetic with controllable memory. */
-sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplierKind):
-  def profile = RV5StageConfig(~xlen: xlen, ~multiplier: multiplier, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None, ~compressed: CCompressedExtensions, ~zawrs: #true, ~zicbom: #true))
-  inst observed(RV5StageCore(profile, ~reset_address: 0))
-  inst reference(RV5StageCore(profile, ~reset_address: 0))
+sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplierKind, ~vector: vector :: Boolean = #false):
+  def profile = RV5StageConfig(~xlen: xlen, ~multiplier: multiplier, ~vector: if vector | VectorProfile.Zve64x | VectorProfile.None, ~extensions: RV5StageExtensions(~floating_point: FloatingPointProfile.None, ~compressed: CCompressedExtensions, ~zawrs: #true, ~zicbom: #true))
+  inst observed(RV5StageCore(profile, ~reset_address: if vector | 0x80000000 | 0))
+  inst reference(RV5StageCore(profile, ~reset_address: if vector | 0x80000000 | 0))
   input ticks: Bits(64)
   input packet_valid: Bool
   input pc: Bits(64)
@@ -36,6 +38,29 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   output data_value: Bits(64)
   output architectural_width: Bits(8)
   architectural_width <== bits(xlen.width, 8)
+  def certified :: Bool:
+    if vector
+    | block:
+        input certify: Bool
+        certify
+    | Bool(#false)
+  if vector
+  | block:
+      output data_store: Bool
+      output data_mask: Bits(8)
+      output lookup_request: Bool
+      output lookup_address: Bits(64)
+      output lookup_store: Bool
+      data_store <== observed.data_access.request.bits.access === RV5StageMemoryOperation.Store
+      data_mask <== observed.data_access.request.bits.byte_mask
+      lookup_request <== observed.pipeline_access.request.valid
+      lookup_address <== observed.pipeline_access.request.bits.address
+      lookup_store <== observed.pipeline_access.request.bits.access === RV5StageMemoryOperation.Store
+      output restart_valid: Bool
+      output restart_pc: Bits(64)
+      restart_valid <== observed.frontend_control.restart.valid
+      restart_pc <== capture_lane(observed.frontend_control.restart.bits)
+  | #void
   reg lookup_valid(~init: Bool(#false))
   reg lookup_mode(Bits(2))
   reg lookup_data(Bits(xlen.width))
@@ -43,6 +68,7 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   when (observed.pipeline_access.request.valid):
     lookup_mode <== pipeline_mode
     lookup_data <== pipeline_data[0..xlen.width]
+  def empty_certificate :: RV5StageVectorFastCertificate(xlen) = literal(RV5StageVectorFastCertificate(xlen), 0)
   for (core in [observed, reference]):
     core.interrupts <== RiscvInterrupts():
       supervisor_software: Bool(#false)
@@ -67,12 +93,13 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
       reason: RV5StagePipelineReason.None
       data: lookup_data
     core.pipeline_access.commit_ready <== pipeline_mode === bits(2, 2)
-    core.vector_precheck.request |> map_flow(_request => Bool(#false)) |> pipe(1) |> core.vector_precheck.response
-    core.vector_fast.response.valid <== Bool(#false)
-    core.vector_fast.response.bits <== dont_care(RV5StageVectorFastCertificate(xlen))
-    core.vector_fast.candidate_current <== Bool(#false)
+    core.vector_precheck.request |> map_flow(_request => certified) |> pipe(1) |> core.vector_precheck.response
+    core.vector_fast.request |> filter_valid(_range => certified) |> map_valid(range => empty_certificate.updated(~range: range, ~ppn: range.first[12..56])) |> core.vector_fast.response
+    core.vector_fast.candidate_current <== certified
     core.data_access.request.ready <== data_ready
     core.data_access.request_fault <== page_fault
+    core.split_completion.valid <== Bool(#false)
+    core.split_completion.bits <== literal(RV5StageSplitResult(xlen, 8), 0)
     core.request_fault_address <== fault_address[0..xlen.width]
     core.data_access.request_access_fault <== data_fault
     core.data_access.drained <== drained
@@ -87,8 +114,8 @@ sync_circuit RV5StageCosimFixture(xlen :: XLen, multiplier :: RV5StageMultiplier
   data_valid <== observed.data_access.request.valid
   response_ready <== observed.data_access.response.ready
   data_tag <== observed.data_access.request.bits.writeback
-  data_address <== rv5stage_cosim_lane(observed.data_access.request.bits.address)
-  data_value <== rv5stage_cosim_lane(observed.data_access.request.bits.data)
+  data_address <== capture_lane(observed.data_access.request.bits.address)
+  data_value <== capture_lane(observed.data_access.request.bits.data)
   assert(observed.packets.ready === reference.packets.ready, "cosim_passive_fetch")
   assert(observed.frontend_control.active === reference.frontend_control.active, "cosim_passive_active")
   assert(observed.frontend_control.flush.valid === reference.frontend_control.flush.valid, "cosim_passive_flush")

@@ -10,23 +10,33 @@ import:
 export:
   CosimSignals
   CosimSource
+  CosimContext
   describe_cosim_signals
   describe_cosim_hart
+  describe_cosim_context
 
 /* Holds local read-only taps and detached interpretation parameters for one component. */
-class CosimSignals(taps :: Map, parameters :: List, clock :: Value, reset :: Value):
+class CosimSignals(taps :: Map, parameters :: List, clock :: Value, reset :: Value, components :: Map = {}):
   implements ModuleMetadataPayload
   /* Rebind every live value while retaining only immutable host parameters. */
   override method remap_ir(remap :: Function.of_arity(1)):
-    CosimSignals(remap(taps), parameters, remap(clock), remap(reset))
+    CosimSignals(remap(taps), parameters, remap(clock), remap(reset), remap(components))
 
-/* Identifies a hart and explicit child components; the recipe captures host parameters only.
-   It receives tap types, component parameters, and an occurrence ID at compilation. */
-class CosimSource(taps :: Map, components :: Map, recipe :: Function.of_arity(3), unsupported :: maybe(String)):
+/* Names a versioned observation contract with detached configuration and explicit taps.
+   Simulation selects its adapter; source metadata never stores executable observer code. */
+class CosimSource(contract :: String, configuration :: Map, taps :: Map, components :: Map):
   implements ModuleMetadataPayload
   /* Instance views preserve child selection through occurrence specialization. */
   override method remap_ir(remap :: Function.of_arity(1)):
-    CosimSource(remap(taps), remap(components), recipe, unsupported)
+    CosimSource(contract, configuration, remap(taps), remap(components))
+
+/* Adds sibling-component taps to an explicitly selected child hart at integration.
+   No ports exist until the observation pass realizes this relationship. */
+class CosimContext(hart :: Instance, components :: Map):
+  implements ModuleMetadataPayload
+  /* Preserve occurrence identity when a prior pass specializes this integration. */
+  override method remap_ir(remap :: Function.of_arity(1)):
+    CosimContext(remap(hart), remap(components))
 
 /* Materialize local read-only references, rejecting taps owned by another module. */
 fun local_taps(taps :: Map):
@@ -38,10 +48,14 @@ fun local_taps(taps :: Map):
     values(name, value)
 
 /* Attach a component's semantic taps without ports, state, or foreign calls. */
-fun describe_cosim_signals(taps :: Map, parameters :: List = []):
-  kernel.active_module().add_metadata("riscv.cosim.signals", CosimSignals(local_taps(taps), parameters, ambient_clock(), ambient_reset_active()))
+fun describe_cosim_signals(taps :: Map, parameters :: List = [], ~components: components :: Map = {}):
+  kernel.active_module().add_metadata("riscv.cosim.signals", CosimSignals(local_taps(taps), parameters, ambient_clock(), ambient_reset_active(), components))
 
-/* Register a deferred observer, its local domain, and explicitly selected child instances. */
-fun describe_cosim_hart(recipe :: Function.of_arity(3), taps :: Map, components :: Map, ~unsupported: unsupported :: maybe(String) = #false):
+/* Declare a versioned contract and immutable host configuration beside read-only hardware taps. */
+fun describe_cosim_hart(contract :: String, configuration :: Map, taps :: Map, components :: Map):
   def signals = local_taps(taps ++ {"clock": ambient_clock(), "reset": kernel.cast(ambient_reset_active(), Reset)})
-  kernel.active_module().add_metadata("riscv.cosim.hart", CosimSource(signals, components, recipe, unsupported))
+  kernel.active_module().add_metadata("riscv.cosim.hart", CosimSource(contract, configuration, signals, components))
+
+/* Bind sibling components to a local child hart without changing functional interfaces. */
+fun describe_cosim_context(hart :: Instance, components :: Map):
+  kernel.active_module().add_metadata("riscv.cosim.context", CosimContext(hart, components))

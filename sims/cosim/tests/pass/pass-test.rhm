@@ -1,0 +1,50 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "pass-fixture.rhdl".make_fixture
+  "pass-fixture.rhdl".recipe
+  "pass-fixture.rhdl".make_wrong_domain_fixture
+  "pass-fixture.rhdl".make_unsupported_fixture
+  "pass-fixture.rhdl".make_wrong_context_fixture
+  "pass-fixture.rhdl".make_wrong_nested_fixture
+  "../../pass.rhm".cosim_pass
+  lib("rhodium/core/main.rhm") open
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  lib("rhodium/backend/verilog-target.rhm").verilog_target
+  lib("rhodium/event/trace-pass.rhm").event_trace_pass
+
+def adapters = {"test.v1": recipe}
+def source = make_fixture()
+def before = dump_ir(source.design)
+for (backend in [circt_target, verilog_target]):
+  def normal = compile_program(source, backend)
+  def observed = compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters)]))
+  def selected = compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters, ~harts: [["right"]])]))
+  check:
+    observed.manifest.signature ~is normal.manifest.signature
+    normal.artifacts[0].content.contains("cosim_test_sample") ~is #false
+    observed.artifacts[0].content.contains("cosim_test_sample") ~is #true
+    observed.artifacts[0].content.contains("cosim_test_functional") ~is #true
+    observed.artifacts[1].content ~is "{\"schema\":1,\"epoch\":\"host-reset\",\"harts\":[{\"instance\":0,\"path\":[\"left\"]},{\"instance\":1,\"path\":[\"right\"]}]}"
+    selected.artifacts[1].content.contains("left") ~is #false
+    selected.artifacts[1].content.contains("right") ~is #true
+  for (passes in [[cosim_pass(~adapters: adapters), event_trace_pass()], [event_trace_pass(), cosim_pass(~adapters: adapters)]]):
+    def result = compile_program(source, rtl_pipeline_target(backend, passes))
+    check:
+      result.manifest.signature ~is normal.manifest.signature
+      result.artifacts[0].content.contains("cosim_test_sample") ~is #true
+      result.artifacts[0].content.contains("rheg_node") ~is #true
+      result.artifacts.find(fun (item): item.name == "cosim.json").content ~is observed.artifacts[1].content
+      result.artifacts.length() ~is 4
+  check:
+    compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: {})])) ~throws "no adapter for observation contract"
+    dump_ir(source.design) ~is before
+    compile_program(source, backend).artifacts ~is normal.artifacts
+    compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters, ~harts: [["missing"]])])) ~throws "selected path"
+    compile_program(source, rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters, ~harts: [["right"], ["right"]])])) ~throws "duplicate"
+    compile_program(make_wrong_domain_fixture(), rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters)])) ~throws "clock and reset epoch"
+    compile_program(make_unsupported_fixture(), rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters)])) ~throws "unsupported test profile"
+    compile_program(make_wrong_context_fixture(), rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters)])) ~throws "clock and reset epoch"
+    compile_program(make_wrong_nested_fixture(), rtl_pipeline_target(backend, [cosim_pass(~adapters: adapters)])) ~throws "clock and reset epoch"

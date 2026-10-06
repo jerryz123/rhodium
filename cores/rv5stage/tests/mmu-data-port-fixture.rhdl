@@ -48,6 +48,13 @@ sync_circuit RV5StageMmuDataPortFixture():
   data |> mmu.data
   output request_fault_address: Bits(64)
   request_fault_address <== mmu.request_fault_address
+  output(split_valid, split_page_fault): Bool
+  output split_fault_address: Bits(64)
+  output split_response: RV5StageDataResp(xlen, slots)
+  split_valid <== mmu.split_completion.valid
+  split_page_fault <== mmu.split_completion.bits.page_fault
+  split_fault_address <== mmu.split_completion.bits.fault_address
+  split_response <== mmu.split_completion.bits.response
   pipeline |> mmu.pipeline
   vector_precheck |> mmu.vector_precheck
   mmu.vector_fast.request.valid <== Bool(#false)

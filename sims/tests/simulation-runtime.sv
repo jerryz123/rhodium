@@ -17,6 +17,7 @@ module SoCHarness(input clock, input reset, output logic [31:0] exit
     end else begin
       cycles <= cycles + 1;
       if (cycles == 4) exit <= $test$plusargs("runtime-test-target-fail") ? 3 : 1;
+      if (cycles == 5 && $test$plusargs("runtime-test-transient-exit")) exit <= 0;
     end
   end
 endmodule

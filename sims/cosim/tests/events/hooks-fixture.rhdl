@@ -1,0 +1,105 @@
+#lang rhodium
+/* Exercises architectural hook transport, delayed completion, and disabled hooks. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("sims/cosim/events/hooks.rhdl") open
+  lib("riscv/rtl/privilege.rhdl").PrivilegeMode
+
+/* Emit a fixed semantic transcript from explicit cycle inputs. */
+circuit CosimHookSource(enabled :: Boolean):
+  input clock: Clock
+  input step: Bits(4)
+  def hart = CosimHart(clock, bits(0, 64), enabled)
+  def zero = bits(0, 64)
+  def id0 = CosimInstructionId():
+    epoch: zero
+    order: zero
+  def id1 = CosimInstructionId():
+    epoch: zero
+    order: bits(1, 64)
+  def id2 = CosimInstructionId():
+    epoch: zero
+    order: bits(2, 64)
+  def id3 = CosimInstructionId():
+    epoch: zero
+    order: bits(3, 64)
+  def instruction = CosimInstruction():
+    pc: bits(0x80000000, 64)
+    encoding: bits(0x13, 32)
+    encoding_valid_bytes: bits(4, 3)
+    instruction_bytes: bits(4, 3)
+    privilege: PrivilegeMode.Machine
+    virtualized: Bool(#false)
+    producers: mux(step === bits(0, 4), bits(1, 64), zero)
+  def retirement = CosimRetirement():
+    next_pc: bits(0x80000004, 64)
+    privilege: PrivilegeMode.Machine
+    virtualized: Bool(#false)
+  def trap = CosimTrap():
+    cause: bits(13, 64)
+    epc: bits(0x80000000, 64)
+    tval: bits(0x2000, 64)
+    target_pc: bits(0x100, 64)
+    privilege: PrivilegeMode.Supervisor
+    virtualized: Bool(#true)
+    guest_valid: Bool(#true)
+    htval: bits(0x800, 64)
+    htinst: bits(0x3000, 64)
+  def register_write = CosimRegisterWrite():
+    bank: CosimRegisterBank.Vector
+    register_index: bits(7, 5)
+    bit_offset: bits(128, 16)
+    mask: !zero
+    value: bits(0x8000000000000042, 64)
+  def csr = CosimCsrUpdate():
+    address: bits(1, 12)
+    operation: CosimCsrOperation.SetBits
+    mask: bits(31, 64)
+    value: bits(16, 64)
+  def memory = CosimMemoryEffect():
+    access_id: bits(7, 64)
+    fragment_offset: bits(3, 64)
+    kind: CosimAccessKind.Load
+    virtual_address: bits(0x2000, 64)
+    physical_valid: Bool(#true)
+    physical_address: bits(0x80001000, 64)
+    byte_mask: bits(0xff, 8)
+    read_valid: Bool(#true)
+    write_valid: Bool(#false)
+    read_data: bits(0x8000000000000042, 64)
+    write_data: zero
+    result: CosimAccessResult.Success
+  def effect0 = CosimEffectId():
+    producer: bits(0, 6)
+    index: zero
+  def effect1 = CosimEffectId():
+    producer: bits(0, 6)
+    index: bits(1, 64)
+  def effect2 = CosimEffectId():
+    producer: bits(0, 6)
+    index: bits(2, 64)
+  hart.instruction(step === bits(0, 4), id0, instruction)
+  hart.instruction(step === bits(1, 4), id1, instruction)
+  hart.retire(step === bits(1, 4), id1, retirement)
+  hart.reg_write(step === bits(1, 4), id0, effect0, register_write)
+  hart.csr_update(step === bits(1, 4), id0, effect1, csr)
+  hart.memory(step === bits(1, 4), id0, effect2, memory)
+  hart.seal(step === bits(1, 4), id0, bits(0, 6), bits(3, 64))
+  hart.retire(step === bits(2, 4), id0, retirement)
+  hart.instruction(step === bits(3, 4), id2, instruction)
+  hart.exception(step === bits(3, 4), id2, trap)
+  hart.interrupt(step === bits(4, 4), id3, trap, zero)
+
+/* Disabled hooks receive identical inputs and must emit no duplicate callbacks. */
+circuit CosimHooksFixture():
+  input clock: Clock
+  input step: Bits(4)
+  inst active(CosimHookSource(#true))
+  inst disabled(CosimHookSource(#false))
+  active.clock <== clock
+  active.step <== step
+  disabled.clock <== clock
+  disabled.step <== step
+
+export:
+  CosimHooksFixture

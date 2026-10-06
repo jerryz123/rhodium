@@ -1,6 +1,6 @@
 // Validates actual RHDL-to-SV-to-DPI hook payloads with the production collector.
 // SPDX-License-Identifier: Apache-2.0
-#include "../../../hooks-dpi.h"
+#include "../../../events/dpi.h"
 #include <cstdlib>
 #include <cstdio>
 #include <memory>

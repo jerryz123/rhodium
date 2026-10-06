@@ -4,7 +4,6 @@
 
 import:
   "../riscv/cosim-source.rhm".describe_cosim_signals
-  "cosim-support.rhdl" open
   "profile.rhm".RV5StageConfig
   "profile.rhm".RV5StageMmuMode
   "decode/fence-ctrl.rhdl" open
@@ -986,93 +985,10 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
         state.virtualized <== virtualized ||| csr_flag(state.hstatus, HstatusSPV)
   | #void
 
-  /* Canonical backing views include trap/return writes, not duplicated supervisor aliases.
-     Free-running counters and overflow are environment-owned; only software writes
-     contribute their deltas here. */
-  def mutable entries = [
-    RV5StageCosimCsr(CsrId.Mstatus, mstatus_value, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Menvcfg, state.menvcfg ||| machine_timer_field, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Senvcfg, state.senvcfg, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Medeleg, state.medeleg, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mideleg, interrupt_delegation, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mie, state.mie, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mip, state.mip, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mtvec, state.mtvec, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mcounteren, state.mcounteren, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mscratch, state.mscratch, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mepc, state.mepc, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mcause, state.mcause, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mtval, state.mtval, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Stvec, state.stvec, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Scounteren, state.scounteren, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Sscratch, state.sscratch, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Sepc, state.sepc, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Scause, state.scause, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Stval, state.stval, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Satp, state.satp, Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mcycle, cycle_value, counters.machine_write.valid & (csr === csr_bits(CsrId.Mcycle))),
-    RV5StageCosimCsr(CsrId.Minstret, instret_value, counters.machine_write.valid & (csr === csr_bits(CsrId.Minstret))),
-    RV5StageCosimCsr(CsrId.Mcountinhibit, mux(hpm_inhibit, hpm_mask, zero), Bool(#true)),
-    RV5StageCosimCsr(CsrId.Mhpmcounter3, hpm_low, hpm.counter_write.valid),
-    RV5StageCosimCsr(CsrId.Mhpmevent3, selector_low, hpm.selector_write.valid),
-    RV5StageCosimCsr(CsrId.Mip, mux(hpm_pending, lcof_mask, zero), csr_write & bank_address.is_one_of(csr_bits(CsrId.Mip), csr_bits(CsrId.Sip)))
-  ]
-  if xlen == XLen.X32
-  | block:
-      entries := entries ++ [
-        RV5StageCosimCsr(CsrId.Mcycleh, cycleh_value, counters.machine_write.valid & (csr === csr_bits(CsrId.Mcycleh))),
-        RV5StageCosimCsr(CsrId.Minstreth, instreth_value, counters.machine_write.valid & (csr === csr_bits(CsrId.Minstreth))),
-        RV5StageCosimCsr(CsrId.Mhpmcounter3h, hpm_high, hpm.counter_write.valid),
-        RV5StageCosimCsr(CsrId.Mhpmevent3h, selector_high, hpm.selector_write.valid),
-        RV5StageCosimCsr(CsrId.Menvcfgh, csr_field_value(EnvcfghSTCE, machine_timer_enabled.as_bits(), width), Bool(#true))
-      ]
-  | #void
-  if sstc
-  | block:
-      entries := entries ++ [RV5StageCosimCsr(CsrId.Stimecmp, if xlen == XLen.X32 | state.stimecmp[0..32] | state.stimecmp, Bool(#true))]
-      if xlen == XLen.X32
-      | block:
-          entries := entries ++ [RV5StageCosimCsr(CsrId.Stimecmph, state.stimecmp[32..64], Bool(#true))]
-      | #void
-      if hypervisor
-      | block:
-          entries := entries ++ [RV5StageCosimCsr(CsrId.Vstimecmp, state.vstimecmp, Bool(#true))]
-      | #void
-  | #void
-  if smstateen
-  | block:
-      for (index in 0..4):
-        entries := entries ++ [RV5StageCosimCsr(if xlen == XLen.X32 | MachineStateEnableHighIds[index] | MachineStateEnableIds[index], if xlen == XLen.X32 | state.mstateen[index][32..64] | state.mstateen[index], Bool(#true))]
-        if hypervisor
-        | block:
-            entries := entries ++ [RV5StageCosimCsr(HypervisorStateEnableIds[index], state.hstateen[index], Bool(#true))]
-        | #void
-  | #void
-  if hypervisor
-  | block:
-      entries := entries ++ [
-        RV5StageCosimCsr(CsrId.Hstatus, state.hstatus, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Hedeleg, state.hedeleg, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Hideleg, state.hideleg, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Hvip, state.hvip, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Hcounteren, state.hcounteren, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Henvcfg, state.henvcfg, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Htimedelta, state.htimedelta, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Htval, state.htval, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Htinst, state.htinst, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Mtval2, state.mtval2, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Mtinst, state.mtinst, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vsstatus, vsstatus_value, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vstvec, state.vstvec, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vsscratch, state.vsscratch, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vsepc, state.vsepc, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vscause, state.vscause, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vstval, state.vstval, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Vsatp, state.vsatp, Bool(#true)),
-        RV5StageCosimCsr(CsrId.Hgatp, state.hgatp, Bool(#true))
-      ]
-  | #void
   def csr_taps = {
+    "interrupt_inputs": interrupts,
+    "time_input": time_counter,
+    "interrupt_boundary": interrupt_boundary & !synchronous_trap.valid,
     "interrupt_take": interrupt_take,
     "synchronous_trap": synchronous_trap.valid,
     "commit": commit.valid,
@@ -1095,9 +1011,7 @@ sync_circuit RV5StageCsrFile(core_profile :: RV5StageConfig):
     "fault_inst": fault_inst,
     "returned_virtual": if hypervisor | mux(mret, (mret_privilege =/= PrivilegeMode.Machine) & csr_flag(state.mstatus, MstatusMPV), virtualized ||| csr_flag(state.hstatus, HstatusSPV)) | Bool(#false)
   }
-  def value_taps = for Map (item in entries, index in 0..entries.length()): values("value_" ++ to_string(index), item.value)
-  def eligible_taps = for Map (item in entries, index in 0..entries.length()): values("eligible_" ++ to_string(index), item.eligible)
-  describe_cosim_signals(csr_taps ++ value_taps ++ eligible_taps, entries.map(fun (item): item.address))
+  describe_cosim_signals(csr_taps)
 
 export:
   PrivilegeMode

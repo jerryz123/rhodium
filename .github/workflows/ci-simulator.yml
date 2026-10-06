@@ -58,20 +58,47 @@ jobs:
         uses: ./.github/actions/setup-circt
       - name: Install Spike and FESVR
         uses: ./.github/actions/setup-fesvr
+      - name: Prepare Sail cosim dependencies
+        if: fromJSON(inputs.config).cosim
+        id: cosim-source
+        run: |
+          sudo apt-get install --yes libgmp-dev z3 python3-venv
+          git submodule update --init riscv/sail-riscv
+          echo "revision=$(git rev-parse HEAD:riscv/sail-riscv)" >> "$GITHUB_OUTPUT"
+          python3 -m venv .tools/cosim-python
+          .tools/cosim-python/bin/pip install 'ruamel.yaml==0.18.10' 'pyjson5==1.6.8'
+      - name: Cache embedded Sail model and compiler
+        if: fromJSON(inputs.config).cosim
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            .tools/sail-compiler-0.20.3
+            .tools/sail-riscv-0.14.1-sail-0.20.3-*
+          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.cosim-source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
+      - name: Build embedded Sail model
+        if: fromJSON(inputs.config).cosim
+        run: make -C sims arch-test-sail-setup
       - name: Build and attest simulator
+        id: simulator
         shell: bash
         env:
           SOC: ${{ fromJSON(inputs.config).soc }}
           RTL_BACKEND: ${{ fromJSON(inputs.config).backend }}
           SIMULATOR_ID: ${{ fromJSON(inputs.config).simulator_id }}
           OPT_FAST: ${{ fromJSON(inputs.config).opt_fast }}
+          COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}
+          COSIM_PYTHON: ${{ github.workspace }}/.tools/cosim-python/bin/python
         run: |
           build_args=()
           if [[ -n "$OPT_FAST" ]]; then build_args+=("OPT_FAST=$OPT_FAST"); fi
           # An empty override must leave Verilator's normal compiler flags intact.
           unset OPT_FAST
+          build="/tmp/rhodium-sims/$SIMULATOR_ID"
+          if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi
+          echo "path=$build/obj" >> "$GITHUB_OUTPUT"
           make -C sims simulator program-target SOC="$SOC" "${build_args[@]}" VERILATOR='verilator --stats' 2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"
-          ldd "/tmp/rhodium-sims/$SIMULATOR_ID/obj/VTestDriver"
+          ldd "$build/obj/VTestDriver" | tee "$RUNNER_TEMP/simulator-libraries.txt"
+          ! grep -q 'not found' "$RUNNER_TEMP/simulator-libraries.txt"
       - name: Test Spike DPI integration
         if: fromJSON(inputs.config).core == 'spike'
         run: |
@@ -90,9 +117,9 @@ jobs:
         with:
           name: ${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
           path: |
-            /tmp/rhodium-sims/${{ fromJSON(inputs.config).simulator_id }}/obj/VTestDriver
-            /tmp/rhodium-sims/${{ fromJSON(inputs.config).simulator_id }}/obj/VTestDriver.json
-            /tmp/rhodium-sims/${{ fromJSON(inputs.config).simulator_id }}/obj/program-target.json
+            ${{ steps.simulator.outputs.path }}/VTestDriver
+            ${{ steps.simulator.outputs.path }}/VTestDriver.json
+            ${{ steps.simulator.outputs.path }}/program-target.json
           if-no-files-found: error
           retention-days: 3
 
@@ -103,7 +130,7 @@ jobs:
           name: simulator-build-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}
           path: |
             ${{ runner.temp }}/${{ fromJSON(inputs.config).simulator_id }}-build.log
-            /tmp/rhodium-sims/${{ fromJSON(inputs.config).simulator_id }}/obj/VTestDriver__stats*.txt
+            ${{ steps.simulator.outputs.path }}/VTestDriver__stats*.txt
           if-no-files-found: warn
           retention-days: 7
 

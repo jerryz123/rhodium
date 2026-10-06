@@ -1,0 +1,41 @@
+Subject: [PATCH] Clear vstart after empty whole-register loads and stores
+
+Purpose: Preserve vector completion semantics on the permitted empty-transfer path.
+SPDX-License-Identifier: BSD-2-Clause
+
+With Vstart_Ignore selected, a whole-register memory instruction can retire
+without transferring elements. Like every successfully completed vector
+instruction, it must reset vstart. Keep legality checks and all fault paths
+unchanged; only the successful early return needs the same reset as the loop.
+
+diff --git a/model/extensions/V/vext_mem_insts.sail b/model/extensions/V/vext_mem_insts.sail
+--- a/model/extensions/V/vext_mem_insts.sail
++++ b/model/extensions/V/vext_mem_insts.sail
+@@ -497,7 +497,9 @@ function clause execute VLRETYPE(nf, rs1, width, vd) = {
+-  // NOTE: Non-trapping path, vstart >= evl writes no elements. Currently
+-  // unreachable because illegal_vstart above always traps on out-of-bounds
+-  // vstart, but kept so this stays correct if that trap is ever made optional.
++  // If the configured legality policy permits an empty transfer, it still
++  // completes the instruction and clears the architectural restart cursor.
+-  if start_element >= nf * elem_per_reg then return RETIRE_SUCCESS;
++  if start_element >= nf * elem_per_reg then {
++    set_vstart(zeros());
++    return RETIRE_SUCCESS
++  };
+   let elem_to_align : int = start_element % elem_per_reg;
+   var cur_field : int = start_element / elem_per_reg;
+   var cur_elem  : int = start_element;
+@@ -553,7 +555,9 @@ function clause execute VSRETYPE(nf, rs1, vs3) = {
+-  // NOTE: Non-trapping path, vstart >= evl writes no elements. Currently
+-  // unreachable because illegal_vstart above always traps on out-of-bounds
+-  // vstart, but kept so this stays correct if that trap is ever made optional.
++  // If the configured legality policy permits an empty transfer, it still
++  // completes the instruction and clears the architectural restart cursor.
+-  if start_element >= nf * elem_per_reg then return RETIRE_SUCCESS;
++  if start_element >= nf * elem_per_reg then {
++    set_vstart(zeros());
++    return RETIRE_SUCCESS
++  };
+   let elem_to_align : int = start_element % elem_per_reg;
+   var cur_field : int = start_element / elem_per_reg;
+   var cur_elem  : int = start_element;

@@ -4,12 +4,9 @@
 # Architectural co-simulation
 
 This package provides a model-independent architectural event collector and an
-in-process Sail reference hart with private memory. The scalar comparison runtime
+in-process Sail reference hart with private memory. The comparison runtime
 connects them to Mini/Simple RV5Stage simulators through compile-target instrumentation.
-See the parent
-[contributor guide](../DEVELOPING.md#embedded-sail-reference) for maintenance and
-the [source documentation requirements](../../AGENTS.md#source-documentation),
-including the `tests/` exemption.
+See [DEVELOPING.md](DEVELOPING.md) for ownership and maintenance.
 
 ## Get started
 
@@ -30,14 +27,16 @@ make -C sims sail-cosim-test
 ```
 
 These targets do not require a SoC or ISA selection. They validate the library
-boundary, not any config. The tests use explicit RV32 and RV64
-Sail configurations and execute scalar programs.
+boundary, not any configuration. The tests use explicit RV32 and RV64
+Sail configurations and retain compact scalar/vector checker regressions.
 
 Build and run the first end-to-end scalar workload through the normal FESVR loader:
 
 ```sh
 make -C sims cosim-smoke SOC=mini-rv5stage-rv64imacb
 make -C sims cosim-smoke SOC=simple-rv5stage-rv64imacb
+make -C sims isa-smoke SOC=mini-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs
+make -C sims isa-smoke SOC=simple-rv5stage-rv64imacb COSIM=1 PROGRAM_BUILD_ROOT=/tmp/rhodium-cosim-programs
 make -C sims run SOC=mini-rv5stage-rv64imacb COSIM=1 BINARY=/absolute/path/to/program.elf
 ```
 
@@ -48,39 +47,125 @@ Ordinary simulators contain neither the observer nor the Sail runtime.
 The executable embeds its exact config, boot ROM/DTB, and hart
 descriptor, so running it does not require the build directory's JSON files.
 
-### Scalar execution boundary
+### Capture and ordered ownership
 
-The current simulator runtime accepts only `mini-rv5stage-rv64imacb` and
-`simple-rv5stage-rv64imacb`. This is a bounded bring-up workload, **not full
-validation of the selected ISA**. The real profile is preserved; no scalar
-substitute configuration or second ELF loader is used.
+RV5Stage observation has a stateless RTL capture layer and a native hart adapter:
+core-declared taps → simulation-owned DPI capture → RV5Stage C++ normalization → generic ordered
+collector → Sail checker. The hart adapter assigns one instruction identity to
+scalar, FP, and vector events. It retains delayed owners, split requests,
+translated addresses, FP flag contributions, and vector effect counts in host memory.
+Capture adds no bookkeeping registers or queues and never drives the core.
+All callbacks in a cycle are resolved together; their invocation order does not
+determine ownership. Host reset epochs discard that hart's old observation state.
 
-```text
-actual ROM + successful FESVR writes -> private Sail memory
-RTL hooks -> ordered collector -> scalar checker -> mismatch / checked record
-                             device-read bytes -> Sail device input
-```
+### Simulator checking
 
-The checker compares PC, instruction bits/length, privilege transitions, integer
-writeback, scalar memory bytes, synchronous traps, and observed masked CSR deltas.
-Private RAM loads are independently computed. Only device-read bytes are replayed,
-before Sail's load semantics; Sail never repeats writes to real devices.
-FESVR mirrors successful image loading, clearing, and later host writes. Host writes
-are applied before records at or after their completion sample. This ordering does
-not yet validate races between host writes and in-flight hart accesses.
+Cosim can be selected for every Mini/Simple RV5Stage ISA profile, including
+`rv64max` and `rva23`. Integer and FP effects retain their architectural
+widths; vector collection uses the selected VLEN, including RV32's VLEN64.
+This is bounded execution support, not full qualification of
+the selected ISA. Sail executes guest privilege transitions and two-stage translation
+independently; the checker compares privilege including virtualization and trap
+outcomes. The exact profile is preserved; FESVR remains the only loader.
 
-Each evaluated rising edge is bracketed by host sample barriers. Checking runs
-after all callbacks settle, and termination rejects incomplete collected records.
-These barriers use the driver's feature-independent native runtime; the runtime
-owns cosim configuration and counters, alongside optional tracing.
-The driver supports its initial reset, not a later warm reset. A mismatch fails the
-simulation and identifies the architectural order and PC. `cosim-smoke` also runs
-a deliberate GPR-corruption probe to verify that a bad observation is rejected.
+The checker compares instruction PC/encoding/length, privilege and trap transitions,
+integer/FP/vector writes, FP flag effects, and physical store effects. RV5Stage does
+not export privileged or vector CSR-bank snapshots. Sail evolves deterministic
+CSR state itself; software CSR reads are checked through their register results.
+The generic hook API still accepts explicitly authored CSR effects, but does not
+require them for deterministic internal state.
+Sail has private RAM and independent page-table walks. Only device-read bytes
+are supplied from the DUT environment, before Sail's load semantics; writes are
+never repeated against real devices. Neither registers nor memory are repaired
+using DUT results.
 
-Interrupt delivery, translated or fragmented accesses, atomics, cache operations,
-FP/vector/H, and complete CSR/counter-state comparison remain outside this runtime's
-validated scope. Unsupported event kinds fail rather than being skipped. Do not
-enable general software-suite CI with this runtime yet.
+Successful FESVR loading and host writes are mirrored into reference memory.
+Host writes precede records at or after their completion sample; races with
+in-flight hart accesses are not yet supported. The real BootROM/DTB is embedded
+with the exact configuration.
+
+Checking runs after all callbacks for an edge settle. HTIF exit freezes the
+admitted instruction boundary, then the simulator clocks until its delayed
+effects complete. Younger instructions are outside that frozen window.
+Incomplete records, mismatches, and cycle-limit exhaustion fail the run.
+Only initial reset is integrated; later warm reset is not supported.
+
+Interrupt pins, architectural time, and active cycles are sampled at admission.
+Sail independently determines interrupt eligibility, priority, delegation, and
+target at the observed arbitration boundary; this does not check interrupt
+latency. Sail evolves instret, software counter writes, FCSR, and rounding itself.
+Their effects are checked when they affect instruction outcomes, not through
+separate CSR snapshots. FP results include NaN boxing; reported FP flag
+contributions are folded into architectural `fflags`. A contribution to an
+already-set sticky flag is not separately compared with Sail.
+
+Bare/Sv32/Sv39 and guest translation currently use software-managed A/D bits. Split accesses
+are sequential: successful store prefixes survive a second-page fault, and a
+faulting load leaves its destination unchanged. Store comparison preserves
+those effects independently of transfer size. Fetch encoding and fault outcomes
+are checked, but a separate fetch physical address is not observed.
+
+Ordinary RAM loads are checked through register results, not a reference access
+trace. RAM stores compare touched physical addresses and final byte values;
+device writes preserve byte order and multiplicity. Device reads are replayed
+by physical address and width. Access-attempt identities, fault-fragment coverage,
+and ordinary load addresses/data are not independently compared. An incorrect
+load returning the same architectural value or an omitted already-set FP flag
+can therefore escape this checker; targeted RTL tests own those details.
+
+AMO results and LR/SC reservations are computed independently. An observed SC
+failure may withhold reference success, never force it. This permitted spurious
+failure does not establish LR/SC progress, coherence correctness, or cross-hart
+ordering. Cache-block zero is checked as ordinary physical zero stores. Clean,
+flush, and invalidate have no architectural byte effect; Sail checks their
+permissions and trap/retirement outcomes, not cache residency or writeback timing.
+Device atomics, hardware A/D updates, HPM event/filter
+behavior remain outside runtime support.
+
+`cosim-smoke` also injects deliberate GPR corruption to confirm mismatch detection.
+CI enables cosim on every enrolled Mini/Simple RV5Stage config, including the
+existing direct-SystemVerilog variant; the experimental Rsim backend is not
+instrumented. They retain their ordinary shape/ISA-selected
+workloads, including native software, ACT, and OpenSBI where selected. There are
+no additional cosim configs, duplicate simulator builds, or test exclusions.
+Enablement is not a claim that all workloads pass; incomplete comparison paths
+remain visible as failures in those existing lanes.
+
+### Vector checking
+
+The observer associates actual VRF writes, shared-service returns, and memory
+fragments with the instruction admitted at WB. Owners survive queued dispatch,
+replay, and overlapping execution. Records close at final execution drain, not
+sequencer release; the v0 shadow does not produce duplicate architectural writes.
+Vector-to-scalar integer and FP writes use that same vector owner; they do not
+create another scalar retirement record.
+
+Vector compute has no opcode qualification whitelist. The checker applies the
+reported bit-masked writes to the independently matched pre-state and compares
+the entire VRF with Sail's post-state. Bounds, overlapping fragments, changed
+values, and missing state changes are checked without reproducing each opcode's
+operand geometry. A write of the already-held value is architecturally a no-op.
+Both models currently retain inactive/tail data; differing legal agnostic
+policies need an explicit comparison policy, never copying DUT values into Sail.
+Programs must initialize vector operands before reading them; arbitrary power-on
+VRF contents are not modeled as symbolic values.
+
+Vector memory uses the same physical store comparison and full VRF post-state
+comparison. Sail independently determines trap values, `vstart`, and
+FOF-shortened `vl`. Partial segment-load and optional FOF suffix divergence is
+tracked, not repaired. No Sail access-attempt callbacks are needed. Generic
+compute after such divergence currently fails explicitly; memory may consume
+only known predicate, index, and store-data bits.
+
+Scalar/vector flags are attributed to the issuing instruction and folded into
+architectural sticky state before comparison. Other uncaptured effect families
+still need integration; absence of an opcode
+whitelist does not imply that every observation path is complete.
+
+Instruction coverage comes from the existing ISA/ACT/software suites with cosim
+enabled, not separate opcode matrices. Focused tests protect observation,
+ownership, passivity, and mismatch detection. See the
+[validation strategy](DEVELOPING.md#validation).
 
 ## Hook and collector contract
 
@@ -102,29 +187,41 @@ The direct `verilog_target` is also supported. Add `event_trace_pass()` to the
 same list for Flow DPI tracing; both pass orders preserve annotations and prior
 observers. `cosim_pass(~harts: [["core"]])` selects exact declared hart paths
 relative to the compilation top. The default selects all declared harts.
-Missing selections and unsupported selected profiles fail compilation, never
+The default adapter map handles `rv5stage.v1`. To support another declared
+contract, supply `~adapters: {"my-hart.v1": adapter}`. This replaces the map;
+list every contract needed by the selected harts. Each adapter receives detached
+configuration, tap types, component parameters, and an occurrence ID, and returns
+an elaborated observer with no outputs. The core declares metadata only; adapters
+and their eligibility checks belong to the simulation package.
+Missing selections, unknown contracts, and unsupported selected profiles fail compilation, never
 silently produce incomplete checking.
 
 The pass preserves functional top ports and existing instance paths. It returns
 `cosim.json` with deterministic occurrence IDs and paths alongside the RTL.
-Only selected harts get observer state/DPI. Ordinary functional DPI is retained
+Only selected harts get passive observer DPI. Ordinary functional DPI is retained
 in every mode. Source programs remain reusable across compilation variants.
+Integration may bind sibling-component taps to a child hart using
+`describe_cosim_context` from `cores/riscv/cosim-source.rhm`. The pass routes
+these read-only taps only when that hart is selected, requiring the same clock
+and reset domain; the uninstrumented design has no additional ports.
 
 The host binds descriptor IDs to architectural harts using `Collector::reset`
 before the first reset edge and advances the epoch before each later reset.
-The generated observer samples `rhodium_cosim_epoch` while reset is asserted;
-the collector remains the authority for epoch generation. No epoch/instance
-ports are added to the functional design. At least one reset edge is required
-before execution. Sample barriers and environment snapshots remain host-owned.
+The RV5Stage native adapter obtains the current epoch directly from the collector
+when it captures an event; it does not retain a DPI-result register in RTL.
+No epoch/instance ports are added to the functional design. At least one reset
+edge is required before execution. Sample barriers and environment snapshots
+remain host-owned.
 
 This pass emits observations; it does not enable Sail comparison or change
-SoC/ISA selection. The current RV5Stage recipe supports scalar RV32/RV64;
-FP/vector and hypervisor observation are explicitly rejected when selected.
+SoC/ISA selection. The RV5Stage adapter captures scalar RV32/RV64, scalar F/D,
+and vector effects described above. H execution uses the same ordered stream;
+no extra DUT CSR-state extraction or reference-state repair is required.
 
 ### Producer and receiver
 
-The producer API is [`CosimHart`](../../cores/riscv/cosim.rhdl), imported with
-`lib("cores/riscv/cosim.rhdl")`. Construct it with an explicit `Clock` (or
+The producer API is [`CosimHart`](events/hooks.rhdl), imported with
+`lib("sims/cosim/events/hooks.rhdl")`. Construct it with an explicit `Clock` (or
 `#false` for the ambient `sync_circuit` clock), a 64-bit simulation-instance ID,
 and an optional host Boolean `enabled` (default true). Callers suppress reset events.
 `enabled = #false` specializes away every callback. It has no ready signal, result register,
@@ -134,6 +231,7 @@ or influence on execution. Gate each method with the actual semantic event's
 
 | Method | Meaning |
 |---|---|
+| `environment(valid, value)` | Pre-edge interrupt pins, time, active-cycle position, and interrupt-check boundary |
 | `instruction(valid, id, value)` | Allocate an architectural position; carries PC, encoding, privilege, and producer bitmap |
 | `retire(valid, id, value)` | Successful architectural retirement, with next PC and privilege |
 | `exception(valid, id, value)` | Synchronous exception, with cause, EPC, TVAL, target, and optional guest information |
@@ -175,10 +273,12 @@ Memory effects carry access ID, fragment offset, kind, virtual address, optional
 physical address, byte mask, optional read/write data, and success/fault/SC-failure
 result. Each fragment is at most eight bytes, with mask/data relative to its
 reported address. Vector accesses have distinct access IDs; split portions of
-one access share an ID. Record a store's architectural acceptance, not a later
+one access share an ID. A fault result records a failed access; the instruction's
+separate outcome determines whether it trapped (a fault-only-first load can
+suppress that fault and retire). Record a store's architectural acceptance, not a later
 cache writeback. No cross-hart memory order or coherence checker is implied.
 
-[`observation.h`](observation.h) is the independent C++ API. Its guaranteed flow is:
+[`Collector`](events/collector.h) is the independent C++ API. Its guaranteed flow is:
 
 ```text
 header + outcome + effects + producer seals (arbitrary callback order)
@@ -205,6 +305,11 @@ hart**, not a global multi-hart execution order. Effects/outcomes may precede
 their header within a sample, but not across samples.
 
 `finish()` rejects an open sample, missing effects/seals/outcomes, and order gaps.
+At a settled termination boundary, `drain()` freezes each hart's admitted order
+prefix and reports whether it is empty. Continue normal samples until it returns
+true. Headers and effects for newer orders are outside the frozen window;
+delayed callbacks for admitted orders retain every normal validation rule.
+Drain is idempotent, does not reset state, and does not weaken `finish()`.
 Published IDs cannot receive more callbacks. Pending order distance and effects
 per record have configurable bounds (defaults 4096 and 65536); exceeding them
 fails instead of dropping observations. Protocol failures poison the collector.
@@ -214,7 +319,7 @@ finishing. One binding owns all registered harts on one simulation thread.
 
 ## Sail adapter contract
 
-[`sail-reference.h`](sail-reference.h) is the generated-type-free API.
+[`SailReference`](sail/reference.h) is the generated-type-free API.
 Construct `SailReference` with complete Sail configuration JSON, a reset PC,
 and physical ranges backed by private ROM/RAM. Initialization validates the
 supplied configuration; it does not silently substitute an ISA profile. The
@@ -256,7 +361,7 @@ read-only ROM. Uninitialized backing bytes read as zero. Architectural writes
 still obey Sail's PMA/PMP and translation checks.
 
 `step()` executes exactly one instruction attempt or pending-interrupt
-transition. It reports the original/next PC, privilege, fetched instruction,
+transition. It reports the original/next PC, privilege and virtualization, fetched instruction,
 retirement or waiting status, trap, register-write callbacks, and physical
 memory transfers. A trap does not also execute the first handler instruction.
 Fetches and page-table transfers are marked/reported at the physical boundary;
@@ -264,7 +369,8 @@ these are not an already-normalized DUT retirement record. CSR callbacks are
 not a complete CSR-state delta, and repeated writes are retained in order.
 
 `StepInputs` supplies machine/supervisor external interrupt levels, explicit
-cycle ticks, architectural time, wait release, and an ordered list of raw device-read bytes. Device
+cycle ticks, architectural time, wait release, and an ordered list of physical
+addresses and raw device-read bytes. Device
 reads are injected before load sign extension and other instruction semantics.
 Device writes are reported but never sent to a second device implementation.
 Missing, mismatched, or unused read replay fails the step; a failed step poisons
@@ -278,18 +384,16 @@ loading and host writes into private reference memory as described above.
 
 - One live instance on one host thread, because the pinned Sail runtime and
   configuration are process-global. Destroying and reconstructing resets it.
-- Adapter-library validation (distinct from the narrower simulator runtime):
-  RV32/RV64 scalar arithmetic, branches, loads/stores, synchronous
-  traps, machine external interrupts, host time, WFI, strict MMIO replay, and coexistence
-  with the existing FESVR transport.
-- The callback API carries FP/vector writes, but FP/vector, atomics/reservation
-  behavior, virtualized privilege, full-profile execution, and supervisor
-  interrupt delivery are not validated by this first cut.
+- The embedding and simulator initialization support RV32/RV64.
+  Hardware A/D effects remain a gap. RV64 vector-profile workloads are enabled but not
+  yet established as passing end to end.
+- Reservation hooks use the existing Sail platform interface; no atomic
+  semantics are patched into the upstream model.
 - Typed RTL hooks and the deferred-effect collector also have an optional
-  [RV5Stage scalar producer](../../cores/rv5stage/README.md#optional-scalar-architectural-observation).
-  The scalar comparison runtime is opt-in; software-suite co-simulation is not
-  enabled in CI. Timer/software interrupt inputs into Sail and
-  nondeterministic CSR replay remain future environment work.
+  [RV5Stage producer](../../cores/rv5stage/README.md#optional-architectural-observation).
+  Local runtime selection is opt-in; all existing Mini/Simple RV5Stage CI
+  artifacts have it enabled. Close remaining observation gaps through those
+  existing workloads, not more custom ISA suites.
 
 The pinned model and optional host hooks live in the existing
 [Sail patch series](../../riscv/sail-riscv-patches/series), not in a dirty

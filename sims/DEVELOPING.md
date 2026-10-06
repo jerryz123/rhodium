@@ -42,6 +42,17 @@ test-only module paths remain available for focused fixtures. Every selection
 emits the same `SoCHarness` top contract. Preserve config-keyed artifact and
 target identities so switching any axis cannot reuse another simulator.
 
+All enrolled Mini/Simple RV5Stage CIRCT rows build with `COSIM=1`, as does the
+direct SystemVerilog variant. Each instrumented row publishes one
+simulator under its unchanged config artifact name; its local build directory
+retains the `-cosim` suffix. The experimental Rsim backend stays uninstrumented.
+The shared simulator job installs Sail, while the
+consumer needs only its native runtime dependencies. Consumers verify the
+expected cosim variant and run the same shape/ISA workload selection, requiring a
+successful nonempty checked stream. Unsupported checking paths fail explicitly;
+CI enrollment is not a claim of complete checker support. Keep this choice in `tools/ci/policy.py`,
+not a second config inventory or a separate cosim build/test loop.
+
 The host selection layer now uses `socs/configs/resolve.rhm` for hardware,
 software target descriptions, and UDB. `emit-soc-harness.rhm` and
 `program-test/write-target.rhm` require an explicit third ISA selector (the
@@ -74,7 +85,7 @@ The harness emitter loads only the selected compile target and gives it the
 same `ElaboratedProgram` and explicit top. Direct builds emit `SoCHarness.sv`
 without an intermediate MLIR target; `SOC_EMITTED` routes the actual source
 artifact to attestation. Keep compiler/backend imports in the host emitter,
-never in circuit definitions. CI uses `simulator_id` for artifact/build paths,
+never in circuit definitions. CI uses `simulator_id` for artifact identity and base build paths (instrumentation may add a local suffix),
 `soc` for the unchanged hardware/software target, and `backend` to select
 backend-specific tests. Backend variants stay out of architectural
 config, ACT, benchmark, and OpenSBI inventories. Direct event tracing is not
@@ -150,133 +161,17 @@ the owner of runner-specific compiler, memory, and timeout validation.
 
 ## Embedded Sail reference
 
-[`cosim/`](cosim/README.md) owns the C++ embedding boundary and its focused
-tests. It consumes the pinned Sail package; keep generated Sail types private
-to `sail-reference.cc`, not in the public adapter header. Its exact-configuration
-and private-memory contract is separate from ACT placement/signature policy.
-`cores/riscv/cosim.rhdl` owns reusable typed hart hooks and imports no simulator.
-`cosim/observation.h` and `.cc` own model-independent record assembly;
-`hooks-dpi.h` and `.cc` own the flat 64-bit ABI. Keep these independent of Sail,
-Perfetto, pipeline stages, and completion-slot allocation.
+[`cosim/`](cosim/README.md) owns target-selected observation, ordered event
+reconstruction, and independent Sail checking. Its [contributor guide](cosim/DEVELOPING.md)
+owns the source map, dependencies, callback/sample invariants, and focused tests.
+[`sail/`](sail/README.md) owns the shared ACT/cosim architectural projection and
+embedded Sail package metadata.
 
-`cosim/scalar-checker.*` consumes complete ordered records and compares independent
-Sail execution. `cosim/simulation.*` owns the single-hart runtime, embedded config
-configuration, ROM loading, successful FESVR-write mirroring, and sticky failures.
-`COSIM=1` selects the pass/runtime in the simulator build, independently from the
-HDL generator. Keep its narrow supported-config guard until new event families
-have end-to-end validation; never run an unsupported profile unchecked.
-`TestDriver.v` begins samples before rising edges and ends them before falling
-edges, outside the generated DPI callback ordering. Finalization checks both
-binding errors and incomplete collector state. A later warm-reset feature must
-advance the collector epoch and reset Sail together.
-
-The driver calls only `rhodium_sim_open/begin/end/finish`. The always-linked
-`verilator/simulation_runtime.*` owns feature-specific argument parsing, initial
-binding, sample counters, and shutdown. Native build flags select cosimulation,
-event export, both, or neither; no instrumentation-specific SV imports or state
-belong in the clock driver. Keep the argument classification shared with the
-FESVR binding so instrumentation options never become target arguments.
-The runtime ends cosim samples before exporting the same settled trace cycle,
-starts trace cycle zero after initial reset, and attempts every initialized
-consumer's shutdown even if another consumer failed. Finish is idempotent and
-preserves errors. Mapped VLSI simulation links the same runtime without optional
-consumers. Unused observation outputs on `SoCHarness` are intentionally left open.
-
-`make -C sims simulation-runtime-test` executes the real SV driver with native
-consumer probes in all four feature combinations. It checks callbacks inside
-sample barriers, reset timing, trace numbering, option forwarding, normal/failed
-target exit, timeout, and cleanup after consumer errors. This focused check runs
-in the existing host-adapter CI step and needs Verilator, not Sail or a full SoC.
-
-`cosim/pass.rhm` is an ordinary configured `RTLPass`. It consumes remappable
-hart/component declarations from `cores/riscv/cosim-source.rhm`, realizes
-output-free recipes only for selected occurrences, and uses the existing
-occurrence copier to preserve Flow metadata and functional DPI. It returns a
-detached hart descriptor with the RTL. Epoch queries read the collector's
-host-established reset generation; callers must reset/bind before clocking RTL.
-Recipes capture host configuration only and receive all live values through
-explicit inputs. Keep domain-specific WB and CSR logic in the RV5Stage recipe,
-not in the pass or collector.
-
-Run `tools/run-racket-tests.sh sims/cosim/tests/pass-test.rhm` for target
-selection, repeated occurrences, source reuse, both backends, and both Flow
-pass orders. It also runs in the host-SoC lane. The two `rv5stage-cosim*`
-fixtures validate real scalar behavior through target-selected observation.
-
-Run `make -C sims cosim-hooks-test` after collector/ABI changes. The host-adapter
-CI step includes it without requiring Sail. The `cosim-hooks` CIRCT fixture
-belongs to `cores-components` and exercises all hook payloads and disabled
-specialization through the real collector:
-
-```sh
-FIXTURES=cosim-hooks bash tools/testing/circt/run.sh --simulate-only
-```
-
-Change typed payloads, flat declarations, native decoding, and this behavioral
-fixture together. Retain tests for callback permutations, delayed effects,
-reset generations, incomplete sessions, and malformed streams. The simulator
-driver owns begin/end-sample barriers outside unordered DPI callbacks.
-
-`sail/configuration.py` owns the common architecture projection and explicit
-model-difference report. Keep ACT placement/signatures and synthetic devices in
-`arch-test/configure.py`. `cosim/write-config.rhm` exports canonical metadata
-and the resolved Mini/Simple hart PMAs, reset layout, backing ranges, and clocks;
-`cosim/configure.py` composes that environment with the shared architecture.
-The export includes the actual boot ROM/DTB bytes. With an observation descriptor,
-the projection also emits `runtime-config.h`; Verilator embeds these immutable
-inputs rather than depending on JSON paths at execution time. The build's Sail
-compiler version and patch identity scope native libraries, and simulator attestation distinguishes
-normal, trace, cosim, and trace-cosim variants.
-Never reconstruct profiles or platform addresses in Python. ROM uses Sail's
-`IOMemory` PMA category because `MainMemory` requires writable memory, but remains
-private backing rather than device replay. Instruction-only ROM caching has no
-separate Sail PMA switch; its executable permission remains explicit.
-
-Run `make -C sims arch-test-adapter-test` for projection changes (includes shared
-environment tests). After exporter or environment changes, run
-`make -C sims sail-cosim-config-test SOC=<config>` for representative Mini/Simple,
-RV32/RV64, and RV5Stage/Spike configs. This validates the exact profile and
-retires a ROM probe without RTL or firmware boot. Known model differences remain
-in the generated manifest. Configuration and environment fingerprints establish
-artifact identity, not full execution validation or trust in arbitrary input.
-
-The existing `arch-test/install-sail.sh` now packages static model, runtime,
-and SoftFloat libraries, generated/platform headers, JSON schema and jsoncons
-headers alongside `sail_riscv_sim`. `SailModelConfig.cmake` exports `Sail::Model`
-without references to the temporary build directory; GMP remains a host
-dependency. The ordered Sail patch series provides default-disabled physical
-memory providers and external interrupt inputs. Never edit the submodule to
-implement those hooks.
-The provider uses the v2 memory interface's explicit `MemoryAccessType` to
-identify instruction fetches independently of read ordering. Address announcements
-do not commit host writes. Tests must distinguish instruction reads from architectural
-data effects, not infer the distinction from addresses.
-
-The subpage-device PMA patch permits the exact eight-byte UART aperture only
-under unsplittable, non-executable, non-atomic IO attributes. Page-table transfers
-retain ordinary physical read/write permissions and full-range checks.
-Normal memory retains Sail's page-alignment requirements. Config initialization
-tests replay a UART byte and require a load access fault immediately outside its
-aperture. Validate co-simulation configurations inside `SailReference`, not with
-the standalone executable: Zicntr without CLINT requires the enabled host-time
-provider, which only the embedding supplies.
-
-After changing embedding hooks, rebuild with `make -C sims arch-test-sail-setup`
-(set `SAIL_COMPILER` on hosts without a downloadable compiler). Run
-`make -C sims sail-cosim-test` for the minimum validation. It uses real
-generated Sail execution, explicit RV32/RV64 configurations, and the existing
-FESVR transport in the same binary. The build is config-independent and
-identity-scoped under `.rhodium-cache/sail-cosim/`. Tests must exercise trap
-boundaries and raw MMIO read semantics, not substitute destination values or
-compare model state against itself. After runtime, loader mirroring, or driver
-changes, run `make -C sims cosim-smoke SOC=mini-rv5stage-rv64imacb`, then the same
-target for `simple-rv5stage-rv64imacb` to cover native CHI image loading. Each runs
-the real FESVR ELF flow and a deliberate observation-corruption failure. Run
-`transport-test` after changing the generic FESVR callback and the focused
-`test_sail_config.py`/`SimulatorArtifactTest` Python tests after changing embedding
-or artifact identity. This opt-in milestone is not yet part of the simulator
-software-test CI matrix; broader profiles require translation, interrupt,
-CSR/counter, FP/vector, and memory-order validation first.
+`COSIM=1` selects the compile pass and native runtime without changing the HDL
+generator or exact config profile. The generic Verilator runtime supplies sample
+barriers, successful FESVR writes, and bounded exit draining. Keep instruction
+coverage in the existing shape/ISA software suites; do not add a parallel cosim
+qualification matrix.
 
 ## Add or change a harness
 

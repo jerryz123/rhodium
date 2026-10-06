@@ -4,3 +4,5 @@
 0003-add-embedded-time-source.patch
 0004-allow-subpage-device-pmas.patch
 0005-preserve-effective-trap-address.patch
+0006-embedded-interrupt-boundaries.patch
+0007-clear-vstart-after-empty-whole-register-memory.patch

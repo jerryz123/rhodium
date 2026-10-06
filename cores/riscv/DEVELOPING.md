@@ -36,25 +36,36 @@ instruction, data, and uncached requester capabilities, placement parameters,
 and the hardware identity bundle. Named cores retain refill, writeback, snoop,
 cache-maintenance, and uncached transaction state machines.
 
-`cosim.rhdl` owns implementation-neutral observation types and passive DPI
-procedures. It uses only public Rhodium and architectural privilege types, not
-the host receiver under `sims/cosim/`. Keep the flat ABI synchronized with that
-receiver. Its owned behavioral integration test is `cosim-hooks` in
-`sims/cosim/tests/circt/`; run it through the shared CIRCT runner after hook changes.
-The clock argument may be explicit outside a synchronous domain or `#false`
-inside one. The caller gates reset; hooks do not infer reset, acceptance, or
-instruction ownership. The named-core producer has separate real-pipeline
-fixtures under `cores/rv5stage/tests/`.
+Typed DPI producers and native receivers belong to
+[`sims/cosim/`](../../sims/cosim/DEVELOPING.md), not this package. Keep functional
+core declarations independent of capture, simulator lifetime, and reference models.
 
 `cosim-source.rhm` is the authoring bridge for passive observations. It imports
 the core metadata protocol and frontend read/domain APIs, stores local taps and
-explicit child-instance views, and implements `IRRemappable`. Recipes may
-capture detached host configuration only; all live hardware must appear in the
-remapped taps. Compilation invokes recipes in a separate elaboration and checks
+explicit child-instance views, and implements `IRRemappable`. A hart declaration
+contains a versioned contract string and immutable host configuration, not an
+observer function or simulator-eligibility policy. All live hardware must appear
+in the remapped taps. The simulation pass selects an adapter for that contract,
+invokes it in a separate elaboration, and checks
 that observer circuits have only the declared inputs and no outputs. Component
 taps must share the hart's clock and reset domain; a separately reset component
 cannot silently reuse its hart's architectural epoch. This bridge
 does not import a compiler pass, simulator, or named core.
+
+`describe_cosim_signals(..., ~components: {...})` may retain explicit immediate
+children for nested component observations. The pass exports these only along
+selected hart paths, recursively prefixes their tap names, and checks every
+parent/child clock-reset boundary. No functional output ports are added during
+ordinary elaboration. The pass fixture covers nested export and composition with
+Flow instrumentation on both RTL backends.
+
+An integration module can attach sibling taps to a child hart through
+`describe_cosim_context(hart, components)`. The context retains explicit instance
+references, not hierarchical string lookup. Only the selected child occurrence
+receives added observation inputs; its simulation-owned adapter sees `component_field` names beside
+local and child-component taps. Keep context components in the same clock/reset
+domain. The integration owns the relationship, the component owns its semantic
+tap timing, and the simulation-owned native adapter owns instruction correlation.
 
 ## Focused validation
 

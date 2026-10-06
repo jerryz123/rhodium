@@ -1,0 +1,86 @@
+#lang rhodium
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("flow/main.rhdl") open
+  "../../../../cores/riscv/cosim-source.rhm" open
+
+dpi_import procedure cosim_test_sample(instance: Bits(64), value: Bits(8))
+dpi_import procedure cosim_test_functional(value: Bits(8))
+
+sync_circuit TestObserver(instance :: Nat, context :: Boolean):
+  input value: Bits(8)
+  input accepted: Bool
+  input component_child_value: Bits(8)
+  def extra:
+    if context
+    | input external_child_value: Bits(8)
+      external_child_value
+    | bits(0, 8)
+  cosim_test_sample.call(bits(instance, 64), value ^ component_child_value ^ extra, ~enable: accepted)
+
+fun recipe(configuration :: Map, types :: Map, _parameters :: Map, instance :: Nat):
+  if configuration["unsupported"] | error(~who: #'recipe, "unsupported test profile") | #void
+  elaborate_with_top(TestObserver(instance, types.has_key("external_child_value")))
+
+sync_circuit ObservedComponent():
+  input value: Bits(8)
+  describe_cosim_signals({"value": value})
+
+sync_circuit NestedComponent(wrong_domain :: Boolean):
+  input value: Bits(8)
+  def child:
+    if wrong_domain
+    | inst nested(ObservedComponent(), ~reset_when: value[0].into(Bool))
+      nested.value <== value
+      nested
+    | inst nested(ObservedComponent())
+      nested.value <== value
+      nested
+  describe_cosim_signals({}, ~components: {"child": child})
+
+sync_circuit ObservedLane(wrong_domain :: Boolean = #false, unsupported :: Boolean = #false, wrong_nested :: Boolean = #false):
+  interface source(Decoupled(Bits(8)), ~role: consumer)
+  interface sink(Decoupled(Bits(8)), ~role: producer)
+  source |> trace_event("accepted", ~payload: #true) |> pipe(1) |> trace_event("completed") |> sink
+  cosim_test_functional.call(source.bits, ~enable: source.fire())
+  def component:
+    if wrong_domain
+    | inst child(NestedComponent(wrong_nested), ~reset_when: source.valid)
+      child.value <== source.bits
+      child
+    | inst child(NestedComponent(wrong_nested))
+      child.value <== source.bits
+      child
+  describe_cosim_hart("test.v1", {"unsupported": unsupported}, {"value": source.bits, "accepted": source.fire()}, {"component": component})
+
+sync_circuit ObservedTop(wrong_context :: Boolean = #false):
+  interface source[2](Decoupled(Bits(8)), ~role: consumer)
+  interface sink[2](Decoupled(Bits(8)), ~role: producer)
+  inst left(ObservedLane())
+  inst right(ObservedLane())
+  def external:
+    if wrong_context
+    | inst component(NestedComponent(#false), ~reset_when: source[0].valid)
+      component.value <== source[0].bits
+      component
+    | inst component(NestedComponent(#false))
+      component.value <== source[0].bits
+      component
+  describe_cosim_context(left, {"external": external})
+  source[0] |> left.source
+  left.sink |> sink[0]
+  source[1] |> right.source
+  right.sink |> sink[1]
+
+export:
+  recipe
+  make_fixture
+  make_wrong_domain_fixture
+  make_unsupported_fixture
+  make_wrong_context_fixture
+  make_wrong_nested_fixture
+fun make_fixture(): elaborate_program(ObservedTop())
+fun make_wrong_domain_fixture(): elaborate_program(ObservedLane(#true))
+fun make_unsupported_fixture(): elaborate_program(ObservedLane(#false, #true))
+fun make_wrong_context_fixture(): elaborate_program(ObservedTop(#true))
+fun make_wrong_nested_fixture(): elaborate_program(ObservedLane(#false, #false, #true))

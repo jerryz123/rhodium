@@ -206,18 +206,51 @@ descriptors own no physical rows.
 
 The reusable `cores/riscv/` mappings directly import `std/decode.rhdl` to map
 pure RISC-V instruction catalogs onto root processor-component controls.
-`cores/riscv/cosim.rhdl` uses public language DPI, bundles, and enums plus
+`sims/cosim/events/hooks.rhdl` uses public language DPI, bundles, and enums plus
 architectural privilege types; its host receiver lives in `sims/cosim/`, with
 no reverse simulator import or dependency on tracing metadata.
 `cores/riscv/cosim-source.rhm` bridges source declarations to public core metadata
 and frontend `kernel`/`support/clocking` read/domain APIs. Its descriptors remap
-live taps and instance views while retaining detached recipes and parameters.
-`cores/rv5stage/cosim.rhdl` uses frontend `kernel.input` for deferred, typed tap
-ports and public authoring APIs for the observer. `cosim-support.rhdl` consumes
-generic hooks, Flow queues, and CSR/atomic helpers. The core declares these
-observers; only the optional `sims/cosim/pass.rhm` realizes them. That pass uses
-neutral compile contracts, core IR/Builder/types, the event occurrence copier,
-the source descriptors, and JSON string encoding. No observer signal drives
+live taps and instance views while retaining versioned contract identities and
+detached host configuration. It stores no observer functions.
+RV5Stage's MMU imports that bridge to describe translated physical-address taps;
+`rv5stage.rhdl` imports it to bind the sibling MMU to the child core observer.
+Neither import realizes hardware or introduces a simulator dependency.
+The scalar `fp/pipeline.rhdl` also imports that bridge for passive, post-boxing
+architectural load-write taps. It does not import the observer or host runtime.
+`cores/rv5stage/vector.rhdl` and `vector/pipeline.rhdl` import the same bridge
+for nested admission, retained-owner, and physical VRF-write observations.
+`vector/instructions.rhdl` uses it for actual owner reclamation, including
+faults that drain without successful retirement.
+`sims/cosim/rv5stage/vector.rhdl` consumes those typed taps through frontend `kernel.input`,
+the vector register-write/token/completion bundles, D-cache request/response and
+writeback-tag protocols and fixed-lane widening.
+It declares RV5Stage-specific passive DPI events without observer registers or
+ownership queues. `sims/cosim/rv5stage/vector.*` interprets those events in C++,
+as a child of the common native `rv5stage/adapter.*` hart adapter;
+the generic DPI binding owns its lifetime and settled-sample flush, without
+depending on a named core. The native adapter consumes generic collector types,
+not Sail or generated RTL. Its separate native library is linked by simulator
+consumers; no core source imports `sims/`.
+`sims/cosim/rv5stage/capture.rhdl` uses frontend `kernel.input` for deferred, typed tap
+ports and public authoring APIs for the observer, plus `riscv/rtl/interrupt.rhdl`
+for architectural pin encoding, and the FP issue/completion bundles and destination
+controls for passive scalar capture. It also consumes the MMU's virtual split-outcome
+contract. `mmu/misaligned-access.rhdl` and `vector/memory.rhdl` share that
+contract through `mmu/protocol.rhdl`; guest fault details come from the existing
+RISC-V hypervisor adapter. Physical cache protocols remain unchanged.
+`cores/rv5stage/observation.rhdl` declares `rv5stage.v1` without imports. `sims/cosim/events/transport.rhdl`
+owns DPI lane widening through the base frontend. Neither capture module imports
+generic architectural hooks, Flow ownership queues, or an atomic datapath.
+The native hart adapter owns identities, retained requests, scalar/FP completion
+owners, instruction FP flag contributions, and AMO effect normalization. It supplies the vector
+adapter's allocation identity before resolving vector events in the same sample.
+The core declares its contract identity, configuration, and semantic taps;
+only the optional `sims/cosim/pass.rhm` selects and realizes its adapter. That
+pass imports the simulation-owned RV5Stage capture adapter and core observation
+identity for its default registry, alongside neutral compile contracts, core
+IR/Builder/types, the event occurrence copier, source descriptors, and JSON
+string encoding. Callers can supply a different contract-to-adapter map. No observer signal drives
 functional handshakes, and no named core imports the simulator receiver.
 `cores/riscv/chi-hart.rhdl` imports `std/bits.rhdl` for power-of-two cache-line
 configuration and NodeID-width checks. These modules import no named core.
@@ -329,8 +362,10 @@ footprint arithmetic, vector decode/ISA geometry, public bit helpers, and Flow;
 the sequencer owns its cursor and preparation phase. Vector bundles import the
 dependency-neutral packed layout contracts. `vector/packed-load.rhdl` imports shared
 `vector/packed-bundles.rhdl` layouts, the load-response adapter, VRF contracts,
-pure geometry, bit helpers, and Flow. Packed layouts depend only on pure
-XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the
+pure geometry, bit helpers, and Flow.
+The packed-load and vector-memory owners also import `cores/riscv/cosim-source.rhm`
+for passive write-owner and accepted-memory metadata; no simulator dependency is introduced.
+Packed layouts depend only on pure XLEN/vector geometry and bit-width helpers. `vector/pipeline.rhdl` composes the
 common sequencer and operand-fetch path with independently retained packed response assembly
 and imports physical word geometry and the reusable load/store byte-mask helper. `vector/execute.rhdl`
 imports public ready-valid types for its shared SIMD alignment client.

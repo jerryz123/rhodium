@@ -13,4 +13,6 @@ inline bool runtime_argument(std::string_view argument) {
 extern "C" int rhodium_sim_open() noexcept;
 extern "C" int rhodium_sim_begin(svBit reset_active) noexcept;
 extern "C" int rhodium_sim_end() noexcept;
+// Freeze instrumentation admission; -1 is failure, 0 needs more clocks, 1 is drained.
+extern "C" int rhodium_sim_drain() noexcept;
 extern "C" int rhodium_sim_finish() noexcept;

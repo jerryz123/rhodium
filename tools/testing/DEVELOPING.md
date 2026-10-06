@@ -86,7 +86,7 @@ CI first tests and applies the declarative policy in [`../ci/`](../ci/plan.py).
 by [`policy.py`](../ci/policy.py). The config rows come from the single
 [`simulator inventory`](../../sims/test-configs.txt); policy selects workloads
 by shape and ISA, independently of core. Simulator matrices additionally carry
-backend and artifact identity. `BACKEND_SMOKE_VARIANTS` in `policy.py` adds
+backend, cosim selection, and artifact identity. `BACKEND_SMOKE_VARIANTS` in `policy.py` adds
 `simple-rv5stage-rva23-verilog` with three smoke tests and
 `simple-rv5stage-rva23-rsim` with only `smoke`. Both reuse the same architectural
 config/target without expanding the architectural or software test inventories.
@@ -94,7 +94,13 @@ Rsim uses `OPT_FAST=-O1`, a 100,000-cycle limit, and a five-minute harness step.
 Both build jobs omit CIRCT, and prebuilt consumers verify backend provenance.
 Workflow tests exercise optimization propagation, bounded smoke arguments, and
 nonzero status through log capture. CI retains build and harness logs.
-The planner unit tests also reject tracked executable
+
+All Mini/Simple RV5Stage CIRCT and direct-SystemVerilog rows publish one
+cosim-enabled simulator under the unchanged config artifact name. Propagate
+that selection to native ISA, ACT, and firmware consumers; verify the variant
+and install GMP. Native and ACT runners require nonempty successful checking.
+The experimental Rsim backend remains uninstrumented. This does not add matrix
+rows or change workload selection. The planner unit tests also reject tracked executable
 inputs that select no lane. When the plan selects any downstream work, CI
 compiles the positive Racket entrypoint manifest once for reuse by the selected
 jobs. Pull requests and pushes classify changed paths; manual dispatch selects

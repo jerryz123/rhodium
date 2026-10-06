@@ -1,6 +1,6 @@
-// Checks real-core architectural records, delayed ownership, CSR deltas, and reset epochs.
+// Checks real-core architectural records, delayed ownership, and reset epochs.
 // SPDX-License-Identifier: Apache-2.0
-#include "../../../../../sims/cosim/hooks-dpi.h"
+#include "../../../../../sims/cosim/events/dpi.h"
 #include <cstdio>
 #include <cstdlib>
 #include <deque>
@@ -15,7 +15,7 @@ struct Expected {
   std::optional<MemoryEffect> memory;
 };
 std::deque<Expected> expected;
-std::map<Word, Word> csrs;
+std::map<Word, Word> input_pins;
 Word order = 0, current_epoch = 0, mask = ~Word{0};
 unsigned width = 64, published = 0;
 void require(bool okay, const char* message) {
@@ -25,7 +25,7 @@ void require(bool okay, const char* message) {
 }
 extern "C" void core_cosim_reset(std::int64_t epoch, int xlen) {
   width = xlen; mask = width == 32 ? 0xffffffffULL : ~Word{0};
-  current_epoch = epoch; order = 0; expected.clear(); csrs.clear();
+  current_epoch = epoch; order = 0; expected.clear();
   collector.reset(0, epoch, {0, 0, {3, false}, width, 0});
   if (!binding) binding = std::make_unique<DpiBinding>(collector);
 }
@@ -40,8 +40,12 @@ extern "C" void core_cosim_memory(int kind, std::int64_t address, int bytes, int
   expected.back().memory = MemoryEffect{0, 0, AccessKind(kind), Word(address), false, 0, Word(bytes),
     bool(read), bool(write), Word(read_data) & mask, Word(write_data) & mask, AccessResult(result)};
 }
+extern "C" void core_cosim_memory_offset(int offset) {
+  require(!expected.empty() && expected.back().memory.has_value(), "fragment offset needs memory expectation");
+  expected.back().memory->fragment_offset = offset;
+}
 extern "C" void core_cosim_begin(std::int64_t sample, int interrupt) {
-  collector.environment(0, {interrupt ? 8ULL : 0ULL, Word(sample), 1});
+  input_pins[Word(sample)] = interrupt ? 8ULL : 0ULL;
   collector.begin_sample(sample);
 }
 extern "C" void core_cosim_end() {
@@ -50,6 +54,8 @@ extern "C" void core_cosim_end() {
     for (const auto& record : collector.end_sample()) {
       require(!expected.empty(), "unexpected record");
       const auto e = expected.front(); expected.pop_front();
+      require(record.environment.interrupt_inputs == input_pins.at(record.sample), "sampled interrupt pins lost");
+      require(!e.interrupt || record.environment.interrupt_boundary, "interrupt outside sampled boundary");
       require(record.id.epoch == current_epoch && record.id.order == order, "wrong owner/order");
       require(std::holds_alternative<Interrupt>(record.event) == e.interrupt, "wrong event kind");
       if (!e.interrupt) {
@@ -76,16 +82,13 @@ extern "C" void core_cosim_end() {
           ++writes;
           require(w->bank == Bank::Integer && w->index == e.rd && w->mask == mask &&
                   w->value == e.value && w->bit_offset == 0, "wrong GPR write");
-        } else if (const auto* c = std::get_if<CsrUpdate>(&effect)) {
-          require(c->operation == CsrOperation::AssignMasked, "unexpected CSR operation");
-          csrs[c->address] = (csrs[c->address] & ~c->mask) | (c->value & c->mask);
         } else {
           ++memories;
           require(e.memory.has_value(), "unexpected memory effect");
           const auto& m = std::get<MemoryEffect>(effect);
           const auto& wanted = *e.memory;
-          const Word offset = wanted.kind == AccessKind::CacheOperation ? (memories-1)*8 : 0;
-          require(m.kind == wanted.kind && m.virtual_address == wanted.virtual_address + offset &&
+          const Word offset = wanted.kind == AccessKind::CacheOperation ? (memories-1)*8 : wanted.fragment_offset;
+          require(m.kind == wanted.kind && m.virtual_address == wanted.virtual_address + (wanted.kind == AccessKind::CacheOperation ? offset : 0) &&
                   m.byte_mask == wanted.byte_mask && !m.physical_valid && m.fragment_offset == offset,
                   "wrong logical memory access");
           require(m.read_valid == wanted.read_valid && m.write_valid == wanted.write_valid &&
@@ -106,9 +109,6 @@ extern "C" void core_cosim_end() {
   }
 }
 extern "C" void core_cosim_pending(int count) { require(expected.size() == unsigned(count), "pending count"); }
-extern "C" void core_cosim_csr(int address, std::int64_t value) {
-  require(csrs[unsigned(address)] == Word(value), "CSR delta/WARL value");
-}
 extern "C" void core_cosim_finish() {
   require(expected.empty(), "unpublished expectations");
   collector.finish();

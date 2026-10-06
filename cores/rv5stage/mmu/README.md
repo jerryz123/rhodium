@@ -364,7 +364,7 @@ response drains. Repeated cancellation does not forget that response owner.
 | Final fetch range is not executable | Instruction access fault | MMU physical-map check suppresses the physical request |
 | Final data range is unmapped, lacks read/write/atomic permission, or its selected physical path reports an access fault | Load or store/AMO access fault | Physical-memory router or selected child path; MMU forwards the result |
 | Misaligned instruction target or atomic/LRSC address | Address-misaligned fault | Parent [`core.rhdl`](../core.rhdl), outside the MMU |
-| Misaligned ordinary load/store in cacheable main memory | Successful slow access, or page/access fault before fragments issue | WB slow owner in [`mmu.rhdl`](mmu.rhdl); it prechecks every touched page and physical word, then issues one fragment if contained in a word or two if crossing words |
+| Misaligned ordinary load/store in cacheable main memory | Successful retained access, or precise page/access fault after zero or one completed fragments | WB slow owner in [`mmu.rhdl`](mmu.rhdl); each fragment is translated and checked just before issue, and a completed store prefix survives a later fault |
 | L1 cache hit, miss, refill, coherence, or replacement behavior | Not a translation fault source | The cache subsystem; both cache protocols leave translation and PMA faults to their callers |
 
 The parent core converts the MMU's page/access signals at WB into the exact

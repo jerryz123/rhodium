@@ -29,7 +29,7 @@ each other; share external transaction machinery through the CHI package.
 | [`udb.rhm`](udb.rhm) | Exact-version UDB extension closure and fixed RV5Stage architectural parameter claims |
 | [`rv5stage.rhdl`](rv5stage.rhdl) | Core, MMU, prefetch routing, cache, uncached, and CHI composition |
 | [`core.rhdl`](core.rhdl) | Scalar pipeline, forwarding, hazards, commit, and deferred completion |
-| [`cosim.rhdl`](cosim.rhdl), [`cosim-support.rhdl`](cosim-support.rhdl) | Deferred passive observer recipe, WB owner retention, and architectural effect reporting |
+| [`observation.rhdl`](observation.rhdl) | Versioned passive observation contract identity |
 | [`bundles.rhdl`](bundles.rhdl) | Scalar pipeline payloads |
 | [`../cache-prefetch.rhdl`](../cache-prefetch.rhdl) | Reusable best-effort prefetch operation and request types |
 | [`../../rhodium/std/plru.rhdl`](../../rhodium/std/plru.rhdl) | Protocol-neutral invalid-first padded tree-PLRU selection and state update |
@@ -53,6 +53,24 @@ each other; share external transaction machinery through the CHI package.
 
 Follow the [source documentation requirements](../../AGENTS.md#source-documentation),
 including the exemption for files under `tests/`.
+
+The optional simulation-owned cosim adapter captures real CSR interrupt/time inputs and the drained
+interrupt-check boundary at the same edge as WB observations. These are passive
+taps, never simulator-driven core inputs. Preserve the environment at allocation
+across delayed completions. Sail owns deterministic CSR evolution; do not add
+CSR-bank snapshots merely for comparison. Cycle timing comes from reset-relative active
+edges. The simulation owner documents checking policies in
+[`sims/cosim/README.md`](../../sims/cosim/README.md).
+`observation.rhdl` owns `rv5stage.v1`. `core.rhdl`
+declares that identity, detached configuration, and semantic taps; it imports no
+DPI capture implementation. Capture lives under `sims/cosim/rv5stage/` and is
+selected by the compilation pass. Adapter eligibility belongs there, not in the
+functional core's metadata.
+All observer identities, queues, and completion tables
+belong to the native `sims/cosim/rv5stage/adapter.*`. Keep the scalar, FP, and
+vector capture RTL stateless; the adapter supplies vector WB identities before
+resolving its per-cycle events. Reset epochs come from the host collector, not
+from a DPI-result register in the observed design.
 
 1. Identify the owning boundary before editing: decode, scalar pipeline,
    deferred completion, architectural state, translation, cache, CHI engine,
@@ -335,7 +353,13 @@ The inline retirement flows in `core.rhdl` preserve WRS-over-maintenance-over-li
 selection, even before a resident completes and while the output is invalid.
 Generic `OfferRegister` instances own pending payloads and their intrinsic
 lineage contracts. Capture comes from the original MEM/WB token;
-completion gates acceptance and releases that same owner. Keep WRS timeout/wake policy, maintenance
+completion gates acceptance and releases that same owner. The retained memory owner
+also holds misaligned scalar accesses while the MMU sequences independent
+fragments. Admission squashes younger work; success restarts at the next PC,
+and fault enters the trap path with the retained instruction and fragment VA.
+No split load reserves a deferred destination: successful completion uses normal
+WB or the FPR load-hit port. Interrupts/context changes wait for this owner.
+Keep WRS timeout/wake policy, maintenance
 completion/fault policy, and architectural commit gating in `core.rhdl`.
 Grant selection follows pending ownership, then gates completion; arbitration
 must not fall through to younger live WB while a resident is unfinished.
@@ -528,6 +552,11 @@ FIXTURES='rv5stage-cosim rv5stage-cosim32' bash tools/testing/circt/run.sh --sim
 Observe semantic acceptance/completion events, not trace metadata. Per-service
 owner queues rely on the ordered authorized scalar memory service and ordered
 scalar arithmetic responses; assert the original response tag at removal.
+FP compute uses a destination-indexed FPR owner table because fixed and variable
+responses can reorder, plus a FIFO for fixed integer results including x0.
+FP load writes retain the memory owner separately. Check these invariants with
+the native adapter tests; use existing software suites with `COSIM=1` for
+instruction coverage rather than a separate FP qualification payload.
 Queues must never supply functional readiness. Sample CSR contributions after
 the owning edge and before the next edge; exclude autonomous counter and input
 changes. The generic hook/collector contract belongs to

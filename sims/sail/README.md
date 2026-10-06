@@ -9,6 +9,11 @@ ownership and validation live in [sims/DEVELOPING.md](../DEVELOPING.md#embedded-
 Contributors follow the [source documentation requirements](../../AGENTS.md#source-documentation),
 including the `tests/` exemption.
 
+[`SailModelConfig.cmake`](SailModelConfig.cmake) also defines the installed
+`Sail::Model`, `Sail::Runtime`, and `Sail::SoftFloat` CMake targets. The shared
+Sail installer packages it with the pinned libraries; consumers do not need
+the model build directory.
+
 ## Entry point
 
 `configuration.project_architecture(default, udb)` returns an independent model
@@ -31,7 +36,7 @@ master pin from the older 0.14.1 tag.
 - ACT adds its synthetic reference devices, payload RAM, DTB location, test
   entry/signature files, and fault-test window in `arch-test/configure.py`.
 - Co-simulation uses the real resolved Mini/Simple physical map and private
-  ROM/RAM ranges in `cosim/configure.py`. Devices/time belong to the DUT
+  ROM/RAM ranges in `cosim/runtime/configure.py`. Devices/time belong to the DUT
   environment. It does not inherit ACT placement or signature policy.
 
 `reference_model_differences` records legal DUT choices Sail cannot reproduce,

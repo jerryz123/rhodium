@@ -5,9 +5,12 @@ module TestDriver;
   reg reset;
   wire [31:0] exit;
   integer max_cycles;
+  reg [31:0] pending_exit;
+  integer drain_status;
   import "DPI-C" function int rhodium_sim_open();
   import "DPI-C" function int rhodium_sim_begin(input bit reset_active);
   import "DPI-C" function int rhodium_sim_end();
+  import "DPI-C" function int rhodium_sim_drain();
   import "DPI-C" function int rhodium_sim_finish();
 
   // Compile passes may add unused observation outputs, never functional inputs.
@@ -37,6 +40,7 @@ module TestDriver;
   initial begin
     clock = 1'b0;
     reset = 1'b1;
+    pending_exit = 0;
     max_cycles = 1000000;
     if ($value$plusargs("max-cycles=%d", max_cycles)) begin
       if (max_cycles <= 0) $fatal(1, "max-cycles must be positive");
@@ -51,13 +55,19 @@ module TestDriver;
       @(posedge clock);
       // Observe completion after all rising-edge DPI callbacks have settled.
       @(negedge clock);
-      if (exit != 0) begin
+      if (pending_exit == 0 && exit != 0) pending_exit = exit;
+      drain_status = 0;
+      if (pending_exit != 0) begin
+        drain_status = rhodium_sim_drain();
+        if (drain_status < 0) check_runtime(1);
+      end
+      if (drain_status == 1) begin
         check_runtime(rhodium_sim_finish());
-        if (exit == 1) begin
+        if (pending_exit == 1) begin
           $display("SoC harness simulation passed");
           $finish;
         end else begin
-          $fatal(1, "SoC harness reported target failure: exit word %0d", exit);
+          $fatal(1, "SoC harness reported target failure: exit word %0d", pending_exit);
         end
       end
     end

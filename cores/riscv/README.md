@@ -41,11 +41,10 @@ an element must fit within one row. The layout exposes `rows_per_register`,
 For VLEN=64, 32-bit rows give a 64-row bank; 64-bit rows give a 32-row bank.
 This pure host model does not imply a port count, SRAM, or scheduling policy.
 
-## Architectural observation hooks
+## Passive architectural observations
 
-[`cosim.rhdl`](cosim.rhdl) provides optional `CosimHart` clocked DPI hooks for
-instruction acceptance, retirement, traps, interrupts, delayed register/CSR
-effects, and memory fragments. Import it directly; the disabled host Boolean
-specialization emits no callbacks. The [hook contract](../../sims/cosim/README.md#hook-and-collector-contract)
-defines instruction identity, producer sealing, and driver ordering. Named cores
-own placement of semantic event sites and retention of IDs; no core is wired yet.
+[`cosim-source.rhm`](cosim-source.rhm) declares versioned hart contracts and
+read-only semantic taps without creating capture hardware. The optional
+[simulation pass](../../sims/cosim/README.md#compile-target-instrumentation)
+selects adapters and adds DPI capture at compilation. Functional cores import
+only the declarations; simulation owns event reconstruction and reference checking.

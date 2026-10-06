@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/cosim-source.rhm".describe_cosim_signals
   "bundles.rhdl" open
   "execute.rhdl" open
   "register-file.rhdl" open
@@ -336,6 +337,8 @@ sync_circuit RV5StageFpScalar(
   // Speculative store-operand probes are not authorized work and must not
   // prevent a trap or interrupt from draining accepted FP operations.
   drained <== !outstanding.or_reduce() & !busy_state.or_reduce()
+  // Observe the actual architectural write port after load NaN boxing.
+  describe_cosim_signals({"load_valid": load_write.valid, "load_rd": load_write.bits.address, "load_data": load_write.bits.data})
 
 /* Composes scalar architectural FP state with an elastic standalone execution service. */
 sync_circuit RV5StageFpPipeline(xlen :: XLen, profile :: FloatingPointProfile, Context :: DataType, ~half_precision: half_precision :: HalfPrecisionProfile = DefaultHalfPrecisionProfile, ~zfa: zfa_enabled :: Boolean = #false):

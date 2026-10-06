@@ -255,7 +255,8 @@ class PlanTest(unittest.TestCase):
             env = dict(os.environ, PATH=str(root) + os.pathsep + os.environ['PATH'],
                        CALL_LOG=str(calls), RUNNER_TEMP=str(root), SOC='simple-rv5stage-rva23',
                        RTL_BACKEND='rsim', SIMULATOR_ID='simple-rv5stage-rva23-rsim',
-                       SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000')
+                       SOFTWARE_TESTS='smoke', SMOKE_MAX_CYCLES='100000',
+                       COSIM='0', GITHUB_OUTPUT=str(root / 'github-output'))
             for opt in ('-O1', '-O0', ''):
                 calls.write_text('')
                 result = subprocess.run(['bash', '-eo', 'pipefail', '-c', build], env=dict(env, OPT_FAST=opt),
@@ -345,6 +346,8 @@ class PlanTest(unittest.TestCase):
                          {(entry['soc'], entry['suite']) for entry in entries['include']})
         builds = {entry['build_id'] for entry in matrices['build']['include']}
         self.assertEqual({entry['build_id'] for entry in matrices['run']['include']}, builds)
+        selected_cosim = {entry['soc']: entry['cosim'] for entry in entries['include']}
+        self.assertTrue(all(entry['cosim'] == selected_cosim[entry['soc']] for entry in matrices['run']['include']))
         targets['simple-spike-rva23']['clock_frequency_hz'] *= 2
         changed = program_matrices(entries, targets)
         self.assertEqual(len(changed['build']['include']), 10)  # Both CoreMark variants embed the clock.
@@ -472,8 +475,8 @@ class PlanTest(unittest.TestCase):
                 self.assertFalse(plan["run_checks"])
 
     def test_cosim_receiver_selects_real_hook_transport(self):
-        for path in ("sims/cosim/hooks-dpi.cc", "sims/cosim/observation.cc",
-                     "sims/cosim/tests/hooks-fixture.rhdl", "cores/riscv/cosim.rhdl"):
+        for path in ("sims/cosim/events/dpi.cc", "sims/cosim/events/collector.cc",
+                     "sims/cosim/tests/events/hooks-fixture.rhdl", "sims/cosim/events/hooks.rhdl"):
             with self.subTest(path=path):
                 plan = self.plan(path)
                 self.assertIn("circt-core-components", check_keys(plan))
@@ -546,8 +549,8 @@ class PlanTest(unittest.TestCase):
         self.assertTrue(all(leaves))
         self.assertEqual(sum(map(len, leaves)), len(set.union(*leaves)))
         self.assertEqual(set.union(*leaves), combined)
-        self.assertEqual(len(combined), 46)
-        self.assertTrue({"rv5stage-cosim", "rv5stage-cosim32"} <= leaves[2])
+        self.assertEqual(len(combined), 47)
+        self.assertTrue({"rv5stage-cosim", "rv5stage-cosim32", "rv5stage-cosim-vector"} <= leaves[2])
 
     def test_every_tracked_executable_input_selects_a_lane(self):
         tracked = subprocess.run(["git", "ls-files"], cwd=REPO, check=True, text=True, capture_output=True).stdout.splitlines()
@@ -677,8 +680,53 @@ class PlanTest(unittest.TestCase):
         self.assertIn('2>&1 | tee "$RUNNER_TEMP/$SIMULATOR_ID-build.log"', workflow)
         diagnostics = workflow.split('- name: Publish simulator build diagnostics\n', 1)[1].split('\n  harness:', 1)[0]
         self.assertIn('if: always()', diagnostics)
-        self.assertIn('obj/VTestDriver__stats*.txt', diagnostics)
+        self.assertIn('${{ steps.simulator.outputs.path }}/VTestDriver__stats*.txt', diagnostics)
         self.assertIn('name: simulator-build-${{ fromJSON(inputs.config).simulator_id }}-${{ github.sha }}', diagnostics)
+
+    def test_cosim_uses_the_existing_config_artifacts_and_workloads(self):
+        plan = self.plan('sims/Makefile')
+        builds = plan['simulator_matrix']['include']
+        expected = {'simple-rv5stage-rv64imacb', 'simple-rv5stage-rv64imafdcb',
+                    'mini-rv5stage-rv32int', 'mini-rv5stage-rv32max',
+                    'simple-rv5stage-rv32int', 'simple-rv5stage-rv32max',
+                    'simple-rv5stage-rv64max', 'mini-rv5stage-rva23', 'simple-rv5stage-rva23'}
+        self.assertEqual({row['soc'] for row in builds if row['cosim']}, expected)
+        self.assertEqual(len(builds), len(SIMULATOR_CONFIGS) + len(BACKEND_SMOKE_VARIANTS))
+        for soc in expected:
+            build, = [row for row in builds if row['soc'] == soc and row['backend'] == 'circt']
+            self.assertEqual(build['simulator_id'], soc)
+            self.assertEqual(build['software_tests'].split(), list(SOFTWARE_TESTS[build['shape'], build['isa']]))
+        for matrix, key in (('program_matrix', 'soc'), ('arch_run_matrix', 'configuration')):
+            for entry in plan[matrix]['include']:
+                self.assertEqual(entry['cosim'], entry[key] in expected)
+        for entry in platform_configs():
+            self.assertEqual(entry['cosim'], entry['soc'] in expected)
+        direct, = [row for row in builds if row['backend'] == 'verilog']
+        self.assertTrue(direct['cosim'])
+        build = (REPO / '.github/workflows/ci-simulator.yml').read_text()
+        workflow = (REPO / '.github/workflows/ci-harness.yml').read_text()
+        self.assertIn('if: fromJSON(inputs.config).cosim', build)
+        self.assertIn('run: make -C sims arch-test-sail-setup', build)
+        self.assertIn("COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}", build)
+        self.assertIn('if [[ "$COSIM" == 1 ]]; then build="$build-cosim"; fi', build)
+        self.assertIn('${{ steps.simulator.outputs.path }}/VTestDriver.json', build)
+        self.assertIn('--variant "${{ fromJSON(inputs.config).cosim && \'cosim\' || \'normal\' }}"', workflow)
+        run = workflow.split('- name: Run shape-and-ISA software selection\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn("COSIM: ${{ fromJSON(inputs.config).cosim && '1' || '0' }}", run)
+        self.assertIn('PREBUILT_SIMULATOR="$simulator"', run)
+        self.assertIn('exit "$status"', run)
+        reports = workflow.split('- name: Publish config smoke and multihart results\n', 1)[1].split('\n      - name:', 1)[0]
+        self.assertIn('if: always()', reports)
+        self.assertIn('/tmp/rhodium-program-tests/${{ fromJSON(inputs.config).soc }}/isa-smoke/results', reports)
+        software = (REPO / '.github/workflows/ci-software.yml').read_text()
+        consumers = [software.split('  programs:\n', 1)[1].split('  arch-sail:\n', 1)[0],
+                     software.split('  arch:\n', 1)[1],
+                     (REPO / '.github/workflows/ci-platform.yml').read_text().split('  platform:\n', 1)[1]]
+        for consumer in consumers:
+            self.assertIn('if: matrix.cosim', consumer)
+            self.assertIn('libgmp10', consumer)
+            self.assertIn('--variant "${{ matrix.cosim && \'cosim\' || \'normal\' }}"', consumer)
+            self.assertIn("COSIM: ${{ matrix.cosim && '1' || '0' }}", consumer)
 
     def test_arch_execution_matrix_partitions_slow_configurations_without_extra_builds(self):
         workflow = (REPO / ".github/workflows/ci-software.yml").read_text()

@@ -242,6 +242,11 @@ def project_architecture(default, udb):
     for name, options in model_extensions.items():
         if "supported" in options:
             options["supported"] = name in extensions
+    if "F" in extensions:
+        # Use the legal instruction-dirty policy: an instruction that may
+        # accrue flags dirties FS even when its contribution is zero. This is
+        # RV5Stage's fixed policy, shared by ACT and cosim, not DUT-state repair.
+        model_extensions["F"]["fflags_dirty_policy"] = "Fflags_Dirty_Instruction"
     if "TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY" in params:
         model_extensions["Svbare"]["sfence_vma_illegal_if_svbare_only"] = params["TRAP_ON_SFENCE_VMA_WHEN_SATP_MODE_IS_READ_ONLY"]
     if "Zawrs" in extensions:

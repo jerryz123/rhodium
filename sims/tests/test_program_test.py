@@ -93,7 +93,7 @@ class ProgramArchiveTest(unittest.TestCase):
 
 class ProgramRunnerTest(unittest.TestCase):
     def run_suite(self, bodies, timeout=3, corrupt=False, target=None, matching_metadata=True,
-                  contracts=None, runner_args=None, payload=None):
+                  contracts=None, runner_args=None, payload=None, variant='normal'):
         self.directory = tempfile.TemporaryDirectory(prefix='rhodium-program-test-')
         self.addCleanup(self.directory.cleanup)
         root = Path(self.directory.name)
@@ -130,6 +130,7 @@ class ProgramRunnerTest(unittest.TestCase):
             manifest_data.update(target=target, target_fingerprint=fingerprint)
             metadata = simulator.with_suffix('.json')
             metadata.write_text(json.dumps(dict(soc=target['soc'],
+                                                variant=variant,
                                                 target_fingerprint=fingerprint if matching_metadata else 'wrong',
                                                 sha256=hashlib.sha256(simulator.read_bytes()).hexdigest())))
             command += ['--simulator-metadata', str(metadata)]
@@ -168,6 +169,23 @@ class ProgramRunnerTest(unittest.TestCase):
         self.assertEqual(process.returncode, 0, process.stderr)
         self.assertEqual(results['summary']['passed'], 1)
         self.assertTrue((Path(self.directory.name) / 'results/junit.xml').is_file())
+
+    def test_cosim_requires_one_nonempty_completed_stream(self):
+        for variant in ('cosim', 'trace-cosim'):
+            with self.subTest(variant=variant):
+                process, results = self.run_suite({
+                    'checked': "print('Sail cosim: checked 42 scalar records'); print('SoC harness simulation passed')",
+                    'missing': "print('SoC harness simulation passed')",
+                    'empty': "print('Sail cosim: checked 0 scalar records'); print('SoC harness simulation passed')",
+                    'duplicate': "print('Sail cosim: checked 42 scalar records\\n' * 2); print('SoC harness simulation passed')",
+                    'failed': "print('Sail cosim: checked 42 scalar records'); print('SoC harness simulation passed'); sys.exit(1)",
+                }, target=program_target(), variant=variant)
+                self.assertNotEqual(process.returncode, 0)
+                self.assertEqual(results['summary'], dict(passed=1, failed=4, timeout=0, error=0))
+                checked = next(test for test in results['tests'] if test['name'] == 'checked')
+                self.assertEqual(checked['cosim_checked_records'], 42)
+                self.assertTrue(all('cosim_checked_records' not in test for test in results['tests']
+                                    if test['name'] != 'checked'))
 
     def test_success_marker_may_follow_uart_output_on_the_same_line(self):
         process, results = self.run_suite({'pass': "print('uartSoC harness simulation passed')"})
@@ -568,6 +586,27 @@ def artifact_inputs(binary, target=None, variant='normal', backend='circt'):
 
 
 class SimulatorArtifactTest(unittest.TestCase):
+    def test_prebuilt_cosim_products_require_matching_attestation_without_building(self):
+        for soc in ('simple-rv5stage-rv64imacb', 'simple-rv5stage-rv64imafdcb',
+                    'mini-rv5stage-rv32int', 'mini-rv5stage-rv32max',
+                    'simple-rv5stage-rv32int', 'simple-rv5stage-rv32max',
+                    'mini-rv5stage-rva23', 'simple-rv5stage-rva23', 'simple-rv5stage-rv64max'):
+            with self.subTest(soc=soc), tempfile.TemporaryDirectory() as directory:
+                binary = Path(directory) / 'VTestDriver'
+                binary.write_bytes(b'published cosim simulator')
+                artifact = [sys.executable, str(SCRIPTS / 'artifact.py'), 'record',
+                            '--binary', str(binary), '--soc', soc]
+                subprocess.run(artifact + ['--variant', 'cosim'] +
+                               artifact_inputs(binary, program_target(soc), 'cosim'), check=True)
+                command = ['make', '-C', str(SCRIPTS.parent), 'simulator-attestation', f'SOC={soc}',
+                           f'PREBUILT_SIMULATOR={binary}', f'PYTHON={sys.executable}',
+                           'VERILATOR=false', 'RACKET=false', 'CIRCT_OPT=false', 'COSIM_PYTHON=false']
+                result = subprocess.run(command + ['COSIM=1'], capture_output=True, text=True)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertNotEqual(subprocess.run(command + ['COSIM=0'], capture_output=True).returncode, 0)
+                subprocess.run(artifact + artifact_inputs(binary, program_target(soc)), check=True)
+                self.assertNotEqual(subprocess.run(command + ['COSIM=1'], capture_output=True).returncode, 0)
+
     def test_cosim_variants_are_distinct(self):
         with tempfile.TemporaryDirectory() as directory:
             binary = Path(directory) / 'VTestDriver'

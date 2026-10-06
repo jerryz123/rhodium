@@ -1,0 +1,14 @@
+// Connects simulator scheduling and successful external writes to the scalar checker.
+// SPDX-License-Identifier: Apache-2.0
+#pragma once
+#include <cstdint>
+#include <span>
+namespace rhodium::cosim {
+void simulation_host_write(std::uint64_t address, std::span<const std::uint8_t> data);
+int open_simulation(std::int64_t corrupt_order) noexcept;
+int begin_sample(std::uint64_t sample) noexcept;
+int end_sample() noexcept;
+// Freeze the observation prefix and report -1/error, 0/pending, or 1/drained.
+int drain_simulation() noexcept;
+int finish_simulation() noexcept;
+}

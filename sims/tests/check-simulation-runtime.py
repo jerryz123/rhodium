@@ -55,6 +55,12 @@ def main():
         else:
             run(["+rheg-trace=test.pftrace"], fail=True)
         if cosim:
+            run(["+runtime-test-drain"], cycles=8)
+            run(["+runtime-test-drain", "+runtime-test-target-fail"], fail=True, cycles=8)
+            run(["+runtime-test-drain", "+runtime-test-transient-exit"], cycles=8)
+            run(["+runtime-test-drain", "+runtime-test-transient-exit", "+runtime-test-target-fail"], fail=True, cycles=8)
+            run(["+runtime-test-drain-fail"], fail=True, cycles=5)
+            run(["+runtime-test-drain-stuck", "+max-cycles=9"], fail=True, cycles=9)
             output = run(["+cosim-corrupt-order=27"], cycles=5)
             assert "test cosim opened: corruption=27" in output
             run(["+cosim-corrupt-order=invalid"], fail=True)

@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from test_arch_test import sail_default, vector_udb
 
 SIMS = Path(__file__).resolve().parents[1]
-COSIM = runpy.run_path(str(SIMS / "cosim/configure.py"))
+COSIM = runpy.run_path(str(SIMS / "cosim/runtime/configure.py"))
 ACT = runpy.run_path(str(SIMS / "arch-test/configure.py"))
 from sail.configuration import project_architecture, reference_model_differences
 from sail.soc_config import fingerprint, model_defaults
@@ -134,6 +134,7 @@ class SailConfigurationTest(unittest.TestCase):
         self.assertFalse(cosim["platform"]["clint"]["supported"])
         self.assertFalse(cosim["platform"]["simple_interrupt_generator"]["supported"])
         self.assertEqual(cosim["platform"]["clock_frequency"], 100000000)
+        self.assertEqual(cosim["extensions"]["F"]["fflags_dirty_policy"], "Fflags_Dirty_Instruction")
 
     def test_actual_map_backing_and_pmas_replace_all_default_regions(self):
         common = project_architecture(self.default(), vector_udb())

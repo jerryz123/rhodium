@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: Apache-2.0
 import argparse
 from pathlib import Path
+import re
 import subprocess
 import sys
 
@@ -11,6 +12,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--simulator", required=True)
     parser.add_argument("--max-cycles", type=int, default=10000000)
+    parser.add_argument("--cosim", action="store_true", help="require a nonempty successful Sail checker completion")
     parser.add_argument("elf", type=Path)
     args = parser.parse_args()
     if args.max_cycles <= 0 or not args.elf.is_file():
@@ -21,14 +23,21 @@ def main():
         stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
     )
     confirmed = False
+    completions = []
     for line in process.stdout:
         confirmed |= line.strip() == "SoC harness simulation passed"
+        completion = re.fullmatch(r"Sail cosim: checked ([0-9]+) scalar records", line.strip())
+        if completion:
+            completions.append(int(completion[1]))
         if line.startswith("RVCP-SUMMARY:"):
             continue
         print(line, end="", flush=True)
     returncode = process.wait()
     # Exit zero alone cannot prove that the target reached its HTIF pass macro.
     passed = returncode == 0 and confirmed
+    if args.cosim and (len(completions) != 1 or completions[0] == 0):
+        print("Missing, duplicate, or empty cosim completion", file=sys.stderr)
+        passed = False
     status = "PASSED" if passed else "FAILED"
     print(f'RVCP-SUMMARY: TEST {status} - Test File "{args.elf.stem}.S"', flush=True)
     return 0 if passed else (returncode if returncode > 0 else 1)

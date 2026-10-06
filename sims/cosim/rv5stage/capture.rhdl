@@ -1,0 +1,228 @@
+#lang rhodium
+/* Captures passive hart outcomes and environmental inputs for native instruction ownership. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/kernel.rhm").input as observer_input
+  "vector.rhdl".rv5stage_cosim_vector
+  "../events/transport.rhdl".capture_lane as lane
+  "../../../cores/rv5stage/profile.rhm".RV5StageConfig
+  "../../../cores/rv5stage/mmu/protocol.rhdl".RV5StageSplitResult
+  "../../../cores/rv5stage/bundles.rhdl".MemoryWriteback
+  "../../../cores/rv5stage/dcache/protocol.rhdl" open
+  "../../../cores/rv5stage/fp/bundles.rhdl" open
+  "../../../cores/rv5stage/decode/fp-ctrl.rhdl".RV5StageFloatDestination
+  "../../../riscv/isa/vector-profile.rhm".vector_profile_enabled
+  "../../../riscv/isa/fp-profile.rhm" open
+  "../../../riscv/isa/xlen.rhm".XLen
+  "../../../riscv/rtl/privilege.rhdl" open
+  "../../../riscv/rtl/interrupt.rhdl" open
+
+/* Captures scalar_cycle signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_scalar_cycle(
+  instance: Bits(64), xlen: Bits(64), flen: Bits(64), vector: Bits(64), wb_retained_memory_accepted: Bits(64),
+  wb_reservation_wait_accept: Bits(64), wb_vector_admission: Bits(64), wb_vector_return: Bits(64), wb_commit_valid: Bits(64),
+  wb_memory_pending: Bits(64), wb_reservation_wait_pending: Bits(64), wb_pending_exception_valid: Bits(64),
+  wb_current_exception_wait: Bits(64), wb_memory_accepted: Bits(64), wb_attempt: Bits(64), wb_data_fault: Bits(64),
+  wb_split_accepted: Bits(64), wb_split_done: Bits(64), wb_commit_has_multiply: Bits(64), wb_commit_has_divide: Bits(64),
+  response_fire: Bits(64), write_valid: Bits(64), fault_address: Bits(64), commit_rd: Bits(64), commit_value: Bits(64),
+  write_rd: Bits(64), write_data: Bits(64), offer_request_valid: Bits(64)
+)
+
+/* Captures header signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_header(instance: Bits(64), pc: Bits(64), instruction: Bits(64), exception: Bits(64), cause: Bits(64))
+
+/* Captures boundary signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_boundary(
+  instance: Bits(64), csr_interrupt_take: Bits(64), csr_synchronous_trap: Bits(64), csr_commit: Bits(64), csr_retired: Bits(64),
+  privilege: Bits(64), virtualized: Bits(64), cause: Bits(64), epc: Bits(64), tval: Bits(64), target_pc: Bits(64),
+  target_privilege: Bits(64), target_virtualized: Bits(64), guest_valid: Bits(64), htval: Bits(64), htinst: Bits(64),
+  next_pc: Bits(64), next_privilege: Bits(64), next_virtualized: Bits(64), interrupts: Bits(64), time: Bits(64),
+  interrupt_boundary: Bits(64)
+)
+
+/* Captures request signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_request(
+  instance: Bits(64), index: Bits(64), address: Bits(64), access: Bits(64), width: Bits(64), atomic: Bits(64), data: Bits(64),
+  writeback: Bits(64), integer: Bits(64), fp: Bits(64), rd: Bits(64)
+)
+
+/* Captures response signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_response(
+  instance: Bits(64), data: Bits(64), fault: Bits(64), writeback: Bits(64), fp: Bits(64), split_data: Bits(64), split_fault: Bits(64),
+  split_fault_address: Bits(64)
+)
+
+/* Captures physical signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_physical(
+  instance: Bits(64), valid: Bits(64), address: Bits(64), pipeline_valid: Bits(64), pipeline_address: Bits(64),
+  fragment_valid: Bits(64), fragment_address: Bits(64), fragment_virtual: Bits(64)
+)
+
+/* Captures arithmetic signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_arithmetic(instance: Bits(64), index: Bits(64), accepted: Bits(64), issue_rd: Bits(64), completed: Bits(64), rd: Bits(64), data: Bits(64))
+
+/* Captures fp signals for native hart reconstruction. */
+dpi_import procedure rhodium_rv5stage_fp(
+  instance: Bits(64), issued: Bits(64), completed: Bits(64), issue_fp: Bits(64), issue_integer: Bits(64),
+  issue_rd: Bits(64), complete_fp: Bits(64), complete_integer: Bits(64), rd: Bits(64), integer_value: Bits(64), fp_value: Bits(64),
+  flags_valid: Bits(64), exception_flags: Bits(64), fp_load_valid: Bits(64), fp_load_rd: Bits(64), fp_load_data: Bits(64)
+)
+
+/* Build the simulation-owned adapter from detached profile and remapped tap types. */
+fun rv5stage_cosim_adapter(configuration :: Map, types :: Map, parameters :: Map, instance :: Nat):
+  def profile :: RV5StageConfig = configuration["profile"]
+  elaborate_with_top(RV5StageCosimObserver(profile, types, instance))
+
+/* Reports pre-edge facts without observation state or functional feedback. */
+sync_circuit RV5StageCosimObserver(profile :: RV5StageConfig, tap_types :: Map, instance :: Nat):
+  def xlen = profile.xlen
+  def width = xlen.width
+  def hypervisor = profile.extensions.hypervisor
+  def vector_completion_slots = profile.vector_completion_slots
+  def fp_profile = profile.extensions.floating_point
+  def fp_enabled = floating_point_supports_f(fp_profile)
+  def vector_enabled = vector_profile_enabled(profile.vector)
+  def cosim_instance = bits(instance, 64)
+  def active = !reset_active().into(Bool)
+  def taps = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): (!name.starts_with("vector_")) && name != "clock" && name != "reset")):
+    values(name, observer_input(name, tap_types[name]))
+  def mmu_inputs = for Map (name in tap_types.keys(#true).filter(~keep: fun (name): name.starts_with("mmu_"))):
+    values(name, taps[name])
+  /* Widen any declared packable tap to the fixed transport lane. */
+  fun tap_lane(name :: String) :~ Bits(64):
+    def value :: Hardware.of(tap_types[name]) = taps[name]
+    lane(value.as_bits())
+  /* Missing sibling MMU context means no physical provenance is available. */
+  fun mmu_lane(name :: String) :~ Bits(64): if tap_types.has_key(name) | tap_lane(name) | bits(0, 64)
+  /* Missing MMU event taps never imply a completed translation. */
+  fun mmu_flag(name :: String) :~ Bool: if tap_types.has_key(name) | taps[name] | Bool(#false)
+  def wb_retained_memory_accepted :: Bool = taps["wb_retained_memory_accepted"]
+  def wb_reservation_wait_accept :: Bool = taps["wb_reservation_wait_accept"]
+  def wb_vector_admission :: Bool = taps["wb_vector_admission"]
+  def wb_vector_return :: Bool = taps["wb_vector_return"]
+  def wb_commit_valid :: Bool = taps["wb_commit_valid"]
+  def wb_memory_pending :: Bool = taps["wb_memory_pending"]
+  def wb_reservation_wait_pending :: Bool = taps["wb_reservation_wait_pending"]
+  def wb_pending_exception_valid :: Bool = taps["wb_pending_exception_valid"]
+  def wb_current_exception_wait :: Bool = taps["wb_current_exception_wait"]
+  def wb_memory_accepted :: Bool = taps["wb_memory_accepted"]
+  def wb_attempt :: Bool = taps["wb_attempt"]
+  def wb_data_fault :: Bool = taps["wb_data_fault"]
+  def wb_fault_address :: Bits(width) = taps["wb_fault_address"]
+  def wb_split_accepted :: Bool = taps["wb_split_accepted"]
+  def wb_split_done :: Bool = taps["wb_split_done"]
+  def split_result :: RV5StageSplitResult(xlen, vector_completion_slots) = taps["split_result"]
+  def wb_commit_has_multiply :: Bool = taps["wb_commit_has_multiply"]
+  def wb_commit_has_divide :: Bool = taps["wb_commit_has_divide"]
+  def wb_offer_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_offer_bits"]
+  def wb_commit_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_commit_bits"]
+  def wb_input_bits :: MemoryWriteback(xlen, vector_completion_slots, hypervisor) = taps["wb_input_bits"]
+  def resume_pc :: Bits(width) = taps["resume_pc"]
+  def response_fire :: Bool = taps["response_fire"]
+  def memory_request :: RV5StageDataReq(xlen, vector_completion_slots) = taps["memory_request"]
+  def memory_response :: RV5StageDataResp(xlen, vector_completion_slots) = taps["memory_response"]
+  def write_valid :: Bool = taps["write_valid"]
+  def write_rd :: Bits(5) = taps["write_rd"]
+  def write_data :: Bits(width) = taps["write_data"]
+  def arithmetic_done :: Vec(2, Bool) = taps["arithmetic_done"]
+  def arithmetic_rd :: Vec(2, Bits(5)) = taps["arithmetic_rd"]
+  def arithmetic_value :: Vec(2, Bits(width)) = taps["arithmetic_value"]
+  def fp_issued :: Bool = if fp_enabled | taps["fp_issued"] | Bool(#false)
+  def fp_completed :: Bool = if fp_enabled | taps["fp_completed"] | Bool(#false)
+  def csr_interrupt_take :: Bool = taps["csr_interrupt_take"]
+  def csr_synchronous_trap :: Bool = taps["csr_synchronous_trap"]
+  def csr_commit :: Bool = taps["csr_commit"]
+  def csr_retired :: Bool = taps["csr_retired"]
+  def csr_privilege :: PrivilegeMode = taps["csr_privilege"]
+  def csr_virtualized :: Bool = taps["csr_virtualized"]
+  def csr_trap_cause :: Bits(width) = taps["csr_trap_cause"]
+  def csr_trap_target :: RiscvTrapTarget = taps["csr_trap_target"]
+  def csr_trap_pc :: Bits(width) = taps["csr_trap_pc"]
+  def csr_trap_value :: Bits(width) = taps["csr_trap_value"]
+  def csr_redirect :: Bits(width) = taps["csr_redirect"]
+  def csr_mret :: Bool = taps["csr_mret"]
+  def csr_sret :: Bool = taps["csr_sret"]
+  def csr_mret_privilege :: PrivilegeMode = taps["csr_mret_privilege"]
+  def csr_sret_privilege :: PrivilegeMode = taps["csr_sret_privilege"]
+  def csr_trap_to_guest :: Bool = taps["csr_trap_to_guest"]
+  def csr_fault_details_valid :: Bool = taps["csr_fault_details_valid"]
+  def csr_guest_page_fault :: Bool = taps["csr_guest_page_fault"]
+  def csr_fault_gpa :: Bits(64) = taps["csr_fault_gpa"]
+  def csr_fault_inst :: Bits(64) = taps["csr_fault_inst"]
+  def csr_returned_virtual :: Bool = taps["csr_returned_virtual"]
+  def csr_interrupt_inputs :: RiscvInterrupts() = taps["csr_interrupt_inputs"]
+  def csr_time_input :: Bits(64) = taps["csr_time_input"]
+  def csr_interrupt_boundary :: Bool = taps["csr_interrupt_boundary"]
+  def instruction = mux(wb_reservation_wait_accept, wb_input_bits, wb_offer_bits)
+  rhodium_rv5stage_scalar_cycle.call(
+    cosim_instance, bits(width, 64), bits(if fp_enabled | floating_point_register_width(fp_profile) | 0, 64),
+    bits(if vector_enabled | 1 | 0, 64), wb_retained_memory_accepted.as_bits().zext(64),
+    wb_reservation_wait_accept.as_bits().zext(64), wb_vector_admission.as_bits().zext(64), wb_vector_return.as_bits().zext(64),
+    wb_commit_valid.as_bits().zext(64), wb_memory_pending.as_bits().zext(64), wb_reservation_wait_pending.as_bits().zext(64),
+    wb_pending_exception_valid.as_bits().zext(64), wb_current_exception_wait.as_bits().zext(64), wb_memory_accepted.as_bits().zext(64),
+    wb_attempt.as_bits().zext(64), wb_data_fault.as_bits().zext(64), wb_split_accepted.as_bits().zext(64),
+    wb_split_done.as_bits().zext(64), wb_commit_has_multiply.as_bits().zext(64), wb_commit_has_divide.as_bits().zext(64),
+    response_fire.as_bits().zext(64), write_valid.as_bits().zext(64), lane(wb_fault_address), wb_commit_bits.rd.zext(64),
+    lane(wb_commit_bits.value), write_rd.zext(64), lane(write_data), wb_offer_bits.data_request_valid.as_bits().zext(64),
+    ~enable: active
+  )
+  rhodium_rv5stage_header.call(
+    cosim_instance, lane(instruction.pc), instruction.raw_instruction.zext(64), instruction.exception_valid.as_bits().zext(64),
+    lane(instruction.exception_cause), ~enable: active
+  )
+  rhodium_rv5stage_boundary.call(
+    cosim_instance, csr_interrupt_take.as_bits().zext(64), csr_synchronous_trap.as_bits().zext(64), csr_commit.as_bits().zext(64),
+    csr_retired.as_bits().zext(64), lane(csr_privilege.as_bits()), csr_virtualized.as_bits().zext(64), lane(csr_trap_cause),
+    lane(csr_trap_pc), lane(csr_trap_value), lane(csr_redirect),
+    lane(mux(csr_trap_target === RiscvTrapTarget.Machine, PrivilegeMode.Machine, PrivilegeMode.Supervisor).as_bits()),
+    csr_trap_to_guest.as_bits().zext(64), (Bool(hypervisor) & csr_fault_details_valid & csr_guest_page_fault).as_bits().zext(64),
+    csr_fault_gpa, csr_fault_inst, lane(mux(csr_mret ||| csr_sret, csr_redirect, resume_pc)),
+    lane(mux(csr_mret, csr_mret_privilege, mux(csr_sret, csr_sret_privilege, csr_privilege)).as_bits()),
+    mux(csr_mret ||| csr_sret, csr_returned_virtual, csr_virtualized).as_bits().zext(64),
+    riscv_interrupt_pending(XLen.X64, csr_interrupt_inputs), csr_time_input, csr_interrupt_boundary.as_bits().zext(64), ~enable: active
+  )
+  rhodium_rv5stage_response.call(
+    cosim_instance, lane(memory_response.data), memory_response.access_fault.as_bits().zext(64),
+    lane(memory_response.writeback.as_bits()),
+    memory_response.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+    lane(split_result.response.data), (split_result.page_fault ||| split_result.response.access_fault).as_bits().zext(64),
+    lane(split_result.fault_address), ~enable: active
+  )
+  rhodium_rv5stage_physical.call(
+    cosim_instance, mmu_flag("mmu_request_valid").as_bits().zext(64), mmu_lane("mmu_request_address"),
+    mmu_flag("mmu_pipeline_valid").as_bits().zext(64), mmu_lane("mmu_pipeline_address"),
+    mmu_flag("mmu_fragment_valid").as_bits().zext(64), mmu_lane("mmu_fragment_address"), mmu_lane("mmu_fragment_virtual"),
+    ~enable: active
+  )
+  for (index in 0..2, request :: RV5StageDataReq(xlen, vector_completion_slots) in [memory_request, wb_offer_bits.data_request]):
+    rhodium_rv5stage_request.call(
+      cosim_instance, bits(index, 64), lane(request.address), lane(request.access.as_bits()), lane(request.width.as_bits()),
+      lane(request.atomic.as_bits()), lane(request.data), lane(request.writeback.as_bits()),
+      request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).Integer).into(Bool).as_bits().zext(64),
+      request.writeback.is(RV5StageMemoryWriteback(vector_completion_slots).FloatingPoint).into(Bool).as_bits().zext(64),
+      request.writeback.view(RV5StageMemoryWriteback(vector_completion_slots).Integer).payload.zext(64), ~enable: active
+    )
+  for (index in 0..2, accepted in [wb_commit_has_multiply, wb_commit_has_divide]):
+    rhodium_rv5stage_arithmetic.call(
+      cosim_instance, bits(index, 64), accepted.as_bits().zext(64), wb_commit_bits.rd.zext(64), arithmetic_done[index].as_bits().zext(64),
+      arithmetic_rd[index].zext(64), lane(arithmetic_value[index]), ~enable: active
+    )
+  if fp_enabled
+  | block:
+      def issue :: RV5StageFpIssue(xlen, fp_profile, Bits(width)) = taps["fp_issue"]
+      def completed :: RV5StageFpCompletion(xlen, fp_profile, Bits(width)) = taps["fp_completion"]
+      rhodium_rv5stage_fp.call(
+        cosim_instance, fp_issued.as_bits().zext(64), fp_completed.as_bits().zext(64),
+        (issue.control.registers.destination === RV5StageFloatDestination.FloatingPoint).as_bits().zext(64),
+        (issue.control.registers.destination === RV5StageFloatDestination.Integer).as_bits().zext(64), issue.frd.zext(64),
+        (completed.destination === RV5StageFloatDestination.FloatingPoint).as_bits().zext(64),
+        (completed.destination === RV5StageFloatDestination.Integer).as_bits().zext(64), completed.rd.zext(64),
+        lane(completed.integer_value), lane(completed.fp_value), completed.exception_flags_valid.as_bits().zext(64),
+        completed.exception_flags.zext(64), tap_lane("fp_load_valid"), tap_lane("fp_load_rd"), tap_lane("fp_load_data"), ~enable: active
+      )
+  | #void
+  if vector_enabled
+  | rv5stage_cosim_vector(profile, tap_types, mmu_inputs, cosim_instance, active)
+  | #void
+
+export rv5stage_cosim_adapter

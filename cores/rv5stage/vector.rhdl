@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../riscv/cosim-source.rhm".describe_cosim_signals
   "vector/bundles.rhdl" open
   "vector/pipeline.rhdl" open
   "vector/memory.rhdl" open
@@ -65,6 +66,8 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   inst access(RV5StageVectorMemory(xlen, slots, ~hypervisor: hypervisor))
   input request_fault_address: Bits(xlen.width)
   access.request_fault_address <== request_fault_address
+  interface split_completion(Valid(RV5StageSplitResult(xlen, slots)), ~role: consumer)
+  split_completion |> access.split_completion
   if hypervisor
   | block:
       input(request_guest_fault, pipeline_guest_fault): RiscvGuestException()
@@ -217,6 +220,7 @@ sync_circuit RV5StageVectorPipeline(xlen :: XLen, vlen :: VectorLength, ~vector_
   certification_pending <== uncertified_memory
   loads_pending <== execution.loads_pending ||| queued_loads.or_reduce()
   fp_pending <== execution.fp_pending ||| queued_fp.or_reduce()
+  describe_cosim_signals({"admitted": request.fire()}, ~components: {"execution": execution, "memory": access})
 
 export:
   RV5StageVectorPipeline

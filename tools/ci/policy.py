@@ -97,7 +97,8 @@ def platform_configs():
     """Select OpenSBI and litmus tests by shape and ISA, never core identity."""
     suites = {'simple': ('opensbi', 'opensbi-smoke-run', 45),
               'tiled': ('litmus', 'litmus-smoke-run', 90)}
-    return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2])
+    return [dict(soc=soc, suite=suites[shape][0], run_target=suites[shape][1], timeout=suites[shape][2],
+                 cosim=soc in COSIM_CONFIGS)
             for soc, shape, _core in SIMULATOR_CONFIGS
             if shape in suites and SELECTIONS[soc][2] == 'rva23']
 
@@ -116,9 +117,15 @@ BACKEND_SMOKE_VARIANTS = {
                  smoke_max_cycles=100000, harness_timeout_minutes=5),
 }
 
+# These existing configs publish one cosim-enabled simulator, not another lane.
+# All enrolled single-hart RV5Stage configs use the checker on CIRCT and direct SystemVerilog.
+COSIM_CONFIGS = frozenset(soc for soc, shape, core in SIMULATOR_CONFIGS
+                           if core == 'rv5stage' and shape in ('mini', 'simple'))
+
 
 def simulator_entry(soc, shape, core, backend='circt'):
     return dict(soc=soc, shape=shape, core=core, backend=backend,
+                cosim=soc in COSIM_CONFIGS and backend != 'rsim',
                 simulator_id=soc + ('' if backend == 'circt' else '-' + backend),
                 opt_fast=BACKEND_SMOKE_VARIANTS.get(backend, {}).get('opt_fast', ''))
 
@@ -150,7 +157,8 @@ ARCH_SHARD_COUNTS = {
 
 
 def arch_shards():
-    return tuple(dict(**config, shard=shard, shard_count=count)
+    return tuple(dict(**config, shard=shard, shard_count=count,
+                      cosim=config['configuration'] in COSIM_CONFIGS)
                  for config in arch_configs()
                  for count in (ARCH_SHARD_COUNTS[config['configuration']],)
                  for shard in range(count))

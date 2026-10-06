@@ -1,0 +1,9 @@
+#lang rhodium
+/* Widens passive capture values to the fixed-width native DPI transport lane. */
+// SPDX-License-Identifier: Apache-2.0
+
+/* Preserve full-width values and zero-extend narrower hardware bit strings. */
+fun capture_lane(value :: Bits) :~ Bits(64):
+  if value.type.packed_width() == 64 | value | value.zext(64)
+
+export capture_lane

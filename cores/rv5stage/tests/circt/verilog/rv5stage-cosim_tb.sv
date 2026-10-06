@@ -7,8 +7,8 @@ module rv5stage_cosim_tb;
   import "DPI-C" function void core_cosim_begin(longint sample, int is_interrupt);
   import "DPI-C" function void core_cosim_end();
   import "DPI-C" function void core_cosim_pending(int count);
-  import "DPI-C" function void core_cosim_csr(int address, longint value);
   import "DPI-C" function void core_cosim_finish();
+  import "DPI-C" function void core_cosim_memory_offset(int offset);
   logic clock=0, reset=1, packet_valid=0, packet_ready;
   logic [63:0] epoch=0, ticks=0, pc=0, data_address, data_value, response_data=0, fault_address=0;
   logic [31:0] instruction=0;
@@ -98,20 +98,18 @@ module rv5stage_cosim_tb;
     retire('h30,32'h00000001);
     retire('h34,32'h12300513,10,'h123);
     retire('h38,32'h340515f3,11,0); // CSRRW mscratch
-    core_cosim_csr('h340,'h123);
     retire('h3c,32'h34002673,12,'h123); // CSRRS read
     retire('h40,32'h10300693,13,'h103);
     retire('h44,32'h30569073); // WARL mtvec => 0x100
-    core_cosim_csr('h305,'h100);
     core_cosim_expect('h48,32'h00000073,0,0,11,0,'h100,0);
     packet('h48,32'h00000073); idle(); core_cosim_pending(0);
-    core_cosim_csr('h341,'h48); core_cosim_csr('h342,11);
     // Preserve the MMU's second-page fault address.
+    retire('hf0,32'h000026b7,13,'h2000);
+    retire('hf4,32'hfff68693,13,'h1fff);
     page_fault=1; fault_address='h2000;
-    core_cosim_expect('h100,32'h00002703,0,0,13,'h2000,'h100,0);
-    core_cosim_memory(0,0,15,0,0,0,0,1);
-    packet('h100,32'h00002703); idle(); page_fault=0; core_cosim_pending(0);
-    core_cosim_csr('h343,'h2000);
+    core_cosim_expect('h100,32'h0006a703,0,0,13,'h2000,'h100,0);
+    core_cosim_memory(0,'h2000,7,0,0,0,0,1); core_cosim_memory_offset(1);
+    packet('h100,32'h0006a703); idle(); page_fault=0; core_cosim_pending(0);
     // A synchronous trap waits for older load completion without allocating again.
     drained=0;
     expect_instruction('h104,32'h00002783,15,55); core_cosim_memory(0,0,15,1,0,55,0,0);

@@ -48,6 +48,9 @@ module rv5stage_mmu_replay_tb;
     logic origin;
   } data_resp_bits_t;
   typedef struct packed { logic valid; data_resp_bits_t bits; } data_resp_t;
+  logic split_valid, split_page_fault;
+  logic [63:0] split_fault_address;
+  data_resp_bits_t split_response;
   typedef struct packed { logic [63:0] address; logic [1:0] operation; } prefetch_bits_t;
   typedef struct packed { logic valid; prefetch_bits_t bits; } prefetch_t;
   typedef struct packed { data_req_t request; ready_t response; } data_in_t;
@@ -229,10 +232,12 @@ module rv5stage_mmu_replay_tb;
     end else begin
       if (data_memory_out.response.ready && !ordinary_response_valid && !manual_pte_valid) pte_response_valid <= 1'b0;
       if (split_phase && split_response_valid && data_memory_out.response.ready) split_response_valid <= 1'b0;
-      if (split_phase && data_out.response.valid && data_in.response.ready) begin
-        assert (data_out.response.bits.data == (split_store ? 64'd0 : split_contained ? 64'h0201 : split_cross_page ? 64'h0c0b0a0908070605 : 64'h0a09080706050403) &&
-                data_out.response.bits.writeback == memory_integer(5'd7) &&
-                !data_out.response.bits.access_fault)
+      if (split_phase && split_valid) begin
+        assert ((vector_bad_second && split_cross_page ?
+                 split_page_fault && split_fault_address == 'h5000 :
+                 !split_page_fault && split_response.data == (split_store ? 64'd0 : split_contained ? 64'h0201 : split_cross_page ? 64'h0c0b0a0908070605 : 64'h0a09080706050403)) &&
+                split_response.writeback == memory_integer(5'd7) &&
+                !split_response.access_fault)
           else $fatal(1, "split completion lost assembled load or original writeback");
         split_completions_seen <= split_completions_seen + 1;
       end
@@ -261,16 +266,16 @@ module rv5stage_mmu_replay_tb;
         if (split_phase && !data_memory_out.request.bits.memory.origin) begin
           assert (data_memory_out.request.bits.pbmt == 0) else $fatal(1, "split fragment lost main-memory PBMT");
           if (split_contained)
-            assert (!split_response_valid && split_requests_seen == 6 && data_memory_out.request.bits.memory.address == 64'h8000 && data_memory_out.request.bits.memory.byte_mask == 8'h06)
+            assert (!split_response_valid && split_requests_seen == 7 && data_memory_out.request.bits.memory.address == 64'h8000 && data_memory_out.request.bits.memory.byte_mask == 8'h06)
               else $fatal(1, "contained misaligned load issued more than one masked fragment");
           else
-            assert (!split_response_valid && split_requests_seen < 6 &&
-                    data_memory_out.request.bits.memory.address == (split_cross_page ? (split_requests_seen == 4 ? 64'h8ff8 : 64'ha000) : split_store ? (split_requests_seen == 2 ? 64'h8010 : 64'h8018) : (split_requests_seen == 0 ? 64'h8000 : 64'h8008)) &&
-                    data_memory_out.request.bits.memory.byte_mask == (split_cross_page ? (split_requests_seen == 4 ? 8'he0 : 8'h1f) : split_store ? (split_requests_seen == 2 ? 8'he0 : 8'h1f) : (split_requests_seen == 0 ? 8'hf8 : 8'h07)) &&
+            assert (!split_response_valid && split_requests_seen < 7 &&
+                    data_memory_out.request.bits.memory.address == (split_cross_page ? (split_requests_seen != 5 ? 64'h8ff8 : 64'ha000) : split_store ? (split_requests_seen == 2 ? 64'h8010 : 64'h8018) : (split_requests_seen == 0 ? 64'h8000 : 64'h8008)) &&
+                    data_memory_out.request.bits.memory.byte_mask == (split_cross_page ? (split_requests_seen != 5 ? 8'he0 : 8'h1f) : split_store ? (split_requests_seen == 2 ? 8'he0 : 8'h1f) : (split_requests_seen == 0 ? 8'hf8 : 8'h07)) &&
                     (!split_store || data_memory_out.request.bits.memory.data == (split_requests_seen == 2 ? 64'h6677880000000000 : 64'h0000001122334455)))
               else $fatal(1, "split fragment address, mask, or shifted data was incorrect");
           split_response_valid <= 1'b1;
-          split_response_data <= split_store ? 64'd0 : (split_contained || split_requests_seen == 0 || split_requests_seen == 4 ? 64'h0706050403020100 : 64'h0f0e0d0c0b0a0908);
+          split_response_data <= split_store ? 64'd0 : (split_contained || split_requests_seen == 0 || split_requests_seen == 4 || split_requests_seen == 6 ? 64'h0706050403020100 : 64'h0f0e0d0c0b0a0908);
           split_requests_seen <= split_requests_seen + 1;
         end else if (priority_phase) begin
           if (data_memory_out.request.bits.memory.origin) begin
@@ -294,7 +299,12 @@ module rv5stage_mmu_replay_tb;
               64'h1000: pte_response_data <= vector_superpage ? 64'hcf : LEVEL_2_POINTER;
               64'h2000: pte_response_data <= LEVEL_1_POINTER;
               64'h3020: pte_response_data <= (vector_no_dirty ? 64'h2047 : 64'h20c7) | (64'(vector_pbmt) << 61); // VA 0x4000 -> PA 0x8000, RWA[D].
-              64'h3028: pte_response_data <= vector_bad_second ? 64'd0 : 64'h28c7; // Nonadjacent PA.
+              64'h3028: begin
+                if (split_phase)
+                  assert (!split_response_valid && split_requests_seen == (vector_bad_second ? 7 : 5))
+                    else $fatal(1, "second-page walk started before the first fragment completed");
+                pte_response_data <= vector_bad_second ? 64'd0 : 64'h28c7; // Nonadjacent PA.
+              end
               default: pte_response_data <= 64'h40c7;
             endcase
           end
@@ -1384,7 +1394,14 @@ module rv5stage_mmu_replay_tb;
     assert(data_out.request.ready && !data_memory_out.request.valid)
       else $fatal(1, "split load was not captured before fragment issue");
     tick();
-    @(negedge clock); data_request_valid = 0;
+    @(negedge clock); data_request_valid = 0; memory_ready = 0;
+    repeat (3) begin
+      tick();
+      assert (data_memory_out.request.valid && data_memory_out.request.bits.memory.address == 64'h8000 &&
+              data_memory_out.request.bits.memory.byte_mask == 8'hf8 && split_requests_seen == 0 && !split_valid)
+        else $fatal(1, "backpressure advanced or changed the retained fragment");
+    end
+    @(negedge clock); memory_ready = 1;
     for (int cycle = 0; cycle < 20 && split_completions_seen == 0; cycle++) tick();
     assert(split_requests_seen == 2 && split_completions_seen == 1)
       else $fatal(1, "split load did not issue two fragments and one completion");
@@ -1408,22 +1425,26 @@ module rv5stage_mmu_replay_tb;
     satp = SATP_SV39_ROOT_1;
     clear_translations();
     @(negedge clock); data_request_valid = 1;
+    #1;
     for (int cycle = 0; cycle < 80 && !data_out.request.ready; cycle++) tick();
     assert(data_out.request.ready && !data_out.request_fault && !data_out.request_access_fault && split_requests_seen == 4)
-      else $fatal(1, "two-page split was admitted before both translations");
+      else $fatal(1, "two-page split was not captured before fragment translation");
     tick();
     @(negedge clock); data_request_valid = 0;
-    for (int cycle = 0; cycle < 20 && split_completions_seen == 2; cycle++) tick();
+    for (int cycle = 0; cycle < 160 && split_completions_seen == 2; cycle++) tick();
     assert(split_requests_seen == 6 && split_completions_seen == 3)
       else $fatal(1, "two-page split lost one fragment or its completion");
     vector_bad_second = 1;
     clear_translations();
     @(negedge clock); data_request_valid = 1;
-    for (int cycle = 0; cycle < 80 && !data_out.request_fault; cycle++) tick();
-    assert(data_out.request_fault && request_fault_address == 'h5000 && split_requests_seen == 6 && !data_memory_out.request.valid)
-      else $fatal(1, "faulting second page lost its address or issued a fragment: %h", request_fault_address);
+    #1;
+    assert(data_out.request.ready && !data_out.request_fault) else $fatal(1, "faultable split was not retained");
+    tick();
+    @(negedge clock); data_request_valid = 0;
+    for (int cycle = 0; cycle < 160 && split_completions_seen == 3; cycle++) tick();
+    assert(split_requests_seen == 7 && split_completions_seen == 4)
+      else $fatal(1, "second-page fault must preserve exactly one completed prefix");
     @(negedge clock);
-    data_request_valid = 0;
     split_cross_page = 0;
     split_contained = 1;
     vector_phase = 0;
@@ -1436,8 +1457,8 @@ module rv5stage_mmu_replay_tb;
       else $fatal(1, "contained misaligned load did not enter the WB slow owner");
     tick();
     @(negedge clock); data_request_valid = 0;
-    for (int cycle = 0; cycle < 20 && split_completions_seen == 3; cycle++) tick();
-    assert(split_requests_seen == 7 && split_completions_seen == 4)
+    for (int cycle = 0; cycle < 20 && split_completions_seen == 4; cycle++) tick();
+    assert(split_requests_seen == 8 && split_completions_seen == 5)
       else $fatal(1, "contained misaligned load did not complete after one fragment");
     $display("RV5Stage ITLB/DTLB replay, Svnapot, PBMT, vector translation, and misaligned slow access passed");
     $finish;

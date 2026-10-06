@@ -11,12 +11,15 @@ import:
   lib("rhodium/compile/pipeline.rhm") open
   lib("rhodium/event/copy.rhm").copy_module
   "../../cores/riscv/cosim-source.rhm" open
+  "../../cores/rv5stage/observation.rhdl".RV5StageObservationContract
+  "rv5stage/capture.rhdl".rv5stage_cosim_adapter
 
 export cosim_pass
 
 /* Select all declared harts by default, or exact paths relative to the compilation top.
    Selection and occurrence IDs are stable across metadata-preserving prior passes. */
-fun cosim_pass(~harts: selected :: maybe(List.of(List.of(String))) = #false):
+fun cosim_pass(~harts: selected :: maybe(List.of(List.of(String))) = #false,
+               ~adapters: adapters :: Map = {RV5StageObservationContract: rv5stage_cosim_adapter}):
   /* Clone the functional graph and attach read-only observer instances at selected harts. */
   fun transform(prepared :: PreparedRTL):
     def source = prepared.rtl
@@ -87,21 +90,78 @@ fun cosim_pass(~harts: selected :: maybe(List.of(List.of(String))) = #false):
         cache[module_def] := copied
       cache[module_def]
     /* Export child taps only for an explicitly bound component of a selected hart. */
-    fun rebuild(original :: Module, path :: List.of(String), export_taps :: Map):
-      def untouched = export_taps.length() == 0 && !(for any (hart_path in harts.keys()): hart_path.length() >= path.length() && hart_path.take(path.length()) == path)
+    fun component_taps(module_def :: Module):
+      def descriptions = module_def.metadata_for("riscv.cosim.signals")
+      unless descriptions.length() == 1 | error(~who: #'cosim_pass, "component must declare exactly one signal set")
+      def signals :: CosimSignals = descriptions[0]
+      def result = MutableMap{}
+      for (field in signals.taps.keys()): result[field] := signals.taps[field]
+      for (name in signals.components.keys(#true)):
+        def child = signals.components[name]
+        unless child.operation.module_def === module_def | error(~who: #'cosim_pass, "nested component must be an immediate child instance")
+        def fields = component_taps(child.module_def)
+        for (field in fields.keys(#true)):
+          def key = name ++ "_" ++ field
+          when result.has_key(key) | error(~who: #'cosim_pass, "nested component shadows a local tap")
+          result[key] := fields[field]
+      result.snapshot()
+    /* Copy only selected occurrences, retaining sharing elsewhere. */
+    fun rebuild(original :: Module, path :: List.of(String), export_taps :: Map, context_types :: Map = {}, exported :: Boolean = #false):
+      def untouched = !exported && export_taps.length() == 0 && !(for any (hart_path in harts.keys()): hart_path.length() >= path.length() && hart_path.take(path.length()) == path)
       if untouched && unchanged.has_key(original)
       | unchanged[original]
-      | rebuild_uncached(original, path, export_taps, untouched)
+      | rebuild_uncached(original, path, export_taps, context_types, untouched, exported)
     /* Build marked occurrences separately while preserving sharing of untouched definitions. */
-    fun rebuild_uncached(original :: Module, path :: List.of(String), export_taps :: Map, untouched :: Boolean):
+    fun rebuild_uncached(original :: Module, path :: List.of(String), export_taps :: Map, context_types :: Map, untouched :: Boolean, exported :: Boolean):
       def declaration = harts.get(path, #false)
       def instance_id = next_hart
       when declaration | next_hart := next_hart + 1
       def requests = MutableMap{}
       def parameters = MutableMap{}
+      def context_inputs = MutableMap{}
+      def context_wires = MutableList[]
+      def nested = if exported | (original.metadata_for("riscv.cosim.signals")[0] :: CosimSignals).components | {}
+      for (name in nested.keys(#true)):
+        def component = nested[name]
+        unless component.operation.module_def === original
+        | error(~who: #'cosim_pass, "nested component must be an immediate child instance")
+        def descriptions = component.module_def.metadata_for("riscv.cosim.signals")
+        unless descriptions.length() == 1 | error(~who: #'cosim_pass, "nested component must declare exactly one signal set")
+        def signals :: CosimSignals = descriptions[0]
+        def parent :: CosimSignals = original.metadata_for("riscv.cosim.signals")[0]
+        unless component_control(component, signals.clock) === control_root(parent.clock) && component_control(component, signals.reset) === control_root(parent.reset)
+        | error(~who: #'cosim_pass, "nested component must share its parent's clock and reset epoch")
+        when requests.has_key(component.operation.id) | error(~who: #'cosim_pass, "nested component bound twice")
+        requests[component.operation.id] := signals.taps
+      for (context :: CosimContext in original.metadata_for("riscv.cosim.context")):
+        unless context.hart.operation.module_def === original
+        | error(~who: #'cosim_pass, "context hart must be an immediate child instance")
+        def hart_path = path ++ [context.hart.operation.attribute("name")]
+        when harts.has_key(hart_path)
+        | when context_inputs.has_key(context.hart.operation.id)
+          | error(~who: #'cosim_pass, "hart context must be declared once")
+          def hart = harts[hart_path]
+          def types = MutableMap{}
+          for (name in context.components.keys(#true)):
+            def component = context.components[name]
+            unless component.operation.module_def === original && !(component === context.hart)
+            | error(~who: #'cosim_pass, "context component must be a sibling instance")
+            def descriptions = component.module_def.metadata_for("riscv.cosim.signals")
+            unless descriptions.length() == 1 | error(~who: #'cosim_pass, "context component must declare exactly one signal set")
+            def signals :: CosimSignals = descriptions[0]
+            unless component_control(component, signals.clock) === component_control(context.hart, hart.taps["clock"]) && component_control(component, signals.reset) === component_control(context.hart, hart.taps["reset"])
+            | error(~who: #'cosim_pass, "context must share its hart's clock and reset epoch")
+            requests[component.operation.id] := signals.taps
+            def fields = component_taps(component.module_def)
+            for (field in fields.keys(#true)):
+              def key = name ++ "_" ++ field
+              when types.has_key(key) | error(~who: #'cosim_pass, "duplicate context tap")
+              types[key] := fields[field].type
+              context_wires.add([context.hart.operation.id, key, component.operation.id, field])
+          context_inputs[context.hart.operation.id] := types.snapshot()
       when declaration
-      | def unsupported = declaration.unsupported
-        when unsupported | error(~who: #'cosim_pass, unsupported)
+      | unless adapters.has_key(declaration.contract)
+        | error(~who: #'cosim_pass, "no adapter for observation contract: " ++ declaration.contract)
         for (name in declaration.components.keys(#true)):
           def component = declaration.components[name]
           unless component.operation.module_def === original
@@ -118,22 +178,35 @@ fun cosim_pass(~harts: selected :: maybe(List.of(List.of(String))) = #false):
       def children = MutableMap{}
       for (op in original.operations):
         when op.opcode == "rtl.instance"
-        | children[op.id] := rebuild(op.attribute("module"), path ++ [op.attribute("name")], requests.get(op.id, {}))
+        | children[op.id] := rebuild(op.attribute("module"), path ++ [op.attribute("name")], requests.get(op.id, {}), context_inputs.get(op.id, {}), requests.has_key(op.id))
       def copied = copy_module(builder, original, if path == [] | original.name | fresh(original.name), children, imports)
       def owner = copied.module_def
+      for (binding in context_wires.snapshot()):
+        builder.drive(copied.instances[binding[0]].input("__cosim_context_" ++ binding[1]), copied.instances[binding[2]].output("__cosim_tap_" ++ binding[3]))
       for (name in export_taps.keys(#true)):
         def value = copied.values[export_taps[name].id]
         builder.drive(builder.output(owner, "__cosim_tap_" ++ name, value.type), value)
+      for (name in nested.keys(#true)):
+        def instance = copied.instances[nested[name].operation.id]
+        def fields = component_taps(nested[name].module_def)
+        for (field in fields.keys(#true)):
+          def output_name = "__cosim_tap_" ++ name ++ "_" ++ field
+          builder.drive(builder.output(owner, output_name, fields[field].type), instance.output("__cosim_tap_" ++ field))
       when declaration
       | def taps = MutableMap{}
         for (name in declaration.taps.keys(#true)): taps[name] := copied.values[declaration.taps[name].id]
+        for (name in context_types.keys(#true)):
+          when taps.has_key(name) | error(~who: #'cosim_pass, "context shadows a hart tap")
+          taps[name] := builder.input(owner, "__cosim_context_" ++ name, context_types[name])
         for (name in declaration.components.keys(#true)):
           def component = declaration.components[name]
           def instance = copied.instances[component.operation.id]
-          for (field in requests[component.operation.id].keys(#true)):
+          for (field in component_taps(component.module_def).keys(#true)):
+            when taps.has_key(name ++ "_" ++ field) | error(~who: #'cosim_pass, "component shadows a hart or context tap")
             taps[name ++ "_" ++ field] := instance.output("__cosim_tap_" ++ field)
         def types = for Map (name in taps.keys(#true)): values(name, taps[name].type)
-        def observer :: DesignElaboration = declaration.recipe(types, parameters.snapshot(), instance_id)
+        def adapter :: Function.of_arity(4) = adapters[declaration.contract]
+        def observer :: DesignElaboration = adapter(declaration.configuration, types, parameters.snapshot(), instance_id)
         unless observer.top.outputs.length() == 0 | error(~who: #'cosim_pass, "observer must have no outputs")
         unless observer.top.inputs.length() == taps.length() | error(~who: #'cosim_pass, "observer signature must match its declared taps")
         for (port in observer.top.inputs):

@@ -187,6 +187,9 @@ jobs:
       - name: Restore exact Spike runtime libraries
         if: contains(matrix.soc, '-spike-')
         uses: ./.github/actions/setup-fesvr
+      - name: Install Sail cosim runtime dependency
+        if: matrix.cosim
+        run: sudo apt-get install --yes libgmp10
       - name: Download exact simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -203,7 +206,8 @@ jobs:
           SUITE: ${{ matrix.suite }}
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
+            --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
           ldd "$RUNNER_TEMP/$SOC/VTestDriver"
           suite_dir="/tmp/rhodium-program-tests/$SOC/$SUITE"
           mkdir -p "$suite_dir"
@@ -212,6 +216,7 @@ jobs:
             --target "$RUNNER_TEMP/$SOC/program-target.json" --output "$suite_dir/run-manifest.json"
       - name: Run every selected workload
         env:
+          COSIM: ${{ matrix.cosim && '1' || '0' }}
           SUITE: ${{ matrix.suite }}
           SOC: ${{ matrix.soc }}
         run: |
@@ -260,7 +265,7 @@ jobs:
           path: |
             .tools/sail-compiler-0.20.3
             .tools/sail-riscv-0.14.1-sail-0.20.3-*
-          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/cosim/SailModelConfig.cmake') }}"
+          key: "${{ runner.os }}-${{ runner.arch }}-sail-0.20.3-${{ steps.source.outputs.revision }}-${{ hashFiles('riscv/sail-riscv-patches/**', 'riscv/patched_submodule.py', 'sims/arch-test/install-sail.sh', 'sims/sail/SailModelConfig.cmake') }}"
       - name: Build patched Sail model
         run: make -C sims arch-test-sail-setup
       - name: Package patched Sail model
@@ -445,6 +450,11 @@ jobs:
       - name: Restore pinned Spike runtime libraries
         if: matrix.core == 'spike'
         uses: ./.github/actions/setup-fesvr
+      - name: Install Sail cosim runtime dependency
+        if: matrix.cosim
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgmp10
       - name: Download exact simulator
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -458,7 +468,8 @@ jobs:
       - name: Verify and unpack shared artifacts
         run: |
           chmod +x "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }}
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver" --soc ${{ matrix.configuration }} \
+            --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
           library_bindings="$(ldd "$RUNNER_TEMP/${{ matrix.configuration }}/VTestDriver")"
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then
@@ -473,6 +484,7 @@ jobs:
         run: make -C sims arch-test-adapter-test
       - name: Run the complete deterministic shard
         env:
+          COSIM: ${{ matrix.cosim && '1' || '0' }}
           SHARD: ${{ matrix.shard }}
         run: |
           set -o pipefail

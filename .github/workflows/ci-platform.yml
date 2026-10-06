@@ -179,6 +179,11 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes build-essential device-tree-compiler zlib1g-dev
+      - name: Install Sail cosim runtime dependency
+        if: matrix.cosim
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libgmp10
       - name: Restore pinned Spike runtime libraries
         if: contains(matrix.soc, '-spike-')
         uses: ./.github/actions/setup-fesvr
@@ -204,7 +209,8 @@ jobs:
           SUITE: ${{ matrix.suite }}
         run: |
           chmod +x "$RUNNER_TEMP/$SOC/VTestDriver"
-          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC"
+          python3 sims/program-test/artifact.py verify --binary "$RUNNER_TEMP/$SOC/VTestDriver" --soc "$SOC" \
+            --variant "${{ matrix.cosim && 'cosim' || 'normal' }}"
           library_bindings=$(ldd "$RUNNER_TEMP/$SOC/VTestDriver")
           printf '%s\n' "$library_bindings"
           if [[ "$library_bindings" == *"not found"* ]]; then exit 1; fi
@@ -219,6 +225,7 @@ jobs:
         env:
           SOC: ${{ matrix.soc }}
           SUITE: ${{ matrix.suite }}
+          COSIM: ${{ matrix.cosim && '1' || '0' }}
           RUN_TARGET: ${{ matrix.run_target }}
         run: |
           output="/tmp/rhodium-platform-tests/$SOC/$SUITE"

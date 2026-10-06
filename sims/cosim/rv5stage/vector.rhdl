@@ -1,0 +1,173 @@
+#lang rhodium
+/* Captures passive RV5Stage vector events; native cosim owns all cross-cycle bookkeeping. */
+// SPDX-License-Identifier: Apache-2.0
+import:
+  lib("rhodium/frontend/kernel.rhm").input as observer_input
+  "../../../cores/rv5stage/profile.rhm".RV5StageConfig
+  "../events/transport.rhdl".capture_lane
+  "../../../cores/rv5stage/vector/register-file.rhdl".VectorRegisterWrite
+  "../../../cores/rv5stage/vector/bundles.rhdl" open
+  "../../../cores/rv5stage/dcache/protocol.rhdl" open
+
+/* Captures actual vector queue admission, distinct from retained WB admission. */
+dpi_import procedure rhodium_rv5stage_vector_admission(instance: Bits(64))
+
+/* Captures integer-service queue admission, accepted requests, and consumed tagged results. */
+dpi_import procedure rhodium_rv5stage_vector_service(
+  instance: Bits(64), allocated: Bits(64), owner: Bits(64), tag: Bits(64), divide: Bits(64),
+  multiply_launch: Bits(64), multiply_tag: Bits(64), divide_launch: Bits(64), divide_tag: Bits(64),
+  multiply_return: Bits(64), multiply_return_tag: Bits(64), divide_return: Bits(64), divide_return_tag: Bits(64)
+)
+
+/* Captures FP service ownership and instruction exception-flag contributions. */
+dpi_import procedure rhodium_rv5stage_vector_fp(
+  instance: Bits(64), allocated: Bits(64), owner: Bits(64), tag: Bits(64),
+  launch: Bits(64), launch_tag: Bits(64), returned: Bits(64), return_tag: Bits(64),
+  flags_valid: Bits(64), flags: Bits(64)
+)
+
+/* Captures cycle signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_cycle(
+  instance: Bits(64), xlen: Bits(64), vlen: Bits(64), slots: Bits(64), pipeline_valid: Bits(64), pipeline_address: Bits(64),
+  split: Bits(64), has_fragments: Bits(64), replay: Bits(64)
+)
+
+/* Captures dispatch signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_dispatch(instance: Bits(64), owner: Bits(64), base: Bits(64), eew: Bits(64), instruction: Bits(64), vtype: Bits(64))
+
+/* Captures issue signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_issue(
+  instance: Bits(64), owner: Bits(64), tag: Bits(64), first: Bits(64), destination: Bits(64), packed: Bits(64), enabled: Bits(64),
+  store: Bits(64), address: Bits(64), physical: Bits(64), precertified: Bits(64), mask: Bits(64), data: Bits(64)
+)
+
+/* Captures write signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_write(
+  instance: Bits(64), address: Bits(64), mask: Bits(64), data: Bits(64), local: Bits(64), packed: Bits(64), splat: Bits(64),
+  local_owner: Bits(64), packed_owner: Bits(64), splat_owner: Bits(64)
+)
+
+/* Captures direct signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_direct(instance: Bits(64), tag: Bits(64), data: Bits(64))
+
+/* Captures complete signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_complete(instance: Bits(64), tag: Bits(64), data: Bits(64))
+
+/* Captures translation signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_translation(instance: Bits(64), tag: Bits(64), physical: Bits(64))
+
+/* Captures fragment start signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_fragment_start(instance: Bits(64), physical: Bits(64))
+
+/* Captures fragment signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_fragment(instance: Bits(64), tag: Bits(64), address: Bits(64), mask: Bits(64), data: Bits(64), store_data: Bits(64))
+
+/* Captures fault signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_fault(instance: Bits(64), tag: Bits(64), address: Bits(64))
+
+/* Captures decision signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_decision(instance: Bits(64), tag: Bits(64), disposition: Bits(64))
+
+/* Captures drain signals for native settled-cycle interpretation. */
+dpi_import procedure rhodium_rv5stage_vector_drain(instance: Bits(64), owner: Bits(64))
+
+/* Captures a vector-owned GPR/FPR write without allocating a scalar WB instruction. */
+dpi_import procedure rhodium_rv5stage_vector_scalar_write(instance: Bits(64), owner: Bits(64), floating: Bits(64), rd: Bits(64), data: Bits(64))
+
+/* Samples real pre-edge events without state, normalization, ownership queues, or feedback.
+   The native RV5Stage adapter resolves callback order before the generic collector publishes. */
+fun rv5stage_cosim_vector(profile :: RV5StageConfig, types :: Map, mmu :: Map, instance :: Bits(64), active :: Bool):
+  def slots = profile.vector_completion_slots
+  def taps = for Map (name in types.keys(#true).filter(~keep: fun (name): name.starts_with("vector_"))):
+    values(name, observer_input(name, types[name]))
+  /* Widen a raw bit/boolean tap to the fixed native transport lane. */
+  fun lane(name :: String) :~ Bits(64):
+    def value :: Hardware.of(types[name]) = taps[name]
+    capture_lane(value.as_bits())
+  /* Recover a boolean event enable from its declared passive tap. */
+  fun flag(name :: String) :~ Bool: taps[name]
+  rhodium_rv5stage_vector_admission.call(instance, ~enable: active & flag("vector_admitted"))
+  rhodium_rv5stage_vector_fp.call(
+    instance, lane("vector_execution_fp_allocate"),
+    lane("vector_execution_service_owner"), lane("vector_execution_service_tag"),
+    lane("vector_execution_fp_launch"), lane("vector_execution_fp_tag"),
+    lane("vector_execution_fp_return"), lane("vector_execution_fp_return_tag"),
+    lane("vector_execution_fp_flags_valid"), lane("vector_execution_fp_flags"), ~enable: active
+  )
+  rhodium_rv5stage_vector_service.call(
+    instance, lane("vector_execution_service_allocate"), lane("vector_execution_service_owner"),
+    lane("vector_execution_service_tag"), lane("vector_execution_service_divide"),
+    lane("vector_execution_multiply_launch"), lane("vector_execution_multiply_tag"),
+    lane("vector_execution_divide_launch"), lane("vector_execution_divide_tag"),
+    lane("vector_execution_multiply_return"), lane("vector_execution_multiply_return_tag"),
+    lane("vector_execution_divide_return"), lane("vector_execution_divide_return_tag"), ~enable: active
+  )
+  def issued :: RV5StageVectorToken(profile.xlen, Bits(profile.xlen.width), slots) = taps["vector_execution_memory_token"]
+  def write :: VectorRegisterWrite(profile.xlen, profile.vector_length) = taps["vector_execution_write"]
+  def completion :: RV5StageVectorCompletion(profile.xlen, slots) = taps["vector_memory_completion"]
+  def decision :: RV5StageVectorCommit(profile.xlen, slots) = taps["vector_execution_memory_decision"]
+  def pipeline_valid :: Bool = if types.has_key("mmu_pipeline_valid") | mmu["mmu_pipeline_valid"] | Bool(#false)
+  def pipeline_address :: Bits(profile.xlen.width) = if types.has_key("mmu_pipeline_address") | mmu["mmu_pipeline_address"] | bits(0, profile.xlen.width)
+  rhodium_rv5stage_vector_cycle.call(
+    instance, bits(profile.xlen.width, 64), bits(profile.vector_length, 64), bits(slots, 64), pipeline_valid.as_bits().zext(64),
+    capture_lane(pipeline_address), lane("vector_memory_split"), bits(if types.has_key("mmu_fragment_completed") | 1 | 0, 64),
+    lane("vector_execution_replay"), ~enable: active
+  )
+  rhodium_rv5stage_vector_dispatch.call(
+    instance, lane("vector_execution_owner"), lane("vector_execution_base"), lane("vector_execution_eew"),
+    lane("vector_execution_instruction"), lane("vector_execution_vtype"), ~enable: active & flag("vector_execution_admitted")
+  )
+  rhodium_rv5stage_vector_issue.call(
+    instance, lane("vector_execution_memory_owner"), capture_lane(issued.completion_tag),
+    lane("vector_execution_memory_first"), lane("vector_execution_memory_destination"), lane("vector_execution_memory_packed"),
+    issued.enabled.as_bits().zext(64), issued.store.as_bits().zext(64), capture_lane(issued.address),
+    capture_lane(issued.physical_address), issued.precertified.as_bits().zext(64),
+    capture_lane(issued.byte_mask), capture_lane(issued.store_data),
+    ~enable: active & flag("vector_execution_memory_issue")
+  )
+  rhodium_rv5stage_vector_write.call(
+    instance, capture_lane(write.address), capture_lane(write.mask), capture_lane(write.data),
+    lane("vector_execution_local_write"), lane("vector_execution_packed_write"), lane("vector_execution_splat_write"),
+    lane("vector_execution_write_owner"), lane("vector_execution_packed_write_owner"), lane("vector_execution_splat_owner"),
+    ~enable: active & flag("vector_execution_write_valid")
+  )
+  rhodium_rv5stage_vector_direct.call(instance, lane("vector_memory_direct_tag"), lane("vector_memory_direct_data"), ~enable: active & flag("vector_memory_direct"))
+  rhodium_rv5stage_vector_complete.call(instance, capture_lane(completion.tag), capture_lane(completion.data), ~enable: active & flag("vector_memory_completed"))
+  rhodium_rv5stage_vector_fault.call(instance, lane("vector_memory_fault_tag"), lane("vector_memory_fault_address"), ~enable: active & flag("vector_memory_fault"))
+  rhodium_rv5stage_vector_decision.call(
+    instance, capture_lane(decision.tag), capture_lane(decision.disposition.as_bits()),
+    ~enable: active & flag("vector_execution_memory_decision_valid")
+  )
+  rhodium_rv5stage_vector_drain.call(instance, lane("vector_execution_instructions_owner"), ~enable: active & flag("vector_execution_instructions_drained"))
+  def floating_write = flag("vector_execution_floating_write_valid")
+  rhodium_rv5stage_vector_scalar_write.call(
+    instance, lane("vector_execution_scalar_write_owner"), floating_write.as_bits().zext(64),
+    mux(floating_write, lane("vector_execution_floating_write_rd"), lane("vector_execution_scalar_write_rd")),
+    mux(floating_write, lane("vector_execution_floating_write_data"), lane("vector_execution_scalar_write_data")),
+    ~enable: active & (floating_write ||| flag("vector_execution_scalar_write_valid"))
+  )
+  if types.has_key("mmu_request")
+  | block:
+      def request :: RV5StageDataReq(profile.xlen, slots) = mmu["mmu_request"]
+      def vector_request = request.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)
+      def tag = request.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
+      rhodium_rv5stage_vector_translation.call(
+        instance, capture_lane(tag), capture_lane(mmu["mmu_request_address"]),
+        ~enable: active & mmu["mmu_request_valid"] & vector_request
+      )
+  | #void
+  if types.has_key("mmu_fragment_completed")
+  | block:
+      def request :: RV5StageDataReq(profile.xlen, slots) = mmu["mmu_fragment_request"]
+      def response :: RV5StageDataResp(profile.xlen, slots) = mmu["mmu_fragment_response"]
+      def vector_request = request.writeback.is(RV5StageMemoryWriteback(slots).Vector).into(Bool)
+      def tag = request.writeback.view(RV5StageMemoryWriteback(slots).Vector).payload
+      rhodium_rv5stage_vector_fragment_start.call(instance, capture_lane(mmu["mmu_fragment_address"]), ~enable: active & mmu["mmu_fragment_valid"])
+      rhodium_rv5stage_vector_fragment.call(
+        instance, capture_lane(tag), capture_lane(request.address), capture_lane(request.byte_mask),
+        capture_lane(response.data), capture_lane(request.data),
+        ~enable: active & mmu["mmu_fragment_completed"] & !response.access_fault & vector_request
+      )
+  | #void
+
+export rv5stage_cosim_vector

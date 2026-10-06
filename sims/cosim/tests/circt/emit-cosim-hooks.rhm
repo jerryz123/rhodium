@@ -4,5 +4,5 @@
 import:
   lib("rhodium/backend/circt.rhm") open
   lib("rhodium/frontend/kernel.rhm") as embedded
-  "../hooks-fixture.rhdl".CosimHooksFixture
+  "../events/hooks-fixture.rhdl".CosimHooksFixture
 print(emit_circt(embedded.run_elaboration(fun (): CosimHooksFixture())))

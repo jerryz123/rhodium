@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "../verilator/simulation_runtime.h"
 #include "../verilator/event_trace.h"
-#include "../cosim/simulation.h"
+#include "../cosim/runtime/session.h"
 #include <vpi_user.h>
 #include <cassert>
 #include <cstdio>
@@ -56,6 +56,12 @@ int end_sample() noexcept {
   assert(sample_open && edges == sample_index + 1);
   sample_open = false;
   return active_edges == 2 && option("+runtime-test-fail") ? 1 : 0;
+}
+int drain_simulation() noexcept {
+  assert(cosim_started && !sample_open && active_edges >= 5);
+  if (option("+runtime-test-drain-fail")) return -1;
+  if (option("+runtime-test-drain-stuck")) return 0;
+  return !option("+runtime-test-drain") || active_edges >= 8 ? 1 : 0;
 }
 int finish_simulation() noexcept {
   assert(cosim_started && !sample_open && edges == active_edges + 3);

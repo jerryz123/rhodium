@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/cosim-source.rhm".describe_cosim_signals
   lib("cores/riscv/vector-layout.rhm").vector_word_bytes
   lib("rhodium/std/bits.rhdl").Pow2Int
   "bundles.rhdl" open
@@ -225,11 +226,19 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def returning_serial_fold = operand_fetch.scheduled_return & ((returning_control.fp_service & returning_control.reduction) ||| (returning_control.integer & returning_control.scan & !returning_control.scan_control.index))
   def s1_serial_fold_available = !serial_fold_inflight[s1_owner] & !(returning_serial_fold & (operand_fetch.issue.bits.context.owner === s1_owner))
   def s1_alignment_ready = !s1_packed ||| !sequencer.sequence_request.bits.context.packed_store_read ||| !(operand_fetch.scheduled_return & !operand_fetch.issue.bits.packed)
-  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & (!s1_local_write ||| writeback_calendar.probe_available) & !splat.probe_pending
+  // A faultable beat may wait for sequential fragment checks. Hold its issue
+  // frontier until the decision; preauthorized memory remains feed-forward.
+  reg checked_memory_pending(~init: Bool(#false))
+  def s1_checked_memory = !s1_packed & s1_control.memory & !sequencer.sequence_request.bits.context.instruction.descriptor.precertified
+  def s1_ready = s1_alignment_ready & schedule_enable & !replay & s1_slot_available & s1_serial_fold_available & (!s1_local_write ||| writeback_calendar.probe_available) & !splat.probe_pending & (!s1_checked_memory ||| !checked_memory_pending)
   def Array(s1_read, s1_scalar_reservation) = sequencer.sequence_request |> gate_flow(s1_ready) |> atomic_fork(2)
   splat.read_started.valid <== splat.probing & sequencer.sequence_request.fire()
   s1_read |> operand_fetch.request
   s1_scalar_reservation |> filter_flow(read => read.context.instruction.descriptor.control.scalar_destination) |> map_flow(_read => s1_write_delay) |> scalar_writeback
+  when (replay ||| element_memory_decision.valid):
+    checked_memory_pending <== Bool(#false)
+  elsewhen (sequencer.sequence_request.fire() & s1_checked_memory):
+    checked_memory_pending <== Bool(#true)
   operand_fetch.suffix |> sequencer.suffix
   operand_fetch.flush <== sequencer.read_flush
   operand_fetch.begin_macro <== request.fire()
@@ -361,7 +370,12 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   def compute_owner = compute_result.owner
   def Array(early_memory, checked_memory) = memory_route |> demux_flow(2, _result => !ex_pipe.egress.bits.precertified)
   checked_memory |> to_valid() |> memory_pipe.ingress
-  def memory_maturity = Array(early_memory |> to_valid(), memory_pipe.egress) |> valid_arbiter()
+  // Faultable memory retains its result metadata until the LSU's decision.
+  // Fall-through preserves ordinary fixed-latency decisions; split accesses
+  // can wait for additional translation/response cycles without losing owner.
+  def checked_memory_owner = memory_pipe.egress |> to_decoupled() |> shift_queue(1, ~flow: #true, ~flush: replay)
+  def checked_memory_maturity = checked_memory_owner |> gate_flow(element_memory_decision.valid) |> to_valid()
+  def memory_maturity = Array(early_memory |> to_valid(), checked_memory_maturity) |> valid_arbiter()
   def Array(completion_memory, resolution_memory) = memory_maturity |> fork_valid(2)
   def memory_result = memory_maturity.bits
   def memory_beat = memory_result.beat
@@ -435,7 +449,7 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
     assert(!authorized_slots.as_bits().or_reduce(), "vector_truncate_has_no_older_completion")
   // Early memory progress is registered input metadata, not shared ALU data.
   def early_memory_progress = ex_pipe.egress.valid & ex_pipe.egress.bits.precertified
-  def checked_memory_beat = memory_pipe.egress.bits.beat
+  def checked_memory_beat = checked_memory_owner.bits.beat
   def memory_feedback = element_memory_decision |> map_valid(event => RV5StageVectorFeedback(xlen, vlen, Bits(xlen.width))):
       context: event.pc
       sequence: mux(early_memory_progress, ex_beat.sequence, checked_memory_beat.sequence)
@@ -528,6 +542,58 @@ sync_circuit RV5StageVectorExecution(xlen :: XLen, vlen :: VectorLength, Context
   Array(resolution_compute, resolved_memory) |> valid_arbiter() |> instructions.resolved
   cancel |> instructions.cancel
   instructions.retire |> retire
+  // Export only when the compilation target realizes a hart observer. The write
+  // is the physical VRF port, not the mask shadow's duplicate storage update.
+  describe_cosim_signals({
+    "admitted": request.fire(),
+    "owner": next_owner,
+    "base": request.bits.descriptor.scalar,
+    "instruction": request.bits.descriptor.instruction,
+    "vtype": request.bits.descriptor.state.vtype,
+    "eew": mux(request.bits.descriptor.instruction[26].into(Bool), request.bits.descriptor.state.vtype[3..5], request.bits.descriptor.instruction[12..14]),
+    "write_valid": registers.write.valid,
+    "write": registers.write.bits,
+    "scalar_write_valid": scalar_result.valid,
+    "scalar_write_owner": compute_owner,
+    "scalar_write_rd": scalar_result.bits.address,
+    "scalar_write_data": scalar_result.bits.data,
+    "floating_write_valid": floating_result.valid,
+    "floating_write_rd": floating_result.bits.address,
+    "floating_write_data": floating_result.bits.data,
+    "write_owner": completions.drained.bits.owner,
+    "local_write": completions.write.valid,
+    "packed_write": packed.write.valid,
+    "splat_write": splat.write.valid,
+    "splat_owner": splat.owner,
+    "service_allocate": compute_maturity.valid & compute_beat.multiply_execute,
+    "service_owner": compute_owner,
+    "service_tag": compute_result.tag,
+    "service_divide": compute_beat.divide,
+    "multiply_launch": multiply_request.fire(),
+    "multiply_tag": multiply_request.bits.tag.slot,
+    "divide_launch": divide_request.fire(),
+    "divide_tag": divide_request.bits.tag.slot,
+    "multiply_return": multiply_result.fire(),
+    "multiply_return_tag": multiply_result.bits.tag.slot,
+    "divide_return": divide_result.fire(),
+    "divide_return_tag": divide_result.bits.tag.slot,
+    "fp_allocate": compute_maturity.valid & compute_beat.fp_execute,
+    "fp_launch": fp_request.fire(),
+    "fp_tag": fp_request.bits.tag,
+    "fp_return": fp_result.fire(),
+    "fp_return_tag": fp_result.bits.tag,
+    "fp_flags_valid": fp_result.bits.exception_flags_valid,
+    "fp_flags": fp_result.bits.exception_flags,
+    "memory_issue": issue.fire() & issue.bits.memory,
+    "memory_owner": issue_owner,
+    "memory_first": operand_fetch.issue.bits.beat.first.zext(xlen.width),
+    "memory_destination": operand_fetch.issue.bits.beat.destination,
+    "memory_packed": operand_fetch.issue.bits.packed,
+    "memory_token": issue.bits,
+    "memory_decision_valid": decision.valid,
+    "memory_decision": decision.bits,
+    "replay": replay
+  }, ~components: {"packed": packed, "instructions": instructions})
 
 export:
   RV5StageVectorExecution

@@ -1236,6 +1236,7 @@ module rv5stage_hypervisor_core_tb;
     csrw('h341,GVA);
     constant(10,GVA+(engine == 2 ? 'h1ff5 : 'h1ffd));
     constant(11,engine == 2 ? 2 : 0); constant(14,GVA+'h2000);
+    constant(15,GVA+'h33f0);
     emit(32'h30200073);
     if (!guest) begin
       write64('h8000,'hcf);
@@ -1251,9 +1252,12 @@ module rv5stage_hypervisor_core_tb;
     // A separate mapped page lets the VS handler record the fault independently.
     write64('ha018,('h13 << 10) | 'hc7); write64('hd098,('h1c << 10) | 'hdf);
     write64('h19ff8,64'hdecafbad01234567);
+    write64(guest ? 'h1c3f0 : 'h133f0,64'hfeedface);
     cursor = code;
     if (warm) emit(ld(12,14,0));
     if (engine == 2) emit(vset(3));
+    if (store && engine == 1) emit(fp('h79,0,0,0)); // fmv.d.x f0,x0
+    if (store && engine == 2) emit(32'h5e003157); // vmv.v.i v2,0
     pc = GVA+64'(cursor-code);
     case (engine)
       0: emit(store ? sd(0,10,0) : ld(12,10,0));
@@ -1261,7 +1265,7 @@ module rv5stage_hypervisor_core_tb;
       2: emit(vmem(store,3,2,10));
       default: $fatal(1,"unknown split engine");
     endcase
-    emit(sd(0,10,0)); emit(32'h0000006f); // Younger mutation must not escape.
+    emit(sd(0,15,0)); emit(32'h0000006f); // A distinct younger mutation must not escape.
     cursor = 'h18300;
     emit(32'h40003a37);
     save_csr('h142,128); save_csr('h143,136); save_csr('h141,144);
@@ -1287,8 +1291,14 @@ module rv5stage_hypervisor_core_tb;
     end
     if (engine == 2) assert (read64(SIGNATURE+112) == (first_fault ? 0 : 1))
       else $fatal(1,"split vector fault lost element index: %h",read64(SIGNATURE+112));
-    assert (ram['h19ffd] == 'hfb && ram['h19ffe] == 'hca && ram['h19fff] == 'hde)
-      else $fatal(1,"faulting split access or younger store mutated the first fragment");
+    assert (read64(guest ? 'h1c3f0 : 'h133f0) == 64'hfeedface)
+      else $fatal(1,"younger store escaped a retained split fault");
+    if (store && !first_fault)
+      assert (ram['h19ffd] == 0 && ram['h19ffe] == 0 && ram['h19fff] == 0)
+        else $fatal(1,"completed store prefix was lost");
+    else
+      assert (ram['h19ffd] == 'hfb && ram['h19ffe] == 'hca && ram['h19fff] == 'hde)
+        else $fatal(1,"rejected first fragment or younger store mutated memory");
     $display("split fault mode=%0d engine=%0d store=%b first=%b passed",mode,engine,store,first_fault);
   endtask
 

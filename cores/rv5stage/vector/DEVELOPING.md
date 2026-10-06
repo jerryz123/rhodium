@@ -40,6 +40,47 @@ FP memory round-trips, and ordered reduction through the shared F service.
 
 ## State ownership and reading order
 
+The optional compile-target cosim observer follows WB admission through the
+descriptor FIFO to the execution instruction ID. Passive metadata in the parent
+and `pipeline.rhdl` exports the actual VRF port, its completion owner, and ordered
+instruction drain. Do not use sequencer release to seal a record or count the v0
+shadow as another architectural write. Packed-load metadata selects the current
+entry owner for an assembled row or the retained carry owner for a partial row.
+The native RV5Stage adapter retains memory tokens, explicit sequencer element/field identities,
+packed/element modes, and their macro owners by completion slot;
+direct precise hits and delayed completions are separate accounting lanes.
+The simulation-owned `sims/cosim/rv5stage/vector.rhdl` only captures raw pre-edge events. It contains no vector
+bookkeeping registers, ownership queues, field normalization, or producer counts.
+Native processing resolves old writes/responses before installing new owners and
+slots, preserves accepted slots across replay, and clears per-hart state on a
+new reset epoch. DPI callback order must not encode any of those priorities.
+Slow macro admission gets its WB identity before certification; its retained
+retirement returns under that identity rather than allocating another record.
+Owner reclamation comes from `instructions.rhdl`, including faulted macros that
+drain without asserting the successful-retirement pulse. Do not reconstruct the
+owner cursor from that pulse.
+The native adapter admits instructions by their actual WB/dispatch lifecycle,
+not an opcode qualification list. Sail owns compute semantics; the checker
+compares reconstructed post-state without another operand-geometry decoder.
+Keep reference-independent ownership and malformed-stream tests. The representative
+`rv5stage-cosim-vector` fixture checks passivity, overlap, reset, and transport;
+existing ISA/ACT/software suites own instruction breadth.
+
+Integer/FP service taps expose queue admission, accepted requests, and consumed
+return tags. Resolve old results before same-edge tag reuse and validate the
+winning architectural owner. Intermediate reduction results may stay in private
+accumulators. Native normalization attributes returned flags to their instruction;
+it does not sample or reconstruct the physical CSR update path.
+
+Split memory taps expose actual accepted physical fragments and retained
+completion tags. Preserve completed prefixes before faults; do not count the
+assembled response again. Element/field identities remain independent of byte
+addresses, including repeated indices and zero strides. Packed unit-stride lanes
+alone derive identity from their macro base. Fault-only-first uses the same
+events, with outcome and restart/VL checking owned by independent Sail execution.
+See the [simulation guide](../../../sims/DEVELOPING.md#embedded-sail-reference)
+for normalization, deliberate limits, and the workload-driven validation policy.
+
 Read the execution path in this order. Component boundaries follow state
 lifetimes; they do not introduce additional pipeline stages.
 
@@ -58,8 +99,16 @@ lifetimes; they do not introduce additional pipeline stages.
 
 Misaligned elements are never precertified: `memory.rhdl` suppresses their
 speculative lookup and offers them to the shared WB slow path. That path owns
-one- or two-word fragmentation, translation, and physical checks; vector
-completion still accounts for one element and one slot.
+one- or two-word fragmentation, translation, and physical checks. The vector
+adapter retains its decision until `split_completion`, then reports success or
+the precise failing portion to the sequencer. The execution pipeline permits
+one unresolved faultable element beat and retains its result metadata; packed
+and preauthorized memory remain pipelined. Successful split data uses the
+arbitrated completion path after slot authorization, never the expired
+fixed-cycle write reservation.
+A completed store prefix is never reissued on a TLB miss. Vector completion
+still accounts for one element and one slot; a failed load does not modify
+that element's destination.
 
 `geometry.rhdl` provides focused combinational helpers for beat limits, widths,
 lane counts, and VRF operand requirements. `bundles.rhdl` separates instruction descriptors,

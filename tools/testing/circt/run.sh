@@ -570,9 +570,10 @@ verify_fixture() {
 
   if [[ "$simulate_fixtures" == true && -n "$top" ]]; then
     if [[ "$fixture" == cosim-hooks || "$fixture" == rv5stage-cosim* ]]; then
-      dpi_sources+=("$repo_dir/sims/cosim/observation.cc" "$repo_dir/sims/cosim/hooks-dpi.cc")
+      dpi_sources+=("$repo_dir/sims/cosim/events/collector.cc" "$repo_dir/sims/cosim/events/dpi.cc")
       verilator_args+=(-CFLAGS "-std=c++20")
       if [[ "$fixture" == rv5stage-cosim* ]]; then
+        dpi_sources+=("$repo_dir/sims/cosim/rv5stage/adapter.cc" "$repo_dir/sims/cosim/rv5stage/vector.cc")
         verilator_args+=(--Wno-UNOPTFLAT "-I$repo_dir/cores/rv5stage/tests/circt/verilog")
       fi
     fi
@@ -793,6 +794,7 @@ direct_fixture_specs=(
   'rv5stage-retirement-trace|rv5stage_retirement_trace_tb'
   'rv5stage-cosim|rv5stage_cosim_tb'
   'rv5stage-cosim32|rv5stage_cosim_tb'
+  'rv5stage-cosim-vector|rv5stage_cosim_vector_tb'
   'event-instance|event_instance_tb'
   'event-runtime|event_runtime_tb'
   'event-pipeline|event_pipeline_tb'

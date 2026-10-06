@@ -89,36 +89,45 @@ views come from the CSR block rather than instruction rows. The
 specialization matrix and catalog composition. RV32D and an RV64F-only core are
 deliberately rejected.
 
-## Optional scalar architectural observation
+## Optional architectural observation
 
 RV5Stage declares passive architectural observation sites. Select
 [`cosim_pass`](../../sims/cosim/README.md#compile-target-instrumentation) when
-compiling the elaborated program to emit the generic architectural hooks.
+compiling the elaborated program to emit passive event capture. The core declares
+its `rv5stage.v1` observation contract and read-only taps; the simulation package
+supplies the matching adapter. No DPI capture implementation is imported by the
+functional core.
 There is no co-sim generator parameter or public observer port. An ordinary
-target emits no observation queues or DPI calls. The scalar pass currently
-requires FP, vector, and hypervisor execution disabled on selected harts.
+target emits no observation DPI calls. Instrumented capture is also stateless:
+the native RV5Stage adapter owns identities and delayed results, then feeds the
+generic architectural collector. Vector identities survive through final effects
+and execution drain. The native checker compares instruction outcomes with Sail
+without a per-opcode qualification list or automatic CSR-bank snapshots.
+See the [checking scope](../../sims/cosim/README.md#vector-checking).
 
 The host registers each descriptor instance with the collector, advances its
 epoch before clocking reset, and brackets each rising edge with its environment snapshot and sample
 boundary. IDs are allocated at nonspeculative WB acceptance, including retained
 maintenance and WRS operations; replay and squash do not allocate IDs. GPR
 results retain their owner across delayed memory/multiply/divide completion.
-CSR/trap/return effects report actual post-update values, including WARL
-legalization. Interrupt records describe actual entry, not pending levels.
-CSR effects seal on the following edge; drain pending records before finishing
-the collector.
+Scalar FP results and exact exception-flag contributions retain instruction
+ownership across fixed/divide reordering; FPR load observations use the real
+post-boxing write port. Sail independently executes CSR, trap, and return semantics;
+CSR reads are checked through their GPR results. Interrupt records describe actual
+entry, not pending levels. Drain delayed effects before finishing the collector.
 
 Memory effects describe logical scalar accesses at their effective virtual
-address, not cache/coherence traffic; physical addresses are unavailable at
-this boundary. Cache-block operations use eight eight-byte fragments. Free-running
+address, not cache/coherence traffic; optional sibling MMU taps supply translated
+physical provenance. Cache-block zero uses eight eight-byte store fragments;
+other cache maintenance reports a non-writing operation. Free-running
 counters, time, and asynchronous interrupt changes remain environment state,
 not instruction-owned CSR deltas. The host must preserve reset and sample
-ordering; observation cannot stall the core. A 64-entry passive owner queue
-per service fails with an assertion on overflow or unmatched completion.
+ordering; observation cannot stall the core. Native per-service owner queues
+reject overflow or unmatched completion through the sticky cosim failure path.
 
-This is an observation producer, not an enabled SoC/Sail comparator. Its focused
-validation covers RV32/RV64 scalar execution; guest execution and complete
-profile validation remain later integration work.
+This is an observation producer; the simulation package owns Sail integration
+and CI enablement. Selecting instrumentation is not a claim that every software
+workload passes.
 
 ## Experimental hypervisor integration
 
@@ -296,9 +305,14 @@ These claims do not provide Ziccrse forward progress or automatic
 instruction-cache synchronization; select Ziccrse separately below.
 Ordinary scalar, floating-point, and vector loads and stores can access
 misaligned cacheable coherent main memory through the WB slow path. A
-cross-word access is divided into two physical words after every touched page
-and physical region is checked. This does not guarantee atomicity and
-does not extend misaligned support to AMOs, LR/SC, or devices.
+cross-word access checks and completes its first fragment before checking the
+second. If the second fragment faults, completed store bytes remain visible,
+the load destination is unchanged, and the trap reports the faulting portion.
+WB retains scalar retirement; vector execution retains the faulting element.
+Younger instructions cannot retire past an unresolved scalar split. Translation
+misses retry only the current fragment, never a completed store prefix.
+This does not guarantee atomicity and does not extend misaligned support to
+AMOs, LR/SC, or devices.
 The profile, UDB, and architecture-test adapter advertise Zicclsm for these
 ordinary main-memory accesses. Whole-register vector transfers, AMOs, LR/SC,
 and devices retain their separate alignment and fault behavior.

@@ -881,23 +881,31 @@ class ArchTestPayloadTest(unittest.TestCase):
 
 class ArchTestRunnerTest(unittest.TestCase):
     def test_make_runs_only_its_shard_and_preserves_upstream_failure(self):
+        for soc, cosim in (('simple-rv5stage-rva23', False), ('simple-rv5stage-rv32int', True)):
+            with self.subTest(soc=soc, cosim=cosim):
+                self.check_make_shard(soc, cosim)
+
+    def check_make_shard(self, soc, cosim):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            elfs = root / 'work/simple-rv5stage-rva23/simple-rv5stage-rva23/elfs'
+            elfs = root / f'work/{soc}/{soc}/elfs'
             elfs.mkdir(parents=True)
             for index in range(8):
                 (elfs / f'{index}.elf').touch()
             binary = root / 'VTestDriver'
             binary.write_bytes(b'fake native artifact')
             artifact = RUNNER.parents[1] / 'program-test/artifact.py'
-            from test_program_test import artifact_inputs
+            from test_program_test import artifact_inputs, program_target
+            variant = 'cosim' if cosim else 'normal'
             subprocess.run([sys.executable, str(artifact), 'record', '--binary', str(binary),
-                            '--soc', 'simple-rv5stage-rva23', *artifact_inputs(binary)], check=True)
+                            '--soc', soc, '--variant', variant,
+                            *artifact_inputs(binary, program_target(soc), variant)], check=True)
             configuration = json.loads((root / 'program-target.json').read_text())['resolved_configuration']
             (elfs.parent / 'configuration.json').write_text(json.dumps(configuration))
             (root / 'run_tests.py').write_text(
                 '# Emulates upstream ACT execution for the Make/shard/result contract.\n'
                 'import os, sys\nfrom pathlib import Path\n'
+                f"assert ('--cosim' in sys.argv[-2]) == {cosim!r}\n"
                 'elfs = Path(sys.argv[-1])\n'
                 "names = sorted(path.name for path in elfs.rglob('*.elf'))\n"
                 "assert names == ['1.elf', '5.elf'], names\n"
@@ -906,7 +914,7 @@ class ArchTestRunnerTest(unittest.TestCase):
                 "sys.exit(int(os.environ.get('FAKE_ACT_EXIT', '0')))\n"
             )
             command = ['make', '-C', str(RUNNER.parents[1]), 'arch-test-run',
-                       'ACT_CONFIGURATION=simple-rv5stage-rva23',
+                       f'ACT_CONFIGURATION={soc}', f'COSIM={int(cosim)}',
                        f'ACT_DIR={root}', f'ACT_BUILD_ROOT={root}', f'ACT_PYTHON={sys.executable}',
                        f'PYTHON={sys.executable}', f'PREBUILT_SIMULATOR={binary}', 'ACT_SHARDS=4', 'ACT_SHARD=1']
             result = subprocess.run(command, capture_output=True, text=True)
@@ -944,7 +952,7 @@ class ArchTestRunnerTest(unittest.TestCase):
             self.assertEqual(result.returncode, 1)
             self.assertIn(b'"timeout": 1', result.stdout)
 
-    def run_simulator(self, output, code):
+    def run_simulator(self, output, code, cosim=False):
         with tempfile.TemporaryDirectory(prefix="rhodium-act-test-") as directory:
             root = Path(directory)
             elf = root / "test with spaces.elf"
@@ -961,13 +969,26 @@ class ArchTestRunnerTest(unittest.TestCase):
             simulator.chmod(0o755)
             return subprocess.run(
                 [sys.executable, str(RUNNER), "--simulator", str(simulator),
-                 "--max-cycles", "123", str(elf)], capture_output=True, text=True,
+                 "--max-cycles", "123", *(["--cosim"] if cosim else []), str(elf)], capture_output=True, text=True,
             )
 
     def test_confirmed_target_completion(self):
         result = self.run_simulator("SoC harness simulation passed", 0)
         self.assertEqual(result.returncode, 0)
         self.assertIn('RVCP-SUMMARY: TEST PASSED - Test File "test with spaces.S"', result.stdout)
+
+    def test_cosim_requires_one_nonempty_completion_and_target_success(self):
+        completion = "Sail cosim: checked 17 scalar records"
+        passed = "SoC harness simulation passed"
+        result = self.run_simulator(f"{completion}\n{passed}", 0, cosim=True)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        for output, code in ((passed, 0), (f"Sail cosim: checked 0 scalar records\n{passed}", 0),
+                             (f"{completion}\n{completion}\n{passed}", 0),
+                             (completion, 0), (f"{completion}\n{passed}", 7)):
+            with self.subTest(output=output, code=code):
+                result = self.run_simulator(output, code, cosim=True)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("RVCP-SUMMARY: TEST FAILED", result.stdout)
 
     def test_target_diagnostics_keep_one_runner_owned_summary(self):
         output = ('RVCP-SUMMARY: TEST FAILED - Test File "test with spaces.S"\n'

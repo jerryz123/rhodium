@@ -11,7 +11,7 @@ placement, change workflow, and focused validation.
 
 The MMU sits between virtual core requests and the physical memory hierarchy.
 It owns TLB lookup/refill, serialized walking, fault correlation, fixed-latency
-fetch outcomes, misaligned ordinary-access preflight and fragmentation, and
+fetch outcomes, misaligned ordinary-access sequencing and fragmentation, and
 separate translated-core and walker physical requests. The parent core owns CSR
 sequencing, trap priority, atomic/LRSC alignment, and final exception causes;
 the physical router and cache own admitted transaction behavior.
@@ -25,6 +25,21 @@ and drains its orphan reply before admitting another walk. The MMU forwards all
 accepted replies, even after invalidation, and tracks the physical pending read.
 This is response correlation, not whole-port ownership.
 
+The MMU declares passive cosim taps through `cores/riscv/cosim-source.rhm`:
+successful MEM hit addresses and accepted WB physical requests, including each
+independently accepted physical fragment for misaligned scalar accesses.
+For vector splits it also exports the stable fragment request and actual
+physical response, allowing the observer to retain successful prefixes even
+when final element completion faults. These are passive metadata, not new
+functional ports or changes to fragmentation/translation policy.
+The parent binds these sibling taps to the core observer. MEM provenance is
+delayed one cycle with the feed-forward MEM/WB boundary; slow provenance stays
+with the observer's accepted-request owner. Keep these taps read-only and aligned
+with actual MMU acceptance, never recompute a PA from the later virtual request.
+The native cosim fragment-normalization tests cover observation invariants;
+existing translation/software tests own functional coverage. Run those workloads
+with `COSIM=1` instead of maintaining a separate cosim-only Sv39 program.
+
 ## Implementation map
 
 | File | Ownership |
@@ -35,8 +50,8 @@ This is response correlation, not whole-port ownership.
 | [`translation.rhdl`](translation.rhdl) | Shared host/guest lookup, mapping, fill, PTE-memory contracts, and host-port value projections |
 | [`../tests/translation-service.rhdl`](../tests/translation-service.rhdl) | Test-only serialized command driver for the shared TLB/walker |
 | [`vector-window.rhdl`](vector-window.rhdl) | Two-page macro-owned translation authorization and full-page ordinary-memory certification |
-| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, misaligned access preflight, physical checks, and separate core/PTE physical offers |
-| [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word physical fragment sequencing, original-owner retention, load assembly, and single-completion return after MMU preflight |
+| [`mmu.rhdl`](mmu.rhdl) | ITLB/DTLB composition, miss priority, exact-request instruction fault-outcome retention, replay-owner walk admission, fault correlation, registered fetch outcomes, registered virtual/physical prefetch stages and cancellation, retained fragment demand translation, physical checks, and separate core/PTE physical offers |
+| [`misaligned-access.rhdl`](misaligned-access.rhdl) | One- or two-word virtual fragment sequencing, original-owner retention, load assembly, and precise final split outcome |
 | [`../data-port-arbiter.rhdl`](../data-port-arbiter.rhdl) | Core-first physical request and lookup selection, fault demultiplexing, and origin-tagged response routing |
 | [`../rv5stage.rhdl`](../rv5stage.rhdl) | Core, L1I, physical-router, and privileged-control integration |
 | [`../../../riscv/rtl/sv39.rhdl`](../../../riscv/rtl/sv39.rhdl) | Shared Sv39 decoding, canonicality, permission, superpage, and address helpers |
@@ -76,9 +91,14 @@ invalidate translations or cancel accepted page-table response ownership.
    serialization. Do not reconnect drain-derived flush to store authorization.
    Misaligned ordinary accesses are rejected by the speculative MEM lookup and
    enter the WB slow owner. Drain older memory work before capturing one; for a
-   cross-word access, resolve both virtual pages and both physical word regions
-   before issuing either fragment. Retain the original writeback owner through
-   one response, and leave atomic/LRSC alignment traps in the scalar core.
+   cross-word access, translate/check/issue/complete each fragment in order.
+   Reuse the demand DTLB and walker; the probe port remains available to prefetch.
+   A translation miss waits inside the retained owner, never replays the entire
+   operation. Keep context stable until its final `split_completion` event.
+   That virtual outcome carries data, page/access status, exact VA and guest
+   provenance; it does not widen physical cache responses. Scalar WB and the
+   vector element owner retain retirement until this outcome, and leave
+   atomic/LRSC alignment traps in the scalar core.
    Keep `request_fault_address` virtual and paired with the selected fragment's
    guest provenance. Scalar/vector arbitration gates the owning fault flags;
    only that owner may consume the shared address sideband at retirement.
@@ -192,7 +212,7 @@ this end-to-end boundary.
 Its split-access cases cover scalar/FP/vector loads and stores, first/second
 page faults, warm permission failures, PMA rejection, HS/VS delegation, and
 explicit HLV/HSV guest faults. They check trap values, EPC, GPA provenance,
-vector restart index, and suppression of the rejected store's partial effects.
+vector restart index, retained successful store prefixes, and suppression of younger effects.
 Explicit guest requests carry a typed mode in the virtual MMU protocol; cache
 protocols remain physical. Register pipeline translation mode alongside its
 request, and give the WB transaction's mode the same DTLB priority as its

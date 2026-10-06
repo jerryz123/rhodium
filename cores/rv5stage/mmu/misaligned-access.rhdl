@@ -1,8 +1,10 @@
 #lang rhodium
-/* Sequences preflighted misaligned data accesses into physical word fragments. */
+/* Retains misaligned operations while authorizing and completing each virtual word in order. */
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "protocol.rhdl" open
+  "../../../riscv/rtl/hypervisor.rhdl" open
   "../memory.rhdl" open
   "../dcache/protocol.rhdl" open
   "../../load-store.rhdl" open
@@ -10,76 +12,67 @@ import:
   lib("rhodium/std/bits.rhdl") open
   lib("flow/main.rhdl") open
 
-/* Retains the original request and preflighted physical fragment addresses for a split access. */
-bundle RV5StageMisalignedAccess(xlen :: XLen, vector_completion_slots :: Pow2Int):
-  request: RV5StageDataReq(xlen, vector_completion_slots)
-  first_address: Bits(xlen.width)
-  second_address: Bits(xlen.width)
-  second_virtual: Bits(xlen.width)
-  crosses_word: Bool
-
-/* Serializes first and optional second word fragments before returning one completion. */
+/* Waits for authorization and response before advancing to the next virtual fragment. */
 hardware_enum RV5StageMisalignedState:
   Idle
-  FirstRequest
-  FirstResponse
-  SecondRequest
-  SecondResponse
+  Request
+  Response
   Complete
 
-/* Executes an already preflighted load or store as one or two physical word requests.
-   The caller proves translation, permissions, PMAs, and drain before admission. */
+/* Executes one or two independently checked fragments without reissuing an accepted prefix.
+   The upstream architectural owner remains pending until the single final outcome. */
 sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: Pow2Int):
   def width = xlen.width
   def word_bytes = memory_word_bytes(xlen)
-  interface start(Decoupled(RV5StageMisalignedAccess(xlen, vector_completion_slots)), ~role: consumer)
-  interface physical_request(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), ~role: producer)
+  interface start(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), ~role: consumer)
+  interface request(Decoupled(RV5StageDataReq(xlen, vector_completion_slots)), ~role: producer)
   interface physical_response(Decoupled(RV5StageDataResp(xlen, vector_completion_slots)), ~role: consumer)
-  interface lookup(Valid(Bits(width)), ~role: producer)
-  interface completion(Decoupled(RV5StageDataResp(xlen, vector_completion_slots)), ~role: producer)
+  interface completion(Valid(RV5StageSplitResult(xlen, vector_completion_slots)), ~role: producer)
   input request_fault: Bool
   input request_access_fault: Bool
+  input request_guest: RiscvGuestException()
+  output fault_address: Bits(width)
   output busy: Bool
 
   reg state(RV5StageMisalignedState, ~init: RV5StageMisalignedState.Idle)
-  reg saved(RV5StageMisalignedAccess(xlen, vector_completion_slots))
+  reg saved(RV5StageDataReq(xlen, vector_completion_slots))
+  reg second(~init: Bool(#false))
+  reg page_fault(~init: Bool(#false))
+  reg access_fault(~init: Bool(#false))
+  reg guest(RiscvGuestException())
   reg first_data(Bits(width))
   reg second_data(Bits(width))
   busy <== state =/= RV5StageMisalignedState.Idle
   start.ready <== !busy
   def capture = start.fire()
-  when (capture):
-    saved <== start.bits
 
-  def offset = saved.request.address[0..alignment_bits(word_bytes)]
+  def offset = saved.address[0..alignment_bits(word_bytes)]
   def shift = offset ++ bits(0, 3)
   def remaining_bytes = bits(word_bytes, alignment_bits(word_bytes) + 1) - offset.zext(alignment_bits(word_bytes) + 1)
   def remaining_shift = remaining_bytes ++ bits(0, 3)
-  def first_fragment = saved.request.updated(
-    ~byte_mask: memory_byte_mask(xlen, saved.request.address, saved.request.width),
-    ~address: saved.first_address,
+  def crosses_word = memory_crosses_word(xlen, saved.address, saved.width)
+  def second_address = saved.address.align_down(word_bytes) + bits(word_bytes, width)
+  def first_fragment = saved.updated(
+    ~byte_mask: memory_byte_mask(xlen, saved.address, saved.width),
+    ~address: saved.address.align_down(word_bytes),
     ~width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double,
     ~unsigned: Bool(#true),
-    ~data: saved.request.data << shift
+    ~data: saved.data << shift
   )
-  def second_fragment = saved.request.updated(
-    ~byte_mask: memory_width_mask(xlen, saved.request.width) >> remaining_bytes,
-    ~address: saved.second_address,
+  def second_fragment = saved.updated(
+    ~byte_mask: memory_width_mask(xlen, saved.width) >> remaining_bytes,
+    ~address: second_address,
     ~width: if xlen == XLen.X32 | MemoryWidth.Word | MemoryWidth.Double,
     ~unsigned: Bool(#true),
-    ~data: saved.request.data >> remaining_shift
+    ~data: saved.data >> remaining_shift
   )
-  def first_request = state === RV5StageMisalignedState.FirstRequest
-  def second_request = state === RV5StageMisalignedState.SecondRequest
-  physical_request.valid <== first_request ||| second_request
-  physical_request.bits <== mux(first_request, first_fragment, second_fragment)
-  lookup.valid <== physical_request.valid
-  lookup.bits <== mux(first_request, saved.request.address.align_down(word_bytes), saved.second_virtual)
-  def physical_fire = physical_request.fire()
-  when (physical_fire):
-    assert(!request_fault & !request_access_fault, "preflighted_misaligned_fragment_is_permitted")
+  request.valid <== state === RV5StageMisalignedState.Request
+  request.bits <== mux(second, second_fragment, first_fragment)
+  fault_address <== mux(second, second_address, saved.address)
+  def rejected = request.valid & (request_fault ||| request_access_fault)
+  def physical_fire = request.fire() & !rejected
 
-  def Array(first_responses, second_responses) = physical_response |> demux_flow(2, _response => (state === RV5StageMisalignedState.SecondResponse).as_bits())
+  def Array(first_responses, second_responses) = physical_response |> demux_flow(2, _response => second.as_bits())
   def first_response = first_responses |> to_valid()
   def second_response = second_responses |> to_valid()
   when (first_response.valid):
@@ -88,33 +81,50 @@ sync_circuit RV5StageMisalignedEngine(xlen :: XLen, vector_completion_slots :: P
     second_data <== second_response.bits.data
   inst load(LoadGen(xlen, word_bytes))
   load.address <== bits(0, width)
-  load.width <== saved.request.width
-  load.unsigned_load <== saved.request.unsigned
-  load.data <== (first_data >> shift) ||| mux(saved.crosses_word, second_data << remaining_shift, bits(0, width))
+  load.width <== saved.width
+  load.unsigned_load <== saved.unsigned
+  load.data <== (first_data >> shift) ||| mux(crosses_word, second_data << remaining_shift, bits(0, width))
   completion.valid <== state === RV5StageMisalignedState.Complete
-  completion.bits <== RV5StageDataResp(xlen, vector_completion_slots):
-    access_fault: Bool(#false)
-    data: mux(saved.request.access === RV5StageMemoryOperation.Store, bits(0, width), load.value)
-    writeback: saved.request.writeback
-    origin: saved.request.origin
-  def completion_fire = completion.fire()
+  completion.bits <== RV5StageSplitResult(xlen, vector_completion_slots):
+    response:
+      RV5StageDataResp(xlen, vector_completion_slots):
+        access_fault: access_fault
+        data: mux(saved.access === RV5StageMemoryOperation.Store, bits(0, width), load.value)
+        writeback: saved.writeback
+        origin: saved.origin
+    page_fault: page_fault
+    fault_address: fault_address
+    guest: guest
+  def completion_fire = completion.valid
   describe_interface_retained_storage(capture, completion_fire, busy, ~name: "split_owner")
-  describe_interface_contract(start, physical_request, "split_owner", ~trace_model: interface_trace_retained(~name: "split_owner"))
+  describe_interface_contract(start, request, "split_owner", ~trace_model: interface_trace_retained(~name: "split_owner"))
 
-  when (capture):
-    state <== RV5StageMisalignedState.FirstRequest
+  when capture:
+    saved <== start.bits
+    second <== Bool(#false)
+    page_fault <== Bool(#false)
+    access_fault <== Bool(#false)
+    guest <== literal(RiscvGuestException(), 0)
+    state <== RV5StageMisalignedState.Request
+  elsewhen rejected:
+    page_fault <== request_fault
+    access_fault <== request_access_fault
+    guest <== request_guest
+    state <== RV5StageMisalignedState.Complete
   elsewhen (physical_fire):
-    state <== mux(first_request, RV5StageMisalignedState.FirstResponse, RV5StageMisalignedState.SecondResponse)
+    state <== RV5StageMisalignedState.Response
   elsewhen (first_response.valid):
-    state <== mux(saved.crosses_word, RV5StageMisalignedState.SecondRequest, RV5StageMisalignedState.Complete)
+    access_fault <== first_response.bits.access_fault
+    state <== mux(crosses_word & !first_response.bits.access_fault, RV5StageMisalignedState.Request, RV5StageMisalignedState.Complete)
+    when (crosses_word & !first_response.bits.access_fault):
+      second <== Bool(#true)
   elsewhen (second_response.valid):
+    access_fault <== second_response.bits.access_fault
     state <== RV5StageMisalignedState.Complete
   elsewhen (completion_fire):
     state <== RV5StageMisalignedState.Idle
   when (physical_response.valid):
-    assert(state.is_one_of(RV5StageMisalignedState.FirstResponse, RV5StageMisalignedState.SecondResponse), "misaligned_response_has_fragment_owner")
-    assert(!physical_response.bits.access_fault, "preflighted_misaligned_fragment_has_no_late_fault")
+    assert(state === RV5StageMisalignedState.Response, "misaligned_response_has_fragment_owner")
 
 export:
-  RV5StageMisalignedAccess
   RV5StageMisalignedEngine

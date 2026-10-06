@@ -89,11 +89,9 @@ endif
 ifeq ($(filter $(SOC_SHAPE),mini simple),)
 $(error COSIM=1 currently requires Mini or Simple)
 endif
-ifneq ($(SOC_ISA),rv64imacb)
-$(error COSIM=1 currently supports only rv64imacb; other profiles require complete observation coverage)
-endif
+
 SOC_BUILD_DIR := $(SOC_BUILD_DIR)-cosim
-COSIM_SOURCES := $(CURDIR)/cosim/simulation.cc
+COSIM_SOURCES := $(CURDIR)/cosim/runtime/session.cc
 COSIM_CFLAGS = -DRHODIUM_COSIM -I$(CURDIR)/cosim -I$(COSIM_CONFIG_DIR) -I$(COSIM_SAIL_PREFIX)/include/sail-model
 COSIM_LDFLAGS = $(shell cat $(COSIM_BUILD_DIR)/link-flags.txt 2>/dev/null)
 COSIM_DEPENDENCIES = $(COSIM_CONFIG_DIR)/runtime-config.h $(COSIM_BUILD_DIR)/runtime.stamp

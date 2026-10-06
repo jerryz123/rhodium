@@ -4,6 +4,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import:
+  "../../riscv/cosim-source.rhm".describe_cosim_signals
   lib("cores/riscv/vector-layout.rhm") open
   "bundles.rhdl" open
   "packed-bundles.rhdl" open
@@ -101,6 +102,7 @@ sync_circuit RV5StageVectorPackedLoad(xlen :: XLen, vlen :: VectorLength, slots 
   def release_slot = drainable & (entry.store ||| !remaining.or_reduce() ||| (load_piece & (!suffix.or_reduce() ||| split_load)))
   write.valid <== (load_piece & carry_valid & !same_row) ||| flush_carry ||| split_load ||| full_row
   write.bits <== mux(split_load ||| full_row, combined, carry)
+  describe_cosim_signals({"write_owner": mux(split_load ||| full_row, entry.owner, carry_owner)})
   def accepted = wb |> filter_valid(_tag => successful)
   def release_event = inject_interface(Valid(Tag), ~valid: release_slot, ~bits: head)
   describe_interface_queue_storage(slots, successful, release_slot, head, wb.bits, accepted_slots[head], Bool(#false), ~name: "accepted-beats")

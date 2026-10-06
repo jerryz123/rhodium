@@ -1,0 +1,15 @@
+#lang rhombus
+// SPDX-License-Identifier: Apache-2.0
+import:
+  "../cosim-fixture.rhdl".RV5StageCosimFixture
+  "../../profile.rhm".RV5StageMultiplierKind
+  lib("riscv/isa/xlen.rhm").XLen
+  lib("rhodium/frontend/foundation.rhm").elaborate_program
+  lib("rhodium/compile/program.rhm").compile_program
+  lib("rhodium/compile/pipeline.rhm").rtl_pipeline_target
+  lib("rhodium/backend/circt-target.rhm").circt_target
+  "../../../../sims/cosim/pass.rhm".cosim_pass
+
+def program = elaborate_program(RV5StageCosimFixture(XLen.X64, RV5StageMultiplierKind.Pipelined, ~vector: #true))
+def result = compile_program(program, rtl_pipeline_target(circt_target, [cosim_pass(~harts: [["observed"]])]))
+print(result.artifacts[0].content)

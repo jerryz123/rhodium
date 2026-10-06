@@ -8,7 +8,7 @@ ISA ?=
 
 CONFIG_INDEPENDENT_GOALS := %setup %adapter-test arch-test-source arch-test-tests \
   dpi-compile-check spike-core-compile-check spike-dpi-compile-check spike-dpi-abi-check \
-  spike-core-test spike-lowering-test chi-dpi-memory-test transport-test sail-cosim-test sail-cosim-build cosim-hooks-test simulation-runtime-test
+  spike-core-test spike-lowering-test chi-dpi-memory-test transport-test sail-cosim-test sail-cosim-vector-test sail-cosim-build cosim-hooks-test simulation-runtime-test
 config_required := $(filter-out $(CONFIG_INDEPENDENT_GOALS),$(or $(MAKECMDGOALS),all))
 # Quote every argument, including embedded apostrophes, before crossing the shell boundary.
 config_quote = '$(subst ','"'"',$(1))'

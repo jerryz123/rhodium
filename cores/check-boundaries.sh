@@ -31,9 +31,9 @@ search_production_sources() {
 }
 
 forbidden_imports="$(search_production_sources \
-  '^[[:space:]]+"[^"]*(rhodium/backend|tests/|examples/)' || true)"
+  '^[[:space:]]+"[^"]*(rhodium/backend|sims/|tests/|examples/)' || true)"
 if [[ -n "$forbidden_imports" ]]; then
-  echo "processor sources must not import backends, tests, or examples" >&2
+  echo "processor sources must not import simulators, backends, tests, or examples" >&2
   echo "$forbidden_imports" >&2
   exit 1
 fi
