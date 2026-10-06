@@ -1,5 +1,5 @@
 #lang rhombus
-/* Supplies standalone C++ and clocked SV-binding targets over one rsim preparation path. */
+/* Owns rsim program preparation and prepared-RTL consumption for native and SV-bound models. */
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../compile/contracts.rhm" open
@@ -12,11 +12,12 @@ import:
 
 export rsim_target rsim_sv_target
 
-/* Retain the supplied manifest and schedule without another graph copy or expansion. */
-class RsimPlan(prepared :: PreparedRTL, schedule :: RsimSchedule):
+/* Keep only the detached compilation boundary and executable schedule, so model
+   emission does not depend on the graph used to produce them. */
+class RsimPlan(compiled_manifest :: CompileManifest, schedule :: RsimSchedule):
   implements TargetPlan
   /* Preserve logical ports, occurrence attribution, and portable expansion provenance. */
-  override method manifest(): prepared.manifest
+  override method manifest(): compiled_manifest
   /* Return standalone C++ sources; compilation and file publication belong to the caller. */
   override method emit():
     def contents = emit_rsim(schedule)
@@ -26,7 +27,16 @@ class RsimPlan(prepared :: PreparedRTL, schedule :: RsimSchedule):
     | artifacts ++ [Artifact("rsim-bits.hpp", "text/x-c++hdr", contents[2])]
     | artifacts
 
-def rsim_target = RTLTarget("rsim", "rsim uses concrete RTL; use the portable implementation", fun (prepared): RsimPlan(prepared, compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl)))))
+def portable_expansion_reason = "rsim uses concrete RTL; use the portable implementation"
+
+/* Lower already-verified RTL into the model without copying or running providers. */
+fun plan_rtl(prepared :: PreparedRTL) :: RsimPlan:
+  RsimPlan(prepared.manifest, compact_array_updates(share_scalar_expressions(build_schedule(prepared.rtl))))
+
+/* Own ordinary rsim lowering selection. For now every construct uses its
+   portable implementation; future native selection belongs before this expansion. */
+fun prepare_rsim(program :: ElaboratedProgram, options :: CompileOptions) :: RsimPlan:
+  plan_rtl(prepare_rtl(program, options, portable_expansion_reason))
 
 /* Add simulator-host bindings to the same model plan without preparing or
    scheduling the circuit a second time. The manifest remains the logical RTL boundary. */
@@ -41,9 +51,25 @@ class RsimSVPlan(model :: RsimPlan, clock :: String):
     model.emit() ++ [Artifact(name ++ ".sv", "text/x-systemverilog", binding[0]),
                      Artifact(name ++ "_bridge.cpp", "text/x-c++src", binding[1])]
 
-/* Validate the binding on the scheduled graph before a plan can publish artifacts. */
-fun plan_sv(prepared :: PreparedRTL) :: RsimSVPlan:
-  def model :: RsimPlan = rsim_target.plan(prepared)
-  RsimSVPlan(model, validate_sv_binding(model.schedule, prepared.rtl.top))
+/* Validate the optional binding from the model's detached boundary and schedule. */
+fun finish_plan(model :: RsimPlan, bind_sv :: Boolean) :: TargetPlan:
+  if bind_sv
+  | RsimSVPlan(model, validate_sv_binding(model.schedule, model.manifest().signature))
+  | model
 
-def rsim_sv_target = RTLTarget("rsim-sv", "rsim uses concrete RTL; use the portable implementation", plan_sv)
+/* Own program preparation while also accepting concrete instrumentation results.
+   Native and SV-bound targets share one model preparation and differ only in wrapping. */
+class RsimTarget(bind_sv :: Boolean):
+  extends CompilationTarget
+  implements PreparedRTLConsumer
+  /* Bind the artifact choice after shared model preparation has completed once. */
+  constructor (name :: String, bind_sv :: Boolean):
+    super(name, fun (program, options): finish_plan(prepare_rsim(program, options), bind_sv))(bind_sv)
+  /* Concrete instrumentation still requests the same portable fallback. */
+  override property expansion_reason: portable_expansion_reason
+  /* Reuse an instrumented graph without reentering ordinary program preparation. */
+  override method plan(prepared :: PreparedRTL) :: TargetPlan:
+    finish_plan(plan_rtl(prepared), bind_sv)
+
+def rsim_target = RsimTarget("rsim", #false)
+def rsim_sv_target = RsimTarget("rsim-sv", #true)

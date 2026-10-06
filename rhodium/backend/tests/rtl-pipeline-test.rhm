@@ -3,6 +3,7 @@
 import:
   "../circt-target.rhm".circt_target
   "../verilog-target.rhm".verilog_target
+  "../rsim-target.rhm".rsim_target
   "../../compile/contracts.rhm" open
   "../../compile/program.rhm".compile_program
   "../../compile/rtl.rhm" open
@@ -80,7 +81,7 @@ class CountedPlan(delegate :: TargetPlan, calls :: MutableList):
     calls.add("emit")
     delegate.emit()
 
-for (backend in [circt_target, verilog_target]):
+for (backend in [circt_target, verilog_target, rsim_target]):
   def calls = MutableList[]
   def snapshots = MutableList[]
   def graphs = MutableList[]
@@ -98,13 +99,14 @@ for (backend in [circt_target, verilog_target]):
   def before_expansions = expansions
   def result = compile_program(program, rtl_pipeline_target(target, [pass("first"), pass("second")]))
   def final = graphs[0]
+  def backend_artifacts = backend.plan(final).emit()
   def report :: RTLPipelineReport = result.report
   check:
     calls.snapshot() ~is ["first", "second", "plan", "manifest", "report", "diagnostics", "emit"]
     expansions ~is before_expansions + 1
     result.target ~is backend.name ++ "+first+second"
-    result.artifacts.map(fun (artifact): artifact.name) ~is [final.rtl.top.name ++ (if backend === circt_target | ".mlir" | ".sv"), "first.json", "second.json"]
-    result.artifacts[0] ~is backend.plan(final).emit()[0]
+    result.artifacts.map(fun (artifact): artifact.name) ~is backend_artifacts.map(fun (artifact): artifact.name) ++ ["first.json", "second.json"]
+    result.artifacts.take(backend_artifacts.length()) ~is backend_artifacts
     result.diagnostics.map(fun (diagnostic): diagnostic.code) ~is ["first.observed", "second.observed", "backend.note"]
     report.stages.map(fun (stage): stage.name) ~is ["first", "second"]
     report.backend ~is #false
@@ -127,6 +129,14 @@ for (backend in [circt_target, verilog_target]):
       for (entry in module_def.metadata):
         check: entry.payload.value.module_def === module_def ~is #true
   check: report.stages[0].findings.rtl.design === final.rtl.design ~is #false
+  // Exercise the actual target's prepared-RTL interface, not just the counting
+  // RTLTarget wrapper. Each compilation must expand the shared provider once.
+  def before_direct = expansions
+  def direct = compile_program(program, rtl_pipeline_target(backend, [pass("first"), pass("second")]))
+  check:
+    direct.artifacts ~is result.artifacts
+    expansions ~is before_direct + 1
+    direct.manifest.lowerings.map(fun (decision): decision.path) ~is [["left"], ["right"]]
 
 // Pass labels are unique for report lookup; list order is the complete schedule.
 def before_invalid = expansions

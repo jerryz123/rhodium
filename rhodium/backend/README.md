@@ -52,9 +52,11 @@ See the [compiler contract](../compile/README.md) for options and failures.
 The selected top defines compilation scope. To compile independent roots, make
 one explicit request for each root. There is no whole-inventory program mode.
 
-All emission targets are `RTLTarget` instances. A composing compilation target can call
+All emission targets implement `PreparedRTLConsumer`. CIRCT and direct SV use
+`RTLTarget`; rsim owns its preparation and currently uses the same portable RTL
+expansion. A composing compilation target can call
 `circt_target.plan(prepared)`, `verilog_target.plan(prepared)`, or
-`rsim_target.plan(prepared)`, or `rsim_sv_target.plan(prepared)` with verified
+`rsim_target.plan(prepared)` or `rsim_sv_target.plan(prepared)` with verified
 `PreparedRTL` to reuse its graph and manifest without another preparation pass.
 See the [prepared-RTL contract](../compile/README.md#targets-and-compatibility)
 for ownership and provenance requirements.

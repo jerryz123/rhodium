@@ -117,6 +117,12 @@ annotations. It returns a `PreparedRTL` containing `.rtl` and
 reachable retained construct through its portable implementation. A future target can supply
 its own plan without first erasing retained constructs.
 
+`PreparedRTLConsumer` is the narrow interface for targets that can also consume
+concrete RTL. It provides `.plan(prepared)` and an `.expansion_reason` string
+for portable expansion selected by instrumentation. Implementing it does not
+require ordinary target preparation to use RTL. Pipeline backends must implement
+both `CompilationTarget` and `PreparedRTLConsumer`.
+
 For concrete emission, `rtl.rhm` also supplies
 `RTLTarget(name, expansion_reason, build_plan)`, a specialization of
 `CompilationTarget`. Its ordinary `.prepare(program, options)` calls
@@ -155,8 +161,9 @@ def target = rtl_pipeline_target(verilog_target, [observation_pass, checking_pas
 def result = compile_program(program, target)
 ```
 
-The pipeline prepares the source once, applies passes in list order, and calls
-`backend.plan(final_prepared)` once. It returns the backend artifact followed by
+The pipeline accepts any compilation target implementing `PreparedRTLConsumer`,
+including both rsim targets. It prepares the source as concrete RTL once, applies
+passes in list order, and calls `backend.plan(final_prepared)` once. It returns the backend artifact followed by
 each pass's sidecars in order. An empty pass list returns the original backend.
 The composed target name is the backend name followed by `+<pass-name>` for each
 pass; this identifies the selected sequence, not a fingerprint of its settings.

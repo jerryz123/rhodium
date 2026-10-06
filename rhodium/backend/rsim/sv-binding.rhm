@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import:
   "../../core/ir.rhm" open
+  "../../core/signature.rhm".ModuleSignature
   "plan.rhm" open
   "types.rhm" open
 
@@ -16,11 +17,11 @@ fun sv_name(name :: String) :: String:
 fun bridge_symbol(plan :: RsimSchedule, operation :: String) :: String:
   "rhodium_rsim_" ++ cpp_name(plan.name) ++ "_" ++ operation
 
-/* Check the boundary before rendering any artifact. Stateful schedule roots
+/* Check the detached signature and schedule before rendering any artifact. Stateful roots
    terminate dependency propagation; asynchronous reads still depend on their
    addresses. This is conservative structural reachability, not simplification. */
-fun validate_sv_binding(plan :: RsimSchedule, top :: Module) :: String:
-  def clocks = top.inputs.filter(~keep: fun (port): clock_type(port.type))
+fun validate_sv_binding(plan :: RsimSchedule, signature :: ModuleSignature) :: String:
+  def clocks = signature.inputs.filter(~keep: fun (port): clock_type(port.type))
   unless clocks.length() == 1
   | error(~who: #'rsim_sv, plan.name ++ ": requires exactly one root Clock input")
   for (port in plan.inputs ++ plan.outputs):

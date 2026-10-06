@@ -30,8 +30,9 @@ or metadata copying.
 - `rtl.rhm`: asks lowering for a fresh reachable graph and maps its expansion
   provenance to a deterministic depth-first report. Traverse shared definitions
   per occurrence while retaining materialization's per-definition reuse.
-  `RTLTarget` shares one checked plan factory between ordinary preparation and
-  the prepared-graph entry point; neither path changes generic target policy.
+  `PreparedRTLConsumer` separates prepared-graph consumption from ordinary
+  target preparation. `RTLTarget` implements it with one checked plan factory
+  and mandatory portable RTL expansion; neither changes generic target policy.
 - `pipeline.rhm`: ordered concrete instrumentation, instance-path preservation,
   physical manifests with source attribution, and stage-scoped
   findings. Imports core verification directly; it imports no instrumentation owner.
@@ -52,7 +53,7 @@ Add new target behavior to its owner. Keep new selection mechanisms tied to a
 real supported backend rather than introducing placeholder emitters. Keep preparation fresh and scoped to the selected top. Keep generated
 artifacts out of version control.
 
-Concrete composition uses `RTLTarget.plan(prepared)` after preparation. Do not
+Concrete composition uses `PreparedRTLConsumer.plan(prepared)` after preparation. Do not
 wrap an existing prepared graph in another `ElaboratedProgram` and recompile it:
 that copies the graph and discards its construct-expansion report. Plan factories
 retain the supplied graph and manifest without expanding, cloning, or emitting.
@@ -91,10 +92,10 @@ counters distinguish ordinary preparation from graph reuse; exact artifacts,
 manifest identity, and occurrence attribution protect the composition boundary.
 
 `../backend/tests/rtl-pipeline-test.rhm` exercises two ordered transformations
-through both real backend plans, including per-occurrence specialization,
+through CIRCT, direct SV, and rsim plans, including per-occurrence specialization,
 metadata survival, source preservation, provenance, sidecars, explicit ordering,
 and failed compilation. It belongs with backend integration because it imports
-both emission targets; production compile code remains independent of them.
+the emission targets; production compile code remains independent of them.
 
 ```sh
 tools/run-racket-tests.sh rhodium/compile/tests/rtl-test.rhm rhodium/backend/tests/compile-test.rhm rhodium/backend/tests/prepared-rtl-test.rhm rhodium/backend/tests/rtl-pipeline-test.rhm

@@ -10,17 +10,28 @@ import:
 export:
   ElaboratedProgram
   PreparedRTL
+  PreparedRTLConsumer
   RTLTarget
   prepare_rtl
 
 /* Pairs a fresh, verified top closure with the manifest derived from that same graph. */
 class PreparedRTL(rtl :: DesignElaboration, manifest :: CompileManifest)
 
+/* Accept verified RTL independently of how ordinary compilation prepares a
+   program. Instrumentation uses this boundary without imposing RTL preparation
+   on the target's ordinary entry point. */
+interface PreparedRTLConsumer:
+  /* Explain portable expansion when a concrete instrumentation pipeline is selected. */
+  property expansion_reason :: String
+  /* Build a plan from the supplied graph and manifest without preparing again. */
+  method plan(prepared :: PreparedRTL) :: TargetPlan
+
 /* Adds prepared-RTL plan construction without imposing RTL on other targets.
    Ordinary compilation prepares once; composition calls plan with its existing
    verified graph and matching manifest, retaining all lowering provenance. */
-class RTLTarget(expansion_reason :: String, plan :: Function.of_arity(1)):
+class RTLTarget(reason :: String, build_plan :: Function.of_arity(1)):
   extends CompilationTarget
+  implements PreparedRTLConsumer
   /* Share one checked plan factory between ordinary preparation and composition.
      Plan construction must not clone the graph, rerun providers, or emit text. */
   constructor (name :: String, expansion_reason :: String, build_plan :: Function.of_arity(1)):
@@ -28,6 +39,11 @@ class RTLTarget(expansion_reason :: String, plan :: Function.of_arity(1)):
     fun make_plan(prepared :: PreparedRTL) :: TargetPlan:
       build_plan(prepared)
     super(name, fun (program, options): make_plan(prepare_rtl(program, options, expansion_reason)))(expansion_reason, make_plan)
+  /* Use the same explanation for ordinary and instrumented portable expansion. */
+  override property expansion_reason: reason
+  /* Reuse the checked plan factory without expanding or copying the supplied graph. */
+  override method plan(prepared :: PreparedRTL) :: TargetPlan:
+    build_plan(prepared)
 
 /* Expand the selected closure without mutating the source, then derive occurrence
    reports from definition identity. The reason is target-supplied explanation text,

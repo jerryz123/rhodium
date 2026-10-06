@@ -155,7 +155,7 @@ layout/array/conditional modules, and `backend/rsim/types.rhm`. It also uses Rho
 paths and Racket file/base primitives to read its local C++ support header at
 emission time. The type helper imports core types
 for C++ representation and packing. `backend/rsim/sv-binding.rhm` imports core
-IR/types and the local schedule/type helpers for clocked-boundary validation
+IR/types, detached module signatures, and the local schedule/type helpers for clocked-boundary validation
 and SV/C++ binding emission. These implementations import no other
 backend, portable lowering, frontend, or domain libraries.
 
